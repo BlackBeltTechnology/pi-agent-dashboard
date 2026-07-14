@@ -21,7 +21,7 @@ Files in this directory. One row per source file.
 | `CollapsedToolGroup.tsx` | Renders collapsed group of repeated tool calls. Exports `CollapsedToolGroup`. Expanded view iterates `group.rendered` — `toolResult`→`ToolCallStep`; `thinking`/non-empty `assistant`→inline text (`data-testid=collapsed-group-narration`); empty/separator skipped. Count badge = `group.messages` (toolResult-only). See change: collapse-tool-calls-across-narration. → see `CollapsedToolGroup.tsx.AGENTS.md` |
 | `CommandFeedbackCard.tsx` | Inline card showing slash-command execution feedback. Exports `CommandFeedbackCard`. Status map `started`/`completed`/`error` → icon + color + label. Shows `message` only on `error`. |
 | `CommandInput.tsx` | Chat composer textarea + autocomplete. Exports `CommandInput`, `parseViewCommand`, `shouldWalkFileQuery`,… → see `CommandInput.tsx.AGENTS.md` |
-| `ComposerSessionActions.tsx` | Composer-side session-action strip. Hosts OpenSpec stepper + action buttons + Git groups. Hidden when no session selected. See change: redesign-session-card-and-composer. |
+| `ComposerSessionActions.tsx` | Composer-side session-action strip. Hosts OpenSpec artifact chips + action buttons + Git groups. Hidden when no session selected. Gating/slots unchanged; relocated from StatusBar to a context strip ABOVE the composer card (App wiring). See change: redesign-session-card-and-composer, redesign-prompt-input. |
 | `ConnectionStatusBanner.tsx` | Disconnection banner: appears only after active WebSocket has been non-`OPEN` for &gt;3s continuously; hidden… → see `ConnectionStatusBanner.tsx.AGENTS.md` |
 | `ContextUsageBar.tsx` | Progress bar showing context-window usage. Exports `ContextUsageBar`. → see `ContextUsageBar.tsx.AGENTS.md` |
 | `CopyButton.tsx` | Clipboard copy button with copied-state check icon. Exports `CopyButton`. Calls `navigator.clipboard.writeText`; resets state after 1500ms. Fails silently when Clipboard API unavailable. |
@@ -144,7 +144,7 @@ Files in this directory. One row per source file.
 | `SplitWorkspace.tsx` | Pure layout. Chat slot alone when closed; chat+divider+editor when open. Horizontal desktop / vertical stack mobile. Flex-grow from ratio. See change: split-editor-workspace. |
 | `SplitWorkspaceContext.tsx` | Per-session provider. Lifts `useSplitState`+`useEditorPaneState`. → see `SplitWorkspaceContext.tsx.AGENTS.md` |
 | `StatePill.tsx` | Color-coded OpenSpec ChangeState pill (`PLANNING`=zinc, `READY`=blue, `IMPLEMENTING`=amber, `COMPLETE`=green)… → see `StatePill.tsx.AGENTS.md` |
-| `StatusBar.tsx` | Forwards favorites + onToggleFavorite props to ModelSelector → see `StatusBar.tsx.AGENTS.md` |
+| `StatusBar.tsx` | Working-status label ONLY; null when idle. Model row retired; model/thinking moved to composer toolbar → see `StatusBar.tsx.AGENTS.md`. See change: redesign-prompt-input. |
 | `TasksPopover.tsx` | Modal popover listing parseable tasks from an attached change's `tasks.md`, grouped by heading, native… → see `TasksPopover.tsx.AGENTS.md` |
 | `TerminalCard.tsx` | Sidebar terminal card. Cyan border, console icon, name (`InlineRenameInput` rename), relative age,… → see `TerminalCard.tsx.AGENTS.md` |
 | `TerminalsView.tsx` | Tabbed terminal content area for a cwd. Filters ephemeral terminals. → see `TerminalsView.tsx.AGENTS.md` |

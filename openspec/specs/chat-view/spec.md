@@ -241,54 +241,6 @@ The chat view's expanded `BashToolRenderer` panel SHALL display the entire `args
 - **WHEN** the command fits on a single line within the panel width
 - **THEN** the expanded panel SHALL render the command on a single line, visually identical to the pre-change behavior
 
-### Requirement: Composer mounts a session-action strip above the textarea
-The chat view's composer (`CommandInput`) SHALL render a `ComposerSessionActions` strip between the existing model/level row and the textarea, when and only when the chat view is bound to a session (i.e. a session is selected and its details have loaded).
-
-The strip SHALL render three logical groups, each separated by a vertical divider:
-
-1. **Strip header** — gradient dot + label `session actions · <session-name>` + refresh button.
-2. **OpenSpec group** — compact 7-node stepper (variant `compact` per the openspec-attach-combo capability) followed by the same action buttons that render inside the sidebar card's OPENSPEC subcard (`Explore`, `Apply` / `Continue` / `FF` / `Verify` by state, `Tasks N/M`, `Archive`, overflow `⋯`).
-3. **Git group** — same actions as the sidebar card's GIT subcard (`Push`, `Open PR` / `View PR`, `Merge`, `Close`). The git group SHALL render only when its predicate is true (same predicate the GIT subcard uses).
-
-The strip SHALL apply identical action gating to the sidebar card: `Explore` enabled only when `!attachedProposal`; `Archive` enabled only when `attachedProposal`; all actions disabled when `status === "streaming"`; the OpenSpec group hidden entirely when `OpenSpecData.hasOpenspecDir === false && pending === false`.
-
-The strip SHALL share the `onSendPrompt`, `onAttachProposal`, `onDetachProposal`, `onReadArtifact`, and `onBulkArchive` callbacks with the sidebar surface. Firing an action from the strip SHALL produce the same effect as firing the equivalent action from the sidebar card; both surfaces SHALL stay in sync without additional state plumbing.
-
-#### Scenario: Strip renders with attached implementing change
-- **WHEN** the chat view is bound to session `"s1"` with `attachedProposal = "add-auth"` and `deriveChangeState` returns `IMPLEMENTING`
-- **THEN** the composer SHALL render a `ComposerSessionActions` strip element between the model/level row and the textarea
-- **AND** the strip SHALL contain a compact stepper with the correct node states (`Specs` done, `Tasks` current with `4/12`)
-- **AND** the strip SHALL contain a disabled `Explore` button and an enabled `Archive` button (gating matches the sidebar)
-
-#### Scenario: Strip hidden when no session selected
-- **WHEN** the chat view has no session selected (e.g. on an empty initial view)
-- **THEN** the composer SHALL NOT render the `ComposerSessionActions` strip
-- **AND** the model/level row and textarea SHALL render in their existing layout
-
-#### Scenario: OpenSpec group hidden when cwd is not OpenSpec-applicable
-- **WHEN** the chat view is bound to a session whose cwd has `OpenSpecData.hasOpenspecDir === false && pending === false`
-- **THEN** the strip SHALL render with the strip header and any active VCS groups
-- **AND** the strip SHALL NOT render the OpenSpec stepper or OpenSpec action buttons
-
-#### Scenario: Git group follows the sidecard predicate
-- **WHEN** the chat view is bound to a session in a git repo where the GIT subcard predicate is true
-- **THEN** the strip SHALL render the Git group
-
-#### Scenario: Firing Apply from strip dispatches the skill prompt
-- **WHEN** the user clicks the `Apply` button inside the composer strip for session `"s1"` with attached change `"add-auth"`
-- **THEN** the strip SHALL invoke `onSendPrompt` with the same prompt the sidebar card's Apply button would send (`/skill:openspec-apply-change add-auth`)
-- **AND** the session card's OPENSPEC subcard SHALL reflect the same `streaming` state without additional state propagation
-
-#### Scenario: Streaming session disables all strip actions
-- **WHEN** the chat view is bound to a session with `status = "streaming"`
-- **THEN** every action button inside the strip SHALL render in a disabled state
-- **AND** the refresh button SHALL remain enabled (refresh is a read-only action)
-
-#### Scenario: Strip refresh re-fetches OpenSpec data
-- **WHEN** the user clicks the refresh button inside the strip header
-- **THEN** the system SHALL re-fetch the cwd's OpenSpec data
-- **AND** the stepper and action gating SHALL re-render with the fresh data
-
 ### Requirement: Consecutive tool-call bursts collapse into a progress-aware group
 
 The chat view SHALL collapse a maximal run of consecutive tool-like items into a single **group** whenever the run contains 1 or more members. Composition is **semantic-INNER-first, burst-OUTER-second**: the identical-call collapse (`groupConsecutiveToolCalls`) runs FIRST over the ENTIRE message stream, producing a mixed list of `ChatMessage` and `ToolCallGroup` items; the group pass then walks that list. A **tool-like** item is a `toolResult` row OR a `×N` `ToolCallGroup` (which counts as ONE member). The run walks across TRANSPARENT rows (`thinking`, `turnSeparator`, `rawEvent`, `commandFeedback`, and **empty** `assistant` rows with no text) without breaking; a HARD row (`user`, **non-empty** `assistant` prose, `interactiveUi`, `bashOutput`, `inlineTerminal`, or any other role) terminates the run.
@@ -546,4 +498,90 @@ overlap its neighbour — the message with the image visually disappears (issue 
 #### Scenario: Multiple images do not cause a measure storm
 - **WHEN** a single message carries multiple images that decode in the same frame
 - **THEN** the row SHALL be re-measured at most once per row per animation frame
+
+### Requirement: Composer is a unified container with model/thinking inside and session actions above
+The chat view's composer (`CommandInput`) SHALL render as a single bordered container ("the card") that holds, top-to-bottom: an optional attachments row, the textarea, and an inner toolbar. The inner toolbar SHALL host — in one row — a `＋` attach control, the `ModelSelector` chip, the `ThinkingLevelSelector` chip, a `Steer | Queue` delivery control, an inline-terminal control, and a single morphing action button (send/stop). The standalone StatusBar model row SHALL NOT render for the selected session; model and thinking level SHALL be reachable only from the composer toolbar.
+
+When and only when the chat view is bound to a session, a `ComposerSessionActions` context strip SHALL render **above** the card (not inside the StatusBar), carrying the same OpenSpec and Git groups, the same action gating (`Explore` enabled only when `!attachedProposal`; `Archive` enabled only when `attachedProposal`; all actions disabled when `status === "streaming"` except refresh; OpenSpec group hidden when `hasOpenspecDir === false && pending === false`), and the same `onSendPrompt` / `onReadArtifact` / refresh callbacks as before. Relocating the strip SHALL NOT change its behaviour or slot wiring.
+
+#### Scenario: Composer renders as one container with toolbar controls
+- **WHEN** the chat view is bound to a session
+- **THEN** the composer SHALL render a single card containing the textarea and an inner toolbar
+- **AND** the toolbar SHALL contain the model chip, thinking chip, delivery control, `＋`, inline-terminal, and the action button
+- **AND** no standalone StatusBar model row SHALL render for that session
+
+#### Scenario: Session-action strip relocates above the card with unchanged gating
+- **WHEN** the chat view is bound to session `"s1"` with `attachedProposal = "add-auth"` and `deriveChangeState` returns `IMPLEMENTING`
+- **THEN** a `ComposerSessionActions` strip SHALL render above the composer card
+- **AND** it SHALL contain a disabled `Explore` button and an enabled `Archive` button (gating identical to the sidebar)
+
+#### Scenario: Streaming disables strip actions except refresh
+- **WHEN** the bound session has `status = "streaming"`
+- **THEN** every action button in the strip SHALL be disabled
+- **AND** the refresh button SHALL remain enabled
+
+#### Scenario: Firing Apply from the strip dispatches the skill prompt
+- **WHEN** the user clicks `Apply` in the strip for session `"s1"` with attached change `"add-auth"`
+- **THEN** the strip SHALL invoke `onSendPrompt` with `/skill:openspec-apply-change add-auth`
+
+### Requirement: One morphing send/stop action button
+The composer SHALL render a single action button whose glyph and behaviour derive from session state, replacing the previous four-button cluster. WHEN idle with non-empty draft it SHALL render a send affordance (enabled). WHEN idle with an empty draft it SHALL render the send affordance disabled. WHEN the session is working (`streaming` or `retrying`) it SHALL render a stop affordance; a first activation SHALL request abort and a second activation SHALL escalate to force-stop, preserving the existing `idle → aborting → killing` escalation semantics. A `stop-after-turn` affordance SHALL render as a slim secondary control beside the action button while working, not as an additional primary icon. Every icon-only state SHALL carry an `aria-label`.
+
+#### Scenario: Send disabled while empty
+- **WHEN** the draft is empty and the session is idle
+- **THEN** the action button SHALL render a disabled send affordance
+
+#### Scenario: Send enabled with text
+- **WHEN** the draft is non-empty and the session is idle
+- **THEN** the action button SHALL render an enabled send affordance
+- **AND** activating it SHALL send the draft
+
+#### Scenario: Morph to stop while working
+- **WHEN** the session status is `streaming`
+- **THEN** the action button SHALL render a stop affordance
+- **AND** a first activation SHALL request abort
+- **AND** a second activation SHALL escalate to force-stop
+
+### Requirement: Delivery mode is a visible Steer/Queue control
+The composer SHALL render a delivery control with two states, `Steer` and `Queue`, defaulting to `Steer`. The control SHALL map to the existing keyboard contract: `Enter` delivers per the selected state (`Steer` = steer, `Queue` = follow-up) and `Alt+Enter` delivers as follow-up regardless. Selecting a state and pressing `Enter` SHALL produce the same `delivery` value the keyboard contract produces.
+
+#### Scenario: Queue selected routes Enter to follow-up
+- **WHEN** the delivery control is set to `Queue`
+- **AND** the user presses `Enter` on a non-empty draft
+- **THEN** the composer SHALL send with `delivery = "followUp"`
+
+#### Scenario: Steer selected routes Enter to steer
+- **WHEN** the delivery control is set to `Steer`
+- **AND** the user presses `Enter` on a non-empty draft
+- **THEN** the composer SHALL send with `delivery = "steer"`
+
+### Requirement: Footer hint line revealed on focus
+The composer SHALL render a footer hint line listing the key affordances (`⏎` send, `⇧⏎` newline, `/` commands, `@` files, `!` shell). The footer SHALL be hidden while the composer is unfocused and empty, and SHALL appear on focus or first keystroke, so the resting composer height stays within ~15% of the pre-redesign height. Footer text SHALL meet WCAG-AA contrast against its background.
+
+#### Scenario: Footer hidden at rest
+- **WHEN** the composer is unfocused and the draft is empty
+- **THEN** the footer hint line SHALL NOT be visible
+
+#### Scenario: Footer revealed on focus
+- **WHEN** the composer receives focus
+- **THEN** the footer hint line SHALL become visible
+
+### Requirement: Attach menu entry point
+The composer SHALL render a `＋` control that opens a menu offering, at minimum, attach image, attach file, and inline preview (`/view`). Selecting attach-image SHALL follow the same image-attachment path as paste; selecting inline preview SHALL follow the existing `/view` local-interception path.
+
+#### Scenario: Attach menu opens
+- **WHEN** the user activates the `＋` control
+- **THEN** a menu SHALL render with image, file, and preview entries
+
+### Requirement: Mobile composer adaptation
+At a phone-width viewport the composer toolbar SHALL keep a persistent row of `＋`, the model chip, a `⋯` overflow control, and the action button; thinking level, the `Steer | Queue` control, and the inline terminal SHALL be reachable from the `⋯` overflow, and attach/tools from the `＋` menu. The send/stop action button SHALL be at least 44×44 CSS px.
+
+#### Scenario: Overflow hosts folded controls on mobile
+- **WHEN** the composer renders at phone width
+- **THEN** the persistent toolbar row SHALL contain `＋`, model, `⋯`, and the action button
+- **AND** thinking / delivery / terminal SHALL be reachable from `⋯`
+
+#### Scenario: Action button meets touch-target minimum
+- **WHEN** the composer renders at phone width
+- **THEN** the send/stop action button SHALL be at least 44×44 CSS px
 

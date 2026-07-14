@@ -1,5 +1,10 @@
 # chat-view (delta: redesign-prompt-input)
 
+## RENAMED Requirements
+
+- FROM: `### Requirement: Composer mounts a session-action strip above the textarea`
+- TO: `### Requirement: Composer is a unified container with model/thinking inside and session actions above`
+
 ## MODIFIED Requirements
 
 ### Requirement: Composer is a unified container with model/thinking inside and session actions above

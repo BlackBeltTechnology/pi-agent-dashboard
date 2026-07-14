@@ -493,7 +493,11 @@ export default function App() {
   // See change: redesign-openspec-board.
   const [boardWorktreeForChange, setBoardWorktreeForChange] = useState<{ cwd: string; changeName: string } | null>(null);
   const [modelsMap, setModelsMap] = useState<Map<string, ModelInfo[]>>(new Map());
-  const [rolesMap, setRolesMap] = useState<Map<string, RoleInfo>>(new Map());
+  // Write-only: the last reader (StatusBar's deprecated `roles` prop) was
+  // removed in `redesign-prompt-input`; roles UI lives in the roles settings
+  // plugin. `setRolesMap` still consumes server role events. Full excision of
+  // this state chain (incl. useMessageHandler) is a separate cleanup.
+  const [, setRolesMap] = useState<Map<string, RoleInfo>>(new Map());
   const [spawnResult, setSpawnResult] = useState<{ success: boolean; message: string } | null>(null);
   const [spawnErrors, setSpawnErrors] = useState<Map<string, import("./hooks/useMessageHandler.js").SpawnErrorDetail>>(new Map());
   const [resumeErrors, setResumeErrors] = useState<Map<string, string>>(new Map());
@@ -1675,32 +1679,26 @@ export default function App() {
               });
             } : undefined}
           />
-          <StatusBar
-            model={selectedState.model ?? selectedSession?.model}
-            models={modelsMap.get(selectedId)}
-            favorites={favoriteModels}
-            onToggleFavorite={(label, makeFavorite) =>
-              send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label })
-            }
-            roles={rolesMap.get(selectedId)}
-            thinkingLevel={selectedState.thinkingLevel ?? selectedSession?.thinkingLevel}
-            status={selectedState.status}
-            currentTool={selectedState.currentTool}
-            streamingText={selectedState.streamingText || undefined}
-            onRefreshModels={() => selectedId && send({ type: "request_models", sessionId: selectedId })}
-            leading={selectedSession && selectedCwd ? (
-              <>
-                <StatusBarRefreshButton cwd={selectedCwd} onRefresh={handleOpenSpecRefresh} />
-                {selectedId && (
-                  <ChatViewMenu
-                    sessionId={selectedId}
-                    currentOverride={selectedSession?.displayPrefsOverride}
-                    send={(msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })}
-                  />
-                )}
-              </>
-            ) : undefined}
-            actions={selectedSession ? (
+          {/* Context strip above the composer card: OpenSpec refresh + View
+              menu + session-action groups (relocated from the retired
+              StatusBar model row). See change: redesign-prompt-input. */}
+          {selectedSession && (
+            <div
+              className="flex items-center gap-2 flex-wrap px-3 pt-2 text-xs"
+              data-testid="composer-context-strip"
+            >
+              {selectedCwd && (
+                <>
+                  <StatusBarRefreshButton cwd={selectedCwd} onRefresh={handleOpenSpecRefresh} />
+                  {selectedId && (
+                    <ChatViewMenu
+                      sessionId={selectedId}
+                      currentOverride={selectedSession?.displayPrefsOverride}
+                      send={(msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })}
+                    />
+                  )}
+                </>
+              )}
               <ComposerSessionActions
                 session={selectedSession}
                 changes={selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined}
@@ -1713,30 +1711,12 @@ export default function App() {
                 showGitInfo={true}
                 openspecConfig={openspecConfig}
               />
-            ) : undefined}
-            onSelectModel={(modelStr) => {
-              const slashIdx = modelStr.indexOf("/");
-              if (slashIdx > 0) {
-                const provider = modelStr.slice(0, slashIdx);
-                const modelId = modelStr.slice(slashIdx + 1);
-                send({ type: "set_model", sessionId: selectedId, provider, modelId });
-              }
-            }}
-            onSelectThinkingLevel={(level) => {
-              send({ type: "set_thinking_level", sessionId: selectedId, level });
-            }}
-            onRoleSet={(role, modelId) => {
-              send({ type: "role_set", sessionId: selectedId, role, modelId });
-            }}
-            onPresetLoad={(presetName) => {
-              send({ type: "role_preset_load", sessionId: selectedId, presetName });
-            }}
-            onPresetSave={(presetName) => {
-              send({ type: "role_preset_save", sessionId: selectedId, presetName });
-            }}
-            onPresetDelete={(presetName) => {
-              send({ type: "role_preset_delete", sessionId: selectedId, presetName });
-            }}
+            </div>
+          )}
+          <StatusBar
+            status={selectedState.status}
+            currentTool={selectedState.currentTool}
+            streamingText={selectedState.streamingText || undefined}
           />
           {/* Pi-native follow-up queue — DISPLAY-ONLY (cycle with ↑/↓).
               Mutation controls (clear / edit / promote / remove) removed:
@@ -1778,6 +1758,26 @@ export default function App() {
             }}
             onOpenInlineTerminal={selectedId && selectedCwd ? () => handleOpenInlineTerminal(selectedId, selectedCwd) : undefined}
             sessionMessages={selectedState.messages}
+            model={selectedState.model ?? selectedSession?.model}
+            models={modelsMap.get(selectedId)}
+            favorites={favoriteModels}
+            onToggleFavorite={(label, makeFavorite) =>
+              send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label })
+            }
+            thinkingLevel={selectedState.thinkingLevel ?? selectedSession?.thinkingLevel}
+            onSelectModel={(modelStr) => {
+              const slashIdx = modelStr.indexOf("/");
+              if (slashIdx > 0) {
+                const provider = modelStr.slice(0, slashIdx);
+                const modelId = modelStr.slice(slashIdx + 1);
+                send({ type: "set_model", sessionId: selectedId, provider, modelId });
+              }
+            }}
+            onSelectThinkingLevel={(level) => {
+              send({ type: "set_thinking_level", sessionId: selectedId, level });
+            }}
+            onRefreshModels={() => selectedId && send({ type: "request_models", sessionId: selectedId })}
+            contextUsage={selectedContextUsage}
           />
           {/* Plugin slot: content-inline-footer — contributions from flows-plugin (per-session inline footer) and other plugins. */}
           {selectedSession && <ContentInlineFooterSlot session={selectedSession} />}
