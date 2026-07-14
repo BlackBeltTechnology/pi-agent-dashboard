@@ -709,10 +709,16 @@ export function createCommandHandler(
             requestId: string; cwd: string; files: string[];
           };
           const cwd = draftMsg.cwd || options?.getCwd?.() || process.cwd();
+          // Guard against a malformed payload: `files` must be an array of
+          // strings before we map over it. Coerce to a safe empty list so the
+          // draft ladder falls to its deterministic stub rather than throwing.
+          const draftFiles = Array.isArray(draftMsg.files)
+            ? draftMsg.files.filter((f): f is string => typeof f === "string")
+            : [];
           const result = await draftCommitMessage({
-            files: draftMsg.files,
+            files: draftFiles,
             buildDiff: () =>
-              draftMsg.files.map((f) => diffOr({ cwd, path: f })).join("\n"),
+              draftFiles.map((f) => diffOr({ cwd, path: f })).join("\n"),
             buildContext: () => options?.getSessionContextText?.(),
             runAgent: options?.runDraftAgent
               ? (seed) => options.runDraftAgent!(seed, cwd)

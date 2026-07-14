@@ -85,15 +85,17 @@ export async function runForkSubagentDraft(
     }
   });
 
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
       session.prompt(seed),
-      new Promise((_r, reject) => setTimeout(() => reject(new Error("prompt-timeout")), overallTimeoutMs)),
+      new Promise((_r, reject) => { timer = setTimeout(() => reject(new Error("prompt-timeout")), overallTimeoutMs); }),
     ]);
     const text = captured.trim();
     if (!text) throw new Error("empty-draft");
     return text;
   } finally {
+    if (timer) clearTimeout(timer);
     try { unsubscribe(); } catch { /* ignore */ }
     try { session.dispose(); } catch { /* ignore */ }
   }

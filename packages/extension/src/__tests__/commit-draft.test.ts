@@ -3,12 +3,12 @@
  * using a stub agent. Verifies timeout degrades to a fallback and never hangs.
  * See change: add-session-uncommitted-indicator-and-commit.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  draftCommitMessage,
-  stubMessage,
   clampDiff,
+  draftCommitMessage,
   sanitizeDraft,
+  stubMessage,
 } from "../commit-draft.js";
 
 describe("stubMessage", () => {

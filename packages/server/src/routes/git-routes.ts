@@ -255,9 +255,25 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
       }
-      if (!Array.isArray(files) || files.length === 0 || typeof sessionId !== "string") {
+      // Every file must be a non-empty string (the diff is built per path).
+      if (
+        !Array.isArray(files) ||
+        files.length === 0 ||
+        !files.every((f) => typeof f === "string" && f.length > 0) ||
+        typeof sessionId !== "string"
+      ) {
         reply.code(400);
-        return { success: false, code: "bad_request", error: "sessionId and files[] required" } satisfies ApiResponse;
+        return { success: false, code: "bad_request", error: "sessionId and non-empty files[] required" } satisfies ApiResponse;
+      }
+      // The draft is seeded from the named session's context, so the session
+      // must exist and its working tree must be the cwd being committed — a
+      // client cannot pair an arbitrary sessionId with a foreign cwd.
+      if (sessionManager) {
+        const sess = sessionManager.get(sessionId);
+        if (!sess || safeRealpathSync(sess.cwd) !== validated.cwd) {
+          reply.code(400);
+          return { success: false, code: "bad_request", error: "sessionId does not match cwd" } satisfies ApiResponse;
+        }
       }
       if (!commitDraftRelay || !sendToSession) {
         // Feature not wired — degrade to manual entry.

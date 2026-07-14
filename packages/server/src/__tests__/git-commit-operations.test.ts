@@ -76,6 +76,11 @@ describe("assertPathsInside", () => {
   it("rejects absolute path outside cwd", () => {
     expect(() => assertPathsInside("/repo", ["/etc/passwd"])).toThrow(/path-escape|escapes/);
   });
+  it("rejects root-equivalent inputs ('' and '.') that would stage the whole tree", () => {
+    expect(() => assertPathsInside("/repo", [""])).toThrow(GitCommitError);
+    expect(() => assertPathsInside("/repo", ["."])).toThrow(GitCommitError);
+    expect(() => assertPathsInside("/repo", ["a.ts", "."])).toThrow(/repo root|path-escape|resolves/);
+  });
 });
 
 describe("commitFiles", () => {

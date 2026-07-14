@@ -101,9 +101,11 @@ export class GitCommitError extends Error {
 /**
  * Resolve each repo-relative `file` against `cwd` and confirm it stays inside
  * `cwd`. Rejects absolute paths and `..` traversal that would escape the
- * working tree. Returns the sanitized repo-relative paths (normalized, forward
- * of cwd) for use in the `git add -- <paths>` argv. Throws `GitCommitError`
- * (`path-escape`) on the first offender. See change:
+ * working tree, AND root-equivalent inputs (`""`, `"."`, cwd itself) that would
+ * resolve to `git add -- .` and stage the WHOLE tree instead of a chosen file.
+ * Returns the sanitized repo-relative paths (normalized) for use in the
+ * `git add -- <paths>` argv. Throws `GitCommitError` (`path-escape`) on the
+ * first offender. See change:
  * add-session-uncommitted-indicator-and-commit (security-hardening).
  */
 export function assertPathsInside(cwd: string, files: string[]): string[] {
@@ -111,13 +113,18 @@ export function assertPathsInside(cwd: string, files: string[]): string[] {
   const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
   return files.map((f) => {
     const abs = path.resolve(root, f);
-    if (abs !== root && !abs.startsWith(rootWithSep)) {
+    // Root-equivalent (empty / "." / cwd itself) would stage everything — the
+    // picker always supplies concrete file paths, so reject it explicitly.
+    if (abs === root) {
+      throw new GitCommitError("path-escape", `path resolves to the repo root, not a file: ${JSON.stringify(f)}`);
+    }
+    if (!abs.startsWith(rootWithSep)) {
       throw new GitCommitError("path-escape", `path escapes cwd: ${f}`);
     }
     // Return the path relative to cwd so the argv is stable regardless of
     // how the client expressed it. `--` in the git argv still guards against
     // a leading-dash path being read as a flag.
-    return path.relative(root, abs) || ".";
+    return path.relative(root, abs);
   });
 }
 
@@ -140,15 +147,20 @@ function runGitCapture(
       reject(err);
       return;
     }
+    let settled = false;
+    const done = (fn: () => void) => { if (settled) return; settled = true; clearTimeout(timer); fn(); };
+    // Timeout: SIGTERM, then SIGKILL escalation, then reject so a wedged git
+    // never leaves the promise pending forever.
     const timer = setTimeout(() => {
       try { child.kill("SIGTERM"); } catch { /* ignore */ }
+      setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 2_000);
+      done(() => reject(new Error(`git timed out after ${GIT_TIMEOUT}ms: git ${args[0]}`)));
     }, GIT_TIMEOUT);
     child.stdout?.on("data", (c: Buffer) => { stdout += c.toString("utf-8"); });
     child.stderr?.on("data", (c: Buffer) => { stderr += c.toString("utf-8"); });
-    child.on("error", (err) => { clearTimeout(timer); reject(err); });
+    child.on("error", (err) => { done(() => reject(err)); });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code: code ?? -1, stdout, stderr });
+      done(() => resolve({ code: code ?? -1, stdout, stderr }));
     });
     if (stdin !== undefined) {
       child.stdin?.end(stdin);
@@ -213,7 +225,11 @@ export async function commitFiles(opts: {
  */
 export async function getChangedFiles(cwd: string): Promise<GitChangedFile[]> {
   const statusRes = await runGitCapture(["status", "--porcelain=v2", "--branch"], cwd);
-  if (statusRes.code !== 0) return [];
+  // Propagate a real git failure instead of masking it as "no changes". A
+  // clean tree still exits 0 with empty stdout → `[]` below.
+  if (statusRes.code !== 0) {
+    throw new GitCommitError("not-a-repo", statusRes.stderr.trim() || "git status failed");
+  }
 
   const files: GitChangedFile[] = [];
   for (const line of statusRes.stdout.split("\n")) {
