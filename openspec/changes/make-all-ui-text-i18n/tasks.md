@@ -13,7 +13,7 @@
 - [x] 2.3 Wrap client hooks (`useInstalledPackages`, `useMessageHandler`, `useImagePaste`, `useMainSpecsReader`, +9 more) — 23 keys.
 - [x] 2.4 Wrap `lib/` displayed strings (`format`, `session-status-visuals`, `themes`, `gateway-setup`, `gateway-api`, `editor-api`, `tool-summary`) — 36 keys.
 - [x] 2.5 Wrap remaining leaks in i18n-aware components (`SettingsPanel`, `SessionCard`, `SpawnErrorBanner`, `WorktreeActionsMenu`, `SessionOpenSpecActions`) — 74 keys. (Other components with residual leaks flagged by lint remain follow-up.)
-- [ ] 2.6 Verify no lint (1.4) hits remain under `packages/client/src`.
+- [~] 2.6 Lint reduced 218→164 (zero-coverage files + hooks + lib + top leaks wrapped). Residual candidates = lower-traffic components + heuristic false positives; full-clean is follow-up.
 
 ## 3. Zone 2 — per-plugin i18n contract (~180)
 
@@ -21,26 +21,26 @@
 - [x] 3.2 Runtime: `registerPluginCatalog(id, catalog)` prefixes keys with `plugin.<id>.` into `dictionaries[lang]`; `t`+`language` on `PluginContextValue` (shell-wired); scoped `useT`/`useLanguage` hooks auto-prefix.
 - [x] 3.3 Tests: plugin catalog merge + scoped useT (namespacing, no collision, language switch, missing-catalog fallback) — client i18n.test.ts + runtime plugin-i18n.test.tsx.
 - [ ] 3.4 Author `zh-CN` + `hu` catalog and wrap strings per plugin: `flows-plugin` (22 files, largest), `automation-plugin`, `goal-plugin`, `kb-plugin`, `roles-plugin`, `subagents-plugin`, `dashboard-plugin-runtime`, `flows-anthropic-bridge-plugin`.
-- [ ] 3.5 Verify lint (1.4) clean across all plugin packages.
+- [~] 3.5 roles-plugin clean + wired. Remaining 7 plugins are follow-up (see 3.4).
 
 ## 4. Zone 3 — server/extension code-mapping (~65)
 
 - [ ] 4.1 Shared: add `code?: string` + `vars?` to user-facing error/result/status shapes (retain `message?` as fallback).
 - [ ] 4.2 Client: `err.<domain>.<code>` map + resolver `t(errKey, vars, serverMessage)`; unknown code → show `serverMessage`, never a bare code.
 - [ ] 4.3 Add codes to high-visibility emit sites first: `browser-handlers/session-action-handler.ts` (10), `model-proxy-routes.ts` (5).
-- [ ] 4.4 Add codes to `git-operations.ts`, `provider-probe.ts`, `pi-core-updater.ts`, extension emit sites.
-- [ ] 4.5 Author `err.*` keys for the ~34% that already ship codes (`auth-gate`, `spawn-preflight`, `process-manager`, `git-routes`).
+- [ ] 4.4 (Follow-up) Add codes to `git-operations.ts`, `provider-probe.ts`, `pi-core-updater.ts`, extension emit sites. Contract + resolver ready (4.1/4.2); mechanical tagging remains.
+- [~] 4.5 Authored `err.*` keys for spawn-failure codes + `err.resume.*` + `err.git.not_a_repo` (zh+hu). Remaining code families (auth-gate, git-routes, …) are follow-up.
 - [ ] 4.6 (Deferred/optional) tag `doctor-core.ts` (25 message/detail) — developer panel, lower priority.
 - [x] 4.7 Tests: server-error.test.ts — coded `{code,vars}` renders translated; un-mapped code falls back to English `message`.
 
 ## 5. Translations — completeness
 
-- [ ] 5.1 Fill every migrated/new key in `zh-CN` (reuse existing `auto.*` zh values via the mapping).
-- [ ] 5.2 Author full `hu` for the entire catalog (client + `plugin.<id>.*` + `err.*`), grouped for review.
-- [ ] 5.3 Run parity check (1.3): 0 missing keys across `zh-CN`/`hu`/plugin catalogs.
+- [x] 5.1 Filled every migrated/new key in `zh-CN` (reused `auto.*` zh values via the mapping + machine-seeded the rest).
+- [x] 5.2 Authored full `hu` for the entire catalog (997 base + err.* + Zone-1 batch + roles plugin), machine-seeded via translation subagents, grouped by structured key.
+- [x] 5.3 Parity check green: 0 missing keys across `zh-CN`/`hu` (1237 core keys) + roles plugin catalog.
 
 ## 6. Validation
 
-- [ ] 6.1 `npm test` green (i18n unit tests + existing suite).
-- [ ] 6.2 Manual: switch language to `hu` and `zh-CN`; walk client + each plugin surface + trigger a Zone-3 error (bad git op, model-proxy failure) — confirm no raw English leaks.
-- [ ] 6.3 Lint (1.4) clean repo-wide; parity check (1.3) green in CI.
+- [x] 6.1 `npm test` green — full monorepo: 1041 files / 10181 tests pass, 0 failures (incl. new i18n/server-error/plugin-i18n/validator tests).
+- [~] 6.2 (Manual QA — needs running dashboard) hu/zh-CN walkthrough. Flow verified via unit/integration tests (t fallback, plugin useT lang-switch, Zone-3 resolver). Full visual sweep deferred to QA.
+- [~] 6.3 Parity green + wired as `npm run i18n:parity`; lint wired as `npm run i18n:lint` (advisory). Repo-wide lint-clean is follow-up (tracks 2.6/3.5/4.4).
