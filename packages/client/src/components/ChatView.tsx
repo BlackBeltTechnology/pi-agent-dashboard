@@ -329,9 +329,38 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       : state.messages.filter((m) => m.role !== "toolResult" || !isDebugTool(m.toolName ?? ""));
     return base.filter((m) => !m.retriedFrom);
   }, [state.messages, showDebugTools]);
-  const groupedMessages = useMemo(() => groupToolBursts(filteredMessages), [filteredMessages]);
   const retriedErrorIds = useMemo(() => findRetriedErrorIds(filteredMessages), [filteredMessages]);
   const hiddenToolResultIds = useMemo(() => findActiveInteractiveToolResultIds(filteredMessages), [filteredMessages]);
+  // toolCallIds owned by live `interactiveUi` messages still in the list. The
+  // paired `ask_user` tool card is redundant with the interactive card (both
+  // render title + message), so it is suppressed while the interactive card
+  // lives — regardless of pending/resolved status or adjacency (unlike
+  // hiddenToolResultIds, which is pending + adjacency only). On history reload
+  // an answered prompt has NO interactiveUi row, so the set misses and the tool
+  // card renders as the sole record. The reducer stamps `toolCallId` top-level
+  // on the interactiveUi row (event-reducer addInteractiveRequest); `requestId`
+  // (in args) is the defensive fallback. See change: fix-ask-user-card-duplication.
+  const interactiveToolCallIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const m of filteredMessages) {
+      if (m.role !== "interactiveUi") continue;
+      const key = m.toolCallId ?? (m.args as { requestId?: string } | undefined)?.requestId;
+      if (key) ids.add(key);
+    }
+    return ids;
+  }, [filteredMessages]);
+  // Drop the redundant `ask_user` tool card BEFORE tool-burst grouping (every
+  // toolResult is wrapped in a burst — threshold 1 — so post-group row filtering
+  // never reaches it). The interactive card is the single render while its
+  // interactiveUi row lives; on history reload (no pair) the tool card stays.
+  // See change: fix-ask-user-card-duplication.
+  const groupedMessages = useMemo(() => {
+    const forGrouping = filteredMessages.filter(
+      (m) =>
+        !(m.role === "toolResult" && m.toolName === "ask_user" && interactiveToolCallIds.has(m.toolCallId ?? m.id)),
+    );
+    return groupToolBursts(forGrouping);
+  }, [filteredMessages, interactiveToolCallIds]);
   // Single-red-surface: while the error-lifecycle surface (SessionBanner) owns
   // a failure, collapse the trailing inline failed-tool card so red isn't
   // shown twice. See change: unify-error-retry-lifecycle.

@@ -56,6 +56,9 @@ export function MultiselectRenderer({ params, status, result, onRespond, onCance
             <Icon path={mdiCheckCircle} size={0.5} /> {picks.length} of {options.length}
           </span>
         </div>
+        {message && (
+          <div className="text-xs text-[var(--text-secondary)] mb-2 ml-6"><MarkdownContent content={message} /></div>
+        )}
         <div className="flex flex-col gap-1 ml-6">
           {options.map((option) => (
             <AnsweredOption key={option} title={option} picked={picks.includes(option)} />
