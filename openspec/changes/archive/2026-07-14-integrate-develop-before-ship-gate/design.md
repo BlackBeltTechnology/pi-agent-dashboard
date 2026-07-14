@@ -43,7 +43,7 @@ Two integration points, layered:
   where `develop` advanced during the harness run (then the weak gate re-checks
   and, if ship-it re-runs, re-harnesses).
 
-```
+```text
 ship-it: 1 orient → 2 apply → 2.5 merge develop → 3 harness → 4 fix → 6 ship-change
 ship-change: 1 defer → 1.5 merge develop → 2 gate → 3 archive → 4 commit → 5 PR
 ```

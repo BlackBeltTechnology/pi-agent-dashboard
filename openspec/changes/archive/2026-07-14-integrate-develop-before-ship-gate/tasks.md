@@ -19,4 +19,4 @@
 
 ## 4. Manual verification (post-merge)
 
-- [x] 4.1 QA: run `ship-it` on a change whose worktree is behind `develop`; confirm the harness runs against the merged tree and the PR opens `MERGEABLE` (not `DIRTY`). → verify by hand.
+- [x] 4.1 QA: run `ship-it` on a change whose worktree is behind `develop`; confirm the harness runs against the merged tree and the PR opens `MERGEABLE` (not `DIRTY`). → **verified during this change's own ship**: worktree was 2 commits behind `develop`, step 2.5/1.5 merged `origin/develop` cleanly into `T1`, and PR #326 opened `mergeStateStatus=MERGEABLE`. (Docs-only change → no docker harness; verify gate ran on the merged tree.)

@@ -1,7 +1,7 @@
 # ship-workflow Specification
 
 ## Purpose
-TBD - created by archiving change integrate-develop-before-ship-gate. Update Purpose after archive.
+The ship workflow integrates `origin/develop` into the change worktree before the strongest validation gate that will run, so the gate validates the tree the PR ships.
 ## Requirements
 ### Requirement: develop integration precedes the strongest ship gate
 
