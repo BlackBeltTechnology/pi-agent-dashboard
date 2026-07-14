@@ -55,6 +55,25 @@ to the legacy keyword rule. Pure logic:
 **Any STOP** → report the blocking tasks and return to `openspec-apply` (or, under
 `ship-it`, the escape hatch). Do not ship real work undone.
 
+### 1.5. Integrate `develop` — merge before the verify gate (backstop)
+
+Merge `origin/develop` so the verify gate (step 2) runs on the integrated tree.
+**No-op under `ship-it`** (its step 2.5 already merged); the **genuine integration
+point when `ship-change` runs standalone** (no harness), and the catch for the
+narrow race where `develop` advanced during the harness run.
+
+```bash
+git fetch origin develop
+git merge --no-edit origin/develop
+```
+
+Idempotent ("Already up to date" → no commit). **Merge, not rebase** — step 9
+squash-merges regardless, and rebase would force-push a worktree branch (the
+non-ff misalignment pitfall below). Conflicts → the recipes in Pitfalls
+(`AGENTS.md` union-keep; `package-lock.json` → `--theirs` +
+`npm install --package-lock-only`); unresolved → `git merge --abort` + STOP,
+never push a half-merged tree.
+
 ### 2. Verify gate (must pass before PR)
 
 ```bash
@@ -134,6 +153,10 @@ loop when **both** hold:
 
 - All PR checks green (`gh pr checks "$pr"` all pass).
 - No unresolved, non-outdated, actionable CodeRabbit threads remain.
+
+**Do not re-merge `develop` per-push** in this loop — that triggers the worktree
+non-ff misalignment pitfall. Re-merge **only** when CI reports
+`mergeStateStatus=DIRTY` (the existing reactive recovery), never on every push.
 
 ### 9. Squash-merge + delete branch
 
