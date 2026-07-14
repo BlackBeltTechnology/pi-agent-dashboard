@@ -139,14 +139,18 @@
     "add-session-tags": "ui",
     "extract-distill-session-knowledge-package": "ui",
     "make-all-ui-text-i18n": "ui",
-    "fix-session-diff-open-nongit-and-preview": "ui"
+    "fix-session-diff-open-nongit-and-preview": "ui",
+    "stable-process-line": "ui",
+    "add-auto-session-naming": "ui",
+    "markdown-table-styling": "ui",
+    "fix-empty-flows-subcard": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
       "add-chat-gateway",
       "add-google-oauth-provider",
-      "fix-split-composer-overflow",
-      "stable-process-line"
+      "reset-override-to-npm",
+      "fix-ask-user-card-duplication"
     ],
     "kowledge-base": [
       "add-lora-dataset-export-skill",
@@ -156,13 +160,15 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "make-all-ui-text-i18n",
+      "stable-process-line",
+      "fix-empty-flows-subcard",
+      "markdown-table-styling",
+      "add-auto-session-naming",
       "fix-session-diff-open-nongit-and-preview"
     ],
     "next-phase": [
       "add-connector-layer",
       "add-end-user-docs",
-      "add-change-summary-table",
       "add-hyperframes-skills",
       "external-dashboard-plugins",
       "focus-driven-folder-compaction"
