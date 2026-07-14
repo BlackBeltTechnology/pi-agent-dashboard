@@ -1,10 +1,10 @@
-import React, { useRef, useEffect, useCallback } from "react";
-import { Icon } from "@mdi/react";
 import { mdiConsoleLine } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import { Terminal } from "@xterm/xterm";
+import React, { useCallback, useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { TerminalView } from "./TerminalView.js";
 import { t as i18nT } from "../lib/i18n";
+import { TerminalView } from "./TerminalView.js";
 
 /**
  * Inline interactive terminal card rendered in the chat stream.

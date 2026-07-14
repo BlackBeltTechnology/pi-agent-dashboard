@@ -9,30 +9,31 @@
  *
  * See change: add-worktree-spawn-dialog.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import {
+  resolveCheckoutLocalName,
+  resolveDefaultBase,
+  slugifyBranch,
+} from "@blackbelt-technology/pi-dashboard-shared/git-worktree-helpers.js";
+import type { GitBranchEntry, PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CreateWorktreeError,
   cleanupOrphanWorktreePath,
   createWorktree,
   createWorktreeFromPr,
   fetchBranches,
   fetchGitHead,
   fetchWorktrees,
-  probePathExists,
-  type CreateWorktreeError,
   type HeadInfo,
+  probePathExists,
   type WorktreeEntry,
 } from "../lib/git-api.js";
-import type { PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import {
-  resolveCheckoutLocalName,
-  resolveDefaultBase,
-  slugifyBranch,
-} from "@blackbelt-technology/pi-dashboard-shared/git-worktree-helpers.js";
-import type { GitBranchEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { t as i18nT } from "../lib/i18n";
 import { BranchCombobox } from "./BranchCombobox.js";
 import { PrCombobox } from "./PrCombobox.js";
-import { t as i18nT } from "../lib/i18n";
 
 // Ternary source toggle (change: worktree-checkout-existing-branch),
 // widening the binary "branch"/"pr" toggle introduced by

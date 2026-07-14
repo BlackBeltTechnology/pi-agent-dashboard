@@ -10,12 +10,12 @@
 // safe to place unconditionally in any container.
 // ---------------------------------------------------------------------------
 
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiClose } from "@mdi/js";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ImageLightbox } from "./ImageLightbox.js";
+import { mdiClose } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { ImageLightbox } from "./ImageLightbox.js";
 
 interface Props {
 	images: ImageContent[];

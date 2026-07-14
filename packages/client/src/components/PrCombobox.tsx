@@ -6,9 +6,11 @@
  *
  * See change: add-worktree-from-pull-request.
  */
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+
 import type { PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { fetchPullRequests, type FetchPrResult } from "../lib/git-api.js";
+import type React from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type FetchPrResult, fetchPullRequests } from "../lib/git-api.js";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

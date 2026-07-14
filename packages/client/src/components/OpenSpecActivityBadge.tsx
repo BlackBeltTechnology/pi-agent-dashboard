@@ -1,7 +1,7 @@
-import React from "react";
-import { Icon } from "@mdi/react";
-import { mdiClipboardTextOutline } from "@mdi/js";
 import type { OpenSpecPhase } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiClipboardTextOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
 import { useI18n } from "../lib/i18n";
 
 const phaseKeys: Record<OpenSpecPhase, string> = {

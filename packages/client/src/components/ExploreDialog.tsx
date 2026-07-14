@@ -1,11 +1,12 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiCompassOutline } from "@mdi/js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiCompassOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useState } from "react";
 import { useImagePaste } from "../hooks/useImagePaste.js";
-import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
 import { t as i18nT } from "../lib/i18n";
+import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
 
 interface Props {
   changeName: string;

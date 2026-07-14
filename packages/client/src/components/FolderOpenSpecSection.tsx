@@ -1,7 +1,7 @@
-import React from "react";
-import { Icon } from "@mdi/react";
-import { mdiRefresh, mdiArchiveOutline, mdiFileDocumentOutline, mdiArrowRight } from "@mdi/js";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiArchiveOutline, mdiArrowRight, mdiFileDocumentOutline, mdiRefresh } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
 import { t as i18nT } from "../lib/i18n";
 
 /**

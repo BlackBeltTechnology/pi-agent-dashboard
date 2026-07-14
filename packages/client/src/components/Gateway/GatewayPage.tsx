@@ -15,8 +15,8 @@ import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunne
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { getConfig, putConfig } from "../../lib/gateway-api.js";
-import { useI18n } from "../../lib/i18n";
 import type { GatewayProviderId } from "../../lib/gateway-providers.js";
+import { useI18n } from "../../lib/i18n";
 import { GatewayEndpoints } from "./GatewayEndpoints.js";
 import { GatewayPairQR } from "./GatewayPairQR.js";
 import { GatewayProviderSection } from "./GatewayProviderSection.js";

@@ -17,12 +17,12 @@
  * See change: doctor-rich-output (tasks 5.2–5.6).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MarkdownContent } from "./MarkdownContent.js";
-import { DialogPortal } from "./DialogPortal.js";
-import { fetchDoctorReport, DoctorFetchError } from "../lib/doctor-api.js";
 import { getApiBase } from "../lib/api-context.js";
-import type { DoctorReport, DoctorCheck } from "../lib/doctor-api.js";
+import type { DoctorCheck, DoctorReport } from "../lib/doctor-api.js";
+import { DoctorFetchError, fetchDoctorReport } from "../lib/doctor-api.js";
 import { t as i18nT } from "../lib/i18n";
+import { DialogPortal } from "./DialogPortal.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 
 type DoctorSection = DoctorCheck["section"];
 

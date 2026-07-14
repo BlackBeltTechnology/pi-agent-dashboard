@@ -1,8 +1,8 @@
 import React from "react";
-import type { ToolRendererProps } from "./types.js";
+import { t as i18nT } from "../../lib/i18n";
 import { LinkifiedText } from "./LinkifiedText.js";
 import { ToolResultImages } from "./ToolResultImages.js";
-import { t as i18nT } from "../../lib/i18n";
+import type { ToolRendererProps } from "./types.js";
 
 // Strip ANSI escape sequences (CSI / SGR codes like \x1b[31m) so the
 // linkifier sees clean text. See change: linkify-tool-output. The previous

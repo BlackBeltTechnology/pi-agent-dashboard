@@ -18,8 +18,13 @@
  *
  * See change: unify-package-management-ui.
  */
-import React, { useMemo, useState, useCallback } from "react";
-import { Icon } from "@mdi/react";
+
+import type {
+	InstalledPackage,
+	NpmPackageResult,
+	PiPackageInfo,
+	PiResource,
+} from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
 	mdiAlertCircle,
 	mdiBookOpenPageVariant,
@@ -29,18 +34,14 @@ import {
 	mdiPuzzleOutline,
 	mdiTextBoxOutline,
 } from "@mdi/js";
-import { PackageRow } from "./PackageRow.js";
-import { classifySource, isSourceOverride } from "../lib/package-classifier.js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useMemo, useState } from "react";
 import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
-import type {
-	InstalledPackage,
-	NpmPackageResult,
-	PiPackageInfo,
-	PiResource,
-} from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { computeDestIdentity } from "../lib/installed-list-helpers.js";
 import { t as i18nT } from "../lib/i18n";
+import { computeDestIdentity } from "../lib/installed-list-helpers.js";
+import { classifySource, isSourceOverride } from "../lib/package-classifier.js";
+import { PackageRow } from "./PackageRow.js";
 
 interface Props {
 	scope: "global" | "local";

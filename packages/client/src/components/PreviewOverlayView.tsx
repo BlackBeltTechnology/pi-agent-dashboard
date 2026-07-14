@@ -3,13 +3,14 @@
  * renderer the inline `PreviewCard` uses — only the outer shell differs.
  * See change: render-file-previews.
  */
-import React from "react";
-import { Icon } from "@mdi/react";
-import { mdiArrowLeft } from "@mdi/js";
+
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiArrowLeft } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
+import { t as i18nT } from "../lib/i18n";
 import { dispatchPreview } from "../lib/preview-dispatch.js";
 import { PreviewBody } from "./PreviewCard.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   target: ViewTarget;

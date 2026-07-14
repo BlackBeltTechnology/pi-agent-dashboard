@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { fetchBranches } from "../lib/git-api.js";
 import type { GitBranchEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { BranchListbox, useBranchListboxKeyboard } from "./BranchListbox.js";
+import type React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchBranches } from "../lib/git-api.js";
 import { t as i18nT } from "../lib/i18n";
+import { BranchListbox, useBranchListboxKeyboard } from "./BranchListbox.js";
 
 interface Props {
   cwd: string;

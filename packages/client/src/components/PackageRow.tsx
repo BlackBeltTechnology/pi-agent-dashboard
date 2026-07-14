@@ -9,8 +9,7 @@
  *
  * See change: consolidate-packages-settings-ui.
  */
-import React, { useEffect, useRef, useState } from "react";
-import { Icon } from "@mdi/react";
+
 import {
 	mdiAlertCircle,
 	mdiAlertCircleOutline,
@@ -21,9 +20,12 @@ import {
 	mdiLoading,
 	mdiSwapHorizontal,
 } from "@mdi/js";
-import type { SourceType } from "../lib/package-classifier.js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../lib/i18n";
+import type { SourceType } from "../lib/package-classifier.js";
 
 export interface PackageRowProps {
 	displayName: string;

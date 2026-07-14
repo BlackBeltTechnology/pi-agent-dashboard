@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import type { PreviewTab } from "../components/MarkdownPreviewView.js";
 import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { PreviewTab } from "../components/MarkdownPreviewView.js";
+import { getApiBase } from "../lib/api-context.js";
 import { t } from "../lib/i18n";
 
 const LETTER_MAP: Record<string, string> = {

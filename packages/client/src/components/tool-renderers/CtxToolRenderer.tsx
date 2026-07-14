@@ -1,18 +1,19 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
 import { mdiChevronDown, mdiChevronRight, mdiOpenInNew } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { useThemeContext } from "../ThemeProvider.js";
+import { t as i18nT } from "../../lib/i18n";
 import { getSyntaxTheme } from "../../lib/syntax-theme.js";
-import type { ToolRendererProps } from "./types.js";
+import { useThemeContext } from "../ThemeProvider.js";
 import { LinkifiedText } from "./LinkifiedText.js";
 import {
-  parseCtxResult,
   type CtxResult,
-  type QueryBlock,
   type IntentPreview,
+  parseCtxResult,
+  type QueryBlock,
 } from "./parse-ctx-result.js";
-import { t as i18nT } from "../../lib/i18n";
+import type { ToolRendererProps } from "./types.js";
 
 // Single renderer for every context-mode (`ctx_*`) tool. Parses the result
 // text into a typed struct (parse-ctx-result.ts) and switches the body layout

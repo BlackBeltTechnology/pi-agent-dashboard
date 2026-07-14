@@ -9,21 +9,23 @@
  *
  * See change: add-openspec-profile-settings.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+
+import { useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   CORE_WORKFLOWS,
   EXPANDED_WORKFLOWS,
   type OpenSpecConfig,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import {
-  saveOpenSpecConfig,
-  runOpenSpecUpdate,
-  fetchUpdateStatus,
-  fetchGlobalOpenSpecConfig,
-  type CwdUpdateStatus,
-} from "../lib/openspec-config-api.js";
-import { useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import {
+  type CwdUpdateStatus,
+  fetchGlobalOpenSpecConfig,
+  fetchUpdateStatus,
+  runOpenSpecUpdate,
+  saveOpenSpecConfig,
+} from "../lib/openspec-config-api.js";
 
 type Profile = OpenSpecConfig["profile"];
 type LoadStatus = "loading" | "ready" | "error";

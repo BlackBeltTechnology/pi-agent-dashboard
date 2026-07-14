@@ -1,35 +1,35 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import {
-  mdiCompassOutline,
-  mdiChevronRight,
-  mdiFastForward,
-  mdiPlayCircleOutline,
-  mdiCheckCircleOutline,
-  mdiArchiveOutline,
-  mdiArchiveArrowUp,
-  mdiLinkOff,
-  mdiPlus,
-  mdiLightbulbOnOutline,
-  mdiPaperclip,
-  mdiFormatListChecks,
-} from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, OpenSpecGroup, ImageContent, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ChangeState, deriveChangeState, DEFAULT_OPENSPEC_CONFIG } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ExploreDialog } from "./ExploreDialog.js";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import type { DashboardSession, ImageContent, OpenSpecChange, OpenSpecConfig, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, DEFAULT_OPENSPEC_CONFIG, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import {
+  mdiArchiveArrowUp,
+  mdiArchiveOutline,
+  mdiCheckCircleOutline,
+  mdiChevronRight,
+  mdiCompassOutline,
+  mdiFastForward,
+  mdiFormatListChecks,
+  mdiLightbulbOnOutline,
+  mdiLinkOff,
+  mdiPaperclip,
+  mdiPlayCircleOutline,
+  mdiPlus,
+} from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import { DialogPortal } from "./DialogPortal.js";
+import { ExploreDialog } from "./ExploreDialog.js";
+import { GroupedAttachDialog } from "./GroupedAttachDialog.js";
 // ArtifactLettersButton removed — stepper P/D/S nodes are now clickable
 // and replace the standalone letters button. See change:
 // redesign-session-card-and-composer (stepper-click-to-open).
 import { NewChangeDialog } from "./NewChangeDialog.js";
+import { OpenSpecStepper } from "./OpenSpecStepper.js";
 import { ProposeDialog } from "./ProposeDialog.js";
 import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDialog.js";
-import { GroupedAttachDialog } from "./GroupedAttachDialog.js";
 import { StatePill } from "./StatePill.js";
 import { TasksPopover } from "./TasksPopover.js";
-import { OpenSpecStepper } from "./OpenSpecStepper.js";
-import { t as i18nT } from "../lib/i18n";
 
 /**
  * Semantic palette — kept in sync with ComposerSessionActions so sidecard

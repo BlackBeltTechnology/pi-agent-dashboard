@@ -1,10 +1,10 @@
 #!/usr/bin/env node
+import { execSync } from "node:child_process";
 // i18n lint (D6). Flags likely-hardcoded user-facing strings that are not
 // wrapped in a translator. Heuristic ripgrep-style scan over client + plugin
 // sources. Advisory by default; pass --strict to exit non-zero on hits.
 // Usage: node scripts/i18n-lint.mjs [--strict] [glob...]
 import fs from "node:fs";
-import { execSync } from "node:child_process";
 
 const STRICT = process.argv.includes("--strict");
 const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));

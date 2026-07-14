@@ -13,8 +13,9 @@
  *
  * See change: elevate-dashboard-add-buttons.
  */
-import { Icon } from "@mdi/react";
+
 import { mdiFolderPlus, mdiViewGridPlus } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

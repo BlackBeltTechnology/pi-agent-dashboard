@@ -1,6 +1,6 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
 import { mdiClose, mdiDownload } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 const DISMISSED_KEY = "pwa-install-dismissed";

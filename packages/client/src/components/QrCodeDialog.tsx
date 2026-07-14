@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
-import QRCode from "qrcode";
-import { Icon } from "@mdi/react";
-import { mdiContentCopy, mdiCheck, mdiLanDisconnect, mdiLanConnect, mdiCog } from "@mdi/js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { mdiCheck, mdiCog, mdiContentCopy, mdiLanConnect, mdiLanDisconnect } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import QRCode from "qrcode";
+import React, { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

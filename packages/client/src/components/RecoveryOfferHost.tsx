@@ -10,12 +10,12 @@
  * See change: fix-recovery-offer-dismiss-and-phantom-reopen.
  */
 import React, { useEffect, useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import {
-  subscribeRecoveryOffer,
   clearRecoveryOffer,
   type RecoveryOffer,
+  subscribeRecoveryOffer,
 } from "../lib/recovery-offer-bus.js";
-import { t as i18nT } from "../lib/i18n";
 
 export function RecoveryOfferHost({ onReopen, onDismiss }: {
   /** Route the given candidate session ids through the resume flow. */

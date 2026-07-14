@@ -4,10 +4,11 @@
  * the shell-wired translator, degrades gracefully when unwired, and re-resolves
  * on language switch.
  */
+
+import { cleanup, render } from "@testing-library/react";
 import React from "react";
-import { describe, it, expect, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
-import { PluginContextProvider, CurrentPluginLayer, useT, useLanguage } from "../index.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { CurrentPluginLayer, PluginContextProvider, useLanguage, useT } from "../index.js";
 
 afterEach(cleanup);
 

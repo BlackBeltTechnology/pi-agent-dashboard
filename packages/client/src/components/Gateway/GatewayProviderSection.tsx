@@ -10,13 +10,13 @@
  * See change: add-tunnel-providers.
  */
 import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
-import { useI18n } from "../../lib/i18n";
 import {
   GATEWAY_PROVIDERS,
   type GatewayProviderId,
   providerMeta,
   supportsMode,
 } from "../../lib/gateway-providers.js";
+import { useI18n } from "../../lib/i18n";
 
 interface Props {
   provider: GatewayProviderId;

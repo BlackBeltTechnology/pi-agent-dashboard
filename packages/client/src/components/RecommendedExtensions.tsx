@@ -12,22 +12,23 @@
  *   activeInPi === false, installed.scope !== null  → [Activate]  (cheap settings-only op)
  *   activeInPi === false, installed.scope === null  → [Install]
  */
-import React, { useCallback } from "react";
-import { Icon } from "@mdi/react";
-import {
-  mdiLoading,
-  mdiPlusCircle,
-  mdiDelete,
-  mdiFlashAuto,
-  mdiClockOutline,
-  mdiDownloadMultiple,
-} from "@mdi/js";
-import { useRecommendedExtensions } from "../hooks/useRecommendedExtensions.js";
-import { usePackageOperations } from "../hooks/usePackageOperations.js";
+
 import type {
   EnrichedRecommendedExtension,
   RecommendedExtensionStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
+import {
+  mdiClockOutline,
+  mdiDelete,
+  mdiDownloadMultiple,
+  mdiFlashAuto,
+  mdiLoading,
+  mdiPlusCircle,
+} from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback } from "react";
+import { usePackageOperations } from "../hooks/usePackageOperations.js";
+import { useRecommendedExtensions } from "../hooks/useRecommendedExtensions.js";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

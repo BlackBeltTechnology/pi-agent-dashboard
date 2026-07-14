@@ -16,8 +16,8 @@
  * See change: make-pairing-qr-camera-scannable.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { t, useI18n } from "../lib/i18n";
 import { storeDeviceBearer } from "../lib/device-auth.js";
+import { t, useI18n } from "../lib/i18n";
 import { challengeIdentity, postJson } from "../lib/pair-protocol.js";
 import type { PairingPayload } from "../lib/pairing-api.js";
 import { decodePayloadString } from "../lib/pairing-qr.js";

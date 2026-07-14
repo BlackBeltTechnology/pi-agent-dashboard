@@ -1,6 +1,6 @@
-import React from "react";
-import { Icon } from "@mdi/react";
 import { mdiDownload } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

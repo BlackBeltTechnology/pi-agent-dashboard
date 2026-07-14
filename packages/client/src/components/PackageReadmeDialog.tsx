@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { Icon } from "@mdi/react";
-import { mdiLoading, mdiDownload } from "@mdi/js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { MarkdownContent } from "./MarkdownContent.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { mdiDownload, mdiLoading } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useState } from "react";
+import { getApiBase } from "../lib/api-context.js";
 import { t as i18nT } from "../lib/i18n";
+import { MarkdownContent } from "./MarkdownContent.js";
 
 interface PackageReadmeDialogProps {
   pkg: NpmPackageResult;

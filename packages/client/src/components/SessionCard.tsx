@@ -54,8 +54,8 @@ import { SessionActivityBar } from "./SessionActivityBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
 import { SessionOpenSpecActions } from "./SessionOpenSpecActions.js";
 import { SessionSubcard } from "./SessionSubcard.js";
-import { TagStrip } from "./tags/TagStrip.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
+import { TagStrip } from "./tags/TagStrip.js";
 import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
 
 export function ActivityIndicator({ session }: { session: DashboardSession }) {

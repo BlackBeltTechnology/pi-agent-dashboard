@@ -1,9 +1,9 @@
-import React, { useRef, useEffect, useCallback } from "react";
-import { Icon } from "@mdi/react";
 import { mdiClose } from "@mdi/js";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
+import { Icon } from "@mdi/react";
 import { AttachAddon } from "@xterm/addon-attach";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
+import React, { useCallback, useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { t as i18nT } from "../lib/i18n";
 

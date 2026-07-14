@@ -1,11 +1,11 @@
-import React, { useState } from "react";
+import { mdiCheckboxMarkedOutline, mdiCheckCircle } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiCheckCircle, mdiCheckboxMarkedOutline } from "@mdi/js";
-import type { InteractiveRendererProps } from "./types.js";
-import { InlineMarkdown } from "./InlineMarkdown.js";
+import React, { useState } from "react";
+import { t as i18nT } from "../../lib/i18n";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
-import { t as i18nT } from "../../lib/i18n";
+import { InlineMarkdown } from "./InlineMarkdown.js";
+import type { InteractiveRendererProps } from "./types.js";
 
 export function MultiselectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;

@@ -13,11 +13,12 @@
  *   (resets on page reload) but re-appears on the next load while the
  *   condition persists.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+
+import { mdiAlertCircle, mdiClose, mdiFlashAuto, mdiLoading, mdiPlusCircle } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiAlertCircle, mdiClose, mdiPlusCircle, mdiLoading, mdiFlashAuto } from "@mdi/js";
-import { useRecommendedExtensions } from "../hooks/useRecommendedExtensions.js";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
+import { useRecommendedExtensions } from "../hooks/useRecommendedExtensions.js";
 import { t as i18nT } from "../lib/i18n";
 
 const DISMISSED_KEY = "pi-dashboard:missing-required-dismissed";

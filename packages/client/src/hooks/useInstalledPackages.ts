@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import type { InstalledPackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api-context.js";
 import { t } from "../lib/i18n";
-import type { InstalledPackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 
 export function useInstalledPackages(scope: "global" | "local", cwd?: string) {
   const [packages, setPackages] = useState<InstalledPackage[]>([]);

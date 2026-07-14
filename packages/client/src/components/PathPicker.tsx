@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { browseDirectory, classifyPaths, createDirectory } from "../lib/browse-api.js";
-import type { BrowseResult, BrowseEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { parsePathInput, withTrailingSep } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
-import { inferPlatform } from "../lib/session-grouping.js";
+import type { BrowseEntry, BrowseResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { browseDirectory, classifyPaths, createDirectory } from "../lib/browse-api.js";
 import { t as i18nT } from "../lib/i18n";
+import { inferPlatform } from "../lib/session-grouping.js";
 
 interface Props {
   initialPath?: string;

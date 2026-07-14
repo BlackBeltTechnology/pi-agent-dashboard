@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { getApiBase } from "../lib/api-context.js";
+import { mdiCodeBraces, mdiLoading, mdiRefresh, mdiStop } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiLoading, mdiRefresh, mdiCodeBraces, mdiStop } from "@mdi/js";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { getApiBase } from "../lib/api-context.js";
+import { t as i18nT } from "../lib/i18n";
 import { EditorInstallGuide } from "./EditorInstallGuide.js";
 import { useThemeContext } from "./ThemeProvider.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface EditorInfo {
   id: string;

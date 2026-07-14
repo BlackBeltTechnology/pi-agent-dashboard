@@ -4,15 +4,16 @@
  *
  * See change: add-openspec-change-grouping (task 9.1).
  */
-import React, { useState, useMemo } from "react";
-import { Icon } from "@mdi/react";
-import { mdiMagnify } from "@mdi/js";
+
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { OpenSpecChange, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { mdiMagnify } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useMemo, useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import { OpenSpecGroupPills } from "./OpenSpecGroupPills.js";
 import { OpenSpecGroupSection } from "./OpenSpecGroupSection.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   changes: OpenSpecChange[];

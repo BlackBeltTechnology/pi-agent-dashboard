@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Icon } from "@mdi/react";
-import { mdiServerNetwork, mdiChevronDown, mdiCog } from "@mdi/js";
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { listKnownServers } from "../lib/known-servers-api.js";
+import { mdiChevronDown, mdiCog, mdiServerNetwork } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { listKnownServers } from "../lib/known-servers-api.js";
 
 /** Re-export for backward compat — consumers that imported this type */
 export interface DiscoveredServerInfo {

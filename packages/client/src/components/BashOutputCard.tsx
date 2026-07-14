@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { Icon } from "@mdi/react";
 import { mdiConsole } from "@mdi/js";
-import { truncateOutputForDisplay, TRUNCATION_MARKER_PREFIX } from "../lib/event-reducer.js";
+import { Icon } from "@mdi/react";
+import { useState } from "react";
+import { TRUNCATION_MARKER_PREFIX, truncateOutputForDisplay } from "../lib/event-reducer.js";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

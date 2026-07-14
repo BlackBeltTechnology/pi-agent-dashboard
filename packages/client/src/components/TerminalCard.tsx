@@ -1,10 +1,10 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiConsoleLine, mdiClose, mdiPencilOutline } from "@mdi/js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
-import { InlineRenameInput } from "./InlineRenameInput.js";
+import { mdiClose, mdiConsoleLine, mdiPencilOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
 import { formatRelativeTime } from "../lib/format.js";
 import { t as i18nT } from "../lib/i18n";
+import { InlineRenameInput } from "./InlineRenameInput.js";
 
 interface Props {
   terminal: TerminalSession;

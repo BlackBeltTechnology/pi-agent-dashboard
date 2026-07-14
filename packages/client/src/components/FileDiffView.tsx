@@ -2,14 +2,16 @@
  * FileDiffView — split-pane view showing changed files (tree) and diffs (panel).
  * Replaces ChatView in the content area when activated.
  */
-import React, { useState, useCallback, useRef, useEffect } from "react";
+
+import { mdiArrowLeft, mdiFileTreeOutline, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiArrowLeft, mdiRefresh, mdiFileTreeOutline } from "@mdi/js";
+import type React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useMobile } from "../hooks/useMobile.js";
 import { useSessionDiff } from "../hooks/useSessionDiff.js";
+import { t as i18nT } from "../lib/i18n";
 import { DiffFileTree, type FileSelection } from "./DiffFileTree.js";
 import { DiffPanel } from "./DiffPanel.js";
-import { useMobile } from "../hooks/useMobile.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface FileDiffViewProps {
   sessionId: string;

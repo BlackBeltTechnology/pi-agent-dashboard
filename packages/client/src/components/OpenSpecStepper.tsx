@@ -1,13 +1,13 @@
-import React from "react";
-import { Icon } from "@mdi/react";
+import type { OpenSpecArtifact, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
-  mdiCompassOutline,
-  mdiPlay,
   mdiArchiveOutline,
   mdiCheck,
+  mdiCompassOutline,
+  mdiPlay,
 } from "@mdi/js";
-import type { OpenSpecChange, OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { Icon } from "@mdi/react";
+import type React from "react";
 import { useI18n } from "../lib/i18n";
 
 /**

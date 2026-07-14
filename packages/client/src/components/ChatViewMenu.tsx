@@ -5,13 +5,15 @@
  *
  * See change: configurable-chat-display.
  */
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Icon } from "@mdi/react";
-import { mdiCog, mdiCircleSmall } from "@mdi/js";
-import {
-  type DisplayPrefs,
-  type PartialDisplayPrefs,
+
+import type {
+  DisplayPrefs,
+  PartialDisplayPrefs,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { mdiCircleSmall, mdiCog } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";

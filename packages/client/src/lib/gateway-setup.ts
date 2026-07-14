@@ -13,8 +13,9 @@
  *
  * See change: add-tunnel-providers.
  */
-import { t } from "./i18n";
+
 import type { GatewayProviderId } from "./gateway-providers.js";
+import { t } from "./i18n";
 
 export type SetupStepKind = "install" | "auth-token" | "activate" | "browser-auth" | "external";
 

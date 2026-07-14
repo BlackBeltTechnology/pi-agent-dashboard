@@ -5,21 +5,22 @@
  * pushes a nested CurrentPluginContext layer when rendering a contribution,
  * scoping hooks like usePluginConfig<T>() and logger to the contributing plugin.
  */
+
+import type { PluginConfigUpdateMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { SlotId } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
+import type { DashboardEvent, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import React, {
   createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  useSyncExternalStore,
   type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  useSyncExternalStore,
 } from "react";
-import type { DashboardEvent, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { SlotId } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
-import type { PluginConfigUpdateMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { createSlotRegistry, type SlotRegistry, type ClaimEntry } from "./slot-registry.js";
-import { getSessionEvents, subscribeSessionEvents } from "./session-events-store.js";
 import { getSessionData, subscribeSessionData } from "./session-data-store.js";
+import { getSessionEvents, subscribeSessionEvents } from "./session-events-store.js";
+import { type ClaimEntry, createSlotRegistry, type SlotRegistry } from "./slot-registry.js";
 
 /**
  * Snapshot shape of an interactive UI request as exposed to plugins. Mirrors
@@ -619,5 +620,4 @@ export function CurrentPluginLayer({
 }
 
 // Re-export types consumers need
-export type { SlotRegistry, ClaimEntry };
-export type { SlotId };
+export type { ClaimEntry, SlotId, SlotRegistry };

@@ -4,8 +4,9 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import React from "react";
+
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import React from "react";
 import { t as i18nT } from "../lib/i18n";
 
 export function CwdGonePill({ session }: { session: DashboardSession }) {

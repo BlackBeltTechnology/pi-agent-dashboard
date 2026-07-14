@@ -1,12 +1,13 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiCheck, mdiCheckCircle, mdiImageMultiple, mdiViewListOutline } from "@mdi/js";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { InteractiveRendererProps } from "./types.js";
-import { InlineMarkdown } from "./InlineMarkdown.js";
-import { parseOption, isCancelOption } from "./parseOption.js";
-import { InputComposer } from "./InputComposer.js";
+import { mdiCheck, mdiCheckCircle, mdiImageMultiple, mdiViewListOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useState } from "react";
 import { t as i18nT } from "../../lib/i18n";
+import { InlineMarkdown } from "./InlineMarkdown.js";
+import { InputComposer } from "./InputComposer.js";
+import { isCancelOption, parseOption } from "./parseOption.js";
+import type { InteractiveRendererProps } from "./types.js";
 
 /**
  * BatchRenderer — renders a `batch` ask_user request as a single wizard card:

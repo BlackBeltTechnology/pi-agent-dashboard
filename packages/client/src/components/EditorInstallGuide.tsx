@@ -1,6 +1,6 @@
-import React from "react";
+import { mdiApple, mdiCodeBraces, mdiLanguageJavascript, mdiLinux, mdiMicrosoftVisualStudioCode } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiCodeBraces, mdiApple, mdiLinux, mdiLanguageJavascript, mdiMicrosoftVisualStudioCode } from "@mdi/js";
+import React from "react";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

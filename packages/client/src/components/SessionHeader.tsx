@@ -1,26 +1,26 @@
-import React, { useState, useEffect, useRef } from "react";
+import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiArrowLeft, mdiFileCompare, mdiHeadLightbulb, mdiLinkOff, mdiPaperclip, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiRefresh, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiPencilOutline, mdiArrowLeft, mdiPaperclip, mdiRefresh, mdiLinkOff, mdiPlay, mdiFileCompare, mdiHeadLightbulb, mdiViewGridOutline, mdiPlayCircleOutline, mdiSourceFork } from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, CommandInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { SessionState } from "../lib/event-reducer.js";
+import React, { useEffect, useRef, useState } from "react";
+import { useMobile } from "../hooks/useMobile.js";
 import type { DetectedEditor } from "../lib/editor-api.js";
+import type { SessionState } from "../lib/event-reducer.js";
+import { t as i18nT } from "../lib/i18n";
 import { getSessionDisplayName } from "../lib/session-display-name.js";
+import { CountBadges } from "./CountBadges.js";
+import { FooterSegmentSlot } from "./extension-ui/FooterSegmentSlot.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
 import { MobileActionMenu } from "./MobileActionMenu.js";
-import { useMobile } from "../hooks/useMobile.js";
-import { useOptionalSplitWorkspace } from "./SplitWorkspaceContext.js";
-import { useOptionalSessionDiff } from "./SessionDiffContext.js";
-import { CountBadges } from "./CountBadges.js";
+import { ArtifactLettersButton } from "./openspec-helpers.js";
 // FlowLaunchDialog removed: flow launching is owned entirely by
 // flows-plugin's command-route claims (/flows, /flows:new, etc.) and
 // SessionFlowActionsClaim. See change: pluginize-flows-via-registry.
 import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDialog.js";
+import { useOptionalSessionDiff } from "./SessionDiffContext.js";
 import { SplitToggleButton } from "./SplitToggleButton.js";
-import { FooterSegmentSlot } from "./extension-ui/FooterSegmentSlot.js";
-import { ArtifactLettersButton } from "./openspec-helpers.js";
+import { useOptionalSplitWorkspace } from "./SplitWorkspaceContext.js";
 import { TagChip } from "./tags/TagChip.js";
 import { TagEditor } from "./tags/TagEditor.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   session?: DashboardSession;

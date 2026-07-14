@@ -11,23 +11,24 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import React, { useEffect, useState } from "react";
-import { Icon } from "@mdi/react";
+
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   mdiArrowUpBoldOutline,
-  mdiSourcePull,
-  mdiSourceMerge,
   mdiCloseBoxOutline,
   mdiDotsHorizontal,
+  mdiSourceMerge,
+  mdiSourcePull,
 } from "@mdi/js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { pushWorktreeBranch, createWorktreePR } from "../lib/git-api.js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useState } from "react";
+import { useMobile } from "../hooks/useMobile.js";
+import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
+import { createWorktreePR, pushWorktreeBranch } from "../lib/git-api.js";
+import { t as i18nT } from "../lib/i18n";
 import { fetchTool } from "../lib/tools-api.js";
 import { CloseWorktreeDialog } from "./CloseWorktreeDialog.js";
 import { MergeConfirmDialog } from "./MergeConfirmDialog.js";
-import { useMobile } from "../hooks/useMobile.js";
-import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
-import { t as i18nT } from "../lib/i18n";
 
 /**
  * Module-level cache of `gh` availability — one fetch per page load,

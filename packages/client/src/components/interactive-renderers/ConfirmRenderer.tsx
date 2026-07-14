@@ -1,11 +1,11 @@
-import React from "react";
-import { Icon } from "@mdi/react";
 import { mdiShieldAlert } from "@mdi/js";
-import type { InteractiveRendererProps } from "./types.js";
-import { InlineMarkdown } from "./InlineMarkdown.js";
+import { Icon } from "@mdi/react";
+import React from "react";
+import { t as i18nT } from "../../lib/i18n";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
-import { t as i18nT } from "../../lib/i18n";
+import { InlineMarkdown } from "./InlineMarkdown.js";
+import type { InteractiveRendererProps } from "./types.js";
 
 export function ConfirmRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;

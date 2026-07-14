@@ -4,12 +4,13 @@
  *
  * See change: add-openspec-change-grouping (task 10.1).
  */
-import React, { useCallback, useEffect, useState } from "react";
+
 import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
-import { fetchGroups, createGroup, updateGroup, deleteGroup } from "../lib/openspec-groups-api.js";
+import React, { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../lib/api-context.js";
 import { t as i18nT } from "../lib/i18n";
+import { createGroup, deleteGroup, fetchGroups, updateGroup } from "../lib/openspec-groups-api.js";
+import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
 
 interface CwdGroups {
   cwd: string;

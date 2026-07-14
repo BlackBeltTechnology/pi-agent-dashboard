@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { validateManifest, ManifestValidationError } from "../manifest-validator.js";
+import { describe, expect, it, vi } from "vitest";
+import { ManifestValidationError, validateManifest } from "../manifest-validator.js";
 
 const validManifest = {
   id: "demo",

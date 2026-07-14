@@ -18,10 +18,11 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import React, { useState } from "react";
-import { removeWorktree } from "../lib/git-api.js";
+
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import React, { useState } from "react";
+import { removeWorktree } from "../lib/git-api.js";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

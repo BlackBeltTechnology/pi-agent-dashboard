@@ -17,8 +17,12 @@
  *
  * See change: add-plugin-activation-ui.
  */
-import { useEffect, useMemo, useState } from "react";
-import Icon from "@mdi/react";
+
+import {
+  buildGraph,
+  computeToggleImpact,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
+import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 import {
   mdiAlert,
   mdiCheck,
@@ -28,21 +32,18 @@ import {
   mdiPackageVariantClosed,
   mdiRestart,
 } from "@mdi/js";
-import {
-  listPlugins,
-  togglePlugin,
-  TogglePluginBlockedError,
-  type PluginRow,
-} from "../lib/plugins-api.js";
-import {
-  buildGraph,
-  computeToggleImpact,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
+import Icon from "@mdi/react";
+import { useEffect, useMemo, useState } from "react";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
-import { PluginSettingsHost } from "./PluginSettingsHost.js";
 import { getApiBase } from "../lib/api-context.js";
 import { t as i18nT } from "../lib/i18n";
+import {
+  listPlugins,
+  type PluginRow,
+  TogglePluginBlockedError,
+  togglePlugin,
+} from "../lib/plugins-api.js";
+import { PluginSettingsHost } from "./PluginSettingsHost.js";
 
 interface RowState {
   expanded: boolean;

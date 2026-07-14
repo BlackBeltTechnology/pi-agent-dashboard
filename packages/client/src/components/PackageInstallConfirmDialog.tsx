@@ -1,7 +1,7 @@
-import React from "react";
-import { Icon } from "@mdi/react";
-import { mdiDownload, mdiPackageVariantClosed } from "@mdi/js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { mdiDownload, mdiPackageVariantClosed } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
 import { t as i18nT } from "../lib/i18n";
 
 interface PackageInstallConfirmDialogProps {

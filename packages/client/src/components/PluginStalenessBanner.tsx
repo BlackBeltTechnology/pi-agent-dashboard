@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { PLUGIN_REGISTRY_HASH } from "../generated/plugin-registry.js";
 import { t as i18nT } from "../lib/i18n";
 

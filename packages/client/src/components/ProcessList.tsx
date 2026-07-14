@@ -27,10 +27,11 @@
  * See change: redesign-process-list-activity-bar.
  * See change: tighten-process-list-ux (original ceiling/floor contract).
  */
-import React from "react";
-import { Icon } from "@mdi/react";
-import { mdiClose, mdiChevronDown, mdiChevronRight, mdiAlertOutline, mdiRobotOutline, mdiPowerPlugOutline, mdiCogOutline } from "@mdi/js";
+
 import type { ProcessKind } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { mdiAlertOutline, mdiChevronDown, mdiChevronRight, mdiClose, mdiCogOutline, mdiPowerPlugOutline, mdiRobotOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
 import { t as i18nT } from "../lib/i18n";
 
 export interface ProcessEntry {

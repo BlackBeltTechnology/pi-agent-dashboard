@@ -3,8 +3,10 @@
  * Validates: trimmed, 1–80 chars. Calls `onCreate(name)` on submit.
  * See change: folder-workspaces.
  */
-import React, { useState, useRef, useEffect } from "react";
+
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

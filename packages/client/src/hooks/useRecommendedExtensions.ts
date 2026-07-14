@@ -5,9 +5,10 @@
  * install / remove / update operation completes successfully (via the
  * `pi-package-event` window event broadcast by the dashboard server).
  */
-import { useState, useEffect, useCallback, useRef } from "react";
-import { getApiBase } from "../lib/api-context.js";
+
 import type { EnrichedRecommendedExtension } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getApiBase } from "../lib/api-context.js";
 import { t } from "../lib/i18n";
 
 export interface UseRecommendedExtensionsResult {

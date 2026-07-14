@@ -13,17 +13,18 @@
  * In production:
  * - Skips plugins with fixture: true
  */
-import type { Plugin, ViteDevServer } from "vite";
+
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
+import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
+import type { Plugin, ViteDevServer } from "vite";
+import { validateManifest } from "../manifest-validator.js";
 import {
-  discoverPlugins,
   clearDiscoveryCache,
+  discoverPlugins,
   pluginRegistryHash,
 } from "../server/loader.js";
-import { validateManifest } from "../manifest-validator.js";
-import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 
 /** Generated file path (relative to the calling vite.config location). */
 const GENERATED_DIR = "packages/client/src/generated";

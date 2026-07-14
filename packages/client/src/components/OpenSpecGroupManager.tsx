@@ -4,28 +4,30 @@
  *
  * See change: add-openspec-change-grouping (task 6.4).
  */
-import React, { useCallback, useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiDragHorizontalVariant, mdiPencilOutline, mdiTrashCanOutline, mdiPlus } from "@mdi/js";
+
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
-  DndContext,
   closestCenter,
+  DndContext,
+  type DragEndEvent,
   PointerSensor,
   useSensor,
   useSensors,
-  type DragEndEvent,
 } from "@dnd-kit/core";
 import {
-  SortableContext,
-  verticalListSortingStrategy,
   arrayMove,
+  SortableContext,
   useSortable,
+  verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { GROUP_PALETTE, resolveGroupColor, type PaletteEntry } from "../lib/openspec-group-palette.js";
-import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import { mdiDragHorizontalVariant, mdiPencilOutline, mdiPlus, mdiTrashCanOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useCallback, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { GROUP_PALETTE, type PaletteEntry, resolveGroupColor } from "../lib/openspec-group-palette.js";
 
 interface Props {
   groups: OpenSpecGroup[];

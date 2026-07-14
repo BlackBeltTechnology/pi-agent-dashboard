@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Icon } from "@mdi/react";
-import { mdiChevronDown, mdiLoading, mdiStar, mdiStarOutline, mdiBrain, mdiEye, mdiRefresh } from "@mdi/js";
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiBrain, mdiChevronDown, mdiEye, mdiLoading, mdiRefresh, mdiStar, mdiStarOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../lib/i18n";
 

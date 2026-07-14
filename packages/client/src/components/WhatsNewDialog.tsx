@@ -12,23 +12,25 @@
  *
  * See change: pi-update-whats-new-panel.
  */
-import React, { useState, useMemo } from "react";
-import { Icon } from "@mdi/react";
+
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import type {
+  ChangelogBullet,
+  ChangelogRelease,
+  ChangelogResponse,
+} from "@blackbelt-technology/pi-dashboard-shared/changelog-types.js";
 import {
   mdiAlertCircleOutline,
+  mdiArrowUpBold,
   mdiChevronDown,
   mdiChevronRight,
   mdiOpenInNew,
-  mdiArrowUpBold,
 } from "@mdi/js";
-import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { MarkdownContent } from "./MarkdownContent.js";
-import type {
-  ChangelogResponse,
-  ChangelogRelease,
-  ChangelogBullet,
-} from "@blackbelt-technology/pi-dashboard-shared/changelog-types.js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useMemo, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { MarkdownContent } from "./MarkdownContent.js";
 
 export interface WhatsNewDialogProps {
   /** When false, the component renders nothing. */

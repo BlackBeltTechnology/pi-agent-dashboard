@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execSync } from "node:child_process";
 // One-time codemod: migrate `auto.*` codemod keys to structured domain keys.
 // - Harvests every referenced `auto.*` key + its English call-site fallback.
 // - Assigns a structured key (domain-rooted, camelCase leaf) deterministically.
@@ -8,7 +9,6 @@
 // Usage: node scripts/i18n-migrate-auto-keys.mjs [--write]
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
 
 const ROOT = process.cwd();
 const CLIENT = path.join(ROOT, "packages/client/src");

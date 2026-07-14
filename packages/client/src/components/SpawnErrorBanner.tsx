@@ -7,9 +7,10 @@
  *
  * See change: spawn-failure-diagnostics.
  */
+
+import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import React from "react";
 import type { SpawnErrorDetail } from "../hooks/useMessageHandler.js";
-import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { t as i18nT } from "../lib/i18n";
 
 interface HintEntry {

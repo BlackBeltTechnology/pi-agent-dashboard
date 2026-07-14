@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execSync } from "node:child_process";
 // Catalog-parity check (D6). Asserts that every key in the source key set
 // (union of all authored keys) exists in every non-source language catalog.
 // Source (`en`) is intentionally empty (English lives at call sites), so the
@@ -6,7 +7,6 @@
 // Exits non-zero on any gap so CI fails.
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
 
 const ROOT = process.cwd();
 

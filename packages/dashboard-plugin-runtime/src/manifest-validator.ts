@@ -2,17 +2,18 @@
  * Hand-rolled manifest validator (no Zod dependency).
  * Validates PluginManifest and PluginClaim objects.
  */
-import {
-  SLOT_DEFINITIONS,
-  VALID_SETTINGS_TABS,
-  type SlotId,
-  type SettingsTab,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
+
 import type {
-  PluginManifest,
   PluginClaim,
+  PluginManifest,
   PluginRequirements,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
+import {
+  type SettingsTab,
+  SLOT_DEFINITIONS,
+  type SlotId,
+  VALID_SETTINGS_TABS,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 
 export class ManifestValidationError extends Error {
   constructor(

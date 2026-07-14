@@ -16,23 +16,24 @@
  *
  * See change: render-skill-invocations-collapsibly.
  */
-import React, { useRef, useState, useCallback } from "react";
-import { Icon } from "@mdi/react";
+
+import type { SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import {
-  mdiContentCopy,
-  mdiTextBox,
-  mdiSourceFork,
-  mdiTools,
   mdiChevronDown,
   mdiChevronRight,
-  mdiSlashForward,
+  mdiContentCopy,
   mdiMessageOutline,
+  mdiSlashForward,
+  mdiSourceFork,
+  mdiTextBox,
+  mdiTools,
 } from "@mdi/js";
-import type { SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
-import { MarkdownContent } from "./MarkdownContent.js";
-import { CopyButton } from "./CopyButton.js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useRef, useState } from "react";
 import { formatMessageTime } from "../lib/format.js";
 import { t as i18nT } from "../lib/i18n";
+import { CopyButton } from "./CopyButton.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 
 interface Props {
   /** Parsed skill metadata stamped on the ChatMessage. */

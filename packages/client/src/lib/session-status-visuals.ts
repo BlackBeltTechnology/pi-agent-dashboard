@@ -14,7 +14,6 @@
  */
 
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { t } from "./i18n";
 import {
   mdiApplicationOutline,
   mdiCircle,
@@ -26,6 +25,7 @@ import {
   mdiInformationOutline,
   mdiRobotOutline,
 } from "@mdi/js";
+import { t } from "./i18n";
 
 export const statusColors: Record<string, string> = {
   active: "bg-[var(--status-idle)]",

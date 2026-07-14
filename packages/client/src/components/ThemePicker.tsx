@@ -1,10 +1,10 @@
-import React, { useState, useRef, useEffect } from "react";
+import { mdiCheck, mdiPalette } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiPalette, mdiCheck } from "@mdi/js";
-import { useThemeContext } from "./ThemeProvider.js";
-import { THEMES } from "../lib/themes.js";
+import React, { useEffect, useRef, useState } from "react";
 import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../lib/i18n";
+import { THEMES } from "../lib/themes.js";
+import { useThemeContext } from "./ThemeProvider.js";
 
 export function ThemePicker() {
   const { themeName, setThemeName, resolved } = useThemeContext();

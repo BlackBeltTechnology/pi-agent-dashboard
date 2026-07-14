@@ -1,6 +1,6 @@
-import React, { type ReactNode } from "react";
+import { mdiClose, mdiMenu } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiMenu, mdiClose } from "@mdi/js";
+import React, { type ReactNode } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 interface HamburgerProps {

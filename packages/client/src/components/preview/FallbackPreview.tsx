@@ -3,10 +3,11 @@
  * linking to `/api/file/raw`. For URL targets: "[Open in new tab]" linking to
  * the URL. See change: render-file-previews.
  */
-import React from "react";
+
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { rawUrl } from "./raw-url.js";
+import React from "react";
 import { t as i18nT } from "../../lib/i18n";
+import { rawUrl } from "./raw-url.js";
 
 interface Props {
   target: ViewTarget;

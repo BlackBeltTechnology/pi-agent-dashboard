@@ -10,20 +10,21 @@
  * Mounted in SettingsPanel providers tab after "LLM Providers" section.
  * See change: add-dashboard-model-proxy.
  */
-import React, { useState, useEffect, useCallback } from "react";
+
+import { mdiClipboardCheckOutline, mdiClose, mdiDragVertical, mdiPlus, mdiRefresh, mdiTrashCan } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiPlus, mdiTrashCan, mdiClipboardCheckOutline, mdiRefresh, mdiClose, mdiDragVertical } from "@mdi/js";
-import { ModelSelector } from "./ModelSelector.js";
-import {
-  listApiKeys,
-  createApiKey,
-  revokeApiKey,
-  deleteApiKey,
-  refreshRegistry,
-  type ProxyApiKeyEntry,
-  type CreateApiKeyResult,
-} from "../lib/model-proxy-api.js";
+import React, { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import {
+  type CreateApiKeyResult,
+  createApiKey,
+  deleteApiKey,
+  listApiKeys,
+  type ProxyApiKeyEntry,
+  refreshRegistry,
+  revokeApiKey,
+} from "../lib/model-proxy-api.js";
+import { ModelSelector } from "./ModelSelector.js";
 
 // ── Types ────────────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import type { SlotId, SettingsTab } from "./slot-types.js";
+import type { SettingsTab, SlotId } from "./slot-types.js";
 
 /**
  * A single slot claim in a plugin manifest.

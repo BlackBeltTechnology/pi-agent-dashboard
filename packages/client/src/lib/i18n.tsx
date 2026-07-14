@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import type React from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 export type Language = "en" | "zh-CN" | "hu";
 
@@ -1300,6 +1301,7 @@ const dictionaries: Record<Language, Record<string, string>> = {
  * structured keys. See ./i18n-legacy-aliases.
  */
 export { LEGACY_ALIASES } from "./i18n-legacy-aliases";
+
 import { LEGACY_ALIASES } from "./i18n-legacy-aliases";
 
 /**

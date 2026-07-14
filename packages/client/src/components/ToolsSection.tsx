@@ -5,30 +5,31 @@
  * Rendered inside the SettingsPanel General tab. Talks to /api/tools*.
  * See change: consolidate-tool-resolution (specs/tool-settings-ui).
  */
-import React, { useCallback, useEffect, useState } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { Icon } from "@mdi/react";
-import {
-  mdiCheck, mdiClose, mdiAlert, mdiRefresh, mdiChevronDown, mdiChevronRight,
-  mdiContentSaveEdit, mdiDownload, mdiBackspaceOutline,
-  mdiContentCopy, mdiOpenInNew,
+
+import {mdiAlert, mdiBackspaceOutline,
+  mdiCheck, mdiChevronDown, mdiChevronRight,mdiClose, 
+  mdiContentCopy, 
+  mdiContentSaveEdit, mdiDownload, mdiOpenInNew,mdiRefresh, 
 } from "@mdi/js";
-import type { Resolution, ToolListEntry, PlatformInstallHint } from "../lib/tools-api.js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useState } from "react";
+import { type HostPlatform, useHostPlatform } from "../hooks/useHostPlatform.js";
+import { getApiBase } from "../lib/api-context.js";
+import { copyText } from "../lib/clipboard.js";
+import { t as i18nT } from "../lib/i18n";
 import {
+  consumePendingToolInstall,
+  OPEN_TOOL_INSTALL_EVENT,
+} from "../lib/tool-install-deeplink.js";
+import type { PlatformInstallHint, Resolution, ToolListEntry } from "../lib/tools-api.js";
+import {
+  clearOverride,
+  downloadDiagnostics,
   fetchTools,
   rescanAll,
   rescanOne,
   setOverride,
-  clearOverride,
-  downloadDiagnostics,
 } from "../lib/tools-api.js";
-import { t as i18nT } from "../lib/i18n";
-import { useHostPlatform, type HostPlatform } from "../hooks/useHostPlatform.js";
-import { copyText } from "../lib/clipboard.js";
-import {
-  OPEN_TOOL_INSTALL_EVENT,
-  consumePendingToolInstall,
-} from "../lib/tool-install-deeplink.js";
 
 export function ToolsSection() {
   const [tools, setTools] = useState<ToolListEntry[]>([]);

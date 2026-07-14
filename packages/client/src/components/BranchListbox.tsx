@@ -8,8 +8,10 @@
  *
  * See change: worktree-base-branch-typeahead.
  */
-import React, { useEffect, useMemo, useRef } from "react";
+
 import type { GitBranchEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type React from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 export type DisplayItem =

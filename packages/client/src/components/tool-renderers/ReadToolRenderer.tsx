@@ -1,12 +1,12 @@
 import React from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { useThemeContext } from "../ThemeProvider.js";
-import { getSyntaxTheme } from "../../lib/syntax-theme.js";
-import type { ToolRendererProps } from "./types.js";
-import { OpenFileButton } from "./OpenFileButton.js";
-import { detectLanguage } from "./lang-detect.js";
-import { ToolResultImages } from "./ToolResultImages.js";
 import { t as i18nT } from "../../lib/i18n";
+import { getSyntaxTheme } from "../../lib/syntax-theme.js";
+import { useThemeContext } from "../ThemeProvider.js";
+import { detectLanguage } from "./lang-detect.js";
+import { OpenFileButton } from "./OpenFileButton.js";
+import { ToolResultImages } from "./ToolResultImages.js";
+import type { ToolRendererProps } from "./types.js";
 
 export function ReadToolRenderer({ args, status, result, images, context }: ToolRendererProps) {
   const { resolved: theme, themeName } = useThemeContext();

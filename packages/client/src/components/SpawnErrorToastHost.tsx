@@ -4,12 +4,12 @@
  * `spawn-error-toast-bus` singleton. See change: harden-worktree-spawn.
  */
 import React, { useEffect, useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import {
   dismissSpawnErrorToast,
-  subscribeSpawnErrorToasts,
   type SpawnErrorToastEntry,
+  subscribeSpawnErrorToasts,
 } from "../lib/spawn-error-toast-bus.js";
-import { t as i18nT } from "../lib/i18n";
 
 export function SpawnErrorToastHost() {
   const [entries, setEntries] = useState<ReadonlyArray<SpawnErrorToastEntry>>([]);

@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState, useId } from "react";
-import { useThemeContext } from "./ThemeProvider.js";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { useZoomPan } from "../hooks/useZoomPan.js";
-import { ZoomControls } from "./ZoomControls.js";
 import { t as i18nT } from "../lib/i18n";
+import { useThemeContext } from "./ThemeProvider.js";
+import { ZoomControls } from "./ZoomControls.js";
 
 let mermaidIdCounter = 0;
 

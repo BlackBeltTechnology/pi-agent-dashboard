@@ -18,16 +18,17 @@
  *
  * See change: rework-mid-turn-prompt-queue.
  */
-import { useState, useEffect, useRef } from "react";
-import Icon from "@mdi/react";
+
 import {
-  mdiChevronUp,
-  mdiChevronDown,
-  mdiPencilOutline,
-  mdiClose,
   mdiArrowCollapseUp,
+  mdiChevronDown,
+  mdiChevronUp,
+  mdiClose,
   mdiCloseCircleOutline,
+  mdiPencilOutline,
 } from "@mdi/js";
+import Icon from "@mdi/react";
+import { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

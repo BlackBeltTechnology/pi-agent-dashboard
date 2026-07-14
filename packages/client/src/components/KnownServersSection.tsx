@@ -2,12 +2,13 @@
  * Settings section for managing persisted known servers.
  * Shows the list with remove buttons and an inline add form.
  */
-import React, { useState, useEffect, useCallback } from "react";
-import { Icon } from "@mdi/react";
-import { mdiPlus, mdiClose, mdiCheck, mdiServerNetwork } from "@mdi/js";
+
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { listKnownServers, addKnownServer, removeKnownServer } from "../lib/known-servers-api.js";
+import { mdiCheck, mdiClose, mdiPlus, mdiServerNetwork } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { addKnownServer, listKnownServers, removeKnownServer } from "../lib/known-servers-api.js";
 
 interface KnownServersSectionProps {
   onChange?: () => void;

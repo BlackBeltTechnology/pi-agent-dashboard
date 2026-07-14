@@ -3,19 +3,20 @@
  * Handles three modes: Edit change (oldText/newText), Write change (all additions),
  * and git aggregate diff.
  */
-import React, { useState, useMemo, useEffect } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { Icon } from "@mdi/react";
-import { mdiCompare, mdiFileOutline, mdiViewSplitVertical, mdiViewSequential } from "@mdi/js";
-import { DiffView, DiffModeEnum } from "@git-diff-view/react";
-import { highlighter } from "@git-diff-view/lowlight";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { getSyntaxTheme } from "../lib/syntax-theme.js";
-import { useThemeContext } from "./ThemeProvider.js";
-import { RichDiff, getLang } from "./RichDiff.js";
+
 import type { FileChangeEvent, FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
-import type { FileSelection } from "./DiffFileTree.js";
+import { highlighter } from "@git-diff-view/lowlight";
+import { DiffModeEnum, DiffView } from "@git-diff-view/react";
+import { mdiCompare, mdiFileOutline, mdiViewSequential, mdiViewSplitVertical } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { getApiBase } from "../lib/api-context.js";
 import { t as i18nT } from "../lib/i18n";
+import { getSyntaxTheme } from "../lib/syntax-theme.js";
+import type { FileSelection } from "./DiffFileTree.js";
+import { getLang, RichDiff } from "./RichDiff.js";
+import { useThemeContext } from "./ThemeProvider.js";
 
 /** Map extension to Prism language for SyntaxHighlighter */
 const EXT_PRISM_MAP: Record<string, string> = {

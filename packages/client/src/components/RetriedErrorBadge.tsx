@@ -6,12 +6,13 @@
  * See change: collapse `ask_user` (and other) error→retry pairs into a
  * single line so the chat view does not look like a duplicated message.
  */
-import { useState } from "react";
-import { Icon } from "@mdi/react";
+
 import { mdiAlertCircleOutline, mdiChevronDown, mdiChevronRight } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import { useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import { ToolCallStep } from "./ToolCallStep.js";
 import type { ToolContext } from "./tool-renderers/index.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   toolName: string;

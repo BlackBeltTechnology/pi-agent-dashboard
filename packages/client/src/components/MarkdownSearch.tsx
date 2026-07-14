@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import Fuse from "fuse.js";
+import { mdiChevronDown, mdiChevronUp, mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiChevronUp, mdiChevronDown, mdiClose } from "@mdi/js";
+import Fuse from "fuse.js";
+import type React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 const HIGHLIGHT_CLASS = "markdown-search-highlight";

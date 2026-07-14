@@ -1,10 +1,11 @@
 /**
  * Hook to fetch session file diff data from the server.
  */
-import { useState, useCallback, useEffect } from "react";
+
+import type { SessionDiffResponse } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../lib/api-context.js";
 import { t } from "../lib/i18n";
-import type { SessionDiffResponse } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 
 export interface UseSessionDiffResult {
   data: SessionDiffResponse | null;

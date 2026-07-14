@@ -7,21 +7,22 @@
  * an inline manual-add form so users on the same LAN can still register
  * remote dashboards by IP.
  */
-import React, { useState, useCallback } from "react";
-import { Icon } from "@mdi/react";
-import {
-  mdiRefresh,
-  mdiPlus,
-  mdiCheck,
-  mdiClose,
-  mdiServerNetwork,
-  mdiAlertCircleOutline,
-} from "@mdi/js";
+
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DiscoveredServerInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { discoverServers, addKnownServer } from "../lib/known-servers-api.js";
-import { parseHostInput } from "../lib/parse-host-input.js";
+import {
+  mdiAlertCircleOutline,
+  mdiCheck,
+  mdiClose,
+  mdiPlus,
+  mdiRefresh,
+  mdiServerNetwork,
+} from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { addKnownServer, discoverServers } from "../lib/known-servers-api.js";
+import { parseHostInput } from "../lib/parse-host-input.js";
 
 interface Props {
   knownServers: KnownServer[];

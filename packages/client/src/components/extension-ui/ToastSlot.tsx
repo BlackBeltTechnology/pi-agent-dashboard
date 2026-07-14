@@ -13,10 +13,11 @@
  *
  * See change: add-extension-ui-decorations, design.md §6.
  */
-import React, { useEffect, useState, useMemo } from "react";
-import { Icon } from "@mdi/react";
-import { mdiCloseCircle, mdiCheckCircle, mdiAlertCircle, mdiInformation } from "@mdi/js";
+
 import type { DashboardSession, DecoratorDescriptor } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiAlertCircle, mdiCheckCircle, mdiCloseCircle, mdiInformation } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useMemo, useState } from "react";
 import { t as i18nT } from "../../lib/i18n";
 
 const DISPLAY_CAP = 5;

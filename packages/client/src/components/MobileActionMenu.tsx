@@ -1,31 +1,31 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Icon } from "@mdi/react";
+import type { DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
+  mdiArchiveOutline,
+  mdiCheckCircleOutline,
+  mdiChevronRight,
+  mdiClose,
+  mdiCompassOutline,
   mdiDotsVertical,
-  mdiPencilOutline,
   mdiEyeOffOutline,
   mdiEyeOutline,
-  mdiPlay,
-  mdiSourceFork,
-  mdiOpenInNew,
-  mdiClose,
-  mdiSourceBranch,
-  mdiLinkVariant,
-  mdiCompassOutline,
   mdiFastForward,
+  mdiLinkVariant,
+  mdiOpenInNew,
+  mdiPencilOutline,
+  mdiPlay,
   mdiPlayCircleOutline,
-  mdiCheckCircleOutline,
-  mdiArchiveOutline,
-  mdiChevronRight,
   mdiRefresh,
+  mdiSourceBranch,
+  mdiSourceFork,
 } from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useRef, useState } from "react";
 import type { DetectedEditor } from "../lib/editor-api.js";
+import { t as i18nT } from "../lib/i18n";
+import { DialogPortal } from "./DialogPortal.js";
 import { ExploreDialog } from "./ExploreDialog.js";
 import { NewChangeDialog } from "./NewChangeDialog.js";
-import { DialogPortal } from "./DialogPortal.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   session: DashboardSession;

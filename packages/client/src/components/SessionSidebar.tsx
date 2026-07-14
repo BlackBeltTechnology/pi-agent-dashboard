@@ -1,12 +1,12 @@
-import React, { useState, type ReactNode } from "react";
-import { useLocation } from "wouter";
-import { Icon } from "@mdi/react";
-import { mdiMonitor, mdiFlash, mdiTelevision, mdiWeb, mdiHelpCircle, mdiCog } from "@mdi/js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiCog, mdiFlash, mdiHelpCircle, mdiMonitor, mdiTelevision, mdiWeb } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { type ReactNode, useState } from "react";
+import { useLocation } from "wouter";
+import { t as i18nT } from "../lib/i18n";
 import { getSessionDisplayName } from "../lib/session-display-name.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
 import { PiLogo } from "./PiLogo.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   sessions: DashboardSession[];

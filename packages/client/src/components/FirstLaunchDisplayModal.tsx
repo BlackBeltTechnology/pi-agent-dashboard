@@ -11,10 +11,12 @@
  *
  * See change: configurable-chat-display, fix-first-launch-display-modal-stuck-on-mobile.
  */
-import React, { useState, useEffect, useCallback } from "react";
-import { DialogPortal } from "./DialogPortal.js";
+
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type React from "react";
+import { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { DialogPortal } from "./DialogPortal.js";
 
 type PresetKey = keyof typeof DISPLAY_PRESETS;
 

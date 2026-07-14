@@ -1,12 +1,12 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiCheckCircle, mdiFormTextbox, mdiImageMultiple } from "@mdi/js";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { InteractiveRendererProps } from "./types.js";
-import { InlineMarkdown } from "./InlineMarkdown.js";
-import { MarkdownContent } from "../MarkdownContent.js";
-import { InputComposer } from "./InputComposer.js";
+import { mdiCheckCircle, mdiFormTextbox, mdiImageMultiple } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
 import { t as i18nT } from "../../lib/i18n";
+import { MarkdownContent } from "../MarkdownContent.js";
+import { InlineMarkdown } from "./InlineMarkdown.js";
+import { InputComposer } from "./InputComposer.js";
+import type { InteractiveRendererProps } from "./types.js";
 
 export function InputRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;

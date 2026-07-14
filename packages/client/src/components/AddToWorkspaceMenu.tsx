@@ -3,8 +3,9 @@
  * "+ New workspace…" entry. Surfaced on the folder action bar.
  * See change: folder-workspaces.
  */
-import React, { useEffect, useRef } from "react";
+
 import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import React, { useEffect, useRef } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

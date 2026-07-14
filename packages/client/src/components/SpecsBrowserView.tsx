@@ -1,7 +1,8 @@
-import React, { useCallback } from "react";
-import { MarkdownPreviewView } from "./MarkdownPreviewView.js";
+import type React from "react";
+import { useCallback } from "react";
 import { useMainSpecsReader } from "../hooks/useMainSpecsReader.js";
 import { t as i18nT } from "../lib/i18n";
+import { MarkdownPreviewView } from "./MarkdownPreviewView.js";
 
 interface Props {
   cwd: string;

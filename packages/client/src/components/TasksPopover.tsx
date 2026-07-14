@@ -8,16 +8,17 @@
  *   ↑ / ↓    — move focus between checkboxes
  *   Space    — toggle focused checkbox (browser native behavior)
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DialogPortal } from "./DialogPortal.js";
+import type React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import {
-  fetchTasks,
   toggleTask as apiToggleTask,
+  fetchTasks,
   LineMismatchError,
   type OpenSpecTask,
   type TasksPayload,
 } from "../lib/openspec-tasks-api.js";
-import { t as i18nT } from "../lib/i18n";
+import { DialogPortal } from "./DialogPortal.js";
 
 interface Props {
   cwd: string;

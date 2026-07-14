@@ -15,10 +15,10 @@ import type { CommandInfo, DashboardSession, FileEntry, ModelInfo, OpenSpecData,
 import { useCallback, useEffect, useRef } from "react";
 import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/coalesce-live-events.js";
-import { t } from "../lib/i18n";
 import { isVisibleCwd } from "../lib/cwd-visibility.js";
 import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/event-reducer.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
+import { t } from "../lib/i18n";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/loading-history.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/recovery-offer-bus.js";
 import type { ReplayPersister } from "../lib/replay-persist.js";

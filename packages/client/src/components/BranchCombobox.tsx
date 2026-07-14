@@ -7,10 +7,12 @@
  *
  * See change: worktree-base-branch-typeahead.
  */
-import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+
 import type { GitBranchEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { BranchListbox, useBranchListboxKeyboard } from "./BranchListbox.js";
+import type React from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { BranchListbox, useBranchListboxKeyboard } from "./BranchListbox.js";
 
 interface Props {
   branches: GitBranchEntry[];

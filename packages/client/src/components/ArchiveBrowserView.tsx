@@ -1,16 +1,16 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
-import { Icon } from "@mdi/react";
+import type { OpenSpecArtifact, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiArrowLeft, mdiMagnify } from "@mdi/js";
-import { useArchiveListing, groupByDate, filterEntries } from "../hooks/useArchiveListing.js";
-import { ArtifactLetters } from "./openspec-helpers.js";
-import { MarkdownPreviewView } from "./MarkdownPreviewView.js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { ArchiveEntry } from "../hooks/useArchiveListing.js";
+import { filterEntries, groupByDate, useArchiveListing } from "../hooks/useArchiveListing.js";
 import { useOpenSpecReader } from "../hooks/useOpenSpecReader.js";
+import { t as i18nT } from "../lib/i18n";
+import { fetchGroups } from "../lib/openspec-groups-api.js";
+import { MarkdownPreviewView } from "./MarkdownPreviewView.js";
 import { OpenSpecGroupPills } from "./OpenSpecGroupPills.js";
 import { OpenSpecGroupSection } from "./OpenSpecGroupSection.js";
-import { fetchGroups } from "../lib/openspec-groups-api.js";
-import type { OpenSpecArtifact, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { ArchiveEntry } from "../hooks/useArchiveListing.js";
-import { t as i18nT } from "../lib/i18n";
+import { ArtifactLetters } from "./openspec-helpers.js";
 
 interface Props {
   cwd: string;

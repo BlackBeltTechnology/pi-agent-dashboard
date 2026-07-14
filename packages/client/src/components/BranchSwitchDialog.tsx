@@ -1,8 +1,8 @@
-import React, { useState } from "react";
-import { BranchPicker } from "./BranchPicker.js";
-import { checkoutBranch, stashPop, gitInit } from "../lib/git-api.js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import React, { useState } from "react";
+import { checkoutBranch, gitInit, stashPop } from "../lib/git-api.js";
 import { t as i18nT } from "../lib/i18n";
+import { BranchPicker } from "./BranchPicker.js";
 
 interface Props {
   cwd: string;

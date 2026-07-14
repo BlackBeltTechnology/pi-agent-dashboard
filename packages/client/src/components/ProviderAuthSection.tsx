@@ -2,26 +2,27 @@
  * Provider Authentication section for Settings panel.
  * OAuth login buttons + API key inputs for pi LLM providers.
  */
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { Icon } from "@mdi/react";
+
+import type { DeviceCodeResponse, ProviderAuthHandlerIdsResponse, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
+  mdiAlert,
+  mdiArrowRight,
+  mdiCheck,
+  mdiClockOutline,
+  mdiContentCopy,
+  mdiContentSave,
+  mdiDelete,
+  mdiKeyPlus,
+  mdiLoading,
   mdiLogin,
   mdiLogout,
-  mdiCheck,
-  mdiAlert,
-  mdiLoading,
-  mdiContentCopy,
-  mdiDelete,
-  mdiContentSave,
-  mdiClockOutline,
-  mdiArrowRight,
-  mdiKeyPlus,
 } from "@mdi/js";
-import type { ProviderAuthStatus, DeviceCodeResponse, ProviderAuthHandlerIdsResponse } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { Toast, useToast, type ToastVariant } from "./Toast.js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAsyncAction } from "../hooks/useAsyncAction.js";
+import { getApiBase } from "../lib/api-context.js";
 import { t as i18nT } from "../lib/i18n";
+import { Toast, type ToastVariant, useToast } from "./Toast.js";
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 

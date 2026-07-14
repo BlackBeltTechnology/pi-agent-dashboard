@@ -1,10 +1,11 @@
-import React, { useState, useCallback, useEffect, useMemo } from "react";
-import { Icon } from "@mdi/react";
-import { mdiPlus, mdiClose, mdiConsoleLine } from "@mdi/js";
-import { TerminalView } from "./TerminalView.js";
-import { InlineRenameInput } from "./InlineRenameInput.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import { mdiClose, mdiConsoleLine, mdiPlus } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { InlineRenameInput } from "./InlineRenameInput.js";
+import { TerminalView } from "./TerminalView.js";
 
 interface Props {
   cwd: string;

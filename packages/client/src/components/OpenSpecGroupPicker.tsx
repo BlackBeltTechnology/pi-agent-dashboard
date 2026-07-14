@@ -4,10 +4,11 @@
  *
  * See change: add-openspec-change-grouping (task 6.3).
  */
-import React, { useEffect, useRef, useState } from "react";
+
 import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { resolveGroupColor, GROUP_PALETTE } from "../lib/openspec-group-palette.js";
+import React, { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { GROUP_PALETTE, resolveGroupColor } from "../lib/openspec-group-palette.js";
 
 interface Props {
   groups: OpenSpecGroup[];

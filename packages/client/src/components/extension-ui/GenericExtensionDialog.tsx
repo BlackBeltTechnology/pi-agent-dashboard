@@ -18,14 +18,15 @@
  * touches the WebSocket directly. The parent (App.tsx) closes it via
  * `onClose`.
  */
-import React, { useCallback, useEffect, useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiClose } from "@mdi/js";
-import type { ExtensionUiModule, UiAction, UiField, UiSection, UiView } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { DialogPortal } from "../DialogPortal.js";
+
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
-import { resolveMdiIcon } from "../../lib/mdi-icon-lookup.js";
+import type { ExtensionUiModule, UiAction, UiField, UiSection, UiView } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiClose } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../../lib/i18n";
+import { resolveMdiIcon } from "../../lib/mdi-icon-lookup.js";
+import { DialogPortal } from "../DialogPortal.js";
 
 interface Props {
   module: ExtensionUiModule;

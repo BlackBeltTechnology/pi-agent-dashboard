@@ -8,9 +8,10 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
+
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import React, { useEffect, useState } from "react";
 import { fetchWorktreeDiffStat, mergeWorktree } from "../lib/git-api.js";
-import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {

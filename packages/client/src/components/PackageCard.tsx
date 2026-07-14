@@ -1,17 +1,17 @@
-import React from "react";
-import { Icon } from "@mdi/react";
+import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
-  mdiPuzzleOutline,
   mdiBookOpenPageVariant,
-  mdiPaletteOutline,
-  mdiTextBoxOutline,
-  mdiDownload,
   mdiCheck,
   mdiDelete,
-  mdiUpdate,
+  mdiDownload,
   mdiLoading,
+  mdiPaletteOutline,
+  mdiPuzzleOutline,
+  mdiTextBoxOutline,
+  mdiUpdate,
 } from "@mdi/js";
-import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { Icon } from "@mdi/react";
+import React from "react";
 import type { PackageOperationStatus } from "../hooks/usePackageOperations.js";
 import { t as i18nT } from "../lib/i18n";
 

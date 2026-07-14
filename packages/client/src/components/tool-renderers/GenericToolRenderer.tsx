@@ -1,8 +1,8 @@
 import React from "react";
-import type { ToolRendererProps } from "./types.js";
+import { t as i18nT } from "../../lib/i18n";
 import { LinkifiedText } from "./LinkifiedText.js";
 import { ToolResultImages } from "./ToolResultImages.js";
-import { t as i18nT } from "../../lib/i18n";
+import type { ToolRendererProps } from "./types.js";
 
 /**
  * Fallback renderer: shows raw JSON args and tool output.

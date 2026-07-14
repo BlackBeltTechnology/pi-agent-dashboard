@@ -24,15 +24,17 @@
  * See change: fix-pi-flows-end-to-end (Group 5 — global roles refactor).
  * See change: defer-role-persistence-with-save-reload.
  */
-import React, { useState, useEffect } from "react";
+
+import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
+  useAllSessions,
   usePluginConfig,
   usePluginSend,
-  useAllSessions,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { useUiPrimitive, useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { isValidRoleName } from "@blackbelt-technology/pi-dashboard-shared/role-name-validation.js";
+import type React from "react";
+import { useEffect, useState } from "react";
 
 interface ModelInfo {
   provider: string;

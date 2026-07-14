@@ -1,8 +1,8 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
 import { mdiCheckCircle, mdiTextBoxEdit } from "@mdi/js";
-import type { InteractiveRendererProps } from "./types.js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
 import { t as i18nT } from "../../lib/i18n";
+import type { InteractiveRendererProps } from "./types.js";
 
 export function EditorRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;

@@ -1,9 +1,9 @@
-import React from "react";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { PathPicker } from "./PathPicker.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
-import { inferPlatform } from "../lib/session-grouping.js";
+import React from "react";
 import { t as i18nT } from "../lib/i18n";
+import { inferPlatform } from "../lib/session-grouping.js";
+import { PathPicker } from "./PathPicker.js";
 
 interface Props {
   onPin: (path: string) => void;

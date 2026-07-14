@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { Icon } from "@mdi/react";
 import { mdiAlert, mdiClose, mdiContentCopy, mdiStop } from "@mdi/js";
-import { CopyButton } from "./CopyButton";
-import { t as i18nT } from "../lib/i18n";
+import { Icon } from "@mdi/react";
+import { useState } from "react";
 import type { BannerState } from "../lib/event-reducer.js";
+import { t as i18nT } from "../lib/i18n";
+import { CopyButton } from "./CopyButton";
 
 export type { BannerState } from "../lib/event-reducer.js";
 
