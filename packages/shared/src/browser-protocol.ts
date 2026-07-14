@@ -259,6 +259,12 @@ export interface ResumeResultBrowserMessage {
    * `message`. See change: fix-fork-empty-session-silent-timeout.
    */
   code?: string;
+  /**
+   * Interpolation variables for the client-side translation of `code`
+   * (`err.<domain>.<code>`). Additive; ignored by old clients.
+   * See change: make-all-ui-text-i18n.
+   */
+  vars?: Record<string, string | number>;
 }
 
 export interface SpawnResultBrowserMessage {
@@ -270,6 +276,10 @@ export interface SpawnResultBrowserMessage {
   requestId?: string;
   /** Spawned process PID when known (headless strategies); informational. */
   pid?: number;
+  /** Stable failure classifier for client translation. Additive. See change: make-all-ui-text-i18n. */
+  code?: string;
+  /** Interpolation vars for `err.<domain>.<code>`. Additive. */
+  vars?: Record<string, string | number>;
 }
 
 /**
@@ -316,6 +326,8 @@ export interface SpawnErrorMessage {
   code?: SpawnFailureCode;
   /** Preflight failure reasons. Only set when code === "PREFLIGHT_FAILED". See change: spawn-failure-diagnostics. */
   reasons?: PreflightReason[];
+  /** Interpolation vars for `err.<domain>.<code>`. Additive. See change: make-all-ui-text-i18n. */
+  vars?: Record<string, string | number>;
 }
 
 /**
@@ -1026,6 +1038,10 @@ export interface ForceKillResultMessage {
   sessionId: string;
   success: boolean;
   message?: string;
+  /** Stable failure classifier for client translation. Additive. See change: make-all-ui-text-i18n. */
+  code?: string;
+  /** Interpolation vars for `err.<domain>.<code>`. Additive. */
+  vars?: Record<string, string | number>;
 }
 
 export interface ProcessListUpdateMessage {

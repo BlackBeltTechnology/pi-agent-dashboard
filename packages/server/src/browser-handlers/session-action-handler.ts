@@ -272,7 +272,7 @@ export async function handleResumeSession(
   const { ws, sessionManager, pendingForkRegistry, headlessPidRegistry, pendingDashboardSpawns, pendingResumeIntents, pendingClientCorrelations, sendTo } = ctx;
   const session = sessionManager.get(msg.sessionId);
   if (!session) {
-    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session not found", requestId: msg.requestId });
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session not found", code: "resume.session_not_found", requestId: msg.requestId });
     return;
   }
   // Resolve placement intent. Old browsers omit the field; default to
@@ -281,15 +281,15 @@ export async function handleResumeSession(
   // See change: differentiate-resume-intent-by-trigger.
   const placement: "front" | "keep" = msg.placement ?? "front";
   if (!session.sessionFile) {
-    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session file is unknown (pre-migration session)", requestId: msg.requestId });
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session file is unknown (pre-migration session)", code: "resume.session_file_unknown", requestId: msg.requestId });
     return;
   }
   if (msg.mode === "continue" && session.status !== "ended") {
-    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already active", requestId: msg.requestId });
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already active", code: "resume.already_active", requestId: msg.requestId });
     return;
   }
   if (session.resuming) {
-    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already being resumed", requestId: msg.requestId });
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already being resumed", code: "resume.already_resuming", requestId: msg.requestId });
     return;
   }
   // Fork preflight: silent-degrade when the source session has no on-disk
@@ -671,7 +671,7 @@ export async function handleForceKill(
   const { sessionManager, piGateway, headlessPidRegistry, broadcast, sendTo, ws, metaPersistence } = ctx;
   const session = sessionManager.get(msg.sessionId);
   if (!session) {
-    sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: false, message: "Session not found" });
+    sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: false, message: "Session not found", code: "resume.session_not_found" });
     return;
   }
 

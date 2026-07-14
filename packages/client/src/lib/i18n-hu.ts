@@ -2,6 +2,22 @@
 // Hungarian catalog covering the full post-migration key set. Machine-seeded;
 // grouped by structured key for human review.
 export const huCatalog: Record<string, string> = {
+  // --- err.* Zone-3 server/extension code map (see task 4.5) ---
+  "err.preflight_failed": "Indítás előtti ellenőrzés sikertelen",
+  "err.spawn_errno": "A folyamat indítása sikertelen",
+  "err.dir_missing": "A könyvtár nem létezik",
+  "err.pi_not_found": "A pi futtatható fájl nem található",
+  "err.win_pi_cmd_only": "Windowson csak a pi.cmd támogatott",
+  "err.wt_missing": "A Windows Terminal (wt) nem található",
+  "err.tmux_missing": "A tmux nem található",
+  "err.pi_crashed": "A pi munkamenet indítás után azonnal összeomlott",
+  "err.register_timeout": "A munkamenet regisztrációja időtúllépést okozott",
+  "err.fork_degraded_to_new": "Nem sikerült elágaztatni — helyette új munkamenet indult",
+  "err.git.not_a_repo": "Nem git tároló",
+  "err.resume.session_not_found": "A munkamenet nem található",
+  "err.resume.session_file_unknown": "A munkamenet fájlja ismeretlen (migráció előtti munkamenet)",
+  "err.resume.already_active": "A munkamenet már aktív",
+  "err.resume.already_resuming": "A munkamenet már folytatódik",
   "command.afterTurn": "kör után",
   "command.attach": "Csatolás",
   "command.attachFile": "Fájl csatolása",
