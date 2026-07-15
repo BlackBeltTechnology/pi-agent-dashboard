@@ -38,22 +38,27 @@ const CSP_META = `<meta http-equiv="Content-Security-Policy" content="${AUTO_OPE
  * `iframe srcDoc` render enforces it. Inserted immediately after `<head>` when
  * present (so it is the first policy the parser sees), else at the very top of
  * the document (a `<meta>` before any markup still applies to the whole doc).
- * Idempotent: a document that already carries this exact meta is returned
- * unchanged.
+ * Idempotent for OUR OWN repeated calls: the skip check is POSITION-specific
+ * (our exact meta already at the insertion point), NOT a substring search of
+ * the whole document — so attacker-controlled policy text embedded elsewhere
+ * (e.g. inside a comment or script) can NEVER trick the guard into skipping
+ * injection. And since our meta is inserted FIRST (right after `<head>` /
+ * leading `<!DOCTYPE>` / top), CSP's multiple-policy intersection means ours is
+ * always enforced even if the document carries its own (possibly permissive)
+ * CSP meta later.
  */
 export function withRestrictiveCsp(html: string): string {
-  if (html.includes(AUTO_OPEN_DOC_CSP)) return html;
+  // Insertion point: after <head>; else after a leading <!DOCTYPE> (so the meta
+  // never precedes the doctype → quirks mode); else the very top.
+  let idx = 0;
   const headMatch = /<head\b[^>]*>/i.exec(html);
   if (headMatch) {
-    const idx = headMatch.index + headMatch[0].length;
-    return html.slice(0, idx) + CSP_META + html.slice(idx);
+    idx = headMatch.index + headMatch[0].length;
+  } else {
+    const doctypeMatch = /<!doctype[^>]*>/i.exec(html);
+    if (doctypeMatch && doctypeMatch.index === 0) idx = doctypeMatch[0].length;
   }
-  // No <head>: insert AFTER a leading <!DOCTYPE> so the meta never precedes the
-  // doctype (which would trigger quirks mode). Prepend only when no doctype.
-  const doctypeMatch = /<!doctype[^>]*>/i.exec(html);
-  if (doctypeMatch && doctypeMatch.index === 0) {
-    const idx = doctypeMatch[0].length;
-    return html.slice(0, idx) + CSP_META + html.slice(idx);
-  }
-  return CSP_META + html;
+  // Skip ONLY when our exact meta already sits at the insertion point.
+  if (html.startsWith(CSP_META, idx)) return html;
+  return html.slice(0, idx) + CSP_META + html.slice(idx);
 }

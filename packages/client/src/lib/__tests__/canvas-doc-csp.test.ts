@@ -41,4 +41,19 @@ describe("withRestrictiveCsp", () => {
     const once = withRestrictiveCsp("<head></head>");
     expect(withRestrictiveCsp(once)).toBe(once);
   });
+
+  it("is NOT bypassed by the policy string embedded in attacker content", () => {
+    // The exact policy text sits in a comment (and a permissive CSP meta lurks
+    // later) — the position-specific guard must still inject OUR meta first.
+    const html = `<head><!-- ${AUTO_OPEN_DOC_CSP} --><meta http-equiv="Content-Security-Policy" content="default-src *"><img src="http://attacker/beacon"></head>`;
+    const out = withRestrictiveCsp(html);
+    // Our restrictive meta is injected right after <head>, before the attacker's.
+    const ourIdx = out.indexOf(CSP_META_MARKER);
+    expect(ourIdx).toBeGreaterThan(-1);
+    expect(ourIdx).toBeLessThan(out.indexOf("default-src *"));
+    expect(out.indexOf(CSP_META_MARKER)).toBe(out.indexOf("<head>") + "<head>".length);
+  });
 });
+
+// The exact injected meta tag (marker for the regression test above).
+const CSP_META_MARKER = `<meta http-equiv="Content-Security-Policy" content="${AUTO_OPEN_DOC_CSP}">`;
