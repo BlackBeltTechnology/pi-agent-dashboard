@@ -26,6 +26,7 @@ const KIND_LABELS: Record<CanvasKind, string> = {
   markdown: "Markdown",
   asciidoc: "AsciiDoc",
   docx: "Word (docx)",
+  pptx: "PowerPoint (pptx)",
   spreadsheet: "Spreadsheet",
   html: "HTML",
   pdf: "PDF",
