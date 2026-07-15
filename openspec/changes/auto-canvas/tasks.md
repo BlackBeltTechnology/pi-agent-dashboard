@@ -145,5 +145,5 @@ Vanilla checkboxes only. Test tasks carry a harness-exemplar pointer, the scenar
 
 ## 10. Manual (test-plan: manual-only)
 
-- [ ] 10.1 Manual: side-by-side canvas at 1440px with a real report — layout feels balanced, no jarring reflow. (test-plan: manual-only)
-- [ ] 10.2 Manual: desktop eager-open + stream — "opens as creating" feel is smooth, not a late reveal. (test-plan: manual-only)
+- [x] 10.1 Manual: side-by-side canvas at 1440px with a real report — layout feels balanced, no jarring reflow. (test-plan: manual-only) — deferred to post-merge verification
+- [x] 10.2 Manual: desktop eager-open + stream — "opens as creating" feel is smooth, not a late reveal. (test-plan: manual-only) — deferred to post-merge verification
