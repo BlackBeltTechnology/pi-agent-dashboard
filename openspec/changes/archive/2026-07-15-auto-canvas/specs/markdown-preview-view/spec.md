@@ -37,6 +37,8 @@ auto-open replaces chat directly (it has room to return via the back affordance)
 - **WHEN** the user dismisses the preview
 - **THEN** the preview SHALL be hidden and the chat surfaces restored
 
+## ADDED Requirements
+
 ### Requirement: Canvas state is per-session and coexists with existing previews
 
 The canvas SHALL have its own per-session state restored on session re-select. It SHALL COEXIST
