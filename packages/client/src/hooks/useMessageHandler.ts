@@ -145,6 +145,12 @@ export interface MessageHandlerDeps {
    * See change: reduce-session-replay-traffic.
    */
   replayPersister?: ReplayPersister;
+  /**
+   * Show a global toast. Used for `auto_name_error` (bridge could not
+   * auto-name a session). Optional for back-compat / lean test contexts.
+   * See change: add-auto-session-naming.
+   */
+  showToast?: (text: string, variant?: "error" | "success" | "info") => void;
 }
 
 export function useMessageHandler(
@@ -158,7 +164,10 @@ export function useMessageHandler(
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setViewMessagesMap, setLoadingHistory,
   } = setters;
-  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayPersister } = deps;
+  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayPersister, showToast } = deps;
+  // One-shot per session: suppress a repeat auto-name toast for the same
+  // session id. See change: add-auto-session-naming.
+  const autoNameToastedRef = useRef<Set<string>>(new Set());
 
   // Phase 3 (change: reduce-chat-render-cpu-umbrella): live `event` bursts
   // arrive one-per-WS-frame in separate macrotasks, so React 18 automatic
@@ -649,6 +658,20 @@ export function useMessageHandler(
           clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId);
         } else {
           rearmLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId, HYDRATE_CEILING_MS);
+        }
+        break;
+      }
+
+      case "auto_name_error": {
+        // Bridge could not auto-name a session (e.g. @fast unconfigured).
+        // One-shot per session so a hard-config error toasts only once.
+        // See change: add-auto-session-naming.
+        if (!autoNameToastedRef.current.has(msg.sessionId)) {
+          autoNameToastedRef.current.add(msg.sessionId);
+          showToast?.(
+            t("session.autoNameError", { reason: msg.reason }, `Couldn't auto-name session: ${msg.reason}`),
+            "error",
+          );
         }
         break;
       }

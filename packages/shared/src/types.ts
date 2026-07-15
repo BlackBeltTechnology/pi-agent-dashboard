@@ -63,6 +63,12 @@ export interface DashboardSession {
   id: string;
   cwd: string;
   name?: string;
+  /**
+   * Provenance of the current name. `"auto"` = bridge auto-naming; `"user"` =
+   * a dashboard or in-pi rename. Absent = never named. Drives the auto-naming
+   * lockout. See change: add-auto-session-naming.
+   */
+  nameSource?: "auto" | "user";
   source: SessionSource;
   status: SessionStatus;
   model?: string;

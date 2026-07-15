@@ -389,6 +389,15 @@ export function wireEvents(deps: EventWiringDeps): void {
       }
     }
 
+    // Push the current auto-naming preference to the freshly-registered bridge
+    // so it gates naming on the right value from its first turn (config push,
+    // register arm). Change arm is the PATCH route broadcast.
+    // See change: add-auto-session-naming.
+    piGateway.sendToSession(sessionId, {
+      type: "preferences_update",
+      autoNameSessions: preferencesStore.getAutoNameSessions(),
+    });
+
     // NOTE: goal-driver linking moved to the onEvent `session_register` branch
     // (after `linkByToken`) so the strong token→goalId path can run — the
     // registry entry's `sessionId` is only set by `linkByToken`, which fires
@@ -1471,9 +1480,26 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "session_name_update") {
-      const nameUpdates = { name: msg.name || undefined };
+      // Persist provenance when the bridge attributes the change (auto-name or
+      // an in-pi rename it did not originate). Absent → keep existing provenance.
+      // See change: add-auto-session-naming.
+      const nameUpdates = msg.nameSource
+        ? { name: msg.name || undefined, nameSource: msg.nameSource }
+        : { name: msg.name || undefined };
       sessionManager.update(sessionId, nameUpdates);
       browserGateway.broadcastSessionUpdated(sessionId, nameUpdates);
+    }
+
+    if (msg.type === "auto_name_error") {
+      // Forward the bridge's one-shot auto-naming failure to browser
+      // subscribers as a toast, and log one diagnostic line so "why unnamed"
+      // is answerable from the server log. See change: add-auto-session-naming.
+      console.error(`[dashboard] auto_name_error session=${sessionId}: ${msg.reason}`);
+      browserGateway.sendToSubscribers(sessionId, {
+        type: "auto_name_error",
+        sessionId,
+        reason: msg.reason,
+      });
     }
 
     if (msg.type === "spawn_new_session") {

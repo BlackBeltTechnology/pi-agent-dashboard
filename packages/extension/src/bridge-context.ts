@@ -191,6 +191,30 @@ export function extractFirstMessage(ctx: any): string | undefined {
   return undefined;
 }
 
+/**
+ * Extract the first assistant reply text from session entries. Used to build
+ * the bounded transcript window fed to the auto-naming summarizer.
+ * See change: add-auto-session-naming.
+ */
+export function extractFirstAssistantReply(ctx: any): string | undefined {
+  try {
+    const entries = ctx?.sessionManager?.getEntries?.();
+    if (!entries || !Array.isArray(entries)) return undefined;
+    for (const entry of entries) {
+      if (entry.role !== "assistant") continue;
+      if (typeof entry.content === "string") return entry.content.slice(0, 2000);
+      if (Array.isArray(entry.content)) {
+        let text = "";
+        for (const part of entry.content) {
+          if (part?.type === "text" && typeof part.text === "string") text += part.text;
+        }
+        if (text) return text.slice(0, 2000);
+      }
+    }
+  } catch { /* ignore */ }
+  return undefined;
+}
+
 /** Get current model string (provider/id) from cached context */
 export function getCurrentModelString(bc: BridgeContext): string | undefined {
   const model = bc.cachedCtx?.model;

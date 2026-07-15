@@ -775,8 +775,20 @@ export interface RecoveryDismissMessage {
   sessionIds: string[];
 }
 
+/**
+ * Server → browser: automatic session naming failed for `sessionId`. Forwarded
+ * from the bridge's `auto_name_error`; the client renders a one-shot toast
+ * ("Couldn't auto-name session: <reason>"). See change: add-auto-session-naming.
+ */
+export interface AutoNameErrorBrowserMessage {
+  type: "auto_name_error";
+  sessionId: string;
+  reason: string;
+}
+
 export type ServerToBrowserMessage =
   | ServerRestartingMessage
+  | AutoNameErrorBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
   | SessionAddedMessage

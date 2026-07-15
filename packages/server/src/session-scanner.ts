@@ -65,6 +65,9 @@ function sessionFromMeta(
     id: sessionId,
     cwd: meta.cwd ?? "",
     name: meta.name,
+    // Restore name provenance so the auto-naming lockout survives restarts.
+    // See change: add-auto-session-naming.
+    nameSource: meta.nameSource,
     source: (meta.source as SessionSource) ?? "tui",
     status: (meta.status as DashboardSession["status"]) ?? "ended",
     model: meta.model,
