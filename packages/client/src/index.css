@@ -151,6 +151,25 @@
   border-radius: inherit;
 }
 
+/* ── Clickable-cursor restore (Tailwind v4) ──────────────────────
+   Tailwind v4 Preflight dropped the v3 default of `cursor: pointer` on
+   <button>, so native buttons render the arrow cursor on hover. Restore
+   pointer for every enabled push-target app-wide (client + all plugin
+   client bundles + dialogs/modals share this stylesheet's DOM). Disabled
+   controls keep the default arrow. Base layer so explicit `cursor-*`
+   utilities (e.g. cursor-not-allowed on a loading button) still win. */
+@layer base {
+  button:not(:disabled):not([aria-disabled="true"]),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  summary,
+  label:has(> input[type="checkbox"]:not(:disabled)),
+  label:has(> input[type="radio"]:not(:disabled)),
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 html, body {
   overscroll-behavior: none;
 }
