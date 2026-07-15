@@ -17,7 +17,7 @@ import { getApiBase } from "../lib/api-context.js";
 import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
 import { type BlockEvent, getBlockEvents } from "../lib/gateway-api.js";
 import { suggestTrustEntries } from "../lib/gateway-config-ops.js";
-import { fetchAutoInitWorktreePref, setAutoInitWorktreePref } from "../lib/git-api.js";
+import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../lib/git-api.js";
 import { t as i18nT } from "../lib/i18n";
 import { LANGUAGE_OPTIONS, type Language, useI18n } from "../lib/i18n.js";
 import { type TestProviderResult, testProvider } from "../lib/providers-api.js";
@@ -1091,6 +1091,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     </p>
                   </div>
                   <div>
+                    <AutoNameSessionsToggle />
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic using the fast model.")}
+                    </p>
+                  </div>
+                  <div>
                     <WorktreeAutoInitToggle />
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                       {i18nT("worktree.afterSpawningAWorktreeAutoRun", undefined, "After spawning a worktree, automatically run its declared")} <code>worktreeInit</code> {i18nT("common.hookOnlyWhenAlreadyTrusted", undefined, "hook — only when the hook is already trusted. Untrusted hooks still require a manual Initialize click to grant trust. Default off.")}
@@ -1579,6 +1585,36 @@ function WorktreeAutoInitToggle() {
   return (
     <ToggleField
       label={i18nT("worktree.initializeOnWorktree", undefined, "Initialize on worktree")}
+      value={draft}
+      onChange={setDraft}
+    />
+  );
+}
+
+// ── Auto-name sessions toggle (add-auto-session-naming) ───────────────────
+// Self-contained, mirrors WorktreeAutoInitToggle: reads the preference on
+// mount, persists on the unified Save. Fail-safe to ON (the default).
+function AutoNameSessionsToggle() {
+  const [baseline, setBaseline] = useState<boolean | null>(null);
+  const [draft, setDraft] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    void fetchAutoNameSessionsPref().then((v) => { if (alive) { setBaseline(v); setDraft(v); } });
+    return () => { alive = false; };
+  }, []);
+  const isDirty = baseline !== null && draft !== baseline;
+  const draftRef = useRef(draft); draftRef.current = draft;
+  const baseRef = useRef(baseline); baseRef.current = baseline;
+  const commit = useCallback(async () => {
+    const persisted = await setAutoNameSessionsPref(draftRef.current);
+    setBaseline(persisted);
+    setDraft(persisted);
+  }, []);
+  const reset = useCallback(() => { if (baseRef.current !== null) setDraft(baseRef.current); }, []);
+  useSettingsDraftSource({ id: "auto-name-sessions", page: "sessions", isDirty, commit, reset });
+  return (
+    <ToggleField
+      label={i18nT("settings.autoNameSessions", undefined, "Auto-name sessions")}
       value={draft}
       onChange={setDraft}
     />

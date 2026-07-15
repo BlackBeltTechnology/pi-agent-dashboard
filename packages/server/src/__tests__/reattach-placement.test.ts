@@ -45,6 +45,8 @@ function makePrefs(): PreferencesStore {
     getDisplayPrefs: () => undefined,
     getOpenSpecUpdateSignature: () => undefined,
     getAutoInitWorktreeOnSpawn: () => false,
+    getAutoNameSessions: () => true,
+    setAutoNameSessions: () => {},
     getLiveServers: () => [],
     setLiveServers: () => {},
     setAutoInitWorktreeOnSpawn: () => {},

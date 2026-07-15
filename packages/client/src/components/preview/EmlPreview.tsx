@@ -292,10 +292,10 @@ function AttachmentRow({ target, att }: { target: FileTarget; att: AttachmentMet
             <div className="text-[var(--text-muted)] p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>
           ) : att.mimeType === "application/pdf" ? (
             <Suspense fallback={<div className="text-[var(--text-muted)] p-2">{i18nT("status.loadingPdfViewer", undefined, "Loading PDF viewer…")}</div>}>
-              <PdfPreview target={target} src={blobUrl} />
+              <PdfPreview target={target} srcUrl={blobUrl} />
             </Suspense>
           ) : (
-            <ImagePreview target={target} src={blobUrl} />
+            <ImagePreview target={target} srcUrl={blobUrl} />
           )}
         </div>
       )}

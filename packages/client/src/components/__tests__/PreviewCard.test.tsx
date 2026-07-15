@@ -89,6 +89,31 @@ describe("PreviewCard", () => {
     expect(getByText("Open in new tab")).toBeTruthy();
   });
 
+  it("dispatches docx renderer for .docx files", () => {
+    const target: ViewTarget = { kind: "file", cwd: "/x", path: "spec.docx" };
+    const { getByTestId } = wrap(<PreviewCard target={target} />);
+    expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("docx");
+  });
+
+  it("dispatches spreadsheet renderer for .xlsx and .csv files", () => {
+    for (const path of ["data.xlsx", "export.csv"]) {
+      const target: ViewTarget = { kind: "file", cwd: "/x", path };
+      const { getByTestId } = wrap(<PreviewCard target={target} />);
+      expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("spreadsheet");
+      cleanup();
+    }
+  });
+
+  it("a URL target ending .docx renders FallbackPreview, no crash (test-plan #6)", () => {
+    // dispatch maps the .docx URL to kind "docx", but PreviewBody guards
+    // target.kind !== "file" and degrades to FallbackPreview.
+    const target: ViewTarget = { kind: "url", url: "https://example.com/report.docx" };
+    const { getByTestId, container } = wrap(<PreviewCard target={target} />);
+    expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("docx");
+    // Fallback for a URL target renders an "Open in new tab" link, not a docx body.
+    expect(container.querySelector('a[href="https://example.com/report.docx"]')).toBeTruthy();
+  });
+
   it("expand button navigates to file-view overlay route", () => {
     const target: ViewTarget = { kind: "file", cwd: "/home/u/proj", path: "doc.md" };
     const loc = memoryLocation({ path: "/", record: true }) as any;

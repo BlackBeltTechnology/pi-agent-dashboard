@@ -16,14 +16,14 @@ interface Props {
   /** `inline` = capped card image (default); `full` = pan/zoom editor tab. */
   variant?: "inline" | "full";
   /** Override the image URL (e.g. a `blob:` URL for an EML attachment). */
-  src?: string;
+  srcUrl?: string;
 }
 
-export function ImagePreview({ target, variant = "inline", src }: Props) {
-  if (variant === "full") return <FullImage target={target} src={src} />;
+export function ImagePreview({ target, variant = "inline", srcUrl }: Props) {
+  if (variant === "full") return <FullImage target={target} srcUrl={srcUrl} />;
   return (
     <img
-      src={src ?? rawUrl(target)}
+      src={srcUrl ?? rawUrl(target)}
       alt={target.path}
       className="max-h-[40vh] max-w-full object-contain"
     />
@@ -31,7 +31,7 @@ export function ImagePreview({ target, variant = "inline", src }: Props) {
 }
 
 /** Full-tab image with pan/zoom + zoom controls (ex-`ImageViewer`). */
-function FullImage({ target, src }: Props) {
+function FullImage({ target, srcUrl }: Props) {
   const { t } = useI18n();
   const { state, handlers, zoomIn, zoomOut, reset } = useZoomPan();
   const [failed, setFailed] = useState(false);
@@ -52,7 +52,7 @@ function FullImage({ target, src }: Props) {
         style={{ cursor: "grab", touchAction: "none" }}
       >
         <img
-          src={src ?? rawUrl(target)}
+          src={srcUrl ?? rawUrl(target)}
           alt={target.path}
           onError={() => setFailed(true)}
           draggable={false}
