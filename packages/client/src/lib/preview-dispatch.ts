@@ -9,15 +9,16 @@
  * detector shares ONE table (see change: auto-canvas). Re-exported here so
  * existing client imports keep working.
  */
-import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 import {
   extOf,
   RENDERER_BY_EXT,
   type RendererKind,
 } from "@blackbelt-technology/pi-dashboard-shared/renderer-by-ext.js";
+import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-export { RENDERER_BY_EXT };
 export type { RendererKind };
+export { RENDERER_BY_EXT };
 
 const YOUTUBE_HOSTS = new Set([
   "youtube.com",

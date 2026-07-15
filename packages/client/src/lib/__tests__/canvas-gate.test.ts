@@ -3,12 +3,13 @@
  * Sections 6–7). Pins the responsive viewport gate (S23–S25) and the
  * two-phase per-session state reducer (S26/S27).
  */
-import { describe, expect, it } from "vitest";
+
 import type {
   CanvasIntentMessage,
   CanvasServerChipMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
 import {
   canvasViewportTier,
   classifyServerProbe,

@@ -5,6 +5,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearchParams } from "wouter";
 import { ArchiveBrowserView } from "./components/ArchiveBrowserView.js";
+import { CanvasDriver } from "./components/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/ChatView.js";
 import { ChatViewMenu } from "./components/ChatViewMenu.js";
 import { CommandInput } from "./components/CommandInput.js";
@@ -41,8 +42,6 @@ import { SessionSplitView, SplitRouteSync } from "./components/SessionSplitView.
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
 import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
-import { CanvasDriver } from "./components/CanvasDriver.js";
-import { EMPTY_CANVAS_STATE } from "./lib/canvas-gate.js";
 import { SplitWorkspaceProvider } from "./components/SplitWorkspaceContext.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { TerminalsView } from "./components/TerminalsView.js";
@@ -66,6 +65,7 @@ import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/auto-init-worktree.js";
+import { EMPTY_CANVAS_STATE } from "./lib/canvas-gate.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/draft-storage.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through

@@ -21,7 +21,6 @@
  * See change: add-kb-folder-slot.
  */
 
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -32,6 +31,7 @@ import {
   SqliteFtsStore,
   validateConfig,
 } from "@blackbelt-technology/pi-dashboard-kb";
+import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { KbConfigPatch, KbReindexResult, KbStats } from "../shared/kb-plugin-types.js";
 import type { KbJobRegistry } from "./job-registry.js";

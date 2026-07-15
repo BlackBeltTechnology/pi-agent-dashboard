@@ -2,11 +2,11 @@
  * Detect classifier + selector (Decision 2). Scenarios S1–S5, S7, S8.
  * See change: auto-canvas.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
+  type CanvasCandidate,
   detectCanvasIntent,
   selectCanvasTarget,
-  type CanvasCandidate,
 } from "../canvas-detect.js";
 
 const doc = (path: string): CanvasCandidate => {

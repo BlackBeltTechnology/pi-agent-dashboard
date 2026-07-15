@@ -2,7 +2,7 @@
  * canvas() declare normalization (Decision 5). Scenarios S13, S14, S15, S33.
  * See change: auto-canvas.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   normalizeCanvasDeclare,
   validateCanvasDeclareShape,

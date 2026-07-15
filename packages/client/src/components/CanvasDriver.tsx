@@ -18,8 +18,8 @@
 import { isLoopbackUrl } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import { useEffect, useRef } from "react";
 import { useCanvasTier } from "../hooks/useCanvasTier.js";
-import { t as i18nT } from "../lib/i18n";
 import { type CanvasState, gateAllowsAutoOpen } from "../lib/canvas-gate.js";
+import { t as i18nT } from "../lib/i18n";
 import { CanvasServerChip } from "./CanvasServerChip.js";
 import { useSplitWorkspace } from "./SplitWorkspaceContext.js";
 

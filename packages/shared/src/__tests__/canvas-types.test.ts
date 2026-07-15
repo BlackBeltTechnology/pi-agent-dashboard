@@ -3,9 +3,9 @@
  * S18, S19, S20, S22. (S21 read-fresh is server wiring — see the server test.)
  * See change: auto-canvas.
  */
-import { describe, it, expect } from "vitest";
-import { mergeCanvasTypes, DEFAULT_CANVAS_TYPES } from "../canvas-types.js";
+import { describe, expect, it } from "vitest";
 import { detectCanvasIntent, selectCanvasTarget } from "../canvas-detect.js";
+import { DEFAULT_CANVAS_TYPES, mergeCanvasTypes } from "../canvas-types.js";
 
 describe("canvas-type registry", () => {
   it("S18 — absent config auto-canvases every kind (all-on default)", () => {

@@ -15,9 +15,10 @@
  *
  * See change: auto-canvas (Decision 2).
  */
+
+import { type CanvasTypes, DEFAULT_CANVAS_TYPES } from "./canvas-types.js";
+import { type RendererKind, rendererKindForPath } from "./renderer-by-ext.js";
 import type { ViewTarget } from "./types.js";
-import { rendererKindForPath, type RendererKind } from "./renderer-by-ext.js";
-import { DEFAULT_CANVAS_TYPES, type CanvasTypes } from "./canvas-types.js";
 
 export type CanvasPriority = "DECLARE" | "DOC";
 

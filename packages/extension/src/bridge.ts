@@ -24,12 +24,12 @@ import {
   persistAttachment,
 } from "./ask-user-attachments.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
-import { registerCanvasTool } from "./canvas-tool.js";
+import { type AutoNamer, createAutoNamer, type StreamSimpleFn } from "./auto-session-namer.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstAssistantReply, extractFirstMessage, filterHiddenCommands, getCurrentModelString } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
+import { registerCanvasTool } from "./canvas-tool.js";
 import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
-import { type AutoNamer, createAutoNamer, type StreamSimpleFn } from "./auto-session-namer.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager } from "./connection.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";

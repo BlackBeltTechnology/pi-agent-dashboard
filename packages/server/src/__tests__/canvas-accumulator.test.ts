@@ -6,17 +6,18 @@
  * (settle+reset), S11 (aborted turn no leak), S12 (queue_state skip), S16
  * (last declare wins), S21 (settings read-fresh, no cache).
  */
+
+import {
+  type CanvasTypes,
+  DEFAULT_CANVAS_TYPES,
+} from "@blackbelt-technology/pi-dashboard-shared/canvas-types.js";
+import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type CanvasAccumulator,
   type CanvasForwardedEvent,
   createCanvasAccumulator,
 } from "../canvas-accumulator.js";
-import {
-  DEFAULT_CANVAS_TYPES,
-  type CanvasTypes,
-} from "@blackbelt-technology/pi-dashboard-shared/canvas-types.js";
-import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 const CWD = "/proj";
 

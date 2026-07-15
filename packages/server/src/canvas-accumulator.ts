@@ -19,16 +19,17 @@
  *
  * See change: auto-canvas.
  */
-import {
-  type CanvasCandidate,
-  detectCanvasIntent,
-  selectCanvasTarget,
-} from "@blackbelt-technology/pi-dashboard-shared/canvas-detect.js";
+
 import {
   type CanvasDeclareInput,
   type CanvasMode,
   normalizeCanvasDeclare,
 } from "@blackbelt-technology/pi-dashboard-shared/canvas-declare.js";
+import {
+  type CanvasCandidate,
+  detectCanvasIntent,
+  selectCanvasTarget,
+} from "@blackbelt-technology/pi-dashboard-shared/canvas-detect.js";
 import type { CanvasTypes } from "@blackbelt-technology/pi-dashboard-shared/canvas-types.js";
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 

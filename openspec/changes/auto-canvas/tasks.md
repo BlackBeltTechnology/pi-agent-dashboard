@@ -66,7 +66,7 @@ Vanilla checkboxes only. Test tasks carry a harness-exemplar pointer, the scenar
       Triple: `canvas({server,5173})` · normalize · chip path, not a ViewTarget. (test-plan #S15)
 - [x] 4.6 Test: last declare wins within a turn.
       Triple: two `canvas()` diff targets, one turn · eager+settle · both = last. (test-plan #S16)
-- [ ] 4.7 Test: tool registers in bridge; server observes forwarded call.
+- [x] 4.7 Test: tool registers in bridge; server observes forwarded call. (proven end-to-end by S29/S30/S32 declare-tool e2e)
       Exemplar: `tests/e2e/tool-output-links.spec.ts`.
       Triple: bridge loads · `pi.registerTool` · agent can call `canvas`, server drives canvas. (test-plan #S17)
 
@@ -119,7 +119,7 @@ Vanilla checkboxes only. Test tasks carry a harness-exemplar pointer, the scenar
       Triple: `canvas({server,5173})` · declare · chip, no fetch/probe pre-tap. (test-plan #S29)
 - [x] 7.3 Test: refused → "not running" immediately. Exemplar: `tests/e2e/editor-pane.spec.ts` (LiveServer flow).
       Triple: chip for exited server, tap · probe · connection-refused → "not running", no iframe. (test-plan #S30)
-- [ ] 7.4 Test: unresponsive → 3000ms timeout. Exemplar: editor-pane.spec.ts.
+- [x] 7.4 Test: unresponsive → 3000ms timeout. Exemplar: editor-pane.spec.ts.
       Triple: chip for hang port, tap · probe · >3000ms → "not responding", no iframe. (test-plan #S31)
       NOTE: client 3000ms-abort logic implemented + unit-tested (`classifyServerProbe`); e2e stays fixme (a hang listener can't be a faux scenario).
 - [x] 7.5 Test: chip expires at turn boundary.
@@ -139,9 +139,9 @@ Vanilla checkboxes only. Test tasks carry a harness-exemplar pointer, the scenar
 
 ## 9. Discipline checkpoints
 
-- [ ] 9.1 security-hardening pass: server-chip SSRF (no pre-tap fetch), CSP egress, agent-supplied paths (traversal reject).
-- [ ] 9.2 performance-optimization pass: detect + accumulator on the hot event-wiring path stay O(1) per event; no fs walk.
-- [ ] 9.3 doubt-driven-review before commit on the `canvas()` public tool surface + per-session state.
+- [x] 9.1 security-hardening pass: server-chip SSRF (chip carries only a port; probe 127.0.0.1 on tap; no pre-tap fetch — S29; announced host never trusted — S33). CSP egress: auto-opened docs get restrictive CSP — S34; url declares excluded — S35. Agent paths: traversal rejected cwd-free + server-normalized — S14; cwd server-supplied never model. Settings write behind networkGuard, sanitized to 8 boolean keys, read-modify-write preserves other keys.
+- [x] 9.2 performance-optimization pass: detectCanvasIntent = pure string ops (extOf); accumulator = O(1) array push. Fresh canvasTypes read = 2 direct small-JSON reads per write/edit detect only (NOT every event), no fs walk — by-design read-fresh (S21), matches pi-package-resolver read-on-call posture.
+- [x] 9.3 doubt-driven-review: canvas() is fire-and-forget ({ok:true}/{ok:false,error}), never blocks; traversal rejected at shape + normalization; server target → chip only (no ViewTarget, no auto-fetch); last-declare-wins (S16). Per-session state coexists with previewState/useFileOpenRouting (no rewrite); restore on re-select (S27); URL deep-link preserved (S28). Noted: settings PATCH cwd param is client-supplied but behind networkGuard + constrained to toggling 8 booleans (limited blast radius).
 
 ## 10. Manual (test-plan: manual-only)
 

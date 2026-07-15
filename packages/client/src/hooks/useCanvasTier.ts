@@ -9,9 +9,10 @@
  * Shared by `CanvasDriver` (gate the eager-open) and `SessionSplitView` (drive
  * the tablet replace-chat layout) so both read ONE tier source of truth.
  */
+
+import type { ViewportTier } from "../lib/canvas-gate.js";
 import { useMediaQuery } from "./useMediaQuery.js";
 import { useMobile } from "./useMobile.js";
-import type { ViewportTier } from "../lib/canvas-gate.js";
 
 export function useCanvasTier(): ViewportTier {
   const isMobile = useMobile();

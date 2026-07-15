@@ -13,7 +13,7 @@ import type {
   CanvasTypes,
 } from "@blackbelt-technology/pi-dashboard-shared/canvas-types.js";
 import { NON_FALLBACK_KINDS } from "@blackbelt-technology/pi-dashboard-shared/renderer-by-ext.js";
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   type CanvasTypesResponse,
   type CanvasTypesScope,

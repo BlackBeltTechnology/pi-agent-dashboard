@@ -5,14 +5,15 @@
  *
  * See change: improve-content-editor (tasks §4.3).
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, cleanup, waitFor } from "@testing-library/react";
+
+import { cleanup, render, waitFor } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api-context.js", () => ({ getApiBase: () => "" }));
 
-import { viewerRegistry } from "../viewer-registry.js";
 import { ThemeProvider } from "../../ThemeProvider.js";
+import { viewerRegistry } from "../viewer-registry.js";
 
 const originalFetch = globalThis.fetch;
 

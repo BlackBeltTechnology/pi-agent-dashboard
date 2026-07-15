@@ -13,14 +13,15 @@
  *
  * See change: preserve-session-order-on-reboot.
  */
-import { describe, it, expect, beforeEach } from "vitest";
-import { createPendingResumeIntentRegistry } from "../pending-resume-intent-registry.js";
-import { createSessionOrderManager } from "../session-order-manager.js";
-import { applyReattachPolicy } from "../reattach-placement.js";
-import { createMemorySessionManager } from "../memory-session-manager.js";
+
 import type { ReattachPlacement } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { BrowserGateway } from "../browser-gateway.js";
+import { createMemorySessionManager } from "../memory-session-manager.js";
+import { createPendingResumeIntentRegistry } from "../pending-resume-intent-registry.js";
+import type { PreferencesStore } from "../preferences-store.js";
+import { applyReattachPolicy } from "../reattach-placement.js";
+import { createSessionOrderManager } from "../session-order-manager.js";
 
 // In-memory PreferencesStore mock matching the slice of the interface
 // `sessionOrderManager` consumes.

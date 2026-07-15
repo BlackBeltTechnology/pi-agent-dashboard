@@ -17,9 +17,10 @@
  *
  * See change: auto-canvas.
  */
-import type { ViewTarget } from "./types.js";
-import { rendererKindForPath, type RendererKind } from "./renderer-by-ext.js";
+
 import type { CanvasCandidate } from "./canvas-detect.js";
+import { type RendererKind, rendererKindForPath } from "./renderer-by-ext.js";
+import type { ViewTarget } from "./types.js";
 
 export type CanvasMode = "replace" | "pin" | "section";
 

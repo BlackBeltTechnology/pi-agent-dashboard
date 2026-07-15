@@ -22,6 +22,7 @@ import { t as i18nT } from "../lib/i18n";
 import { LANGUAGE_OPTIONS, type Language, useI18n } from "../lib/i18n.js";
 import { type TestProviderResult, testProvider } from "../lib/providers-api.js";
 import { buildPiResourceFileUrl } from "../lib/route-builders.js";
+import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { DialogPortal } from "./DialogPortal.js";
 import { InstructionsPage } from "./DirectorySettings/InstructionsPage.js";
@@ -42,7 +43,6 @@ import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import type { ResourceType } from "./ResourceCardGrid.js";
 import { ResourceGridPanel } from "./ResourceGridPanel.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
-import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { UnifiedPackagesSection } from "./UnifiedPackagesSection.js";
 
 interface ProviderConfig {

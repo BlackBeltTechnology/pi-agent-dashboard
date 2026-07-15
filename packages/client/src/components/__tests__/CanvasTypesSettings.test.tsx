@@ -2,8 +2,7 @@
  * Component + selector tests for the canvas-type registry settings section.
  * See change: auto-canvas (task 5.2).
  */
-import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
-import React from "react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { displayedCanvasTypes } from "../../lib/canvas-types-api.js";
 import { CanvasTypesSettingsSection } from "../CanvasTypesSettingsSection.js";

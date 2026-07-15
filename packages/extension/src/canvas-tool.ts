@@ -17,8 +17,9 @@
  * Registered at runtime (session_start) like `ask_user` to avoid static
  * tool-name conflicts.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
 import { validateCanvasDeclareShape } from "@blackbelt-technology/pi-dashboard-shared/canvas-declare.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 export function registerCanvasTool(pi: ExtensionAPI): void {
