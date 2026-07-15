@@ -14,9 +14,9 @@
  * absolute-outside-cwd) is returned unchanged.
  */
 
-/** Posix `/` or Windows `C:\` / `C:/` drive-absolute. */
+/** Posix `/`, Windows `\`-rooted / UNC `\\server\share`, or `C:\` / `C:/` drive-absolute. */
 function isAbsolutePath(p: string): boolean {
-  return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p);
+  return p.startsWith("/") || p.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(p);
 }
 
 /**

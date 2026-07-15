@@ -40,6 +40,16 @@ describe("normalizeUnderCwd", () => {
     );
   });
 
+  it("treats a backslash-rooted / UNC path as absolute", () => {
+    // Under a drive-letter cwd a UNC path is outside cwd → unchanged (not
+    // mistaken for a relative path and left un-normalized elsewhere).
+    expect(normalizeUnderCwd("\\\\server\\share\\a.ts", "C:\\Users\\me\\proj")).toBe(
+      "\\\\server\\share\\a.ts",
+    );
+    // A `\`-rooted path under a matching `\`-rooted cwd normalizes.
+    expect(normalizeUnderCwd("\\proj\\src\\a.ts", "\\proj")).toBe("src/a.ts");
+  });
+
   it("returns the raw path when cwd is missing", () => {
     expect(normalizeUnderCwd("/Users/me/proj/src/a.ts", undefined)).toBe(
       "/Users/me/proj/src/a.ts",
