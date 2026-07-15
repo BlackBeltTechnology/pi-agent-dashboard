@@ -31,14 +31,11 @@ Preview is derived from the unified `gitDiff` already cached on `FileDiffEntry`:
 - **Coexists with the shipped `File` mode.** `DiffPanel` already has `viewMode: "diff" | "file"` where `File` fetches the *whole* file from `/api/session-file` (change `fix-session-diff-open-nongit-and-preview`, tested in `DiffPanelPreview.test.tsx`). Preview is a third, offline, changed-regions view. The toggle labels (`Diff` / `File` / `Preview`) distinguish them. This overlap is an accepted trade-off (user chose the diff-derived Preview knowingly).
 - No server round-trip, no new endpoint. When `gitDiff` is absent (non-git, summed per-turn deltas) or unparseable (binary "Binary files differ" → zero hunks), the `Preview` control is disabled. Mode is component-local `useState`, not persisted.
 
-## D5 — Residual "not on disk" bottom group
+## D5 — Other-changes bottom group
 
-The workspace tree is readdir-driven, so two classes of change cannot be marked inline:
+The server **skips pure deletions** (`session-diff.ts:195`) and marks every `data.files` row `previewable` (on disk via `/api/session-file`), so there are no not-on-disk session-owned rows — a deleted-files subsection would always be empty and is dropped.
 
-- **Deleted** session-owned files (not on disk).
-- `otherChanges` (working-tree changes this session did not make; may be outside expanded roots or deleted).
-
-Both render in a muted, collapsed group at the **bottom of the rail's scroll region** (the last block inside the tree's scroll container — "bottom of content", not a sticky overlay). `EditorFileTree` already consumes the diff (D1), so it renders this group after the tree nodes: a deleted-files subsection (session-owned, `changes` present, absent from `data.files` on-disk set) and the existing `otherChanges` subsection. The `this session only` toggle hides the `otherChanges` rows.
+That leaves `otherChanges` (working-tree changes this session did not make), which render as a muted, collapsed group at the **bottom of the rail's scroll region** (the last block inside the tree's scroll container — "bottom of content", not a sticky overlay). `EditorFileTree` already consumes the diff (D1), so it renders this group after the tree nodes as a flat path list (tree expansion irrelevant). The `this session only` toggle hides it. This mirrors `DiffFileTree`'s existing other-changes group, relocated to the merged tree.
 
 ## D6 — `openChanges()` invariant corrected
 

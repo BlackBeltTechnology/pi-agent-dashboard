@@ -46,8 +46,14 @@ export function EditorPane() {
     changedFiles,
     clearChanged,
     changesRevealSignal,
+    openDiffTab,
   } = useSplitWorkspace();
   const [treeVisible, setTreeVisible] = useTreeVisible(sessionId);
+  // Rail-local `this session only` (D3 — NOT lifted to context; that would
+  // break the FileDiffView takeover, which renders DiffFileTree outside the
+  // SplitWorkspaceProvider). Shared by the summary bar + the tree's other-
+  // changes group; ephemeral, resets each mount.
+  const [sessionOnly, setSessionOnly] = useState(false);
 
   // openChanges() (the Changed Files chip) bumps changesRevealSignal to request
   // the Changes rail. The tree rail defaults to collapsed (change:
@@ -210,14 +216,16 @@ export function EditorPane() {
             <div className="shrink-0 flex min-h-0 flex-col" style={{ width: railWidth }}>
               {/* Changes section pinned atop the project-tree rail (change:
                   add-change-summary-table). Absent when no changes. */}
-              <ChangesRailSection activePath={activePath} />
+              <ChangesRailSection sessionOnly={sessionOnly} onSessionOnlyChange={setSessionOnly} />
               <div className="min-h-0 flex-1 overflow-hidden">
                 <EditorFileTree
                   cwd={cwd}
                   treeOpenRoots={state.treeOpenRoots}
                   onToggleRoot={(relPath) => dispatch({ type: "toggleTreeRoot", relPath })}
                   onOpenFile={(relPath) => openInSplit(relPath)}
+                  onOpenDiff={(relPath) => openDiffTab(relPath)}
                   activePath={activePath}
+                  sessionOnly={sessionOnly}
                 />
               </div>
             </div>

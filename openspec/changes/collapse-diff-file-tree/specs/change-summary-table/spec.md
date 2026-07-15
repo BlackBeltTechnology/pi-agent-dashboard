@@ -8,7 +8,7 @@ A session-owned changed file that is currently visible in the tree SHALL show a 
 
 A directory row whose subtree contains a session-owned changed file SHALL show a change dot, derived from the changed-file path list by prefix (no additional directory fetch), so changes inside collapsed directories remain discoverable. The tree SHALL NOT auto-expand to reveal changed files.
 
-Session-owned changes that cannot appear inline in the readdir-based tree — **deleted** files and working-tree changes this session did not make (`otherChanges`) — SHALL render in a muted, collapsed group at the bottom of the rail's scroll region; the `this session only` toggle SHALL hide the `otherChanges` rows. No `this session only` or view-mode state SHALL persist across sessions; tree expansion SHALL retain its existing persistence, and this change SHALL add no new persisted state.
+Working-tree changes this session did not make (`otherChanges`) SHALL render as a muted, collapsed group at the bottom of the rail's scroll region; the `this session only` toggle SHALL hide it. No `this session only` or view-mode state SHALL persist across sessions; tree expansion SHALL retain its existing persistence, and this change SHALL add no new persisted state.
 
 #### Scenario: Changed files marked inline in the workspace tree
 - **WHEN** the editor pane rail mounts for a session that has changes
@@ -31,10 +31,10 @@ Session-owned changes that cannot appear inline in the readdir-based tree — **
 - **WHEN** a changed file has more than one recorded change event
 - **THEN** its row SHALL offer an expander that reveals the per-event `✏️/📝` rows
 
-#### Scenario: Deleted and other changes appear in the bottom group
-- **WHEN** the session has deleted session-owned files or working-tree changes it did not make
+#### Scenario: Other changes appear in the bottom group
+- **WHEN** the session has working-tree changes it did not make (`otherChanges`)
 - **THEN** they SHALL render in a muted, collapsed group at the bottom of the rail's scroll region
-- **AND** enabling the `this session only` toggle SHALL hide the non-session (`otherChanges`) rows
+- **AND** enabling the `this session only` toggle SHALL hide that group
 
 #### Scenario: openChanges reveals the rail
 - **WHEN** `openChanges()` fires

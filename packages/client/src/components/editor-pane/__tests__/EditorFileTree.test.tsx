@@ -7,12 +7,28 @@
  *
  * See change: improve-content-editor (tasks §2.2).
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, fireEvent, within } from "@testing-library/react";
-import React from "react";
+
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api-context.js", () => ({ getApiBase: () => "" }));
 
+// Controllable shared-diff data for the changed-file-marker tests. Inert for
+// the pre-existing tests (they render EditorFileTree without a provider, so
+// useOptionalSessionDiff() returns null regardless of this mock).
+const diffHolder = vi.hoisted(() => ({
+  diff: null as import("@blackbelt-technology/pi-dashboard-shared/diff-types.js").SessionDiffResponse | null,
+}));
+vi.mock("../../../hooks/useSessionDiff.js", () => ({
+  useSessionDiff: () => ({ data: diffHolder.diff, isLoading: false, error: null, refresh: () => {} }),
+}));
+
+import type {
+  FileDiffEntry,
+  SessionDiffResponse,
+} from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import { SessionDiffProvider } from "../../SessionDiffContext.js";
 import { EditorFileTree } from "../EditorFileTree.js";
 
 type Entry = { name: string; isDir: boolean };
@@ -207,6 +223,167 @@ describe("EditorFileTree — copy-path popup (copy-file-path)", () => {
     expect(() =>
       fireEvent.click(within(row).getByRole("menuitem", { name: /Copy full path/ })),
     ).not.toThrow();
+  });
+});
+
+describe("EditorFileTree — changed-file markers (collapse-diff-file-tree)", () => {
+  const base = {
+    isGitRepo: true,
+    files: [] as FileDiffEntry[],
+  };
+  function renderWithDiff(
+    diff: SessionDiffResponse,
+    props: Partial<React.ComponentProps<typeof EditorFileTree>> = {},
+  ) {
+    diffHolder.diff = diff;
+    return render(
+      <SessionDiffProvider sessionId="s1">
+        <EditorFileTree
+          cwd="/proj"
+          treeOpenRoots={props.treeOpenRoots ?? []}
+          onToggleRoot={props.onToggleRoot ?? vi.fn()}
+          onOpenFile={props.onOpenFile ?? vi.fn()}
+          onOpenDiff={props.onOpenDiff}
+          activePath={null}
+          sessionOnly={props.sessionOnly}
+        />
+      </SessionDiffProvider>,
+    );
+  }
+
+  it("(E3) status indicator: write→+, edit→●, tool→●", async () => {
+    dirs["."] = [
+      { name: "w.ts", isDir: false },
+      { name: "e.ts", isDir: false },
+      { name: "t.ts", isDir: false },
+    ];
+    renderWithDiff({
+      ...base,
+      files: [
+        { path: "w.ts", origin: "write", changes: [{ type: "write", timestamp: 1 }], additions: 3, deletions: 0 },
+        { path: "e.ts", origin: "edit", changes: [{ type: "edit", timestamp: 1 }], additions: 2, deletions: 1 },
+        { path: "t.ts", origin: "tool", changes: [{ type: "tool", timestamp: 1 }], additions: 4, deletions: 0 },
+      ],
+    });
+    const rowOf = async (name: string) =>
+      (await screen.findByText(name)).closest("[data-row]") as HTMLElement;
+    expect(within(await rowOf("w.ts")).getByTestId("status-added")).toBeTruthy();
+    expect(within(await rowOf("e.ts")).getByTestId("status-modified")).toBeTruthy();
+    expect(within(await rowOf("t.ts")).getByTestId("status-modified")).toBeTruthy();
+  });
+
+  it("(E4) folder dot marks an ancestor of a changed file, not an unrelated dir", async () => {
+    dirs["."] = [
+      { name: "packages", isDir: true },
+      { name: "qa", isDir: true },
+    ];
+    renderWithDiff({
+      ...base,
+      files: [{ path: "packages/server/src/a.ts", changes: [{ type: "edit", timestamp: 1 }] }],
+    });
+    const pkg = (await screen.findByText("packages")).closest("[data-row]") as HTMLElement;
+    const qa = (await screen.findByText("qa")).closest("[data-row]") as HTMLElement;
+    expect(within(pkg).getByTestId("folder-dot")).toBeTruthy();
+    expect(within(qa).queryByTestId("folder-dot")).toBeNull();
+  });
+
+  it("(F2) row name → onOpenFile, diff chip → onOpenDiff", async () => {
+    dirs["."] = [{ name: "a.ts", isDir: false }];
+    const onOpenFile = vi.fn();
+    const onOpenDiff = vi.fn();
+    renderWithDiff(
+      { ...base, files: [{ path: "a.ts", changes: [{ type: "edit", timestamp: 1 }], additions: 1, deletions: 0 }] },
+      { onOpenFile, onOpenDiff },
+    );
+    const row = (await screen.findByText("a.ts")).closest("[data-row]") as HTMLElement;
+    fireEvent.click(screen.getByText("a.ts"));
+    expect(onOpenFile).toHaveBeenCalledWith("a.ts", expect.anything());
+    fireEvent.click(within(row).getByTestId("open-diff-chip"));
+    expect(onOpenDiff).toHaveBeenCalledWith("a.ts");
+  });
+
+  it("(F3) multi-event file expands to its change history", async () => {
+    dirs["."] = [{ name: "a.ts", isDir: false }];
+    renderWithDiff({
+      ...base,
+      files: [
+        {
+          path: "a.ts",
+          changes: [
+            { type: "edit", timestamp: 1, message: "first" },
+            { type: "write", timestamp: 2, message: "second" },
+          ],
+        },
+      ],
+    });
+    const row = (await screen.findByText("a.ts")).closest("[data-row]") as HTMLElement;
+    expect(screen.queryAllByTestId("change-event-row")).toHaveLength(0);
+    fireEvent.click(within(row).getByTestId("event-expander"));
+    expect(screen.queryAllByTestId("change-event-row")).toHaveLength(2);
+    fireEvent.click(within(row).getByTestId("event-expander"));
+    expect(screen.queryAllByTestId("change-event-row")).toHaveLength(0);
+  });
+
+  it("(F4) other-changes group renders and hides under this-session-only", async () => {
+    dirs["."] = [{ name: "README.md", isDir: false }];
+    const diff: SessionDiffResponse = {
+      ...base,
+      files: [],
+      otherChanges: [{ path: "vendor/x.ts", changes: [{ type: "tool", timestamp: 1 }] }],
+    };
+    const { rerender } = renderWithDiff(diff, { sessionOnly: false });
+    const group = await screen.findByTestId("other-changes-group");
+    expect(within(group).getByText(/other working-tree changes/i)).toBeTruthy();
+    rerender(
+      <SessionDiffProvider sessionId="s1">
+        <EditorFileTree
+          cwd="/proj"
+          treeOpenRoots={[]}
+          onToggleRoot={vi.fn()}
+          onOpenFile={vi.fn()}
+          activePath={null}
+          sessionOnly={true}
+        />
+      </SessionDiffProvider>,
+    );
+    expect(screen.queryByTestId("other-changes-group")).toBeNull();
+  });
+
+  it("(F7) no auto-expand: a changed file in a collapsed dir shows no row, only a folder dot", async () => {
+    dirs["."] = [{ name: "src", isDir: true }];
+    dirs["src"] = [{ name: "a.ts", isDir: false }];
+    renderWithDiff({
+      ...base,
+      files: [{ path: "src/a.ts", changes: [{ type: "edit", timestamp: 1 }] }],
+    });
+    const src = (await screen.findByText("src")).closest("[data-row]") as HTMLElement;
+    expect(within(src).getByTestId("folder-dot")).toBeTruthy();
+    expect(screen.queryByText("a.ts")).toBeNull();
+  });
+
+  it("(X1) no diff provider → tree renders with zero markers, no throw", async () => {
+    dirs["."] = [{ name: "a.ts", isDir: false }];
+    render(
+      <EditorFileTree
+        cwd="/proj"
+        treeOpenRoots={[]}
+        onToggleRoot={vi.fn()}
+        onOpenFile={vi.fn()}
+        activePath={null}
+      />,
+    );
+    await screen.findByText("a.ts");
+    expect(screen.queryByTestId("status-added")).toBeNull();
+    expect(screen.queryByTestId("status-modified")).toBeNull();
+  });
+
+  it("(X2) path-map miss → plain unmarked row, no crash", async () => {
+    dirs["."] = [{ name: "a.ts", isDir: false }];
+    renderWithDiff({ ...base, files: [{ path: "other.ts", changes: [{ type: "edit", timestamp: 1 }] }] });
+    const row = (await screen.findByText("a.ts")).closest("[data-row]") as HTMLElement;
+    expect(within(row).queryByTestId("status-added")).toBeNull();
+    expect(within(row).queryByTestId("status-modified")).toBeNull();
+    expect(within(row).queryByTestId("open-diff-chip")).toBeNull();
   });
 });
 

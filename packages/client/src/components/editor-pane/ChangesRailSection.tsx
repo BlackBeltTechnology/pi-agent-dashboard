@@ -1,83 +1,72 @@
 /**
- * ChangesRailSection — the changed-files "Changes" section pinned atop the
- * editor-pane project-tree rail (change: add-change-summary-table).
- *
- * Reads the shared `SessionDiffProvider` (one fetch per session, design D5),
- * renders the merged roll-up header + per-file rows via `DiffFileTree`, and
- * opens a file's diff as a `diff:` viewer tab on row select. Collapsible with
- * its own scroll; expands + scrolls into view when `openChanges()` fires
- * (via the context `changesRevealSignal`). Absent when the session has no
- * changes.
+ * ChangesRailSection — slim summary bar pinned atop the editor-pane rail
+ * (change: collapse-diff-file-tree). Replaces the old standalone `DiffFileTree`
+ * section: shows `Changes (N) · +X −Y`, the `summed` badge for non-git
+ * sessions, and the `this session only` toggle (rail-local state owned by
+ * `EditorPane`, D3 — NOT lifted to context, which would break the
+ * `FileDiffView` takeover). The per-file changed rows now live inline in
+ * `EditorFileTree`. Absent when the session has no changes.
  */
-import { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n";
-import { DiffFileTree, type FileSelection } from "../DiffFileTree.js";
+import { CountBadges } from "../CountBadges.js";
 import { useOptionalSessionDiff } from "../SessionDiffContext.js";
-import { useSplitWorkspace } from "../SplitWorkspaceContext.js";
 
-export function ChangesRailSection({ activePath }: { activePath?: string | null }) {
+export function ChangesRailSection({
+  sessionOnly,
+  onSessionOnlyChange,
+}: {
+  sessionOnly: boolean;
+  onSessionOnlyChange: (v: boolean) => void;
+}) {
   const diff = useOptionalSessionDiff();
-  const { openDiffTab, changesRevealSignal } = useSplitWorkspace();
-  const [expanded, setExpanded] = useState(true);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Reveal (expand + scroll into view) when openChanges() fires. Skip the
-  // initial mount value so it doesn't fight the user's collapse choice.
-  const prevSignal = useRef(changesRevealSignal);
-  useEffect(() => {
-    if (changesRevealSignal !== prevSignal.current) {
-      prevSignal.current = changesRevealSignal;
-      setExpanded(true);
-      containerRef.current?.scrollIntoView({ block: "nearest" });
-    }
-  }, [changesRevealSignal]);
-
   const files = diff?.data?.files ?? [];
   const otherChanges = diff?.data?.otherChanges ?? [];
   if (files.length === 0 && otherChanges.length === 0) return null;
 
   const isGitRepo = diff?.data?.isGitRepo ?? false;
-  // Git session → numstat totals; non-git → the payload carries no counts, so
-  // the header shows nothing extra (per-turn summed deltas live in the chat
-  // block). `summed` flags the non-git aggregate when totals are derived.
   const totalAdditions = diff?.data?.totalAdditions;
   const totalDeletions = diff?.data?.totalDeletions;
-
-  // Selecting a Changes row opens that file's diff tab (activePath tracks the
-  // currently open diff tab under its virtual `diff:` path).
-  const selection: FileSelection | null = activePath?.startsWith("diff:")
-    ? { filePath: activePath.slice("diff:".length), changeIndex: null }
-    : null;
+  const hasTotals = totalAdditions !== undefined || totalDeletions !== undefined;
+  const summed = !isGitRepo && totalAdditions !== undefined;
+  const hasOther = otherChanges.length > 0;
 
   return (
     <div
-      ref={containerRef}
       data-testid="changes-rail-section"
-      className="flex min-h-0 shrink-0 flex-col border-b border-[var(--border-primary)]"
-      style={{ maxHeight: expanded ? "45%" : undefined }}
+      className="flex shrink-0 items-center gap-2 border-b border-[var(--border-primary)] px-2 py-1 text-xs text-[var(--text-tertiary)]"
     >
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        className="flex shrink-0 items-center gap-1.5 px-2 py-1 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-      >
-        <span className="text-[var(--text-tertiary)]">{expanded ? "▾" : "▸"}</span>
-        <span>{i18nT("common.changes", undefined, "Changes")}</span>
-        <span className="text-[var(--text-tertiary)]">({files.length})</span>
-      </button>
-      {expanded && (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <DiffFileTree
-            files={files}
-            otherChanges={otherChanges}
-            selection={selection}
-            onSelect={(sel) => openDiffTab(sel.filePath)}
-            totalAdditions={totalAdditions}
-            totalDeletions={totalDeletions}
-            summed={!isGitRepo && totalAdditions !== undefined}
+      <span className="font-medium text-[var(--text-secondary)]">
+        {i18nT("common.changes", undefined, "Changes")}
+      </span>
+      <span>({files.length})</span>
+      {hasTotals && (
+        <>
+          <span>·</span>
+          <CountBadges additions={totalAdditions ?? 0} deletions={totalDeletions ?? 0} />
+        </>
+      )}
+      {summed && (
+        <span
+          title={i18nT("common.summedBadgeHint", undefined, "Summed per-turn deltas (non-git), not git-net")}
+          className="rounded bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]"
+        >
+          {i18nT("common.summed", undefined, "summed")}
+        </span>
+      )}
+      {hasOther && (
+        <label
+          data-testid="session-only-toggle"
+          className="ml-auto flex cursor-pointer select-none items-center gap-1"
+          title={i18nT("diff.sessionOnlyHint", undefined, "Hide working-tree changes this session did not make")}
+        >
+          <input
+            type="checkbox"
+            checked={sessionOnly}
+            onChange={(e) => onSessionOnlyChange(e.target.checked)}
+            className="h-3 w-3"
           />
-        </div>
+          <span>{i18nT("diff.sessionOnly", undefined, "this session only")}</span>
+        </label>
       )}
     </div>
   );
