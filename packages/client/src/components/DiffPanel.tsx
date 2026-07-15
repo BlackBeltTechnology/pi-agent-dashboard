@@ -99,6 +99,12 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
   const previewLines = useMemo(() => buildPreviewLines(file.gitDiff), [file.gitDiff]);
   const previewAvailable = previewLines.length > 0;
 
+  // If refreshed data drops Preview support while it's active, fall back to Diff
+  // so the toggle isn't left disabled over an empty body.
+  useEffect(() => {
+    if (viewMode === "preview" && !previewAvailable) setViewMode("diff");
+  }, [viewMode, previewAvailable]);
+
   // Reset file content when file changes
   useEffect(() => {
     setFileContent(null);

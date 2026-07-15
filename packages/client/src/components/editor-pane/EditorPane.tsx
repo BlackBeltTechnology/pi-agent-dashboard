@@ -54,6 +54,8 @@ export function EditorPane() {
   // SplitWorkspaceProvider). Shared by the summary bar + the tree's other-
   // changes group; ephemeral, resets each mount.
   const [sessionOnly, setSessionOnly] = useState(false);
+  // Reset the filter when the pane is reused for a different session.
+  useEffect(() => setSessionOnly(false), [sessionId]);
 
   // openChanges() (the Changed Files chip) bumps changesRevealSignal to request
   // the Changes rail. The tree rail defaults to collapsed (change:

@@ -55,8 +55,10 @@ function buildDiffIndex(files: FileDiffEntry[]): DiffIndex {
 
 /** Modified (edit / tool-detected) → `●`; pure add (write) → `+`. */
 function statusIndicator(file: FileDiffEntry): React.ReactNode {
-  const hasEdits = file.changes.some((c) => c.type === "edit");
-  const modified = hasEdits || file.origin === "tool" || file.origin === "mixed";
+  const modified =
+    file.changes.some((c) => c.type === "edit" || c.type === "tool") ||
+    file.origin === "tool" ||
+    file.origin === "mixed";
   return modified ? (
     <span data-testid="status-modified" className="text-yellow-400 text-xs font-bold" title={i18nT("common.modified", undefined, "Modified")}>●</span>
   ) : (
@@ -397,7 +399,8 @@ function FileRow({
           ].join(" ")}
           style={{ paddingLeft: hasHistory ? 4 : pad + 10 }}
         >
-          {file ? statusIndicator(file) : <Icon path={icon.iconPath} size={0.55} className={icon.colorClass} />}
+          <Icon path={icon.iconPath} size={0.55} className={icon.colorClass} />
+          {file && statusIndicator(file)}
           <span className="truncate">{name}</span>
           {file && (file.additions !== undefined || file.deletions !== undefined) && (
             <span className="ml-1 text-[10px] shrink-0">
@@ -468,14 +471,15 @@ function OtherChangesGroup({
       </button>
       {expanded &&
         otherChanges.map((f) => (
-          <div
+          <button
+            type="button"
             key={f.path}
-            className="flex cursor-pointer items-center gap-1.5 px-2 py-0.5 text-xs text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"
+            className="flex w-full cursor-pointer items-center gap-1.5 px-2 py-0.5 text-left text-xs text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"
             style={{ paddingLeft: 24 }}
             onClick={() => onOpenDiff?.(f.path)}
           >
             <span className="truncate">{f.path}</span>
-          </div>
+          </button>
         ))}
     </div>
   );

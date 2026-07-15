@@ -117,23 +117,23 @@ Working-tree changes this session did not make (`otherChanges`) SHALL render as 
 - **THEN** the split SHALL open and the rail SHALL be revealed
 - **AND** opening a specific file's diff SHALL remain the responsibility of the chat file-link `openDiffTab` path, unchanged by this requirement
 
-### Requirement: Merged roll-up in the Changes-section header
-The session-wide net roll-up SHALL be rendered as the header of the Changes section in the pane rail (not a separate pinned dock), sourced from `useSessionDiff` and the numstat-derived counts. Changes-section rows SHALL carry per-file net `+additions −deletions`.
+### Requirement: Merged roll-up in the rail summary bar
+The session-wide net roll-up SHALL be rendered in the slim Changes summary bar atop the pane rail (not a Changes-section header, not a separate pinned dock), sourced from `useSessionDiff` and the numstat-derived counts. Per-file net `+additions −deletions` SHALL be shown on each changed file's inline row in the workspace tree.
 
 #### Scenario: Git session aggregate + per-file counts
 - **WHEN** the session cwd is a git repository with changed files
-- **THEN** the Changes-section header SHALL show the `N files · +X −Y` aggregate
-- **AND** each row SHALL show that file's net `+additions −deletions` from the numstat fields
-- **AND** each row SHALL provide the open-in-editor affordance
+- **THEN** the summary bar SHALL show the `Changes (N) · +X −Y` aggregate
+- **AND** each inline changed-file row SHALL show that file's net `+additions −deletions` from the numstat fields
+- **AND** each inline changed-file row SHALL provide the diff affordance
 
 #### Scenario: Non-git session fallback
 - **WHEN** the session cwd is not a git repository
 - **THEN** the aggregate and per-file counts SHALL be summed per-turn event deltas instead of numstat
-- **AND** the header SHALL visibly flag that the counts are summed deltas rather than git-net (a `summed` badge)
+- **AND** the summary bar SHALL visibly flag that the counts are summed deltas rather than git-net (a `summed` badge)
 
 #### Scenario: No changes
 - **WHEN** the session has no file changes
-- **THEN** the session-header summary chip SHALL be hidden and the Changes section SHALL be absent
+- **THEN** the session-header summary chip SHALL be hidden and the summary bar SHALL be absent
 
 ### Requirement: Per-turn and net counts are distinct and labeled
 The per-turn blocks and the running roll-up MAY report different totals for the same file (e.g. a line added in one turn and removed in another). The UI SHALL label each surface so the two are not read as contradictory.

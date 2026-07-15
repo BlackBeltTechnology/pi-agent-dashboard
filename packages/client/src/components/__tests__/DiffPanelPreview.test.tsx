@@ -74,7 +74,7 @@ const file: FileDiffEntry = {
 };
 
 const GIT_DIFF = [
-  "@@ -18,7 +18,12 @@ export function accumulate(canvas) {",
+  "@@ -18,7 +18,7 @@ export function accumulate(canvas) {",
   " export function accumulate(canvas, delta) {",
   "   const next = { ...canvas };",
   "-  next.nodes = delta.nodes;",
@@ -145,6 +145,17 @@ describe("DiffPanel Preview mode (collapse-diff-file-tree)", () => {
     unmount();
     // Binary marker → zero hunks → still disabled.
     render1({ ...file, gitDiff: "Binary files a/x.png and b/x.png differ" });
+    expect((screen.getByTestId("preview-toggle") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("(#4) exits Preview when refreshed data loses a parseable gitDiff", () => {
+    const sel = { filePath: fileWithDiff.path, changeIndex: null };
+    const { rerender } = render(<DiffPanel file={fileWithDiff} selection={sel} sessionId="s1" />);
+    fireEvent.click(screen.getByTestId("preview-toggle"));
+    expect(screen.getByTestId("preview-body")).toBeTruthy();
+    // Same tab, refreshed data no longer supports Preview.
+    rerender(<DiffPanel file={{ ...fileWithDiff, gitDiff: undefined }} selection={sel} sessionId="s1" />);
+    expect(screen.queryByTestId("preview-body")).toBeNull();
     expect((screen.getByTestId("preview-toggle") as HTMLButtonElement).disabled).toBe(true);
   });
 
