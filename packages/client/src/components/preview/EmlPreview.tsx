@@ -100,6 +100,9 @@ export function EmlPreview({ target }: Props) {
       return;
     }
     let cancelled = false;
+    // Track THIS run's blobs so a re-run (e.g. "Load remote content" toggles
+    // `data`) revokes its own batch instead of leaking until unmount.
+    const createdUrls: string[] = [];
     (async () => {
       const cidToBlob = new Map<string, string>();
       const inlineCids = data.attachments.filter((a) => a.contentId);
@@ -110,7 +113,7 @@ export function EmlPreview({ target }: Props) {
             if (!res.ok) return;
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
-            blobUrls.current.push(url);
+            createdUrls.push(url);
             if (a.contentId) cidToBlob.set(a.contentId.toLowerCase(), url);
           } catch {
             /* broken cid → leave as-is (broken-image placeholder) */
@@ -118,18 +121,23 @@ export function EmlPreview({ target }: Props) {
         }),
       );
       if (cancelled) return;
+      blobUrls.current.push(...createdUrls);
       setSrcDoc(buildSrcDoc(resolveCidRefs(data.html, cidToBlob)));
     })();
     return () => {
       cancelled = true;
+      // Revoke this run's blobs (created but the effect re-ran/unmounted) and
+      // drop them from the unmount-safeguard list.
+      for (const u of createdUrls) URL.revokeObjectURL(u);
+      blobUrls.current = blobUrls.current.filter((u) => !createdUrls.includes(u));
     };
   }, [data, target.cwd, target.path]);
 
-  // Revoke all created blob URLs on unmount.
+  // Final safeguard: revoke any surviving blob URLs on unmount.
   useEffect(() => {
-    const urls = blobUrls.current;
+    const urls = blobUrls;
     return () => {
-      for (const u of urls) URL.revokeObjectURL(u);
+      for (const u of urls.current) URL.revokeObjectURL(u);
     };
   }, []);
 

@@ -505,6 +505,27 @@ describe("GET /api/file/eml", () => {
     fetchSpy.mockRestore();
   });
 
+  it("neutralizes remote refs in srcset + CSS @import (hardening)", async () => {
+    await writeEml(
+      "multi.eml",
+      buildEml({
+        html:
+          `<img srcset="cid:logo@x 1x, https://tracker.example/pixel.gif 2x">` +
+          `<style>@import "https://tracker.example/track.css"; .a{background:url(https://tracker.example/bg.png)}</style>`,
+      }),
+    );
+    const html = ((await get(`cwd=${cwd()}&path=multi.eml`)).json() as any).data.html as string;
+    // Comma-separated srcset with a trailing remote URL is blocked (moved to data-blocked-srcset).
+    expect(html).not.toMatch(/<img[^>]*\ssrcset="[^"]*https:/);
+    // @import (no url() wrapper) and url() remote both neutralized to about:blank.
+    expect(html).not.toContain("tracker.example/track.css");
+    expect(html).not.toContain("tracker.example/bg.png");
+    // allowRemote=1 preserves them for the browser to fetch.
+    const allowed = ((await get(`cwd=${cwd()}&path=multi.eml&allowRemote=1`)).json() as any).data
+      .html as string;
+    expect(allowed).toContain("tracker.example/track.css");
+  });
+
   it("parses a 15 MB .eml within the p95 budget (test-plan #18)", async () => {
     const big = Buffer.alloc(15 * 1024 * 1024, 0x41);
     await writeEml(

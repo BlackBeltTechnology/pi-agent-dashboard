@@ -93,31 +93,43 @@ function stripAngle(id: string | undefined): string | null {
 /**
  * A resource ref is "remote" when it would trigger a network fetch: absolute
  * http(s) or protocol-relative. `cid:` (attachment-backed) and `data:` (inline)
- * are never remote and always pass through.
+ * are never remote. Comma-separated values (e.g. `srcset`) are split so a leading
+ * `cid:`/`data:` candidate cannot smuggle a trailing remote URL past the block.
  */
 function isRemoteRef(value: string): boolean {
-  const v = value.trim().toLowerCase();
-  if (v.startsWith("cid:") || v.startsWith("data:")) return false;
-  return v.startsWith("http://") || v.startsWith("https://") || v.startsWith("//");
+  return value
+    .toLowerCase()
+    .split(",")
+    .some((part) => {
+      const p = part.trim();
+      return p.startsWith("http://") || p.startsWith("https://") || p.startsWith("//");
+    });
 }
 
 const CSS_URL_RE = /url\(\s*(['"]?)([^)'"]*)\1\s*\)/gi;
+// Naked `@import "..."` (no url() wrapper) is a second remote-CSS load vector.
+const CSS_IMPORT_RE = /@import\s+(['"])([^'"]+)\1/gi;
 
-/** Neutralize remote `url(...)` refs in a CSS string; leaves cid:/data: intact. */
+/** Neutralize remote `url(...)` + `@import` refs in CSS; leaves cid:/data: intact. */
 function neutralizeCssUrls(
   css: string,
   allowRemote: boolean,
 ): { css: string; found: boolean } {
   let found = false;
-  const out = css.replace(CSS_URL_RE, (match, quote: string, ref: string) => {
+  let out = css.replace(CSS_URL_RE, (match, _quote: string, ref: string) => {
     if (!isRemoteRef(ref)) return match;
     found = true;
     return allowRemote ? match : "url(about:blank)";
   });
+  out = out.replace(CSS_IMPORT_RE, (match, quote: string, ref: string) => {
+    if (!isRemoteRef(ref)) return match;
+    found = true;
+    return allowRemote ? match : `@import ${quote}about:blank${quote}`;
+  });
   return { css: out, found };
 }
 
-const REF_ATTRS = ["src", "background", "poster"] as const;
+const REF_ATTRS = ["src", "srcset", "background", "poster"] as const;
 
 // Minimal structural view of the jsdom node DOMPurify returns with RETURN_DOM.
 // The server tsconfig omits the `dom` lib, so we type only the members we use.

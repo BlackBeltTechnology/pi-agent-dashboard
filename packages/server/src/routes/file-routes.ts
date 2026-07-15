@@ -944,9 +944,16 @@ export function registerFileRoutes(
         reply.code(404);
         return { success: false, error: "attachment index out of range" } satisfies ApiResponse;
       }
-      const filename = (att.filename || `attachment-${index}`).replace(/["\r\n]/g, "");
+      // Header-safe filename: strip CR/LF/quote (anti-injection), fold non-ASCII
+      // to `_` for the legacy `filename=`, and carry the exact name via RFC 5987
+      // `filename*` so UTF-8 names (e.g. Hungarian) survive.
+      const rawName = (att.filename || `attachment-${index}`).replace(/["\r\n]/g, "");
+      const asciiName = rawName.replace(/[^\x20-\x7e]/g, "_");
       reply.header("Content-Type", att.contentType || "application/octet-stream");
-      reply.header("Content-Disposition", `attachment; filename="${filename}"`);
+      reply.header(
+        "Content-Disposition",
+        `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(rawName)}`,
+      );
       reply.header("X-Content-Type-Options", "nosniff");
       reply.header("Cache-Control", "private, max-age=60");
       reply.header("Content-Length", String(att.content.length));
