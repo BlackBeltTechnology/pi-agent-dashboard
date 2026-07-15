@@ -878,6 +878,20 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { toolName: "canvas" },
   },
 
+  // A `canvas({ target:{ kind:"server", port } })` declare for a port nothing
+  // listens on. On chip tap the loopback probe is refused → "server not
+  // running" immediately, no iframe (S30). Two-step terminate.
+  "canvas-declare-server-dead": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "server", port: 59321 }, title: "dead server" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("dead server declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
   // A `canvas({ target:{ kind:"url", url } })` declare (youtube). Renders the
   // live URL normally with NO document CSP (S35). Two-step terminate.
   "canvas-declare-url": {

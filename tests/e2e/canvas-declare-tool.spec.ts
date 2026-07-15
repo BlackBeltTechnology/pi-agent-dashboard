@@ -98,19 +98,60 @@ test.describe("auto-canvas — server confirm chip, no pre-tap fetch (S29)", () 
 });
 
 test.describe("auto-canvas — chip expires at turn boundary (S32)", () => {
-  // The server drops the chip at the next turn boundary / server-exit. Asserting
-  // the precise expiry requires driving a SECOND turn and observing the chip go
-  // away; the server-side expiry broadcast wiring is verified by the main
-  // agent's harness run. Left as a fleshed-out fixme with the intended shape.
-  test.fixme("the chip becomes non-actionable after the turn ends", async ({ page }) => {
+  test("the chip becomes non-actionable after the turn ends", async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 800 });
     const card = await spawnFreshGitSession(page);
     await card.click();
     await sendPrompt(page, "[[faux:canvas-declare-server]] go");
     await expect(page.getByTestId("canvas-server-chip")).toBeVisible({ timeout: 30_000 });
-    // Drive a second, non-declaring turn → the server broadcasts chip expiry.
+    // Drive a second, non-declaring turn → the server broadcasts chip expiry
+    // (`canvas_server_chip{expire:true}`); the client drops the chip (S32).
     await sendPrompt(page, "[[faux:plain-text]] go");
     await expect(page.getByTestId("canvas-server-chip")).toHaveCount(0, { timeout: 15_000 });
+  });
+});
+
+test.describe("auto-canvas — server chip refused → not running (S30)", () => {
+  test("tapping a chip for a dead port shows 'not running', no iframe", async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+
+    await sendPrompt(page, "[[faux:canvas-declare-server-dead]] go");
+    const chip = page.getByTestId("canvas-server-chip");
+    await expect(chip).toBeVisible({ timeout: 30_000 });
+    await expect(chip).toContainText(":59321");
+
+    // Tap → the loopback probe is refused (nothing listens on 59321) → the chip
+    // surfaces "server not running" and NEVER opens the live-server iframe.
+    await chip.click();
+    await expect(page.getByTestId("canvas-server-chip-status")).toContainText(/not running/i, {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("live-iframe")).toHaveCount(0);
+  });
+});
+
+test.describe("auto-canvas — server chip unresponsive → not responding (S31)", () => {
+  // The client aborts the probe at 3000ms and shows "server not responding",
+  // with no iframe. Reproducing a port that ACCEPTS TCP but never responds
+  // needs a real hang server in the harness (a faux scenario can only declare a
+  // port, not host a hang listener), so the 3000ms-timeout arm is unit-covered
+  // (`classifyServerProbe` in canvas-gate.test.ts) and left as a fleshed-out
+  // fixme here with the intended assertions.
+  test.fixme("tapping a chip for a hung port shows 'not responding', no iframe", async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    // Requires a harness-hosted hang port declared via canvas({server,<hangPort>}).
+    await sendPrompt(page, "[[faux:canvas-declare-server-hang]] go");
+    const chip = page.getByTestId("canvas-server-chip");
+    await expect(chip).toBeVisible({ timeout: 30_000 });
+    await chip.click();
+    await expect(page.getByTestId("canvas-server-chip-status")).toContainText(/not responding/i, {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("live-iframe")).toHaveCount(0);
   });
 });
 
@@ -120,7 +161,7 @@ test.describe("auto-canvas — per-session restore (S27)", () => {
   // re-runs its gated open when the selected session's canvas key changes) is
   // unit-covered in canvas-gate.test.ts. Left as a fleshed-out fixme for the
   // harness run (two-session switching is environment-timing sensitive).
-  test.fixme("A's canvas is restored after switching away and back", async ({ page }) => {
+  test("A's canvas is restored after switching away and back", async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 800 });
     const cardA = await spawnFreshGitSession(page);
     await cardA.click();
@@ -129,7 +170,10 @@ test.describe("auto-canvas — per-session restore (S27)", () => {
 
     const cardB = await spawnFreshGitSession(page);
     await cardB.click();
-    // Switch back to A and assert its canvas is restored.
+    // B has no canvas → its split is closed (per-session state).
+    await expect(page.getByTestId("split-editor-pane")).toHaveCount(0, { timeout: 15_000 });
+    // Switch back to A and assert its canvas is restored (the CanvasDriver
+    // restore effect re-runs its gated open when A's canvas key re-selects).
     await cardA.click();
     await expect(page.getByTestId("split-editor-pane")).toBeVisible({ timeout: 15_000 });
   });
@@ -149,12 +193,10 @@ test.describe("auto-canvas — URL deep-link coexists (S28)", () => {
 });
 
 test.describe("auto-canvas — tablet replaces chat (S24)", () => {
-  // Tablet (768–1023w) must REPLACE chat (full-width canvas, no side-by-side,
-  // no chip). The CanvasDriver gate opens the split on tablet, but the
-  // SplitWorkspace layout still co-mounts chat side-by-side at this width — the
-  // "replace-chat" presentation (collapse the chat pane on tablet) is NOT yet
-  // implemented. Left fixme until SplitWorkspace gains a tablet replace mode.
-  test.fixme("canvas replaces chat on tablet, no side-by-side, no chip", async ({ page }) => {
+  // Tablet (768–1023w, ≥600h) REPLACES chat: full-width canvas, no side-by-side,
+  // no chip. `SessionSplitView` passes `replaceChat` to `SplitWorkspace` on the
+  // tablet tier, which mounts only the editor pane (no `split-chat-pane`).
+  test("canvas replaces chat on tablet, no side-by-side, no chip", async ({ page }) => {
     await page.setViewportSize({ width: 1023, height: 700 });
     const card = await spawnFreshGitSession(page);
     await card.click();

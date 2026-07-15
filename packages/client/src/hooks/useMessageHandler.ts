@@ -517,8 +517,11 @@ export function useMessageHandler(
       }
 
       case "canvas_server_chip": {
-        // Declared-server confirm chip (Decision 4). Surface only — no probe
-        // here; the probe happens on tap through LiveServerViewer.
+        // Declared-server confirm chip (Decision 4). A normal broadcast surfaces
+        // the chip (no probe here — the probe happens on tap through
+        // LiveServerViewer); an `expire:true` broadcast drops it at the turn
+        // boundary / server-exit so it becomes non-actionable (S32). Both cases
+        // fold through `reduceCanvasChip`.
         if (typeof msg.sessionId !== "string") break;
         setCanvasMap((prev) => {
           const next = new Map(prev);

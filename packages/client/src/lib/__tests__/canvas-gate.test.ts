@@ -11,6 +11,7 @@ import type {
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   canvasViewportTier,
+  classifyServerProbe,
   EMPTY_CANVAS_STATE,
   expireCanvasChip,
   gateAllowsAutoOpen,
@@ -149,5 +150,43 @@ describe("server chip (S29/S32)", () => {
     expect(expireCanvasChip(withChip).chip).toBeNull();
     // idempotent when already empty
     expect(expireCanvasChip(EMPTY_CANVAS_STATE)).toBe(EMPTY_CANVAS_STATE);
+  });
+
+  it("consumes an expire:true broadcast for the matching port (S32)", () => {
+    const withChip = reduceCanvasChip(EMPTY_CANVAS_STATE, chipMsg);
+    const expired = reduceCanvasChip(withChip, {
+      type: "canvas_server_chip",
+      sessionId: "s1",
+      port: 5173,
+      expire: true,
+    });
+    expect(expired.chip).toBeNull();
+  });
+
+  it("ignores an expire:true broadcast for a non-matching port", () => {
+    const withChip = reduceCanvasChip(EMPTY_CANVAS_STATE, chipMsg);
+    const expired = reduceCanvasChip(withChip, {
+      type: "canvas_server_chip",
+      sessionId: "s1",
+      port: 9999,
+      expire: true,
+    });
+    expect(expired.chip).toEqual({ kind: "server", port: 5173, title: undefined });
+  });
+});
+
+describe("classifyServerProbe (S30/S31 chip tap)", () => {
+  it("reachable probe → iframe", () => {
+    expect(classifyServerProbe({ aborted: false, ok: true })).toBe("iframe");
+  });
+
+  it("refused / proxy error → not-running (S30), no iframe", () => {
+    expect(classifyServerProbe({ aborted: false, ok: false })).toBe("not-running");
+  });
+
+  it(">3000ms abort → not-responding (S31), checked before status", () => {
+    // Even if a stale `ok` slipped through, an abort always wins.
+    expect(classifyServerProbe({ aborted: true, ok: false })).toBe("not-responding");
+    expect(classifyServerProbe({ aborted: true, ok: true })).toBe("not-responding");
   });
 });

@@ -510,6 +510,14 @@ export function wireEvents(deps: EventWiringDeps): void {
         ...(title ? { title } : {}),
       });
     },
+    broadcastServerChipExpire: (sessionId, port) => {
+      browserGateway.broadcastToAll({
+        type: "canvas_server_chip",
+        sessionId,
+        port,
+        expire: true,
+      });
+    },
   });
   // Sessions whose replay should be discarded (canSkipWipe was true — events already in store)
   const skipReplayInsert = new Set<string>();

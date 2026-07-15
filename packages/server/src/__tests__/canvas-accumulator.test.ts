@@ -28,10 +28,12 @@ type IntentCall = {
   title?: string;
 };
 type ChipCall = { sessionId: string; port: number; title?: string };
+type ChipExpireCall = { sessionId: string; port: number };
 
 function harness(canvasTypes: CanvasTypes = DEFAULT_CANVAS_TYPES) {
   const intents: IntentCall[] = [];
   const chips: ChipCall[] = [];
+  const chipExpires: ChipExpireCall[] = [];
   const readCanvasTypes = vi.fn((_cwd: string) => canvasTypes);
   const acc: CanvasAccumulator = createCanvasAccumulator({
     readCanvasTypes,
@@ -39,8 +41,10 @@ function harness(canvasTypes: CanvasTypes = DEFAULT_CANVAS_TYPES) {
       intents.push({ sessionId, phase, target, mode, title }),
     broadcastServerChip: (sessionId, port, title) =>
       chips.push({ sessionId, port, title }),
+    broadcastServerChipExpire: (sessionId, port) =>
+      chipExpires.push({ sessionId, port }),
   });
-  return { acc, intents, chips, readCanvasTypes };
+  return { acc, intents, chips, chipExpires, readCanvasTypes };
 }
 
 function writeEvent(path: string): CanvasForwardedEvent {
@@ -116,6 +120,7 @@ describe("canvas accumulator", () => {
       broadcastIntent: (sessionId, phase, target, mode, title) =>
         intents.push({ sessionId, phase, target, mode, title }),
       broadcastServerChip: () => {},
+      broadcastServerChipExpire: () => {},
     });
     // First write of an image kind while image:false → no candidate.
     acc.onEvent("s1", writeEvent("chart.png"), live);
@@ -145,6 +150,21 @@ describe("canvas accumulator", () => {
     expect(h.chips).toEqual([{ sessionId: "s1", port: 5173, title: undefined }]);
     h.acc.onEvent("s1", AGENT_END, live);
     expect(h.intents).toHaveLength(0); // no eager, no settle
+  });
+
+  // S32 — a declared server chip expires at the turn boundary.
+  it("S32: chip expires on agent_end, and on abort — once, echoing the port", () => {
+    h.acc.onEvent("s1", canvasEvent({ target: { kind: "server", port: 5173 } }), live);
+    h.acc.onEvent("s1", AGENT_END, live);
+    expect(h.chipExpires).toEqual([{ sessionId: "s1", port: 5173 }]);
+    // Idempotent: a second boundary with no active chip does not re-expire.
+    h.acc.onEvent("s1", AGENT_END, live);
+    expect(h.chipExpires).toHaveLength(1);
+
+    // Abort path also expires an un-settled chip.
+    h.acc.onEvent("s2", canvasEvent({ target: { kind: "server", port: 6000 } }), live);
+    h.acc.resetTurn("s2");
+    expect(h.chipExpires).toContainEqual({ sessionId: "s2", port: 6000 });
   });
 
   // Eager fires only on the first DOC candidate; later DOC writes just accumulate.

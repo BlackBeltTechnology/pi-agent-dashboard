@@ -146,8 +146,18 @@ export function reduceCanvasIntent(prev: CanvasState, msg: CanvasIntentMessage):
   };
 }
 
-/** Fold a `canvas_server_chip` broadcast — surface the chip (no probe here). */
+/**
+ * Fold a `canvas_server_chip` broadcast. A normal broadcast surfaces the chip
+ * (no probe here — the probe is the human's tap). An `expire:true` broadcast
+ * (turn boundary / server-exit, S32) drops the matching chip so it becomes
+ * non-actionable; `port` echoes the expired chip, guarding against dropping a
+ * newer chip on a different port.
+ */
 export function reduceCanvasChip(prev: CanvasState, msg: CanvasServerChipMessage): CanvasState {
+  if (msg.expire) {
+    if (prev.chip != null && prev.chip.port === msg.port) return expireCanvasChip(prev);
+    return prev;
+  }
   return { ...prev, chip: { kind: "server", port: msg.port, title: msg.title } };
 }
 
@@ -155,4 +165,31 @@ export function reduceCanvasChip(prev: CanvasState, msg: CanvasServerChipMessage
 export function expireCanvasChip(prev: CanvasState): CanvasState {
   if (prev.chip == null) return prev;
   return { ...prev, chip: null };
+}
+
+// ─── Server-chip tap probe classification ───────────────────────────────────
+
+/** Observable result of the on-tap loopback probe (CanvasServerChip). */
+export interface ServerProbeInput {
+  /** The 3000ms client timeout fired before any response (S31). */
+  aborted: boolean;
+  /** The proxy responded with a 2xx/3xx (the loopback server is reachable). */
+  ok: boolean;
+}
+
+export type ServerProbeOutcome = "iframe" | "not-running" | "not-responding";
+
+/**
+ * Pure decision for what a server-chip tap does with its probe result
+ * (Decision 4 / Section 7):
+ *   - aborted (>3000ms, no response) → "not-responding" (S31), no iframe.
+ *   - responded but not ok (connection refused / proxy error) → "not-running"
+ *     (S30), no iframe.
+ *   - responded ok → "iframe" (open the live-server viewer).
+ * The timeout arm is checked FIRST: an abort never carries a usable status.
+ */
+export function classifyServerProbe(input: ServerProbeInput): ServerProbeOutcome {
+  if (input.aborted) return "not-responding";
+  if (!input.ok) return "not-running";
+  return "iframe";
 }

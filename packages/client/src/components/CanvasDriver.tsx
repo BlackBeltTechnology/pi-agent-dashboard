@@ -17,10 +17,9 @@
  */
 import { isLoopbackUrl } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import { useEffect, useRef } from "react";
-import { useMediaQuery } from "../hooks/useMediaQuery.js";
-import { useMobile } from "../hooks/useMobile.js";
+import { useCanvasTier } from "../hooks/useCanvasTier.js";
 import { t as i18nT } from "../lib/i18n";
-import { canvasViewportTier, type CanvasState, gateAllowsAutoOpen } from "../lib/canvas-gate.js";
+import { type CanvasState, gateAllowsAutoOpen } from "../lib/canvas-gate.js";
 import { CanvasServerChip } from "./CanvasServerChip.js";
 import { useSplitWorkspace } from "./SplitWorkspaceContext.js";
 
@@ -34,24 +33,27 @@ interface Props {
  * monaco/preview split; loopback URLs open the live-server viewer (SSRF-gated).
  */
 function useOpenTarget() {
-  const { openInSplit, openLiveTarget } = useSplitWorkspace();
+  const { openInSplit, openLiveTarget, openUrlTarget } = useSplitWorkspace();
   return (state: CanvasState) => {
     const target = state.target;
     if (!target) return;
     if (target.kind === "file") {
-      openInSplit(target.path);
+      // Canvas auto-open (no user click) → restrictCsp so document viewers
+      // block external subresources (auto-open egress ≤ manual-click, S34).
+      openInSplit(target.path, undefined, true);
     } else if (target.kind === "url" && isLoopbackUrl(target.url)) {
+      // Loopback dev-server URL → SSRF-gated live-server viewer.
       openLiveTarget(target.url);
+    } else if (target.kind === "url") {
+      // Generic url/youtube declare → the `url` split viewer renders it
+      // normally, NO document CSP (S35).
+      openUrlTarget(target.url);
     }
-    // Non-loopback URL/youtube canvas targets render via the URL-view route
-    // (unchanged S28 deep-link path); not folded into the split here.
   };
 }
 
 export function CanvasDriver({ state }: Props) {
-  const isMobile = useMobile();
-  const isWide = useMediaQuery("(min-width: 1024px)");
-  const tier = isMobile ? "mobile" : canvasViewportTier(isWide ? 1024 : 900, 700);
+  const tier = useCanvasTier();
   const openTarget = useOpenTarget();
   const { openLiveTarget } = useSplitWorkspace();
 

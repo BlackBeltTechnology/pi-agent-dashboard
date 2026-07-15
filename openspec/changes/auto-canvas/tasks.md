@@ -98,13 +98,13 @@ Vanilla checkboxes only. Test tasks carry a harness-exemplar pointer, the scenar
       eager-open + restore-on-reselect. → verify: tablet replaces chat, mobile shows chip.
 - [x] 6.3 Test: desktop side-by-side (1024×700). Exemplar: `tests/e2e/editor-pane.spec.ts`.
       Triple: viewport 1024×700 · canvas opens · side-by-side, chat usable. (test-plan #S23)
-- [ ] 6.4 Test: tablet replaces chat (1023×700). Exemplar: `tests/e2e/file-preview-survives-churn.spec.ts`.
+- [x] 6.4 Test: tablet replaces chat (1023×700). Exemplar: `tests/e2e/file-preview-survives-churn.spec.ts`.
       Triple: viewport 1023×700 · canvas opens · replaces chat, no side-by-side, no chip. (test-plan #S24)
 - [x] 6.5 Test: mobile chip, no yank (767×800). Exemplar: file-preview-survives-churn.spec.ts.
       Triple: 767×800, turn writes deliverable · eager-open · chip surfaced, chat active. (test-plan #S25)
 - [x] 6.6 Test: eager-open immediate + refresh. Exemplar: file-preview-survives-churn.spec.ts.
       Triple: first write mid-turn · eager-open · opens at once (no debounce), refreshes on later writes. (test-plan #S26)
-- [ ] 6.7 Test: per-session restore. Exemplar: file-preview-survives-churn.spec.ts.
+- [x] 6.7 Test: per-session restore. Exemplar: file-preview-survives-churn.spec.ts.
       Triple: A open canvas, switch B→A · re-select · A's canvas restored. (test-plan #S27)
 - [x] 6.8 Test: URL deep-link coexists. Exemplar: `tests/e2e/editor-pane.spec.ts`.
       Triple: `/session/:id/editor` open · canvas ships · URL preview still works, not folded. (test-plan #S28)
@@ -117,23 +117,24 @@ Vanilla checkboxes only. Test tasks carry a harness-exemplar pointer, the scenar
       → verify: no probe before tap; announced host never trusted.
 - [x] 7.2 Test: chip surfaces without pre-tap fetch. Exemplar: `tests/e2e/tool-output-links.spec.ts`.
       Triple: `canvas({server,5173})` · declare · chip, no fetch/probe pre-tap. (test-plan #S29)
-- [ ] 7.3 Test: refused → "not running" immediately. Exemplar: `tests/e2e/editor-pane.spec.ts` (LiveServer flow).
+- [x] 7.3 Test: refused → "not running" immediately. Exemplar: `tests/e2e/editor-pane.spec.ts` (LiveServer flow).
       Triple: chip for exited server, tap · probe · connection-refused → "not running", no iframe. (test-plan #S30)
 - [ ] 7.4 Test: unresponsive → 3000ms timeout. Exemplar: editor-pane.spec.ts.
       Triple: chip for hang port, tap · probe · >3000ms → "not responding", no iframe. (test-plan #S31)
-- [ ] 7.5 Test: chip expires at turn boundary.
+      NOTE: client 3000ms-abort logic implemented + unit-tested (`classifyServerProbe`); e2e stays fixme (a hang listener can't be a faux scenario).
+- [x] 7.5 Test: chip expires at turn boundary.
       Triple: chip surfaced, turn ends · boundary/exit · chip not actionable. (test-plan #S32)
 - [x] 7.6 Test: announced-host never trusted (unit). Exemplar: existing `packages/shared/src` live-server test if present, else new.
       Triple: bound `0.0.0.0` announced `localhost` · any path · dashboard uses own `127.0.0.1` probe. (test-plan #S33)
 
 ## 8. Security — CSP on auto-opened documents
 
-- [ ] 8.1 Apply a restrictive CSP (block external subresources) to auto-opened file-kind documents
+- [x] 8.1 Apply a restrictive CSP (block external subresources) to auto-opened file-kind documents
       (html/svg/md/pdf via DOC-detect, no click); do NOT apply to `canvas()` url/youtube declares.
       → verify: ships with auto-open. (security-hardening)
-- [ ] 8.2 Test: auto-opened HTML cannot beacon. Exemplar: `tests/e2e/csp.spec.ts`.
+- [x] 8.2 Test: auto-opened HTML cannot beacon. Exemplar: `tests/e2e/csp.spec.ts`.
       Triple: agent `.html` `<img src=http://attacker/beacon>` auto-opens · render · subresource blocked. (test-plan #S34)
-- [ ] 8.3 Test: URL declare renders normally. Exemplar: `tests/e2e/csp.spec.ts`.
+- [x] 8.3 Test: URL declare renders normally. Exemplar: `tests/e2e/csp.spec.ts`.
       Triple: `canvas({url,youtu.be/abc})` · render · renders, no document CSP. (test-plan #S35)
 
 ## 9. Discipline checkpoints

@@ -888,6 +888,12 @@ export interface CanvasServerChipMessage {
   sessionId: string;
   port: number;
   title?: string;
+  /**
+   * True = the chip expired at the turn boundary / server-exit and MUST become
+   * non-actionable (S32). When set, `port` echoes the expired chip's port; the
+   * client drops it. Absent/false = surface a fresh, tappable chip.
+   */
+  expire?: boolean;
 }
 
 /**

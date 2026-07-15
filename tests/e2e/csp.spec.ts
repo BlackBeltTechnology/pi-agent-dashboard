@@ -37,13 +37,13 @@ test.describe("baseline CSP", () => {
 //
 // The pure CSP transform (`withRestrictiveCsp`, AUTO_OPEN_DOC_CSP) + the
 // HtmlPreview `restrictCsp` prop are implemented + unit-tested
-// (packages/client/src/lib/__tests__/canvas-doc-csp.test.ts). What is NOT yet
-// wired is the auto-open PATH marking a canvas-opened html tab as CSP-restricted
-// (the split viewer-registry passes fixed ViewerProps with no restrictCsp flag).
-// Until that thread lands, these e2e assertions cannot pass — left as
-// fleshed-out fixmes with the intended shape.
+// (packages/client/src/lib/__tests__/canvas-doc-csp.test.ts). The auto-open
+// PATH now threads `restrictCsp=true` through CanvasDriver → openInSplit →
+// editor-pane openFile → EditorPane → HtmlViewer, so a canvas-opened html tab
+// renders under AUTO_OPEN_DOC_CSP. `canvas()` url/youtube declares render in the
+// `url` split viewer with NO document CSP (S35).
 test.describe("auto-canvas — document CSP", () => {
-  test.fixme("an auto-opened .html cannot beacon an external subresource (S34)", async ({ page }) => {
+  test("an auto-opened .html cannot beacon an external subresource (S34)", async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 800 });
     // Fail if the beacon subresource is ever requested.
     let beaconHit = false;
@@ -61,14 +61,14 @@ test.describe("auto-canvas — document CSP", () => {
     expect(beaconHit, "auto-opened doc must not beacon").toBe(false);
   });
 
-  test.fixme("a canvas() url declare renders normally with no document CSP (S35)", async ({ page }) => {
+  test("a canvas() url declare renders normally with no document CSP (S35)", async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 800 });
     const card = await spawnFreshGitSession(page);
     await card.click();
     await sendPrompt(page, "[[faux:canvas-declare-url]] go");
-    // A url/youtube declare renders the live URL (no restrictive document CSP).
-    // Generic (non-loopback) URL rendering in the canvas split is not yet wired
-    // — see CanvasDriver useOpenTarget. Harness verification pending.
-    await expect(byTestId(page, "sendButton")).toBeVisible();
+    // A url/youtube declare renders in the `url` split viewer (dispatchPreview →
+    // PreviewBody → YouTubePreview iframe) — no restrictive document CSP.
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("canvas-url-viewer")).toBeVisible({ timeout: 15_000 });
   });
 });

@@ -54,6 +54,12 @@ export interface CanvasAccumulatorDeps {
   ) => void;
   /** Broadcast a `canvas_server_chip` for a declared server (Decision 4). */
   broadcastServerChip: (sessionId: string, port: number, title?: string) => void;
+  /**
+   * Broadcast a chip-expiry for a session's active server chip (S32): at the
+   * turn boundary (`agent_end`) or abort/termination the chip must become
+   * non-actionable. `port` echoes the expired chip.
+   */
+  broadcastServerChipExpire: (sessionId: string, port: number) => void;
 }
 
 export interface CanvasAccumulator {
@@ -80,6 +86,15 @@ export function createCanvasAccumulator(
 ): CanvasAccumulator {
   // Per-session per-turn candidate buffer.
   const buffers = new Map<string, CanvasCandidate[]>();
+  // Per-session active server-chip port (declared this turn), for expiry (S32).
+  const activeChips = new Map<string, number>();
+
+  function expireChip(sessionId: string): void {
+    const port = activeChips.get(sessionId);
+    if (port === undefined) return;
+    activeChips.delete(sessionId);
+    deps.broadcastServerChipExpire(sessionId, port);
+  }
 
   function pushCandidate(
     sessionId: string,
@@ -114,6 +129,7 @@ export function createCanvasAccumulator(
       const result = normalizeCanvasDeclare(args as CanvasDeclareInput | undefined, cwd);
       if (!result.ok) return;
       if ("chip" in result) {
+        activeChips.set(sessionId, result.chip.port);
         deps.broadcastServerChip(sessionId, result.chip.port, result.chip.title);
         return;
       }
@@ -130,6 +146,8 @@ export function createCanvasAccumulator(
   function onAgentEnd(sessionId: string): void {
     const buf = buffers.get(sessionId);
     buffers.delete(sessionId);
+    // A server chip surfaced this turn expires at the turn boundary (S32).
+    expireChip(sessionId);
     // No canvas activity this turn → nothing to settle (avoids closing a prior
     // session-persisted canvas and avoids per-idle-turn spam).
     if (!buf || buf.length === 0) return;
@@ -138,6 +156,8 @@ export function createCanvasAccumulator(
 
   function resetTurn(sessionId: string): void {
     buffers.delete(sessionId);
+    // Abort/termination also expires an un-settled chip (S32).
+    expireChip(sessionId);
   }
 
   return {

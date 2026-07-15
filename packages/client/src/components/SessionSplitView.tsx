@@ -11,12 +11,16 @@
  */
 
 import { useEffect } from "react";
+import { useCanvasTier } from "../hooks/useCanvasTier.js";
 import { EditorPane } from "./editor-pane/EditorPane.js";
 import { SplitWorkspace } from "./SplitWorkspace.js";
 import { useSplitWorkspace } from "./SplitWorkspaceContext.js";
 
 export function SessionSplitView({ chat }: { chat: React.ReactNode }) {
   const { split, updateSplit } = useSplitWorkspace();
+  // Tablet tier (768–1023w, ≥600h) replaces chat when the split is open:
+  // full-width canvas, no side-by-side, no chip (auto-canvas Decision 1 / S24).
+  const tier = useCanvasTier();
   return (
     <SplitWorkspace
       open={split.open}
@@ -25,6 +29,7 @@ export function SessionSplitView({ chat }: { chat: React.ReactNode }) {
       onRatioChange={(ratio) => updateSplit({ ratio })}
       chat={chat}
       editor={<EditorPane />}
+      replaceChat={tier === "tablet" && split.open}
     />
   );
 }
