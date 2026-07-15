@@ -2,6 +2,10 @@
  * Tests for `dispatchPreview` and `RENDERER_BY_EXT`. See change:
  * render-file-previews.
  */
+import {
+  rendererKindForPath,
+  RENDERER_BY_EXT as SHARED_RENDERER_BY_EXT,
+} from "@blackbelt-technology/pi-dashboard-shared/renderer-by-ext.js";
 import { describe, expect, it } from "vitest";
 import { dispatchPreview, RENDERER_BY_EXT } from "../preview-dispatch.js";
 
@@ -87,6 +91,30 @@ describe("dispatchPreview — file targets", () => {
     for (const [ext, kind] of Object.entries(RENDERER_BY_EXT)) {
       expect(dispatchPreview(f(`x${ext}`))).toBe(kind);
     }
+  });
+});
+
+// S6 (test-plan): the client dispatch and the shared detector table are ONE
+// source of truth — same table object, identical kind per extension, and the
+// client consumes the shared module (no parallel copy, no cross-package import
+// of client code into shared).
+describe("S6 — shared RENDERER_BY_EXT is the single source of truth", () => {
+  it("client re-exports the very same shared table object", () => {
+    expect(RENDERER_BY_EXT).toBe(SHARED_RENDERER_BY_EXT);
+  });
+
+  it("client dispatchPreview and shared rendererKindForPath agree for every ext", () => {
+    for (const [ext, kind] of Object.entries(SHARED_RENDERER_BY_EXT)) {
+      const path = `report${ext}`;
+      expect(rendererKindForPath(path)).toBe(kind);
+      expect(dispatchPreview(f(path))).toBe(kind);
+      expect(dispatchPreview(f(path))).toBe(rendererKindForPath(path));
+    }
+  });
+
+  it("both classifiers fall back identically on an unknown extension", () => {
+    expect(rendererKindForPath("x.dat")).toBe("fallback");
+    expect(dispatchPreview(f("x.dat"))).toBe("fallback");
   });
 });
 

@@ -22,6 +22,7 @@ import { t as i18nT } from "../lib/i18n";
 import { LANGUAGE_OPTIONS, type Language, useI18n } from "../lib/i18n.js";
 import { type TestProviderResult, testProvider } from "../lib/providers-api.js";
 import { buildPiResourceFileUrl } from "../lib/route-builders.js";
+import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { DialogPortal } from "./DialogPortal.js";
 import { InstructionsPage } from "./DirectorySettings/InstructionsPage.js";
@@ -292,8 +293,10 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
  */
 const BACK_SENTINEL = "@@back";
 
-export function SettingsPanel({ availableModels, onMessage, onBack }: {
+export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd }: {
   availableModels?: Array<{ provider: string; id: string }>;
+  /** Currently-selected session's cwd — backs the canvas-types project scope. */
+  selectedCwd?: string;
   /** WS bus subscribe (from App) used to correlate the confirm:"ws" restart. */
   onMessage?: (handler: (msg: ServerToBrowserMessage) => void) => () => void;
   /**
@@ -1390,6 +1393,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                 <DiagnosticsSection />
                 <ToolsSection />
                 <SpawnFailuresSection />
+                {/* See change: auto-canvas (task 5.2). */}
+                <CanvasTypesSettingsSection selectedCwd={selectedCwd} />
                 <Section title={t("settings.editor", undefined, "Editor (code-server)")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-2">
                     {t("settings.editorDescription", undefined, "Configure the embedded VS Code editor powered by code-server.")}

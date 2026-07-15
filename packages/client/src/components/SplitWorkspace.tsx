@@ -26,15 +26,33 @@ interface SplitWorkspaceProps {
   onRatioChange: (ratio: number) => void;
   chat: React.ReactNode;
   editor: React.ReactNode;
+  /**
+   * Tablet replace-chat mode (auto-canvas Decision 1): when the split is open
+   * on the tablet tier, the editor takes the full width and the chat pane is
+   * NOT mounted (no side-by-side, no divider). Desktop keeps side-by-side.
+   */
+  replaceChat?: boolean;
 }
 
-export function SplitWorkspace({ open, ratio, orientation, onRatioChange, chat, editor }: SplitWorkspaceProps) {
+export function SplitWorkspace({ open, ratio, orientation, onRatioChange, chat, editor, replaceChat = false }: SplitWorkspaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const applyRatio = useSplitRatio(containerRef, orientation, onRatioChange);
 
   if (!open) {
     // Closed: chat occupies the whole content column (pre-split behaviour).
     return <div className="flex min-h-0 min-w-0 flex-1 flex-col">{chat}</div>;
+  }
+
+  if (replaceChat) {
+    // Tablet: the canvas replaces chat — full-width editor, chat pane omitted.
+    return (
+      <div
+        data-testid="split-editor-pane"
+        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+      >
+        {editor}
+      </div>
+    );
   }
 
   const dir = orientation === "h" ? "flex-row" : "flex-col";

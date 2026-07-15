@@ -21,6 +21,11 @@ export interface OpenFile {
   viewer: ViewerKind;
   /** Insertion timestamp; informational, preserves stable ordering. */
   addedAt: number;
+  /**
+   * Canvas auto-open marker (no user click): document viewers inject a
+   * restrictive CSP. See change: auto-canvas (Section 8 / S34).
+   */
+  restrictCsp?: boolean;
 }
 
 export interface EditorPaneState {
@@ -32,7 +37,7 @@ export interface EditorPaneState {
 }
 
 export type EditorPaneAction =
-  | { type: "openFile"; path: string; viewer: ViewerKind }
+  | { type: "openFile"; path: string; viewer: ViewerKind; restrictCsp?: boolean }
   | { type: "closeTab"; index: number }
   | { type: "setActive"; index: number }
   | { type: "toggleTreeRoot"; relPath: string }
@@ -78,7 +83,7 @@ export function editorPaneReducer(state: EditorPaneState, action: EditorPaneActi
         // Idempotent: activate the existing tab, never duplicate.
         return { ...state, activeIndex: existing, treeOpenRoots };
       }
-      const openFiles = [...state.openFiles, { path: action.path, viewer: action.viewer, addedAt: Date.now() }];
+      const openFiles = [...state.openFiles, { path: action.path, viewer: action.viewer, addedAt: Date.now(), restrictCsp: action.restrictCsp }];
       return { ...state, openFiles, activeIndex: openFiles.length - 1, treeOpenRoots };
     }
 
@@ -137,7 +142,7 @@ function keyFor(sessionId: string): string {
 }
 
 const VALID_VIEWERS: ReadonlySet<string> = new Set([
-  "monaco", "image", "pdf", "markdown", "html", "mermaid", "video", "audio", "live-server", "diff", "binary-warn",
+  "monaco", "image", "pdf", "markdown", "html", "mermaid", "video", "audio", "live-server", "url", "diff", "binary-warn",
 ]);
 
 /** True only for well-formed persisted state; rejects corrupt/partial blobs. */

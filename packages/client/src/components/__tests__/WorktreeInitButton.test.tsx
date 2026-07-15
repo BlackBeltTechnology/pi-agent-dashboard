@@ -14,8 +14,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorktreeInitHook } from "../../lib/git-api.js";
+import { __resetInitBusForTests, dispatchInitEvent } from "../../lib/worktree-init-bus.js";
 import { initStore } from "../../lib/worktree-init-store.js";
-import { dispatchInitEvent, __resetInitBusForTests } from "../../lib/worktree-init-bus.js";
 import { WorktreeInitButton } from "../WorktreeInitButton.js";
 
 const { fetchWorktreeInitStatus, runWorktreeInit } = vi.hoisted(() => ({

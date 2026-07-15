@@ -83,6 +83,7 @@ import { spawnPiSession } from "./process-manager.js";
 import { applyReattachPolicy } from "./reattach-placement.js";
 import { reconcileSessionOrder } from "./reconcile-session-order.js";
 import { resolveOrderKey } from "./resolve-order-key.js";
+import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerEditorRoutes } from "./routes/editor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
@@ -105,9 +106,9 @@ import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
+import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
-import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
@@ -1398,6 +1399,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     broadcast: (msg) => browserGateway.broadcastToAll(msg),
   });
+  // Canvas-type registry read/write (auto-canvas task 5.2).
+  registerCanvasTypesRoutes(fastify, { networkGuard });
   // Opt-in worktree auto-init-on-spawn preference (auto-init-worktree-on-spawn).
   registerPreferencesWorktreeInitRoutes(fastify, { preferencesStore, networkGuard });
   // Global auto-session-naming toggle (add-auto-session-naming). Broadcasts

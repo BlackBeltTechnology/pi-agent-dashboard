@@ -8,6 +8,8 @@ Files in this directory. One row per source file.
 | `auto-init-worktree.ts` | Fire-and-forget post-spawn worktree auto-init. Exports `maybeAutoInitWorktreeOnSpawn(cwd)`; no-op unless… → see `auto-init-worktree.ts.AGENTS.md` |
 | `back-target.ts` | Pure `computeBackTarget(route): string \| null` — maps route to parent route one shell depth up. → see `back-target.ts.AGENTS.md` |
 | `browse-api.ts` | Client-side browse API helper for PathPicker → see `browse-api.ts.AGENTS.md` |
+| `canvas-doc-csp.ts` | Injects subresource-blocking CSP meta into auto-opened file docs. See change: auto-canvas. |
+| `canvas-gate.ts` | Pure canvas viewport-gate + two-phase state reducers. See change: auto-canvas. |
 | `chat-selection-copy.ts` | Pure `buildSelectionClipboardText(range, container)`: rebuilds clipboard text for a transcript `copy`. → see `chat-selection-copy.ts.AGENTS.md` |
 | `chat-virtual-rows.ts` | Pure helpers for the windowed (TanStack Virtual) transcript. → see `chat-virtual-rows.ts.AGENTS.md` |
 | `clipboard.ts` | `copyText(text)`: `navigator.clipboard.writeText` with hidden-textarea + `execCommand` fallback for non-secure (HTTP tunnel) contexts. See change: register-bash-and-tool-install-help. |

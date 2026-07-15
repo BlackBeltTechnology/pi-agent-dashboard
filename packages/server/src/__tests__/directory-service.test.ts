@@ -1,11 +1,12 @@
 /**
  * Tests for DirectoryService - server-side directory-scoped operations.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createDirectoryService, type DirectoryService } from "../directory-service.js";
-import type { PreferencesStore } from "../preferences-store.js";
-import type { SessionManager } from "../memory-session-manager.js";
+
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDirectoryService, type DirectoryService } from "../directory-service.js";
+import type { SessionManager } from "../memory-session-manager.js";
+import type { PreferencesStore } from "../preferences-store.js";
 
 // Mock the shared openspec poller. We expose three entry points now:
 //   - pollOpenSpecAsync: legacy monolithic (still used as fallback where no mtime gate applies)

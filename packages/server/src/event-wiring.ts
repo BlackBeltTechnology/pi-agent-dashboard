@@ -9,6 +9,8 @@ import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-das
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { BrowserGateway } from "./browser-gateway.js";
+import { createCanvasAccumulator } from "./canvas-accumulator.js";
+import { readEffectiveCanvasTypes } from "./canvas-settings.js";
 import { decideDashboardSource } from "./dashboard-source-decision.js";
 import type { DirectoryService } from "./directory-service.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./event-status-extraction.js";
@@ -450,6 +452,9 @@ export function wireEvents(deps: EventWiringDeps): void {
 
   // Broadcast session ended to browsers when sessions are unregistered
   sessionManager.onUnregister = (sessionId) => {
+    // Turn-boundary reset (change: auto-canvas): a terminated session must not
+    // leave stale candidates behind. No settle broadcast on termination.
+    canvasAccumulator.resetTurn(sessionId);
     const session = sessionManager.get(sessionId);
     if (session) {
       // Durably clear the liveness marker EAGERLY (atomic, not debounced).
@@ -482,6 +487,38 @@ export function wireEvents(deps: EventWiringDeps): void {
 
   // Track sessions replaying history — suppress status broadcasts to avoid card flicker
   const replayingSessions = new Set<string>();
+  // Auto-canvas driver (change: auto-canvas). Per-session per-turn candidate
+  // buffer + eager/settle/reset lifecycle. Broadcasts ride the existing
+  // browser fan-out; settings are read fresh per detect (no cache).
+  const canvasAccumulator = createCanvasAccumulator({
+    readCanvasTypes: (cwd) => readEffectiveCanvasTypes(cwd),
+    broadcastIntent: (sessionId, phase, target, mode, title) => {
+      browserGateway.broadcastToAll({
+        type: "canvas_intent",
+        sessionId,
+        phase,
+        target,
+        ...(mode ? { mode } : {}),
+        ...(title ? { title } : {}),
+      });
+    },
+    broadcastServerChip: (sessionId, port, title) => {
+      browserGateway.broadcastToAll({
+        type: "canvas_server_chip",
+        sessionId,
+        port,
+        ...(title ? { title } : {}),
+      });
+    },
+    broadcastServerChipExpire: (sessionId, port) => {
+      browserGateway.broadcastToAll({
+        type: "canvas_server_chip",
+        sessionId,
+        port,
+        expire: true,
+      });
+    },
+  });
   // Sessions whose replay should be discarded (canSkipWipe was true — events already in store)
   const skipReplayInsert = new Set<string>();
   // Debounce flows refresh to prevent infinite loop between sessions in same cwd
@@ -665,6 +702,15 @@ export function wireEvents(deps: EventWiringDeps): void {
           browserGateway.broadcastSessionUpdated(sessionId, { lastActivityAt: now });
         }
       }
+
+      // Auto-canvas accumulation (change: auto-canvas). Mirrors the replay +
+      // queue_state guards internally; drives eager/settle/reset off the same
+      // forwarded tool-event stream `detectOpenSpecActivity` reads. cwd comes
+      // from server session state, never the model (anti-traversal).
+      canvasAccumulator.onEvent(sessionId, msg.event, {
+        replaying: replayingSessions.has(sessionId),
+        cwd: sessionManager.get(sessionId)?.cwd ?? "",
+      });
 
       // Server-side OpenSpec activity detection from forwarded events
       // Skip during replay — replayed events from a forked session would set stale phase/change

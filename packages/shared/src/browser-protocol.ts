@@ -23,6 +23,7 @@ import type {
   OpenSpecData,
   OpenSpecGroup,
   PiSessionInfo,
+  ViewTarget,
 } from "./types.js";
 
 // Batch ask_user contracts live in protocol.ts; re-export so browser-side
@@ -850,7 +851,50 @@ export type ServerToBrowserMessage =
   | QueueUpdateToBrowserMessage
   | PromptReceivedToBrowserMessage
   | ViewMessagesUpdateMessage
+  | CanvasIntentMessage
+  | CanvasServerChipMessage
   | FileChangedMessage;
+
+/**
+ * Server push: drive the per-session auto-canvas surface (change: auto-canvas).
+ *
+ * Two phases (Decision 1 two-phase open):
+ *   - `eager`  — the first qualifying candidate mid-turn; open immediately
+ *                (subject to the client viewport gate — mobile surfaces a chip
+ *                instead of yanking chat).
+ *   - `settle` — fired at `agent_end`; the turn's winning target owns the slot.
+ *
+ * `target` is the normalized winning `ViewTarget` (file/url), or `null` when the
+ * turn produced nothing renderable. `mode` maps to the lifecycle state
+ * (`replace` transient vs `pin` kept). Servers never arrive here — they use
+ * `canvas_server_chip`.
+ */
+export interface CanvasIntentMessage {
+  type: "canvas_intent";
+  sessionId: string;
+  phase: "eager" | "settle";
+  target: ViewTarget | null;
+  mode?: "replace" | "pin";
+  title?: string;
+}
+
+/**
+ * Server push: surface a declared-server confirm chip (Decision 4). Carries
+ * ONLY the port — NO announced host (SSRF gate: the client probes
+ * `127.0.0.1:port` on tap, never a host the agent named). No pre-tap fetch.
+ */
+export interface CanvasServerChipMessage {
+  type: "canvas_server_chip";
+  sessionId: string;
+  port: number;
+  title?: string;
+  /**
+   * True = the chip expired at the turn boundary / server-exit and MUST become
+   * non-actionable (S32). When set, `port` echoes the expired chip's port; the
+   * client drops it. Absent/false = surface a fresh, tappable chip.
+   */
+  expire?: boolean;
+}
 
 /**
  * Server push: an open editor-pane file changed on disk (agent edit or

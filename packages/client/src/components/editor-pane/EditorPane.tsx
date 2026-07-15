@@ -129,6 +129,7 @@ export function EditorPane() {
           mimeType={classification.mimeType}
           size={0}
           line={lineForTab}
+          restrictCsp={activeTab.restrictCsp}
         />
       </Suspense>
     );

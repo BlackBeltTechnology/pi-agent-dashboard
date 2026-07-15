@@ -3,9 +3,9 @@
  */
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { normalizeTags } from "@blackbelt-technology/pi-dashboard-shared/tags.js";
-import type { BrowserHandlerContext } from "./handler-context.js";
 import { attachRenameTarget, detachShouldClearName } from "../proposal-attach-naming.js";
 import { resolveOrderKey } from "../resolve-order-key.js";
+import type { BrowserHandlerContext } from "./handler-context.js";
 
 /**
  * Move a session to the front of its resolved-group order list and broadcast

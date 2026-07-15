@@ -41,10 +41,16 @@ export interface SplitWorkspaceContextValue {
   toggleSplit: () => void;
   paneState: EditorPaneState;
   dispatch: React.Dispatch<EditorPaneAction>;
-  /** Open a file in the split, auto-opening the split when closed; scroll to `line`. */
-  openInSplit: (relPath: string, line?: number) => void;
+  /**
+   * Open a file in the split, auto-opening the split when closed; scroll to
+   * `line`. `restrictCsp` marks a canvas auto-open (no user click) so document
+   * viewers inject a restrictive CSP (auto-canvas S34).
+   */
+  openInSplit: (relPath: string, line?: number, restrictCsp?: boolean) => void;
   /** Open a loopback dev-server URL in the `live-server` split viewer (auto-launched). */
   openLiveTarget: (url: string) => void;
+  /** Open a generic URL/youtube target in the `url` split viewer (auto-canvas S35). */
+  openUrlTarget: (url: string) => void;
   /** Open a file's diff as a `diff:<relPath>` viewer tab (coexists with its monaco tab). */
   openDiffTab: (relPath: string) => void;
   /** Open the split and reveal the Changes section in the pane rail. */
@@ -111,10 +117,10 @@ export function SplitWorkspaceProvider({
   }, [orientation, split.orientation, updateSplit]);
 
   const openInSplit = useCallback(
-    (relPath: string, line?: number) => {
+    (relPath: string, line?: number, restrictCsp?: boolean) => {
       if (!relPath) return;
       const viewer = fileKind(absOf(cwd, relPath)).viewer;
-      dispatch({ type: "openFile", path: relPath, viewer });
+      dispatch({ type: "openFile", path: relPath, viewer, restrictCsp });
       updateSplit({ open: true });
       if (line && line > 0) setPendingScroll({ path: relPath, line });
     },
@@ -127,6 +133,18 @@ export function SplitWorkspaceProvider({
       // never yield `live-server`. The `openFile` reducer is idempotent by
       // path, so the same URL reuses its tab.
       dispatch({ type: "openFile", path: `live:${url}`, viewer: "live-server" });
+      updateSplit({ open: true });
+    },
+    [dispatch, updateSplit],
+  );
+
+  const openUrlTarget = useCallback(
+    (url: string) => {
+      // Generic url/youtube canvas target — opened under a virtual `url:<url>`
+      // path so the `url` split viewer (dispatchPreview → PreviewBody) renders
+      // it. Idempotent by path. See change: auto-canvas (S35).
+      if (!url) return;
+      dispatch({ type: "openFile", path: `url:${url}`, viewer: "url" });
       updateSplit({ open: true });
     },
     [dispatch, updateSplit],
@@ -197,6 +215,7 @@ export function SplitWorkspaceProvider({
       dispatch,
       openInSplit,
       openLiveTarget,
+      openUrlTarget,
       openDiffTab,
       openChanges,
       changesRevealSignal,
@@ -207,7 +226,7 @@ export function SplitWorkspaceProvider({
       changedFiles,
       clearChanged,
     }),
-    [sessionId, cwd, split, updateSplit, toggleSplit, paneState, dispatch, openInSplit, openLiveTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged],
+    [sessionId, cwd, split, updateSplit, toggleSplit, paneState, dispatch, openInSplit, openLiveTarget, openUrlTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged],
   );
 
   return <SplitWorkspaceContext.Provider value={value}>{children}</SplitWorkspaceContext.Provider>;

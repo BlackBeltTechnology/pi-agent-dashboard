@@ -7,14 +7,22 @@
  * See change: render-file-previews.
  */
 import React, { useEffect, useState } from "react";
+import { withRestrictiveCsp } from "../../lib/canvas-doc-csp.js";
 import { t as i18nT } from "../../lib/i18n";
 import { rawUrl } from "./raw-url.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
+  /**
+   * When true (canvas auto-open, no user click), a restrictive CSP `<meta>` is
+   * injected into the rendered document so it cannot beacon external
+   * subresources — auto-open egress ≤ manual-click egress. See change:
+   * auto-canvas (Section 8 / S34).
+   */
+  restrictCsp?: boolean;
 }
 
-export function HtmlPreview({ target }: Props) {
+export function HtmlPreview({ target, restrictCsp = false }: Props) {
   const [html, setHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +38,7 @@ export function HtmlPreview({ target }: Props) {
           return;
         }
         const text = await res.text();
-        if (!cancelled) setHtml(text);
+        if (!cancelled) setHtml(restrictCsp ? withRestrictiveCsp(text) : text);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to load");
       }
@@ -38,7 +46,7 @@ export function HtmlPreview({ target }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [target.cwd, target.path]);
+  }, [target.cwd, target.path, restrictCsp]);
 
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
   if (html == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;

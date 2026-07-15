@@ -818,6 +818,93 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "subagent spawn complete" },
   },
 
+  // ── auto-canvas driver scenarios (change: auto-canvas, Sections 6–8) ────
+  // A `write` of a renderable markdown deliverable. The server-side detect
+  // (write/edit only, gated by RENDERER_BY_EXT + canvasTypes) pushes a DOC
+  // candidate and broadcasts `canvas_intent{phase:"eager"}` immediately, then
+  // `settle` at agent_end. pi executes the REAL write tool, so `report.md`
+  // lands in the session cwd and `/api/file` can serve it. Two-step so the
+  // agent terminates after the write. Drives S23–S28 (client canvas surface).
+  "canvas-write-md": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("write", {
+            path: "report.md",
+            content: "# Auto-canvas report\n\nThe deliverable the canvas opens.\n",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("report written")]),
+    ],
+    expect: { toolName: "write" },
+  },
+
+  // A `write` of an HTML deliverable carrying an external-image beacon. The
+  // auto-open path renders it under a restrictive CSP so the beacon subresource
+  // is blocked (S34). Two-step terminate.
+  "canvas-write-html-beacon": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("write", {
+            path: "beacon.html",
+            content:
+              '<!doctype html><html><head><title>b</title></head><body>' +
+              '<img data-testid="beacon-img" src="http://attacker.example/beacon.gif">' +
+              "canvas beacon doc</body></html>\n",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("beacon html written")]),
+    ],
+    expect: { toolName: "write" },
+  },
+
+  // A `canvas({ target:{ kind:"server", port } })` declare. The server
+  // normalizes it to a ServerChip and broadcasts `canvas_server_chip` with NO
+  // pre-tap fetch (S29). Drives the server-chip UI (S29–S32). Two-step
+  // terminate. `canvas` is the real bridge-registered declare tool.
+  "canvas-declare-server": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "server", port: 5173 }, title: "dev server" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("server declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // A `canvas({ target:{ kind:"server", port } })` declare for a port nothing
+  // listens on. On chip tap the loopback probe is refused → "server not
+  // running" immediately, no iframe (S30). Two-step terminate.
+  "canvas-declare-server-dead": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "server", port: 59321 }, title: "dead server" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("dead server declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // A `canvas({ target:{ kind:"url", url } })` declare (youtube). Renders the
+  // live URL normally with NO document CSP (S35). Two-step terminate.
+  "canvas-declare-url": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "url", url: "https://youtu.be/dQw4w9WgXcQ" } })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("url declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
   // ── Client interactive-renderer matrix (one per ask_user method) ────────
   "ask-confirm": askScenario("confirm", { title: "Proceed?" }),
   "ask-select": askScenario("select", {

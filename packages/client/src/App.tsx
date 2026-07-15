@@ -5,6 +5,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearchParams } from "wouter";
 import { ArchiveBrowserView } from "./components/ArchiveBrowserView.js";
+import { CanvasDriver } from "./components/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/ChatView.js";
 import { ChatViewMenu } from "./components/ChatViewMenu.js";
 import { CommandInput } from "./components/CommandInput.js";
@@ -64,6 +65,7 @@ import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/auto-init-worktree.js";
+import { EMPTY_CANVAS_STATE } from "./lib/canvas-gate.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/draft-storage.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
@@ -505,6 +507,9 @@ export default function App() {
   // Per-session rel-paths that changed on disk while open in the editor pane
   // (drives the changed-on-disk banner). See change: split-editor-workspace.
   const [changedOnDisk, setChangedOnDisk] = useState<Map<string, Set<string>>>(() => new Map());
+  // Per-session auto-canvas state (coexists with the URL-driven preview routes).
+  // Folded from `canvas_intent` / `canvas_server_chip`. See change: auto-canvas.
+  const [canvasMap, setCanvasMap] = useState<Map<string, import("./lib/canvas-gate.js").CanvasState>>(() => new Map());
   const [openspecMap, setOpenspecMap] = useState<Map<string, OpenSpecData>>(new Map());
   // Folder-HEAD branch map (`cwd → branch | null`), synced via `git_head_update`.
   // See change: refresh-folder-header-branch.
@@ -726,7 +731,7 @@ export default function App() {
   }, []);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory, setCanvasMap },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current, showToast },
   );
 
@@ -2017,6 +2022,7 @@ export default function App() {
             }}
           >
             <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} />
+            <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}
             </SessionDiffProvider>
@@ -2068,7 +2074,7 @@ export default function App() {
           }
           detailPanel={
             settingsMatch ? (
-              <SettingsPanel onMessage={onMessage} onBack={goBack} />
+              <SettingsPanel onMessage={onMessage} onBack={goBack} selectedCwd={selectedCwd} />
             ) : tunnelSetupMatch ? (
               <ZrokInstallGuide onBack={goBack} />
             ) : pluginOverlayMatched ? (
@@ -2282,7 +2288,7 @@ export default function App() {
             }
           }
           return models;
-        })()} onMessage={onMessage} onBack={goBack} />}
+        })()} onMessage={onMessage} onBack={goBack} selectedCwd={selectedCwd} />}
         {tunnelSetupMatch && <ZrokInstallGuide onBack={goBack} />}
       </div>
       {boardWorktreeForChange && (

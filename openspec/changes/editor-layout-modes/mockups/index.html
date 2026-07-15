@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Editor Toggle — UX Mockups</title>
+<style>
+  :root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #1c2129;
+    --bg-hover: #21262d;
+    --border-primary: #21262d;
+    --border-secondary: #30363d;
+    --text-primary: #e6edf3;
+    --text-secondary: #adbac7;
+    --text-tertiary: #768390;
+    --text-muted: #545d68;
+    --blue: #539bf5;
+    --purple: #b083f0;
+    --amber: #e0a851;
+    --emerald: #57ab5a;
+    --green: #57ab5a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    padding: 32px 24px 80px;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--text-tertiary); margin: 0 0 28px; font-size: 13px; }
+  h2 { font-size: 15px; margin: 40px 0 6px; display: flex; align-items: center; gap: 10px; }
+  h2 .tag { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 20px; letter-spacing: .3px; }
+  .tag-now { background: rgba(224,88,88,.15); color: #e5534b; border: 1px solid rgba(224,88,88,.35); }
+  .tag-a { background: rgba(83,155,245,.12); color: var(--blue); border: 1px solid rgba(83,155,245,.35); }
+  .tag-b { background: rgba(87,171,90,.12); color: var(--emerald); border: 1px solid rgba(87,171,90,.35); }
+  .tag-c { background: rgba(176,131,240,.12); color: var(--purple); border: 1px solid rgba(176,131,240,.35); }
+  .note { color: var(--text-tertiary); font-size: 12.5px; margin: 4px 0 14px; max-width: 760px; }
+  .note b { color: var(--text-secondary); font-weight: 600; }
+
+  /* window chrome */
+  .win {
+    max-width: 980px;
+    border: 1px solid var(--border-secondary);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg-secondary);
+    box-shadow: 0 8px 30px rgba(0,0,0,.4);
+  }
+  .header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border-primary);
+    font-size: 13px;
+    background: var(--bg-secondary);
+    flex-wrap: nowrap;
+  }
+  .name { font-weight: 600; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .muted { color: var(--text-tertiary); white-space: nowrap; }
+  .spacer { flex: 1; }
+  .pill {
+    font-size: 10px; padding: 2px 7px; border-radius: 5px;
+    border: 1px solid var(--border-secondary); color: var(--text-tertiary);
+    display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; cursor: default;
+  }
+  .pill svg { width: 11px; height: 11px; }
+  .pill.blue { border-color: rgba(83,155,245,.4); color: var(--blue); }
+  .pill.blue.on { background: rgba(83,155,245,.12); }
+  .pill.purple { border-color: rgba(176,131,240,.3); color: var(--purple); }
+  .pill.amber { border-color: rgba(224,168,81,.3); color: var(--amber); }
+  .pill.emerald { border-color: rgba(87,171,90,.3); color: var(--emerald); }
+  .pill.green { border-color: rgba(87,171,90,.3); color: var(--green); }
+  .icon { color: var(--text-muted); display: inline-flex; }
+  .icon svg { width: 14px; height: 14px; }
+  .divider { width: 1px; align-self: stretch; background: var(--border-secondary); margin: 3px 2px; }
+  .glow { box-shadow: 0 0 0 2px rgba(83,155,245,.5), 0 0 14px rgba(83,155,245,.35); border-radius: 6px; }
+
+  /* body area */
+  .body { display: flex; height: 230px; position: relative; }
+  .chat {
+    flex: 1; padding: 16px; color: var(--text-tertiary); font-size: 12px;
+    background: repeating-linear-gradient(0deg, transparent, transparent 22px, rgba(255,255,255,.015) 22px, rgba(255,255,255,.015) 23px);
+  }
+  .bubble { background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; max-width: 78%; }
+  .bubble.me { margin-left: auto; background: rgba(83,155,245,.08); border-color: rgba(83,155,245,.2); }
+  .pane {
+    width: 46%; border-left: 1px solid var(--border-secondary); background: var(--bg-primary);
+    display: flex; flex-direction: column;
+  }
+  .pane-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border-primary); font-size: 12px; }
+  .pane-head .t { font-weight: 600; }
+  .pane-body { flex: 1; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--text-tertiary); }
+  .code-line { white-space: pre; }
+  .ln { color: var(--text-muted); margin-right: 10px; }
+  .kw { color: #f47067; } .fn { color: #dcbdfb; } .str { color: #96d0ff; }
+
+  /* peek handle (option B) */
+  .peek {
+    width: 26px; border-left: 1px solid var(--border-secondary);
+    background: var(--bg-tertiary); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+    color: var(--text-tertiary); transition: background .15s;
+  }
+  .peek:hover { background: var(--bg-hover); color: var(--blue); }
+  .peek .lbl { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+  .peek svg { width: 14px; height: 14px; }
+
+  /* activity bar (option C) */
+  .actbar { width: 46px; border-right: 1px solid var(--border-secondary); background: var(--bg-tertiary); display: flex; flex-direction: column; align-items: center; padding-top: 8px; gap: 4px; }
+  .actbtn { width: 34px; height: 34px; border-radius: 7px; display: flex; align-items: center; justify-content: center; color: var(--text-tertiary); cursor: pointer; position: relative; }
+  .actbtn svg { width: 18px; height: 18px; }
+  .actbtn.on { color: var(--text-primary); background: var(--bg-hover); }
+  .actbtn.on::before { content: ""; position: absolute; left: -8px; top: 6px; bottom: 6px; width: 2px; background: var(--blue); border-radius: 2px; }
+  .actbtn:hover { color: var(--text-primary); }
+
+  .legend { font-size: 11px; color: var(--text-muted); margin-top: 10px; display: flex; gap: 18px; flex-wrap: wrap; }
+  .legend b { color: var(--text-secondary); }
+  .pros { display: flex; gap: 24px; margin-top: 10px; flex-wrap: wrap; font-size: 12px; }
+  .pros ul { margin: 4px 0 0; padding-left: 16px; }
+  .pros .good li { color: var(--emerald); } .pros .bad li { color: var(--amber); }
+  .pros li span { color: var(--text-secondary); }
+  .col-h { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); }
+  .seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; }
+  .seg button { border: none; background: transparent; color: var(--text-tertiary); padding: 3px 9px; cursor: pointer; font-size: 11px; display: inline-flex; align-items: center; gap: 5px; border-right: 1px solid var(--border-secondary); font-family: inherit; }
+  .seg button:last-child { border-right: none; }
+  .seg button.on { background: rgba(83,155,245,.15); color: var(--blue); }
+  .seg button:hover:not(.on) { background: var(--bg-hover); color: var(--text-primary); }
+  .seg .gl { font-size: 12px; line-height: 1; }
+  /* draggable split divider with on-border controls */
+  .divider-bar { width: 6px; background: var(--border-secondary); position: relative; cursor: col-resize; flex: 0 0 auto; }
+  .divider-bar:hover { background: rgba(83,155,245,.55); }
+  .divider-bar::before { content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 2px; height: 26px; border-radius: 2px; background: repeating-linear-gradient(var(--text-muted) 0 2px, transparent 2px 4px); opacity: .6; }
+  .dv-ctrl { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; gap: 3px; z-index: 6; }
+  .dvbtn { width: 20px; height: 20px; border-radius: 5px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-tertiary); font-size: 12px; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+  .dvbtn:hover { background: var(--bg-hover); color: var(--blue); border-color: rgba(83,155,245,.6); }
+  .stbtn { font-size: 12px; padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-tertiary); cursor: pointer; }
+  .stbtn:hover { color: var(--text-primary); background: var(--bg-hover); }
+  .stbtn.on { border-color: rgba(87,171,90,.5); color: var(--emerald); background: rgba(87,171,90,.1); }
+  .phbtn { color: var(--text-muted); cursor: pointer; padding: 0 4px; font-size: 12px; }
+  .phbtn:hover { color: var(--text-primary); }
+  footer { max-width: 980px; margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--border-primary); color: var(--text-muted); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Editor toggle — placement mockups</h1>
+<p class="sub">The control that today reads <b style="color:#e5534b">“Split / Unsplit”</b>. Same 4 header pills shown for context. Toggle-of-interest is highlighted.</p>
+
+<!-- ================= NOW ================= -->
+<h2><span class="tag tag-now">TODAY</span> Buried pill · "Split / Unsplit"</h2>
+<p class="note">One of six visually-identical 10px pills. Names the layout mechanism, not the intent. No spatial link to the pane that appears on the right.</p>
+<div class="win">
+  <div class="header">
+    <span class="icon">‹</span>
+    <span class="name">payment-refactor <span style="color:var(--text-muted)">✎</span></span>
+    <span class="muted">claude-opus</span>
+    <span class="muted">💡 high</span>
+    <span class="spacer"></span>
+    <span class="glow"><span class="pill blue" id="now-toggle">⊟ Split</span></span>
+    <span class="pill purple">📎 Attach</span>
+    <span class="pill amber">▦ Modules</span>
+    <span class="pill emerald">⇄ Changed Files ·5</span>
+    <span class="muted">12m</span>
+    <span class="icon">⟳</span>
+  </div>
+  <div class="body">
+    <div class="chat">
+      <div class="bubble">Refactor the retry logic in <code>charge.ts</code>.</div>
+      <div class="bubble me">Done — extracted a backoff helper and added tests.</div>
+    </div>
+  </div>
+</div>
+<div class="legend"><span><b style="color:#e5534b">Problem 1</b> findability</span><span><b style="color:#e5534b">Problem 2</b> "Unsplit" is not a word users scan for</span><span><b style="color:#e5534b">Problem 3</b> button here, panel appears far right</span></div>
+
+<!-- ================= OPTION A ================= -->
+<h2><span class="tag tag-a">OPTION A</span> Promote in place · rename to "Editor"</h2>
+<p class="note">Stable label + icon, lit when open (no more word-swap). Pulled to the <b>front</b> of the cluster with a divider so it reads as a <b>view</b> control, separate from action pills. Lowest effort.</p>
+<div class="win">
+  <div class="header">
+    <span class="icon">‹</span>
+    <span class="name">payment-refactor</span>
+    <span class="muted">claude-opus</span>
+    <span class="spacer"></span>
+    <span class="glow"><span class="pill blue on">⌗ Editor</span></span>
+    <span class="divider"></span>
+    <span class="pill purple">📎 Attach</span>
+    <span class="pill amber">▦ Modules</span>
+    <span class="pill emerald">⇄ Changed Files ·5</span>
+    <span class="muted">12m</span>
+    <span class="icon">⟳</span>
+  </div>
+  <div class="body">
+    <div class="chat">
+      <div class="bubble">Refactor the retry logic in charge.ts.</div>
+      <div class="bubble me">Done — extracted a backoff helper.</div>
+    </div>
+    <div class="pane">
+      <div class="pane-head"><span>⌗</span><span class="t">Editor</span><span class="spacer" style="flex:1"></span><span style="color:var(--text-muted)">✕</span></div>
+      <div class="pane-body">
+        <div class="code-line"><span class="ln">1</span><span class="kw">export function</span> <span class="fn">backoff</span>(n) {</div>
+        <div class="code-line"><span class="ln">2</span>  <span class="kw">return</span> <span class="str">2 ** n * 100</span>;</div>
+        <div class="code-line"><span class="ln">3</span>}</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="pros">
+  <div><div class="col-h">Wins</div><ul class="good"><li><span>fixes naming + word-jitter</span></li><li><span>grouped as a view control</span></li><li><span>one-file change</span></li></ul></div>
+  <div><div class="col-h">Still open</div><ul class="bad"><li><span>lives in the crowded row</span></li><li><span>no spatial link to the pane</span></li></ul></div>
+</div>
+
+<!-- ================= OPTION B ================= -->
+<h2><span class="tag tag-b">OPTION B</span> Right-edge peek handle <b style="color:var(--emerald);font-weight:600;font-size:12px">★ recommended</b></h2>
+<p class="note">The pane appears on the right — so put its affordance <b>on the right edge of the chat</b>. Always visible (permanent discoverability), spatially truthful, and it frees a pill from the header. Close via the pane's own ✕.</p>
+<div style="display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start;">
+  <div>
+    <div class="col-h" style="margin-bottom:6px;">Closed — peek rail invites</div>
+    <div class="win" style="width:440px;">
+      <div class="header">
+        <span class="name">payment-refactor</span>
+        <span class="spacer"></span>
+        <span class="pill purple">📎 Attach</span>
+        <span class="pill emerald">⇄ Changed Files ·5</span>
+        <span class="muted">12m</span>
+      </div>
+      <div class="body">
+        <div class="chat">
+          <div class="bubble">Refactor the retry logic in charge.ts.</div>
+          <div class="bubble me">Done — extracted a backoff helper.</div>
+        </div>
+        <div class="peek glow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg><span class="lbl">Editor</span></div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="col-h" style="margin-bottom:6px;">Open — drag divider / ✕ to close</div>
+    <div class="win" style="width:440px;">
+      <div class="header">
+        <span class="name">payment-refactor</span>
+        <span class="spacer"></span>
+        <span class="pill emerald">⇄ Changed Files ·5</span>
+        <span class="muted">12m</span>
+      </div>
+      <div class="body">
+        <div class="chat" style="flex:1;">
+          <div class="bubble">Refactor the retry logic.</div>
+        </div>
+        <div class="pane" style="width:52%;">
+          <div class="pane-head"><span>⌗</span><span class="t">Editor</span><span style="flex:1"></span><span class="glow" style="padding:0 4px;color:var(--text-secondary)">✕</span></div>
+          <div class="pane-body">
+            <div class="code-line"><span class="ln">1</span><span class="kw">export function</span> <span class="fn">backoff</span>(n){</div>
+            <div class="code-line"><span class="ln">2</span>  <span class="kw">return</span> <span class="str">2**n*100</span>;</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="pros">
+  <div><div class="col-h">Wins</div><ul class="good"><li><span>permanently discoverable</span></li><li><span>affordance where the pane appears</span></li><li><span>off-loads a header pill</span></li></ul></div>
+  <div><div class="col-h">Still open</div><ul class="bad"><li><span>new always-on chrome</span></li><li><span>mobile → bottom-sheet grabber</span></li></ul></div>
+</div>
+
+<!-- ================= OPTION C ================= -->
+<h2><span class="tag tag-c">OPTION C</span> Activity bar · Chat / Editor as views</h2>
+<p class="note">Treat Chat and Editor as first-class <b>views</b> (VS Code model). Clearest mental model and future-proof if a third panel (terminal, preview) ever lands — but the biggest change and possibly over-built for two views today.</p>
+<div class="win">
+  <div style="display:flex;">
+    <div class="actbar">
+      <div class="actbtn on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+      <div class="actbtn glow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></div>
+    </div>
+    <div style="flex:1;">
+      <div class="header">
+        <span class="name">payment-refactor</span>
+        <span class="spacer"></span>
+        <span class="pill purple">📎 Attach</span>
+        <span class="pill emerald">⇄ Changed Files ·5</span>
+        <span class="muted">12m</span>
+      </div>
+      <div class="body">
+        <div class="chat">
+          <div class="bubble">Refactor the retry logic in charge.ts.</div>
+          <div class="bubble me">Done — extracted a backoff helper.</div>
+        </div>
+        <div class="pane">
+          <div class="pane-head"><span>⌗</span><span class="t">Editor</span></div>
+          <div class="pane-body">
+            <div class="code-line"><span class="ln">1</span><span class="kw">export function</span> <span class="fn">backoff</span>(n){}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="pros">
+  <div><div class="col-h">Wins</div><ul class="good"><li><span>clearest view model</span></li><li><span>scales to N panels</span></li></ul></div>
+  <div><div class="col-h">Still open</div><ul class="bad"><li><span>adds a persistent column</span></li><li><span>heaviest change</span></li></ul></div>
+</div>
+
+<!-- ================= OPTION B+ — CONSISTENT TRI-STATE (INTERACTIVE) ================= -->
+<h2><span class="tag tag-b">OPTION B+</span> One consistent control · <b style="color:var(--emerald);font-weight:600;font-size:12px">Chat / Split / Editor</b> segmented switch</h2>
+<p class="note">Two consistent controls, no more scattered icons: <b>(1)</b> the header segmented switch owns the axis from every state (incl. Closed); <b>(2)</b> in Split, the <b>divider itself carries the collapse controls</b> — <b>drag it to resize</b>, or click a chevron that <b>points at the pane it folds away</b> (‹ hides chat → editor full, › hides editor → chat only). <b>Try dragging the split line and clicking its chevrons — live.</b></p>
+
+<div class="win">
+  <div class="header">
+    <span class="name" id="iv-name">payment-refactor</span>
+    <span class="spacer"></span>
+    <!-- the single consistent layout control -->
+    <span class="seg" id="iv-seg">
+      <button data-s="closed" title="Chat only"><span class="gl">▭</span> Chat</button>
+      <button data-s="split" title="Split — chat + editor"><span class="gl">◧</span> Split</button>
+      <button data-s="full" title="Editor only"><span class="gl">▮</span> Editor</button>
+    </span>
+    <span class="pill emerald">⇄ Changed Files ·5</span>
+    <span class="muted">12m</span>
+  </div>
+  <div class="body" id="iv-body">
+    <!-- chat peek (left) — only in full -->
+    <div class="peek" id="iv-chatpeek" style="border-left:none;border-right:1px solid var(--border-secondary);display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span class="lbl">Chat</span>
+    </div>
+    <!-- chat -->
+    <div class="chat" id="iv-chat">
+      <div class="bubble">Refactor the retry logic in charge.ts.</div>
+      <div class="bubble me">Done — extracted a backoff helper and tests.</div>
+    </div>
+    <!-- draggable split divider with on-border collapse controls (split only) -->
+    <div class="divider-bar" id="iv-divider" title="Drag to resize">
+      <div class="dv-ctrl">
+        <button class="dvbtn" id="iv-fold-chat" title="Collapse chat → editor full">‹</button>
+        <button class="dvbtn" id="iv-fold-editor" title="Collapse editor → chat only">›</button>
+      </div>
+    </div>
+    <!-- editor peek (right) — only in closed -->
+    <div class="peek" id="iv-editpeek" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+      <span class="lbl">Editor</span>
+    </div>
+    <!-- editor pane -->
+    <div class="pane" id="iv-pane">
+      <div class="pane-head">
+        <span>⌗</span><span class="t">Editor</span><span style="flex:1"></span>
+        <span style="font-size:10px;color:var(--text-muted)">layout controlled from header ▲</span>
+      </div>
+      <div class="pane-body">
+        <div class="code-line"><span class="ln">1</span><span class="kw">export function</span> <span class="fn">backoff</span>(n) {</div>
+        <div class="code-line"><span class="ln">2</span>  <span class="kw">return</span> <span class="str">2 ** n * 100</span>;</div>
+        <div class="code-line"><span class="ln">3</span>}</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="legend">
+  <span><b>▭ Chat</b> editor closed → right peek</span>
+  <span><b>◧ Split</b> both panes, draggable divider</span>
+  <span><b>▮ Editor</b> chat closed → left peek</span>
+  <span style="color:var(--emerald)">every state reachable from every state, one click</span>
+</div>
+
+<script>
+  const body = document.getElementById('iv-body');
+  const chat = document.getElementById('iv-chat');
+  const pane = document.getElementById('iv-pane');
+  const editPeek = document.getElementById('iv-editpeek');
+  const chatPeek = document.getElementById('iv-chatpeek');
+  const divider = document.getElementById('iv-divider');
+  const segBtns = [...document.querySelectorAll('#iv-seg button')];
+  let paneW = 50; // remembered split width (%)
+  function render(s) {
+    segBtns.forEach(b => b.classList.toggle('on', b.dataset.s === s));
+    editPeek.style.display = 'none';
+    chatPeek.style.display = 'none';
+    divider.style.display = 'none';
+    chat.style.display = '';
+    pane.style.display = '';
+    chat.style.flex = '1';
+    pane.style.flex = '';
+    if (s === 'closed') {
+      pane.style.display = 'none';
+      editPeek.style.display = 'flex';
+    } else if (s === 'split') {
+      divider.style.display = 'block';
+      pane.style.width = paneW + '%';
+    } else if (s === 'full') {
+      chat.style.display = 'none';
+      chatPeek.style.display = 'flex';
+      pane.style.width = 'auto';
+      pane.style.flex = '1';
+    }
+  }
+  segBtns.forEach(b => b.onclick = () => render(b.dataset.s));
+  editPeek.onclick = () => render('split');
+  chatPeek.onclick = () => render('split');
+  // on-border collapse chevrons (each points at the pane it folds away)
+  document.getElementById('iv-fold-chat').onclick = (e) => { e.stopPropagation(); render('full'); };
+  document.getElementById('iv-fold-editor').onclick = (e) => { e.stopPropagation(); render('closed'); };
+  // drag the divider to resize the split
+  let dragging = false;
+  divider.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.dvbtn')) return; // let buttons handle their own clicks
+    dragging = true; divider.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  divider.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const r = body.getBoundingClientRect();
+    let pct = (1 - (e.clientX - r.left) / r.width) * 100; // editor width from right edge
+    paneW = Math.min(80, Math.max(20, pct));
+    pane.style.width = paneW + '%';
+  });
+  divider.addEventListener('pointerup', () => { dragging = false; });
+  render('split');
+</script>
+
+<footer>
+  <b style="color:var(--text-secondary)">Recommendation:</b> rename to a stable <b style="color:var(--text-secondary)">“Editor”</b> toggle regardless (fixes semantics), then adopt <b style="color:var(--emerald)">Option B+</b>: a single <b style="color:var(--emerald)">Chat / Split / Editor</b> segmented control in the session header that owns all three layouts consistently (every state one click, present even when Closed), with peek handles as a bonus spatial shortcut and a draggable divider in Split. Full-size collapses chat to a mirrored left-edge peek — nothing is lost. Option A is the safe one-line fallback; Option C only if a third view is coming.
+  &nbsp;·&nbsp; Not implemented — mockup for discussion.
+</footer>
+
+</body>
+</html>

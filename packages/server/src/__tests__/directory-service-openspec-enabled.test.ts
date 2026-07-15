@@ -10,12 +10,13 @@
  *
  * See change: auto-hide-empty-session-subcards.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createDirectoryService, type DirectoryService } from "../directory-service.js";
-import type { PreferencesStore } from "../preferences-store.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 import { DEFAULT_OPENSPEC_POLL } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDirectoryService, type DirectoryService } from "../directory-service.js";
+import type { SessionManager } from "../memory-session-manager.js";
+import type { PreferencesStore } from "../preferences-store.js";
 
 // Mock CLI entry points so we can spy on whether they get called.
 vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (importOriginal) => {

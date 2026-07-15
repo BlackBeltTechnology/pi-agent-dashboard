@@ -16,10 +16,10 @@ import {
   createAutoNamer,
   generateTitle,
   isEligible,
-  parseTitle,
-  shouldSkipByPrefilter,
   type NamerRegistry,
+  parseTitle,
   type StreamSimpleFn,
+  shouldSkipByPrefilter,
 } from "../auto-session-namer.js";
 
 describe("shouldSkipByPrefilter", () => {

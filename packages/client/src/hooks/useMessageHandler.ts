@@ -14,6 +14,7 @@ import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/
 import type { CommandInfo, DashboardSession, FileEntry, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback, useEffect, useRef } from "react";
 import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
+import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/coalesce-live-events.js";
 import { isVisibleCwd } from "../lib/cwd-visibility.js";
 import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/event-reducer.js";
@@ -103,6 +104,12 @@ export interface MessageHandlerSetters {
    * See change: show-chat-history-loading-indicator.
    */
   setLoadingHistory: React.Dispatch<React.SetStateAction<Map<string, boolean>>>;
+  /**
+   * Per-session auto-canvas state, folded from `canvas_intent` /
+   * `canvas_server_chip` broadcasts. Coexists with the URL-driven preview
+   * routes. See change: auto-canvas (Section 6).
+   */
+  setCanvasMap: React.Dispatch<React.SetStateAction<Map<string, import("../lib/canvas-gate.js").CanvasState>>>;
 }
 
 export interface MessageHandlerDeps {
@@ -162,7 +169,7 @@ export function useMessageHandler(
     setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
     setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
-    setDisplayPrefs, setViewMessagesMap, setLoadingHistory,
+    setDisplayPrefs, setViewMessagesMap, setLoadingHistory, setCanvasMap,
   } = setters;
   const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayPersister, showToast } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
@@ -495,6 +502,34 @@ export function useMessageHandler(
           return next;
         });
         break;
+
+      case "canvas_intent": {
+        // Auto-canvas driver: fold the two-phase intent (eager/settle) into the
+        // session's canvas slot. The CanvasDriver component reacts to the
+        // resulting state (viewport-gated open / chip). See change: auto-canvas.
+        if (typeof msg.sessionId !== "string") break;
+        setCanvasMap((prev) => {
+          const next = new Map(prev);
+          next.set(msg.sessionId, reduceCanvasIntent(prev.get(msg.sessionId) ?? EMPTY_CANVAS_STATE, msg));
+          return next;
+        });
+        break;
+      }
+
+      case "canvas_server_chip": {
+        // Declared-server confirm chip (Decision 4). A normal broadcast surfaces
+        // the chip (no probe here — the probe happens on tap through
+        // LiveServerViewer); an `expire:true` broadcast drops it at the turn
+        // boundary / server-exit so it becomes non-actionable (S32). Both cases
+        // fold through `reduceCanvasChip`.
+        if (typeof msg.sessionId !== "string") break;
+        setCanvasMap((prev) => {
+          const next = new Map(prev);
+          next.set(msg.sessionId, reduceCanvasChip(prev.get(msg.sessionId) ?? EMPTY_CANVAS_STATE, msg));
+          return next;
+        });
+        break;
+      }
 
       case "models_list": {
         // Models are GLOBAL in pi-coding-agent (single ModelRegistry per pi
@@ -1099,5 +1134,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setLoadingHistory, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setLoadingHistory, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
 }
