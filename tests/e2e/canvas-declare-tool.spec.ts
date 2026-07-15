@@ -77,8 +77,14 @@ test.describe("auto-canvas — server confirm chip, no pre-tap fetch (S29)", () 
     // the human tap (Decision 4 / CONTRACT 1 — no auto-fetch of agent input).
     let preTapProbe = false;
     let tapped = false;
+    // Any allowlist-add (POST /api/live-server/**) OR proxied probe (/live/**)
+    // before the tap is a pre-confirm fetch of agent-supplied input (SSRF).
     await page.route("**/api/live-server/**", (route) => {
       if (!tapped && route.request().method() === "POST") preTapProbe = true;
+      route.continue();
+    });
+    await page.route("**/live/**", (route) => {
+      if (!tapped) preTapProbe = true;
       route.continue();
     });
 

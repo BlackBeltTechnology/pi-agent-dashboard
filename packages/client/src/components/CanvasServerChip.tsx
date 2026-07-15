@@ -88,7 +88,7 @@ export function CanvasServerChip({ chip, onTap }: Props) {
         data-port={chip.port}
         disabled={status === "probing"}
         onClick={() => void probe()}
-        className="flex items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+        className="flex min-h-[44px] items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
         title={t("canvas.serverChipHint", undefined, "Tap to probe 127.0.0.1 and preview")}
       >
         <Icon path={mdiServerNetwork} size={0.6} className="text-[var(--accent-blue)]" />

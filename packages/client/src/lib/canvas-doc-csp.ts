@@ -48,5 +48,12 @@ export function withRestrictiveCsp(html: string): string {
     const idx = headMatch.index + headMatch[0].length;
     return html.slice(0, idx) + CSP_META + html.slice(idx);
   }
+  // No <head>: insert AFTER a leading <!DOCTYPE> so the meta never precedes the
+  // doctype (which would trigger quirks mode). Prepend only when no doctype.
+  const doctypeMatch = /<!doctype[^>]*>/i.exec(html);
+  if (doctypeMatch && doctypeMatch.index === 0) {
+    const idx = doctypeMatch[0].length;
+    return html.slice(0, idx) + CSP_META + html.slice(idx);
+  }
   return CSP_META + html;
 }

@@ -88,4 +88,16 @@ describe("validateCanvasDeclareShape (cwd-free ack)", () => {
   it("rejects a missing target", () => {
     expect(validateCanvasDeclareShape(undefined)).not.toBeNull();
   });
+
+  it("rejects a malformed url", () => {
+    expect(
+      validateCanvasDeclareShape({ target: { kind: "url", url: "not a url" } }),
+    ).toMatch(/valid URL/i);
+  });
+
+  it("accepts a well-formed url", () => {
+    expect(
+      validateCanvasDeclareShape({ target: { kind: "url", url: "https://youtu.be/x" } }),
+    ).toBeNull();
+  });
 });

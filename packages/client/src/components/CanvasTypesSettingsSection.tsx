@@ -88,7 +88,7 @@ export function CanvasTypesSettingsSection({ selectedCwd }: { selectedCwd?: stri
               disabled={disabled}
               onClick={() => setScope(s)}
               data-testid={`canvas-scope-${s}`}
-              className={`px-2 py-1 text-xs rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`min-h-[44px] min-w-[44px] px-2 py-1 text-xs rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                 active
                   ? "bg-blue-600 text-white border-blue-600"
                   : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-secondary)]"
@@ -110,7 +110,7 @@ export function CanvasTypesSettingsSection({ selectedCwd }: { selectedCwd?: stri
         {NON_FALLBACK_KINDS.map((kind) => (
           <label
             key={kind}
-            className={`flex items-center gap-2 text-sm text-[var(--text-secondary)] ${
+            className={`flex min-h-[44px] items-center gap-2 text-sm text-[var(--text-secondary)] ${
               projectDisabled ? "opacity-50" : ""
             }`}
           >

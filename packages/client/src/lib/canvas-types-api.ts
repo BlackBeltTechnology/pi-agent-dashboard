@@ -38,6 +38,7 @@ export function displayedCanvasTypes(
 export async function getCanvasTypes(cwd: string): Promise<CanvasTypesResponse> {
   const q = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
   const res = await fetch(`${getApiBase()}/api/canvas-types${q}`);
+  if (!res.ok) throw new Error(`GET /api/canvas-types failed (${res.status})`);
   return res.json();
 }
 
@@ -51,5 +52,6 @@ export async function patchCanvasTypes(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scope, cwd, canvasTypes }),
   });
+  if (!res.ok) throw new Error(`PATCH /api/canvas-types failed (${res.status})`);
   return res.json();
 }

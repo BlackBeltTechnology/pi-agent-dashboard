@@ -16,7 +16,7 @@
  * through the LiveServerViewer loopback-probe path.
  */
 import { isLoopbackUrl } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useCanvasTier } from "../hooks/useCanvasTier.js";
 import { type CanvasState, gateAllowsAutoOpen } from "../lib/canvas-gate.js";
 import { t as i18nT } from "../lib/i18n";
@@ -34,22 +34,26 @@ interface Props {
  */
 function useOpenTarget() {
   const { openInSplit, openLiveTarget, openUrlTarget } = useSplitWorkspace();
-  return (state: CanvasState) => {
-    const target = state.target;
-    if (!target) return;
-    if (target.kind === "file") {
-      // Canvas auto-open (no user click) → restrictCsp so document viewers
-      // block external subresources (auto-open egress ≤ manual-click, S34).
-      openInSplit(target.path, undefined, true);
-    } else if (target.kind === "url" && isLoopbackUrl(target.url)) {
-      // Loopback dev-server URL → SSRF-gated live-server viewer.
-      openLiveTarget(target.url);
-    } else if (target.kind === "url") {
-      // Generic url/youtube declare → the `url` split viewer renders it
-      // normally, NO document CSP (S35).
-      openUrlTarget(target.url);
-    }
-  };
+  // Stable identity across renders so effect deps don't churn.
+  return useCallback(
+    (state: CanvasState) => {
+      const target = state.target;
+      if (!target) return;
+      if (target.kind === "file") {
+        // Canvas auto-open (no user click) → restrictCsp so document viewers
+        // block external subresources (auto-open egress ≤ manual-click, S34).
+        openInSplit(target.path, undefined, true);
+      } else if (target.kind === "url" && isLoopbackUrl(target.url)) {
+        // Loopback dev-server URL → SSRF-gated live-server viewer.
+        openLiveTarget(target.url);
+      } else if (target.kind === "url") {
+        // Generic url/youtube declare → the `url` split viewer renders it
+        // normally, NO document CSP (S35).
+        openUrlTarget(target.url);
+      }
+    },
+    [openInSplit, openLiveTarget, openUrlTarget],
+  );
 }
 
 export function CanvasDriver({ state }: Props) {
@@ -89,7 +93,7 @@ export function CanvasDriver({ state }: Props) {
           type="button"
           data-testid="canvas-file-chip"
           onClick={() => openTarget(state)}
-          className="flex items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+          className="flex min-h-[44px] items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
         >
           <span className="font-medium">
             {state.title ?? i18nT("canvas.openCanvas", undefined, "Open canvas")}

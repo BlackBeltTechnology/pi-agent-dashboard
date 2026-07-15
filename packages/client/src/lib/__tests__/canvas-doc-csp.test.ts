@@ -30,6 +30,13 @@ describe("withRestrictiveCsp", () => {
     expect(out).toContain(AUTO_OPEN_DOC_CSP);
   });
 
+  it("inserts AFTER a leading <!DOCTYPE> when there is no <head> (no quirks mode)", () => {
+    const out = withRestrictiveCsp("<!DOCTYPE html><body>x</body>");
+    expect(out.startsWith("<!DOCTYPE html>")).toBe(true);
+    expect(out.indexOf("Content-Security-Policy")).toBeGreaterThan(out.indexOf("<!DOCTYPE html>"));
+    expect(out.indexOf("Content-Security-Policy")).toBeLessThan(out.indexOf("<body>"));
+  });
+
   it("is idempotent (already-tagged HTML unchanged)", () => {
     const once = withRestrictiveCsp("<head></head>");
     expect(withRestrictiveCsp(once)).toBe(once);

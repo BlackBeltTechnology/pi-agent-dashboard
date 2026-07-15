@@ -81,6 +81,11 @@ export function validateCanvasDeclareShape(
   if (target.kind === "url") {
     if (typeof target.url !== "string" || target.url.length === 0)
       return "canvas: url target needs a url";
+    try {
+      new URL(target.url);
+    } catch {
+      return "canvas: url target must be a valid URL";
+    }
     return null;
   }
   if (target.kind === "server") {
