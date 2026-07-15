@@ -57,6 +57,11 @@ const STATIC_DESCRIPTORS: StaticRouteDescriptor[] = [
   { pattern: "/pi-resource", depth: 2, requireQuery: "path" },
   // depth 1 — details / modals → cards.
   { pattern: "/session/:id", depth: 1 },
+  // Bare directory home page. Less specific than the deeper folder routes
+  // below (1 literal vs 2), so the resolver ranks those first; the exact
+  // segment-count match keeps this from shadowing them. See change:
+  // add-directory-home-page.
+  { pattern: "/folder/:cwd", depth: 1 },
   { pattern: "/folder/:cwd/terminals", depth: 1 },
   { pattern: "/folder/:cwd/editor", depth: 1 },
   { pattern: "/folder/:cwd/settings", depth: 1 },
@@ -182,6 +187,11 @@ export function parseRouteDepthInput(url: string): MobileDepthInput {
   let hasFolderRoute = false;
   let hasFolderOverlay = false;
   let hasFolderSettingsRoute = false;
+  if (segs[0] === "folder" && segs.length === 2) {
+    // Bare directory home page — depth-1 detail. See change:
+    // add-directory-home-page.
+    hasFolderRoute = true;
+  }
   if (segs[0] === "folder" && segs.length >= 3) {
     const sub = segs[2];
     if (segs.length === 3 && (sub === "terminals" || sub === "editor")) {

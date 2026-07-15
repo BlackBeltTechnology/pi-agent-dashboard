@@ -1,11 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
-import { Router } from "wouter";
-import { memoryLocation } from "wouter/memory-location";
-import { SessionList, groupSessionsByDirectory } from "../SessionList.js";
-import { ThemeProvider } from "../ThemeProvider.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Router, useLocation } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
+import { encodeFolderPath } from "../../lib/folder-encoding.js";
+import { groupSessionsByDirectory, SessionList } from "../SessionList.js";
+import { ThemeProvider } from "../ThemeProvider.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });
@@ -532,5 +533,49 @@ describe("groupSessionsByDirectory", () => {
     ];
     const { unpinned } = groupSessionsByDirectory(sessions);
     expect(unpinned.map((g) => g.cwd)).toEqual(["/new", "/mid", "/old"]);
+  });
+});
+
+// F2 — the pinned-row "open" affordance navigates to the folder home without
+// toggling collapse. See change: add-directory-home-page (D3).
+describe("SessionList folder-home open affordance", () => {
+  function LocationProbe() {
+    const [loc] = useLocation();
+    return <span data-testid="loc">{loc}</span>;
+  }
+
+  function renderPinned() {
+    const cwd = "/home/user/project";
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <LocationProbe />
+          <SessionList
+            sessions={[makeSession({ cwd })]}
+            onSelect={() => {}}
+            pinnedDirectories={[cwd]}
+            onUnpinDirectory={() => {}}
+            onSpawnSession={() => {}}
+          />
+        </ThemeProvider>
+      </Router>,
+    );
+    return { cwd };
+  }
+
+  it("renders the open affordance on a pinned row", () => {
+    const { cwd } = renderPinned();
+    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
+  });
+
+  it("navigates to /folder/<enc> and leaves the folder expanded (collapse not toggled)", () => {
+    const { cwd } = renderPinned();
+    // Expanded row shows the spawn/action bar; collapsing would hide it.
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+    // stopPropagation kept the collapse toggle from firing: still expanded.
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
   });
 });

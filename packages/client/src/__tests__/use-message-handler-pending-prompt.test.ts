@@ -8,9 +8,10 @@
  * pure switch on `msg.type` — we render the hook with stub setters and
  * inspect the state map(s) the dispatch mutates.
  */
-import { describe, it, expect } from "vitest";
-import { renderHook, act } from "@testing-library/react";
-import { useMessageHandler, type MessageHandlerSetters, type MessageHandlerDeps } from "../hooks/useMessageHandler.js";
+
+import { act, renderHook } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { type MessageHandlerDeps, type MessageHandlerSetters, useMessageHandler } from "../hooks/useMessageHandler.js";
 import { createInitialState, type SessionState } from "../lib/event-reducer.js";
 
 function makeRefs() {
@@ -50,7 +51,7 @@ function makeHarness(initialState: Map<string, SessionState>) {
     setRolesMap: noop,
     setSpawnResult: noop,
     setSessionOrderMap: noop,
-    setPinnedDirectories: noop, setFavoriteModels: noop,
+    setPinnedDirectories: noop, setPinnedDirsLoaded: noop, setFavoriteModels: noop,
     setWorkspaces: noop,
     setTerminals: noop,
     setEditorStatuses: noop,

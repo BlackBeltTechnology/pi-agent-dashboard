@@ -3,7 +3,7 @@ import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
+import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -14,6 +14,7 @@ import { openEditor } from "../lib/editor-api.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
 import { t as i18nT } from "../lib/i18n";
 import { useI18n } from "../lib/i18n.js";
+import { buildFolderHomeUrl } from "../lib/route-builders.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
   getCollapsedGroups,
@@ -767,6 +768,25 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                 is irrelevant for visibility/ordering there. The pin state
                 itself is preserved on the server (orthogonal to workspace
                 membership). See change: folder-workspaces. */}
+            {/* Open the directory home page. Distinct from the collapse toggle
+                (the name row) and the drag gutter (a sibling) — stopPropagation
+                keeps the click from toggling collapse or starting a reorder.
+                Pinned rows only. See change: add-directory-home-page (D3). */}
+            {isPinned && !inWorkspace && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(buildFolderHomeUrl(group.cwd));
+                }}
+                className="ml-auto px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                title={t("sessionList.openFolderHome", undefined, "Open folder home")}
+                aria-label={t("sessionList.openFolderHome", undefined, "Open folder home")}
+                data-testid={`folder-open-home-${group.cwd}`}
+              >
+                <Icon path={mdiOpenInNew} size={0.5} />
+              </button>
+            )}
             {!inWorkspace && (isPinned || onPinDirectory) && (
               <button
                 onClick={(e) => {
