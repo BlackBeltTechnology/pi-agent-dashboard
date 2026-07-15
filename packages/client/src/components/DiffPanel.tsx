@@ -85,7 +85,14 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
       .finally(() => setFileLoading(false));
   }, [viewMode, file.path, sessionId]);
 
-  // Build diff data for diff view mode only
+  // Build diff data for diff view mode only.
+  //
+  // Precedence (change: fix-session-diff-open-nongit-and-preview):
+  //   A. a specific change is selected      → render that change's texts
+  //   B. else `file.gitDiff` present (git)   → render git hunks
+  //   C. else (non-git / no gitDiff)         → derive from the file's own
+  //      session change payload (last Write/Edit) and render all-additions /
+  //      edit diff. NEVER blank when the file exists in `data.files`.
   const diffData = useMemo(() => {
     if (viewMode === "file") return null; // file mode uses SyntaxHighlighter directly
 
@@ -110,7 +117,7 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
       }
     }
 
-    // Fallback: show the most recent change (Path A)
+    // Path C: non-git / no gitDiff — derive from the file's own last change.
     const lastChange = file.changes[file.changes.length - 1];
     if (lastChange) {
       const texts = buildChangeDiffTexts(file.path, lastChange);

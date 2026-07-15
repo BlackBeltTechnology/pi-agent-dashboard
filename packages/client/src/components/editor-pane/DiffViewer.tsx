@@ -10,6 +10,7 @@
  */
 
 import { t as i18nT } from "../../lib/i18n";
+import { normalizeUnderCwd } from "../../lib/normalize-path.js";
 import { DiffPanel } from "../DiffPanel.js";
 import { useOptionalSessionDiff } from "../SessionDiffContext.js";
 import type { ViewerProps } from "./types.js";
@@ -19,7 +20,7 @@ export function stripDiffPrefix(path: string): string {
   return path.startsWith("diff:") ? path.slice("diff:".length) : path;
 }
 
-export default function DiffViewer({ path }: ViewerProps) {
+export default function DiffViewer({ path, cwd }: ViewerProps) {
   const relPath = stripDiffPrefix(path);
   const ctx = useOptionalSessionDiff();
 
@@ -32,7 +33,13 @@ export default function DiffViewer({ path }: ViewerProps) {
   }
 
   const { data, isLoading } = ctx;
-  const file = data?.files.find((f) => f.path === relPath);
+  // Exact match first; on a miss retry with the cwd-normalized path
+  // (belt-and-suspenders for any caller that opened an absolute `diff:` path).
+  // See change: fix-session-diff-open-nongit-and-preview.
+  const normPath = normalizeUnderCwd(relPath, cwd);
+  const file =
+    data?.files.find((f) => f.path === relPath) ??
+    (normPath !== relPath ? data?.files.find((f) => f.path === normPath) : undefined);
 
   if (!file) {
     return (
@@ -47,7 +54,7 @@ export default function DiffViewer({ path }: ViewerProps) {
   return (
     <DiffPanel
       file={file}
-      selection={{ filePath: relPath, changeIndex: null }}
+      selection={{ filePath: file.path, changeIndex: null }}
       sessionId={ctx.sessionId}
     />
   );

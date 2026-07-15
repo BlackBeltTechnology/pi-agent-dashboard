@@ -21,7 +21,8 @@ export interface SessionDiffContextValue {
   refresh: () => void;
 }
 
-const SessionDiffContext = createContext<SessionDiffContextValue | null>(null);
+/** Exported for test injection of a controlled diff `data` value. */
+export const SessionDiffContext = createContext<SessionDiffContextValue | null>(null);
 
 export function SessionDiffProvider({
   sessionId,

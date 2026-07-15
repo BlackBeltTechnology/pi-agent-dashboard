@@ -58,6 +58,7 @@ Files in this directory. One row per source file.
 | `monaco-theme.ts` | `buildMonacoTheme(themeName, resolved)` derives Monaco `IStandaloneThemeData` from `THEMES` token map. → see `monaco-theme.ts.AGENTS.md` |
 | `move-tracker.ts` | In-flight package-move state tracker, keyed by `moveId`. Exports `MovePhase`, `MoveState`, `moveTracker`… → see `move-tracker.ts.AGENTS.md` |
 | `nav-tracker.ts` | In-app depth-tagged nav stack. `Array<{url, depth}>` via `routeDepth`. → see `nav-tracker.ts.AGENTS.md` |
+| `normalize-path.ts` | `normalizeUnderCwd(rawPath, cwd)`: absolute-under-cwd → relative-posix; else unchanged. Mirrors server `session-diff.ts::normalizePath` so change-summary rows + `openDiffTab` match `data.files` keys. See change: fix-session-diff-open-nongit-and-preview. |
 | `openspec-board-order.ts` | Pure per-change ordering helpers. `defaultChangeSort` orders in-progress → others → complete, then name. → see `openspec-board-order.ts.AGENTS.md` |
 | `openspec-board-worktree.ts` | `deriveWorktreeProgress(session, changeName, mainDone, openspecMap)`. Returns null for non-worktree session. → see `openspec-board-worktree.ts.AGENTS.md` |
 | `openspec-config-api.ts` | Fetch helpers for OpenSpec config + update endpoints. Adds saveOpenSpecConfig(), runOpenSpecUpdate(), fetchUpdateStatus() + OpenSpecUpdateStatus types. See change: add-openspec-profile-settings. |

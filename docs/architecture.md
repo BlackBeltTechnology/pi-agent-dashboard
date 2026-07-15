@@ -957,6 +957,8 @@ The dashboard provides a GitHub-style file diff viewer for sessions. It shows wh
 
 **Changes rail + diff tab**: Changed Files integrate as a Changes section atop the editor-pane rail (`ChangesRailSection`). Per-file diff opens as a `diff` viewer tab (`DiffViewer`, virtual `diff:<relPath>` path). `SessionDiffProvider` shares one fetch across rail, diff-tab, and takeover. See change: add-change-summary-table.
 
+**Client/server path agreement**: client and server MUST agree on `data.files` key format. Server `session-diff.ts::normalizePath` keys `data.files` by relative-posix: absolute-under-cwd → relative; absolute-outside-cwd → dropped; already-relative → kept. Tool calls may record absolute `args.path`. Change-summary row + `openDiffTab` then carry absolute path. Absolute path never string-equals relative key → diff blanks ("No changes for this file"). Client fix: `lib/normalize-path.ts::normalizeUnderCwd(rawPath, cwd)` mirrors server rule — absolute-under-cwd → relative-posix; else unchanged. `ChatView` applies it to normalize displayed row path + `openDiffTab` argument at source. `DiffViewer` retries with cwd-normalized path on exact-match miss. Non-git contract: git repo → render `gitDiff`; non-git or no `gitDiff` → `DiffPanel` derives all-additions/edit diff from file's own session change payload (last Write/Edit), never blanks. See change: fix-session-diff-open-nongit-and-preview.
+
 **Entry point**: SessionHeader `ChangedFilesChip` calls `openChanges()` (Changes rail); only visible when Write/Edit tool events exist. `/session/:id/diff` takeover retained as fallback. Works for both active and ended sessions.
 
 ### Internal Monaco editor pane (v1 read-only)

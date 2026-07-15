@@ -21,6 +21,7 @@ import type { ChatImage, InteractiveUiRequest, SessionState } from "../lib/event
 import { formatMessageTime } from "../lib/format.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../lib/group-tool-bursts.js";
 import { buildTurnSummaries, type TurnSummary } from "../lib/lineDelta.js";
+import { normalizeUnderCwd } from "../lib/normalize-path.js";
 import { ChangeSummaryBlock } from "./ChangeSummaryBlock.js";
 import { useOptionalSplitWorkspace } from "./SplitWorkspaceContext.js";
 import type { ToolCallGroup } from "../lib/group-tool-calls.js";
@@ -293,14 +294,24 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // independent of tool-call display filters; gated on the `changeSummaryTable`
   // display pref. Memoized on message identity (performance-optimization).
   const splitWs = useOptionalSplitWorkspace();
+  const cwd = splitWs?.cwd;
+  // Normalize an absolute-under-cwd path to the relative-posix key the
+  // server's session-diff endpoint uses, so the diff tab resolves the file
+  // instead of blanking. See change: fix-session-diff-open-nongit-and-preview.
   const openDiffFile = useCallback(
-    (relPath: string) => splitWs?.openDiffTab(relPath),
-    [splitWs],
+    (path: string) => splitWs?.openDiffTab(normalizeUnderCwd(path, cwd)),
+    [splitWs, cwd],
   );
-  const turnSummaries = useMemo(
-    () => (prefs.changeSummaryTable ? buildTurnSummaries(state.messages) : []),
-    [state.messages, prefs.changeSummaryTable],
-  );
+  const turnSummaries = useMemo(() => {
+    if (!prefs.changeSummaryTable) return [];
+    const raw = buildTurnSummaries(state.messages);
+    // Normalize file paths at the source so the displayed row and the
+    // diff-open lookup share the relative key and can never diverge.
+    return raw.map((s) => ({
+      ...s,
+      files: s.files.map((f) => ({ ...f, path: normalizeUnderCwd(f.path, cwd) })),
+    }));
+  }, [state.messages, prefs.changeSummaryTable, cwd]);
   const { anchoredSummaries, tailSummary } = useMemo(() => {
     const anchored = new Map<string, TurnSummary>();
     let tail: TurnSummary | null = null;
