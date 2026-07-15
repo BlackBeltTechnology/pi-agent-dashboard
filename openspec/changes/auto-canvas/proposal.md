@@ -149,6 +149,22 @@ Six coherent parts (single change, per scope decision):
   wire in — out of scope here, see the Adjacent-synergistic note above).
 - Versioning untracked/gitignored deliverables (v1 = unversioned for those; see design Deferred).
 
+## Coordinates With
+
+This change centralizes `RENDERER_BY_EXT` + `dispatchPreview` in `packages/shared` and defines
+`canvasTypes: Record<RendererKind, boolean>` over the non-`fallback` `RendererKind`s. Three
+sibling changes ADD new kinds to that union, so the enumerated set is not fixed at 8:
+
+- **`add-eml-preview`** adds `"email"`; **`render-office-previews`** adds `"docx" | "spreadsheet"`;
+  **`render-pptx-preview`** adds `"pptx"`.
+- **Recommended: those additive preview changes land BEFORE this one.** This change is the
+  structural refactor, so it should EXTRACT whatever map exists at that point and enumerate
+  `canvasTypes` over the then-current kinds (up to 11, not 8) rather than the previews chasing a
+  relocated file. Treat the spec's "8 non-`fallback`" count as illustrative of the current main
+  spec, not a hard cap — size `canvasTypes` to the live `RendererKind` union at implementation.
+- If this change lands first, each preview change must retarget its dispatch edits to
+  `packages/shared/src/renderer-by-ext.ts` and add its kind(s) to `canvasTypes`.
+
 ## Discipline Skills
 
 `security-hardening` (auto-opening agent-authored content; server-chip SSRF gate; preview

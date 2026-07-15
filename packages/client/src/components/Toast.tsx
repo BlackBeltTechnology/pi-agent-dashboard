@@ -1,13 +1,24 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 export type ToastVariant = "error" | "success" | "info";
+
+/** Optional action affordance rendered as a button inside a toast. */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
 
 export interface ToastMessage {
   id: number;
   text: string;
   /** Defaults to "error" (legacy red styling) when omitted. */
   variant?: ToastVariant;
+  /** Optional action button (e.g. Retry). Renders when present. */
+  action?: ToastAction;
+  /** When true, the toast does not auto-dismiss (stays until acted on /
+   *  manually closed). Defaults false → the current ~3s auto-dismiss. */
+  noAutoDismiss?: boolean;
 }
 
 let nextId = 0;
@@ -47,18 +58,16 @@ function ToastItem({ message, onDismiss }: {
 }) {
   const [visible, setVisible] = useState(true);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setVisible(false);
-      setTimeout(() => onDismiss(message.id), 300);
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [message.id, onDismiss]);
-
-  const handleDismiss = () => {
+  const dismiss = useCallback(() => {
     setVisible(false);
     setTimeout(() => onDismiss(message.id), 300);
-  };
+  }, [message.id, onDismiss]);
+
+  useEffect(() => {
+    if (message.noAutoDismiss) return;
+    const timer = setTimeout(dismiss, 3000);
+    return () => clearTimeout(timer);
+  }, [message.noAutoDismiss, dismiss]);
 
   const styles = VARIANT_CLASSES[message.variant ?? "error"];
 
@@ -69,8 +78,22 @@ function ToastItem({ message, onDismiss }: {
       }`}
     >
       <span className="flex-1 whitespace-pre-line">{message.text}</span>
+      {message.action && (
+        <button
+          type="button"
+          onClick={() => {
+            message.action?.onClick();
+            dismiss();
+          }}
+          className="flex-shrink-0 font-medium underline underline-offset-2 hover:opacity-80"
+          data-testid="toast-action"
+        >
+          {message.action.label}
+        </button>
+      )}
       <button
-        onClick={handleDismiss}
+        type="button"
+        onClick={dismiss}
         className={`${styles.close} flex-shrink-0 leading-none`}
         title={i18nT("common.dismiss", undefined, "Dismiss")}
         aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
@@ -85,9 +108,16 @@ function ToastItem({ message, onDismiss }: {
 export function useToast() {
   const [messages, setMessages] = useState<ToastMessage[]>([]);
 
-  const showToast = (text: string, variant: ToastVariant = "error") => {
+  const showToast = (
+    text: string,
+    variant: ToastVariant = "error",
+    opts?: { action?: ToastAction; noAutoDismiss?: boolean },
+  ) => {
     const id = nextId++;
-    setMessages((prev) => [...prev, { id, text, variant }]);
+    setMessages((prev) => [
+      ...prev,
+      { id, text, variant, action: opts?.action, noAutoDismiss: opts?.noAutoDismiss },
+    ]);
   };
 
   const dismissToast = (id: number) => {

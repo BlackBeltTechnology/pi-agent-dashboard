@@ -75,6 +75,25 @@ plus two server routes, not a new subsystem.
   `ViewerKind`/`viewer-registry` dispatch; opening `.eml` there keeps its existing
   binary/text fallback (no regression). Wiring EML into the split editor is a later change.
 
+## Coordinates With
+
+This change modifies the shared `Renderer dispatch is purely shape-based` requirement and the
+`RENDERER_BY_EXT` map, which three sibling changes also touch. Ordering matters:
+
+- **`render-office-previews`** (adds `"docx" | "spreadsheet"`) modifies the *same* requirement.
+  OpenSpec `MODIFIED` replaces the requirement wholesale on archive, so **whichever of the two
+  archives second MUST rebase its union block to the superset**
+  (`… "docx" | "spreadsheet" | "email" | "fallback"`) or it silently drops the other's kind. Code
+  side is additive (no conflict).
+- **`auto-canvas`** relocates `RENDERER_BY_EXT` + `dispatchPreview` from
+  `packages/client/src/lib/preview-dispatch.ts` → `packages/shared/src/renderer-by-ext.ts` and
+  defines `canvasTypes: Record<RendererKind, boolean>`. **Recommended: this change lands BEFORE
+  `auto-canvas`**, which then extracts the larger map and enumerates `canvasTypes` over the new
+  kinds. If `auto-canvas` lands first, retarget the dispatch tasks to the `packages/shared` path
+  and add `email` to `canvasTypes`.
+- **`render-pptx-preview`** (adds `"pptx"`) is a later stub in the same union family; same rebase
+  rule applies.
+
 ## Discipline Skills
 
 - **security-hardening** — parses untrusted email HTML + attachments; sanitization, iframe

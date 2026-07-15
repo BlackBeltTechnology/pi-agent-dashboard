@@ -146,12 +146,21 @@
     "fix-empty-flows-subcard": "ui",
     "fix-ask-user-card-duplication": "ui",
     "reset-override-to-npm": "ui",
-    "integrate-develop-before-ship-gate": "ui"
+    "integrate-develop-before-ship-gate": "ui",
+    "add-seek-to-session-card": "ui",
+    "add-session-scoped-init-trust": "ui",
+    "detect-tool-created-files": "ui",
+    "fix-popover-horizontal-flip": "ui",
+    "add-directory-home-page": "ui",
+    "add-eml-preview": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
       "add-chat-gateway",
-      "add-google-oauth-provider"
+      "add-google-oauth-provider",
+      "auto-canvas",
+      "render-office-previews",
+      "render-pptx-preview"
     ],
     "kowledge-base": [
       "add-lora-dataset-export-skill",
@@ -161,13 +170,14 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "stable-process-line",
-      "fix-empty-flows-subcard",
       "add-auto-session-naming",
       "fix-session-diff-open-nongit-and-preview",
-      "reset-override-to-npm",
-      "fix-ask-user-card-duplication",
-      "integrate-develop-before-ship-gate"
+      "add-seek-to-session-card",
+      "add-directory-home-page",
+      "add-session-scoped-init-trust",
+      "detect-tool-created-files",
+      "fix-popover-horizontal-flip",
+      "add-eml-preview"
     ],
     "next-phase": [
       "add-connector-layer",

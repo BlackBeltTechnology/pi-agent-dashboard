@@ -1,5 +1,5 @@
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiArrowLeft, mdiFileCompare, mdiHeadLightbulb, mdiLinkOff, mdiPaperclip, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiRefresh, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
+import { mdiArrowLeft, mdiCrosshairsGps, mdiFileCompare, mdiHeadLightbulb, mdiLinkOff, mdiPaperclip, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiRefresh, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useRef, useState } from "react";
 import { useMobile } from "../hooks/useMobile.js";
@@ -54,6 +54,10 @@ interface Props {
   /** Replace the session's full user-tag list. When set, the desktop header
    *  renders the editable tag strip. See change: add-session-tags. */
   onSetTags?: (tags: string[]) => void;
+  /** Seek to this session's card in the sidebar (expand fold-ancestors +
+   *  scroll + flash). Desktop-only button; hidden on mobile. When omitted
+   *  the button does not render. See change: add-seek-to-session-card. */
+  onSeekToCard?: () => void;
   /** Mobile action menu props (only used on mobile) */
   mobileActions?: {
     editors?: DetectedEditor[];
@@ -289,7 +293,7 @@ function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume, allTags, onSetTags }: Props) {
+export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume, allTags, onSetTags, onSeekToCard }: Props) {
   const [now, setNow] = useState(Date.now());
   const [isRenaming, setIsRenaming] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -403,6 +407,18 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
               title={i18nT("session.renameSession", undefined, "Rename session")}
             >
               <Icon path={mdiPencilOutline} size={0.5} />
+            </button>
+          )}
+          {onSeekToCard && (
+            <button
+              type="button"
+              onClick={onSeekToCard}
+              className="ml-0.5 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
+              title={i18nT("session.seekToCard", undefined, "Seek to this session's card in the sidebar")}
+              data-testid="session-header-seek-card"
+            >
+              <Icon path={mdiCrosshairsGps} size={0.45} />
+              {i18nT("session.seek", undefined, "Seek")}
             </button>
           )}
         </span>

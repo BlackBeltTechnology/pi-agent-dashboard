@@ -68,10 +68,25 @@ export interface ContextUsageInfo {
   contextWindow: number;
 }
 
+/** Escape a session id for a `[data-session-id="…"]` selector. */
+function cssEscapeId(id: string): string {
+  return (typeof window !== "undefined" && typeof window.CSS?.escape === "function")
+    ? window.CSS.escape(id)
+    : id.replace(/"/g, '\\"');
+}
+
 interface Props {
   sessions: DashboardSession[];
   selectedId?: string;
   onSelect: (sessionId: string) => void;
+  /** One-shot seek-to-card request `{ sessionId, nonce }` from App. A bumped
+   *  nonce re-fires the reveal even for the already-selected session.
+   *  See change: add-seek-to-session-card. */
+  revealRequest?: { sessionId: string; nonce: number } | null;
+  /** Re-dispatch a seek for a session id (wired to App's `seekToCard`). Used
+   *  by the reveal-timeout toast's Retry action. See change:
+   *  add-seek-to-session-card. */
+  onSeekToCard?: (sessionId: string) => void;
   contextUsageMap?: Map<string, ContextUsageInfo>;
   openspecMap?: Map<string, OpenSpecData>;
   /**
@@ -219,7 +234,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -258,9 +273,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
       return;
     }
     if (!selectedId) return;
-    const escaped = (window.CSS && typeof window.CSS.escape === "function")
-      ? window.CSS.escape(selectedId)
-      : selectedId.replace(/"/g, '\\"');
+    const escaped = cssEscapeId(selectedId);
     const el = listRef.current?.querySelector(`[data-session-id="${escaped}"]`);
     if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
       (el as HTMLElement).scrollIntoView({ block: "nearest", behavior: "auto" });
@@ -647,6 +660,165 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
     return collapsedGroups.has(cwd);
   }
 
+  // ── Seek-to-card reveal (See change: add-seek-to-session-card) ────────────
+  // A card can be buried under a collapsed workspace (async server echo),
+  // folder, or ended group. `revealCard` GUARD-expands those ancestors, selects
+  // the card, then waits for it to lay out — driven by the `workspaces` prop
+  // echo, with a fixed 5s give-up backstop — before scrolling + flashing.
+  // Presence = laid out (height > 0), NOT `offsetParent` — a collapsed
+  // `grid-template-rows: 0fr` row keeps a non-null offsetParent at height 0.
+  const findLaidOutCard = useCallback((id: string): HTMLElement | null => {
+    const el = listRef.current?.querySelector(
+      `[data-session-id="${cssEscapeId(id)}"]`,
+    ) as HTMLElement | null;
+    return el && el.getBoundingClientRect().height > 0 ? el : null;
+  }, []);
+
+  const pendingRevealRef = useRef<{ sessionId: string; nonce: number } | null>(null);
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealRafRef = useRef<number | null>(null);
+
+  const clearPendingReveal = useCallback(() => {
+    pendingRevealRef.current = null;
+    if (revealTimerRef.current !== null) {
+      clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+    if (revealRafRef.current !== null) {
+      cancelAnimationFrame(revealRafRef.current);
+      revealRafRef.current = null;
+    }
+  }, []);
+
+  // Try to reveal the pending card if it is laid out; no-op while it is still
+  // absent / 0-height (the echo has not landed yet).
+  const attemptReveal = useCallback(() => {
+    const pending = pendingRevealRef.current;
+    if (!pending) return;
+    const el = findLaidOutCard(pending.sessionId);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("card-seek-flash");
+    window.setTimeout(() => el.classList.remove("card-seek-flash"), 1200);
+    clearPendingReveal();
+  }, [findLaidOutCard, clearPendingReveal]);
+
+  // Flat 3-level ancestor lookup from cwd + status (no graph walk).
+  const resolveFoldAncestors = useCallback(
+    (s: DashboardSession): { workspaceId?: string; cwd: string; isEnded: boolean } => ({
+      workspaceId: folderWorkspaceMap.get(s.cwd),
+      cwd: s.cwd,
+      isEnded: s.status === "ended",
+    }),
+    [folderWorkspaceMap],
+  );
+
+  // Classify whether the target is unreachable by fold-expansion alone: hidden
+  // (needs the global Show-hidden toggle) or excluded by an active filter.
+  // Both degrade to an informational toast; we never flip showHidden or clear
+  // a filter (broad, unrequested side effects).
+  const classifyDegrade = useCallback(
+    (s: DashboardSession): "hidden" | "filtered" | null => {
+      if (s.hidden && !showHidden) return "hidden";
+      if (anyTagFilterActive && !passesTagAxes(s)) return "filtered";
+      const sf = sessionSearch.trim().toLowerCase();
+      if (sf.length > 0 && filterByQuery([s], sf).length === 0) return "filtered";
+      const wf = workspaceFilter.trim().toLowerCase();
+      if (wf.length > 0 && !s.cwd.toLowerCase().includes(wf)) return "filtered";
+      return null;
+    },
+    [showHidden, anyTagFilterActive, passesTagAxes, sessionSearch, workspaceFilter],
+  );
+
+  // Reveal effect — keyed on `nonce` so re-seeking the same id re-fires;
+  // captures the current snapshot at gesture time (no other deps by design).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires ONLY on a new nonce.
+  useEffect(() => {
+    if (!revealRequest) return;
+    // A new gesture supersedes any in-flight reveal — cancel unconditionally,
+    // before the missing-target / degrade early-returns, so a stale pending
+    // reveal can never fire for a superseded session.
+    clearPendingReveal();
+    const target = sessions.find((s) => s.id === revealRequest.sessionId);
+    if (!target) return;
+
+    const degrade = classifyDegrade(target);
+    if (degrade) {
+      showToast(
+        degrade === "hidden"
+          ? t(
+              "sessionList.seekHiddenToast",
+              undefined,
+              "This session is hidden. Enable “Show hidden” to reveal its card.",
+            )
+          : t(
+              "sessionList.seekFilteredToast",
+              undefined,
+              "A filter is hiding this session’s card. Clear the filter to reveal it.",
+            ),
+        "info",
+      );
+      return;
+    }
+
+    // GUARDED ancestor expand: workspace only if collapsed (idempotent server
+    // call); folder only if currently collapsed (the mutator is a TOGGLE);
+    // ended via an ADD-ONLY setter (never the toggle) so a re-seek can't
+    // re-collapse an already-open container.
+    const { workspaceId, cwd, isEnded } = resolveFoldAncestors(target);
+    if (workspaceId) {
+      const ws = (workspaces ?? []).find((w) => w.id === workspaceId);
+      if (ws?.collapsed) onSetWorkspaceCollapsed?.(workspaceId, false);
+    }
+    if (collapsedGroups.has(cwd)) handleToggleCollapse(cwd);
+    if (isEnded) {
+      setEndedExpanded((prev) => (prev.has(cwd) ? prev : new Set(prev).add(cwd)));
+    }
+    onSelect(target.id);
+
+    pendingRevealRef.current = { sessionId: target.id, nonce: revealRequest.nonce };
+    // Fixed give-up backstop — only catches a never-arriving echo; the event
+    // (workspaces prop update) wins the happy path first.
+    revealTimerRef.current = setTimeout(() => {
+      revealTimerRef.current = null;
+      const pending = pendingRevealRef.current;
+      if (!pending) return;
+      if (findLaidOutCard(pending.sessionId)) {
+        attemptReveal();
+        return;
+      }
+      clearPendingReveal();
+      showToast(
+        t("sessionList.seekTimeoutToast", undefined, "Couldn’t reveal the card."),
+        "info",
+        {
+          action: {
+            label: t("common.retry", undefined, "Retry"),
+            onClick: () => onSeekToCard?.(pending.sessionId),
+          },
+          noAutoDismiss: true,
+        },
+      );
+    }, 5000);
+    // Immediate attempt after the sync-ancestor re-render paints.
+    revealRafRef.current = requestAnimationFrame(() => {
+      revealRafRef.current = null;
+      attemptReveal();
+    });
+  }, [revealRequest?.nonce]);
+
+  // The `workspaces` echo landing (async workspace expand resolving) is the
+  // primary completion signal — re-check presence when it changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `workspaces` is the completion trigger (echo); pending state read via ref.
+  useEffect(() => {
+    if (!pendingRevealRef.current) return;
+    const id = requestAnimationFrame(() => attemptReveal());
+    return () => cancelAnimationFrame(id);
+  }, [workspaces, attemptReveal]);
+
+  // Cancel any pending frame/timer on unmount.
+  useEffect(() => clearPendingReveal, [clearPendingReveal]);
+
   /**
    * folder-workspaces: same as renderGroup but injects an "Add to
    * workspace" affordance inside the header. Used for top-level groups
@@ -734,10 +906,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                 if (!sessionId) return;
                 if (isCollapsed) handleToggleCollapse(group.cwd);
                 onSelect(sessionId);
-                const escaped =
-                  typeof window !== "undefined" && typeof window.CSS?.escape === "function"
-                    ? window.CSS.escape(sessionId)
-                    : sessionId.replace(/"/g, '\\"');
+                const escaped = cssEscapeId(sessionId);
                 requestAnimationFrame(() => {
                   document
                     .querySelector(`[data-session-id="${escaped}"]`)

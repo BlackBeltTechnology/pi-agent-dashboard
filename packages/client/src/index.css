@@ -647,6 +647,21 @@ mark.markdown-search-highlight-active {
   0%, 100% { opacity: 0.35; }
   50%      { opacity: 0.65; }
 }
+
+/* Transient flash applied to a card revealed by the header Seek-to-card
+   gesture. Pulses the selection ring so the just-scrolled card is noticeable.
+   See change: add-seek-to-session-card. */
+@keyframes card-seek-flash-kf {
+  0%   { box-shadow: 0 0 0 0 rgb(59 130 246 / 0.0); }
+  30%  { box-shadow: 0 0 0 3px rgb(59 130 246 / 0.55); }
+  100% { box-shadow: 0 0 0 0 rgb(59 130 246 / 0.0); }
+}
+.card-seek-flash {
+  animation: card-seek-flash-kf 1.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-seek-flash { animation: none; }
+}
 @supports not (background: conic-gradient(from 0deg, red, blue)) {
   .card-ring-fx::before {
     background: rgba(96, 165, 250, 0.5);
