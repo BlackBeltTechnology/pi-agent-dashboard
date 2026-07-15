@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 export type ToastVariant = "error" | "success" | "info";
@@ -58,21 +58,16 @@ function ToastItem({ message, onDismiss }: {
 }) {
   const [visible, setVisible] = useState(true);
 
-  const dismiss = () => {
+  const dismiss = useCallback(() => {
     setVisible(false);
     setTimeout(() => onDismiss(message.id), 300);
-  };
+  }, [message.id, onDismiss]);
 
   useEffect(() => {
     if (message.noAutoDismiss) return;
-    const timer = setTimeout(() => {
-      setVisible(false);
-      setTimeout(() => onDismiss(message.id), 300);
-    }, 3000);
+    const timer = setTimeout(dismiss, 3000);
     return () => clearTimeout(timer);
-  }, [message.id, message.noAutoDismiss, onDismiss]);
-
-  const handleDismiss = () => dismiss();
+  }, [message.noAutoDismiss, dismiss]);
 
   const styles = VARIANT_CLASSES[message.variant ?? "error"];
 
@@ -97,7 +92,8 @@ function ToastItem({ message, onDismiss }: {
         </button>
       )}
       <button
-        onClick={handleDismiss}
+        type="button"
+        onClick={dismiss}
         className={`${styles.close} flex-shrink-0 leading-none`}
         title={i18nT("common.dismiss", undefined, "Dismiss")}
         aria-label={i18nT("common.dismiss", undefined, "Dismiss")}

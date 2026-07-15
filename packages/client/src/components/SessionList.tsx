@@ -273,9 +273,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       return;
     }
     if (!selectedId) return;
-    const escaped = (window.CSS && typeof window.CSS.escape === "function")
-      ? window.CSS.escape(selectedId)
-      : selectedId.replace(/"/g, '\\"');
+    const escaped = cssEscapeId(selectedId);
     const el = listRef.current?.querySelector(`[data-session-id="${escaped}"]`);
     if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
       (el as HTMLElement).scrollIntoView({ block: "nearest", behavior: "auto" });
@@ -737,6 +735,10 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // biome-ignore lint/correctness/useExhaustiveDependencies: fires ONLY on a new nonce.
   useEffect(() => {
     if (!revealRequest) return;
+    // A new gesture supersedes any in-flight reveal — cancel unconditionally,
+    // before the missing-target / degrade early-returns, so a stale pending
+    // reveal can never fire for a superseded session.
+    clearPendingReveal();
     const target = sessions.find((s) => s.id === revealRequest.sessionId);
     if (!target) return;
 
@@ -758,9 +760,6 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       );
       return;
     }
-
-    // Supersede any in-flight reveal (new gesture wins).
-    clearPendingReveal();
 
     // GUARDED ancestor expand: workspace only if collapsed (idempotent server
     // call); folder only if currently collapsed (the mutator is a TOGGLE);
@@ -907,10 +906,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 if (!sessionId) return;
                 if (isCollapsed) handleToggleCollapse(group.cwd);
                 onSelect(sessionId);
-                const escaped =
-                  typeof window !== "undefined" && typeof window.CSS?.escape === "function"
-                    ? window.CSS.escape(sessionId)
-                    : sessionId.replace(/"/g, '\\"');
+                const escaped = cssEscapeId(sessionId);
                 requestAnimationFrame(() => {
                   document
                     .querySelector(`[data-session-id="${escaped}"]`)
