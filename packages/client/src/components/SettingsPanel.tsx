@@ -42,6 +42,7 @@ import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import type { ResourceType } from "./ResourceCardGrid.js";
 import { ResourceGridPanel } from "./ResourceGridPanel.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
+import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { UnifiedPackagesSection } from "./UnifiedPackagesSection.js";
 
 interface ProviderConfig {
@@ -292,8 +293,10 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
  */
 const BACK_SENTINEL = "@@back";
 
-export function SettingsPanel({ availableModels, onMessage, onBack }: {
+export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd }: {
   availableModels?: Array<{ provider: string; id: string }>;
+  /** Currently-selected session's cwd — backs the canvas-types project scope. */
+  selectedCwd?: string;
   /** WS bus subscribe (from App) used to correlate the confirm:"ws" restart. */
   onMessage?: (handler: (msg: ServerToBrowserMessage) => void) => () => void;
   /**
@@ -1390,6 +1393,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                 <DiagnosticsSection />
                 <ToolsSection />
                 <SpawnFailuresSection />
+                {/* See change: auto-canvas (task 5.2). */}
+                <CanvasTypesSettingsSection selectedCwd={selectedCwd} />
                 <Section title={t("settings.editor", undefined, "Editor (code-server)")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-2">
                     {t("settings.editorDescription", undefined, "Configure the embedded VS Code editor powered by code-server.")}

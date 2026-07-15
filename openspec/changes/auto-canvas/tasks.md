@@ -76,7 +76,7 @@ Vanilla checkboxes only. Test tasks carry a harness-exemplar pointer, the scenar
       effective = `{...DEFAULT, ...global.canvasTypes, ...project.canvasTypes}` from
       `~/.pi/agent/settings.json#dashboard.canvasTypes` + `<cwd>/.pi/settings.json#dashboard.canvasTypes`,
       **read fresh per detect** (no cache). Gate DETECT only; declare + manual bypass. → verify: absent config = all-on.
-- [ ] 5.2 Settings UI: 8 checkboxes with a global/project scope switch; "unchecked = still openable manually".
+- [x] 5.2 Settings UI: 8 checkboxes with a global/project scope switch; "unchecked = still openable manually".
 - [x] 5.3 Test: absent config auto-canvases all. Exemplar: display-prefs.test.ts.
       Triple: no `canvasTypes` · write renderable · auto-canvas. (test-plan #S18)
 - [x] 5.4 Test: project disables a kind for detection only.

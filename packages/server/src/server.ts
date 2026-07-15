@@ -106,6 +106,7 @@ import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
+import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
@@ -1398,6 +1399,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     broadcast: (msg) => browserGateway.broadcastToAll(msg),
   });
+  // Canvas-type registry read/write (auto-canvas task 5.2).
+  registerCanvasTypesRoutes(fastify, { networkGuard });
   // Opt-in worktree auto-init-on-spawn preference (auto-init-worktree-on-spawn).
   registerPreferencesWorktreeInitRoutes(fastify, { preferencesStore, networkGuard });
   // Global auto-session-naming toggle (add-auto-session-naming). Broadcasts

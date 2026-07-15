@@ -146,8 +146,9 @@ export function createCanvasAccumulator(
   function onAgentEnd(sessionId: string): void {
     const buf = buffers.get(sessionId);
     buffers.delete(sessionId);
-    // A server chip surfaced this turn expires at the turn boundary (S32).
-    expireChip(sessionId);
+    // NOTE: a server chip declared THIS turn stays actionable through its own
+    // `agent_end` (the human taps it after the turn settles) — it expires only
+    // at the NEXT turn boundary (`agent_start` → resetTurn) or on abort/exit.
     // No canvas activity this turn → nothing to settle (avoids closing a prior
     // session-persisted canvas and avoids per-idle-turn spam).
     if (!buf || buf.length === 0) return;
@@ -156,7 +157,8 @@ export function createCanvasAccumulator(
 
   function resetTurn(sessionId: string): void {
     buffers.delete(sessionId);
-    // Abort/termination also expires an un-settled chip (S32).
+    // The NEXT turn boundary (agent_start) and abort/termination expire the
+    // prior turn's chip (S32).
     expireChip(sessionId);
   }
 

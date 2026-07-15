@@ -38,9 +38,11 @@ test.describe("auto-canvas — desktop side-by-side (S23)", () => {
 
 test.describe("auto-canvas — mobile chip, no yank (S25)", () => {
   test("a written deliverable surfaces a tap-to-open chip; chat stays active", async ({ page }) => {
-    await page.setViewportSize({ width: 767, height: 800 });
+    // Spawn at the default (desktop) width — the onboarding/spawn flow needs it —
+    // then resize to the mobile predicate so the canvas GATE is what's exercised.
     const card = await spawnFreshGitSession(page);
     await card.click();
+    await page.setViewportSize({ width: 767, height: 800 });
 
     await sendPrompt(page, "[[faux:canvas-write-md]] go");
 
@@ -133,21 +135,28 @@ test.describe("auto-canvas — server chip refused → not running (S30)", () =>
 });
 
 test.describe("auto-canvas — server chip unresponsive → not responding (S31)", () => {
-  // The client aborts the probe at 3000ms and shows "server not responding",
-  // with no iframe. Reproducing a port that ACCEPTS TCP but never responds
-  // needs a real hang server in the harness (a faux scenario can only declare a
-  // port, not host a hang listener), so the 3000ms-timeout arm is unit-covered
-  // (`classifyServerProbe` in canvas-gate.test.ts) and left as a fleshed-out
-  // fixme here with the intended assertions.
-  test.fixme("tapping a chip for a hung port shows 'not responding', no iframe", async ({ page }) => {
+  test("tapping a chip for a hung port shows 'not responding', no iframe", async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 800 });
+
+    // A port that ACCEPTS the allowlist-add but whose proxied probe never
+    // responds is simulated by DELAYING the same-origin proxy path `/live/:id/*`
+    // past the client's 3000ms abort. The `/api/live-server/start` call (a
+    // different path) is left untouched, so the allowlist-add succeeds and the
+    // hang is purely on the probe fetch — exactly the S31 fault.
+    await page.route("**/live/**", async (route) => {
+      await new Promise((r) => setTimeout(r, 3500));
+      await route.continue();
+    });
+
     const card = await spawnFreshGitSession(page);
     await card.click();
-    // Requires a harness-hosted hang port declared via canvas({server,<hangPort>}).
-    await sendPrompt(page, "[[faux:canvas-declare-server-hang]] go");
+
+    await sendPrompt(page, "[[faux:canvas-declare-server]] go");
     const chip = page.getByTestId("canvas-server-chip");
     await expect(chip).toBeVisible({ timeout: 30_000 });
     await chip.click();
+
+    // Client AbortController fires at 3000ms → "server not responding", no iframe.
     await expect(page.getByTestId("canvas-server-chip-status")).toContainText(/not responding/i, {
       timeout: 15_000,
     });

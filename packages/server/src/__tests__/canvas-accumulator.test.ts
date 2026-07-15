@@ -152,13 +152,18 @@ describe("canvas accumulator", () => {
     expect(h.intents).toHaveLength(0); // no eager, no settle
   });
 
-  // S32 — a declared server chip expires at the turn boundary.
-  it("S32: chip expires on agent_end, and on abort — once, echoing the port", () => {
+  // S32 — a declared server chip stays actionable through its own agent_end and
+  // expires only at the NEXT turn boundary (agent_start) or on abort.
+  it("S32: chip survives its own agent_end; expires at the next turn boundary", () => {
     h.acc.onEvent("s1", canvasEvent({ target: { kind: "server", port: 5173 } }), live);
     h.acc.onEvent("s1", AGENT_END, live);
+    // Still tappable right after the declaring turn ends.
+    expect(h.chipExpires).toHaveLength(0);
+    // The NEXT turn's start boundary expires it, once, echoing the port.
+    h.acc.onEvent("s1", AGENT_START, live);
     expect(h.chipExpires).toEqual([{ sessionId: "s1", port: 5173 }]);
-    // Idempotent: a second boundary with no active chip does not re-expire.
-    h.acc.onEvent("s1", AGENT_END, live);
+    // Idempotent: another boundary with no active chip does not re-expire.
+    h.acc.onEvent("s1", AGENT_START, live);
     expect(h.chipExpires).toHaveLength(1);
 
     // Abort path also expires an un-settled chip.
