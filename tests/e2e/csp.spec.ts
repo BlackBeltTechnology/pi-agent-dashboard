@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { byTestId, gotoDashboard } from "./helpers/index.js";
+import { byTestId, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 // Baseline CSP (§7). The container runs report-only by default, so the header
@@ -30,5 +30,45 @@ test.describe("baseline CSP", () => {
     // Give async chunks (Monaco/mermaid workers, WS) a beat to load.
     await page.waitForTimeout(3_000);
     expect(violations, `CSP violations:\n${violations.join("\n")}`).toHaveLength(0);
+  });
+});
+
+// auto-canvas Section 8 — document CSP on auto-opened file-kind documents.
+//
+// The pure CSP transform (`withRestrictiveCsp`, AUTO_OPEN_DOC_CSP) + the
+// HtmlPreview `restrictCsp` prop are implemented + unit-tested
+// (packages/client/src/lib/__tests__/canvas-doc-csp.test.ts). What is NOT yet
+// wired is the auto-open PATH marking a canvas-opened html tab as CSP-restricted
+// (the split viewer-registry passes fixed ViewerProps with no restrictCsp flag).
+// Until that thread lands, these e2e assertions cannot pass — left as
+// fleshed-out fixmes with the intended shape.
+test.describe("auto-canvas — document CSP", () => {
+  test.fixme("an auto-opened .html cannot beacon an external subresource (S34)", async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    // Fail if the beacon subresource is ever requested.
+    let beaconHit = false;
+    await page.route("**/attacker.example/**", (route) => {
+      beaconHit = true;
+      route.abort();
+    });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:canvas-write-html-beacon]] go");
+    // The auto-opened document renders under AUTO_OPEN_DOC_CSP → img-src blocks
+    // the http://attacker.example/beacon.gif subresource.
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible({ timeout: 30_000 });
+    await page.waitForTimeout(2_000);
+    expect(beaconHit, "auto-opened doc must not beacon").toBe(false);
+  });
+
+  test.fixme("a canvas() url declare renders normally with no document CSP (S35)", async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:canvas-declare-url]] go");
+    // A url/youtube declare renders the live URL (no restrictive document CSP).
+    // Generic (non-loopback) URL rendering in the canvas split is not yet wired
+    // — see CanvasDriver useOpenTarget. Harness verification pending.
+    await expect(byTestId(page, "sendButton")).toBeVisible();
   });
 });

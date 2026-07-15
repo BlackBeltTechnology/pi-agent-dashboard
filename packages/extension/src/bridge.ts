@@ -24,6 +24,7 @@ import {
   persistAttachment,
 } from "./ask-user-attachments.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
+import { registerCanvasTool } from "./canvas-tool.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, filterHiddenCommands, getCurrentModelString } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
@@ -1878,6 +1879,11 @@ function initBridge(pi: ExtensionAPI) {
     // Register ask_user at runtime (not at load time) to avoid static
     // tool-name conflicts with other extensions like pi-flows.
     registerAskUserTool(pi);
+
+    // Register the canvas declare-tool (change: auto-canvas). Fire-and-forget
+    // UI intent; the server observes the forwarded tool call and drives the
+    // canvas. Runtime registration for the same conflict-avoidance reason.
+    registerCanvasTool(pi);
 
     // Register the agent-facing role/model tools (list_models, list_roles,
     // update_roles). list_models reads the in-process session registry via a

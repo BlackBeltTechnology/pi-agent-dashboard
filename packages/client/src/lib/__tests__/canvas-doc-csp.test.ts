@@ -1,0 +1,37 @@
+/**
+ * Unit coverage for the auto-opened-document CSP transform (change:
+ * auto-canvas, Section 8 / S34). Pins that the injected policy blocks external
+ * subresources and is placed so an `iframe srcDoc` render enforces it.
+ */
+import { describe, expect, it } from "vitest";
+import { AUTO_OPEN_DOC_CSP, withRestrictiveCsp } from "../canvas-doc-csp.js";
+
+describe("AUTO_OPEN_DOC_CSP policy", () => {
+  it("blocks external network subresources (S34 beacon defense)", () => {
+    expect(AUTO_OPEN_DOC_CSP).toContain("default-src 'none'");
+    expect(AUTO_OPEN_DOC_CSP).toContain("img-src 'self' data:"); // no external img beacon
+    expect(AUTO_OPEN_DOC_CSP).toContain("connect-src 'none'");
+    expect(AUTO_OPEN_DOC_CSP).toContain("script-src 'none'");
+  });
+});
+
+describe("withRestrictiveCsp", () => {
+  it("inserts the CSP meta right after <head>", () => {
+    const html = "<html><head><title>t</title></head><body>x</body></html>";
+    const out = withRestrictiveCsp(html);
+    expect(out).toContain("Content-Security-Policy");
+    expect(out.indexOf("Content-Security-Policy")).toBeGreaterThan(out.indexOf("<head>"));
+    expect(out.indexOf("Content-Security-Policy")).toBeLessThan(out.indexOf("<title>"));
+  });
+
+  it("prepends the meta when there is no <head>", () => {
+    const out = withRestrictiveCsp("<img src=http://attacker/beacon>");
+    expect(out.startsWith("<meta")).toBe(true);
+    expect(out).toContain(AUTO_OPEN_DOC_CSP);
+  });
+
+  it("is idempotent (already-tagged HTML unchanged)", () => {
+    const once = withRestrictiveCsp("<head></head>");
+    expect(withRestrictiveCsp(once)).toBe(once);
+  });
+});

@@ -3,44 +3,21 @@
  * sniffing, no server round-trips — extension- and URL-pattern-based only.
  * Single source of truth for `/view` renderer selection. See change:
  * render-file-previews.
+ *
+ * The extension→kind table (`RENDERER_BY_EXT`, `RendererKind`, `extOf`) now
+ * lives in `packages/shared/src/renderer-by-ext.ts` so the server-side canvas
+ * detector shares ONE table (see change: auto-canvas). Re-exported here so
+ * existing client imports keep working.
  */
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import {
+  extOf,
+  RENDERER_BY_EXT,
+  type RendererKind,
+} from "@blackbelt-technology/pi-dashboard-shared/renderer-by-ext.js";
 
-export type RendererKind =
-  | "markdown"
-  | "asciidoc"
-  | "html"
-  | "pdf"
-  | "video"
-  | "audio"
-  | "image"
-  | "youtube"
-  | "fallback";
-
-/** Lowercase extension (including leading dot) → renderer. */
-export const RENDERER_BY_EXT: Record<string, RendererKind> = {
-  ".md": "markdown",
-  ".markdown": "markdown",
-  ".adoc": "asciidoc",
-  ".asciidoc": "asciidoc",
-  ".html": "html",
-  ".htm": "html",
-  ".pdf": "pdf",
-  ".mp4": "video",
-  ".webm": "video",
-  ".mov": "video",
-  ".mp3": "audio",
-  ".wav": "audio",
-  ".ogg": "audio",
-  ".m4a": "audio",
-  ".flac": "audio",
-  ".png": "image",
-  ".jpg": "image",
-  ".jpeg": "image",
-  ".gif": "image",
-  ".svg": "image",
-  ".webp": "image",
-};
+export { RENDERER_BY_EXT };
+export type { RendererKind };
 
 const YOUTUBE_HOSTS = new Set([
   "youtube.com",
@@ -48,17 +25,6 @@ const YOUTUBE_HOSTS = new Set([
   "m.youtube.com",
   "youtu.be",
 ]);
-
-function extOf(p: string): string {
-  // Strip query/hash before extracting the extension so `foo.pdf?x=1`
-  // still dispatches as `.pdf`.
-  const clean = p.split("?")[0].split("#")[0];
-  const idx = clean.lastIndexOf(".");
-  if (idx < 0) return "";
-  const slash = Math.max(clean.lastIndexOf("/"), clean.lastIndexOf("\\"));
-  if (idx < slash) return "";
-  return clean.slice(idx).toLowerCase();
-}
 
 export function dispatchPreview(target: ViewTarget): RendererKind {
   if (target.kind === "file") {
