@@ -25,7 +25,7 @@ import {
   type EditorPaneState,
   useEditorPaneState,
 } from "../lib/editor-pane-state.js";
-import { type SplitOrientation, type SplitState, useSplitState } from "../lib/split-state.js";
+import { type SplitMode, type SplitOrientation, type SplitState, useSplitState } from "../lib/split-state.js";
 import { saveTreeVisible } from "../lib/tree-visible.js";
 
 export interface PendingScroll {
@@ -38,7 +38,8 @@ export interface SplitWorkspaceContextValue {
   cwd: string;
   split: SplitState;
   updateSplit: (patch: Partial<SplitState>) => void;
-  toggleSplit: () => void;
+  /** Set the content-area layout mode (header segmented switch). */
+  setMode: (mode: SplitMode) => void;
   paneState: EditorPaneState;
   dispatch: React.Dispatch<EditorPaneAction>;
   /**
@@ -121,7 +122,7 @@ export function SplitWorkspaceProvider({
       if (!relPath) return;
       const viewer = fileKind(absOf(cwd, relPath)).viewer;
       dispatch({ type: "openFile", path: relPath, viewer, restrictCsp });
-      updateSplit({ open: true });
+      updateSplit({ mode: "split" });
       if (line && line > 0) setPendingScroll({ path: relPath, line });
     },
     [cwd, dispatch, updateSplit],
@@ -133,7 +134,7 @@ export function SplitWorkspaceProvider({
       // never yield `live-server`. The `openFile` reducer is idempotent by
       // path, so the same URL reuses its tab.
       dispatch({ type: "openFile", path: `live:${url}`, viewer: "live-server" });
-      updateSplit({ open: true });
+      updateSplit({ mode: "split" });
     },
     [dispatch, updateSplit],
   );
@@ -145,7 +146,7 @@ export function SplitWorkspaceProvider({
       // it. Idempotent by path. See change: auto-canvas (S35).
       if (!url) return;
       dispatch({ type: "openFile", path: `url:${url}`, viewer: "url" });
-      updateSplit({ open: true });
+      updateSplit({ mode: "split" });
     },
     [dispatch, updateSplit],
   );
@@ -157,7 +158,7 @@ export function SplitWorkspaceProvider({
     (relPath: string) => {
       if (!relPath) return;
       dispatch({ type: "openFile", path: `diff:${relPath}`, viewer: "diff" });
-      updateSplit({ open: true });
+      updateSplit({ mode: "split" });
     },
     [dispatch, updateSplit],
   );
@@ -171,11 +172,11 @@ export function SplitWorkspaceProvider({
     // already-mounted pane is handled by its changesRevealSignal effect. See
     // change: detect-tool-created-files.
     saveTreeVisible(sessionId, true);
-    updateSplit({ open: true });
+    updateSplit({ mode: "split" });
     setChangesRevealSignal((n) => n + 1);
   }, [sessionId, updateSplit]);
 
-  const toggleSplit = useCallback(() => updateSplit({ open: !split.open }), [split.open, updateSplit]);
+  const setMode = useCallback((mode: SplitMode) => updateSplit({ mode }), [updateSplit]);
   const consumePendingScroll = useCallback(() => setPendingScroll(null), []);
 
   const noopFilenameSearch = useCallback((_q: string, _r: boolean) => {}, []);
@@ -195,9 +196,9 @@ export function SplitWorkspaceProvider({
   // (a) Declare the current open set (server reconciles idempotently).
   useEffect(() => {
     if (!sessionId || !cwd) return;
-    const paths = split.open ? openPathsKey.split("\u0000").filter(Boolean) : [];
+    const paths = split.mode !== "closed" ? openPathsKey.split("\u0000").filter(Boolean) : [];
     watchRef.current?.(sessionId, cwd, paths);
-  }, [sessionId, cwd, openPathsKey, split.open]);
+  }, [sessionId, cwd, openPathsKey, split.mode]);
   // (b) Clear this session's watchers on session switch / unmount only.
   useEffect(() => {
     if (!sessionId || !cwd) return;
@@ -210,7 +211,7 @@ export function SplitWorkspaceProvider({
       cwd,
       split,
       updateSplit,
-      toggleSplit,
+      setMode,
       paneState,
       dispatch,
       openInSplit,
@@ -226,7 +227,7 @@ export function SplitWorkspaceProvider({
       changedFiles,
       clearChanged,
     }),
-    [sessionId, cwd, split, updateSplit, toggleSplit, paneState, dispatch, openInSplit, openLiveTarget, openUrlTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged],
+    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, openInSplit, openLiveTarget, openUrlTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged],
   );
 
   return <SplitWorkspaceContext.Provider value={value}>{children}</SplitWorkspaceContext.Provider>;

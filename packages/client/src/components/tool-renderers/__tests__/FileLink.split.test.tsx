@@ -29,10 +29,10 @@ describe("FileLink — split routing", () => {
       "/Users/me/repo",
     );
 
-    expect(loadSplitState("sesh").open).toBe(false);
+    expect(loadSplitState("sesh").mode).toBe("closed");
     fireEvent.click(screen.getByRole("button"));
 
-    expect(loadSplitState("sesh").open).toBe(true);
+    expect(loadSplitState("sesh").mode).toBe("split");
     expect(loadEditorPaneState("sesh").openFiles.map((f) => f.path)).toEqual(["src/foo.ts"]);
   });
 });

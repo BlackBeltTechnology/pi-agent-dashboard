@@ -185,9 +185,9 @@ export function EditorPane() {
         )}
         <button
           type="button"
-          onClick={() => updateSplit({ open: false })}
+          onClick={() => updateSplit({ mode: "closed" })}
           className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-          title={t("editor.closeEditorUnsplit", undefined, "Close editor (unsplit)")}
+          title={t("editor.closeEditor", undefined, "Close editor")}
         >
           <Icon path={mdiClose} size={0.7} />
         </button>
