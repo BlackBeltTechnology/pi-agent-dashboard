@@ -37,7 +37,7 @@ function makeSession(id: string, cwd: string, name?: string): DashboardSession {
     id,
     cwd,
     name,
-    source: "cli",
+    source: "tui",
     status: "idle",
     startedAt: 0,
   } as DashboardSession;
