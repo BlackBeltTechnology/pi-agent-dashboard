@@ -2,17 +2,18 @@
  * Tests for PreviewCard + ChatView integration of `view`-bearing messages.
  * See change: render-file-previews.
  */
-import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
-import { render, fireEvent, act, cleanup } from "@testing-library/react";
-import React from "react";
+
+import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { ChatView } from "../ChatView.js";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { PreviewCard } from "../PreviewCard.js";
 import { createInitialState } from "../../lib/event-reducer.js";
+import { ChatView } from "../ChatView.js";
+import { PreviewCard } from "../PreviewCard.js";
+import { ThemeProvider } from "../ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
-import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 const defaultToolContext: ToolContext = { editors: [] };
 
@@ -76,6 +77,16 @@ describe("PreviewCard", () => {
     const target: ViewTarget = { kind: "file", cwd: "/x", path: "blob.dat" };
     const { getByTestId } = wrap(<PreviewCard target={target} />);
     expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("fallback");
+  });
+
+  // test-plan #3 — a URL target ending `.eml` dispatches to "email", but
+  // PreviewBody guards `kind !== "file"` → FallbackPreview (no crash).
+  it("URL ending .eml falls back to FallbackPreview without crashing (test-plan #3)", () => {
+    const target: ViewTarget = { kind: "url", url: "https://example.com/mail.eml" };
+    const { getByTestId, getByText } = wrap(<PreviewCard target={target} />);
+    expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("email");
+    // FallbackPreview for a URL target renders an "Open in new tab" link.
+    expect(getByText("Open in new tab")).toBeTruthy();
   });
 
   it("expand button navigates to file-view overlay route", () => {

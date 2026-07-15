@@ -12,6 +12,7 @@ import type { FastifyInstance } from "fastify";
 import { classifyPaths, createDirectory, listDirectories, parseFlagsQuery } from "../browse.js";
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
+import { EML_SIZE_CAP, loadParsedEml, toParseResult } from "../lib/eml.js";
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
 import { extToContentType } from "../lib/mime-types.js";
 import { isAllowed } from "../lib/path-containment.js";
@@ -131,6 +132,26 @@ async function performAtomicMdWrite(
   }
   const after = await fs.stat(real);
   return { code: 200, mtime: after.mtimeMs };
+}
+
+// Shared anti-traversal gate for the EML routes — the SAME check as
+// `/api/file/raw` (known session + `isAllowed` against the cwd anchor), factored
+// so both new routes CALL it rather than re-implementing the containment logic
+// (design D5). Returns the resolved abs path or a {code,error} reply mapping.
+async function gateFilePath(
+  cwd: string | undefined,
+  relPath: string | undefined,
+  sessionManager: SessionManager,
+): Promise<{ resolved: string } | { code: number; error: string }> {
+  if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
+  if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
+    return { code: 403, error: "unknown session path" };
+  }
+  const resolved = path.resolve(cwd, relPath);
+  if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
+    return { code: 403, error: "path outside working directory" };
+  }
+  return { resolved };
 }
 
 // Lazy asciidoctor singleton. First call cost ~Opal init; the server is
@@ -667,6 +688,114 @@ export function registerFileRoutes(
         reply.code(500);
         return { success: false, error: msg } satisfies ApiResponse;
       }
+    },
+  );
+
+  // Server-side EML (message/rfc822) parse (change: add-eml-preview).
+  // Parses with `mailparser`, sanitizes the HTML body with DOMPurify, and
+  // returns metadata-only JSON (headers, sanitized html, text, attachment
+  // metadata) — the raw ~15 MB base64 never reaches the client. Non-`.eml` →
+  // 400; over the size cap → 413 BEFORE read; malformed MIME → 400 (no crash).
+  // `allowRemote=1` preserves remote resource refs (the browser fetches them,
+  // never the server — no SSRF). Shares the `/api/file/raw` anti-traversal gate.
+  fastify.get<{ Querystring: { cwd?: string; path?: string; allowRemote?: string } }>(
+    "/api/file/eml",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager);
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return { success: false, error: gate.error } satisfies ApiResponse;
+      }
+      const ext = path.extname(request.query.path ?? "").toLowerCase();
+      if (ext !== ".eml") {
+        reply.code(400);
+        return { success: false, error: "renderer not supported for extension" } satisfies ApiResponse;
+      }
+      let stat;
+      try {
+        stat = await fs.stat(gate.resolved);
+      } catch {
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+      if (!stat.isFile()) {
+        reply.code(404);
+        return { success: false, error: "not a file" } satisfies ApiResponse;
+      }
+      if (stat.size > EML_SIZE_CAP) {
+        reply.code(413);
+        return { success: false, error: "file too large" } satisfies ApiResponse;
+      }
+      try {
+        const parsed = await loadParsedEml(gate.resolved, stat);
+        const data = toParseResult(parsed, { allowRemote: request.query.allowRemote === "1" });
+        return { success: true, data } satisfies ApiResponse;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "failed to parse EML";
+        reply.code(400);
+        return { success: false, error: msg } satisfies ApiResponse;
+      }
+    },
+  );
+
+  // EML attachment streaming (change: add-eml-preview).
+  // Streams ONE decoded attachment part by 0-based `index`. ALWAYS sends
+  // `Content-Disposition: attachment` (never inline) + `X-Content-Type-Options:
+  // nosniff`, so an attacker-declared `text/html`/SVG part cannot execute in the
+  // dashboard origin — inline previews consume the bytes as a `blob:` URL, not by
+  // navigating to this route. Non-integer/negative index → 400; out-of-range →
+  // 404. Shares the `/api/file/raw` anti-traversal gate + the parse cache.
+  fastify.get<{ Querystring: { cwd?: string; path?: string; index?: string } }>(
+    "/api/file/eml-attachment",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager);
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return { success: false, error: gate.error } satisfies ApiResponse;
+      }
+      if (path.extname(request.query.path ?? "").toLowerCase() !== ".eml") {
+        reply.code(400);
+        return { success: false, error: "renderer not supported for extension" } satisfies ApiResponse;
+      }
+      const rawIndex = request.query.index ?? "";
+      const index = Number(rawIndex);
+      if (rawIndex === "" || !Number.isInteger(index) || index < 0) {
+        reply.code(400);
+        return { success: false, error: "index must be a non-negative integer" } satisfies ApiResponse;
+      }
+      let stat;
+      try {
+        stat = await fs.stat(gate.resolved);
+      } catch {
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+      if (stat.size > EML_SIZE_CAP) {
+        reply.code(413);
+        return { success: false, error: "file too large" } satisfies ApiResponse;
+      }
+      let parsed;
+      try {
+        parsed = await loadParsedEml(gate.resolved, stat);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "failed to parse EML";
+        reply.code(400);
+        return { success: false, error: msg } satisfies ApiResponse;
+      }
+      const att = parsed.attachments?.[index];
+      if (!att) {
+        reply.code(404);
+        return { success: false, error: "attachment index out of range" } satisfies ApiResponse;
+      }
+      const filename = (att.filename || `attachment-${index}`).replace(/["\r\n]/g, "");
+      reply.header("Content-Type", att.contentType || "application/octet-stream");
+      reply.header("Content-Disposition", `attachment; filename="${filename}"`);
+      reply.header("X-Content-Type-Options", "nosniff");
+      reply.header("Cache-Control", "private, max-age=60");
+      reply.header("Content-Length", String(att.content.length));
+      return reply.send(att.content);
     },
   );
 }

@@ -2,7 +2,7 @@
  * Tests for `dispatchPreview` and `RENDERER_BY_EXT`. See change:
  * render-file-previews.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { dispatchPreview, RENDERER_BY_EXT } from "../preview-dispatch.js";
 
 const f = (path: string) => ({ kind: "file" as const, cwd: "/x", path });
@@ -46,6 +46,20 @@ describe("dispatchPreview — file targets", () => {
   it("maps html extensions", () => {
     expect(dispatchPreview(f("x.html"))).toBe("html");
     expect(dispatchPreview(f("x.htm"))).toBe("html");
+  });
+
+  // test-plan #1 / #2 — .eml dispatches to the email renderer, ext lowercased.
+  it("maps .eml to email (test-plan #1)", () => {
+    expect(dispatchPreview(f("mail.eml"))).toBe("email");
+  });
+
+  it("maps upper-case .EML to email via lowercased ext (test-plan #2)", () => {
+    expect(dispatchPreview(f("Mail.EML"))).toBe("email");
+  });
+
+  // test-plan #4 — unknown extension stays fallback (regression guard).
+  it("maps .dat to fallback (test-plan #4)", () => {
+    expect(dispatchPreview(f("blob.dat"))).toBe("fallback");
   });
 
   it("falls back on unknown file extension", () => {

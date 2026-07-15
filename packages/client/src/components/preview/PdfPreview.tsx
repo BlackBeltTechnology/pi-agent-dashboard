@@ -11,6 +11,8 @@ import { rawUrl } from "./raw-url.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
+  /** Override the document URL (e.g. a `blob:` URL for an EML attachment). */
+  src?: string;
 }
 
 // Lazy single-load of pdfjs. The dynamic import keeps it out of the main
@@ -26,7 +28,7 @@ async function loadPdfJs(): Promise<typeof import("pdfjs-dist")> {
   return mod;
 }
 
-export function PdfPreview({ target }: Props) {
+export function PdfPreview({ target, src }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pageNum, setPageNum] = useState(1);
   const [pageCount, setPageCount] = useState(0);
@@ -42,7 +44,7 @@ export function PdfPreview({ target }: Props) {
     (async () => {
       try {
         const pdfjs = await loadPdfJs();
-        const loadingTask = pdfjs.getDocument({ url: rawUrl(target) });
+        const loadingTask = pdfjs.getDocument({ url: src ?? rawUrl(target) });
         const doc = await loadingTask.promise;
         if (cancelled) {
           doc.destroy();
@@ -60,7 +62,7 @@ export function PdfPreview({ target }: Props) {
       docRef.current = null;
       if (doc) doc.destroy();
     };
-  }, [target.cwd, target.path]);
+  }, [target.cwd, target.path, src]);
 
   // Render the current page when doc or pageNum changes.
   useEffect(() => {
