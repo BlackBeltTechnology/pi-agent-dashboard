@@ -3,19 +3,20 @@
  * Handles three modes: Edit change (oldText/newText), Write change (all additions),
  * and git aggregate diff.
  */
-import React, { useState, useMemo, useEffect } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { Icon } from "@mdi/react";
-import { mdiCompare, mdiFileOutline, mdiViewSplitVertical, mdiViewSequential } from "@mdi/js";
-import { DiffView, DiffModeEnum } from "@git-diff-view/react";
-import { highlighter } from "@git-diff-view/lowlight";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { getSyntaxTheme } from "../lib/syntax-theme.js";
-import { useThemeContext } from "./ThemeProvider.js";
-import { RichDiff, getLang } from "./RichDiff.js";
+
 import type { FileChangeEvent, FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
-import type { FileSelection } from "./DiffFileTree.js";
+import { highlighter } from "@git-diff-view/lowlight";
+import { DiffModeEnum, DiffView } from "@git-diff-view/react";
+import { mdiCompare, mdiFileOutline, mdiViewSequential, mdiViewSplitVertical } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { getApiBase } from "../lib/api-context.js";
 import { t as i18nT } from "../lib/i18n";
+import { getSyntaxTheme } from "../lib/syntax-theme.js";
+import type { FileSelection } from "./DiffFileTree.js";
+import { getLang, RichDiff } from "./RichDiff.js";
+import { useThemeContext } from "./ThemeProvider.js";
 
 /** Map extension to Prism language for SyntaxHighlighter */
 const EXT_PRISM_MAP: Record<string, string> = {
@@ -139,13 +140,13 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
             className={`px-2 py-0.5 ${viewMode === "diff" ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"}`}
             onClick={() => setViewMode("diff")}
           >
-            <Icon path={mdiCompare} size={0.45} className="inline mr-0.5" />{i18nT("auto.diff", undefined, "Diff")}
+            <Icon path={mdiCompare} size={0.45} className="inline mr-0.5" />{i18nT("diff.diff", undefined, "Diff")}
           </button>
           <button
             className={`px-2 py-0.5 ${viewMode === "file" ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"}`}
             onClick={() => setViewMode("file")}
           >
-            <Icon path={mdiFileOutline} size={0.45} className="inline mr-0.5" />{i18nT("auto.file", undefined, "File")}
+            <Icon path={mdiFileOutline} size={0.45} className="inline mr-0.5" />{i18nT("common.file", undefined, "File")}
           </button>
         </div>
 
@@ -156,13 +157,13 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
               className={`px-2 py-0.5 ${diffMode === DiffModeEnum.Split ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"}`}
               onClick={() => setDiffMode(DiffModeEnum.Split)}
             >
-              <Icon path={mdiViewSplitVertical} size={0.45} className="inline mr-0.5" />{i18nT("auto.split", undefined, "Split")}
+              <Icon path={mdiViewSplitVertical} size={0.45} className="inline mr-0.5" />{i18nT("common.split", undefined, "Split")}
             </button>
             <button
               className={`px-2 py-0.5 ${diffMode === DiffModeEnum.Unified ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"}`}
               onClick={() => setDiffMode(DiffModeEnum.Unified)}
             >
-              <Icon path={mdiViewSequential} size={0.45} className="inline mr-0.5" />{i18nT("auto.unified", undefined, "Unified")}
+              <Icon path={mdiViewSequential} size={0.45} className="inline mr-0.5" />{i18nT("diff.unified", undefined, "Unified")}
             </button>
           </div>
         )}
@@ -172,7 +173,7 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
       <div className="flex-1 overflow-auto">
         {viewMode === "file" && fileLoading && (
           <div className="flex items-center justify-center h-32 text-[var(--text-tertiary)]">
-            {i18nT("auto.loading_file", undefined, "Loading file...")}
+            {i18nT("status.loadingFile", undefined, "Loading file...")}
           </div>
         )}
         {viewMode === "file" && fileError && !fileLoading && (
@@ -211,7 +212,7 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
         )}
         {viewMode === "diff" && !diffData && !fileLoading && (
           <div className="flex items-center justify-center h-32 text-[var(--text-tertiary)]">
-            {i18nT("auto.no_diff_data_available", undefined, "No diff data available")}
+            {i18nT("diff.noDiffDataAvailable", undefined, "No diff data available")}
           </div>
         )}
       </div>

@@ -39,6 +39,7 @@
   "pi-dashboard-plugin": {
     "id": "roles",
     "displayName": "Roles",
+    "i18nCatalog": "catalog",
     "priority": 100,
     "client": "./src/index.tsx",
     "claims": [

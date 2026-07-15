@@ -1,9 +1,9 @@
-import React from "react";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { PathPicker } from "./PathPicker.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
-import { inferPlatform } from "../lib/session-grouping.js";
+import React from "react";
 import { t as i18nT } from "../lib/i18n";
+import { inferPlatform } from "../lib/session-grouping.js";
+import { PathPicker } from "./PathPicker.js";
 
 interface Props {
   onPin: (path: string) => void;
@@ -14,7 +14,7 @@ interface Props {
 
 export function PinDirectoryDialog({ onPin, onCancel, onOpenServers }: Props) {
   return (
-    <Dialog open onClose={onCancel} title={i18nT("auto.pin_directory", undefined, "Pin Directory")} size="lg" testId="pin-directory-dialog">
+    <Dialog open onClose={onCancel} title={i18nT("folders.pinDirectory", undefined, "Pin Directory")} size="lg" testId="pin-directory-dialog">
         <PathPicker
           onSelect={(p) => {
             const trimmed = p.trim();

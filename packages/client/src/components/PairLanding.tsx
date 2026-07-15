@@ -17,6 +17,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { storeDeviceBearer } from "../lib/device-auth.js";
+import { t, useI18n } from "../lib/i18n";
 import { challengeIdentity, postJson } from "../lib/pair-protocol.js";
 import type { PairingPayload } from "../lib/pairing-api.js";
 import { decodePayloadString } from "../lib/pairing-qr.js";
@@ -65,15 +66,23 @@ async function pollForToken(url: string, pendingId: string, isCancelled: () => b
 /** Read + decode the payload from the URL fragment. Null when missing/invalid. */
 function readPayloadFromHash(): { payload: PairingPayload | null; error: string | null } {
   const hash = window.location.hash.replace(/^#/, "").trim();
-  if (!hash) return { payload: null, error: "This pairing link is missing its code. Re-scan the QR from the dashboard." };
+  if (!hash)
+    return {
+      payload: null,
+      error: t("landing.err.missingCode", undefined, "This pairing link is missing its code. Re-scan the QR from the dashboard."),
+    };
   try {
     return { payload: decodePayloadString(hash), error: null };
   } catch {
-    return { payload: null, error: "This pairing link is malformed. Re-scan the QR from the dashboard." };
+    return {
+      payload: null,
+      error: t("landing.err.malformed", undefined, "This pairing link is malformed. Re-scan the QR from the dashboard."),
+    };
   }
 }
 
 export function PairLanding({ onPaired }: { onPaired?: (token: string) => void } = {}) {
+  const { t } = useI18n();
   const [phase, setPhase] = useState<Phase>("verifying");
   const [error, setError] = useState<string | null>(null);
   const [confirmCode, setConfirmCode] = useState<string | null>(null);
@@ -101,7 +110,13 @@ export function PairLanding({ onPaired }: { onPaired?: (token: string) => void }
     if (cancelled.current) return;
     if (!verifiedUrl) {
       setPhase("error");
-      setError("Could not verify the server's identity (pin mismatch or unreachable). Pairing refused.");
+      setError(
+        t(
+          "landing.err.verifyFailed",
+          undefined,
+          "Could not verify the server's identity (pin mismatch or unreachable). Pairing refused.",
+        ),
+      );
       return;
     }
 
@@ -117,13 +132,19 @@ export function PairLanding({ onPaired }: { onPaired?: (token: string) => void }
       if (outcome === "cancelled") return;
       if (outcome === "unknown") {
         setPhase("error");
-        setError("Pairing expired or was rejected. Re-scan the QR to start over.");
+        setError(t("landing.err.expiredRejected", undefined, "Pairing expired or was rejected. Re-scan the QR to start over."));
         return;
       }
       finishPaired(outcome.token);
     } catch (err) {
       setPhase("error");
-      setError(`Pairing failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(
+        t(
+          "landing.err.failed",
+          { message: err instanceof Error ? err.message : String(err) },
+          `Pairing failed: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
     }
   }, [finishPaired]);
 
@@ -145,11 +166,11 @@ export function PairLanding({ onPaired }: { onPaired?: (token: string) => void }
       data-testid="pair-landing"
       className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 px-5 py-10 text-neutral-100"
     >
-      <h1 className="text-xl font-semibold">Pair this device</h1>
+      <h1 className="text-xl font-semibold">{t("landing.title", undefined, "Pair this device")}</h1>
 
       {phase === "verifying" && (
         <p data-testid="pair-landing-verifying" className="text-sm text-neutral-400">
-          Verifying the dashboard's identity…
+          {t("landing.verifying", undefined, "Verifying the dashboard's identity…")}
         </p>
       )}
 
@@ -158,17 +179,19 @@ export function PairLanding({ onPaired }: { onPaired?: (token: string) => void }
           data-testid="pair-landing-confirm"
           className="rounded-lg border border-blue-800 bg-blue-950/40 p-5 text-center"
         >
-          <p className="text-sm text-neutral-300">Type this code on the dashboard to approve this device:</p>
+          <p className="text-sm text-neutral-300">
+            {t("landing.typeCode", undefined, "Type this code on the dashboard to approve this device:")}
+          </p>
           <p data-testid="pair-landing-confirm-code" className="mt-3 font-mono text-4xl font-bold tracking-widest text-blue-300">
             {confirmCode}
           </p>
-          <p className="mt-3 text-xs text-neutral-500">Waiting for the operator to approve…</p>
+          <p className="mt-3 text-xs text-neutral-500">{t("landing.waiting", undefined, "Waiting for the operator to approve…")}</p>
         </div>
       )}
 
       {phase === "done" && (
         <p data-testid="pair-landing-done" className="rounded border border-green-800 bg-green-950/40 p-3 text-sm text-green-300">
-          Paired. Opening the dashboard…
+          {t("landing.paired", undefined, "Paired. Opening the dashboard…")}
         </p>
       )}
 
@@ -181,7 +204,7 @@ export function PairLanding({ onPaired }: { onPaired?: (token: string) => void }
             onClick={start}
             className="rounded bg-neutral-800 px-4 py-2 text-sm font-medium text-neutral-100"
           >
-            Try again
+            {t("landing.tryAgain", undefined, "Try again")}
           </button>
         </div>
       )}

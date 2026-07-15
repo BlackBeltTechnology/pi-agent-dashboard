@@ -2,6 +2,7 @@ import {
   type InteractiveUiRequestSnapshot,
   usePluginSend,
   useSessionInteractiveRequests,
+  useT,
   useUiPrimitiveOrNull,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { BreadcrumbSlot } from "@blackbelt-technology/pi-dashboard-client-utils/extension-ui/BreadcrumbSlot";
@@ -48,6 +49,7 @@ export function FlowDashboard({
   sessionId?: string;
 }) {
   const isMobile = useMobile();
+  const t = useT();
   const Dialog = useUiPrimitiveOrNull(UI_PRIMITIVE_KEYS.dialog);
   const [graphOpen, setGraphOpen] = useState(false);
   // Shared graph⇄card selection (live view parity with FlowSummary). See change:
@@ -183,7 +185,7 @@ export function FlowDashboard({
         )}
         <span className="text-sm text-[var(--text-primary)] truncate flex-1">
           {flowState.flowName}
-          <span className="text-[var(--text-tertiary)] ml-1.5">{doneCount}/{totalCount} steps</span>
+          <span className="text-[var(--text-tertiary)] ml-1.5">{t("stepsCount", { done: doneCount, total: totalCount }, `${doneCount}/${totalCount} steps`)}</span>
         </span>
 
         {/* Controls */}
@@ -194,7 +196,7 @@ export function FlowDashboard({
               ? "border-green-500/40 text-green-400 bg-green-500/10"
               : "border-[var(--border-subtle)] text-[var(--text-tertiary)]"
           }`}
-          title="Toggle autonomous mode"
+          title={t("toggleAutonomousMode", undefined, "Toggle autonomous mode")}
         >
           <Icon path={mdiRobotOutline} size={0.4} className="inline mr-0.5" />AUTO
         </button>
@@ -202,9 +204,9 @@ export function FlowDashboard({
           <button
             onClick={(e) => { e.stopPropagation(); onAbort(); }}
             className="text-[10px] px-1.5 py-0.5 rounded border border-red-500/30 text-red-400 hover:bg-red-500/10"
-            title="Abort flow"
+            title={t("abortFlow", undefined, "Abort flow")}
           >
-            <Icon path={mdiStop} size={0.4} className="inline mr-0.5" />Abort
+            <Icon path={mdiStop} size={0.4} className="inline mr-0.5" />{t("abort", undefined, "Abort")}
           </button>
         )}
         {isMobile && (

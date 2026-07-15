@@ -4,12 +4,12 @@
  * `spawn-error-toast-bus` singleton. See change: harden-worktree-spawn.
  */
 import React, { useEffect, useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import {
   dismissSpawnErrorToast,
-  subscribeSpawnErrorToasts,
   type SpawnErrorToastEntry,
+  subscribeSpawnErrorToasts,
 } from "../lib/spawn-error-toast-bus.js";
-import { t as i18nT } from "../lib/i18n";
 
 export function SpawnErrorToastHost() {
   const [entries, setEntries] = useState<ReadonlyArray<SpawnErrorToastEntry>>([]);
@@ -36,8 +36,8 @@ export function SpawnErrorToastHost() {
             type="button"
             onClick={() => dismissSpawnErrorToast(e.id)}
             className="text-red-300/70 hover:text-red-100 flex-shrink-0 leading-none"
-            aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
-            title={i18nT("auto.dismiss", undefined, "Dismiss")}
+            aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
+            title={i18nT("common.dismiss", undefined, "Dismiss")}
           >
             ×
           </button>

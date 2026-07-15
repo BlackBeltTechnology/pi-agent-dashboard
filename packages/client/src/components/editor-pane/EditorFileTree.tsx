@@ -17,6 +17,7 @@ import { Icon } from "@mdi/react";
 import { useEffect, useRef, useState } from "react";
 import { getApiBase } from "../../lib/api-context.js";
 import { fileIcon } from "../../lib/file-icon.js";
+import { useI18n } from "../../lib/i18n";
 
 interface EditorFileTreeProps {
   cwd: string;
@@ -41,6 +42,7 @@ const baseName = (rel: string): string => rel.slice(rel.lastIndexOf("/") + 1);
  * (silent no-op when unavailable), matching `CopyButton`.
  */
 function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [flip, setFlip] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -114,9 +116,9 @@ function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
 
   const abs = absOf(cwd, rel);
   const items: Array<{ key: string; label: string; payload: string }> = [
-    { key: "full", label: "Copy full path", payload: abs },
-    { key: "rel", label: "Copy relative path", payload: rel },
-    { key: "name", label: "Copy file name", payload: baseName(rel) },
+    { key: "full", label: t("editor.copyFullPath", undefined, "Copy full path"), payload: abs },
+    { key: "rel", label: t("editor.copyRelativePath", undefined, "Copy relative path"), payload: rel },
+    { key: "name", label: t("editor.copyFileName", undefined, "Copy file name"), payload: baseName(rel) },
   ];
 
   return (
@@ -124,8 +126,8 @@ function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
       <button
         type="button"
         ref={glyphRef}
-        aria-label="Copy path"
-        title="Copy path"
+        aria-label={t("editor.copyPath", undefined, "Copy path")}
+        title={t("editor.copyPath", undefined, "Copy path")}
         onClick={toggle}
         className={[
           "mr-1 rounded p-0.5 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-opacity",
@@ -190,6 +192,7 @@ function TreeNode({
   relDir: string;
   depth: number;
 } & Omit<EditorFileTreeProps, "cwd">) {
+  const { t } = useI18n();
   const [entries, setEntries] = useState<DirEntry[] | null>(null);
   // Ref on the active row so it can be scrolled into view when it (re)mounts
   // or when the active tab changes (#5).
@@ -209,7 +212,7 @@ function TreeNode({
   }, [entries, activePath]);
 
   if (entries === null) {
-    return <div className="px-2 py-1 text-xs text-[var(--text-tertiary)]" style={{ paddingLeft: depth * 12 + 8 }}>Loading…</div>;
+    return <div className="px-2 py-1 text-xs text-[var(--text-tertiary)]" style={{ paddingLeft: depth * 12 + 8 }}>{t("common.loading2", undefined, "Loading…")}</div>;
   }
 
   return (

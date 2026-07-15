@@ -1,7 +1,8 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiSend } from "@mdi/js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { mdiSend } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 /**
@@ -39,16 +40,16 @@ export function ProposeDialog({ onSend, onClose }: Props) {
   };
 
   return (
-    <Dialog open onClose={onClose} title={i18nT("auto.propose_change", undefined, "Propose Change")} testId="propose-dialog">
+    <Dialog open onClose={onClose} title={i18nT("common.proposeChange", undefined, "Propose Change")} testId="propose-dialog">
       <p className="text-xs text-[var(--text-tertiary)] mb-2">
-        {i18nT("auto.creates_a_change_and_generates_all", undefined, "Creates a change and generates all planning artifacts in one step.")}
+        {i18nT("common.createsAChangeAndGeneratesAll", undefined, "Creates a change and generates all planning artifacts in one step.")}
       </p>
       <input
         type="text"
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={i18nT("auto.change_name_or_description_optional", undefined, "change-name or description (optional)")}
+        placeholder={i18nT("common.changeNameOrDescriptionOptional", undefined, "change-name or description (optional)")}
         className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded p-2 text-sm text-[var(--text-secondary)] focus:outline-none focus:border-blue-500"
         autoFocus
         data-testid="propose-name"
@@ -56,7 +57,7 @@ export function ProposeDialog({ onSend, onClose }: Props) {
       <Dialog.Footer>
         <Dialog.Cancel onClick={onClose} testId="propose-cancel" />
         <Dialog.Action onClick={handleSend} testId="propose-send">
-          <Icon path={mdiSend} size={0.45} className="inline mr-0.5" />{i18nT("auto.propose", undefined, "Propose")}
+          <Icon path={mdiSend} size={0.45} className="inline mr-0.5" />{i18nT("common.propose", undefined, "Propose")}
         </Dialog.Action>
       </Dialog.Footer>
     </Dialog>

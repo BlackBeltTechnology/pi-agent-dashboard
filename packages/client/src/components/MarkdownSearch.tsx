@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import Fuse from "fuse.js";
+import { mdiChevronDown, mdiChevronUp, mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiChevronUp, mdiChevronDown, mdiClose } from "@mdi/js";
+import Fuse from "fuse.js";
+import type React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 const HIGHLIGHT_CLASS = "markdown-search-highlight";
@@ -260,7 +261,7 @@ export function MarkdownSearch({ contentRef, content }: Props) {
         value={query}
         onChange={(e) => handleQueryChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={i18nT("auto.search", undefined, "Search...")}
+        placeholder={i18nT("common.search2", undefined, "Search...")}
         className="text-xs bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-2 py-0.5 text-[var(--text-primary)] placeholder-[var(--text-muted)] w-36 focus:outline-none focus:border-blue-500/50"
         data-testid="markdown-search-input"
       />
@@ -273,7 +274,7 @@ export function MarkdownSearch({ contentRef, content }: Props) {
             onClick={goToPrev}
             disabled={matchCount === 0}
             className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] disabled:opacity-30"
-            title={i18nT("auto.previous_match_shift_enter", undefined, "Previous match (Shift+Enter)")}
+            title={i18nT("common.previousMatchShiftEnter", undefined, "Previous match (Shift+Enter)")}
             data-testid="markdown-search-prev"
           >
             <Icon path={mdiChevronUp} size={0.6} />
@@ -282,7 +283,7 @@ export function MarkdownSearch({ contentRef, content }: Props) {
             onClick={goToNext}
             disabled={matchCount === 0}
             className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] disabled:opacity-30"
-            title={i18nT("auto.next_match_enter", undefined, "Next match (Enter)")}
+            title={i18nT("common.nextMatchEnter", undefined, "Next match (Enter)")}
             data-testid="markdown-search-next"
           >
             <Icon path={mdiChevronDown} size={0.6} />
@@ -290,7 +291,7 @@ export function MarkdownSearch({ contentRef, content }: Props) {
           <button
             onClick={handleClear}
             className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-            title={i18nT("auto.clear_search_escape", undefined, "Clear search (Escape)")}
+            title={i18nT("common.clearSearchEscape", undefined, "Clear search (Escape)")}
             data-testid="markdown-search-clear"
           >
             <Icon path={mdiClose} size={0.5} />

@@ -29,7 +29,7 @@ export function ActivationToggle({ resource, enabled, onToggle }: { resource: Pi
       role="switch"
       aria-checked={enabled}
       data-testid="resource-activation-toggle"
-      title={enabled ? i18nT("auto.disable", undefined, "Disable") : i18nT("auto.enable", undefined, "Enable")}
+      title={enabled ? i18nT("common.disable", undefined, "Disable") : i18nT("common.enable2", undefined, "Enable")}
       aria-label={`${enabled ? "Disable" : "Enable"} ${resource.name}`}
       onClick={(e) => {
         e.stopPropagation();
@@ -67,14 +67,14 @@ export function ResourceReloadBanner({ activation }: { activation: ResourceActiv
         className="flex items-center gap-1 text-xs font-medium text-[var(--accent-primary)] hover:underline"
       >
         <Icon path={mdiRefresh} size={0.5} />
-        {i18nT("auto.reload_n_sessions", { n: String(pending.count) }, `Reload ${pending.count} session${pending.count === 1 ? "" : "s"}`)}
+        {i18nT("session.reloadNSessions", { n: String(pending.count) }, `Reload ${pending.count} session${pending.count === 1 ? "" : "s"}`)}
       </button>
       <button
         type="button"
         onClick={activation.clearPending}
         className="ml-auto text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
       >
-        {i18nT("auto.dismiss", undefined, "Dismiss")}
+        {i18nT("common.dismiss", undefined, "Dismiss")}
       </button>
     </div>
   );

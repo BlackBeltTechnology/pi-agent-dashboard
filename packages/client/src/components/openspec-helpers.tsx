@@ -1,5 +1,5 @@
+import type { OpenSpecArtifact, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import React from "react";
-import type { OpenSpecChange, OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { t as i18nT } from "../lib/i18n";
 
 export const LETTER_MAP: Record<string, string> = {
@@ -59,7 +59,7 @@ export function ArtifactLettersButton({
   return (
     <button
       data-testid="artifact-letters-btn"
-      title={i18nT("auto.open_proposal", undefined, "Open proposal")}
+      title={i18nT("openspec.openProposal", undefined, "Open proposal")}
       className="flex items-center gap-0.5 px-1 py-0.5 rounded border border-[var(--border-secondary)] hover:border-blue-500/50 cursor-pointer"
       onClick={(e) => { e.stopPropagation(); onReadArtifact?.(changeName, "proposal"); }}
     >

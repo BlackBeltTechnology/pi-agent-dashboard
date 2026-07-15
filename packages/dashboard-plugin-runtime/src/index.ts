@@ -1,69 +1,71 @@
 /**
  * Main barrel export for @blackbelt-technology/dashboard-plugin-runtime.
  */
-export * from "./slot-registry.js";
+
 // Re-exported from shared so the runtime keeps a single public surface; the
 // implementation lives in shared to avoid a worktree dual-instance split.
 // See change: fix-plugin-and-scoped-back-navigation.
 export { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
-export * from "./slot-consumers.js";
-export * from "./prompt-component-registry.js";
-export {
-  ShellSessionsProvider,
-  useShellSession,
-  useShellSessionOrNull,
-  type ShellSessionsValue,
-  type ShellSessionsProviderProps,
-} from "./shell-sessions-context.js";
 export * from "./dependency-graph.js";
-export * from "./slot-error-boundary.js";
+export type { IntentActionSender, IntentRendererProps } from "./intent-renderer.js";
+export { IntentRenderer, isIntentNode, UnknownPrimitive } from "./intent-renderer.js";
+export type { IntentKey, IntentStoreEntry } from "./intent-store.js";
+export { IntentStore, intentStore, keyToString, useSlotIntents } from "./intent-store.js";
+export { sendPluginAction, setSender } from "./plugin-action-bridge.js";
+export type { InteractiveUiRequestSnapshot, PluginContextProviderProps, PluginLogger, PluginRouter, SubagentStateSnapshot } from "./plugin-context.js";
 export {
-  PluginContextProvider,
   CurrentPluginLayer,
-  useSessionEvents,
-  useSessionData,
-  useSessionState,
-  useSessionInteractiveRequests,
-  useSessionSubagents,
-  useShellConnectionStatus,
+  PluginContextProvider,
   useAllSessions,
-  usePluginSend,
-  usePluginRouter,
+  useLanguage,
   usePluginConfig,
   usePluginLogger,
+  usePluginRouter,
+  usePluginSend,
+  useSessionData,
+  useSessionEvents,
+  useSessionInteractiveRequests,
+  useSessionState,
+  useSessionSubagents,
+  useShellConnectionStatus,
+  useT,
 } from "./plugin-context.js";
-export type { InteractiveUiRequestSnapshot, SubagentStateSnapshot } from "./plugin-context.js";
-export type { PluginContextProviderProps, PluginLogger, PluginRouter } from "./plugin-context.js";
-export { publishSessionEvent, publishSessionEvents, clearSessionEvents, getSessionEvents } from "./session-events-store.js";
-export { intentStore, useSlotIntents, IntentStore, keyToString } from "./intent-store.js";
-export type { IntentKey, IntentStoreEntry } from "./intent-store.js";
-export { IntentRenderer, UnknownPrimitive, isIntentNode } from "./intent-renderer.js";
-export type { IntentRendererProps, IntentActionSender } from "./intent-renderer.js";
-export { setSender, sendPluginAction } from "./plugin-action-bridge.js";
+export * from "./prompt-component-registry.js";
 export {
-  publishSessionData,
-  clearSessionData,
-  subscribeSessionDataKey,
-  getSessionData,
   __resetSessionDataStoreForTests,
+  clearSessionData,
+  getSessionData,
+  publishSessionData,
+  subscribeSessionDataKey,
 } from "./session-data-store.js";
+export { clearSessionEvents, getSessionEvents, publishSessionEvent, publishSessionEvents } from "./session-events-store.js";
+export type {
+  RegisteredSource,
+  SettingsDraftRegistry,
+  SettingsDraftSource,
+} from "./settings-draft-context.js";
 export {
-  createUiPrimitiveRegistry,
-  registerUiPrimitive,
-} from "./ui-primitive-registry.js";
-export type { UiPrimitiveRegistry } from "./ui-primitive-registry.js";
+  SettingsDraftProvider,
+  useSettingsDraftSource,
+} from "./settings-draft-context.js";
+export {
+  ShellSessionsProvider,
+  type ShellSessionsProviderProps,
+  type ShellSessionsValue,
+  useShellSession,
+  useShellSessionOrNull,
+} from "./shell-sessions-context.js";
+export * from "./slot-consumers.js";
+export * from "./slot-error-boundary.js";
+export * from "./slot-registry.js";
+export type { UiPrimitiveProviderProps } from "./ui-primitive-context.js";
 export {
   UiPrimitiveProvider,
   useUiPrimitive,
   useUiPrimitiveOrNull,
 } from "./ui-primitive-context.js";
-export type { UiPrimitiveProviderProps } from "./ui-primitive-context.js";
+export type { UiPrimitiveRegistry } from "./ui-primitive-registry.js";
 export {
-  SettingsDraftProvider,
-  useSettingsDraftSource,
-} from "./settings-draft-context.js";
-export type {
-  SettingsDraftSource,
-  RegisteredSource,
-  SettingsDraftRegistry,
-} from "./settings-draft-context.js";
+  createUiPrimitiveRegistry,
+  registerUiPrimitive,
+} from "./ui-primitive-registry.js";

@@ -1,7 +1,20 @@
-import React from "react";
-import { Icon } from "@mdi/react";
-import { mdiClipboardTextOutline } from "@mdi/js";
 import type { OpenSpecPhase } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiClipboardTextOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
+import { useI18n } from "../lib/i18n";
+
+const phaseKeys: Record<OpenSpecPhase, string> = {
+  explore: "explore",
+  new: "new",
+  continue: "continue",
+  ff: "ff",
+  apply: "apply",
+  verify: "verify",
+  archive: "archive",
+  "sync-specs": "syncSpecs",
+  onboard: "onboard",
+};
 
 const phaseLabels: Record<OpenSpecPhase, string> = {
   explore: "Exploring",
@@ -38,7 +51,10 @@ export function OpenSpecActivityBadge({
   completedTasks?: number;
   totalTasks?: number;
 }) {
-  const label = phase ? (phaseLabels[phase] ?? phase) : "OpenSpec";
+  const { t } = useI18n();
+  const label = phase
+    ? t(`openspec.phase.${phaseKeys[phase] ?? phase}`, undefined, phaseLabels[phase] ?? phase)
+    : "OpenSpec";
   const color = phase ? (phaseColors[phase] ?? "text-[var(--text-tertiary)]") : "text-[var(--text-tertiary)]";
   const hasProgress = totalTasks != null && totalTasks > 0;
 

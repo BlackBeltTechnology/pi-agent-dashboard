@@ -10,12 +10,12 @@
  * See change: fix-recovery-offer-dismiss-and-phantom-reopen.
  */
 import React, { useEffect, useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import {
-  subscribeRecoveryOffer,
   clearRecoveryOffer,
   type RecoveryOffer,
+  subscribeRecoveryOffer,
 } from "../lib/recovery-offer-bus.js";
-import { t as i18nT } from "../lib/i18n";
 
 export function RecoveryOfferHost({ onReopen, onDismiss }: {
   /** Route the given candidate session ids through the resume flow. */
@@ -60,7 +60,7 @@ export function RecoveryOfferHost({ onReopen, onDismiss }: {
       >
         <span className="flex-none w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
         <span className="flex-1 whitespace-nowrap font-medium">
-          {i18nT("auto.reopen_n_sessions", { count }, `Reopen ${count} session${count === 1 ? "" : "s"}?`)}
+          {i18nT("session.reopenNSessions", { count }, `Reopen ${count} session${count === 1 ? "" : "s"}?`)}
         </span>
         <button
           type="button"
@@ -68,15 +68,15 @@ export function RecoveryOfferHost({ onReopen, onDismiss }: {
           data-testid="recovery-offer-reopen"
           className="flex-none px-3 py-1 rounded-lg bg-[var(--accent-primary)] text-white font-medium hover:opacity-90"
         >
-          {i18nT("auto.reopen", undefined, "Reopen")}
+          {i18nT("common.reopen", undefined, "Reopen")}
         </button>
         <button
           type="button"
           onClick={handleDismiss}
           data-testid="recovery-offer-dismiss"
           className="flex-none leading-none text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-          aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
-          title={i18nT("auto.dismiss", undefined, "Dismiss")}
+          aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
+          title={i18nT("common.dismiss", undefined, "Dismiss")}
         >
           ×
         </button>

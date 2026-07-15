@@ -9,9 +9,11 @@
  * Uses the unified buffered-draft save contract (edits commit via the host
  * Settings panel's Save). See change: add-automation-plugin.
  */
-import React, { useCallback, useRef, useState } from "react";
+
+import { useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type React from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Visibility } from "../shared/automation-types.js";
 
 export interface AutomationPluginConfig {
@@ -31,6 +33,7 @@ const DEFAULTS: Required<AutomationPluginConfig> = {
 };
 
 export function AutomationSettings(): React.ReactElement {
+  const t = useT();
   const config = usePluginConfig<AutomationPluginConfig>();
   const send = usePluginSend();
 
@@ -92,25 +95,25 @@ export function AutomationSettings(): React.ReactElement {
       data-testid="automation-plugin-settings"
     >
       <header>
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">Automations</h3>
-        <p className="text-xs text-[var(--text-secondary)]">Plugin settings apply globally across all repos.</p>
+        <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t("automations", undefined, "Automations")}</h3>
+        <p className="text-xs text-[var(--text-secondary)]">{t("settingsGlobalNote", undefined, "Plugin settings apply globally across all repos.")}</p>
       </header>
 
       <label className="block text-xs text-[var(--text-secondary)]">
-        <span className="block mb-0.5">Default run visibility</span>
+        <span className="block mb-0.5">{t("defaultVisibilityLabel", undefined, "Default run visibility")}</span>
         <select
           value={defaultVisibility}
           onChange={(e) => setDefaultVisibility(e.target.value as Visibility)}
           className="text-xs px-2 py-1 rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)]"
           data-testid="automation-default-visibility"
         >
-          <option value="hidden">hidden (off the board, watch in Automations)</option>
-          <option value="shown">shown (render as a normal board card)</option>
+          <option value="hidden">{t("visibilityHiddenOption", undefined, "hidden (off the board, watch in Automations)")}</option>
+          <option value="shown">{t("visibilityShownOption", undefined, "shown (render as a normal board card)")}</option>
         </select>
       </label>
 
       <label className="block text-xs text-[var(--text-secondary)]">
-        <span className="block mb-0.5">Run retention (keep last N per automation)</span>
+        <span className="block mb-0.5">{t("retentionLabel", undefined, "Run retention (keep last N per automation)")}</span>
         <input
           type="number"
           min={1}
@@ -128,7 +131,7 @@ export function AutomationSettings(): React.ReactElement {
           onChange={(e) => setScanFolder(e.target.checked)}
           data-testid="automation-scan-folder"
         />
-        Scan per-folder automations (<code>&lt;repo&gt;/.pi/automation/</code>)
+        {t("scanFolderLabel", undefined, "Scan per-folder automations")} (<code>&lt;repo&gt;/.pi/automation/</code>)
       </label>
 
       <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
@@ -138,16 +141,16 @@ export function AutomationSettings(): React.ReactElement {
           onChange={(e) => setScanGlobal(e.target.checked)}
           data-testid="automation-scan-global"
         />
-        Scan global automations (<code>~/.pi/automation/</code>)
+        {t("scanGlobalLabel", undefined, "Scan global automations")} (<code>~/.pi/automation/</code>)
       </label>
 
       <label className="block text-xs text-[var(--text-secondary)]">
-        <span className="block mb-0.5">Default model (fallback for unresolved <code>@role</code>)</span>
+        <span className="block mb-0.5">{t("defaultModelLabel", undefined, "Default model (fallback for unresolved")} <code>@role</code>)</span>
         <input
           type="text"
           value={defaultModel}
           onChange={(e) => setDefaultModel(e.target.value)}
-          placeholder="provider/model-id"
+          placeholder={t("defaultModelPlaceholder", undefined, "provider/model-id")}
           className="text-xs px-2 py-1 rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] font-mono w-full"
           data-testid="automation-default-model"
         />

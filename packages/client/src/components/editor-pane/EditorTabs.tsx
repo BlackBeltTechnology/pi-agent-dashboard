@@ -12,6 +12,7 @@ import { Icon } from "@mdi/react";
 import { useEffect, useRef, useState } from "react";
 import type { OpenFile } from "../../lib/editor-pane-state.js";
 import { fileIcon } from "../../lib/file-icon.js";
+import { useI18n } from "../../lib/i18n";
 
 interface EditorTabsProps {
   openFiles: OpenFile[];
@@ -27,6 +28,7 @@ function basename(p: string): string {
 }
 
 export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReorder }: EditorTabsProps) {
+  const { t } = useI18n();
   const dragFrom = useRef<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -64,7 +66,7 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
   }, [activeIndex, onClose]);
 
   return (
-    <div role="tablist" aria-label="Open files" className="flex shrink-0 overflow-x-auto border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+    <div role="tablist" aria-label={t("editor.openFiles", undefined, "Open files")} className="flex shrink-0 overflow-x-auto border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
       {openFiles.map((file, i) => (
         <div
           key={file.path}
@@ -117,7 +119,7 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
           )}
           <button
             type="button"
-            aria-label={`Close ${basename(file.path)}`}
+            aria-label={t("editor.closeFile", { name: basename(file.path) }, "Close {name}")}
             onClick={(e) => {
               e.stopPropagation();
               onClose(i);

@@ -4,10 +4,11 @@
  *
  * See change: add-openspec-change-grouping (task 6.2).
  */
-import React from "react";
+
 import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { resolveGroupColor } from "../lib/openspec-group-palette.js";
+import React from "react";
 import { t as i18nT } from "../lib/i18n";
+import { resolveGroupColor } from "../lib/openspec-group-palette.js";
 
 interface Props {
   groups: OpenSpecGroup[];
@@ -40,7 +41,7 @@ export function OpenSpecGroupPills({
         }`}
         data-testid="group-pill-all"
       >
-        {i18nT("auto.all", undefined, "All")}
+        {i18nT("common.all", undefined, "All")}
       </button>
 
       {/* Group pills */}
@@ -76,7 +77,7 @@ export function OpenSpecGroupPills({
           className="text-[10px] text-[var(--text-muted)] hover:text-blue-400 ml-1"
           data-testid="manage-groups-link"
         >
-          {i18nT("auto.manage_groups", undefined, "Manage groups…")}
+          {i18nT("common.manageGroups", undefined, "Manage groups…")}
         </button>
       )}
     </div>

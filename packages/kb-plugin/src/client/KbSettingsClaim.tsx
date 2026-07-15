@@ -5,6 +5,7 @@
  * settings panel. Same overlay-route pattern as the goals board. Plugin-local;
  * no App.tsx edit. See change: add-kb-folder-slot.
  */
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { KbSettingsPanel } from "./KbSettingsPanel.js";
 import { decodeFolderPath } from "./kb-api.js";
@@ -15,11 +16,12 @@ export interface KbSettingsClaimProps {
 }
 
 export function KbSettingsClaim({ params, onBack }: KbSettingsClaimProps): React.ReactElement {
+  const t = useT();
   const cwd = decodeFolderPath(params.encodedCwd ?? "") ?? "";
   if (!cwd) {
     return (
       <div className="p-4 text-xs text-red-400" data-testid="kb-settings-bad-cwd">
-        Invalid folder path.
+        {t("invalidFolderPath", undefined, "Invalid folder path.")}
       </div>
     );
   }

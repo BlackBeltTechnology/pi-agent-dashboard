@@ -18,6 +18,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `faux-tool.spec.ts` | Playwright spec. Sends `[[faux:tool-read]]` via `sendPrompt`. Asserts read tool renderer mounts (path `src/example.ts` visible). Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
 | `tool-collapse-narration.spec.ts` | Playwright spec for the semantic-first composition flip. `[[faux:poll-narrated]]` → 4 identical `echo… → see `tool-collapse-narration.spec.ts.AGENTS.md` |
 | `tool-burst.spec.ts` | Playwright spec for temporal burst grouping. Sends `[[faux:burst-heterogeneous]]` (3 distinct bash calls,… → see `tool-burst.spec.ts.AGENTS.md` |
+| `tool-created-files.spec.ts` | L3 spec (change: detect-tool-created-files, U1+U3). `spawnFreshGitSession` + `dirtyMarkdown(README.md)` (out-of-band → `otherChanges`) + `[[faux:tool-bash-artifact]]` (bash writes `tool-artifact.md` in cwd → `origin:"tool"`). Opens Files panel: asserts `origin-badge` + `created by` on the tool row (U1), and the collapsed `other-changes-group` + `session-only-toggle` hides it (U3). |
 | `file-preview-survives-churn.spec.ts` | Playwright spec. Rendered-DOM regression for hoisted file-preview overlay. → see `file-preview-survives-churn.spec.ts.AGENTS.md` |
 | `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR network selector (change: add-gateway-qr-network-selector; automates… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
 | `git-panel.spec.ts` | Scenario 5.2 spec. Calls `ensureGitSession`. Asserts page-level `git-branch-btn` (title "Switch branch")… → see `git-panel.spec.ts.AGENTS.md` |
@@ -52,6 +53,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears onboarding gate, clicks `onboarding-step-2-cta` opens… → see `session-spawn.spec.ts.AGENTS.md` |
 | `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only or enforce) present on `/` with… → see `csp.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders (title `PI Dashboard` + `header-app-bar`), no… → see `smoke.spec.ts.AGENTS.md` |
+| `split-composer-overflow.spec.ts` | Browser E2E gate for `fix-split-composer-overflow`. Opens `split-toggle` at viewport 1280 (≥ md); asserts composer `send-button` right edge stays within `split-chat-pane` bounds + toolbar folds to `overflow-button` (`⋯`). Container-query fold discriminator. |
 | `superseded-heal.spec.ts` | Playwright spec (task 7.1, change: fix-stuck-tool-card-superseded-heal). → see `superseded-heal.spec.ts.AGENTS.md` |
 | `table-copy.spec.ts` | Playwright spec (change: fix-table-copy-empty-clipboard, automates manual task 5.1). → see `table-copy.spec.ts.AGENTS.md` |
 | `terminal.spec.ts` | Scenario 5.4 spec. `ensureGitSession`, clicks session card to select, clicks `open-inline-terminal-button`,… → see `terminal.spec.ts.AGENTS.md` |

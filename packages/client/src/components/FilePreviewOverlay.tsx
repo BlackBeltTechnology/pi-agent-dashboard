@@ -185,7 +185,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
             <button
               onClick={onClose}
               className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1 rounded hover:bg-[var(--bg-surface)]"
-              title={i18nT("auto.close", undefined, "Close")}
+              title={i18nT("common.close", undefined, "Close")}
             >
               <Icon path={mdiClose} size={0.7} />
             </button>

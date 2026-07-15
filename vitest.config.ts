@@ -18,6 +18,8 @@ export default defineConfig({
       "packages/extension",
       "packages/image-fit-extension",
       "packages/mockup-loop",
+      "packages/nano-banana",
+      "packages/video-production",
       "packages/video-transcription",
       "packages/client",
       "packages/client-utils",

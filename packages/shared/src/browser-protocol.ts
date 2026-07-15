@@ -259,6 +259,12 @@ export interface ResumeResultBrowserMessage {
    * `message`. See change: fix-fork-empty-session-silent-timeout.
    */
   code?: string;
+  /**
+   * Interpolation variables for the client-side translation of `code`
+   * (`err.<domain>.<code>`). Additive; ignored by old clients.
+   * See change: make-all-ui-text-i18n.
+   */
+  vars?: Record<string, string | number>;
 }
 
 export interface SpawnResultBrowserMessage {
@@ -270,6 +276,10 @@ export interface SpawnResultBrowserMessage {
   requestId?: string;
   /** Spawned process PID when known (headless strategies); informational. */
   pid?: number;
+  /** Stable failure classifier for client translation. Additive. See change: make-all-ui-text-i18n. */
+  code?: string;
+  /** Interpolation vars for `err.<domain>.<code>`. Additive. */
+  vars?: Record<string, string | number>;
 }
 
 /**
@@ -316,6 +326,8 @@ export interface SpawnErrorMessage {
   code?: SpawnFailureCode;
   /** Preflight failure reasons. Only set when code === "PREFLIGHT_FAILED". See change: spawn-failure-diagnostics. */
   reasons?: PreflightReason[];
+  /** Interpolation vars for `err.<domain>.<code>`. Additive. See change: make-all-ui-text-i18n. */
+  vars?: Record<string, string | number>;
 }
 
 /**
@@ -581,6 +593,15 @@ export interface BootstrapStatusUpdateMessage {
  * which describe the dashboard's own pi-core install. See change:
  * generalize-worktree-init-hook (renamed from worktree_bootstrap_*).
  */
+/**
+ * Trust scope chosen at confirm time for `POST /api/git/worktree/init`.
+ * `session` = ephemeral (server memory, gone on restart); `project` = persisted
+ * (today's behavior). Omitted → `project` (backward compatible). Any other value
+ * is rejected `bad_request` by the server — no upward coercion.
+ * See change: add-session-scoped-init-trust.
+ */
+export type WorktreeInitTrustScope = "session" | "project";
+
 export interface WorktreeInitProgressMessage {
   type: "worktree_init_progress";
   requestId: string;
@@ -621,18 +642,20 @@ export interface BootstrapTicketCompleteMessage {
 export interface PackageOperationCompleteMessage {
   type: "package_operation_complete";
   operationId: string;
-  /** Optional move grouping id; set on every event of a composite move op. */
+  /** Optional composite grouping id; set on every event of a composite move/reset op. */
   moveId?: string;
-  action: "install" | "remove" | "update" | "move";
+  action: "install" | "remove" | "update" | "move" | "reset";
   source: string;
   scope: "global" | "local";
   success: boolean;
   error?: string;
   /** Number of sessions reloaded (only on success). */
   sessionsReloaded?: number;
-  /** Set on a move op when install succeeded but remove failed.
-   * Indicates the package now exists in BOTH scopes; UI should surface
-   * a recovery action (POST /api/packages/remove against fromScope). */
+  /** Set on a composite move OR reset op when install succeeded but remove
+   * failed. Move: the package now exists in BOTH scopes. Reset: the published
+   * spec installed but the local/git entry is still registered. Either way the
+   * UI should surface a recovery action (POST /api/packages/remove of the
+   * still-present entry). */
   partialSuccess?: {
     installed: boolean;
     removed: boolean;
@@ -752,8 +775,20 @@ export interface RecoveryDismissMessage {
   sessionIds: string[];
 }
 
+/**
+ * Server → browser: automatic session naming failed for `sessionId`. Forwarded
+ * from the bridge's `auto_name_error`; the client renders a one-shot toast
+ * ("Couldn't auto-name session: <reason>"). See change: add-auto-session-naming.
+ */
+export interface AutoNameErrorBrowserMessage {
+  type: "auto_name_error";
+  sessionId: string;
+  reason: string;
+}
+
 export type ServerToBrowserMessage =
   | ServerRestartingMessage
+  | AutoNameErrorBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
   | SessionAddedMessage
@@ -1026,6 +1061,10 @@ export interface ForceKillResultMessage {
   sessionId: string;
   success: boolean;
   message?: string;
+  /** Stable failure classifier for client translation. Additive. See change: make-all-ui-text-i18n. */
+  code?: string;
+  /** Interpolation vars for `err.<domain>.<code>`. Additive. */
+  vars?: Record<string, string | number>;
 }
 
 export interface ProcessListUpdateMessage {

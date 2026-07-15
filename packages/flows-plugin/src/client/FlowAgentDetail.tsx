@@ -7,19 +7,20 @@
  *
  * See change: extract-minimal-chat-view.
  */
-import React from "react";
+
+import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  type MinimalChatEntry,
+  type MinimalChatStatus,
+  MinimalChatView,
+} from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type {
   FlowAgentState,
   FlowAgentStatus,
   FlowDetailEntry,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
-import {
-  MinimalChatView,
-  type MinimalChatEntry,
-  type MinimalChatStatus,
-} from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
+import React from "react";
 import { formatCost } from "./FlowAgentCard.js";
 
 function mapFlowStatus(status: FlowAgentStatus): MinimalChatStatus {
@@ -78,6 +79,7 @@ export function FlowAgentDetail({
   /** Forwarded to MinimalChatView so per-tool renderers can build session-scoped links. */
   sessionId?: string;
 }) {
+  const t = useT();
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
   const title = agent.label || agent.agentName;
   const status = mapFlowStatus(agent.status);
@@ -88,12 +90,15 @@ export function FlowAgentDetail({
 
   const footer = agent.summary ? (
     <div className="mt-3 pt-2 border-t border-[var(--border-subtle)]">
-      <div className="text-[11px] text-[var(--text-muted)] mb-1">Summary</div>
+      <div className="text-[11px] text-[var(--text-muted)] mb-1">{t("summary", undefined, "Summary")}</div>
       <MarkdownContent content={agent.summary} />
     </div>
   ) : undefined;
 
-  const emptyMessage = agent.status === "pending" ? "Waiting to start..." : "No activity yet";
+  const emptyMessage =
+    agent.status === "pending"
+      ? t("waitingToStart", undefined, "Waiting to start...")
+      : t("noActivityYet", undefined, "No activity yet");
 
   return (
     <MinimalChatView

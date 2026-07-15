@@ -32,6 +32,7 @@ import { Icon } from "@mdi/react";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getGatewayEndpoints, guardPairingUrls, isPairingEligible, splitEndpoints } from "../../lib/gateway-endpoints.js";
+import { useI18n } from "../../lib/i18n";
 import { approvePairing, getPairPayload, type PairingPayload } from "../../lib/pairing-api.js";
 import { encodePairingQrUrl, encodePayloadString } from "../../lib/pairing-qr.js";
 
@@ -68,6 +69,7 @@ function NetworkSelector({
   selected: TunnelEndpoint | null;
   onSelect: (ep: TunnelEndpoint) => void;
 }) {
+  const { t } = useI18n();
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const move = (delta: number) => {
@@ -92,7 +94,7 @@ function NetworkSelector({
   return (
     <div
       role="radiogroup"
-      aria-label="Choose which network the QR encodes"
+      aria-label={t("gateway.pair.chooseNetwork", undefined, "Choose which network the QR encodes")}
       onKeyDown={onKeyDown}
       className="min-w-[240px] flex-1"
     >
@@ -141,7 +143,7 @@ function NetworkSelector({
                   : "border-[var(--border)] text-[var(--text-muted)]"
               }`}
             >
-              {isPairing ? "pairing" : "link"}
+              {isPairing ? t("gateway.pair.pairing", undefined, "pairing") : t("gateway.pair.link", undefined, "link")}
             </span>
           </div>
         );
@@ -159,6 +161,7 @@ function NetworkSelector({
  * surface below. Gating here would wrongly block an approval the server accepts.
  */
 function PairingApproval({ code }: { code: string }) {
+  const { t } = useI18n();
   const [confirmCode, setConfirmCode] = useState("");
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
@@ -173,7 +176,7 @@ function PairingApproval({ code }: { code: string }) {
       setApprovedLabel(device.label);
       setConfirmCode("");
     } catch (e) {
-      setApproveError(e instanceof Error ? e.message : "approval failed");
+      setApproveError(e instanceof Error ? e.message : t("gateway.pair.err.approvalFailed", undefined, "approval failed"));
     } finally {
       setApproving(false);
     }
@@ -183,7 +186,7 @@ function PairingApproval({ code }: { code: string }) {
     return (
       <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
         <div className="text-sm text-[var(--success,#22c55e)]" data-testid="gateway-pair-approved">
-          Device paired: {approvedLabel}
+          {t("gateway.pair.devicePaired", { label: approvedLabel }, `Device paired: ${approvedLabel}`)}
         </div>
       </div>
     );
@@ -192,7 +195,7 @@ function PairingApproval({ code }: { code: string }) {
   return (
     <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
       <label className="text-sm text-[var(--text-secondary)]" htmlFor="gateway-confirm-input">
-        Type the confirmation code shown on the device
+        {t("gateway.pair.typeConfirmation", undefined, "Type the confirmation code shown on the device")}
       </label>
       <div className="flex items-center gap-2">
         <input
@@ -215,7 +218,7 @@ function PairingApproval({ code }: { code: string }) {
           onClick={() => void approve()}
           className="rounded border border-[var(--border)] px-3 py-1 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] disabled:opacity-50"
         >
-          {approving ? "Approving…" : "Approve"}
+          {approving ? t("gateway.pair.approving", undefined, "Approving…") : t("gateway.pair.approve", undefined, "Approve")}
         </button>
       </div>
       {approveError && (
@@ -257,6 +260,7 @@ function CopyString({ text }: { text: string }) {
 type State = "loading" | "ready" | "empty" | "error";
 
 export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEndpoint[] } = {}) {
+  const { t } = useI18n();
   const [state, setState] = useState<State>("loading");
   const [payload, setPayload] = useState<PairingPayload | null>(null);
   const [copyStr, setCopyStr] = useState("");
@@ -291,7 +295,7 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
       const { pairing, link } = splitEndpoints(eps);
       setState(pairing.length + link.length === 0 ? "empty" : "ready");
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "failed to load pairing payload");
+      setErrorMsg(e instanceof Error ? e.message : t("gateway.pair.err.loadFailed", undefined, "failed to load pairing payload"));
       setState("error");
     }
   }, [providedEps]);
@@ -329,18 +333,23 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
   return (
     <div data-testid="gateway-pair-qr">
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-        Connect a device
+        {t("gateway.pair.connectDevice", undefined, "Connect a device")}
         {pairingPayload && (
           <span className="ml-2 font-semibold normal-case text-[var(--amber,#d29922)]">
-            {expired ? "· code expired" : `· code expires ${secondsLeft}s`}
+            {expired
+              ? t("gateway.pair.codeExpired", undefined, "· code expired")
+              : t("gateway.pair.codeExpires", { seconds: secondsLeft }, `· code expires ${secondsLeft}s`)}
           </span>
         )}
       </p>
 
       {state === "empty" && (
         <p className="text-sm text-[var(--text-secondary)]" data-testid="gateway-pair-empty">
-          No TLS endpoint to pair over. Start a public tunnel or add an https:// URL — a plain-http LAN
-          address cannot run the secure pairing handshake.
+          {t(
+            "gateway.pair.empty",
+            undefined,
+            "No TLS endpoint to pair over. Start a public tunnel or add an https:// URL — a plain-http LAN address cannot run the secure pairing handshake.",
+          )}
         </p>
       )}
       {state === "error" && (
@@ -354,9 +363,10 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
               <QrCanvas text={qrText} />
               {pairingPayload && (
                 <p className="mt-1.5 text-center text-[11px] text-[var(--text-muted)]">
-                  one-time · <b className="font-mono text-[var(--amber,#d29922)]">{secondsLeft}s</b>
+                  {t("gateway.pair.oneTime", undefined, "one-time")} ·{" "}
+                  <b className="font-mono text-[var(--amber,#d29922)]">{secondsLeft}s</b>
                   <br />
-                  fp {pairingPayload.id.slice(0, 12)}
+                  {t("gateway.pair.fingerprint", { fp: pairingPayload.id.slice(0, 12) }, `fp ${pairingPayload.id.slice(0, 12)}`)}
                 </p>
               )}
             </div>
@@ -371,16 +381,22 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
               <CopyString text={copyStr} />
 
               <p className="mt-2 text-[10.5px] text-[var(--text-muted)]">
-                Only publicly-trusted TLS endpoints ride in the pairing QR (D14). Select a mesh/LAN row above for a
-                direct link QR; the device must already be on that network.
+                {t(
+                  "gateway.pair.pairingNote",
+                  undefined,
+                  "Only publicly-trusted TLS endpoints ride in the pairing QR (D14). Select a mesh/LAN row above for a direct link QR; the device must already be on that network.",
+                )}
               </p>
             </>
           ) : (
             <div className="mt-3" data-testid="gateway-link-note">
               <code className="break-all font-mono text-[11px] text-[var(--text-secondary)]">{selected?.url}</code>
               <p className="mt-1 text-[10.5px] text-[var(--text-muted)]">
-                Opens the dashboard directly — no pairing, no secret. Access is governed by trusted networks; the
-                device must already be on this network.
+                {t(
+                  "gateway.pair.linkNote",
+                  undefined,
+                  "Opens the dashboard directly — no pairing, no secret. Access is governed by trusted networks; the device must already be on this network.",
+                )}
               </p>
             </div>
           )}
@@ -391,7 +407,7 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
             onClick={() => void load()}
             className="mt-3 flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           >
-            <Icon path={mdiRefresh} size={0.6} /> Regenerate
+            <Icon path={mdiRefresh} size={0.6} /> {t("gateway.pair.regenerate", undefined, "Regenerate")}
           </button>
 
           {/* Typed compare-code approval (D12) — pairing selection only. */}

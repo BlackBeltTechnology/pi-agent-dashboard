@@ -1,31 +1,31 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Icon } from "@mdi/react";
+import type { DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
+  mdiArchiveOutline,
+  mdiCheckCircleOutline,
+  mdiChevronRight,
+  mdiClose,
+  mdiCompassOutline,
   mdiDotsVertical,
-  mdiPencilOutline,
   mdiEyeOffOutline,
   mdiEyeOutline,
-  mdiPlay,
-  mdiSourceFork,
-  mdiOpenInNew,
-  mdiClose,
-  mdiSourceBranch,
-  mdiLinkVariant,
-  mdiCompassOutline,
   mdiFastForward,
+  mdiLinkVariant,
+  mdiOpenInNew,
+  mdiPencilOutline,
+  mdiPlay,
   mdiPlayCircleOutline,
-  mdiCheckCircleOutline,
-  mdiArchiveOutline,
-  mdiChevronRight,
   mdiRefresh,
+  mdiSourceBranch,
+  mdiSourceFork,
 } from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useRef, useState } from "react";
 import type { DetectedEditor } from "../lib/editor-api.js";
+import { t as i18nT } from "../lib/i18n";
+import { DialogPortal } from "./DialogPortal.js";
 import { ExploreDialog } from "./ExploreDialog.js";
 import { NewChangeDialog } from "./NewChangeDialog.js";
-import { DialogPortal } from "./DialogPortal.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   session: DashboardSession;
@@ -112,7 +112,7 @@ export function MobileActionMenu({ session, editors, openspecChanges, onRename, 
       <button
         onClick={() => setOpen(!open)}
         className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-        aria-label={i18nT("auto.session_actions", undefined, "Session actions")}
+        aria-label={i18nT("session.sessionActions", undefined, "Session actions")}
         data-testid="mobile-kebab-btn"
       >
         <Icon path={mdiDotsVertical} size={0.8} />
@@ -142,23 +142,23 @@ export function MobileActionMenu({ session, editors, openspecChanges, onRename, 
 
           {/* Rename */}
           {isAlive && onRename && (
-            <MenuRow icon={mdiPencilOutline} label={i18nT("auto.rename", undefined, "Rename")} onClick={() => act(onRename)} />
+            <MenuRow icon={mdiPencilOutline} label={i18nT("common.rename", undefined, "Rename")} onClick={() => act(onRename)} />
           )}
 
           {/* Hide / Unhide */}
           {isHidden ? (
-            onUnhide && <MenuRow icon={mdiEyeOutline} label={i18nT("auto.show_session", undefined, "Show session")} onClick={() => act(onUnhide)} />
+            onUnhide && <MenuRow icon={mdiEyeOutline} label={i18nT("session.showSession", undefined, "Show session")} onClick={() => act(onUnhide)} />
           ) : (
-            onHide && <MenuRow icon={mdiEyeOffOutline} label={i18nT("auto.hide_session", undefined, "Hide session")} onClick={() => act(onHide)} />
+            onHide && <MenuRow icon={mdiEyeOffOutline} label={i18nT("session.hideSession", undefined, "Hide session")} onClick={() => act(onHide)} />
           )}
 
           {/* Resume / Fork */}
           {onResume && session.sessionFile && (
             <>
               {(!isAlive || isHidden) && (
-                <MenuRow icon={mdiPlay} label={i18nT("auto.resume", undefined, "Resume")} onClick={() => act(() => onResume("continue"))} />
+                <MenuRow icon={mdiPlay} label={i18nT("session.resume", undefined, "Resume")} onClick={() => act(() => onResume("continue"))} />
               )}
-              <MenuRow icon={mdiSourceFork} label={i18nT("auto.fork", undefined, "Fork")} onClick={() => act(() => onResume("fork"))} />
+              <MenuRow icon={mdiSourceFork} label={i18nT("session.fork", undefined, "Fork")} onClick={() => act(() => onResume("fork"))} />
             </>
           )}
 
@@ -176,10 +176,10 @@ export function MobileActionMenu({ session, editors, openspecChanges, onRename, 
           {!session.attachedProposal && isAlive && onSendPrompt && (
             <>
               <div className="px-4 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider border-t border-[var(--border-primary)]">
-                {i18nT("auto.openspec", undefined, "OpenSpec")}
+                {i18nT("openspec.openspec", undefined, "OpenSpec")}
               </div>
-              <MenuRow icon={mdiCompassOutline} label={i18nT("auto.explore", undefined, "Explore")} onClick={() => act(() => setExploreOpen(true))} />
-              <MenuRow icon={mdiChevronRight} label={i18nT("auto.new_change_2", undefined, "+ New Change")} onClick={() => act(() => setNewChangeOpen(true))} />
+              <MenuRow icon={mdiCompassOutline} label={i18nT("common.explore", undefined, "Explore")} onClick={() => act(() => setExploreOpen(true))} />
+              <MenuRow icon={mdiChevronRight} label={i18nT("openspec.newChange2", undefined, "+ New Change")} onClick={() => act(() => setNewChangeOpen(true))} />
             </>
           )}
 
@@ -192,28 +192,28 @@ export function MobileActionMenu({ session, editors, openspecChanges, onRename, 
             return (
               <>
                 <div className="px-4 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider border-t border-[var(--border-primary)]">
-                  {i18nT("auto.openspec_3", undefined, "OpenSpec:")} {attached}
+                  {i18nT("openspec.openspec3", undefined, "OpenSpec:")} {attached}
                 </div>
                 {(() => {
                   const actionsDisabled = session.status === "streaming";
                   return (
                     <>
                       {onSendPrompt && (
-                        <MenuRow icon={mdiCompassOutline} label={i18nT("auto.explore", undefined, "Explore")} onClick={() => act(() => onSendPrompt(`/skill:openspec-explore ${attached}`))} disabled={actionsDisabled} />
+                        <MenuRow icon={mdiCompassOutline} label={i18nT("common.explore", undefined, "Explore")} onClick={() => act(() => onSendPrompt(`/skill:openspec-explore ${attached}`))} disabled={actionsDisabled} />
                       )}
                       {state === ChangeState.PLANNING && onSendPrompt && (
                         <>
-                          <MenuRow icon={mdiChevronRight} label={i18nT("auto.continue", undefined, "Continue")} onClick={() => act(() => onSendPrompt(`/skill:openspec-continue-change ${attached}`))} disabled={actionsDisabled} />
-                          <MenuRow icon={mdiFastForward} label={i18nT("auto.fast_forward", undefined, "Fast-Forward")} onClick={() => act(() => onSendPrompt(`/skill:openspec-ff-change ${attached}`))} disabled={actionsDisabled} />
+                          <MenuRow icon={mdiChevronRight} label={i18nT("common.continue", undefined, "Continue")} onClick={() => act(() => onSendPrompt(`/skill:openspec-continue-change ${attached}`))} disabled={actionsDisabled} />
+                          <MenuRow icon={mdiFastForward} label={i18nT("git.fastForward", undefined, "Fast-Forward")} onClick={() => act(() => onSendPrompt(`/skill:openspec-ff-change ${attached}`))} disabled={actionsDisabled} />
                         </>
                       )}
                       {(state === ChangeState.READY || state === ChangeState.IMPLEMENTING) && onSendPrompt && (
-                        <MenuRow icon={mdiPlayCircleOutline} label={i18nT("auto.apply", undefined, "Apply")} onClick={() => act(() => onSendPrompt(`/skill:openspec-apply-change ${attached}`))} disabled={actionsDisabled} />
+                        <MenuRow icon={mdiPlayCircleOutline} label={i18nT("common.apply", undefined, "Apply")} onClick={() => act(() => onSendPrompt(`/skill:openspec-apply-change ${attached}`))} disabled={actionsDisabled} />
                       )}
                       {state === ChangeState.COMPLETE && onSendPrompt && (
                         <>
-                          <MenuRow icon={mdiCheckCircleOutline} label={i18nT("auto.verify", undefined, "Verify")} onClick={() => act(() => onSendPrompt(`/skill:openspec-verify-change ${attached}`))} disabled={actionsDisabled} />
-                          <MenuRow icon={mdiArchiveOutline} label={i18nT("auto.archive", undefined, "Archive")} onClick={() => act(() => onSendPrompt(`/skill:openspec-archive-change ${attached}`))} disabled={actionsDisabled} />
+                          <MenuRow icon={mdiCheckCircleOutline} label={i18nT("common.verify", undefined, "Verify")} onClick={() => act(() => onSendPrompt(`/skill:openspec-verify-change ${attached}`))} disabled={actionsDisabled} />
+                          <MenuRow icon={mdiArchiveOutline} label={i18nT("openspec.archive", undefined, "Archive")} onClick={() => act(() => onSendPrompt(`/skill:openspec-archive-change ${attached}`))} disabled={actionsDisabled} />
                         </>
                       )}
                     </>
@@ -230,12 +230,12 @@ export function MobileActionMenu({ session, editors, openspecChanges, onRename, 
 
           {/* Refresh Chat */}
           {onRefresh && (
-            <MenuRow icon={mdiRefresh} label={i18nT("auto.refresh_chat_2", undefined, "Refresh Chat")} onClick={() => act(onRefresh)} />
+            <MenuRow icon={mdiRefresh} label={i18nT("session.refreshChat2", undefined, "Refresh Chat")} onClick={() => act(onRefresh)} />
           )}
 
           {/* Exit */}
           {isAlive && onShutdown && (
-            <MenuRow icon={mdiClose} label={i18nT("auto.exit_session", undefined, "Exit session")} onClick={() => {
+            <MenuRow icon={mdiClose} label={i18nT("session.exitSession", undefined, "Exit session")} onClick={() => {
               if (session.status === "streaming") {
                 if (!window.confirm("Session is currently running. Exit anyway?")) return;
               }

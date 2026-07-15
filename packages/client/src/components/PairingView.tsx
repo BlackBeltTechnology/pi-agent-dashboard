@@ -129,7 +129,7 @@ export function PairingView() {
   };
 
   if (state === "loading") {
-    return <div className="text-sm text-[var(--text-muted)]">{i18nT("auto.loading_2", undefined, "Loading...")}</div>;
+    return <div className="text-sm text-[var(--text-muted)]">{i18nT("status.loading2", undefined, "Loading...")}</div>;
   }
 
   if (state === "error") {
@@ -141,7 +141,7 @@ export function PairingView() {
           className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           onClick={load}
         >
-          <Icon path={mdiRefresh} size={0.6} /> {i18nT("auto.retry", undefined, "Retry")}
+          <Icon path={mdiRefresh} size={0.6} /> {i18nT("common.retry", undefined, "Retry")}
         </button>
       </div>
     );
@@ -154,7 +154,7 @@ export function PairingView() {
           <Icon path={mdiShieldKeyOutline} size={0.9} className="mt-0.5 shrink-0 text-[var(--text-muted)]" />
           <p>
             {i18nT(
-              "auto.pairing_needs_secure_road",
+              "common.pairingNeedsSecureRoad",
               undefined,
               "Pairing a remote device needs a secure road (the Gateway or a publicly-trusted TLS URL). A browser on a plain-http LAN address cannot pair — the identity check requires a secure context.",
             )}
@@ -166,11 +166,11 @@ export function PairingView() {
           className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
           onClick={() => navigate("/settings/gateway")}
         >
-          {i18nT("auto.start_a_tunnel", undefined, "Set up the Gateway")}
+          {i18nT("tunnel.startATunnel", undefined, "Set up the Gateway")}
         </button>
         <p className="text-xs text-[var(--text-muted)]">
           {i18nT(
-            "auto.localhost_escape_hatch",
+            "common.localhostEscapeHatch",
             undefined,
             "On the same machine, http://localhost is already a secure context and can pair. This is not a remote/LAN path.",
           )}
@@ -208,7 +208,7 @@ export function PairingView() {
       {/* Fingerprint + TTL */}
       <div className="space-y-1 text-xs text-[var(--text-muted)]">
         <div>
-          {i18nT("auto.fingerprint", undefined, "Fingerprint")}:{" "}
+          {i18nT("common.fingerprint", undefined, "Fingerprint")}:{" "}
           <code className="select-all text-[var(--text-secondary)]" data-testid="pairing-fingerprint">
             {payload?.id}
           </code>
@@ -216,11 +216,11 @@ export function PairingView() {
         <div data-testid="pairing-ttl">
           {expired ? (
             <span className="text-[var(--danger,#ef4444)]">
-              {i18nT("auto.code_expired", undefined, "Code expired — regenerate to pair.")}
+              {i18nT("common.codeExpired", undefined, "Code expired — regenerate to pair.")}
             </span>
           ) : (
             <>
-              {i18nT("auto.code_expires_in", undefined, "Code expires in")} {secondsLeft}s
+              {i18nT("common.codeExpiresIn", undefined, "Code expires in")} {secondsLeft}s
             </>
           )}
         </div>
@@ -243,7 +243,7 @@ export function PairingView() {
         className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
         onClick={load}
       >
-        <Icon path={mdiRefresh} size={0.6} /> {i18nT("auto.regenerate", undefined, "Regenerate")}
+        <Icon path={mdiRefresh} size={0.6} /> {i18nT("common.regenerate", undefined, "Regenerate")}
       </button>
 
       {/* Approval */}
@@ -251,12 +251,12 @@ export function PairingView() {
         {approvedLabel ? (
           <div className="flex items-center gap-2 text-sm text-[var(--success,#22c55e)]" data-testid="pairing-approved">
             <Icon path={mdiCheckCircle} size={0.8} />
-            {i18nT("auto.device_paired", undefined, "Device paired")}: {approvedLabel}
+            {i18nT("common.devicePaired", undefined, "Device paired")}: {approvedLabel}
           </div>
         ) : (
           <>
             <label className="text-sm text-[var(--text-secondary)]" htmlFor="pairing-confirm-input">
-              {i18nT("auto.type_confirm_code", undefined, "Type the confirmation code shown on the device")}
+              {i18nT("common.typeConfirmCode", undefined, "Type the confirmation code shown on the device")}
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -279,7 +279,7 @@ export function PairingView() {
                 className="rounded border border-[var(--border)] px-3 py-1 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] disabled:opacity-50"
                 onClick={handleApprove}
               >
-                {approving ? i18nT("auto.approving", undefined, "Approving…") : i18nT("auto.approve", undefined, "Approve")}
+                {approving ? i18nT("common.approving", undefined, "Approving…") : i18nT("common.approve", undefined, "Approve")}
               </button>
             </div>
             {approveError && (

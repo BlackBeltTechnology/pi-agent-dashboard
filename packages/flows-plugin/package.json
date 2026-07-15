@@ -32,6 +32,7 @@
   "pi-dashboard-plugin": {
     "id": "flows",
     "displayName": "Flows",
+    "i18nCatalog": "catalog",
     "priority": 100,
     "configSchema": "./src/configSchema.json",
     "client": "./src/client/index.tsx",

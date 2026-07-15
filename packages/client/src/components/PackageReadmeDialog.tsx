@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { Icon } from "@mdi/react";
-import { mdiLoading, mdiDownload } from "@mdi/js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { MarkdownContent } from "./MarkdownContent.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { mdiDownload, mdiLoading } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useState } from "react";
+import { getApiBase } from "../lib/api-context.js";
 import { t as i18nT } from "../lib/i18n";
+import { MarkdownContent } from "./MarkdownContent.js";
 
 interface PackageReadmeDialogProps {
   pkg: NpmPackageResult;
@@ -67,7 +67,7 @@ export function PackageReadmeDialog({
             onClick={onUninstall}
             className="text-[11px] px-3 py-1 rounded text-red-400 border border-red-400/30 hover:bg-red-400/10"
           >
-            {i18nT("auto.uninstall", undefined, "Uninstall")}
+            {i18nT("packages.uninstall", undefined, "Uninstall")}
           </button>
         ) : (
           <button
@@ -75,7 +75,7 @@ export function PackageReadmeDialog({
             className="text-[11px] px-3 py-1 rounded bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/80 font-medium"
           >
             <Icon path={mdiDownload} size={0.4} className="inline mr-1" />
-            {i18nT("auto.install", undefined, "Install")}
+            {i18nT("common.install2", undefined, "Install")}
           </button>
         )}
       </div>

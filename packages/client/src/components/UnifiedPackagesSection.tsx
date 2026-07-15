@@ -8,37 +8,39 @@
  *
  * See change: consolidate-packages-settings-ui.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Icon } from "@mdi/react";
+
+import type {
+	InstalledPackage,NpmPackageResult, 
+	PiCorePackage,
+	PiCoreUpdateResponse
+} from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
 	mdiAlertCircle,
 	mdiArrowUpBold,
 	mdiLoading,
 	mdiRefresh,
 } from "@mdi/js";
-import { getApiBase } from "../lib/api-context.js";
-import { usePiCoreVersions } from "../hooks/usePiCoreVersions.js";
-import { useLaunchSource } from "../hooks/useLaunchSource.js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
+import { useLaunchSource } from "../hooks/useLaunchSource.js";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
-import { PackageRow, type PackageRowProps } from "./PackageRow.js";
+import { usePiChangelog } from "../hooks/usePiChangelog.js";
+import { usePiCoreVersions } from "../hooks/usePiCoreVersions.js";
+import { getApiBase } from "../lib/api-context.js";
+import { useI18n } from "../lib/i18n.js";
 import {
 	classifySource,
 	groupInstalledPackages,
 	isSourceOverride,
 } from "../lib/package-classifier.js";
-import type {
-	InstalledPackage,
-	PiCorePackage,
-	PiCoreUpdateResponse,
-} from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { PackagePartialSuccessBanner } from "./PackagePartialSuccessBanner.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
+import { PackageRow, type PackageRowProps } from "./PackageRow.js";
 import { PinDirectoryDialog } from "./PinDirectoryDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
 import { WhatsNewPackageRow } from "./WhatsNewPackageRow.js";
-import { usePiChangelog } from "../hooks/usePiChangelog.js";
-import { useI18n } from "../lib/i18n.js";
 
 /** Single core package the breaking-change icon is wired for. v1 scope. */
 const PI_CORE_PKG = "@earendil-works/pi-coding-agent";
@@ -309,19 +311,32 @@ export function UnifiedPackagesSection() {
 				? () => setReadmePkg({ name: changelogPkg } as any)
 				: undefined,
 			onMove: () => setMovePickerSource(pkg.source),
+			publishedVariantSource: pkg.publishedVariantSource,
+			publishedVariantVersion: pkg.publishedVariantVersion,
+			onResetToNpm: pkg.publishedVariantSource
+				? () => operations.resetToNpm(pkg.source, { scope: "global" })
+				: undefined,
 			currentScope: "global",
 			testId: `pkg-row-${pkg.source.replace(/[^a-z0-9]/gi, "-")}`,
 		};
 		return (
-			<WhatsNewPackageRow
-				key={pkg.source}
-				rowProps={rowProps}
-				changelogPkg={changelogPkg}
-				currentVersion={pkg.version}
-				enabled={hasUpdate}
-				dialogDisplayName={pkg.displayName ?? pkg.source}
-				onUpdate={() => operations.update(pkg.source)}
-			/>
+			<div key={pkg.source}>
+				<WhatsNewPackageRow
+					rowProps={rowProps}
+					changelogPkg={changelogPkg}
+					currentVersion={pkg.version}
+					enabled={hasUpdate}
+					dialogDisplayName={pkg.displayName ?? pkg.source}
+					onUpdate={() => operations.update(pkg.source)}
+				/>
+				{moveState?.phase === "partial-success" && (
+					<PackagePartialSuccessBanner
+						state={moveState}
+						onCleanup={() => operations.remove(pkg.source)}
+						onDismiss={() => operations.clearMove(moveState.moveId)}
+					/>
+				)}
+			</div>
 		);
 	};
 

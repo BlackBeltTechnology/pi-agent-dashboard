@@ -18,6 +18,7 @@ import { foldLiveEvents, type QueuedLiveEvent } from "../lib/coalesce-live-event
 import { isVisibleCwd } from "../lib/cwd-visibility.js";
 import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/event-reducer.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
+import { t } from "../lib/i18n";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/loading-history.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/recovery-offer-bus.js";
 import type { ReplayPersister } from "../lib/replay-persist.js";
@@ -75,6 +76,9 @@ export interface MessageHandlerSetters {
   setSpawnResult: React.Dispatch<React.SetStateAction<{ success: boolean; message: string } | null>>;
   setSessionOrderMap: React.Dispatch<React.SetStateAction<Map<string, string[]>>>;
   setPinnedDirectories: React.Dispatch<React.SetStateAction<string[]>>;
+  /** Flipped true on the first `pinned_dirs_updated` (sent on connect). Gates
+   *  the DirectoryHomeView cold-load guard. See change: add-directory-home-page. */
+  setPinnedDirsLoaded: React.Dispatch<React.SetStateAction<boolean>>;
   /** Favorite model labels, synced via `favorite_models_updated`. See change: enrich-model-selector-capabilities-favorites. */
   setFavoriteModels: React.Dispatch<React.SetStateAction<string[]>>;
   /** folder-workspaces: full workspace list, kept in sync via `workspaces_updated`. */
@@ -141,6 +145,12 @@ export interface MessageHandlerDeps {
    * See change: reduce-session-replay-traffic.
    */
   replayPersister?: ReplayPersister;
+  /**
+   * Show a global toast. Used for `auto_name_error` (bridge could not
+   * auto-name a session). Optional for back-compat / lean test contexts.
+   * See change: add-auto-session-naming.
+   */
+  showToast?: (text: string, variant?: "error" | "success" | "info") => void;
 }
 
 export function useMessageHandler(
@@ -150,11 +160,14 @@ export function useMessageHandler(
   const {
     setSessions, setSessionStates, setSessionCommands,
     setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
-    setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses,
+    setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setViewMessagesMap, setLoadingHistory,
   } = setters;
-  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayPersister } = deps;
+  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayPersister, showToast } = deps;
+  // One-shot per session: suppress a repeat auto-name toast for the same
+  // session id. See change: add-auto-session-naming.
+  const autoNameToastedRef = useRef<Set<string>>(new Set());
 
   // Phase 3 (change: reduce-chat-render-cpu-umbrella): live `event` bursts
   // arrive one-per-WS-frame in separate macrotasks, so React 18 automatic
@@ -649,6 +662,20 @@ export function useMessageHandler(
         break;
       }
 
+      case "auto_name_error": {
+        // Bridge could not auto-name a session (e.g. @fast unconfigured).
+        // One-shot per session so a hard-config error toasts only once.
+        // See change: add-auto-session-naming.
+        if (!autoNameToastedRef.current.has(msg.sessionId)) {
+          autoNameToastedRef.current.add(msg.sessionId);
+          showToast?.(
+            t("session.autoNameError", { reason: msg.reason }, `Couldn't auto-name session: ${msg.reason}`),
+            "error",
+          );
+        }
+        break;
+      }
+
       case "recovery_offer":
         // Cold-start interrupted-session offer. Sticky top-right notification
         // (no auto-timeout). See change: reopen-sessions-after-shutdown.
@@ -670,7 +697,7 @@ export function useMessageHandler(
           });
           setResumeErrors((prev) => {
             const next = new Map(prev);
-            next.set(msg.sessionId, msg.message ?? "Resume failed");
+            next.set(msg.sessionId, msg.message ?? t("session.resumeFailed", undefined, "Resume failed"));
             return next;
           });
           // Drop the pending-spawn entry on failure so a stale entry can't
@@ -688,7 +715,7 @@ export function useMessageHandler(
           // toast via the existing spawn-result slot.
           // See change: fix-fork-empty-session-silent-timeout.
           if (msg.code === "FORK_DEGRADED_TO_NEW") {
-            setSpawnResult({ success: true, message: msg.message ?? "Started a fresh session." });
+            setSpawnResult({ success: true, message: msg.message ?? t("session.startedFresh", undefined, "Started a fresh session.") });
           }
           // For continue mode, the same sessionId is reused — navigate now
           // since session_added might not fire (status update only).
@@ -711,7 +738,7 @@ export function useMessageHandler(
           setSpawnErrors((prev) => {
             const next = new Map(prev);
             if (!next.has(msg.cwd)) {
-              next.set(msg.cwd, { kind: "error", message: msg.message ?? "+Session failed" });
+              next.set(msg.cwd, { kind: "error", message: msg.message ?? t("session.spawnFailed", undefined, "+Session failed") });
             }
             return next;
           });
@@ -814,6 +841,7 @@ export function useMessageHandler(
 
       case "pinned_dirs_updated":
         setPinnedDirectories(msg.paths);
+        setPinnedDirsLoaded(true);
         break;
 
       case "favorite_models_updated":
@@ -1071,5 +1099,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setLoadingHistory, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setLoadingHistory, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
 }

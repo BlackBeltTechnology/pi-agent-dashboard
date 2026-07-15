@@ -21,14 +21,20 @@
  */
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { type MoveState, moveTracker } from "../lib/move-tracker.js";
 import {
-  packageQueue,
-  type PackageScope,
   type PackageOperationStatus,
+  type PackageScope,
+  packageQueue,
   type RunningOp,
 } from "../lib/package-queue.js";
-import { moveTracker, type MoveState } from "../lib/move-tracker.js";
-import { movePackage, type PackageEntry, type MoveResponse } from "../lib/packages-api.js";
+import {
+  type MoveResponse,
+  movePackage,
+  type PackageEntry,
+  type ResetResponse,
+  resetToNpm as resetToNpmApi,
+} from "../lib/packages-api.js";
 
 export type { PackageOperationStatus } from "../lib/package-queue.js";
 
@@ -177,6 +183,32 @@ export function usePackageOperations(
     [],
   );
 
+  // ── Reset-to-npm ───────────────────────────────────────────────────────
+  // Reuses the moveId-keyed move-tracker (kind: "reset") so the composite
+  // install-first / remove-second + partial-success UX is shared with move.
+  // See change: reset-override-to-npm.
+  const resetToNpm = useCallback(
+    async (
+      source: string,
+      args: { scope: PackageScope; cwd?: string },
+    ): Promise<ResetResponse> => {
+      const res = await resetToNpmApi({ source, scope: args.scope, cwd: args.cwd });
+      if (res.ok) {
+        moveTracker.register({
+          moveId: res.resetId,
+          source,
+          fromScope: args.scope,
+          fromCwd: args.cwd,
+          toScope: args.scope,
+          toCwd: args.cwd,
+          kind: "reset",
+        });
+      }
+      return res;
+    },
+    [],
+  );
+
   /** Get the live state of a move by source (most recent only). */
   const moveStateFor = useCallback(
     (source: string): MoveState | undefined => moveTracker.getBySource(source),
@@ -189,6 +221,7 @@ export function usePackageOperations(
     remove,
     update,
     move,
+    resetToNpm,
     moveStateFor,
     clearMove: (moveId: string) => moveTracker.clear(moveId),
     clearOperation,

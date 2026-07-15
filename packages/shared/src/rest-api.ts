@@ -513,6 +513,18 @@ export interface InstalledPackage {
   isRecommended?: boolean;
   /** True when isRecommended AND id is in BUNDLED_EXTENSION_IDS AND bundle subtree exists. */
   isBundled?: boolean;
+  /**
+   * Canonical published spec (`npm:<name>` or a git URL) for a local/git
+   * row that has a resolvable published variant. Two resolution paths:
+   *   - recommended rows → RECOMMENDED_EXTENSIONS manifest source.
+   *   - non-recommended local rows → npm-registry lookup by package.json `name`.
+   * Absent when the row is plain npm, or no published variant resolves.
+   * Drives the second source line + Reset to npm action.
+   * See change: reset-override-to-npm.
+   */
+  publishedVariantSource?: string;
+  /** Latest published version of `publishedVariantSource`, when known (best-effort; undefined offline). */
+  publishedVariantVersion?: string;
 }
 
 export type InstalledPackagesResponse = ApiResponse<InstalledPackage[]>;

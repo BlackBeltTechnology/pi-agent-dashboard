@@ -41,15 +41,15 @@ export function ResourceGridPanel({ data, isLoading, error, refresh, activation,
       <div className="flex items-center justify-end gap-2 mb-2">
         {globalPill && (
           <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/12 text-[var(--accent-purple,#9333ea)]" data-testid="resource-global-pill">
-            ◇ {i18nT("auto.global", undefined, "global")}
+            ◇ {i18nT("common.global", undefined, "global")}
           </span>
         )}
         <button
           type="button"
           onClick={refresh}
           className="text-[var(--text-muted)] hover:text-[var(--text-primary)] p-1 rounded hover:bg-[var(--bg-surface)]"
-          title={i18nT("auto.refresh", undefined, "Refresh")}
-          aria-label={i18nT("auto.refresh", undefined, "Refresh")}
+          title={i18nT("common.refresh", undefined, "Refresh")}
+          aria-label={i18nT("common.refresh", undefined, "Refresh")}
           data-testid="resource-grid-refresh"
         >
           <Icon path={mdiRefresh} size={0.6} />
@@ -66,7 +66,7 @@ export function ResourceGridPanel({ data, isLoading, error, refresh, activation,
         <div className="text-center py-8">
           <p className="text-sm text-red-400 mb-2">{error}</p>
           <button type="button" onClick={refresh} className="text-xs text-[var(--accent-primary)] hover:underline">
-            {i18nT("auto.retry", undefined, "Retry")}
+            {i18nT("common.retry", undefined, "Retry")}
           </button>
         </div>
       )}

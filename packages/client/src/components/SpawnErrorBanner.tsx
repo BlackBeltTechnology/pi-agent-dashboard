@@ -7,26 +7,30 @@
  *
  * See change: spawn-failure-diagnostics.
  */
+
+import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import React from "react";
 import type { SpawnErrorDetail } from "../hooks/useMessageHandler.js";
-import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { t as i18nT } from "../lib/i18n";
 
 interface HintEntry {
+  labelKey: string;
   label: string;
-  cta?: { label: string; action: "wizard" | "log" };
+  cta?: { labelKey: string; label: string; action: "wizard" | "log" };
 }
 
+const WIZARD_CTA = { labelKey: "err.openSetupWizard", label: "Open Setup Wizard", action: "wizard" } as const;
+
 const CODE_HINTS: Record<SpawnFailureCode, HintEntry> = {
-  DIR_MISSING: { label: "Folder no longer exists." },
-  PI_NOT_FOUND: { label: "Pi binary not found.", cta: { label: "Open Setup Wizard", action: "wizard" } },
-  WIN_PI_CMD_ONLY: { label: "Windows install incomplete (only pi.cmd found).", cta: { label: "Open Setup Wizard", action: "wizard" } },
-  WT_MISSING: { label: "Windows Terminal not installed." },
-  TMUX_MISSING: { label: "tmux not installed." },
-  PI_CRASHED: { label: "Pi exited immediately. See log below." },
-  SPAWN_ERRNO: { label: "OS refused to start pi. See message." },
-  PREFLIGHT_FAILED: { label: "Preflight checks failed." },
-  REGISTER_TIMEOUT: { label: "Pi started but never connected to the dashboard.", cta: { label: "View log", action: "log" } },
+  DIR_MISSING: { labelKey: "err.dirMissing", label: "Folder no longer exists." },
+  PI_NOT_FOUND: { labelKey: "err.piNotFound", label: "Pi binary not found.", cta: WIZARD_CTA },
+  WIN_PI_CMD_ONLY: { labelKey: "err.winPiCmdOnly", label: "Windows install incomplete (only pi.cmd found).", cta: WIZARD_CTA },
+  WT_MISSING: { labelKey: "err.wtMissing", label: "Windows Terminal not installed." },
+  TMUX_MISSING: { labelKey: "err.tmuxMissing", label: "tmux not installed." },
+  PI_CRASHED: { labelKey: "err.piCrashed", label: "Pi exited immediately. See log below." },
+  SPAWN_ERRNO: { labelKey: "err.spawnErrno", label: "OS refused to start pi. See message." },
+  PREFLIGHT_FAILED: { labelKey: "err.preflightFailed", label: "Preflight checks failed." },
+  REGISTER_TIMEOUT: { labelKey: "err.registerTimeout", label: "Pi started but never connected to the dashboard.", cta: { labelKey: "err.viewLog", label: "View log", action: "log" } },
 };
 
 function openWizard(): void {
@@ -59,7 +63,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
         <div className="flex-1 min-w-0">
           {hint ? (
             <>
-              <span className="font-medium">{hint.label}</span>
+              <span className="font-medium">{i18nT(hint.labelKey, undefined, hint.label)}</span>
               {!code || code !== "PREFLIGHT_FAILED" ? (
                 <span className="ml-1 text-red-400/70">{message}</span>
               ) : null}
@@ -85,7 +89,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
                   onClick={openWizard}
                   className="text-xs text-red-300 underline hover:text-red-200"
                 >
-                  {hint.cta.label}
+                  {i18nT(hint.cta.labelKey, undefined, hint.cta.label)}
                 </button>
               )}
               {hint.cta.action === "log" && (
@@ -93,7 +97,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
                   href="/settings/general"
                   className="text-xs text-red-300 underline hover:text-red-200"
                 >
-                  {hint.cta.label}
+                  {i18nT(hint.cta.labelKey, undefined, hint.cta.label)}
                 </a>
               )}
             </div>
@@ -102,7 +106,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
           {/* Stderr tail */}
           {stderr && (
             <details className="mt-1.5">
-              <summary className="cursor-pointer text-red-400/70 hover:text-red-300">{i18nT("auto.pi_stderr", undefined, "Pi stderr")}</summary>
+              <summary className="cursor-pointer text-red-400/70 hover:text-red-300">{i18nT("terminal.piStderr", undefined, "Pi stderr")}</summary>
               <pre className="mt-1 text-[10px] text-red-400/60 whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono">{stderr}</pre>
             </details>
           )}
@@ -126,8 +130,8 @@ function TimeoutBanner({ detail, onDismiss }: Props) {
   const timeoutSecs = timeoutMs !== undefined ? timeoutMs / 1000 : 30;
 
   const label = pid !== undefined
-    ? `Pi started (PID ${pid}) but never connected to the dashboard within ${timeoutSecs}s.`
-    : `Pi started but never connected to the dashboard within ${timeoutSecs}s.`;
+    ? i18nT("err.spawnTimeoutWithPid", { pid, secs: timeoutSecs }, "Pi started (PID {pid}) but never connected to the dashboard within {secs}s.")
+    : i18nT("err.spawnTimeout", { secs: timeoutSecs }, "Pi started but never connected to the dashboard within {secs}s.");
 
   return (
     <div
@@ -139,7 +143,7 @@ function TimeoutBanner({ detail, onDismiss }: Props) {
           <span className="font-medium">{label}</span>
           {stderr && (
             <details className="mt-1.5">
-              <summary className="cursor-pointer text-amber-400/70 hover:text-amber-300">{i18nT("auto.pi_stderr", undefined, "Pi stderr")}</summary>
+              <summary className="cursor-pointer text-amber-400/70 hover:text-amber-300">{i18nT("terminal.piStderr", undefined, "Pi stderr")}</summary>
               <pre className="mt-1 text-[10px] text-amber-400/60 whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono">{stderr}</pre>
             </details>
           )}

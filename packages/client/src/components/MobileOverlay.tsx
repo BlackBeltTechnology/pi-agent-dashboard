@@ -1,6 +1,6 @@
-import React, { type ReactNode } from "react";
+import { mdiClose, mdiMenu } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiMenu, mdiClose } from "@mdi/js";
+import React, { type ReactNode } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 interface HamburgerProps {
@@ -14,7 +14,7 @@ export function HamburgerButton({ onClick }: HamburgerProps) {
       onClick={onClick}
       className="md:hidden fixed top-2 left-2 z-50 p-1.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
       data-testid="hamburger-button"
-      aria-label={i18nT("auto.open_menu", undefined, "Open menu")}
+      aria-label={i18nT("common.openMenu", undefined, "Open menu")}
     >
       <Icon path={mdiMenu} size={0.8} />
     </button>
@@ -46,7 +46,7 @@ export function MobileOverlay({ open, onClose, children }: OverlayProps) {
             onClick={onClose}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
             data-testid="mobile-close"
-            aria-label={i18nT("auto.close_menu", undefined, "Close menu")}
+            aria-label={i18nT("common.closeMenu", undefined, "Close menu")}
           >
             <Icon path={mdiClose} size={0.7} />
           </button>

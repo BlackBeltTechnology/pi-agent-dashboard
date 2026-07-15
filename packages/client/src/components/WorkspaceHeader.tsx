@@ -100,9 +100,9 @@ export function WorkspaceHeader({
         <div
           {...dragHandleProps}
           className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] shrink-0 cursor-grab active:cursor-grabbing"
-          title="Drag to reorder workspace"
+          title={i18nT("folders.dragToReorderWorkspace", undefined, "Drag to reorder workspace")}
           data-testid={`workspace-drag-handle-${id}`}
-          aria-label="Drag to reorder workspace"
+          aria-label={i18nT("folders.dragToReorderWorkspace", undefined, "Drag to reorder workspace")}
         >
           <Icon path={mdiDrag} size={0.6} />
         </div>
@@ -128,7 +128,7 @@ export function WorkspaceHeader({
         <span
           onDoubleClick={() => setEditing(true)}
           className="flex-1 min-w-0 text-xs font-semibold text-[var(--text-primary)] truncate cursor-text"
-          title={i18nT("auto.double_click_to_rename", undefined, "Double-click to rename")}
+          title={i18nT("common.doubleClickToRename", undefined, "Double-click to rename")}
           data-testid={`workspace-name-${id}`}
         >
           {name}
@@ -144,7 +144,7 @@ export function WorkspaceHeader({
           <button
             onClick={() => setMenuOpen((p) => !p)}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-0.5"
-            title={i18nT("auto.workspace_actions", undefined, "Workspace actions")}
+            title={i18nT("folders.workspaceActions", undefined, "Workspace actions")}
             data-testid={`workspace-menu-btn-${id}`}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -165,14 +165,14 @@ export function WorkspaceHeader({
                 className="w-full text-left px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-primary)]"
                 data-testid={`workspace-menu-rename-${id}`}
               >
-                {i18nT("auto.rename", undefined, "Rename")}
+                {i18nT("common.rename", undefined, "Rename")}
               </button>
               <button
                 onClick={confirmDelete}
                 className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-[var(--bg-primary)]"
                 data-testid={`workspace-menu-delete-${id}`}
               >
-                {i18nT("auto.delete", undefined, "Delete")}
+                {i18nT("common.delete", undefined, "Delete")}
               </button>
             </div>
           )}

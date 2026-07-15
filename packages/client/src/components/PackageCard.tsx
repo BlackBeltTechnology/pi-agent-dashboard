@@ -1,17 +1,17 @@
-import React from "react";
-import { Icon } from "@mdi/react";
+import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
-  mdiPuzzleOutline,
   mdiBookOpenPageVariant,
-  mdiPaletteOutline,
-  mdiTextBoxOutline,
-  mdiDownload,
   mdiCheck,
   mdiDelete,
-  mdiUpdate,
+  mdiDownload,
   mdiLoading,
+  mdiPaletteOutline,
+  mdiPuzzleOutline,
+  mdiTextBoxOutline,
+  mdiUpdate,
 } from "@mdi/js";
-import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { Icon } from "@mdi/react";
+import React from "react";
 import type { PackageOperationStatus } from "../hooks/usePackageOperations.js";
 import { t as i18nT } from "../lib/i18n";
 
@@ -145,14 +145,14 @@ export function PackageCard({
                   className="text-[10px] px-2 py-0.5 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 disabled:opacity-50"
                 >
                   <Icon path={mdiUpdate} size={0.35} className="inline mr-0.5" />
-                  {i18nT("auto.update", undefined, "Update")}
+                  {i18nT("common.update", undefined, "Update")}
                 </button>
               ) : onCheckUpdate ? (
                 <button
                   onClick={onCheckUpdate}
                   disabled={isRunning || checkingUpdate}
                   className="text-[10px] px-2 py-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
-                  title={i18nT("auto.check_for_update", undefined, "Check for update")}
+                  title={i18nT("common.checkForUpdate", undefined, "Check for update")}
                 >
                   {checkingUpdate
                     ? <Icon path={mdiLoading} size={0.35} className="animate-spin" />
@@ -163,7 +163,7 @@ export function PackageCard({
                 onClick={onUninstall}
                 disabled={isRunning}
                 className="text-[10px] px-2 py-0.5 rounded text-red-400 hover:bg-red-400/10 disabled:opacity-50"
-                title={i18nT("auto.uninstall", undefined, "Uninstall")}
+                title={i18nT("packages.uninstall", undefined, "Uninstall")}
               >
                 <Icon path={mdiDelete} size={0.35} />
               </button>
@@ -175,7 +175,7 @@ export function PackageCard({
             disabled={isRunning}
             className="w-full text-xs px-3 py-1.5 rounded bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/80 disabled:opacity-50 font-medium"
           >
-            {i18nT("auto.install", undefined, "Install")}
+            {i18nT("common.install2", undefined, "Install")}
           </button>
         )}
       </div>

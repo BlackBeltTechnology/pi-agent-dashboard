@@ -43,11 +43,11 @@ export function ProjectInitButton({ cwd, status, onInitializeProject }: Props) {
       onClick={(e) => { e.stopPropagation(); onInitializeProject?.(cwd); }}
       data-testid="project-init-btn"
       className="text-[10px] px-1.5 py-0.5 rounded border text-indigo-400 border-indigo-500/40 bg-indigo-500/5 hover:text-indigo-300 hover:border-indigo-500/70"
-      title={i18nT("auto.set_up_this_directory_as_a_pi_project", undefined, "Set up this directory as a pi project (scaffold AGENTS.md + .pi/settings.json)")}
+      title={i18nT("folders.setUpThisDirectoryAsAPiProject", undefined, "Set up this directory as a pi project (scaffold AGENTS.md + .pi/settings.json)")}
     >
       <span className="inline-flex items-center gap-0.5">
         <Icon path={mdiFolderPlusOutline} size={0.5} />
-        {i18nT("auto.set_up_project", undefined, "Set up project")}
+        {i18nT("common.setUpProject", undefined, "Set up project")}
       </span>
     </button>
   );

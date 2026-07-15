@@ -13,6 +13,7 @@
  */
 
 import { useRef } from "react";
+import { t as i18nT } from "../lib/i18n";
 import type { SplitOrientation } from "../lib/split-state.js";
 import { useSplitRatio } from "../lib/useSplitRatio.js";
 import { SplitDivider } from "./SplitDivider.js";
@@ -51,7 +52,7 @@ export function SplitWorkspace({ open, ratio, orientation, onRatioChange, chat, 
         orientation={orientation}
         onResize={applyRatio}
         data-testid="split-divider"
-        title="Drag to resize"
+        title={i18nT("common.dragToResize", undefined, "Drag to resize")}
       />
       <div
         data-testid="split-editor-pane"

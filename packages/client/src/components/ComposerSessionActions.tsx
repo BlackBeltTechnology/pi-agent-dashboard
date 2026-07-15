@@ -249,11 +249,11 @@ export function ComposerSessionActions({
     >
       {showOpenSpec && (
         <>
-          <GroupLabel testId="composer-openspec-group-label">{i18nT("auto.openspec", undefined, "OpenSpec")}</GroupLabel>
+          <GroupLabel testId="composer-openspec-group-label">{i18nT("openspec.openspec", undefined, "OpenSpec")}</GroupLabel>
           {wf("explore") && (
             <IconButton
               icon={mdiCompassOutline}
-              label={i18nT("auto.explore", undefined, "Explore")}
+              label={i18nT("common.explore", undefined, "Explore")}
               onClick={() => setExploreOpen(true)}
               disabled={!!attached || streaming}
               title={streaming ? "Session is streaming" : tips.explore}
@@ -268,35 +268,35 @@ export function ComposerSessionActions({
             <>
               <ArtifactChip
                 letter="P"
-                name={i18nT("auto.artifact_proposal", undefined, "Proposal")}
+                name={i18nT("openspec.artifactProposal", undefined, "Proposal")}
                 state={artifactChipState("proposal")}
-                title={i18nT("auto.open_proposal_md", undefined, "Open proposal.md")}
+                title={i18nT("openspec.openProposalMd", undefined, "Open proposal.md")}
                 testId="composer-artifact-p"
                 onClick={onReadArtifact ? () => onReadArtifact(change.name, "proposal") : undefined}
               />
               <ArtifactChip
                 letter="D"
-                name={i18nT("auto.artifact_design", undefined, "Design")}
+                name={i18nT("openspec.artifactDesign", undefined, "Design")}
                 state={artifactChipState("design")}
-                title={i18nT("auto.open_design_md", undefined, "Open design.md")}
+                title={i18nT("common.openDesignMd", undefined, "Open design.md")}
                 testId="composer-artifact-d"
                 onClick={onReadArtifact ? () => onReadArtifact(change.name, "design") : undefined}
               />
               <ArtifactChip
                 letter="S"
-                name={i18nT("auto.artifact_specs", undefined, "Specs")}
+                name={i18nT("openspec.artifactSpecs", undefined, "Specs")}
                 state={artifactChipState("specs")}
-                title={i18nT("auto.open_specs", undefined, "Open specs")}
+                title={i18nT("openspec.openSpecs", undefined, "Open specs")}
                 testId="composer-artifact-s"
                 onClick={onReadArtifact ? () => onReadArtifact(change.name, "specs") : undefined}
               />
               {change.totalTasks > 0 && (
                 <ArtifactChip
                   letter="T"
-                  name={i18nT("auto.artifact_tasks", undefined, "Tasks")}
+                  name={i18nT("openspec.artifactTasks", undefined, "Tasks")}
                   sub={`${change.completedTasks}/${change.totalTasks}`}
                   state={artifactChipState("tasks")}
-                  title={i18nT("auto.open_task_list", undefined, "Open task list")}
+                  title={i18nT("openspec.openTaskList", undefined, "Open task list")}
                   testId="composer-artifact-t"
                   onClick={() => setTasksOpen(true)}
                   disabled={streaming}
@@ -309,7 +309,7 @@ export function ComposerSessionActions({
               {wf("continue") && (
                 <IconButton
                   icon={mdiChevronRight}
-                  label={i18nT("auto.continue", undefined, "Continue")}
+                  label={i18nT("common.continue", undefined, "Continue")}
                   onClick={() => onSendPrompt?.(`/skill:openspec-continue-change ${attached}`)}
                   disabled={streaming}
                   testId="composer-continue-btn"
@@ -331,7 +331,7 @@ export function ComposerSessionActions({
           {wf("apply") && attached && (changeState === ChangeState.READY || changeState === ChangeState.IMPLEMENTING) && (
             <IconButton
               icon={mdiPlayCircleOutline}
-              label={i18nT("auto.apply", undefined, "Apply")}
+              label={i18nT("common.apply", undefined, "Apply")}
               onClick={() => onSendPrompt?.(`/skill:openspec-apply-change ${attached}`)}
               disabled={streaming}
               testId="composer-apply-btn"
@@ -341,7 +341,7 @@ export function ComposerSessionActions({
           {wf("verify") && attached && changeState === ChangeState.COMPLETE && (
             <IconButton
               icon={mdiCheckCircleOutline}
-              label={i18nT("auto.verify", undefined, "Verify")}
+              label={i18nT("common.verify", undefined, "Verify")}
               onClick={() => onSendPrompt?.(`/skill:openspec-verify-change ${attached}`)}
               disabled={streaming}
               testId="composer-verify-btn"
@@ -351,7 +351,7 @@ export function ComposerSessionActions({
           {wf("archive") && (
             <IconButton
               icon={mdiArchiveOutline}
-              label={i18nT("auto.archive", undefined, "Archive")}
+              label={i18nT("openspec.archive", undefined, "Archive")}
               onClick={() => setArchiveConfirm(true)}
               disabled={!attached || streaming || changeState !== ChangeState.COMPLETE}
               title={tips.archive}
@@ -365,7 +365,7 @@ export function ComposerSessionActions({
       {showGit && (
         <>
           <Divider />
-          <GroupLabel testId="composer-git-group-label">{i18nT("auto.git", undefined, "Git")}</GroupLabel>
+          <GroupLabel testId="composer-git-group-label">{i18nT("git.git", undefined, "Git")}</GroupLabel>
           <span
             data-testid="composer-git-group"
             className="inline-flex items-center gap-1 flex-wrap"
@@ -383,7 +383,7 @@ export function ComposerSessionActions({
       {showStatus && (
         <>
           <Divider />
-          <GroupLabel testId="composer-status-group-label">STATUS</GroupLabel>
+          <GroupLabel testId="composer-status-group-label">{i18nT("session.subcardStatus", undefined, "STATUS")}</GroupLabel>
           {/* <fieldset disabled> natively disables every <button>/<input>
               inside per HTML spec. Used here to gate plugin-rendered
               actions while the session is streaming, without coupling
@@ -424,7 +424,7 @@ export function ComposerSessionActions({
       {archiveConfirm && attached && (
         <Confirm
           open
-          title={i18nT("auto.archive_change", undefined, "Archive change?")}
+          title={i18nT("openspec.archiveChange", undefined, "Archive change?")}
           message={`Archive "${attached}"?`}
           confirmLabel="Archive"
           onConfirm={() => {

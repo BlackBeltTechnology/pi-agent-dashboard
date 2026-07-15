@@ -15,19 +15,19 @@
  *
  * See change: add-automation-plugin.
  */
-export { isAutomationRun } from "./predicates.js";
-export { AutomationBadge } from "./AutomationBadge.js";
-export { FolderAutomationSection } from "./FolderAutomationSection.js";
-export { AutomationBoard } from "./AutomationBoard.js";
-export { AutomationRunMonitor } from "./AutomationRunMonitor.js";
-export { AutomationSettings } from "./AutomationSettings.js";
-export { CreateAutomationDialog } from "./CreateAutomationDialog.js";
-
+export { catalog } from "../i18n.js";
 export type {
-  DiscoveredAutomation,
   AutomationConfig,
   AutomationScope,
+  DiscoveredAutomation,
   RunRecord,
   RunStatus,
   Visibility,
 } from "../shared/automation-types.js";
+export { AutomationBadge } from "./AutomationBadge.js";
+export { AutomationBoard } from "./AutomationBoard.js";
+export { AutomationRunMonitor } from "./AutomationRunMonitor.js";
+export { AutomationSettings } from "./AutomationSettings.js";
+export { CreateAutomationDialog } from "./CreateAutomationDialog.js";
+export { FolderAutomationSection } from "./FolderAutomationSection.js";
+export { isAutomationRun } from "./predicates.js";

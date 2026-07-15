@@ -17,7 +17,10 @@
  *
  * See change: wire-flow-inputs-in-automation.
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
+
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /** The canonical trigger-binding token (mirrors pi-flows `${{…}}` syntax). */
 const TRIGGER_TOKEN = "${{trigger}}";
@@ -74,6 +77,7 @@ function isUnbound(v: unknown): boolean {
 }
 
 export function FlowInputWiring({ payload, onChange, cwd }: FlowInputWiringProps): React.ReactElement | null {
+  const t = useT();
   const flow = typeof payload.flow === "string" ? payload.flow : "";
   const [fields, setFields] = useState<FlowInputField[]>([]);
   const [loading, setLoading] = useState(false);
@@ -147,7 +151,7 @@ export function FlowInputWiring({ payload, onChange, cwd }: FlowInputWiringProps
       data-testid="flow-input-wiring"
     >
       <summary className="flex cursor-pointer select-none items-center gap-2 text-[11px] text-[var(--text-secondary)]">
-        <span>Inputs</span>
+        <span>{t("inputs", undefined, "Inputs")}</span>
         <span className="rounded-full border border-[var(--border-secondary)] px-1.5 text-[9px] font-mono text-[var(--text-muted)]">
           {fields.length}
         </span>

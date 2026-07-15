@@ -1,17 +1,17 @@
-import React, { useState, useMemo, useCallback } from "react";
-import { getApiBase } from "../lib/api-context.js";
+import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { mdiLink, mdiLoading, mdiMagnify, mdiPackageVariantClosed } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiMagnify, mdiLoading, mdiPackageVariantClosed, mdiLink } from "@mdi/js";
-import { usePackageSearch } from "../hooks/usePackageSearch.js";
+import React, { useCallback, useMemo, useState } from "react";
 import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
+import { usePackageSearch } from "../hooks/usePackageSearch.js";
+import { getApiBase } from "../lib/api-context.js";
+import { t as i18nT } from "../lib/i18n";
+import { useI18n } from "../lib/i18n.js";
+import { classifySource } from "../lib/package-classifier.js";
 import { PackageCard } from "./PackageCard.js";
 import { PackageRow } from "./PackageRow.js";
-import { classifySource } from "../lib/package-classifier.js";
 import { RecommendedExtensions } from "./RecommendedExtensions.js";
-import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { useI18n } from "../lib/i18n.js";
-import { t as i18nT } from "../lib/i18n";
 
 const TYPE_PILLS = ["extension", "skill", "theme", "prompt"] as const;
 
@@ -220,7 +220,7 @@ export function PackageBrowser({
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleUrlInstall(); }}
-            placeholder={i18nT("auto.npm_scope_pkg_or_git_github", undefined, "npm:@scope/pkg or git:github.com/user/repo")}
+            placeholder={i18nT("git.npmScopePkgOrGitGithub", undefined, "npm:@scope/pkg or git:github.com/user/repo")}
             className="w-full pl-7 pr-2 py-1.5 text-xs bg-[var(--bg-surface)] border border-[var(--border-secondary)] rounded text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
             data-testid="package-url-input"
           />

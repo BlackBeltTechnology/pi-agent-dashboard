@@ -27,7 +27,7 @@ export function GitDirtyPill({ status, onClick, className }: Props) {
   if (dirtyCount === 0 && ahead === 0 && behind === 0) return null;
 
   const title = i18nT(
-    "auto.uncommitted_drift",
+    "common.uncommittedDrift",
     undefined,
     `${dirtyCount} uncommitted${ahead ? ` · ↑${ahead}` : ""}${behind ? ` · ↓${behind}` : ""}`,
   );

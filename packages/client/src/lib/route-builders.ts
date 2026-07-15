@@ -20,6 +20,12 @@
  */
 import { encodeFolderPath } from "./folder-encoding.js";
 
+/** `/folder/:encodedCwd` — bare directory home page (design D1).
+ *  See change: add-directory-home-page. */
+export function buildFolderHomeUrl(cwd: string): string {
+  return `/folder/${encodeFolderPath(cwd)}`;
+}
+
 /** `/folder/:encodedCwd/openspec/:changeName/:artifactId` */
 export function buildOpenSpecPreviewUrl(
   cwd: string,

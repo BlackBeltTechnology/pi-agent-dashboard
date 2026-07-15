@@ -25,6 +25,7 @@ import {
   mdiInformationOutline,
   mdiRobotOutline,
 } from "@mdi/js";
+import { t } from "./i18n";
 
 export const statusColors: Record<string, string> = {
   active: "bg-[var(--status-idle)]",
@@ -71,10 +72,10 @@ export const sourceIcons: Record<string, string> = {
 
 export const sourceLabels: Record<string, string> = {
   tui: "TUI",
-  dashboard: "Headless",
+  dashboard: t("common.headless", undefined, "Headless"),
   tmux: "tmux",
   zed: "Zed",
-  terminal: "Terminal",
+  terminal: t("common.terminal", undefined, "Terminal"),
 };
 
 /**

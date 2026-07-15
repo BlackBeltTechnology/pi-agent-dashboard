@@ -11,10 +11,12 @@
  *
  * See change: configurable-chat-display, fix-first-launch-display-modal-stuck-on-mobile.
  */
-import React, { useState, useEffect, useCallback } from "react";
-import { DialogPortal } from "./DialogPortal.js";
+
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type React from "react";
+import { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { DialogPortal } from "./DialogPortal.js";
 
 type PresetKey = keyof typeof DISPLAY_PRESETS;
 
@@ -80,10 +82,10 @@ export function FirstLaunchDisplayModal({
           onClick={(e) => e.stopPropagation()}
         >
           <h2 id="first-launch-display-title" className="text-base font-semibold text-[var(--text-primary)] mb-2">
-            {i18nT("auto.how_much_should_the_chat_view", undefined, "How much should the chat view show?")}
+            {i18nT("session.howMuchShouldTheChatView", undefined, "How much should the chat view show?")}
           </h2>
           <p className="text-xs text-[var(--text-tertiary)] mb-4">
-            {i18nT("auto.you_can_change_this_any_time", undefined, "You can change this any time in Settings ▸ General ▸ Chat display.")}
+            {i18nT("common.youCanChangeThisAnyTime", undefined, "You can change this any time in Settings ▸ General ▸ Chat display.")}
           </p>
           <div className="space-y-2">
             {OPTIONS.map((opt) => (
@@ -117,7 +119,7 @@ export function FirstLaunchDisplayModal({
               disabled={submitting}
               className="px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
             >
-              {i18nT("auto.skip", undefined, "Skip")}
+              {i18nT("common.skip", undefined, "Skip")}
             </button>
             <button
               type="button"
@@ -125,7 +127,7 @@ export function FirstLaunchDisplayModal({
               disabled={submitting}
               className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded disabled:opacity-50"
             >
-              {i18nT("auto.continue", undefined, "Continue")}
+              {i18nT("common.continue", undefined, "Continue")}
             </button>
           </div>
         </div>

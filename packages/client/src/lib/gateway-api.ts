@@ -13,6 +13,7 @@
 import type { TunnelStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getApiBase } from "./api-context.js";
 import { fetchJsonResponse } from "./fetch-json.js";
+import { t } from "./i18n";
 
 /** A coalesced network-guard denial (mirror of the server `BlockEvent`). */
 export interface BlockEvent {
@@ -90,10 +91,10 @@ export async function getTunnelStatus(): Promise<TunnelStatus | null> {
 export async function connectTunnel(): Promise<void> {
   const res = await fetch(`${getApiBase()}/api/tunnel-connect`, { method: "POST" });
   const data = res.ok ? await res.json() : null;
-  if (!data?.ok) throw new Error(data?.error || "Failed to connect tunnel");
+  if (!data?.ok) throw new Error(data?.error || t("err.connectTunnelFailed", undefined, "Failed to connect tunnel"));
 }
 
 export async function disconnectTunnel(): Promise<void> {
   const res = await fetch(`${getApiBase()}/api/tunnel-disconnect`, { method: "POST" });
-  if (!res.ok) throw new Error("Failed to disconnect tunnel");
+  if (!res.ok) throw new Error(t("err.disconnectTunnelFailed", undefined, "Failed to disconnect tunnel"));
 }

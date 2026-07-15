@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Split composer overflow — repro + fix</title>
+    <!-- Tailwind v4 browser build (container queries built in) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+      :root {
+        --bg-primary: #0a0a0a;
+        --bg-secondary: #141414;
+        --bg-tertiary: #1e1e1e;
+        --bg-surface: #2a2a2a;
+        --bg-hover: rgba(255, 255, 255, 0.06);
+        --text-primary: #e5e5e5;
+        --text-secondary: #b0b0b0;
+        --text-tertiary: #808080;
+        --text-muted: #585858;
+        --border-secondary: #333333;
+        --accent-purple: #a855f7;
+        --accent-primary: #3b82f6;
+      }
+      body { background: var(--bg-primary); color: var(--text-primary); font-family: ui-sans-serif, system-ui, sans-serif; }
+      .icon { width: 1em; height: 1em; display: inline-block; fill: currentColor; vertical-align: -0.125em; }
+    </style>
+  </head>
+  <body class="p-6 space-y-10">
+    <!-- mdi icons -->
+    <svg style="display:none">
+      <symbol id="plus" viewBox="0 0 24 24"><path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" /></symbol>
+      <symbol id="flag" viewBox="0 0 24 24"><path d="M14.4,6L14,4H5V21H7V14H12.6L13,16H20V6H14.4Z" /></symbol>
+      <symbol id="queue" viewBox="0 0 24 24"><path d="M2,16H10V14H2M18,14V10H16V14H12V16H16V20H18V16H22V14M14,6H2V8H14M14,10H2V12H14V10Z" /></symbol>
+      <symbol id="console" viewBox="0 0 24 24"><path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.4,17H5.61L9.58,13Z" /></symbol>
+      <symbol id="stop" viewBox="0 0 24 24"><path d="M18,18H6V6H18V18Z" /></symbol>
+      <symbol id="stopcircle" viewBox="0 0 24 24"><path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M9,9V15H15V9" /></symbol>
+      <symbol id="dots" viewBox="0 0 24 24"><path d="M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z" /></symbol>
+      <symbol id="chevron" viewBox="0 0 24 24"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z" /></symbol>
+      <symbol id="flash" viewBox="0 0 24 24"><path d="M7,2V13H10V22L17,10H13L17,2H7Z" /></symbol>
+    </svg>
+
+    <!-- ============ BROKEN: viewport md: breakpoints ============ -->
+    <section>
+      <h2 class="text-sm font-semibold text-red-400 mb-2">❌ BROKEN — <code>md:</code> is viewport-based; split pane is narrow but viewport is wide, so every control stays inline and the row overflows. <code>overflow-hidden</code> clips the red stop button.</h2>
+      <!-- Simulated split chat pane: narrow width + overflow-hidden (matches SplitWorkspace split-chat-pane) -->
+      <div class="flex" style="width: 560px;">
+        <div class="flex min-h-0 min-w-0 flex-col overflow-hidden border border-dashed border-red-500/40 p-3 flex-1">
+          <div data-testid="composer-card" class="bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-xl px-2.5 pt-2 pb-1.5">
+            <textarea rows="1" placeholder="Message, /command, !shell, or @file..." class="block w-full bg-transparent px-1.5 py-1 text-sm text-[var(--text-primary)] placeholder-gray-500 resize-none outline-none" style="min-height:38px"></textarea>
+            <!-- Inner toolbar: NO wrap, viewport md: folding -->
+            <div class="flex items-center gap-1.5 pt-1">
+              <button class="inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:20px"><use href="#plus"/></svg></button>
+              <!-- model chip -->
+              <button class="flex items-center gap-1 text-xs px-2 py-0.5 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><span class="font-mono truncate max-w-[200px]">anthropic/claude-opus-4-8</span><svg class="icon" style="font-size:14px"><use href="#chevron"/></svg></button>
+              <span class="hidden md:inline-flex items-center gap-1 text-[var(--text-secondary)] text-xs px-1"><svg class="icon" style="font-size:13px"><use href="#flash"/></svg><span class="font-mono">high</span></span>
+              <span class="hidden md:inline-flex rounded-lg overflow-hidden border border-[var(--border-secondary)] h-[30px]">
+                <button class="inline-flex items-center gap-1 px-2 text-[11px] bg-[color-mix(in_srgb,var(--accent-primary)_18%,transparent)] text-[var(--text-primary)]"><svg class="icon" style="font-size:12px"><use href="#flag"/></svg>Steer</button>
+                <button class="inline-flex items-center gap-1 px-2 text-[11px] text-[var(--text-tertiary)]"><svg class="icon" style="font-size:12px"><use href="#queue"/></svg>Queue</button>
+              </span>
+              <span class="flex-1"></span>
+              <button class="hidden md:inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:18px"><use href="#console"/></svg></button>
+              <button class="flex items-center gap-1 self-end px-2 h-[30px] rounded-lg text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:14px"><use href="#stopcircle"/></svg><span>after turn</span></button>
+              <button class="flex items-center justify-center min-w-[44px] min-h-[44px] bg-red-600 rounded-lg hover:bg-red-500 self-end"><svg class="icon text-white" style="font-size:19px"><use href="#stop"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FIXED: container @ breakpoints ============ -->
+    <section>
+      <h2 class="text-sm font-semibold text-green-400 mb-2">✅ FIXED — composer-card is a <code>@container</code>; folding uses <code>@[44rem]</code> (container width), so a narrow split pane folds thinking / delivery / terminal into the ⋯ menu. Nothing overflows.</h2>
+      <div class="flex" style="width: 560px;">
+        <div class="flex min-h-0 min-w-0 flex-col overflow-hidden border border-dashed border-green-500/40 p-3 flex-1">
+          <div data-testid="composer-card" class="@container bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-xl px-2.5 pt-2 pb-1.5">
+            <textarea rows="1" placeholder="Message, /command, !shell, or @file..." class="block w-full bg-transparent px-1.5 py-1 text-sm text-[var(--text-primary)] placeholder-gray-500 resize-none outline-none" style="min-height:38px"></textarea>
+            <div class="flex items-center gap-1.5 pt-1">
+              <button class="inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:20px"><use href="#plus"/></svg></button>
+              <button class="flex items-center gap-1 text-xs px-2 py-0.5 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><span class="font-mono truncate max-w-[200px]">anthropic/claude-opus-4-8</span><svg class="icon" style="font-size:14px"><use href="#chevron"/></svg></button>
+              <span class="hidden @[44rem]:inline-flex items-center gap-1 text-[var(--text-secondary)] text-xs px-1"><svg class="icon" style="font-size:13px"><use href="#flash"/></svg><span class="font-mono">high</span></span>
+              <span class="hidden @[44rem]:inline-flex rounded-lg overflow-hidden border border-[var(--border-secondary)] h-[30px]">
+                <button class="inline-flex items-center gap-1 px-2 text-[11px] bg-[color-mix(in_srgb,var(--accent-primary)_18%,transparent)] text-[var(--text-primary)]"><svg class="icon" style="font-size:12px"><use href="#flag"/></svg>Steer</button>
+                <button class="inline-flex items-center gap-1 px-2 text-[11px] text-[var(--text-tertiary)]"><svg class="icon" style="font-size:12px"><use href="#queue"/></svg>Queue</button>
+              </span>
+              <span class="flex-1"></span>
+              <button class="inline-flex @[44rem]:hidden items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:18px"><use href="#dots"/></svg></button>
+              <button class="hidden @[44rem]:inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:18px"><use href="#console"/></svg></button>
+              <button class="flex items-center gap-1 self-end px-2 h-[30px] rounded-lg text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:14px"><use href="#stopcircle"/></svg><span class="hidden @[30rem]:inline">after turn</span></button>
+              <button class="flex items-center justify-center min-w-[44px] min-h-[44px] bg-red-600 rounded-lg hover:bg-red-500 self-end"><svg class="icon text-white" style="font-size:19px"><use href="#stop"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FIXED, boundary-stress pane (640px) ============ -->
+    <section>
+      <h2 class="text-sm font-semibold text-amber-400 mb-2">✅ FIXED — boundary pane (640px): the exact range that used to break (natural inline width ≈ 689px, old 36rem threshold too low). Steer/Queue + terminal now fold into ⋯ instead of overflowing.</h2>
+      <div class="flex" style="width: 640px;">
+        <div class="flex min-h-0 min-w-0 flex-col overflow-hidden border border-dashed border-amber-500/40 p-3 flex-1">
+          <div data-testid="composer-card" class="@container bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-xl px-2.5 pt-2 pb-1.5">
+            <textarea rows="1" placeholder="Message, /command, !shell, or @file..." class="block w-full bg-transparent px-1.5 py-1 text-sm text-[var(--text-primary)] placeholder-gray-500 resize-none outline-none" style="min-height:38px"></textarea>
+            <div class="flex items-center gap-1.5 pt-1">
+              <button class="inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:20px"><use href="#plus"/></svg></button>
+              <button class="flex items-center gap-1 text-xs px-2 py-0.5 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><span class="font-mono truncate max-w-[200px]">anthropic/claude-opus-4-8</span><svg class="icon" style="font-size:14px"><use href="#chevron"/></svg></button>
+              <span class="hidden @[44rem]:inline-flex items-center gap-1 text-[var(--text-secondary)] text-xs px-1"><svg class="icon" style="font-size:13px"><use href="#flash"/></svg><span class="font-mono">high</span></span>
+              <span class="hidden @[44rem]:inline-flex rounded-lg overflow-hidden border border-[var(--border-secondary)] h-[30px]">
+                <button class="inline-flex items-center gap-1 px-2 text-[11px] bg-[color-mix(in_srgb,var(--accent-primary)_18%,transparent)] text-[var(--text-primary)]"><svg class="icon" style="font-size:12px"><use href="#flag"/></svg>Steer</button>
+                <button class="inline-flex items-center gap-1 px-2 text-[11px] text-[var(--text-tertiary)]"><svg class="icon" style="font-size:12px"><use href="#queue"/></svg>Queue</button>
+              </span>
+              <span class="flex-1"></span>
+              <button class="inline-flex @[44rem]:hidden items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:18px"><use href="#dots"/></svg></button>
+              <button class="hidden @[44rem]:inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:18px"><use href="#console"/></svg></button>
+              <button class="flex items-center gap-1 self-end px-2 h-[30px] rounded-lg text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:14px"><use href="#stopcircle"/></svg><span class="hidden @[30rem]:inline">after turn</span></button>
+              <button class="flex items-center justify-center min-w-[44px] min-h-[44px] bg-red-600 rounded-lg hover:bg-red-500 self-end"><svg class="icon text-white" style="font-size:19px"><use href="#stop"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FIXED, wide pane: controls return inline ============ -->
+    <section>
+      <h2 class="text-sm font-semibold text-green-400 mb-2">✅ FIXED — wide pane (900px): container ≥ 44rem so all controls stay inline, exactly like today's full-width composer.</h2>
+      <div class="flex" style="width: 900px;">
+        <div class="flex min-h-0 min-w-0 flex-col overflow-hidden border border-dashed border-green-500/40 p-3 flex-1">
+          <div data-testid="composer-card" class="@container bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-xl px-2.5 pt-2 pb-1.5">
+            <textarea rows="1" placeholder="Message, /command, !shell, or @file..." class="block w-full bg-transparent px-1.5 py-1 text-sm text-[var(--text-primary)] placeholder-gray-500 resize-none outline-none" style="min-height:38px"></textarea>
+            <div class="flex items-center gap-1.5 pt-1">
+              <button class="inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:20px"><use href="#plus"/></svg></button>
+              <button class="flex items-center gap-1 text-xs px-2 py-0.5 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><span class="font-mono truncate max-w-[200px]">anthropic/claude-opus-4-8</span><svg class="icon" style="font-size:14px"><use href="#chevron"/></svg></button>
+              <span class="hidden @[44rem]:inline-flex items-center gap-1 text-[var(--text-secondary)] text-xs px-1"><svg class="icon" style="font-size:13px"><use href="#flash"/></svg><span class="font-mono">high</span></span>
+              <span class="hidden @[44rem]:inline-flex rounded-lg overflow-hidden border border-[var(--border-secondary)] h-[30px]">
+                <button class="inline-flex items-center gap-1 px-2 text-[11px] bg-[color-mix(in_srgb,var(--accent-primary)_18%,transparent)] text-[var(--text-primary)]"><svg class="icon" style="font-size:12px"><use href="#flag"/></svg>Steer</button>
+                <button class="inline-flex items-center gap-1 px-2 text-[11px] text-[var(--text-tertiary)]"><svg class="icon" style="font-size:12px"><use href="#queue"/></svg>Queue</button>
+              </span>
+              <span class="flex-1"></span>
+              <button class="inline-flex @[44rem]:hidden items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:18px"><use href="#dots"/></svg></button>
+              <button class="hidden @[44rem]:inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:18px"><use href="#console"/></svg></button>
+              <button class="flex items-center gap-1 self-end px-2 h-[30px] rounded-lg text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><svg class="icon" style="font-size:14px"><use href="#stopcircle"/></svg><span class="hidden @[30rem]:inline">after turn</span></button>
+              <button class="flex items-center justify-center min-w-[44px] min-h-[44px] bg-red-600 rounded-lg hover:bg-red-500 self-end"><svg class="icon text-white" style="font-size:19px"><use href="#stop"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>

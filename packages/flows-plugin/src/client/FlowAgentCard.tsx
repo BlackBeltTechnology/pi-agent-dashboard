@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiRefresh, mdiEyeOutline, mdiEyeOffOutline, mdiFileDocumentOutline, mdiCodeTags, mdiCodeBraces, mdiCallSplit, mdiSourceBranch } from "@mdi/js";
-import type { DashboardSession, FlowAgentState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 // AgentMetricSlot is a slot CONSUMER (Phase-2 decorator slot), not a primitive
 // — it stays as a direct import. See add-plugin-ui-primitive-registry Decision 4.
 import { AgentMetricSlot } from "@blackbelt-technology/pi-dashboard-client-utils/extension-ui/AgentMetricSlot";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type { DashboardSession, FlowAgentState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiCallSplit, mdiCodeBraces, mdiCodeTags, mdiEyeOffOutline, mdiEyeOutline, mdiFileDocumentOutline, mdiRefresh, mdiSourceBranch } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useState } from "react";
 import { FlowAgentDetail } from "./FlowAgentDetail.js";
 
 /**
@@ -51,6 +51,7 @@ export function FlowAgentCard({
   onSelect?: (stepId: string) => void;
 }) {
   const stepId = agent.stepId || agent.agentName;
+  const t = useT();
   const AgentCardShell = useUiPrimitive(UI_PRIMITIVE_KEYS.agentCard);
   const formatTokens = useUiPrimitive(UI_PRIMITIVE_KEYS.formatTokens);
   const formatDuration = useUiPrimitive(UI_PRIMITIVE_KEYS.formatDuration);
@@ -356,10 +357,14 @@ export function FlowAgentCard({
                 ? "text-blue-400 bg-blue-400/10 border-blue-400/40"
                 : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-blue-400 hover:border-blue-400/40 hover:bg-blue-400/10"
             }`}
-            title={detailOpen ? `Close ${displayName} detail` : `View ${displayName} detail`}
+            title={
+              detailOpen
+                ? t("closeAgentDetail", { name: displayName }, `Close ${displayName} detail`)
+                : t("viewAgentDetail", { name: displayName }, `View ${displayName} detail`)
+            }
           >
             <Icon path={detailOpen ? mdiEyeOffOutline : mdiEyeOutline} size={0.55} />
-            <span className="text-[10px]">Details</span>
+            <span className="text-[10px]">{t("details", undefined, "Details")}</span>
           </button>
           {/* Agent detail opens in the ui:dialog (the dialog title carries the
               agent name; FlowAgentDetail's onBack maps to onClose). `h-[70vh]

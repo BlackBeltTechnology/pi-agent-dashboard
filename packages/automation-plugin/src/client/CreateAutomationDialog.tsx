@@ -14,25 +14,19 @@
  *
  * See change: add-automation-plugin, redesign-automation-editor-and-board.
  */
-import React, { useEffect, useMemo, useState } from "react";
-import { Icon } from "@mdi/react";
-import {
-  mdiCalendarClock,
-  mdiSourceBranch,
-  mdiClipboardTextOutline,
-  mdiFlashOutline,
-} from "@mdi/js";
-import { useUiPrimitive, AutomationActionEditorSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+
+import { AutomationActionEditorSlot, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import {
-  createAutomation,
-  updateAutomation,
-  listTriggerKinds,
-  isGitCapable,
-  listActions,
-} from "./api.js";
-import { nextFire } from "../shared/cron.js";
+  mdiCalendarClock,
+  mdiClipboardTextOutline,
+  mdiFlashOutline,
+  mdiSourceBranch,
+} from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   ActionDescriptor,
   ActionPayloadField,
@@ -41,9 +35,17 @@ import type {
   Concurrency,
   RunMode,
   Sandbox,
-  Visibility,
   TriggerCategoryDescriptor,
+  Visibility,
 } from "../shared/automation-types.js";
+import { nextFire } from "../shared/cron.js";
+import {
+  createAutomation,
+  isGitCapable,
+  listActions,
+  listTriggerKinds,
+  updateAutomation,
+} from "./api.js";
 
 /** Built-in actions shown before/if `listActions` returns nothing. */
 const BUILTIN_ACTIONS: ActionDescriptor[] = [
@@ -159,6 +161,7 @@ export function CreateAutomationDialog({
   initialScope,
   initialPromptBody,
 }: CreateAutomationDialogProps): React.ReactElement {
+  const t = useT();
   const editing = !!initialConfig;
   const ModelSelector = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
 
@@ -314,19 +317,19 @@ export function CreateAutomationDialog({
   async function submit(): Promise<void> {
     setError(null);
     if (!name.trim()) {
-      setError("Name is required.");
+      setError(t("nameRequired", undefined, "Name is required."));
       return;
     }
     if (categoryPlanned) {
-      setError("This trigger category is not available yet.");
+      setError(t("categoryUnavailable", undefined, "This trigger category is not available yet."));
       return;
     }
     if (actionId === "core.skill" && !skill.trim()) {
-      setError("Skill name is required.");
+      setError(t("skillRequired", undefined, "Skill name is required."));
       return;
     }
     if (filePathMissing) {
-      setError("Folder to watch is required for a file trigger.");
+      setError(t("filePathRequiredFile", undefined, "Folder to watch is required for a file trigger."));
       return;
     }
     const onBlock: AutomationConfig["on"] = isScheduled
@@ -367,7 +370,7 @@ export function CreateAutomationDialog({
       onCreated?.();
       onClose();
     } else {
-      setError(res.error ?? "Failed to save automation.");
+      setError(res.error ?? t("saveFailed", undefined, "Failed to save automation."));
     }
   }
 
@@ -383,9 +386,9 @@ export function CreateAutomationDialog({
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex flex-col">
-            <h2 className="text-base font-semibold">{editing ? "Edit Automation" : "Create Automation"}</h2>
+            <h2 className="text-base font-semibold">{editing ? t("editAutomation", undefined, "Edit Automation") : t("createAutomationTitle", undefined, "Create Automation")}</h2>
             <p className="text-[10px] text-[var(--text-muted)] font-mono" data-testid="editor-subtitle">
-              {scope === "global" ? "global · ~/.pi/automation" : `folder · ${cwd ?? "(this repo)"}`}
+              {scope === "global" ? "global · ~/.pi/automation" : `folder · ${cwd ?? t("thisRepo", undefined, "(this repo)")}`}
             </p>
           </div>
           {!submitDisabled && (
@@ -394,19 +397,19 @@ export function CreateAutomationDialog({
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-[rgba(52,211,153,0.14)] text-[#6ee7b7]"
             >
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse motion-reduce:animate-none" />
-              armed on save
+              {t("armedOnSave", undefined, "armed on save")}
             </span>
           )}
         </div>
 
         {/* ── IDENTITY ─────────────────────────────────────────── */}
-        <Group title="Identity">
-          <Field label="Name">
+        <Group title="Identity" label={t("groupIdentity", undefined, "Identity")}>
+          <Field label={t("fieldName", undefined, "Name")}>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="weekly-brief"
+              placeholder={t("namePlaceholder", undefined, "weekly-brief")}
               data-testid="create-name"
               disabled={editing}
               className="input font-mono disabled:opacity-60"
@@ -414,25 +417,25 @@ export function CreateAutomationDialog({
           </Field>
           {editing && (
             <p className="text-[10px] text-[var(--text-muted)]" data-testid="create-name-locked">
-              Name is locked while editing to avoid orphaning the automation.
+              {t("nameLocked", undefined, "Name is locked while editing to avoid orphaning the automation.")}
             </p>
           )}
-          <Field label="Scope">
+          <Field label={t("fieldScope", undefined, "Scope")}>
             <Segmented
               testid="create-scope"
               value={scope}
               disabled={editing}
               onChange={(v) => setScope(v as AutomationScope)}
               options={[
-                { value: "folder", label: "folder (this repo)" },
-                { value: "global", label: "global (~/.pi/automation)" },
+                { value: "folder", label: t("scopeFolderOption", undefined, "folder (this repo)") },
+                { value: "global", label: t("scopeGlobalOption", undefined, "global (~/.pi/automation)") },
               ]}
             />
           </Field>
         </Group>
 
         {/* ── TRIGGER ──────────────────────────────────────────── */}
-        <Group title="Trigger">
+        <Group title="Trigger" label={t("groupTrigger", undefined, "Trigger")}>
           <div className="flex flex-wrap gap-1" data-testid="trigger-categories">
             {categories.map((c) => {
               const selected = c.category === category;
@@ -449,11 +452,11 @@ export function CreateAutomationDialog({
                       ? "border-[var(--accent,#6366f1)] text-[var(--accent,#6366f1)] bg-[var(--accent-soft,rgba(99,102,241,0.12))]"
                       : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
                   } ${planned ? "opacity-40 cursor-not-allowed" : ""}`}
-                  title={planned ? "Coming soon" : c.label}
+                  title={planned ? t("comingSoon", undefined, "Coming soon") : c.label}
                 >
                   <Icon path={CATEGORY_ICON[c.category] ?? mdiFlashOutline} size={0.55} />
                   {c.label}
-                  {planned && <span className="ml-1 text-[9px]">soon</span>}
+                  {planned && <span className="ml-1 text-[9px]">{t("soon", undefined, "soon")}</span>}
                 </button>
               );
             })}
@@ -461,13 +464,13 @@ export function CreateAutomationDialog({
 
           {categoryPlanned ? (
             <p className="text-xs text-[var(--text-muted)]" data-testid="trigger-planned-note">
-              This trigger category is coming soon and cannot be saved yet.
+              {t("categoryComingSoonNote", undefined, "This trigger category is coming soon and cannot be saved yet.")}
             </p>
           ) : isScheduled ? (
             <div className="space-y-2">
               {!rawCronMode ? (
                 <div className="grid grid-cols-3 gap-2">
-                  <Field label="Frequency">
+                  <Field label={t("fieldFrequency", undefined, "Frequency")}>
                     <select
                       value={freq}
                       onChange={(e) => setFreq(e.target.value)}
@@ -480,7 +483,7 @@ export function CreateAutomationDialog({
                     </select>
                   </Field>
                   {freq !== "hourly" && (
-                    <Field label="Time">
+                    <Field label={t("fieldTime", undefined, "Time")}>
                       <input
                         type="time"
                         value={time}
@@ -491,7 +494,7 @@ export function CreateAutomationDialog({
                     </Field>
                   )}
                   {freq === "weekly" && (
-                    <Field label="Day">
+                    <Field label={t("fieldDay", undefined, "Day")}>
                       <select
                         value={dow}
                         onChange={(e) => setDow(e.target.value)}
@@ -510,7 +513,7 @@ export function CreateAutomationDialog({
                   )}
                 </div>
               ) : (
-                <Field label="Cron expression">
+                <Field label={t("fieldCron", undefined, "Cron expression")}>
                   <input
                     type="text"
                     value={cron}
@@ -529,42 +532,42 @@ export function CreateAutomationDialog({
                 }}
                 className="text-[10px] text-[var(--text-secondary)] underline"
               >
-                {rawCronMode ? "use schedule helper" : "edit raw cron"}
+                {rawCronMode ? t("useScheduleHelper", undefined, "use schedule helper") : t("editRawCron", undefined, "edit raw cron")}
               </button>
               <p className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]" data-testid="create-next-run">
                 {nextRun ? (
                   <>
                     <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse motion-reduce:animate-none" />
-                    Next run: {nextRun}
+                    {t("nextRunLabel", undefined, "Next run:")} {nextRun}
                   </>
                 ) : (
-                  "Invalid cron expression"
+                  t("invalidCron", undefined, "Invalid cron expression")
                 )}
               </p>
             </div>
           ) : (
             <div className="space-y-1" data-testid="trigger-events">
               {isFile && (
-                <Field label="Folder to watch">
+                <Field label={t("fieldFolderToWatch", undefined, "Folder to watch")}>
                   <input
                     type="text"
                     value={filePath}
                     onChange={(e) => setFilePath(e.target.value)}
-                    placeholder="/spool/invoices"
+                    placeholder={t("filePathPlaceholder", undefined, "/spool/invoices")}
                     data-testid="create-file-path"
                     className="input font-mono"
                   />
                   <p className="text-[10px] text-[var(--text-muted)]" data-testid="create-file-path-help">
-                    Fires once per new file that arrives here (settle: rename-only).
+                    {t("filePathHelp", undefined, "Fires once per new file that arrives here (settle: rename-only).")}
                   </p>
                   {filePathMissing && (
                     <p className="text-[10px] text-[var(--danger,#ef4444)]" data-testid="file-path-missing">
-                      Folder to watch is required.
+                      {t("filePathRequired", undefined, "Folder to watch is required.")}
                     </p>
                   )}
                 </Field>
               )}
-              <p className="text-[10px] text-[var(--text-muted)]">Select one or more event types:</p>
+              <p className="text-[10px] text-[var(--text-muted)]">{t("selectEventTypes", undefined, "Select one or more event types:")}</p>
               <div className="grid grid-cols-2 gap-1">
               {activeCategory?.events.map((ev) => {
                 const planned = ev.status === "planned";
@@ -582,14 +585,14 @@ export function CreateAutomationDialog({
                     />
                     <span className="font-mono">{ev.event}</span>
                     <span className="text-[var(--text-muted)]">{ev.label}</span>
-                    {planned && <span className="text-[9px]">soon</span>}
+                    {planned && <span className="text-[9px]">{t("soon", undefined, "soon")}</span>}
                   </label>
                 );
               })}
               </div>
               {eventsMissing && (
                 <p className="text-[10px] text-[var(--danger,#ef4444)]" data-testid="events-missing">
-                  Select at least one event type.
+                  {t("eventsMissing", undefined, "Select at least one event type.")}
                 </p>
               )}
             </div>
@@ -597,7 +600,7 @@ export function CreateAutomationDialog({
         </Group>
 
         {/* ── ACTION ───────────────────────────────────────────── */}
-        <Group title="Action">
+        <Group title="Action" label={t("groupAction", undefined, "Action")}>
           <ActionPicker
             actions={actions}
             selectedId={actionId}
@@ -616,7 +619,7 @@ export function CreateAutomationDialog({
             }}
           />
           {actionId === "core.prompt" && (
-            <Field label="Prompt (durable, saved to prompt.md)">
+            <Field label={t("fieldPrompt", undefined, "Prompt (durable, saved to prompt.md)")}>
               <textarea
                 value={promptBody}
                 onChange={(e) => setPromptBody(e.target.value)}
@@ -627,12 +630,12 @@ export function CreateAutomationDialog({
             </Field>
           )}
           {actionId === "core.skill" && (
-            <Field label="Skill ($skill-name)">
+            <Field label={t("fieldSkill", undefined, "Skill ($skill-name)")}>
               <input
                 type="text"
                 value={skill}
                 onChange={(e) => setSkill(e.target.value)}
-                placeholder="$recent-code-bugfix"
+                placeholder={t("skillPlaceholder", undefined, "$recent-code-bugfix")}
                 data-testid="create-skill"
                 className="input font-mono"
               />
@@ -660,7 +663,7 @@ export function CreateAutomationDialog({
               />
             </>
           )}
-          <Field label="Model">
+          <Field label={t("fieldModel", undefined, "Model")}>
             <div className="flex gap-1 mb-1">
               <button
                 type="button"
@@ -684,7 +687,7 @@ export function CreateAutomationDialog({
                     : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
                 }`}
               >
-                specific model
+                {t("specificModel", undefined, "specific model")}
               </button>
             </div>
             {modelMode === "role" ? (
@@ -723,12 +726,12 @@ export function CreateAutomationDialog({
             onClick={() => setAdvancedOpen((v) => !v)}
             className="text-xs font-medium text-[var(--text-secondary)]"
           >
-            {advancedOpen ? "▾" : "▸"} Advanced
+            {advancedOpen ? "▾" : "▸"} {t("advanced", undefined, "Advanced")}
           </button>
           {advancedOpen && (
             <div className="space-y-2 pt-2" data-testid="create-advanced">
               <div className="grid grid-cols-2 gap-2">
-                <Field label="Mode">
+                <Field label={t("fieldMode", undefined, "Mode")}>
                   <select
                     value={mode}
                     onChange={(e) => setMode(e.target.value as RunMode)}
@@ -737,16 +740,16 @@ export function CreateAutomationDialog({
                   >
                     <option value="local">local</option>
                     <option value="worktree" disabled={!worktreeAvailable}>
-                      worktree{!worktreeAvailable ? " (needs git)" : ""}
+                      worktree{!worktreeAvailable ? t("needsGit", undefined, " (needs git)") : ""}
                     </option>
                   </select>
                   {!worktreeAvailable && (
                     <p className="text-[10px] text-[var(--text-muted)]" data-testid="create-worktree-hint">
-                      Worktree requires a git repository — falling back to local.
+                      {t("worktreeHint", undefined, "Worktree requires a git repository — falling back to local.")}
                     </p>
                   )}
                 </Field>
-                <Field label="Concurrency">
+                <Field label={t("fieldConcurrency", undefined, "Concurrency")}>
                   <select
                     value={concurrency}
                     onChange={(e) => setConcurrency(e.target.value as Concurrency)}
@@ -759,7 +762,7 @@ export function CreateAutomationDialog({
                   </select>
                 </Field>
               </div>
-              <Field label="Sandbox">
+              <Field label={t("fieldSandbox", undefined, "Sandbox")}>
                 <select
                   value={sandbox}
                   onChange={(e) => setSandbox(e.target.value as Sandbox)}
@@ -774,14 +777,14 @@ export function CreateAutomationDialog({
                   {SANDBOX_HELP[sandbox]}
                 </p>
               </Field>
-              <Field label="Board visibility override">
+              <Field label={t("fieldVisibility", undefined, "Board visibility override")}>
                 <select
                   value={visibility}
                   onChange={(e) => setVisibility(e.target.value as VisibilityChoice)}
                   data-testid="create-visibility"
                   className="input"
                 >
-                  <option value="default">use settings default</option>
+                  <option value="default">{t("visibilityDefaultOption", undefined, "use settings default")}</option>
                   <option value="hidden">hidden</option>
                   <option value="shown">shown</option>
                 </select>
@@ -797,13 +800,13 @@ export function CreateAutomationDialog({
         )}
 
         <p className="text-[10px] text-[var(--text-muted)] font-mono" data-testid="editor-footer-caption">
-          Writes .pi/automation/{name.trim() || "<name>"}/automation.yaml
+          {t("writes", undefined, "Writes")} .pi/automation/{name.trim() || "<name>"}/automation.yaml
           {actionId === "core.prompt" ? " + prompt.md" : ""}
         </p>
 
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="px-3 py-1 text-xs rounded border border-[var(--border-secondary)]">
-            Cancel
+            {t("cancel", undefined, "Cancel")}
           </button>
           <button
             type="button"
@@ -812,7 +815,7 @@ export function CreateAutomationDialog({
             data-testid="create-submit"
             className="px-3 py-1 text-xs rounded bg-[var(--accent,#6366f1)] text-white disabled:opacity-50"
           >
-            {busy ? "Saving…" : editing ? "Save" : "Create"}
+            {busy ? t("saving", undefined, "Saving…") : editing ? t("save", undefined, "Save") : t("create", undefined, "Create")}
           </button>
         </div>
       </div>
@@ -829,13 +832,13 @@ function mapKindToCategory(kind: string): string {
   return kind === "schedule" ? "scheduled" : kind;
 }
 
-function Group({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement {
+function Group({ title, label, children }: { title: string; label?: string; children: React.ReactNode }): React.ReactElement {
   return (
     <section
       data-testid={`group-${title.toLowerCase()}`}
       className="space-y-2 rounded-lg border border-[var(--border-secondary)] p-3"
     >
-      <h3 className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{title}</h3>
+      <h3 className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label ?? title}</h3>
       {children}
     </section>
   );
@@ -912,6 +915,7 @@ function ActionPicker({
   onToggleSource: (source: string) => void;
   onSelect: (desc: ActionDescriptor) => void;
 }): React.ReactElement {
+  const t = useT();
   const q = search.trim().toLowerCase();
   const matched = actions.filter(
     (a) => !q || a.id.toLowerCase().includes(q) || a.label.toLowerCase().includes(q) || a.source.toLowerCase().includes(q),
@@ -932,14 +936,14 @@ function ActionPicker({
         type="text"
         value={search}
         onChange={(e) => onSearch(e.target.value)}
-        placeholder={`Filter ${actions.length} actions…`}
-        aria-label="Filter actions"
+        placeholder={t("filterActions", { count: actions.length }, `Filter ${actions.length} actions…`)}
+        aria-label={t("filterActionsAria", undefined, "Filter actions")}
         data-testid="create-action-search"
         className="input mb-2"
       />
       {matched.length === 0 ? (
         <p className="text-[11px] text-[var(--text-muted)] px-1 py-2" data-testid="create-action-zero">
-          No actions match “{search}”. Try a plugin (<code>flows</code>) or verb (<code>run</code>).
+          {t("noActionsMatch", { query: search }, `No actions match “${search}”. Try a plugin (`)}<code>flows</code>{t("noActionsOrVerb", undefined, ") or verb (")}<code>run</code>).
         </p>
       ) : (
         <div className="rounded border border-[var(--border-secondary)] divide-y divide-[var(--border-secondary)]">
@@ -959,7 +963,7 @@ function ActionPicker({
                   <span className="text-[var(--text-muted)]">{open ? "▾" : "▸"}</span>
                   <span className="capitalize">{src}</span>
                   <span className="ml-auto text-[10px] font-normal text-[var(--text-muted)]">
-                    {sourceAvailable ? `${items.length} action${items.length !== 1 ? "s" : ""}` : "⚠ not available here"}
+                    {sourceAvailable ? `${items.length} action${items.length !== 1 ? "s" : ""}` : t("notAvailableHere", undefined, "⚠ not available here")}
                   </span>
                 </button>
                 {open && (
@@ -1012,10 +1016,11 @@ function ActionPayloadForm({
   values: Record<string, string>;
   onChange: (key: string, value: string) => void;
 }): React.ReactElement {
+  const t = useT();
   if (schema.length === 0) {
     return (
       <p className="text-[11px] text-[var(--text-muted)] mt-2" data-testid="action-payload-empty">
-        This action takes no payload. It runs with the automation’s folder scope.
+        {t("payloadEmpty", undefined, "This action takes no payload. It runs with the automation’s folder scope.")}
       </p>
     );
   }

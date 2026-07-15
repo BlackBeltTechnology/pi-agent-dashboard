@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Seek-to-card mockup</title>
+<style>
+  :root{
+    --bg-primary:#0d1117; --bg-secondary:#161b22; --bg-tertiary:#1c2430;
+    --border-subtle:#30363d; --text-primary:#e6edf3; --text-secondary:#9da7b3;
+    --text-muted:#6e7681; --accent-blue:#4493f8; --accent-orange:#e3853d;
+    --status-working:#3fb950; --status-needs-you:#e3853d; --status-idle:#6e7681;
+    --shadow-card:rgba(0,0,0,.4); --elevation-rim:rgba(255,255,255,.04);
+    --flash:#4493f8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:var(--bg-primary);color:var(--text-primary);height:100vh;overflow:hidden}
+  .app{display:grid;grid-template-columns:340px 1fr;height:100vh}
+
+  /* ── sidebar ── */
+  .sidebar{background:var(--bg-secondary);border-right:1px solid var(--border-subtle);
+    overflow-y:auto;padding:10px}
+  .side-head{display:flex;justify-content:space-between;align-items:center;
+    padding:4px 6px 10px;color:var(--text-secondary);font-weight:600;font-size:12px;
+    text-transform:uppercase;letter-spacing:.04em}
+  .toggle{font-size:11px;color:var(--text-muted);border:1px solid var(--border-subtle);
+    border-radius:6px;padding:2px 8px;cursor:pointer;background:transparent}
+  .toggle.on{color:var(--accent-blue);border-color:var(--accent-blue)}
+
+  /* workspace tier */
+  .ws{border:1px solid var(--border-subtle);border-radius:12px;margin-bottom:10px;
+    background:var(--bg-primary);
+    box-shadow:inset 0 1px 0 var(--elevation-rim),0 2px 4px var(--shadow-card)}
+  .ws-head{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;
+    font-weight:600;color:var(--text-primary)}
+  .ws-head .cnt{color:var(--text-muted);font-weight:400;font-size:11px}
+  .ws-body{padding:0 8px 8px}
+  .collapsed>.ws-body,.collapsed>.folder-body,.collapsed>.ended-body{display:none}
+
+  /* folder */
+  .folder{border:1px solid var(--border-subtle);border-radius:12px;margin:8px 0 0;
+    background:var(--bg-primary);
+    box-shadow:inset 0 1px 0 var(--elevation-rim),0 2px 4px var(--shadow-card)}
+  .folder-head{display:flex;align-items:center;gap:6px;padding:8px 10px;cursor:pointer;
+    color:var(--text-secondary);font-size:12px}
+  .folder-head .seg{color:var(--text-primary);font-weight:700}
+  .folder-head .cnt{color:var(--text-muted);font-size:10px}
+  .folder-body{padding:4px 8px 8px}
+
+  .chev{display:inline-block;width:12px;transition:transform .15s;color:var(--text-muted)}
+  .collapsed>.ws-head .chev,.collapsed>.folder-head .chev,.collapsed>.ended-head .chev{transform:rotate(-90deg)}
+
+  /* ended sub-group */
+  .ended{margin-top:6px}
+  .ended-head{display:flex;align-items:center;gap:6px;padding:5px 8px;cursor:pointer;
+    color:var(--text-muted);font-size:11px;border-top:1px dashed var(--border-subtle)}
+  .ended-body{padding:4px 0 0}
+
+  /* session card */
+  .card{border:1px solid var(--border-subtle);border-radius:10px;padding:9px 11px;
+    margin:6px 0;background:var(--bg-tertiary);cursor:pointer;position:relative;
+    box-shadow:inset 0 1px 0 var(--elevation-rim),0 2px 4px var(--shadow-card)}
+  .card:hover{border-color:var(--text-muted)}
+  .card.sel{border-color:var(--accent-blue);box-shadow:0 0 0 1px var(--accent-blue)}
+  .card .row1{display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;border-radius:50%;flex:none}
+  .dot.work{background:var(--status-working)} .dot.idle{background:var(--status-idle)}
+  .dot.need{background:var(--status-needs-you)}
+  .card .name{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .card .meta{color:var(--text-muted);font-size:11px;margin-top:2px}
+  .card.ended{opacity:.6}
+  @keyframes flash{0%,100%{box-shadow:0 0 0 1px transparent}
+    30%{box-shadow:0 0 0 3px var(--flash);border-color:var(--flash)}}
+  .card.flash{animation:flash 1.1s ease-out 2}
+
+  /* ── chat pane ── */
+  .chat{display:flex;flex-direction:column;height:100vh;background:var(--bg-primary)}
+  .chat-head{display:flex;align-items:center;gap:10px;padding:12px 18px;
+    border-bottom:1px solid var(--border-subtle);background:var(--bg-secondary)}
+  .chat-head .dot{width:9px;height:9px}
+  .chat-title{font-weight:600;font-size:15px;flex:1}
+  .chat-sub{color:var(--text-muted);font-size:11px;font-weight:400;margin-top:1px}
+  .seek-btn{display:flex;align-items:center;gap:6px;border:1px solid var(--accent-blue);
+    color:var(--accent-blue);background:rgba(68,147,248,.08);border-radius:8px;
+    padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer}
+  .seek-btn:hover{background:rgba(68,147,248,.16)}
+  .seek-btn:active{transform:translateY(1px)}
+  .chat-body{flex:1;overflow-y:auto;padding:24px 28px;display:flex;flex-direction:column;gap:16px}
+  .msg{max-width:70%;padding:10px 14px;border-radius:12px;white-space:pre-wrap}
+  .msg.u{align-self:flex-end;background:var(--accent-blue);color:#fff}
+  .msg.a{align-self:flex-start;background:var(--bg-secondary);border:1px solid var(--border-subtle)}
+  .hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+    background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px;
+    padding:8px 14px;font-size:12px;color:var(--text-secondary);box-shadow:0 4px 12px var(--shadow-card)}
+  .hint b{color:var(--accent-blue)}
+  .scenario{padding:6px 8px;margin:0 0 8px;font-size:11px;color:var(--text-muted);
+    background:var(--bg-tertiary);border:1px dashed var(--border-subtle);border-radius:8px}
+  /* toast */
+  .toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%) translateY(20px);
+    background:var(--accent-orange);color:#1a1005;padding:8px 16px;border-radius:8px;
+    font-size:12px;font-weight:600;opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="side-head"><span>Sessions</span>
+      <span class="toggle" id="hiddenToggle">Show hidden</span></div>
+    <div class="scenario">Target card <b>refactor-auth</b> is buried 3 levels deep:
+      collapsed workspace → collapsed folder → collapsed “ended” group. Hit
+      <b>Seek ⌖</b> in the chat header →</div>
+
+    <!-- workspace A (open, contains a normal active card) -->
+    <div class="ws" id="ws-frontend">
+      <div class="ws-head" onclick="toggle('ws-frontend')">
+        <span class="chev">▾</span><span>Frontend</span><span class="cnt">2 folders</span></div>
+      <div class="ws-body">
+        <div class="folder" id="f-webapp">
+          <div class="folder-head" onclick="toggle('f-webapp')">
+            <span class="chev">▾</span><span>~/proj/</span><span class="seg">webapp</span><span class="cnt">(1)</span></div>
+          <div class="folder-body">
+            <div class="card" data-sid="s-nav">
+              <div class="row1"><span class="dot work"></span><span class="name">fix-navbar-overflow</span></div>
+              <div class="meta">claude-sonnet · $0.42</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- workspace B (COLLAPSED) → folder (COLLAPSED) → ended (COLLAPSED) → target -->
+    <div class="ws collapsed" id="ws-backend">
+      <div class="ws-head" onclick="toggle('ws-backend')">
+        <span class="chev">▾</span><span>Backend</span><span class="cnt">1 folder</span></div>
+      <div class="ws-body">
+        <div class="folder collapsed" id="f-api">
+          <div class="folder-head" onclick="toggle('f-api')">
+            <span class="chev">▾</span><span>~/proj/</span><span class="seg">api-server</span><span class="cnt">(3)</span></div>
+          <div class="folder-body">
+            <div class="card" data-sid="s-mig">
+              <div class="row1"><span class="dot idle"></span><span class="name">add-migrations</span></div>
+              <div class="meta">gpt-4o · $1.10</div></div>
+            <div class="ended collapsed" id="ended-api">
+              <div class="ended-head" onclick="toggle('ended-api')">
+                <span class="chev">▾</span><span>2 ended</span></div>
+              <div class="ended-body">
+                <div class="card ended" data-sid="s-old">
+                  <div class="row1"><span class="dot idle"></span><span class="name">old-cleanup</span></div>
+                  <div class="meta">ended · claude-haiku</div></div>
+                <div class="card ended" data-sid="s-auth">
+                  <div class="row1"><span class="dot idle"></span><span class="name">refactor-auth</span></div>
+                  <div class="meta">ended · claude-sonnet · $2.30</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- a hidden card, revealed only via Show hidden -->
+    <div class="ws" id="ws-hidden" style="display:none">
+      <div class="ws-head"><span class="chev">▾</span><span>Archived (hidden)</span></div>
+      <div class="ws-body"><div class="folder"><div class="folder-body">
+        <div class="card" data-sid="s-hidden">
+          <div class="row1"><span class="dot idle"></span><span class="name">spike-graphql</span></div>
+          <div class="meta">hidden · gpt-4o</div></div>
+      </div></div></div>
+    </div>
+  </div>
+
+  <!-- CHAT PANE -->
+  <div class="chat">
+    <div class="chat-head">
+      <span class="dot idle"></span>
+      <div class="chat-title">refactor-auth
+        <div class="chat-sub">~/proj/api-server · ended · claude-sonnet</div></div>
+      <button class="seek-btn" id="seekBtn" title="Reveal this session's card in the list">
+        ⌖ Seek to card</button>
+    </div>
+    <div class="chat-body">
+      <div class="msg u">Refactor the auth middleware to use the new token verifier.</div>
+      <div class="msg a">Done. Replaced the legacy `verifySession` with `TokenVerifier`,
+updated 4 call sites, and added a regression test. The old session-cookie path
+is now behind a feature flag.</div>
+      <div class="msg u">Ship it.</div>
+      <div class="msg a">Committed and pushed. This session is now ended.</div>
+    </div>
+  </div>
+</div>
+
+<div class="hint">This card sits behind <b>3 collapsed containers</b>. “Seek” walks the
+ancestor chain (workspace → folder → ended), expands each, then scrolls + flashes.</div>
+<div class="toast" id="toast"></div>
+
+<script>
+  const TARGET = "s-auth";
+  // ancestor chain for the target, outer→inner (mirrors the real trace)
+  const ANCESTORS = ["ws-backend", "f-api", "ended-api"];
+
+  function toggle(id){ document.getElementById(id).classList.toggle("collapsed"); }
+
+  function showToast(msg){
+    const t = document.getElementById("toast");
+    t.textContent = msg; t.classList.add("show");
+    setTimeout(()=>t.classList.remove("show"), 2600);
+  }
+
+  // Robust reveal: expand each ancestor, then RETRY-until-present before scroll
+  // (models the async workspace-collapse echo — scroll must wait for the DOM).
+  function seek(){
+    // 1. expand every collapsed ancestor (sync in mockup; async ws in real app)
+    ANCESTORS.forEach(id=>{
+      const el = document.getElementById(id);
+      if(el.classList.contains("collapsed")) el.classList.remove("collapsed");
+    });
+    // 2. select
+    document.querySelectorAll(".card.sel").forEach(c=>c.classList.remove("sel"));
+    // 3. retry-until-present, THEN scroll + flash
+    let tries = 0;
+    (function attempt(){
+      const card = document.querySelector(`[data-sid="${TARGET}"]`);
+      // NOTE: this demo collapses via display:none, so offsetParent works here.
+      // The REAL app collapses via grid-template-rows:0fr;opacity:0 (index.css),
+      // where offsetParent stays non-null on a 0-height row. Use
+      // getBoundingClientRect().height > 0 in the real implementation, scoped to
+      // the SessionList container (not document). See design.md Decision 2.
+      const visible = card && card.offsetParent !== null;
+      if(visible){
+        card.classList.add("sel");
+        card.scrollIntoView({behavior:"smooth", block:"center"});
+        card.classList.remove("flash"); void card.offsetWidth; card.classList.add("flash");
+        return;
+      }
+      if(tries++ < 10) requestAnimationFrame(attempt); // cap ~10 frames
+    })();
+  }
+
+  document.getElementById("seekBtn").addEventListener("click", seek);
+
+  // hidden toggle: demonstrates the "don't auto-reveal hidden" branch
+  document.getElementById("hiddenToggle").addEventListener("click", (e)=>{
+    const on = e.target.classList.toggle("on");
+    document.getElementById("ws-hidden").style.display = on ? "" : "none";
+    e.target.textContent = on ? "Hiding hidden" : "Show hidden";
+  });
+
+  // clicking a card selects it (for feel)
+  document.querySelectorAll(".card").forEach(c=>c.addEventListener("click",()=>{
+    document.querySelectorAll(".card.sel").forEach(x=>x.classList.remove("sel"));
+    c.classList.add("sel");
+  }));
+</script>
+</body>
+</html>

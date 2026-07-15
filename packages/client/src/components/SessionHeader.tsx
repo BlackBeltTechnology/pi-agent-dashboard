@@ -1,26 +1,26 @@
-import React, { useState, useEffect, useRef } from "react";
+import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiArrowLeft, mdiCrosshairsGps, mdiFileCompare, mdiHeadLightbulb, mdiLinkOff, mdiPaperclip, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiRefresh, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiPencilOutline, mdiArrowLeft, mdiPaperclip, mdiRefresh, mdiLinkOff, mdiPlay, mdiFileCompare, mdiHeadLightbulb, mdiViewGridOutline, mdiPlayCircleOutline, mdiSourceFork } from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, CommandInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { SessionState } from "../lib/event-reducer.js";
+import React, { useEffect, useRef, useState } from "react";
+import { useMobile } from "../hooks/useMobile.js";
 import type { DetectedEditor } from "../lib/editor-api.js";
+import type { SessionState } from "../lib/event-reducer.js";
+import { t as i18nT } from "../lib/i18n";
 import { getSessionDisplayName } from "../lib/session-display-name.js";
+import { CountBadges } from "./CountBadges.js";
+import { FooterSegmentSlot } from "./extension-ui/FooterSegmentSlot.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
 import { MobileActionMenu } from "./MobileActionMenu.js";
-import { useMobile } from "../hooks/useMobile.js";
-import { useOptionalSplitWorkspace } from "./SplitWorkspaceContext.js";
-import { useOptionalSessionDiff } from "./SessionDiffContext.js";
-import { CountBadges } from "./CountBadges.js";
+import { ArtifactLettersButton } from "./openspec-helpers.js";
 // FlowLaunchDialog removed: flow launching is owned entirely by
 // flows-plugin's command-route claims (/flows, /flows:new, etc.) and
 // SessionFlowActionsClaim. See change: pluginize-flows-via-registry.
 import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDialog.js";
+import { useOptionalSessionDiff } from "./SessionDiffContext.js";
 import { SplitToggleButton } from "./SplitToggleButton.js";
-import { FooterSegmentSlot } from "./extension-ui/FooterSegmentSlot.js";
-import { ArtifactLettersButton } from "./openspec-helpers.js";
+import { useOptionalSplitWorkspace } from "./SplitWorkspaceContext.js";
 import { TagChip } from "./tags/TagChip.js";
 import { TagEditor } from "./tags/TagEditor.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   session?: DashboardSession;
@@ -54,6 +54,10 @@ interface Props {
   /** Replace the session's full user-tag list. When set, the desktop header
    *  renders the editable tag strip. See change: add-session-tags. */
   onSetTags?: (tags: string[]) => void;
+  /** Seek to this session's card in the sidebar (expand fold-ancestors +
+   *  scroll + flash). Desktop-only button; hidden on mobile. When omitted
+   *  the button does not render. See change: add-seek-to-session-card. */
+  onSeekToCard?: () => void;
   /** Mobile action menu props (only used on mobile) */
   mobileActions?: {
     editors?: DetectedEditor[];
@@ -129,7 +133,7 @@ function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
                   onClick={() => { setOpen(false); onDetach(); }}
                   className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left min-h-[44px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
                 >
-                  {i18nT("auto.detach", undefined, "Detach")}
+                  {i18nT("common.detach", undefined, "Detach")}
                 </button>
               )}
             </>
@@ -182,7 +186,7 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
         <button
           onClick={onBack}
           className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-          title={i18nT("auto.go_back", undefined, "Go back")}
+          title={i18nT("common.goBack", undefined, "Go back")}
           data-testid="back-button"
         >
           <Icon path={mdiArrowLeft} size={0.7} />
@@ -289,7 +293,7 @@ function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume, allTags, onSetTags }: Props) {
+export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume, allTags, onSetTags, onSeekToCard }: Props) {
   const [now, setNow] = useState(Date.now());
   const [isRenaming, setIsRenaming] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -322,7 +326,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
   if (!session) {
     return (
       <div className="px-4 py-2 border-b border-[var(--border-primary)] text-sm text-[var(--text-tertiary)]">
-        {i18nT("auto.no_session_selected", undefined, "No session selected")}
+        {i18nT("session.noSessionSelected", undefined, "No session selected")}
       </div>
     );
   }
@@ -375,7 +379,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
         <button
           onClick={onBack}
           className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5"
-          title={i18nT("auto.go_back", undefined, "Go back")}
+          title={i18nT("common.goBack", undefined, "Go back")}
           data-testid="back-button"
         >
           <Icon path={mdiArrowLeft} size={0.65} />
@@ -400,9 +404,21 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
             <button
               onClick={() => setIsRenaming(true)}
               className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5"
-              title={i18nT("auto.rename_session", undefined, "Rename session")}
+              title={i18nT("session.renameSession", undefined, "Rename session")}
             >
               <Icon path={mdiPencilOutline} size={0.5} />
+            </button>
+          )}
+          {onSeekToCard && (
+            <button
+              type="button"
+              onClick={onSeekToCard}
+              className="ml-0.5 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
+              title={i18nT("session.seekToCard", undefined, "Seek to this session's card in the sidebar")}
+              data-testid="session-header-seek-card"
+            >
+              <Icon path={mdiCrosshairsGps} size={0.45} />
+              {i18nT("session.seek", undefined, "Seek")}
             </button>
           )}
         </span>
@@ -454,7 +470,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
               <button
                 onClick={onDetachProposal}
                 className="text-[var(--text-muted)] hover:text-red-400 px-0.5"
-                title={i18nT("auto.detach_change", undefined, "Detach change")}
+                title={i18nT("openspec.detachChange", undefined, "Detach change")}
               >
                 <Icon path={mdiLinkOff} size={0.45} />
               </button>
@@ -464,9 +480,9 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
           <button
             onClick={() => setOpenspecPickerOpen(true)}
             className="text-[10px] px-1.5 py-0.5 rounded border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 mr-1"
-            title={i18nT("auto.attach_openspec_change", undefined, "Attach OpenSpec change")}
+            title={i18nT("openspec.attachOpenspecChange", undefined, "Attach OpenSpec change")}
           >
-            <Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{i18nT("auto.attach", undefined, "Attach")}
+            <Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{i18nT("common.attach", undefined, "Attach")}
           </button>
         )
       )}
@@ -481,10 +497,10 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
         <button
           onClick={onOpenExtensionModulePicker}
           className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 mr-1"
-          title={i18nT("auto.extension_modules", undefined, "Extension modules")}
+          title={i18nT("packages.extensionModules", undefined, "Extension modules")}
           data-testid="open-extension-modules"
         >
-          <Icon path={mdiViewGridOutline} size={0.4} className="inline mr-0.5" />{i18nT("auto.modules", undefined, "Modules")}
+          <Icon path={mdiViewGridOutline} size={0.4} className="inline mr-0.5" />{i18nT("packages.modules", undefined, "Modules")}
         </button>
       )}
       <ChangedFilesChip hasFileChanges={hasFileChanges} onOpenDiffView={onOpenDiffView} />
@@ -494,19 +510,19 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
             onClick={() => onResume!("continue")}
             disabled={!!session.resuming}
             className="text-[10px] px-1.5 py-0.5 rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed mr-1"
-            title={i18nT("auto.resume_session_continue_same_session", undefined, "Resume session (continue same session)")}
+            title={i18nT("session.resumeSessionContinueSameSession", undefined, "Resume session (continue same session)")}
             data-testid="header-resume-button"
           >
-            <Icon path={mdiPlayCircleOutline} size={0.4} className="inline mr-0.5" />{i18nT("auto.resume", undefined, "Resume")}
+            <Icon path={mdiPlayCircleOutline} size={0.4} className="inline mr-0.5" />{i18nT("session.resume", undefined, "Resume")}
           </button>
           <button
             onClick={() => onResume!("fork")}
             disabled={!!session.resuming}
             className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={i18nT("auto.fork_session_new_session_from_this", undefined, "Fork session (new session from this point)")}
+            title={i18nT("session.forkSessionNewSessionFromThis", undefined, "Fork session (new session from this point)")}
             data-testid="header-fork-button"
           >
-            <Icon path={mdiSourceFork} size={0.4} className="inline mr-0.5" />{i18nT("auto.fork", undefined, "Fork")}
+            <Icon path={mdiSourceFork} size={0.4} className="inline mr-0.5" />{i18nT("session.fork", undefined, "Fork")}
           </button>
         </>
       ) : (
@@ -516,16 +532,16 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
         <button
           onClick={() => { onRefresh(); setRefreshing(true); setTimeout(() => setRefreshing(false), 500); }}
           className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5"
-          title={i18nT("auto.refresh_chat", undefined, "Refresh chat")}
+          title={i18nT("session.refreshChat", undefined, "Refresh chat")}
         >
           <Icon path={mdiRefresh} size={0.6} className={refreshing ? "animate-spin" : ""} />
         </button>
       )}
       {openspecPickerOpen && onAttachProposal && (
         <SearchableSelectDialog
-          title={i18nT("auto.attach_openspec_change_2", undefined, "Attach OpenSpec Change")}
+          title={i18nT("openspec.attachOpenspecChange2", undefined, "Attach OpenSpec Change")}
           options={openspecOptions}
-          placeholder={i18nT("auto.search_changes", undefined, "Search changes...")}
+          placeholder={i18nT("common.searchChanges", undefined, "Search changes...")}
           emptyMessage="No changes available"
           onSelect={(value) => {
             onAttachProposal(value);
@@ -573,10 +589,10 @@ function ChangedFilesChip({
       onClick={() => activate()}
       data-testid="changed-files-chip"
       className="text-[10px] px-1.5 py-0.5 rounded border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 mr-1 inline-flex items-center gap-1"
-      title={i18nT("auto.view_changed_files", undefined, "View changed files")}
+      title={i18nT("diff.viewChangedFiles", undefined, "View changed files")}
     >
       <Icon path={mdiFileCompare} size={0.4} className="inline" />
-      <span>{i18nT("auto.changed_files", undefined, "Changed Files")}</span>
+      <span>{i18nT("diff.changedFiles", undefined, "Changed Files")}</span>
       {hasCounts && <CountBadges additions={totalAdditions ?? 0} deletions={totalDeletions ?? 0} />}
       {nFiles > 0 && <span className="text-[var(--text-tertiary)]">· {nFiles}</span>}
     </button>

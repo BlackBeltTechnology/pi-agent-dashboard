@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stable process line — mockup</title>
+<style>
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444; --accent-purple:#a855f7;
+    --status-needs-you:var(--accent-purple); --status-working:var(--accent-yellow); --status-idle:var(--accent-green);
+    --elevation-rim:rgba(255,255,255,.10); --shadow-card:rgba(0,0,0,.4);
+  }
+  [data-theme="light"]{
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+    --elevation-rim:rgba(255,255,255,.9); --shadow-card:rgba(0,0,0,.08);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    background:var(--bg-primary);color:var(--text-secondary);font-size:14px;padding:24px;line-height:1.5}
+  h1{font-size:18px;color:var(--text-primary);margin:0 0 4px}
+  .sub{color:var(--text-tertiary);font-size:13px;margin-bottom:20px}
+  .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:24px;flex-wrap:wrap}
+  button.ctl{background:var(--bg-tertiary);border:1px solid var(--border-secondary);color:var(--text-secondary);
+    border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer}
+  button.ctl:hover{background:var(--bg-hover)}
+  button.ctl.on{border-color:var(--accent-purple);color:var(--text-primary)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:1100px}
+  @media(max-width:820px){.cols{grid-template-columns:1fr}}
+  .col h2{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-tertiary);margin:0 0 10px}
+  .col.before h2 b{color:var(--accent-red)}
+  .col.after h2 b{color:var(--accent-green)}
+  .stack{display:flex;flex-direction:column;gap:10px}
+
+  /* card */
+  .card{background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:10px;padding:12px 14px;
+    box-shadow:inset 0 1px 0 var(--elevation-rim),0 4px 8px var(--shadow-card);
+    transition:box-shadow .15s}
+  .card .head{display:flex;align-items:center;gap:8px}
+  .card .name{font-weight:600;color:var(--text-primary)}
+  .card .model{color:var(--text-tertiary);font-size:12px}
+  .card .spacer{flex:1}
+  .card .cost{color:var(--text-tertiary);font-size:12px}
+  .dot{width:8px;height:8px;border-radius:50%;flex:none}
+  .dot.work{background:var(--status-working);box-shadow:0 0 6px var(--status-working)}
+  .dot.idle{background:var(--status-idle)}
+
+  /* variable process region (BEFORE) */
+  .proc-var{margin-top:8px}
+  .proc-var .label{font-size:10px;letter-spacing:.06em;color:var(--text-muted);margin-bottom:4px}
+  .row{display:flex;align-items:center;gap:8px;font-size:12px;padding:1px 0}
+  .row .play{color:var(--accent-green)}
+  .row .cmd{color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  .row .el{color:var(--text-tertiary);flex:none}
+  .row .stop{color:var(--text-muted);flex:none;cursor:pointer}
+  .row .stop:hover{color:var(--accent-yellow)}
+  .row.bg{color:var(--text-tertiary)}
+  .row.bg .warn{color:var(--accent-yellow)}
+
+  /* STABLE one-line region (AFTER) */
+  .proc-fixed{margin-top:8px;border-top:1px solid var(--border-subtle);padding-top:7px}
+  .fixed-line{display:flex;align-items:center;gap:8px;font-size:12px;height:20px}
+  .fixed-line .play{color:var(--accent-green)}
+  .fixed-line .cmd{color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  .fixed-line .idle{color:var(--text-muted);font-style:italic}
+  .fixed-line .el{color:var(--text-tertiary);flex:none}
+  .chev{display:inline-flex;align-items:center;gap:3px;color:var(--text-tertiary);
+    background:var(--bg-surface);border:1px solid var(--border-secondary);border-radius:10px;
+    padding:0 6px;height:16px;font-size:10px;cursor:pointer;flex:none}
+  .chev:hover{color:var(--text-primary)}
+  .chev[hidden]{display:none}
+  /* unified summary line (AFTER) */
+  .summary-line{display:flex;align-items:center;gap:7px;width:100%;height:20px;
+    background:none;border:none;padding:0;cursor:pointer;font:inherit;text-align:left;color:inherit}
+  .summary-line .twiddle{color:var(--text-muted);flex:none;font-size:10px;width:9px}
+  .summary-line:hover .twiddle,.summary-line:hover .cmd{color:var(--text-primary)}
+  .summary-line .play{color:var(--accent-green);flex:none}
+  .summary-line .cmd{color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;font-size:12px}
+  .summary-line .cmd .idle{color:var(--text-muted);font-style:italic}
+  .summary-line .counts{flex:none;font-size:10px;color:var(--text-tertiary);
+    background:var(--bg-surface);border:1px solid var(--border-secondary);border-radius:9px;padding:0 6px;line-height:15px}
+  .summary-line .counts[hidden]{display:none}
+  .summary-line .counts .warn{color:var(--accent-yellow)}
+  .summary-line .el{color:var(--text-tertiary);flex:none;font-size:12px}
+  .card.open #aTwiddle{transform:none}
+  .expanded{overflow:hidden;max-height:0;transition:max-height .18s ease}
+  .card.open .expanded{max-height:160px}
+  .expanded-inner{padding-top:5px;display:flex;flex-direction:column;gap:1px}
+  .card.open .chevdown{display:none}
+  .chevup{display:none}
+  .card.open .chevup{display:inline-flex}
+
+  .note{max-width:1100px;margin-top:26px;background:var(--bg-secondary);border:1px solid var(--border-primary);
+    border-radius:10px;padding:16px 18px;font-size:13px;color:var(--text-secondary)}
+  .note b{color:var(--text-primary)}
+  .note code{background:var(--bg-code);padding:1px 5px;border-radius:4px;font-size:12px;color:var(--text-primary)}
+  .measure{font-size:11px;color:var(--text-muted);margin-top:6px;font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+  <h1>Session card — stable process line</h1>
+  <div class="sub">Left = today (region mounts/unmounts → card height jumps). Right = proposed (one permanent line, expandable).</div>
+
+  <div class="toolbar">
+    <button class="ctl" id="btnPlay">▶ Simulate a run</button>
+    <button class="ctl" id="btnStep">Step once</button>
+    <button class="ctl on" id="btnTheme">◐ Toggle theme</button>
+    <button class="ctl" id="btnReserve" title="DisplayPrefs.reserveProcessLineAtIdle">⚙ Reserve line at idle: OFF</button>
+    <span class="measure" id="phaseLabel">phase: idle</span>
+  </div>
+
+  <div class="cols">
+    <!-- BEFORE -->
+    <div class="col before">
+      <h2>BEFORE — <b>height varies</b> with tool count</h2>
+      <div class="stack">
+        <div class="card" id="beforeCard">
+          <div class="head">
+            <span class="dot idle" id="bDot"></span>
+            <span class="name">fix-split-composer</span>
+            <span class="model">claude-opus-4</span>
+            <span class="spacer"></span>
+            <span class="cost">$0.57</span>
+          </div>
+          <div class="proc-var" id="bProc"></div>
+        </div>
+        <!-- neighbour to show the jump -->
+        <div class="card">
+          <div class="head"><span class="dot idle"></span><span class="name">invoice-bot</span>
+            <span class="model">gemini-2.5</span><span class="spacer"></span><span class="cost">$0.12</span></div>
+        </div>
+        <div class="card">
+          <div class="head"><span class="dot idle"></span><span class="name">kb-reindex</span>
+            <span class="model">haiku-4</span><span class="spacer"></span><span class="cost">$0.03</span></div>
+        </div>
+      </div>
+      <div class="measure" id="bMeasure">card height: — px</div>
+    </div>
+
+    <!-- AFTER -->
+    <div class="col after">
+      <h2>AFTER — <b>unified summary line</b> (reuses drawer collapse)</h2>
+      <div class="stack">
+        <div class="card" id="afterCard">
+          <div class="head">
+            <span class="dot idle" id="aDot"></span>
+            <span class="name">fix-split-composer</span>
+            <span class="model">claude-opus-4</span>
+            <span class="spacer"></span>
+            <span class="cost">$0.57</span>
+          </div>
+          <div class="proc-fixed" id="aProcFixed">
+            <button class="summary-line" id="aSummary" onclick="toggleAfter()" aria-expanded="false">
+              <span class="twiddle" id="aTwiddle">▸</span>
+              <span class="play" id="aPlay">⏵</span>
+              <span class="cmd" id="aCmd"><span class="idle">idle</span></span>
+              <span class="counts" id="aCounts" hidden></span>
+              <span class="el" id="aEl"></span>
+            </button>
+            <div class="expanded"><div class="expanded-inner" id="aExpanded"></div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="head"><span class="dot idle"></span><span class="name">invoice-bot</span>
+            <span class="model">gemini-2.5</span><span class="spacer"></span><span class="cost">$0.12</span></div>
+        </div>
+        <div class="card">
+          <div class="head"><span class="dot idle"></span><span class="name">kb-reindex</span>
+            <span class="model">haiku-4</span><span class="spacer"></span><span class="cost">$0.03</span></div>
+        </div>
+      </div>
+      <div class="measure" id="aMeasure">card height: — px (stable)</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Unified summary line.</b> The AFTER card folds BOTH surfaces — in-flight bash (<code>SessionActivityBar</code>)
+    and background processes (<code>ProcessList</code> drawer) — into <b>one collapsible summary line</b>, reusing the
+    drawer's existing <code>useDrawerExpansion</code> / <code>processDrawerCollapsed</code> persistence (already tested).
+    Collapsed line = <code>▸ ⏵ &lt;running cmd&gt; [N running · ⚠1] &lt;elapsed&gt;</code>; expanding reveals every activity row
+    (each with its own <code>⏹</code>) + bg rows. Expand/collapse is remembered per session.
+    <div class="measure" style="margin-top:10px">⚙ <b>Global setting</b> — the “Reserve line at idle” toggle above maps to a new
+    <code>DisplayPrefs.reserveProcessLineAtIdle</code> field (global default in <code>~/.pi/dashboard/preferences.json</code>,
+    per-session override free via <code>mergeDisplayPrefs</code>, exactly like <code>contextUsageBar</code>). Proposed preset
+    defaults: <code>simple/standard = false</code>, <code>everything = true</code>. ON = zero jump ever (permanent thin line on
+    idle cards); OFF = subcard mounts on the first tool of a run (one jump), then stable.
+    &nbsp;&nbsp;Decision #2 — collapsed line shows the running command + a stable-width counts pill (<code>2 running · ⚠1</code>).</div>
+    Core change: in <code>ProcessSubcard</code> drop the <code>!hasActivity &amp;&amp; !hasProcesses → return null</code> unmount;
+    give <code>SessionActivityBar</code> the same summary-row + <code>+N</code> collapse <code>ProcessList</code> already has
+    (extract a shared <code>collapse-summary</code> helper — DRY).
+  </div>
+
+<script>
+  const tools = [
+    {cmd:"npm run build", play:"⏵"},
+    {cmd:"tsc --noEmit", play:"⏵"},
+    {cmd:"vitest run packages/client", play:"⏵"},
+  ];
+  const bg = {label:"1 background process (vite :5173)"};
+
+  // sequence of active tool counts to simulate a run
+  const seq = [0,1,2,3,2,1,0];
+  let idx = 0, timer = null, elapsed = {};
+
+  function render(n){
+    // BEFORE — variable region
+    const bProc = document.getElementById('bProc');
+    const bDot = document.getElementById('bDot');
+    if(n===0){ bProc.innerHTML=''; bDot.className='dot idle'; }
+    else {
+      bDot.className='dot work';
+      let html = '<div class="label">PROCESS</div>';
+      for(let i=0;i<Math.min(n,tools.length);i++){
+        html += `<div class="row"><span class="play">${tools[i].play}</span>
+          <span class="cmd">${tools[i].cmd}</span><span class="el">${(elapsed[i]||0)}s</span>
+          <span class="stop">⏹</span></div>`;
+      }
+      if(n>tools.length){ html += `<div class="row bg"><span class="warn">⚠</span>
+        <span class="cmd">${bg.label}</span></div>`; }
+      bProc.innerHTML = html;
+    }
+    document.getElementById('bMeasure').textContent =
+      'card height: ' + document.getElementById('beforeCard').offsetHeight + ' px';
+
+    // AFTER — ONE unified summary line folding activity + bg into the drawer collapse
+    const aDot=document.getElementById('aDot'), aPlay=document.getElementById('aPlay'),
+      aCmd=document.getElementById('aCmd'), aEl=document.getElementById('aEl'),
+      aCounts=document.getElementById('aCounts'), aExp=document.getElementById('aExpanded'),
+      aProcFixed=document.getElementById('aProcFixed');
+    const running = Math.min(n, tools.length);
+    const bgCount = n>tools.length ? 1 : 0;
+    // Decision #1: reserve the line always, or only once active?
+    const reserveAlways = document.getElementById('btnReserve').classList.contains('on');
+    aProcFixed.style.display = (reserveAlways || n>0) ? '' : 'none';
+    if(n===0){
+      aDot.className='dot idle'; aPlay.style.opacity=.3;
+      aCmd.innerHTML='<span class="idle">idle</span>';
+      aEl.textContent=''; aCounts.hidden=true; aExp.innerHTML='';
+      document.getElementById('afterCard').classList.remove('open');
+    } else {
+      aDot.className='dot work'; aPlay.style.opacity=1;
+      aCmd.textContent = tools[0].cmd;
+      aEl.textContent = (elapsed[0]||0)+'s';
+      // Decision #2: counts pill (stable width) alongside the running command
+      const parts=[];
+      if(running>1) parts.push(running+' running');
+      let cHtml = parts.join(' · ');
+      if(bgCount) cHtml += (cHtml?' · ':'')+'<span class="warn">⚠'+bgCount+'</span>';
+      aCounts.innerHTML = cHtml; aCounts.hidden = !cHtml;
+      // expanded body = ALL activity rows + bg row (unified)
+      let html='';
+      for(let i=0;i<running;i++){
+        html += `<div class="row"><span class="play">${tools[i].play}</span>
+          <span class="cmd">${tools[i].cmd}</span><span class="el">${(elapsed[i]||0)}s</span>
+          <span class="stop">⏹</span></div>`;
+      }
+      if(bgCount){ html += `<div class="row bg"><span class="warn">⚠</span>
+        <span class="cmd">${bg.label}</span></div>`; }
+      aExp.innerHTML = html;
+    }
+    document.getElementById('aTwiddle').textContent =
+      document.getElementById('afterCard').classList.contains('open') ? '▾' : '▸';
+    document.getElementById('aMeasure').textContent =
+      'card height: ' + document.getElementById('afterCard').offsetHeight + ' px (stable when collapsed)';
+    document.getElementById('phaseLabel').textContent = 'phase: '+(n===0?'idle':n+' active');
+  }
+
+  window.toggleAfter = ()=>{
+    const c=document.getElementById('afterCard');
+    c.classList.toggle('open');
+    document.getElementById('aSummary').setAttribute('aria-expanded', c.classList.contains('open'));
+    document.getElementById('aTwiddle').textContent = c.classList.contains('open') ? '▾' : '▸';
+  };
+
+  function step(){
+    const n = seq[idx % seq.length];
+    // bump elapsed for active tools
+    for(let i=0;i<n;i++){ elapsed[i]=(elapsed[i]||0)+2; }
+    if(n===0) elapsed={};
+    render(n);
+    idx++;
+  }
+  document.getElementById('btnStep').onclick = step;
+  document.getElementById('btnPlay').onclick = function(){
+    if(timer){ clearInterval(timer); timer=null; this.textContent='▶ Simulate a run'; this.classList.remove('on'); return; }
+    this.textContent='⏸ Pause'; this.classList.add('on');
+    idx=0; elapsed={}; step();
+    timer=setInterval(step,1100);
+  };
+  document.getElementById('btnTheme').onclick = ()=>{
+    const h=document.documentElement;
+    h.dataset.theme = h.dataset.theme==='dark'?'light':'dark';
+  };
+  document.getElementById('btnReserve').onclick = function(){
+    this.classList.toggle('on');
+    this.textContent = 'Reserve line at idle: '+(this.classList.contains('on')?'ON':'OFF');
+    render(seq[(idx-1+seq.length)%seq.length]||0);
+  };
+  render(0);
+</script>
+</body>
+</html>

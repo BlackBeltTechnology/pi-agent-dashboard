@@ -2,26 +2,27 @@
  * Provider Authentication section for Settings panel.
  * OAuth login buttons + API key inputs for pi LLM providers.
  */
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { Icon } from "@mdi/react";
+
+import type { DeviceCodeResponse, ProviderAuthHandlerIdsResponse, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
+  mdiAlert,
+  mdiArrowRight,
+  mdiCheck,
+  mdiClockOutline,
+  mdiContentCopy,
+  mdiContentSave,
+  mdiDelete,
+  mdiKeyPlus,
+  mdiLoading,
   mdiLogin,
   mdiLogout,
-  mdiCheck,
-  mdiAlert,
-  mdiLoading,
-  mdiContentCopy,
-  mdiDelete,
-  mdiContentSave,
-  mdiClockOutline,
-  mdiArrowRight,
-  mdiKeyPlus,
 } from "@mdi/js";
-import type { ProviderAuthStatus, DeviceCodeResponse, ProviderAuthHandlerIdsResponse } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { Toast, useToast, type ToastVariant } from "./Toast.js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAsyncAction } from "../hooks/useAsyncAction.js";
+import { getApiBase } from "../lib/api-context.js";
 import { t as i18nT } from "../lib/i18n";
+import { Toast, type ToastVariant, useToast } from "./Toast.js";
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ async function fetchStatus(): Promise<ProviderAuthStatus[]> {
 /** Provider ids the dashboard can actually complete a login flow for. */
 async function fetchHandlerIds(): Promise<Set<string>> {
   const res = await fetch(`${getApiBase()}/api/provider-auth/handlers`);
-  if (!res.ok) throw new Error("Failed to load provider auth handlers");
+  if (!res.ok) throw new Error(i18nT("err.loadProviderAuthHandlers", undefined, "Failed to load provider auth handlers"));
   const data: ProviderAuthHandlerIdsResponse = await res.json();
   return new Set(data.ids ?? []);
 }
@@ -88,7 +89,7 @@ export function ProviderAuthSection() {
   }, []);
 
   if (loading) {
-    return <div className="text-[var(--text-muted)] text-sm py-2">{i18nT("auto.loading_provider_status", undefined, "Loading provider status…")}</div>;
+    return <div className="text-[var(--text-muted)] text-sm py-2">{i18nT("providers.loadingProviderStatus", undefined, "Loading provider status…")}</div>;
   }
 
   const oauthProviders = statuses.filter((s) => s.flowType !== "api_key");
@@ -99,7 +100,7 @@ export function ProviderAuthSection() {
       <Toast messages={messages} onDismiss={dismissToast} />
       {/* OAuth Providers */}
       <div className="space-y-2">
-        <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">{i18nT("auto.subscriptions_oauth", undefined, "Subscriptions (OAuth)")}</h3>
+        <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">{i18nT("gateway.subscriptionsOauth", undefined, "Subscriptions (OAuth)")}</h3>
         {oauthProviders.map((p) => (
           <OAuthProviderRow key={p.id} provider={p} supported={handlerIds === null ? true : handlerIds.has(p.id)} onChanged={refresh} showToast={showToast} />
         ))}
@@ -107,7 +108,7 @@ export function ProviderAuthSection() {
 
       {/* API Key Providers */}
       <div className="space-y-2">
-        <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mt-4">{i18nT("auto.api_keys", undefined, "API Keys")}</h3>
+        <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mt-4">{i18nT("gateway.apiKeys", undefined, "API Keys")}</h3>
         {apiKeyProviders.map((p) => (
           <ApiKeyRow key={p.id} provider={p} onChanged={refresh} showToast={showToast} />
         ))}
@@ -250,7 +251,7 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
         {provider.authenticated ? (
           <div className="flex items-center gap-2">
             <span className="flex items-center gap-1 text-xs text-green-400">
-              <Icon path={mdiCheck} size={0.5} /> {i18nT("auto.connected", undefined, "Connected")}
+              <Icon path={mdiCheck} size={0.5} /> {i18nT("connection.connected", undefined, "Connected")}
             </span>
             <button
               onClick={signOut.bind.onClick}
@@ -271,7 +272,7 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
               className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50"
             >
               {busy ? <Icon path={mdiLoading} size={0.5} className="animate-spin" /> : <Icon path={mdiLogin} size={0.5} />}
-              {i18nT("auto.sign_in", undefined, "Sign In")}
+              {i18nT("common.signIn", undefined, "Sign In")}
             </button>
           </span>
         )}
@@ -284,7 +285,7 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
             type="text"
             value={enterpriseDomain}
             onChange={(e) => setEnterpriseDomain(e.target.value)}
-            placeholder={i18nT("auto.enterprise_domain_blank_for_github_com", undefined, "Enterprise domain (blank for github.com)")}
+            placeholder={i18nT("git.enterpriseDomainBlankForGithubCom", undefined, "Enterprise domain (blank for github.com)")}
             className="flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-primary)] placeholder-[var(--text-muted)]"
             onKeyDown={(e) => { if (e.key === "Enter") startDeviceCode(enterpriseDomain); }}
             autoFocus
@@ -293,13 +294,13 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
             onClick={() => startDeviceCode(enterpriseDomain)}
             className="px-2 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white"
           >
-            <Icon path={mdiArrowRight} size={0.45} className="inline mr-0.5" />{i18nT("auto.continue", undefined, "Continue")}
+            <Icon path={mdiArrowRight} size={0.45} className="inline mr-0.5" />{i18nT("common.continue", undefined, "Continue")}
           </button>
           <button
             onClick={() => setEnterpriseInput(false)}
             className="px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] text-[var(--text-muted)]"
           >
-            {i18nT("auto.cancel", undefined, "Cancel")}
+            {i18nT("common.cancel", undefined, "Cancel")}
           </button>
         </div>
       )}
@@ -307,7 +308,7 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
       {/* Device code modal */}
       {deviceModal && (
         <div className="mt-2 p-3 rounded bg-[var(--bg-secondary)] border border-[var(--border-secondary)]">
-          <div className="text-xs text-[var(--text-muted)] mb-2">{i18nT("auto.enter_this_code_at", undefined, "Enter this code at:")}</div>
+          <div className="text-xs text-[var(--text-muted)] mb-2">{i18nT("common.enterThisCodeAt", undefined, "Enter this code at:")}</div>
           <a href={deviceModal.verificationUri} target="_blank" rel="noopener" className="text-xs text-blue-400 hover:underline break-all">
             {deviceModal.verificationUri}
           </a>
@@ -316,7 +317,7 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
             <button
               onClick={() => navigator.clipboard.writeText(deviceModal.userCode)}
               className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-              title={i18nT("auto.copy_code", undefined, "Copy code")}
+              title={i18nT("common.copyCode", undefined, "Copy code")}
             >
               <Icon path={mdiContentCopy} size={0.5} />
             </button>
@@ -325,11 +326,11 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
             onClick={() => window.open(deviceModal.verificationUri, "_blank")}
             className="mt-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium"
           >
-            {i18nT("auto.open_registration_page", undefined, "Open Registration Page")}
+            {i18nT("common.openRegistrationPage", undefined, "Open Registration Page")}
           </button>
           <div className="flex items-center gap-1 mt-2 text-xs text-[var(--text-muted)]">
             <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-            {i18nT("auto.waiting_for_authorization", undefined, "Waiting for authorization…")}
+            {i18nT("status.waitingForAuthorization", undefined, "Waiting for authorization…")}
           </div>
         </div>
       )}
@@ -392,7 +393,7 @@ function ApiKeyRow({ provider, onChanged, showToast }: { provider: ProviderAuthS
               <code className="text-xs text-[var(--text-muted)] font-mono">{provider.maskedKey}</code>
             )}
             <span className="flex items-center gap-1 text-xs text-green-400">
-              <Icon path={mdiCheck} size={0.5} /> {i18nT("auto.configured", undefined, "Configured")}
+              <Icon path={mdiCheck} size={0.5} /> {i18nT("common.configured", undefined, "Configured")}
             </span>
             <button
               onClick={remove.bind.onClick}
@@ -408,7 +409,7 @@ function ApiKeyRow({ provider, onChanged, showToast }: { provider: ProviderAuthS
             onClick={() => setEditing(true)}
             className="px-3 py-1.5 text-xs rounded bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
           >
-            <Icon path={mdiKeyPlus} size={0.45} className="inline mr-0.5" />{i18nT("auto.add_key", undefined, "Add Key")}
+            <Icon path={mdiKeyPlus} size={0.45} className="inline mr-0.5" />{i18nT("common.addKey", undefined, "Add Key")}
           </button>
         ) : null}
       </div>
@@ -419,17 +420,17 @@ function ApiKeyRow({ provider, onChanged, showToast }: { provider: ProviderAuthS
             type="password"
             value={keyValue}
             onChange={(e) => setKeyValue(e.target.value)}
-            placeholder={i18nT("auto.paste_api_key", undefined, "Paste API key…")}
+            placeholder={i18nT("gateway.pasteApiKey", undefined, "Paste API key…")}
             className="flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-primary)] placeholder-[var(--text-muted)] font-mono"
             onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
             autoFocus
           />
           <button onClick={handleSave} disabled={busy || !keyValue.trim()} className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">
             <Icon path={mdiContentSave} size={0.5} />
-            {i18nT("auto.save", undefined, "Save")}
+            {i18nT("common.save2", undefined, "Save")}
           </button>
           <button onClick={() => { setEditing(false); setKeyValue(""); }} className="px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] text-[var(--text-muted)]">
-            {i18nT("auto.cancel", undefined, "Cancel")}
+            {i18nT("common.cancel", undefined, "Cancel")}
           </button>
         </div>
       )}

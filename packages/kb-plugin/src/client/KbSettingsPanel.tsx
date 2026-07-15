@@ -10,6 +10,7 @@
  * See change: add-kb-folder-slot.
  */
 
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   mdiArrowDown,
   mdiArrowLeft,
@@ -61,6 +62,7 @@ function ChipList({
   tone: "include" | "exclude";
   testid: string;
 }): React.ReactElement {
+  const t = useT();
   const [draft, setDraft] = useState("");
   const add = (): void => {
     const v = draft.trim();
@@ -76,7 +78,7 @@ function ChipList({
       {items.map((it) => (
         <span key={it} className={`text-[11px] font-mono px-1.5 py-0.5 rounded border flex items-center gap-1 ${chip}`}>
           {it}
-          <button onClick={() => onChange(items.filter((x) => x !== it))} className="hover:text-white" title="Remove">
+          <button onClick={() => onChange(items.filter((x) => x !== it))} className="hover:text-white" title={t("remove", undefined, "Remove")}>
             <Icon path={mdiClose} size={0.4} />
           </button>
         </span>
@@ -87,7 +89,7 @@ function ChipList({
         onKeyDown={(e) => {
           if (e.key === "Enter") { e.preventDefault(); add(); }
         }}
-        placeholder="add glob…"
+        placeholder={t("addGlobPlaceholder", undefined, "add glob…")}
         className="text-[11px] font-mono bg-transparent border border-[var(--border-subtle)] rounded px-1.5 py-0.5 text-[var(--text-secondary)] w-28 focus:outline-none focus:border-indigo-500/60"
       />
     </div>
@@ -95,6 +97,7 @@ function ChipList({
 }
 
 export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => void }): React.ReactElement {
+  const t = useT();
   const { data, loading, error, saving, save } = useKbConfig(cwd);
   const { stats, refetch: refetchStats } = useKbStats(cwd);
   const [edit, setEdit] = useState<EditState | null>(null);
@@ -114,13 +117,13 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
   );
 
   if (loading && !edit) {
-    return <Shell cwd={cwd} onBack={onBack}><div className="p-4 text-xs text-[var(--text-muted)]">Loading KB config…</div></Shell>;
+    return <Shell cwd={cwd} onBack={onBack}><div className="p-4 text-xs text-[var(--text-muted)]">{t("loadingConfig", undefined, "Loading KB config…")}</div></Shell>;
   }
   if (error && !edit) {
     return <Shell cwd={cwd} onBack={onBack}><div className="p-4 text-xs text-red-400">{error}</div></Shell>;
   }
   if (!edit) {
-    return <Shell cwd={cwd} onBack={onBack}><div className="p-4 text-xs text-[var(--text-muted)]">No config.</div></Shell>;
+    return <Shell cwd={cwd} onBack={onBack}><div className="p-4 text-xs text-[var(--text-muted)]">{t("noConfig", undefined, "No config.")}</div></Shell>;
   }
 
   const patch = () => ({
@@ -166,7 +169,7 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
   const copyFromParent = async (): Promise<void> => {
     setBootstrapErr(null);
     const parent = parentRepoOf(cwd);
-    if (!parent) { setBootstrapErr("Parent repo not detected (folder is not under a .worktrees/ path)."); return; }
+    if (!parent) { setBootstrapErr(t("parentNotDetected", undefined, "Parent repo not detected (folder is not under a .worktrees/ path).")); return; }
     try {
       const parentCfg = await fetchKbConfig(parent);
       const next: EditState = {
@@ -186,7 +189,7 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
   };
 
   const countLabel = stats
-    ? stats.indexed ? `${stats.chunks.toLocaleString()} chunks · ${stats.files} files` : "0 chunks · not indexed"
+    ? stats.indexed ? t("countChunksFiles", { chunks: stats.chunks.toLocaleString(), files: stats.files }, `${stats.chunks.toLocaleString()} chunks · ${stats.files} files`) : t("countNotIndexed", undefined, "0 chunks · not indexed")
     : "…";
 
   return (
@@ -206,22 +209,22 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
 
       {!isProject && (
         <div className="px-4 py-2 text-[12px] text-teal-400 border-b border-[var(--border-subtle)]" data-testid="kb-bootstrap-note">
-          No project config — this folder indexes nothing until you define sources.
+          {t("bootstrapNote", undefined, "No project config — this folder indexes nothing until you define sources.")}
         </div>
       )}
 
       {/* Sources */}
       <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
-        <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] font-bold mb-2">Sources</div>
+        <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] font-bold mb-2">{t("sourcesHeading", undefined, "Sources")}</div>
         <div data-testid="kb-sources">
           {edit.sources.length === 0 && (
-            <div className="text-[11px] italic text-[var(--text-muted)] mb-2">(no sources — nothing will be indexed)</div>
+            <div className="text-[11px] italic text-[var(--text-muted)] mb-2">{t("noSources", undefined, "(no sources — nothing will be indexed)")}</div>
           )}
           {edit.sources.map((s, i) => (
             <div key={`${s.ref}-${i}`} className="flex items-center gap-2 px-2 py-1.5 mb-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)]" data-testid="kb-source-row">
               <span className="flex-1 font-mono text-[12px] text-[var(--text-secondary)] truncate">{s.ref}</span>
               <label className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1">
-                prio
+                {t("prio", undefined, "prio")}
                 <input
                   type="number"
                   value={s.priority ?? 0}
@@ -229,13 +232,13 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
                   className="w-12 bg-transparent border border-[var(--border-subtle)] rounded px-1 text-[var(--text-secondary)]"
                 />
               </label>
-              <button onClick={() => moveSource(i, -1)} disabled={i === 0} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] disabled:opacity-30" title="Move up">
+              <button onClick={() => moveSource(i, -1)} disabled={i === 0} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] disabled:opacity-30" title={t("moveUp", undefined, "Move up")}>
                 <Icon path={mdiArrowUp} size={0.5} />
               </button>
-              <button onClick={() => moveSource(i, 1)} disabled={i === edit.sources.length - 1} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] disabled:opacity-30" title="Move down">
+              <button onClick={() => moveSource(i, 1)} disabled={i === edit.sources.length - 1} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] disabled:opacity-30" title={t("moveDown", undefined, "Move down")}>
                 <Icon path={mdiArrowDown} size={0.5} />
               </button>
-              <button onClick={() => removeSource(i)} className="text-[var(--text-muted)] hover:text-red-400" title="Remove" data-testid="kb-source-remove">
+              <button onClick={() => removeSource(i)} className="text-[var(--text-muted)] hover:text-red-400" title={t("remove", undefined, "Remove")} data-testid="kb-source-remove">
                 <Icon path={mdiClose} size={0.5} />
               </button>
             </div>
@@ -246,27 +249,27 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
             value={newSource}
             onChange={(e) => setNewSource(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSource(); } }}
-            placeholder="path relative to folder, e.g. docs"
+            placeholder={t("sourcePlaceholder", undefined, "path relative to folder, e.g. docs")}
             data-testid="kb-source-input"
             className="flex-1 text-[12px] font-mono bg-transparent border border-[var(--border-subtle)] rounded px-2 py-1 text-[var(--text-secondary)] focus:outline-none focus:border-indigo-500/60"
           />
           <button onClick={addSource} data-testid="kb-source-add" className="text-[11px] px-2 py-1 rounded border text-indigo-400 border-indigo-500/40 bg-indigo-500/5 hover:border-indigo-500/70 flex items-center gap-1">
-            <Icon path={mdiPlus} size={0.5} />Add path
+            <Icon path={mdiPlus} size={0.5} />{t("addPath", undefined, "Add path")}
           </button>
         </div>
       </div>
 
       {/* Include / Exclude / DB path */}
       <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
-        <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] font-bold mb-2">Include</div>
+        <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] font-bold mb-2">{t("includeHeading", undefined, "Include")}</div>
         <ChipList items={edit.include} onChange={(include) => setEdit({ ...edit, include })} tone="include" testid="kb-include" />
       </div>
       <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
-        <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] font-bold mb-2">Exclude</div>
+        <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] font-bold mb-2">{t("excludeHeading", undefined, "Exclude")}</div>
         <ChipList items={edit.exclude} onChange={(exclude) => setEdit({ ...edit, exclude })} tone="exclude" testid="kb-exclude" />
       </div>
       <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
-        <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] font-bold mb-2">DB path</div>
+        <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] font-bold mb-2">{t("dbPathHeading", undefined, "DB path")}</div>
         <input
           value={edit.dbPath}
           onChange={(e) => setEdit({ ...edit, dbPath: e.target.value })}
@@ -285,7 +288,7 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
               data-testid="kb-save-reindex"
               className="text-[12px] px-3 py-1.5 rounded border font-semibold text-indigo-300 border-indigo-500/60 bg-indigo-500/10 hover:border-indigo-400 disabled:opacity-40 flex items-center gap-1"
             >
-              <Icon path={mdiRefresh} size={0.5} />Save + Reindex
+              <Icon path={mdiRefresh} size={0.5} />{t("saveReindex", undefined, "Save + Reindex")}
             </button>
             <button
               onClick={() => void doSave(false)}
@@ -293,7 +296,7 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
               data-testid="kb-save"
               className="text-[12px] px-3 py-1.5 rounded border text-[var(--text-secondary)] border-[var(--border-subtle)] hover:text-[var(--text-primary)] disabled:opacity-40"
             >
-              Save
+              {t("save", undefined, "Save")}
             </button>
           </>
         ) : (
@@ -304,7 +307,7 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
               data-testid="kb-copy-parent"
               className="text-[12px] px-3 py-1.5 rounded border text-teal-300 border-teal-500/50 bg-teal-500/5 hover:border-teal-400 disabled:opacity-40"
             >
-              Copy from parent repo
+              {t("copyFromParent", undefined, "Copy from parent repo")}
             </button>
             <button
               onClick={() => void createProjectConfig()}
@@ -312,12 +315,12 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
               data-testid="kb-create-config"
               className="text-[12px] px-3 py-1.5 rounded border text-[var(--text-secondary)] border-[var(--border-subtle)] hover:text-[var(--text-primary)] disabled:opacity-40"
             >
-              Create project config
+              {t("createConfig", undefined, "Create project config")}
             </button>
           </>
         )}
         <span className="ml-auto text-[11px] text-[var(--text-muted)]" data-testid="kb-dirty">
-          {saving ? "saving…" : dirty ? "unsaved changes" : "no changes"}
+          {saving ? t("saving", undefined, "saving…") : dirty ? t("unsavedChanges", undefined, "unsaved changes") : t("noChanges", undefined, "no changes")}
         </span>
       </div>
 
@@ -329,14 +332,15 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
 }
 
 function Shell({ cwd, onBack, children }: { cwd: string; onBack: () => void; children: React.ReactNode }): React.ReactElement {
+  const t = useT();
   return (
     <div className="flex flex-col h-full overflow-y-auto" data-testid="kb-settings-page">
       <div className="px-4 py-2 border-b border-[var(--border-primary)] bg-[var(--bg-primary)] flex items-center gap-2 flex-shrink-0 sticky top-0 z-10">
-        <button onClick={onBack} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]" title="Back" data-testid="kb-settings-back">
+        <button onClick={onBack} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]" title={t("back", undefined, "Back")} data-testid="kb-settings-back">
           <Icon path={mdiArrowLeft} size={0.7} />
         </button>
         <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-          {cwd.split("/").pop() || cwd} · Knowledge Base
+          {t("knowledgeBaseSuffix", { name: cwd.split("/").pop() || cwd }, `${cwd.split("/").pop() || cwd} · Knowledge Base`)}
         </span>
       </div>
       {children}

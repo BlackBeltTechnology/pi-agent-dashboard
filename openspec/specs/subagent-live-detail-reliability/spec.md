@@ -25,13 +25,25 @@ Subagent lifecycle frames (`subagent_created`/`subagent_started`/`subagent_compl
 
 ### Requirement: Client can resync a running subagent's timeline
 
-The dashboard SHALL provide a path to recover the current timeline of a still-running subagent after a detected gap or reconnect, without waiting for the subagent to complete. On reconnect (or on opening the detail surface for a running subagent whose `entries[]` is empty), the client SHALL request the latest known snapshot for that `agentId`, and the bridge SHALL respond with the most recent full `AgentDetails` snapshot it holds for that running subagent. The retained running-subagent snapshots SHALL be bounded to the same 64-agent limit as the pending buffer (latest-wins, drop-oldest), so resync storage cannot grow unbounded.
+The dashboard SHALL provide a path to recover the current timeline of a still-running subagent after a detected gap or reconnect, without waiting for the subagent to complete. On reconnect, OR on opening EITHER detail surface — the inline expand (Details toggle) or the popout dialog — for a running subagent whose `entries[]` is empty (including when the client's `subagents` map has no entry for that `agentId` at all, e.g. after a refresh/late-subscribe where the card's status is the authoritative running signal), the client SHALL request the latest known snapshot for that `agentId`, and the bridge SHALL respond with the most recent full `AgentDetails` snapshot it holds for that running subagent. The retained running-subagent snapshots SHALL be bounded to the same 64-agent limit as the pending buffer (latest-wins, drop-oldest), so resync storage cannot grow unbounded.
 
 #### Scenario: Resync after reconnect repopulates a running subagent
 
 - **WHEN** the client reconnects while a subagent is still `running` and its client-side `entries[]` is empty
 - **THEN** the client SHALL request a resync for that `agentId`
 - **AND** the bridge SHALL reply with the latest retained `AgentDetails` snapshot so the timeline repopulates before completion
+
+#### Scenario: Opening the inline expand resyncs a running subagent with an empty timeline
+
+- **WHEN** the user opens the inline detail (the card's Details/expand toggle) for a subagent whose card status is `running` and whose client-side `entries[]` is empty or absent (no map entry)
+- **THEN** the client SHALL request a resync for that `agentId` using the same path as the popout dialog
+- **AND** the not-found placeholder ("Subagent not found in this session.") SHALL be replaced once the bridge replays the latest retained snapshot
+
+#### Scenario: Opening detail for a subagent that already has entries does not resync
+
+- **GIVEN** a running subagent whose client-side `entries[]` is non-empty
+- **WHEN** the user opens either the inline expand or the popout dialog
+- **THEN** the client SHALL NOT request a resync (the timeline is already populated)
 
 #### Scenario: Resync for an unknown or finished agent is a no-op
 

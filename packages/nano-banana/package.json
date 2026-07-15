@@ -1,0 +1,62 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-nano-banana",
+  "version": "0.5.4",
+  "description": "TypeScript port of the nano-banana-imagegen pi skill. Generate and edit images with Google Gemini image models via the @the-focus-ai/nano-banana CLI, with GEMINI_API_KEY resolution, output-path handling and batch generation. Exposed as a pi skill and the pi-nano-banana CLI bin.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/nano-banana"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "nano-banana",
+    "image-generation",
+    "gemini",
+    "text-to-image",
+    "image-editing"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/nano-banana-imagegen"
+    ]
+  },
+  "exports": {
+    "./*.js": "./src/*.ts",
+    "./*": "./src/*"
+  },
+  "bin": {
+    "pi-nano-banana": "src/bin/nano-banana.ts"
+  },
+  "files": [
+    "src/",
+    "!src/__tests__",
+    ".pi/skills/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*",
+    "vitest": "^2.1.8"
+  }
+}

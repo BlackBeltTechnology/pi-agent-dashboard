@@ -37,8 +37,12 @@ beforeAll(() => {
   });
 });
 
-function makeContext(session?: SessionState, sessionId?: string): ToolContext {
-  return { editors: [], sessionId, session };
+function makeContext(
+  session?: SessionState,
+  sessionId?: string,
+  send?: ToolContext["send"],
+): ToolContext {
+  return { editors: [], sessionId, session, send };
 }
 
 function sessionWithAgent(agentId: string, sub: Partial<SubagentState> = {}): SessionState {
@@ -102,6 +106,46 @@ describe("AgentToolRenderer — expand + popout", () => {
     // After expanding without entries[], Tier-4 placeholder shows
     // (Tier-2 footnote was removed in add-subagent-inspector §14).
     expect(screen.getByText(/No detail available yet/i)).toBeTruthy();
+  });
+
+  it("inline expand requests a resync for a running subagent with an empty timeline", () => {
+    const send = vi.fn();
+    // agentId present on the card, but NOT in the subagents map — mirrors a
+    // running subagent viewed after refresh/late-subscribe (map un-hydrated).
+    render(wrapInProviders(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={{ subagent_type: "Explore", prompt: "do work" }}
+        status="running"
+        context={makeContext(createInitialState(), "sess_42", send)}
+        toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
+      />
+    ));
+    fireEvent.click(screen.getByTitle(/Expand to inspect/i));
+    expect(send).toHaveBeenCalledWith({
+      type: "subagent_resync_request",
+      sessionId: "sess_42",
+      agentId: "abc123",
+    });
+  });
+
+  it("inline expand does NOT resync when the timeline already has entries", () => {
+    const send = vi.fn();
+    const session = sessionWithAgent("abc123", {
+      status: "running",
+      entries: [{ kind: "text", text: "hi", ts: 0 }],
+    });
+    render(wrapInProviders(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={{ subagent_type: "Explore", prompt: "do work" }}
+        status="running"
+        context={makeContext(session, "sess_42", send)}
+        toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
+      />
+    ));
+    fireEvent.click(screen.getByTitle(/Expand to inspect/i));
+    expect(send).not.toHaveBeenCalled();
   });
 
   // These three tests OPEN the ui:dialog, whose body mounts the full

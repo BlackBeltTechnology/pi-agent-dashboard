@@ -17,7 +17,7 @@ Composes existing skills — `openspec-apply-change`, the docker harness, and
 flowchart LR
   P["plan-proposal (develop)"] -->|"boundary: spawn worktree"| S
   subgraph Worktree ["IMPLEMENTATION — worktree (this skill)"]
-    S["ship-it"] --> A["apply"] --> T["docker-harness test"] --> C["ship-change"]
+    S["ship-it"] --> A["apply"] --> M["merge develop (2.5)"] --> T["docker-harness test"] --> C["ship-change"]
   end
   S -.->|"reverse: SHIP_IT_BLOCKED.md on design issue"| P
 ```
@@ -59,6 +59,29 @@ task, **resolve the harness-exemplar pointer** (the nearest existing spec of tha
 category named in the task) and inject its path into the task context you hand
 `apply` — or author the spec yourself in the fix loop (step 4). Bare
 "author X.spec.ts" with no exemplar is forbidden.
+
+### 2.5. Integrate `develop` — merge before the harness (primary integration point)
+
+The harness (step 3) is the **strongest gate** on the ship-it path, so integration
+must sit **upstream** of it: the harness must validate the merged tree `T1`, not
+the pre-merge tree `T0`. Merge `origin/develop` — the **remote ref**, never local
+`develop` (checked out in the parent repo → worktree branch-collision pitfall):
+
+```bash
+git fetch origin develop
+git merge --no-edit origin/develop
+```
+
+Idempotent: up-to-date → "Already up to date", no merge commit, safe to always
+run. **Merge, not rebase** — step 9 squash-merges anyway, so rebase's linear
+history is moot while its force-push is a documented `ship-change` footgun.
+
+**Conflict → abort + STOP.** On an unresolved conflict, `git merge --abort`,
+report, and do **not** enter the harness — never run the gate on a half-merged
+tree. Resolve trivial conflicts with `ship-change`'s existing recipes (`AGENTS.md`
+union-keep; `package-lock.json` → `git checkout --theirs` +
+`npm install --package-lock-only`), then re-run the merge. A conflict you cannot
+resolve mechanically → escape hatch (step 5).
 
 ### 3. Harness lifecycle — delegate the port, always tear down
 
@@ -145,6 +168,9 @@ CI → CodeRabbit → squash-merge → remove worktree.
   test file must exist and pass in the harness.
 - **ship-it owns the fix loop** — never re-invoke `apply` on a checked task.
 - **Never weaken a test to reach green** — `assertNoWeakening` rejects it.
+- **Merge `develop` before the harness (step 2.5)** — the strong gate validates
+  the integrated tree `T1`; merge `origin/develop` (remote ref), never rebase.
+  Conflict → abort + STOP, never enter the harness on a half-merged tree.
 - **Always tear the harness down** (trap/finally), **before** worktree removal.
 - **Never hardcode `:18000`** — read `dashboardPort` from `.pi-test-harness.json`.
 - **Never headlessly rewrite planning artifacts** — use the escape hatch.

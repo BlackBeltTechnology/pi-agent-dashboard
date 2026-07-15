@@ -86,14 +86,14 @@ export function ResourceCard({ resource, scope, packageName, packageSource, onVi
 
       <div className="flex flex-wrap items-center gap-1.5">
         {scope === "local" ? (
-          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-green-500/12 text-[var(--accent-green,#16a34a)]" data-testid="badge-scope">⬡ {i18nT("auto.local", undefined, "local")}</span>
+          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-green-500/12 text-[var(--accent-green,#16a34a)]" data-testid="badge-scope">⬡ {i18nT("common.local", undefined, "local")}</span>
         ) : (
-          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/12 text-[var(--accent-purple,#9333ea)]" data-testid="badge-scope">◇ {i18nT("auto.global", undefined, "global")}</span>
+          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/12 text-[var(--accent-purple,#9333ea)]" data-testid="badge-scope">◇ {i18nT("common.global", undefined, "global")}</span>
         )}
         {packageName ? (
           <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-orange-500/12 text-[var(--accent-orange,#ea580c)]" data-testid="badge-source">📦 {packageName}</span>
         ) : (
-          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]" data-testid="badge-source">{i18nT("auto.loose", undefined, "loose")}</span>
+          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]" data-testid="badge-source">{i18nT("common.loose", undefined, "loose")}</span>
         )}
         {isAgent && resource.model && (
           <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-[var(--accent-primary)]" data-testid="badge-model">◆ {resource.model}</span>

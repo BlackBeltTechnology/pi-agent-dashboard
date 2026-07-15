@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { validateManifest, ManifestValidationError } from "../manifest-validator.js";
+import { describe, expect, it, vi } from "vitest";
+import { ManifestValidationError, validateManifest } from "../manifest-validator.js";
 
 const validManifest = {
   id: "demo",
@@ -18,6 +18,14 @@ describe("validateManifest — valid cases", () => {
     expect(m.id).toBe("demo");
     expect(m.claims).toHaveLength(3);
     expect(m.priority).toBe(100);
+  });
+
+  it("passes through i18nCatalog when a string (change: make-all-ui-text-i18n)", () => {
+    const m = validateManifest({ ...validManifest, i18nCatalog: "catalog" });
+    expect(m.i18nCatalog).toBe("catalog");
+    // Omitted when absent or non-string.
+    expect(validateManifest(validManifest).i18nCatalog).toBeUndefined();
+    expect(validateManifest({ ...validManifest, i18nCatalog: 123 }).i18nCatalog).toBeUndefined();
   });
 
   it("defaults priority to 1000 when omitted", () => {

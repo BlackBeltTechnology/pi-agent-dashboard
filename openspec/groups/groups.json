@@ -131,14 +131,36 @@
     "distinguish-initialize-actions": "ui",
     "friendlier-worktree-init": "ui",
     "fix-list-models-empty-on-unhydrated-registry": "ui",
-    "add-openspec-pipeline-orchestrators": "ui"
+    "add-openspec-pipeline-orchestrators": "ui",
+    "add-change-summary-table": "ui",
+    "add-session-uncommitted-indicator-and-commit": "ui",
+    "sweep-worktree-residual-on-remove": "ui",
+    "elevate-scenario-design-to-eng-disciplines": "ui",
+    "add-session-tags": "ui",
+    "extract-distill-session-knowledge-package": "ui",
+    "make-all-ui-text-i18n": "ui",
+    "fix-session-diff-open-nongit-and-preview": "ui",
+    "stable-process-line": "ui",
+    "add-auto-session-naming": "ui",
+    "markdown-table-styling": "ui",
+    "fix-empty-flows-subcard": "ui",
+    "fix-ask-user-card-duplication": "ui",
+    "reset-override-to-npm": "ui",
+    "integrate-develop-before-ship-gate": "ui",
+    "add-seek-to-session-card": "ui",
+    "add-session-scoped-init-trust": "ui",
+    "detect-tool-created-files": "ui",
+    "fix-popover-horizontal-flip": "ui",
+    "add-directory-home-page": "ui",
+    "add-eml-preview": "ui",
+    "auto-canvas": "ui",
+    "render-office-previews": "ui",
+    "render-pptx-preview": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
-      "sweep-worktree-residual-on-remove",
-      "add-session-tags",
-      "add-change-summary-table",
-      "add-session-uncommitted-indicator-and-commit"
+      "add-chat-gateway",
+      "add-google-oauth-provider"
     ],
     "kowledge-base": [
       "add-lora-dataset-export-skill",
@@ -148,9 +170,13 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "friendlier-worktree-init",
-      "fix-list-models-empty-on-unhydrated-registry",
-      "add-openspec-pipeline-orchestrators"
+      "add-auto-session-naming",
+      "fix-session-diff-open-nongit-and-preview",
+      "add-session-scoped-init-trust",
+      "add-eml-preview",
+      "render-office-previews",
+      "render-pptx-preview",
+      "auto-canvas"
     ],
     "next-phase": [
       "add-connector-layer",

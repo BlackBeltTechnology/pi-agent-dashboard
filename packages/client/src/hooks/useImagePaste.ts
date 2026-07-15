@@ -33,6 +33,7 @@
 
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback, useState } from "react";
+import { t } from "../lib/i18n";
 
 export const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB base64
 export const SUPPORTED_IMAGE_TYPES = new Set([
@@ -110,14 +111,14 @@ export function useImagePaste(opts?: UseImagePasteOptions): UseImagePasteResult 
 			const base64 = dataUrl.split(",")[1];
 			if (!base64) return;
 			if (base64.length > MAX_IMAGE_SIZE) {
-				setImageError("Image too large (max 10MB)");
+				setImageError(t("image.tooLarge", undefined, "Image too large (max 10MB)"));
 				setTimeout(() => setImageError(null), 3000);
 				return;
 			}
 			writeImages((prev) => [...prev, { type: "image", data: base64, mimeType }]);
 		};
 		reader.onerror = () => {
-			setImageError("Failed to read image");
+			setImageError(t("image.readFailed", undefined, "Failed to read image"));
 			setTimeout(() => setImageError(null), 3000);
 		};
 		reader.readAsDataURL(blob);

@@ -2,29 +2,37 @@
  * Manifest-level `shouldRender` callback for flows-plugin's
  * `session-card-flows` claim (`SessionFlowActionsClaim`).
  *
- * Returns `false` when the session has no flows AND no `flows:new` command.
- * The shell's `FlowsSubcard` wrapper gates on `useSlotHasClaimsForSession`,
- * which consults this predicate, so the subcard hides cleanly when there's
- * nothing to render.
+ * Returns the SAME boolean the claim uses to decide it renders content:
+ * `flowsList non-empty OR edit mode on OR a flow event exists`. This keeps the
+ * subcard's visibility gate and the claim's render condition in lockstep, so the
+ * shell's `FlowsSubcard` wrapper (which gates on `useSlotHasClaimsForSession`,
+ * consulting this predicate) never paints an empty panel when the claim would
+ * render `null`.
  *
- * Must be synchronous (manifest-level `shouldRender` contract). Reads from the
- * sync cache populated by the module-level subscriber installed at plugin
- * registration (`installFlowsAvailabilitySubscriber`). Default is `false`
- * (closed-by-default) until the first `flowsList` or `commandsList` publish
- * arrives for the session — prevents flicker on cold boot.
+ * Must be synchronous and side-effect-free (manifest-level `shouldRender`
+ * contract). Reads live per-session-data (`getSessionData`) + plugin config
+ * (`getPluginConfig`) directly — the same synchronous sources the claim reads —
+ * instead of a mirrored availability cache. Closed-by-default holds: on cold
+ * boot `flowsList` is empty, edit mode off, no events → `false` → hidden, then
+ * visible once flows populate (the acceptable hidden→visible direction).
  *
- * See change: add-flows-subcard.
+ * See change: fix-empty-flows-subcard.
  */
+import { getSessionData } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { getFlowsAvailabilitySync, sessionHasFlowEvents } from "./flowsAvailability.js";
+import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { sessionHasFlowEvents } from "./flowsAvailability.js";
 
 export function shouldRenderFlowsSubcard(
   session: DashboardSession | null | undefined,
 ): boolean {
   if (!session) return false;
-  // Available flows (live `flowsList`/`commandsList`) OR a flow already ran in
-  // this session (replayed/live flow events). The latter keeps the subcard
-  // visible on cold load when the availability signal has not been re-published.
-  // See change: replay-persisted-flow-runs (task 5.5).
-  return getFlowsAvailabilitySync(session.id) || sessionHasFlowEvents(session.id);
+  const flows = getSessionData<FlowInfo[]>(session.id, "flowsList");
+  const editMode = (getPluginConfig("flows") as { editFlow?: boolean }).editFlow ?? false;
+  return (
+    (Array.isArray(flows) && flows.length > 0) ||
+    editMode ||
+    sessionHasFlowEvents(session.id)
+  );
 }

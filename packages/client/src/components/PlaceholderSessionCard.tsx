@@ -19,7 +19,7 @@ export function PlaceholderSessionCard() {
       {/* Subtitle bar */}
       <div className="h-2.5 w-24 rounded bg-[var(--text-muted)]/20 mb-2" />
       {/* Loading text */}
-      <div className="text-[10px] text-[var(--text-tertiary)]">{i18nT("auto.starting_new_session", undefined, "Starting new session…")}</div>
+      <div className="text-[10px] text-[var(--text-tertiary)]">{i18nT("session.startingNewSession", undefined, "Starting new session…")}</div>
     </div>
   );
 }

@@ -571,6 +571,29 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "bash" },
   },
+  // detect-tool-created-files (U1/U3): a bash tool call writes a NEW file into
+  // the session cwd (a git repo). session-diff's git-status detector + Bash
+  // attributor surface it as an `origin:"tool"` row with `producedBy`. Two-step
+  // so the agent terminates after the tool result. See change:
+  // detect-tool-created-files.
+  "tool-bash-artifact": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("bash", {
+            // Unique content each run so a re-run in a shared container (where a
+            // prior run's cleanup committed the file) still produces a git
+            // change → the detector re-surfaces it. See change:
+            // detect-tool-created-files.
+            command: "echo generated-by-tool-$(date +%s%N) > tool-artifact.md",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("artifact written")]),
+    ],
+    expect: { toolName: "bash" },
+  },
   "tool-ctx": toolScenario("ctx_execute", {
     language: "shell",
     code: "echo hi",

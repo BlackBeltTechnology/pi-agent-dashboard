@@ -1,9 +1,9 @@
-import React, { useRef, useEffect, useCallback } from "react";
-import { Icon } from "@mdi/react";
 import { mdiClose } from "@mdi/js";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
+import { Icon } from "@mdi/react";
 import { AttachAddon } from "@xterm/addon-attach";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
+import React, { useCallback, useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { t as i18nT } from "../lib/i18n";
 
@@ -175,7 +175,7 @@ export function TerminalView({ terminalId, visible, onTitle, onClose, terminalNa
         <button
           onClick={handleClose}
           className="text-[var(--text-tertiary)] hover:text-red-400 transition-colors px-1"
-          title={i18nT("auto.close_terminal_sigterm", undefined, "Close terminal (SIGTERM)")}
+          title={i18nT("terminal.closeTerminalSigterm", undefined, "Close terminal (SIGTERM)")}
         >
           <Icon path={mdiClose} size={0.6} />
         </button>

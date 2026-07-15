@@ -10,10 +10,12 @@
  *
  * See change: add-automation-plugin.
  */
-import React, { useEffect, useState } from "react";
-import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+
+import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { getRunResult } from "./api.js";
 
 export interface AutomationRunMonitorProps {
@@ -27,6 +29,7 @@ export function AutomationRunMonitor({
   session,
   onBack,
 }: AutomationRunMonitorProps): React.ReactElement {
+  const t = useT();
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
   const run = session?.automationRun;
   const [result, setResult] = useState<string | null>(null);
@@ -48,34 +51,34 @@ export function AutomationRunMonitor({
     <div data-testid="automation-run-monitor" className="flex flex-col gap-3 p-3 text-sm">
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold">
-          Automation run{run?.name ? `: ${run.name}` : ""}
+          {t("automationRun", undefined, "Automation run")}{run?.name ? `: ${run.name}` : ""}
         </h2>
         {onBack && (
           <button type="button" onClick={onBack} className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
-            ← Back
+            {t("back", undefined, "← Back")}
           </button>
         )}
       </div>
 
       <div className="text-xs text-[var(--text-secondary)]">
-        <span data-testid="run-status">{ended ? "completed" : "running"}</span>
+        <span data-testid="run-status">{ended ? t("completed", undefined, "completed") : t("running", undefined, "running")}</span>
         {run?.runId && <span className="ml-2 font-mono">{run.runId}</span>}
       </div>
 
       {!ended && (
         <p className="text-xs text-[var(--text-muted)]" data-testid="run-live-hint">
-          This run is live — its tool calls and messages stream in the standard chat view for this session.
+          {t("runLiveHint", undefined, "This run is live — its tool calls and messages stream in the standard chat view for this session.")}
         </p>
       )}
 
       {ended && (
         <section data-testid="run-result">
-          <h3 className="text-xs uppercase tracking-wide text-[var(--text-muted)] mb-1">Findings</h3>
+          <h3 className="text-xs uppercase tracking-wide text-[var(--text-muted)] mb-1">{t("findings", undefined, "Findings")}</h3>
           {result && result.trim().length > 0 ? (
             <MarkdownContent content={result} />
           ) : (
             <p className="text-xs text-[var(--text-muted)]" data-testid="run-result-empty">
-              No findings (auto-archived).
+              {t("noFindings", undefined, "No findings (auto-archived).")}
             </p>
           )}
         </section>

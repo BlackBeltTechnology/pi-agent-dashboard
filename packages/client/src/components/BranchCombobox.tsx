@@ -7,10 +7,12 @@
  *
  * See change: worktree-base-branch-typeahead.
  */
-import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+
 import type { GitBranchEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { BranchListbox, useBranchListboxKeyboard } from "./BranchListbox.js";
+import type React from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { BranchListbox, useBranchListboxKeyboard } from "./BranchListbox.js";
 
 interface Props {
   branches: GitBranchEntry[];
@@ -141,7 +143,7 @@ export function BranchCombobox({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             onKeyDown={handleFilterKeyDown}
-            placeholder={i18nT("auto.filter_branches", undefined, "Filter branches…")}
+            placeholder={i18nT("git.filterBranches", undefined, "Filter branches…")}
             data-testid={testid ? `${testid}-filter` : undefined}
             className="w-full bg-[var(--bg-tertiary)] rounded px-2 py-1 text-sm border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none font-mono"
           />

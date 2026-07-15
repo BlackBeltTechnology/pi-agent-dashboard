@@ -1,4 +1,5 @@
 import React from "react";
+import { t } from "../lib/i18n";
 
 /**
  * Inline SVG of the pi-dashboard brand mark (bold geometric Π).
@@ -9,7 +10,7 @@ import React from "react";
 export function PiLogo({
   size = 24,
   className = "",
-  title = "Pi Dashboard",
+  title = t("common.piDashboard", undefined, "Pi Dashboard"),
 }: {
   size?: number;
   className?: string;

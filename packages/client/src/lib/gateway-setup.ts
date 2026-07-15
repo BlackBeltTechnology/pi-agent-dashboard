@@ -13,7 +13,9 @@
  *
  * See change: add-tunnel-providers.
  */
+
 import type { GatewayProviderId } from "./gateway-providers.js";
+import { t } from "./i18n";
 
 export type SetupStepKind = "install" | "auth-token" | "activate" | "browser-auth" | "external";
 
@@ -32,49 +34,49 @@ export interface SetupStep {
 
 export const GATEWAY_SETUP_STEPS: Record<GatewayProviderId, SetupStep[]> = {
   zrok: [
-    { kind: "install", title: "Install the zrok client", command: "brew install openziti/tap/zrok" },
+    { kind: "install", title: t("gateway.setup.installZrok", undefined, "Install the zrok client"), command: "brew install openziti/tap/zrok" },
     {
       kind: "auth-token",
-      title: "Enable this environment",
+      title: t("gateway.setup.enableEnvironment", undefined, "Enable this environment"),
       enrollStep: "auth-token",
-      paramPlaceholder: "zrok enable token",
+      paramPlaceholder: t("gateway.setup.placeholder.zrokEnableToken", undefined, "zrok enable token"),
     },
   ],
   ngrok: [
-    { kind: "install", title: "Install the ngrok client", command: "brew install ngrok" },
+    { kind: "install", title: t("gateway.setup.installNgrok", undefined, "Install the ngrok client"), command: "brew install ngrok" },
     {
       kind: "auth-token",
-      title: "Add your authtoken",
+      title: t("gateway.setup.addAuthtoken", undefined, "Add your authtoken"),
       enrollStep: "auth-token",
-      paramPlaceholder: "ngrok authtoken",
+      paramPlaceholder: t("gateway.setup.placeholder.ngrokAuthtoken", undefined, "ngrok authtoken"),
     },
   ],
   tailscale: [
-    { kind: "install", title: "Install the Tailscale client", command: "brew install tailscale" },
+    { kind: "install", title: t("gateway.setup.installTailscale", undefined, "Install the Tailscale client"), command: "brew install tailscale" },
     {
       kind: "auth-token",
-      title: "Authenticate this device",
+      title: t("gateway.setup.authenticateDevice", undefined, "Authenticate this device"),
       enrollStep: "auth-token",
       paramPlaceholder: "tskey-auth-…",
     },
-    { kind: "browser-auth", title: "…or sign in via browser", href: "#browser-auth" },
-    { kind: "external", title: "Enable MagicDNS", href: "https://login.tailscale.com/admin/dns" },
+    { kind: "browser-auth", title: t("gateway.setup.signInBrowserAlt", undefined, "…or sign in via browser"), href: "#browser-auth" },
+    { kind: "external", title: t("gateway.setup.enableMagicDns", undefined, "Enable MagicDNS"), href: "https://login.tailscale.com/admin/dns" },
     // NB: tailscale has NO server-side `activate` enroll recipe (only
     // `auth-token`; see tunnel-enroll.ts ENROLL_STEPS). Connect/advertise runs
     // through the Gateway connect path, not a whitelisted enroll step — so no
     // `activate` step here (it would 400 unknown-step).
   ],
   zerotier: [
-    { kind: "install", title: "Install the ZeroTier client", command: "brew install --cask zerotier-one" },
+    { kind: "install", title: t("gateway.setup.installZerotier", undefined, "Install the ZeroTier client"), command: "brew install --cask zerotier-one" },
     {
       kind: "activate",
-      title: "Join your network",
+      title: t("gateway.setup.joinNetwork", undefined, "Join your network"),
       enrollStep: "activate",
-      paramPlaceholder: "16-hex network id",
+      paramPlaceholder: t("gateway.setup.placeholder.zerotierNetworkId", undefined, "16-hex network id"),
     },
     {
       kind: "external",
-      title: "Authorize this node in the controller",
+      title: t("gateway.setup.authorizeNode", undefined, "Authorize this node in the controller"),
       href: "https://my.zerotier.com/network",
     },
   ],

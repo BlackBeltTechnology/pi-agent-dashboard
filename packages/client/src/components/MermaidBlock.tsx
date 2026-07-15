@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState, useId } from "react";
-import { useThemeContext } from "./ThemeProvider.js";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { useZoomPan } from "../hooks/useZoomPan.js";
-import { ZoomControls } from "./ZoomControls.js";
 import { t as i18nT } from "../lib/i18n";
+import { useThemeContext } from "./ThemeProvider.js";
+import { ZoomControls } from "./ZoomControls.js";
 
 let mermaidIdCounter = 0;
 
@@ -352,7 +352,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     return (
       <div className="rounded-md overflow-hidden mb-2">
         <div className="text-xs text-red-400 px-3 py-1.5 bg-red-900/20">
-          {i18nT("auto.failed_to_render_mermaid_diagram", undefined, "Failed to render Mermaid diagram:")} {error}
+          {i18nT("status.failedToRenderMermaidDiagram", undefined, "Failed to render Mermaid diagram:")} {error}
         </div>
         <pre className="bg-[var(--bg-code)] rounded-b-md p-4 overflow-x-auto text-sm">
           <code>{code}</code>
@@ -364,7 +364,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
   if (!svg) {
     return (
       <div className="flex items-center justify-center py-8 text-[var(--text-muted)] text-sm">
-        {i18nT("auto.loading_diagram", undefined, "Loading diagram…")}
+        {i18nT("status.loadingDiagram", undefined, "Loading diagram…")}
       </div>
     );
   }
@@ -403,7 +403,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
         {!focused && (
           <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/10 rounded-md">
             <span className="text-xs text-[var(--text-secondary)] bg-[var(--bg-surface)]/90 px-2 py-1 rounded shadow">
-              {i18nT("auto.click_to_zoom_pan", undefined, "Click to zoom & pan")}
+              {i18nT("common.clickToZoomPan", undefined, "Click to zoom & pan")}
             </span>
           </div>
         )}

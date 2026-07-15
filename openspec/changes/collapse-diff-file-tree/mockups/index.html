@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Changed-file tree — collapse-by-default mockups</title>
+<style>
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06); --bg-selected:#1e1e1e;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333;
+    --green:#22c55e; --yellow:#eab308; --blue:#3b82f6;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg-primary); color:var(--text-primary); font-family:var(--font); }
+  header { padding:18px 24px 6px; }
+  header h1 { font-size:18px; margin:0 0 4px; }
+  header p { margin:0; color:var(--text-tertiary); font-size:13px; max-width:70ch; }
+  .grid { display:flex; gap:18px; padding:18px 24px 40px; align-items:flex-start; flex-wrap:wrap; }
+  .col { width:300px; flex:0 0 auto; }
+  .col > h2 { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-tertiary); margin:0 0 6px; display:flex; align-items:center; gap:8px; }
+  .tag { font-size:9px; padding:1px 6px; border-radius:999px; font-weight:600; letter-spacing:.03em; }
+  .tag.now { background:#3a1414; color:#f0a; }
+  .tag.rec { background:#0d2a16; color:var(--green); }
+  .tag.alt { background:var(--bg-surface); color:var(--text-tertiary); }
+  .note { font-size:11px; color:var(--text-muted); margin:6px 2px 0; line-height:1.45; }
+  .metric { font-size:11px; color:var(--text-tertiary); margin:4px 2px 0; }
+  .metric b { color:var(--text-secondary); }
+
+  /* rail */
+  .rail { background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:8px; overflow:hidden; font-size:12.5px; }
+  .sect-head { display:flex; align-items:center; gap:6px; padding:6px 8px; font-weight:500; color:var(--text-secondary); cursor:pointer; user-select:none; }
+  .sect-head:hover { background:var(--bg-hover); }
+  .sect-head .chev { color:var(--text-tertiary); width:10px; }
+  .sect-head .count { color:var(--text-tertiary); }
+  .subhead { padding:5px 10px; color:var(--text-tertiary); font-size:11px; border-bottom:1px solid var(--border-primary); display:flex; gap:8px; align-items:center; }
+  .tree { padding:4px 0; max-height:430px; overflow:auto; }
+  .row { display:flex; align-items:center; gap:6px; padding:2px 8px; cursor:pointer; white-space:nowrap; color:var(--text-secondary); }
+  .row:hover { background:var(--bg-tertiary); }
+  .row.sel { background:var(--bg-tertiary); }
+  .row .chev { color:var(--text-tertiary); width:9px; font-size:10px; flex:0 0 9px; text-align:center; }
+  .row .ic { flex:0 0 auto; }
+  .row .name { overflow:hidden; text-overflow:ellipsis; }
+  .row .dim { color:var(--text-tertiary); }
+  .row .path { color:var(--text-muted); }
+  .row .badge { margin-left:auto; font-size:10px; }
+  .add { color:var(--green); } .del { color:#ef4444; } .mod { color:var(--yellow); }
+  .x { color:var(--text-tertiary); font-size:10px; }
+  .folder { color:#60a5fa; }
+  .divider { border-top:1px solid var(--border-primary); margin-top:4px; }
+  .ws { color:var(--text-tertiary); }
+  .counts { margin-left:auto; font-family:var(--mono); font-size:10.5px; }
+  .legend { padding:0 24px 30px; color:var(--text-muted); font-size:12px; max-width:80ch; line-height:1.6; }
+  .legend code { background:var(--bg-tertiary); padding:1px 5px; border-radius:4px; font-size:11px; color:var(--text-secondary); }
+  .toolbar { display:flex; gap:6px; margin-left:auto; }
+  .seg { display:inline-flex; border:1px solid var(--border-secondary); border-radius:6px; overflow:hidden; }
+  .seg button { background:transparent; border:0; color:var(--text-tertiary); font-size:10px; padding:2px 8px; cursor:pointer; }
+  .seg button.on { background:var(--bg-surface); color:var(--text-primary); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Changed-file tree — “collapse by default” design options</h1>
+  <p>Same 24-file change from the screenshot, rendered five ways. The pain: single-child directory chains (<code style="color:var(--text-secondary)">packages ▸ client/src ▸ components ▸ __tests__</code>) each burn a full row before you reach one file.</p>
+</header>
+
+<div class="grid" id="grid"></div>
+
+<div class="legend">
+  <b>How to read the row-count metric:</b> vertical rows the rail spends to show all 24 changed files (folders + files). Fewer = less scrolling, faster scan. The workspace tree below (<code>.github .pi docker…</code>) is the same in every option and not counted.
+</div>
+
+<script>
+// ── The 24 changed files (reconstructed from the screenshot) ──────────────
+const FILES = [
+  {p:"openspec/changes/auto-canvas-types/INTEGRATION-CONTRACT.md", s:"add"},
+  {p:"openspec/changes/auto-canvas-types/tasks.md", s:"mod", x:3},
+  {p:"packages/client/src/components/__tests__/CanvasTypes.test.tsx", s:"mod", x:2},
+  {p:"packages/client/src/components/CanvasTypesSettings.tsx", s:"mod"},
+  {p:"packages/client/src/components/lib/__tests__/preview-dispatch.test.ts", s:"mod", x:2},
+  {p:"packages/client/src/components/lib/preview-dispatch.ts", s:"mod", x:2},
+  {p:"packages/client/src/App.tsx", s:"mod"},
+  {p:"packages/kb-plugin/src/server/kb-routes.ts", s:"mod"},
+  {p:"packages/server/src/__tests__/canvas-accumulator.test.ts", s:"mod", x:3},
+  {p:"packages/server/src/__tests__/canvas-settings.test.ts", s:"add"},
+  {p:"packages/server/src/routes/canvas-types.route.ts", s:"mod", x:2},
+  {p:"packages/server/src/routes/canvas-settings.route.ts", s:"add"},
+  {p:"packages/server/src/canvas-accumulator.ts", s:"mod", x:4},
+  {p:"packages/server/src/session-store.ts", s:"mod"},
+  {p:"packages/shared/src/canvas-types.ts", s:"mod", x:2},
+  {p:"packages/shared/src/diff-types.ts", s:"mod"},
+  {p:"packages/board-shared/src/canvas.ts", s:"mod"},
+  {p:"packages/board-shared/src/index.ts", s:"mod"},
+  {p:"docs/architecture.md", s:"mod"},
+  {p:"docs/AGENTS.md", s:"mod"},
+  {p:"README.md", s:"mod"},
+  {p:"docker/compose.yml", s:"mod"},
+  {p:"docker/AGENTS.md", s:"add"},
+  {p:"packages/client/src/components/DiffFileTree.tsx", s:"mod", x:2},
+];
+
+const icon = f => f.s==="add" ? '<span class="ic add">+</span>' : '<span class="ic mod">●</span>';
+const xbadge = f => f.x ? `<span class="badge x">${f.x}×</span>` : '';
+const counts = f => `<span class="counts"><span class="add">+${(f.x||1)*7}</span> <span class="del">−${f.s==="add"?0:(f.x||1)*2}</span></span>`;
+
+// ── Tree builders ─────────────────────────────────────────────────────────
+function buildTree(files){
+  const root={name:"",dir:true,children:new Map(),file:null};
+  for(const f of files){
+    const parts=f.p.split("/"); let cur=root;
+    for(let i=0;i<parts.length;i++){
+      const name=parts[i], leaf=i===parts.length-1;
+      if(leaf){ cur.children.set(name,{name,dir:false,file:f}); }
+      else { if(!cur.children.has(name)) cur.children.set(name,{name,dir:true,children:new Map(),file:null}); cur=cur.children.get(name); }
+    }
+  }
+  return root;
+}
+// compact: merge single-child dir chains into one node "a/b/c"
+function compact(node){
+  for(const [,c] of node.children) if(c.dir) compact(c);
+  for(const [k,c] of [...node.children]){
+    if(c.dir){
+      while(c.children.size===1){
+        const only=[...c.children.values()][0];
+        if(!only.dir) break;
+        c.name = c.name+"/"+only.name;
+        c.children = only.children;
+      }
+    }
+  }
+}
+function countRows(node){ // rows to render fully expanded
+  let n=0; for(const [,c] of node.children){ n++; if(c.dir) n+=countRows(c);} return n;
+}
+
+// ── Renderers ─────────────────────────────────────────────────────────────
+function renderTree(node, depth, {collapsedDirs}={}){
+  let html="";
+  const kids=[...node.children.values()].sort((a,b)=>(b.dir-a.dir)||a.name.localeCompare(b.name));
+  for(const c of kids){
+    const pad = depth*14+8;
+    if(c.dir){
+      const chev = collapsedDirs ? "▸" : "▾";
+      html += `<div class="row" style="padding-left:${pad}px"><span class="chev">${chev}</span><span class="ic folder">▸</span><span class="name">${c.name}</span></div>`;
+      if(!collapsedDirs) html += renderTree(c, depth+1, {collapsedDirs});
+    } else {
+      const f=c.file;
+      html += `<div class="row" style="padding-left:${pad+9}px">${icon(f)}<span class="name">${c.name}</span>${counts(f)}${xbadge(f)}</div>`;
+    }
+  }
+  return html;
+}
+function renderFlat(files){
+  return files.map(f=>{
+    const parts=f.p.split("/"); const name=parts.pop(); const dir=parts.join("/");
+    return `<div class="row" style="padding-left:10px">${icon(f)}<span class="name">${name}</span> <span class="path" style="overflow:hidden;text-overflow:ellipsis;min-width:0">${dir?dir:""}</span>${counts(f)}${xbadge(f)}</div>`;
+  }).join("");
+}
+
+const wsTree = `
+  <div class="divider"></div>
+  <div class="row ws" style="padding-left:8px"><span class="chev">▸</span><span class="ic folder">▸</span>.github</div>
+  <div class="row ws" style="padding-left:8px"><span class="chev">▸</span><span class="ic folder">▸</span>.pi</div>
+  <div class="row ws" style="padding-left:8px"><span class="chev">▸</span><span class="ic folder">▸</span>docker</div>`;
+
+function railShell(inner, {sectOpen=true, sub=true}={}){
+  const sectChev = sectOpen ? "▾" : "▸";
+  const body = sectOpen ? `
+     ${sub?`<div class="subhead">24 files changed · <span class="add">+168</span> <span class="del">−38</span></div>`:""}
+     <div class="tree">${inner}${wsTree}</div>` : `<div class="tree" style="padding:0">${wsTree}</div>`;
+  return `<div class="rail">
+     <div class="sect-head"><span class="chev">${sectChev}</span><span>Changes</span><span class="count">(24)</span></div>
+     ${body}
+   </div>`;
+}
+
+const root = buildTree(FILES);
+const compactRoot = buildTree(FILES); compact(compactRoot);
+
+const rowsFull = countRows(root);
+const rowsCompact = countRows(compactRoot);
+const topLevel = root.children.size;
+
+const COLS = [
+  { title:"Un-compacted (NOT real)", tag:["alt","STRAWMAN"],
+    render:()=>railShell(renderTree(root,0,{collapsedDirs:false})),
+    rows: rowsFull,
+    note:`What the tree would look like WITHOUT compaction. Shown only for contrast — the app does not render this.` },
+
+  { title:"Current (compact ALREADY ships)", tag:["now","SHIPS TODAY"],
+    render:()=>railShell(renderTree(compactRoot,0,{collapsedDirs:false})),
+    rows: rowsCompact,
+    note:`The REAL baseline. collapseTree() in diff-tree.ts already merges single-child chains (client/src, server/src). This is what your screenshot shows.` },
+
+  { title:"A · Section collapsed", tag:["alt","MINIMAL"],
+    render:()=>railShell("",{sectOpen:false, sub:false}),
+    rows: 1,
+    note:`One-line <code>▸ Changes (24)</code>. Smallest — but hides the diff view's whole reason for existing behind a click. Bad default when you opened the diff to SEE changes.` },
+
+  { title:"B · Directories collapsed", tag:["rec","RECOMMENDED (faithful)"],
+    render:()=>railShell(renderTree(compactRoot,0,{collapsedDirs:true})),
+    rows: topLevel,
+    note:`“Collapsed by default” taken literally: compact top-level roots show, expand to drill in. Biggest space win that keeps orientation. Pair with an “expand all” button to erase the drill-down tax.` },
+
+  { title:"D · Flat list", tag:["alt","FLATTEST"],
+    render:()=>railShell(renderFlat(FILES)),
+    rows: 24,
+    note:`One row per file, dimmed path suffix. Most compact & sortable, but loses grouping and repeats common prefixes.` },
+];
+
+const grid=document.getElementById("grid");
+grid.innerHTML = COLS.map(c=>`
+  <div class="col">
+    <h2>${c.title}<span class="tag ${c.tag[0]}">${c.tag[1]}</span></h2>
+    ${c.render()}
+    <div class="metric"><b>${c.rows}</b> rows to show all changes</div>
+    <div class="note">${c.note}</div>
+  </div>`).join("");
+</script>
+</body>
+</html>

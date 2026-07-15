@@ -1,7 +1,8 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiSend } from "@mdi/js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { mdiSend } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {
@@ -33,13 +34,13 @@ export function NewChangeDialog({ onSend, onClose }: Props) {
   };
 
   return (
-    <Dialog open onClose={onClose} title={i18nT("auto.new_change", undefined, "New Change")} testId="new-change-dialog">
+    <Dialog open onClose={onClose} title={i18nT("openspec.newChange", undefined, "New Change")} testId="new-change-dialog">
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={i18nT("auto.change_name_optional", undefined, "change-name (optional)")}
+          placeholder={i18nT("common.changeNameOptional", undefined, "change-name (optional)")}
           className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded p-2 text-sm text-[var(--text-secondary)] focus:outline-none focus:border-blue-500"
           autoFocus
           data-testid="new-change-name"
@@ -48,14 +49,14 @@ export function NewChangeDialog({ onSend, onClose }: Props) {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={i18nT("auto.description_optional", undefined, "Description (optional)")}
+          placeholder={i18nT("common.descriptionOptional", undefined, "Description (optional)")}
           className="w-full h-24 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded p-2 text-sm text-[var(--text-secondary)] resize-none focus:outline-none focus:border-blue-500"
           data-testid="new-change-description"
         />
         <Dialog.Footer>
           <Dialog.Cancel onClick={onClose} testId="new-change-cancel" />
           <Dialog.Action onClick={handleSend} testId="new-change-send">
-            <Icon path={mdiSend} size={0.45} className="inline mr-0.5" />{i18nT("auto.send", undefined, "Send")}
+            <Icon path={mdiSend} size={0.45} className="inline mr-0.5" />{i18nT("common.send", undefined, "Send")}
           </Dialog.Action>
         </Dialog.Footer>
     </Dialog>

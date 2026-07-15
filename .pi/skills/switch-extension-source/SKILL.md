@@ -12,6 +12,12 @@ Toggle a monorepo extension between **npm (published)** and **local (working tre
 
 ## Why this exists
 
+> **GUI equivalent:** Settings → Packages exposes a per-row **Reset to published version** action
+> (change: reset-override-to-npm) that resets a local/git-installed row back to its canonical
+> `npm:<name>` — install-first / remove-second, confirm-gated. It is the one-click UI analog of
+> `switch <pkg> npm` here; keep the two semantically aligned (both drop the local `packages[]`
+> registration only, never the working-tree files).
+
 On a dev machine you want extensions to load your **live working tree** so edits take effect.
 Distribution users consume the **published npm** package. Both can be wired at once across two
 config layers, and whichever pi resolves last wins — non-deterministic ("I edited it but nothing

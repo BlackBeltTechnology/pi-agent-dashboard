@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>reset-override-to-npm — mockup</title>
+<style>
+  :root{
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --bg-overlay:rgba(0,0,0,.6);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent-primary:#3b82f6; --accent-green:#22c55e; --accent-red:#ef4444; --amber:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+    font:13px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:28px}
+  h1{font-size:15px;margin:0 0 4px}
+  .sub{color:var(--text-tertiary);font-size:12px;margin:0 0 22px}
+  .board{display:grid;gap:22px;max-width:760px}
+  .state{border:1px solid var(--border-primary);border-radius:10px;overflow:hidden;background:var(--bg-secondary)}
+  .state > .cap{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted);
+    padding:8px 14px;border-bottom:1px solid var(--border-primary);background:var(--bg-tertiary)}
+  .panel{padding:12px 14px}
+  .grp{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-tertiary);margin:2px 0 8px}
+  /* package row */
+  .row{display:flex;align-items:flex-start;gap:8px;padding:8px 6px;border-radius:8px}
+  .row:hover{background:var(--bg-hover)}
+  .chev{color:var(--text-tertiary);margin-top:2px;user-select:none}
+  .rmain{flex:1;min-width:0}
+  .rtop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .name{font-weight:600;color:var(--text-primary)}
+  .badge{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid}
+  .b-local{color:#c084fc;border-color:rgba(192,132,252,.4);background:rgba(192,132,252,.08)}
+  .b-git{color:#fb923c;border-color:rgba(251,146,60,.4);background:rgba(251,146,60,.08)}
+  .b-npm{color:#4ade80;border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.08)}
+  .pill-override{font-size:10px;padding:1px 6px;border-radius:6px;color:var(--amber);
+    border:1px solid rgba(251,191,36,.5);background:rgba(251,191,36,.1);cursor:help}
+  .src{display:block;font:10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text-muted);
+    word-break:break-all;margin-top:3px}
+  .ractions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .ver{font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:4px}
+  .dot{width:9px;height:9px;border-radius:999px;background:var(--accent-green);display:inline-block}
+  .kebab{border:0;background:transparent;color:var(--text-secondary);cursor:pointer;
+    padding:3px 6px;border-radius:6px;font-size:16px;line-height:1}
+  .kebab:hover{background:var(--bg-hover)}
+  /* overflow menu */
+  .menu{margin-top:6px;margin-left:auto;width:210px;border:1px solid var(--border-secondary);
+    border-radius:8px;background:var(--bg-secondary);box-shadow:0 8px 24px rgba(0,0,0,.5);padding:5px 0}
+  .mi{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:12px;color:var(--text-primary);cursor:pointer}
+  .mi:hover{background:var(--bg-hover)}
+  .mi small{color:var(--text-muted);font-size:10px}
+  .mi-new{color:var(--amber)}
+  .mi-danger{color:#f87171}
+  .mi-sep{height:1px;background:var(--border-primary);margin:5px 0}
+  .col{display:flex;flex-direction:column}
+  /* confirm dialog */
+  .modalwrap{position:relative;background:var(--bg-overlay);padding:26px;border-radius:8px}
+  .modal{max-width:420px;margin:0 auto;background:var(--bg-secondary);border:1px solid var(--border-secondary);
+    border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.6);overflow:hidden}
+  .mhead{display:flex;gap:10px;align-items:center;padding:16px 18px 4px}
+  .mhead .ic{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;
+    color:var(--amber);background:rgba(251,191,36,.12);font-size:15px}
+  .mtitle{font-weight:600;font-size:14px}
+  .mbody{padding:6px 18px 4px;color:var(--text-secondary);font-size:12.5px}
+  .mbody code{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--text-primary);
+    background:var(--bg-tertiary);padding:1px 5px;border-radius:4px}
+  .swap{display:flex;align-items:center;gap:10px;margin:12px 0 2px;padding:10px 12px;
+    background:var(--bg-tertiary);border-radius:8px;font:11px/1.3 ui-monospace,Menlo,monospace}
+  .swap .arw{color:var(--text-muted)}
+  .strike{color:var(--text-muted);text-decoration:line-through}
+  .keep{color:#4ade80}
+  .mfoot{display:flex;justify-content:flex-end;gap:8px;padding:14px 18px 16px}
+  .btn{font-size:12px;padding:6px 14px;border-radius:7px;border:1px solid var(--border-secondary);
+    background:var(--bg-tertiary);color:var(--text-primary);cursor:pointer}
+  .btn:hover{background:var(--bg-hover)}
+  .btn-primary{background:var(--accent-primary);border-color:transparent;color:#fff;font-weight:600}
+  .note{font-size:11px;color:var(--text-tertiary);padding:0 18px 8px}
+  /* progress + partial */
+  .prog{font:10px/1.4 ui-monospace,Menlo,monospace;color:var(--text-muted);margin-top:4px;padding-left:2px}
+  .spinner{display:inline-block;color:var(--accent-primary)}
+  .partial{margin-top:8px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.07);
+    border-radius:8px;padding:9px 11px;font-size:11.5px;color:var(--text-secondary)}
+  .partial b{color:var(--amber)}
+  .partial .cleanup{margin-top:7px}
+  .partial .cleanup .btn{padding:4px 10px;font-size:11px}
+  .legend{font-size:11px;color:var(--text-muted);margin-top:6px}
+  .legend b{color:var(--amber)}
+  /* dual source lines (local install + its published npm/git link) */
+  .altsrc{display:flex;align-items:center;gap:8px;margin-top:4px;
+    font:10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+  .altsrc .lbl{color:var(--text-tertiary);width:36px;flex-shrink:0}
+  .altsrc .path{color:var(--text-muted);word-break:break-all}
+  .altsrc .lnk{color:#4ade80}
+  .altsrc .lnk.git{color:#fb923c}
+  .avail{font-size:9px;padding:0 5px;border-radius:5px;color:var(--accent-primary);
+    border:1px solid rgba(59,130,246,.4);background:rgba(59,130,246,.1);white-space:nowrap}
+  .reset-inline{font:10px ui-sans-serif,system-ui;color:var(--amber);cursor:pointer;
+    border:0;background:transparent;padding:0;white-space:nowrap}
+  .reset-inline:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+  <h1>reset-override-to-npm — UI mockup</h1>
+  <p class="sub">Packages settings · the new <b style="color:var(--amber)">Reset to published version</b> action on any local/git install that has a published npm/git variant. Faithful to <code>PackageRow.tsx</code> tokens + the <code>⋮</code> overflow-menu pattern.</p>
+
+  <div class="board">
+
+    <!-- STATE A -->
+    <div class="state">
+      <div class="cap">A · Installed Extensions list (broader scope) — published variant surfaced inline</div>
+      <div class="panel">
+        <div class="grp">Installed Extensions</div>
+
+        <!-- recommended override, local -->
+        <div class="row">
+          <span class="chev">▸</span>
+          <div class="rmain">
+            <div class="rtop">
+              <span class="name">pi-web-access</span>
+              <span class="badge b-local">local</span>
+              <span class="pill-override" title="Declared as npm:@blackbelt-technology/pi-web-access but installed from a local source">override</span>
+            </div>
+            <div class="altsrc"><span class="lbl">local</span><span class="path">/Users/dev/src/pi-web-access</span></div>
+            <div class="altsrc"><span class="lbl">npm</span><span class="lnk">@blackbelt-technology/pi-web-access</span><span class="avail">0.5.0 available</span><button class="reset-inline">↺ Reset to npm</button></div>
+          </div>
+          <div class="ractions"><span class="ver"><span class="dot"></span>0.4.2</span><button class="kebab">⋮</button></div>
+        </div>
+
+        <!-- NON-recommended local, npm variant discovered by package name -->
+        <div class="row">
+          <span class="chev">▸</span>
+          <div class="rmain">
+            <div class="rtop">
+              <span class="name">acme-linter</span>
+              <span class="badge b-local">local</span>
+            </div>
+            <div class="altsrc"><span class="lbl">local</span><span class="path">/Users/dev/src/acme-linter</span></div>
+            <div class="altsrc"><span class="lbl">npm</span><span class="lnk">acme-linter</span><span class="avail">1.2.0 available</span><button class="reset-inline">↺ Reset to npm</button></div>
+          </div>
+          <div class="ractions"><span class="ver"><span class="dot"></span>1.1.0</span><button class="kebab">⋮</button></div>
+        </div>
+
+        <!-- git override, npm link surfaced -->
+        <div class="row">
+          <span class="chev">▸</span>
+          <div class="rmain">
+            <div class="rtop">
+              <span class="name">pi-flows</span>
+              <span class="badge b-git">git</span>
+              <span class="pill-override" title="Declared as npm:@blackbelt-technology/pi-flows but installed from a git source">override</span>
+            </div>
+            <div class="altsrc"><span class="lbl">git</span><span class="path">github.com/blackbelt/pi-flows#main</span></div>
+            <div class="altsrc"><span class="lbl">npm</span><span class="lnk">@blackbelt-technology/pi-flows</span><span class="avail">2.0.1 available</span><button class="reset-inline">↺ Reset to npm</button></div>
+          </div>
+          <div class="ractions"><span class="ver"><span class="dot"></span>2.0.0</span><button class="kebab">⋮</button></div>
+        </div>
+
+        <!-- plain npm row — nothing extra -->
+        <div class="row">
+          <span class="chev">▸</span>
+          <div class="rmain">
+            <div class="rtop">
+              <span class="name">pi-dashboard-subagents</span>
+              <span class="badge b-npm">npm</span>
+            </div>
+            <code class="src">npm:@blackbelt-technology/pi-dashboard-subagents@1.4.0</code>
+          </div>
+          <div class="ractions"><span class="ver"><span class="dot"></span>1.4.0</span><button class="kebab">⋮</button></div>
+        </div>
+
+        <div class="legend">Scope extends past Recommended: <b>any</b> local/git row whose package name resolves to a published npm (or git) variant surfaces a second source line + an inline <b>↺ Reset to npm</b>. A recommended row (row 1) resolves via <code>RECOMMENDED_EXTENSIONS</code>; a non-recommended row (row 2) resolves by looking up its <code>package.json name</code> on npm. Plain npm rows show nothing extra.</div>
+      </div>
+    </div>
+
+    <!-- STATE 1 -->
+    <div class="state">
+      <div class="cap">1 · Override row (resting) — detection already ships</div>
+      <div class="panel">
+        <div class="grp">Recommended Extensions</div>
+        <div class="row">
+          <span class="chev">▸</span>
+          <div class="rmain">
+            <div class="rtop">
+              <span class="name">pi-web-access</span>
+              <span class="badge b-local">local</span>
+              <span class="pill-override" title="Declared as npm:@blackbelt-technology/pi-web-access but installed from a local source">override</span>
+            </div>
+            <div class="altsrc"><span class="lbl">local</span><span class="path">/Users/dev/src/pi-web-access</span></div>
+            <div class="altsrc"><span class="lbl">npm</span><span class="lnk">@blackbelt-technology/pi-web-access</span><span class="avail">0.5.0 available</span></div>
+          </div>
+          <div class="ractions">
+            <span class="ver"><span class="dot"></span>0.4.2</span>
+            <button class="kebab">⋮</button>
+          </div>
+        </div>
+        <div class="legend"><b>override</b> pill = recommended npm package, installed from a local/git checkout. The row now shows both source lines: the installed <code>local</code> path AND the canonical <code>npm</code> link with its available version.</div>
+      </div>
+    </div>
+
+    <!-- STATE 2 -->
+    <div class="state">
+      <div class="cap">2 · Overflow menu — new action added</div>
+      <div class="panel">
+        <div class="grp">Recommended Extensions</div>
+        <div class="row">
+          <span class="chev">▸</span>
+          <div class="rmain">
+            <div class="rtop">
+              <span class="name">pi-web-access</span>
+              <span class="badge b-local">local</span>
+              <span class="pill-override">override</span>
+            </div>
+            <div class="altsrc"><span class="lbl">local</span><span class="path">/Users/dev/src/pi-web-access</span></div>
+            <div class="altsrc"><span class="lbl">npm</span><span class="lnk">@blackbelt-technology/pi-web-access</span><span class="avail">0.5.0 available</span></div>
+          </div>
+          <div class="ractions">
+            <span class="ver"><span class="dot"></span>0.4.2</span>
+            <button class="kebab">⋮</button>
+          </div>
+        </div>
+        <div class="col">
+          <div class="menu">
+            <div class="mi mi-new col" style="align-items:flex-start;gap:2px">
+              <span>↺ Reset to published version</span>
+              <small>install npm, drop the local link</small>
+            </div>
+            <div class="mi-sep"></div>
+            <div class="mi">⇄ move to global</div>
+            <div class="mi">📄 View README</div>
+            <div class="mi mi-danger">🗑 Uninstall</div>
+          </div>
+        </div>
+        <div class="legend">New item sits above the existing Move / README / Uninstall. Distinct from the latent generic “Reset (reinstall)” — this one <b>changes the source</b> local/git → npm.</div>
+      </div>
+    </div>
+
+    <!-- STATE 3 -->
+    <div class="state">
+      <div class="cap">3 · Confirm dialog (gated — the chosen safety model)</div>
+      <div class="modalwrap">
+        <div class="modal">
+          <div class="mhead"><span class="ic">↺</span><span class="mtitle">Reset to published version?</span></div>
+          <div class="mbody">
+            This discards the <b>local checkout link</b> for <code>pi-web-access</code> and installs the
+            published npm package. Your files on disk are not deleted — only the
+            <code>settings.json</code> link is replaced.
+            <div class="swap">
+              <span class="strike">local · /Users/dev/src/pi-web-access</span>
+              <span class="arw">→</span>
+              <span class="keep">npm:@blackbelt-technology/pi-web-access</span>
+            </div>
+          </div>
+          <div class="note">Install runs first; the local link is dropped only after npm install succeeds.</div>
+          <div class="mfoot">
+            <button class="btn">Cancel</button>
+            <button class="btn btn-primary">Reset to npm</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATE 4 -->
+    <div class="state">
+      <div class="cap">4 · In progress (install-first)</div>
+      <div class="panel">
+        <div class="grp">Recommended Extensions</div>
+        <div class="row">
+          <span class="chev">▸</span>
+          <div class="rmain">
+            <div class="rtop">
+              <span class="name">pi-web-access</span>
+              <span class="badge b-local">local</span>
+              <span class="pill-override">override</span>
+            </div>
+            <code class="src">/Users/dev/src/pi-web-access</code>
+            <div class="prog"><span class="spinner">◐</span> installing npm:@blackbelt-technology/pi-web-access …</div>
+          </div>
+          <div class="ractions"><span class="ver"><span class="spinner">◐</span></span></div>
+        </div>
+        <div class="legend">Row is busy; other affordances disabled until the composite op completes (<code>package_operation_complete · action:"reset"</code>).</div>
+      </div>
+    </div>
+
+    <!-- STATE 5 -->
+    <div class="state">
+      <div class="cap">5 · Success — now a plain npm row</div>
+      <div class="panel">
+        <div class="grp">Recommended Extensions</div>
+        <div class="row">
+          <span class="chev">▸</span>
+          <div class="rmain">
+            <div class="rtop">
+              <span class="name">pi-web-access</span>
+              <span class="badge b-npm">npm</span>
+            </div>
+            <code class="src">npm:@blackbelt-technology/pi-web-access@0.5.0</code>
+          </div>
+          <div class="ractions"><span class="ver"><span class="dot"></span>0.5.0</span><button class="kebab">⋮</button></div>
+        </div>
+        <div class="legend">Override pill gone; source badge is now <span style="color:#4ade80">npm</span>. The reset action no longer renders.</div>
+      </div>
+    </div>
+
+    <!-- STATE 6 -->
+    <div class="state">
+      <div class="cap">6 · Partial success — install ok, local remove failed</div>
+      <div class="panel">
+        <div class="grp">Recommended Extensions</div>
+        <div class="row">
+          <span class="chev">▸</span>
+          <div class="rmain">
+            <div class="rtop">
+              <span class="name">pi-web-access</span>
+              <span class="badge b-npm">npm</span>
+              <span class="pill-override" title="local entry still present">override</span>
+            </div>
+            <code class="src">npm:@blackbelt-technology/pi-web-access@0.5.0</code>
+            <div class="partial">
+              <b>Partial success.</b> Installed <code style="font-size:10px">npm:…pi-web-access</code>, but the
+              local link <code style="font-size:10px">/Users/dev/src/pi-web-access</code> could not be removed
+              from <code>settings.json</code>.
+              <div class="cleanup"><button class="btn">Remove local link</button></div>
+            </div>
+          </div>
+          <div class="ractions"><span class="ver"><span class="dot"></span>0.5.0</span><button class="kebab">⋮</button></div>
+        </div>
+        <div class="legend">Reuses the existing <code>PartialSuccessBanner</code> pattern (as scope-move already does). npm is safely installed; user retries just the cleanup.</div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

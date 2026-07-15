@@ -13,17 +13,18 @@
  * In production:
  * - Skips plugins with fixture: true
  */
-import type { Plugin, ViteDevServer } from "vite";
+
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
+import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
+import type { Plugin, ViteDevServer } from "vite";
+import { validateManifest } from "../manifest-validator.js";
 import {
-  discoverPlugins,
   clearDiscoveryCache,
+  discoverPlugins,
   pluginRegistryHash,
 } from "../server/loader.js";
-import { validateManifest } from "../manifest-validator.js";
-import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 
 /** Generated file path (relative to the calling vite.config location). */
 const GENERATED_DIR = "packages/client/src/generated";
@@ -221,6 +222,13 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
           .filter((c): c is string => Boolean(c)),
       ),
     ];
+    // i18n catalog export is imported aliased per-plugin (`<name> as <id>_catalog`)
+    // so two plugins can both export `catalog` without a name collision.
+    const catalogRef = entry.manifest.i18nCatalog;
+    const catalogAlias = catalogRef
+      ? `${entry.manifest.id.replace(/[^a-zA-Z0-9_$]/g, "_")}_catalog`
+      : undefined;
+    if (catalogRef && catalogAlias) namedRefs.push(`${catalogRef} as ${catalogAlias}`);
 
     if (namedRefs.length === 0) continue;
 
@@ -258,6 +266,8 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
   lines.push("export interface RegistryEntry {");
   lines.push("  manifest: PluginManifest;");
   lines.push("  claims: ClaimEntry[];");
+  lines.push("  /** Plugin i18n catalog (unprefixed keys). Merged under plugin.<id>.* by the shell. */");
+  lines.push("  catalog?: import(\"@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js\").PluginI18nCatalog;");
   lines.push("}");
   lines.push("");
   lines.push("export const PLUGIN_REGISTRY: RegistryEntry[] = [");
@@ -289,6 +299,10 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       );
     }
     lines.push("    ],");
+    if (manifest.i18nCatalog) {
+      const catalogAlias = `${manifest.id.replace(/[^a-zA-Z0-9_$]/g, "_")}_catalog`;
+      lines.push(`    catalog: ${catalogAlias},`);
+    }
     lines.push("  },");
   }
 

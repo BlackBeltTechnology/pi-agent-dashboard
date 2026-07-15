@@ -16,23 +16,24 @@
  *
  * See change: render-skill-invocations-collapsibly.
  */
-import React, { useRef, useState, useCallback } from "react";
-import { Icon } from "@mdi/react";
+
+import type { SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import {
-  mdiContentCopy,
-  mdiTextBox,
-  mdiSourceFork,
-  mdiTools,
   mdiChevronDown,
   mdiChevronRight,
-  mdiSlashForward,
+  mdiContentCopy,
   mdiMessageOutline,
+  mdiSlashForward,
+  mdiSourceFork,
+  mdiTextBox,
+  mdiTools,
 } from "@mdi/js";
-import type { SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
-import { MarkdownContent } from "./MarkdownContent.js";
-import { CopyButton } from "./CopyButton.js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useRef, useState } from "react";
 import { formatMessageTime } from "../lib/format.js";
 import { t as i18nT } from "../lib/i18n";
+import { CopyButton } from "./CopyButton.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 
 interface Props {
   /** Parsed skill metadata stamped on the ChatMessage. */
@@ -119,29 +120,29 @@ export function SkillInvocationCard({
         <CopyButton
           getText={() => rawContent}
           icon={<Icon path={mdiContentCopy} size={0.6} />}
-          title={i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")}
+          title={i18nT("common.copyAsMarkdown", undefined, "Copy as Markdown")}
         />
         <CopyButton
           getText={getPlainText}
           icon={<Icon path={mdiTextBox} size={0.6} />}
-          title={i18nT("auto.copy_as_plain_text", undefined, "Copy as plain text")}
+          title={i18nT("common.copyAsPlainText", undefined, "Copy as plain text")}
         />
         <CopyButton
           getText={() => skill.condensed}
           icon={<Icon path={mdiSlashForward} size={0.6} />}
-          title={i18nT("auto.copy_as_skill_command", undefined, "Copy as /skill: command")}
+          title={i18nT("common.copyAsSkillCommand", undefined, "Copy as /skill: command")}
         />
         {skill.args && (
           <CopyButton
             getText={() => skill.args ?? ""}
             icon={<Icon path={mdiMessageOutline} size={0.6} />}
-            title={i18nT("auto.copy_as_message", undefined, "Copy as message")}
+            title={i18nT("session.copyAsMessage", undefined, "Copy as message")}
           />
         )}
         {entryId && onFork && (
           <button
             onClick={() => onFork(entryId)}
-            title={i18nT("auto.fork_from_here", undefined, "Fork from here")}
+            title={i18nT("session.forkFromHere", undefined, "Fork from here")}
             className="p-0.5 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)]"
           >
             <Icon path={mdiSourceFork} size={0.6} />

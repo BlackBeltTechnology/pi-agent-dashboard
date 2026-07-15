@@ -8,16 +8,17 @@
  *   ↑ / ↓    — move focus between checkboxes
  *   Space    — toggle focused checkbox (browser native behavior)
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DialogPortal } from "./DialogPortal.js";
+import type React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import {
-  fetchTasks,
   toggleTask as apiToggleTask,
+  fetchTasks,
   LineMismatchError,
   type OpenSpecTask,
   type TasksPayload,
 } from "../lib/openspec-tasks-api.js";
-import { t as i18nT } from "../lib/i18n";
+import { DialogPortal } from "./DialogPortal.js";
 
 interface Props {
   cwd: string;
@@ -142,14 +143,14 @@ export function TasksPopover({ cwd, change, onClose }: Props) {
         >
           <div className="px-3 py-2 border-b border-[var(--border-primary)] flex items-center justify-between">
             <span className="text-[11px] text-[var(--text-secondary)]">
-              {i18nT("auto.tasks", undefined, "Tasks —")} <span className="text-blue-400">{change}</span>
+              {i18nT("openspec.tasks", undefined, "Tasks —")} <span className="text-blue-400">{change}</span>
             </span>
             <button
               onClick={onClose}
               className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400"
               data-testid="tasks-popover-close"
             >
-              {i18nT("auto.close", undefined, "Close")}
+              {i18nT("common.close", undefined, "Close")}
             </button>
           </div>
           {banner && (
@@ -167,10 +168,10 @@ export function TasksPopover({ cwd, change, onClose }: Props) {
               </div>
             )}
             {!payload && !loadError && (
-              <div className="text-[11px] text-[var(--text-muted)]">{i18nT("auto.loading", undefined, "Loading…")}</div>
+              <div className="text-[11px] text-[var(--text-muted)]">{i18nT("common.loading2", undefined, "Loading…")}</div>
             )}
             {payload && payload.tasks.length === 0 && (
-              <div className="text-[11px] text-[var(--text-muted)]">{i18nT("auto.no_tasks", undefined, "No tasks.")}</div>
+              <div className="text-[11px] text-[var(--text-muted)]">{i18nT("openspec.noTasks", undefined, "No tasks.")}</div>
             )}
             {grouped.map(([group, tasks]) => (
               <div key={group} className="mb-2" data-testid={`tasks-group-${group}`}>

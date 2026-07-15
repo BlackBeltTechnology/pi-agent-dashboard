@@ -16,6 +16,7 @@ import { mdiContentSave, mdiEyeOutline, mdiPencilOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api-context.js";
+import { useI18n } from "../../lib/i18n";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import type { ViewerProps } from "./types.js";
@@ -28,6 +29,7 @@ const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd
 const basename = (p: string): string => p.slice(Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")) + 1);
 
 export default function MarkdownViewer({ cwd, path }: ViewerProps) {
+  const { t } = useI18n();
   const editable = fileKind(absOf(cwd, path)).editable;
   const [content, setContent] = useState<string | null>(null);
   const [buffer, setBuffer] = useState("");
@@ -47,7 +49,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
       .then((body) => {
         if (!active) return;
         if (!body.success || body.data?.type !== "file") {
-          setError(body.error ?? "Failed to load file");
+          setError(body.error ?? t("editor.failedToLoadFile", undefined, "Failed to load file"));
           return;
         }
         const text = body.data.content ?? "";
@@ -55,7 +57,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
         setBuffer(text);
         setMtime(typeof body.data.mtime === "number" ? body.data.mtime : null);
       })
-      .catch((err) => active && setError(err?.message ?? "Network error"));
+      .catch((err) => active && setError(err?.message ?? t("common.networkError", undefined, "Network error")));
     return () => {
       active = false;
     };
@@ -83,17 +85,17 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
       } else if (res.status === 409) {
         setConflict(true);
       } else {
-        setError(body.error ?? `Save failed (${res.status})`);
+        setError(body.error ?? t("editor.saveFailed", { status: res.status }, "Save failed ({status})"));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
+      setError(err instanceof Error ? err.message : t("common.networkError", undefined, "Network error"));
     } finally {
       setSaving(false);
     }
   }, [cwd, path, buffer, mtime, saving]);
 
   if (error) return <div className="p-4 text-sm text-[var(--accent-red)]">{error}</div>;
-  if (content === null) return <div className="p-4 text-sm text-[var(--text-tertiary)]">Loading…</div>;
+  if (content === null) return <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("common.loading2", undefined, "Loading…")}</div>;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -110,7 +112,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
           ].join(" ")}
         >
           <Icon path={mdiEyeOutline} size={0.55} />
-          <span>Preview</span>
+          <span>{t("editor.preview", undefined, "Preview")}</span>
         </button>
         {editable && (
           <button
@@ -124,7 +126,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
             ].join(" ")}
           >
             <Icon path={mdiPencilOutline} size={0.55} />
-            <span>Edit</span>
+            <span>{t("common.edit", undefined, "Edit")}</span>
           </button>
         )}
         {dirty && <span data-testid="md-dirty-dot" className="ml-1 h-1.5 w-1.5 rounded-full bg-[var(--accent-yellow)]" />}
@@ -138,7 +140,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
             className="flex items-center gap-1 rounded bg-[var(--accent-blue)] px-2 py-0.5 text-white disabled:opacity-40"
           >
             <Icon path={mdiContentSave} size={0.55} />
-            <span>{saving ? "Saving…" : "Save"}</span>
+            <span>{saving ? t("editor.saving", undefined, "Saving…") : t("common.save", undefined, "Save")}</span>
           </button>
         )}
       </div>
@@ -154,7 +156,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
       {/* Body */}
       <div className="min-h-0 flex-1 overflow-auto">
         {mode === "edit" && editable ? (
-          <Suspense fallback={<div className="p-4 text-sm text-[var(--text-tertiary)]">Loading editor…</div>}>
+          <Suspense fallback={<div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingEditor", undefined, "Loading editor…")}</div>}>
             <MarkdownEditor value={buffer} onChange={setBuffer} />
           </Suspense>
         ) : (

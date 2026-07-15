@@ -17,7 +17,7 @@ import { getApiBase } from "../lib/api-context.js";
 import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
 import { type BlockEvent, getBlockEvents } from "../lib/gateway-api.js";
 import { suggestTrustEntries } from "../lib/gateway-config-ops.js";
-import { fetchAutoInitWorktreePref, setAutoInitWorktreePref } from "../lib/git-api.js";
+import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../lib/git-api.js";
 import { t as i18nT } from "../lib/i18n";
 import { LANGUAGE_OPTIONS, type Language, useI18n } from "../lib/i18n.js";
 import { type TestProviderResult, testProvider } from "../lib/providers-api.js";
@@ -342,7 +342,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
         return; // socket closed on exit → restart underway
       }
       const data = await res.json().catch(() => ({ ok: true }));
-      if (data && data.ok === false) throw new Error(data.error || "Restart failed");
+      if (data && data.ok === false) throw new Error(data.error || i18nT("settings.restartFailed", undefined, "Restart failed"));
     },
     {
       confirm: "ws",
@@ -711,7 +711,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
       label: t("settings.groupDashboard", undefined, "Dashboard"),
       items: [
         { id: "general", label: t("settings.general", undefined, "General"), icon: mdiCog },
-        { id: "server", label: i18nT("auto.server", undefined, "Server"), icon: mdiServer },
+        { id: "server", label: i18nT("common.server", undefined, "Server"), icon: mdiServer },
         { id: "sessions", label: t("settings.sessions", undefined, "Sessions"), icon: mdiViewDashboard },
       ],
     },
@@ -735,18 +735,18 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
     {
       label: t("settings.groupResources", undefined, "Resources"),
       items: [
-        { id: "skills", label: i18nT("auto.skills", undefined, "Skills"), icon: mdiBookOpenPageVariant },
-        { id: "agents", label: i18nT("auto.agents", undefined, "Agents"), icon: mdiRobotOutline },
-        { id: "extensions", label: i18nT("auto.extensions", undefined, "Extensions"), icon: mdiPuzzleOutline },
-        { id: "prompts", label: i18nT("auto.prompts", undefined, "Prompts"), icon: mdiTextBoxOutline },
-        { id: "themes", label: i18nT("auto.themes", undefined, "Themes"), icon: mdiPalette },
+        { id: "skills", label: i18nT("common.skills", undefined, "Skills"), icon: mdiBookOpenPageVariant },
+        { id: "agents", label: i18nT("common.agents", undefined, "Agents"), icon: mdiRobotOutline },
+        { id: "extensions", label: i18nT("packages.extensions", undefined, "Extensions"), icon: mdiPuzzleOutline },
+        { id: "prompts", label: i18nT("session.prompts", undefined, "Prompts"), icon: mdiTextBoxOutline },
+        { id: "themes", label: i18nT("common.themes", undefined, "Themes"), icon: mdiPalette },
       ],
     },
     {
       label: t("settings.groupAdvanced", undefined, "Advanced"),
       items: [
         { id: "developer", label: t("settings.developer", undefined, "Developer"), icon: mdiWrench },
-        { id: "instructions", label: i18nT("auto.instructions", undefined, "Instructions"), icon: mdiFileDocumentEditOutline },
+        { id: "instructions", label: i18nT("common.instructions", undefined, "Instructions"), icon: mdiFileDocumentEditOutline },
       ],
     },
   ];
@@ -883,7 +883,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
 
             {activeTab === "server" && (
               <>
-                <Section title={i18nT("auto.server", undefined, "Server")}>
+                <Section title={i18nT("common.server", undefined, "Server")}>
                   <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} />
                   <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} />
                   <ListenInterfaceField
@@ -893,14 +893,14 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                   />
                   <ToggleField label={t("settings.autoShutdown", undefined, "Auto Shutdown")} value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} />
                   {config.autoShutdown && (
-                    <NumberField label={i18nT("auto.idle_seconds_before_shutdown", undefined, "Idle Seconds Before Shutdown")} value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} />
+                    <NumberField label={i18nT("status.idleSecondsBeforeShutdown", undefined, "Idle Seconds Before Shutdown")} value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} />
                   )}
                 </Section>
                 <Section title={t("settings.tunnel", undefined, "Gateway")}>
                   <ToggleField label={t("settings.enableZrokTunnel", undefined, "Enable Gateway")} value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} />
                   <div className="mt-3 pt-3 border-t border-[var(--border-secondary)] space-y-2">
                     <p className="text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.watchdog_probes_the_public_tunnel_url", undefined, "Watchdog probes the public Gateway URL periodically and recycles it after consecutive failures (e.g. a zrok edge returning 502).")}
+                      {i18nT("tunnel.watchdogProbesThePublicTunnelUrl", undefined, "Watchdog probes the public Gateway URL periodically and recycles it after consecutive failures (e.g. a zrok edge returning 502).")}
                     </p>
                     <ToggleField
                       label={t("settings.enableWatchdog", undefined, "Enable Watchdog")}
@@ -927,7 +927,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                       })}
                     />
                     <NumberField
-                      label={i18nT("auto.failure_threshold", undefined, "Failure Threshold")}
+                      label={i18nT("settings.failureThreshold", undefined, "Failure Threshold")}
                       value={config.tunnel.watchdog?.failureThreshold ?? 2}
                       onChange={(v) => update((c) => {
                         c.tunnel.watchdog = {
@@ -957,7 +957,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     {t("settings.memoryLimitsDescription", undefined, "Controls for bounding server memory usage. Set to 0 to disable a limit. Requires server restart.")}
                   </p>
                   <NumberField
-                    label={i18nT("auto.max_events_per_session", undefined, "Max Events Per Session")}
+                    label={i18nT("session.maxEventsPerSession", undefined, "Max Events Per Session")}
                     value={config.memoryLimits?.maxEventsPerSession ?? 200}
                     onChange={(v) => update((c) => {
                       if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
@@ -965,7 +965,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     })}
                   />
                   <NumberField
-                    label={i18nT("auto.max_string_truncation_chars", undefined, "Max String Truncation (chars)")}
+                    label={i18nT("settings.maxStringTruncationChars", undefined, "Max String Truncation (chars)")}
                     value={config.memoryLimits?.maxStringFieldSize ?? 4000}
                     onChange={(v) => update((c) => {
                       if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
@@ -973,7 +973,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     })}
                   />
                   <NumberField
-                    label={i18nT("auto.max_websocket_buffer_bytes", undefined, "Max WebSocket Buffer (bytes)")}
+                    label={i18nT("settings.maxWebsocketBufferBytes", undefined, "Max WebSocket Buffer (bytes)")}
                     value={config.memoryLimits?.maxWsBufferBytes ?? 4194304}
                     onChange={(v) => update((c) => {
                       if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
@@ -996,7 +996,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                   />
                   <div>
                     <SelectField
-                      label={i18nT("auto.reattach_placement", undefined, "Reattach Placement")}
+                      label={i18nT("common.reattachPlacement", undefined, "Reattach Placement")}
                       value={config.reattachPlacement ?? "always"}
                       options={[
                         { value: "always", label: "Always move to top (default)" },
@@ -1006,12 +1006,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                       onChange={(v) => update((c) => { c.reattachPlacement = v as "preserve" | "streaming-only" | "always"; })}
                     />
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.when_the_dashboard_restarts_and_a", undefined, "When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.")}
+                      {i18nT("common.whenTheDashboardRestartsAndA", undefined, "When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.")}
                     </p>
                   </div>
                   <div>
                     <SelectField
-                      label={i18nT("auto.reopen_sessions_after_shutdown", undefined, "Reopen sessions after shutdown")}
+                      label={i18nT("session.reopenSessionsAfterShutdown", undefined, "Reopen sessions after shutdown")}
                       value={config.reopenSessionsAfterShutdown ?? "ask"}
                       options={[
                         { value: "ask", label: "Ask (default)" },
@@ -1021,42 +1021,42 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                       onChange={(v) => update((c) => { c.reopenSessionsAfterShutdown = v as "off" | "ask" | "auto"; })}
                     />
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.when_sessions_were_running_at_shutdown", undefined, "When sessions were running when the machine shut down or crashed, offer to reopen them on next launch. Ask shows a prompt; Auto reopens them silently; Never ignores them.")}
+                      {i18nT("session.whenSessionsWereRunningAtShutdown", undefined, "When sessions were running when the machine shut down or crashed, offer to reopen them on next launch. Ask shows a prompt; Auto reopens them silently; Never ignores them.")}
                     </p>
                   </div>
                   <div>
                     <ToggleField
-                      label={i18nT("auto.put_completed_session_first", undefined, "Put completed session first")}
+                      label={i18nT("session.putCompletedSessionFirst", undefined, "Put completed session first")}
                       value={config.completedFirst ?? false}
                       onChange={(v) => update((c) => { c.completedFirst = v; })}
                     />
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.when_a_session_finishes_a_turn", undefined, "When a session finishes a turn or ends, move its card to the top of its tier (active, resp. ended). Off keeps the card in place.")}
+                      {i18nT("session.whenASessionFinishesATurn", undefined, "When a session finishes a turn or ends, move its card to the top of its tier (active, resp. ended). Off keeps the card in place.")}
                     </p>
                   </div>
                   <div>
                     <ToggleField
-                      label={i18nT("auto.put_question_session_first", undefined, "Put question session first")}
+                      label={i18nT("session.putQuestionSessionFirst", undefined, "Put question session first")}
                       value={config.questionFirst ?? false}
                       onChange={(v) => update((c) => { c.questionFirst = v; })}
                     />
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.when_a_session_asks_a_question", undefined, "When a session asks a question (ask_user), move its card to the top of the active tier. Off keeps the card in place.")}
+                      {i18nT("session.whenASessionAsksAQuestion", undefined, "When a session asks a question (ask_user), move its card to the top of the active tier. Off keeps the card in place.")}
                     </p>
                   </div>
                   <div>
                     <NumberField
-                      label={i18nT("auto.ask_user_prompt_timeout_seconds", undefined, "ask_user Prompt Timeout (seconds)")}
+                      label={i18nT("session.askUserPromptTimeoutSeconds", undefined, "ask_user Prompt Timeout (seconds)")}
                       value={config.askUserPromptTimeoutSeconds ?? 300}
                       onChange={(v) => update((c) => { c.askUserPromptTimeoutSeconds = v; })}
                     />
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.how_long_an_interactive_ask_user", undefined, "How long an interactive ask_user prompt waits for an answer before auto-cancelling. Use")} <code>-1</code> (or <code>0</code>{i18nT("auto.to_wait_forever_default_300_5", undefined, ") to wait forever. Default: 300 (5 min).")}
+                      {i18nT("session.howLongAnInteractiveAskUser", undefined, "How long an interactive ask_user prompt waits for an answer before auto-cancelling. Use")} <code>-1</code> (or <code>0</code>{i18nT("common.toWaitForeverDefault3005", undefined, ") to wait forever. Default: 300 (5 min).")}
                     </p>
                   </div>
                   <div>
                     <div className="flex items-center justify-between">
-                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("auto.session_register_timeout_ms", undefined, "+Session register timeout (ms)")}</label>
+                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("session.sessionRegisterTimeoutMs", undefined, "+Session register timeout (ms)")}</label>
                       <input
                         type="number"
                         className={`w-28 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right ${
@@ -1074,26 +1074,32 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                       />
                     </div>
                     {spawnTimeoutInvalid && (
-                      <p className="mt-1 text-xs text-red-400">{i18nT("auto.must_be_an_integer_between_5000", undefined, "Must be an integer between 5000 and 120000.")}</p>
+                      <p className="mt-1 text-xs text-red-400">{i18nT("common.mustBeAnIntegerBetween5000", undefined, "Must be an integer between 5000 and 120000.")}</p>
                     )}
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.how_long_to_wait_for_a", undefined, "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
+                      {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
                     </p>
                   </div>
                   <div>
                     <ToggleField
-                      label={i18nT("auto.show_worktree_spawn_buttons_in_folders", undefined, "Show worktree spawn buttons in folders and OpenSpec rows")}
+                      label={i18nT("worktree.showWorktreeSpawnButtonsInFolders", undefined, "Show worktree spawn buttons in folders and OpenSpec rows")}
                       value={config.gitWorktreeEnabled ?? true}
                       onChange={(v) => update((c) => { c.gitWorktreeEnabled = v; })}
                     />
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.ui_preference_only_hides_the_folder", undefined, "UI preference only. Hides the folder")} <code>+Worktree</code> {i18nT("auto.button_and_the_per_change", undefined, "button and the per-change")} <code>⥂2+</code> {i18nT("auto.button_on_openspec_rows_the", undefined, "button on OpenSpec rows. The")} <code>/api/git/worktree*</code> {i18nT("auto.rest_endpoints_stay_reachable_for_tooling", undefined, "REST endpoints stay reachable for tooling. Default on.")}
+                      {i18nT("folders.uiPreferenceOnlyHidesTheFolder", undefined, "UI preference only. Hides the folder")} <code>+Worktree</code> {i18nT("common.buttonAndThePerChange", undefined, "button and the per-change")} <code>⥂2+</code> {i18nT("openspec.buttonOnOpenspecRowsThe", undefined, "button on OpenSpec rows. The")} <code>/api/git/worktree*</code> {i18nT("common.restEndpointsStayReachableForTooling", undefined, "REST endpoints stay reachable for tooling. Default on.")}
+                    </p>
+                  </div>
+                  <div>
+                    <AutoNameSessionsToggle />
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic using the fast model.")}
                     </p>
                   </div>
                   <div>
                     <WorktreeAutoInitToggle />
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.after_spawning_a_worktree_auto_run", undefined, "After spawning a worktree, automatically run its declared")} <code>worktreeInit</code> {i18nT("auto.hook_only_when_already_trusted", undefined, "hook — only when the hook is already trusted. Untrusted hooks still require a manual Initialize click to grant trust. Default off.")}
+                      {i18nT("worktree.afterSpawningAWorktreeAutoRun", undefined, "After spawning a worktree, automatically run its declared")} <code>worktreeInit</code> {i18nT("common.hookOnlyWhenAlreadyTrusted", undefined, "hook — only when the hook is already trusted. Untrusted hooks still require a manual Initialize click to grant trust. Default off.")}
                     </p>
                   </div>
                   {/* Windows-only: bundled-vs-host git & bash. Hidden on
@@ -1102,7 +1108,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                   {gitSourceReadout && (
                     <div>
                       <SelectField
-                        label={i18nT("auto.git_bash_source", undefined, "Git & Bash source (Windows)")}
+                        label={i18nT("git.gitBashSource", undefined, "Git & Bash source (Windows)")}
                         value={config.windowsGitSource ?? "auto"}
                         options={[
                           { value: "auto", label: "Auto — host when installed, else bundled (default)" },
@@ -1112,11 +1118,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                         onChange={(v) => update((c) => { c.windowsGitSource = v as "auto" | "host" | "bundled"; })}
                       />
                       <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                        {i18nT("auto.currently_active", undefined, "Currently active:")}{" "}
+                        {i18nT("common.currentlyActive", undefined, "Currently active:")}{" "}
                         <strong>{gitSourceReadout.source}</strong>
                         {gitSourceReadout.gitPath ? <> — <code>{gitSourceReadout.gitPath}</code></> : null}
                         {gitSourceReadout.gitVersion ? <> ({gitSourceReadout.gitVersion})</> : null}
-                        . {i18nT("auto.git_source_takes_effect", undefined, "Takes effect for newly spawned sessions. macOS/Linux ignore this setting.")}
+                        . {i18nT("git.gitSourceTakesEffect", undefined, "Takes effect for newly spawned sessions. macOS/Linux ignore this setting.")}
                       </p>
                     </div>
                   )}
@@ -1130,17 +1136,17 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                   </div>
                   <div>
                     <div className="flex items-center justify-between">
-                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("auto.pwa_display_name", undefined, "PWA Display Name")}</label>
+                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("landing.pwaDisplayName", undefined, "PWA Display Name")}</label>
                       <input
                         type="text"
                         className="w-56 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-                        placeholder={i18nT("auto.auto_from_hostname", undefined, "(auto from hostname)")}
+                        placeholder={i18nT("common.autoFromHostname", undefined, "(auto from hostname)")}
                         value={config.dashboardName ?? ""}
                         onChange={(e) => update((c) => { c.dashboardName = e.target.value; })}
                       />
                     </div>
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.shown_on_the_home_screen_app", undefined, "Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request")} <code>{i18nT("auto.host", undefined, "Host")}</code> {i18nT("auto.header_or_the_server_hostname_distinguishe", undefined, "header (or the server hostname). Distinguishes installs from multiple machines or tunnels.")}
+                      {i18nT("landing.shownOnTheHomeScreenApp", undefined, "Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request")} <code>{i18nT("common.host", undefined, "Host")}</code> {i18nT("common.headerOrTheServerHostnameDistinguishe", undefined, "header (or the server hostname). Distinguishes installs from multiple machines or tunnels.")}
                     </p>
                   </div>
                 </Section>
@@ -1294,7 +1300,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
               <>
                 <Section title={t("settings.backgroundPolling", undefined, "Background polling (OpenSpec)")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                    {i18nT("auto.controls_how_aggressively_the_server_polls", undefined, "Controls how aggressively the server polls")} <code>{i18nT("auto.openspec_list", undefined, "openspec list")}</code> and <code>{i18nT("auto.openspec_status", undefined, "openspec status")}</code> {i18nT("auto.for_each_known_directory_longer_interval", undefined, "for each known directory. Longer interval → less CPU, slightly staler UI. Lower concurrency → smoother curve. Change detection")} <code>mtime</code> {i18nT("auto.skips_re_polling_unchanged_proposals_recom", undefined, "skips re-polling unchanged proposals (recommended).")}
+                    {i18nT("settings.controlsHowAggressivelyTheServerPolls", undefined, "Controls how aggressively the server polls")} <code>{i18nT("openspec.openspecList", undefined, "openspec list")}</code> and <code>{i18nT("openspec.openspecStatus", undefined, "openspec status")}</code> {i18nT("folders.forEachKnownDirectoryLongerInterval", undefined, "for each known directory. Longer interval → less CPU, slightly staler UI. Lower concurrency → smoother curve. Change detection")} <code>mtime</code> {i18nT("openspec.skipsRePollingUnchangedProposalsRecom", undefined, "skips re-polling unchanged proposals (recommended).")}
                   </p>
                   <ToggleField
                     label={t("settings.enableOpenSpec", undefined, "Enable OpenSpec")}
@@ -1305,14 +1311,14 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     })}
                   />
                   <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                    {i18nT("auto.when_off_openspec_is_fully_disabled", undefined, "When off, OpenSpec is fully disabled: no polling, no OPENSPEC subcards on session cards. Tuning values below remain but are ignored.")}
+                    {i18nT("openspec.whenOffOpenspecIsFullyDisabled", undefined, "When off, OpenSpec is fully disabled: no polling, no OPENSPEC subcards on session cards. Tuning values below remain but are ignored.")}
                   </p>
                   {(() => {
                     const openspecOff = (config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled) === false;
                     return (
                       <>
                         <NumberField
-                          label={i18nT("auto.poll_interval_seconds_5_3600", undefined, "Poll Interval (seconds, 5–3600)")}
+                          label={i18nT("settings.pollIntervalSeconds53600", undefined, "Poll Interval (seconds, 5–3600)")}
                           disabled={openspecOff}
                           value={config.openspec?.pollIntervalSeconds ?? DEFAULT_OPENSPEC_UI.pollIntervalSeconds}
                           onChange={(v) => update((c) => {
@@ -1321,7 +1327,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                           })}
                         />
                         <NumberField
-                          label={i18nT("auto.max_concurrent_sessions_1_16", undefined, "Max Concurrent +Sessions (1–16)")}
+                          label={i18nT("session.maxConcurrentSessions116", undefined, "Max Concurrent +Sessions (1–16)")}
                           disabled={openspecOff}
                           value={config.openspec?.maxConcurrentSpawns ?? DEFAULT_OPENSPEC_UI.maxConcurrentSpawns}
                           onChange={(v) => update((c) => {
@@ -1330,7 +1336,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                           })}
                         />
                         <SelectField
-                          label={i18nT("auto.change_detection", undefined, "Change Detection")}
+                          label={i18nT("common.changeDetection", undefined, "Change Detection")}
                           disabled={openspecOff}
                           value={config.openspec?.changeDetection ?? DEFAULT_OPENSPEC_UI.changeDetection}
                           options={[
@@ -1343,7 +1349,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                           })}
                         />
                         <NumberField
-                          label={i18nT("auto.jitter_seconds_0_60", undefined, "Jitter (seconds, 0–60)")}
+                          label={i18nT("settings.jitterSeconds060", undefined, "Jitter (seconds, 0–60)")}
                           disabled={openspecOff}
                           value={config.openspec?.jitterSeconds ?? DEFAULT_OPENSPEC_UI.jitterSeconds}
                           onChange={(v) => update((c) => {
@@ -1389,7 +1395,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     {t("settings.editorDescription", undefined, "Configure the embedded VS Code editor powered by code-server.")}
                   </p>
                   <TextField
-                    label={i18nT("auto.binary_path_leave_empty_for_auto", undefined, "Binary Path (leave empty for auto-detect)")}
+                    label={i18nT("common.binaryPathLeaveEmptyForAuto", undefined, "Binary Path (leave empty for auto-detect)")}
                     value={config.editor?.binary ?? ""}
                     onChange={(v) => update((c) => {
                       if (!c.editor) c.editor = {};
@@ -1398,7 +1404,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     placeholder="code-server"
                   />
                   <NumberField
-                    label={i18nT("auto.idle_timeout_minutes", undefined, "Idle Timeout (minutes)")}
+                    label={i18nT("status.idleTimeoutMinutes", undefined, "Idle Timeout (minutes)")}
                     value={config.editor?.idleTimeoutMinutes ?? 10}
                     onChange={(v) => update((c) => {
                       if (!c.editor) c.editor = {};
@@ -1406,7 +1412,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     })}
                   />
                   <NumberField
-                    label={i18nT("auto.max_concurrent_instances", undefined, "Max Concurrent Instances")}
+                    label={i18nT("settings.maxConcurrentInstances", undefined, "Max Concurrent Instances")}
                     value={config.editor?.maxInstances ?? 3}
                     onChange={(v) => update((c) => {
                       if (!c.editor) c.editor = {};
@@ -1414,7 +1420,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     })}
                   />
                   <ToggleField
-                    label={i18nT("auto.stop_editors_when_dashboard_exits", undefined, "Stop editors when dashboard exits")}
+                    label={i18nT("editor.stopEditorsWhenDashboardExits", undefined, "Stop editors when dashboard exits")}
                     value={config.editor?.stopOnDashboardExit ?? false}
                     onChange={(v) => update((c) => {
                       if (!c.editor) c.editor = {};
@@ -1422,7 +1428,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     })}
                   />
                   <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                    {i18nT("auto.leave_off_to_let_tabs_and", undefined, "Leave off to let tabs and dirty buffers survive a dashboard restart.")}
+                    {i18nT("common.leaveOffToLetTabsAnd", undefined, "Leave off to let tabs and dirty buffers survive a dashboard restart.")}
                   </p>
                 </Section>
                 <SettingsSectionSlot tab="developer" />
@@ -1578,7 +1584,37 @@ function WorktreeAutoInitToggle() {
   useSettingsDraftSource({ id: "worktree-auto-init", page: "sessions", isDirty, commit, reset });
   return (
     <ToggleField
-      label={i18nT("auto.initialize_on_worktree", undefined, "Initialize on worktree")}
+      label={i18nT("worktree.initializeOnWorktree", undefined, "Initialize on worktree")}
+      value={draft}
+      onChange={setDraft}
+    />
+  );
+}
+
+// ── Auto-name sessions toggle (add-auto-session-naming) ───────────────────
+// Self-contained, mirrors WorktreeAutoInitToggle: reads the preference on
+// mount, persists on the unified Save. Fail-safe to ON (the default).
+function AutoNameSessionsToggle() {
+  const [baseline, setBaseline] = useState<boolean | null>(null);
+  const [draft, setDraft] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    void fetchAutoNameSessionsPref().then((v) => { if (alive) { setBaseline(v); setDraft(v); } });
+    return () => { alive = false; };
+  }, []);
+  const isDirty = baseline !== null && draft !== baseline;
+  const draftRef = useRef(draft); draftRef.current = draft;
+  const baseRef = useRef(baseline); baseRef.current = baseline;
+  const commit = useCallback(async () => {
+    const persisted = await setAutoNameSessionsPref(draftRef.current);
+    setBaseline(persisted);
+    setDraft(persisted);
+  }, []);
+  const reset = useCallback(() => { if (baseRef.current !== null) setDraft(baseRef.current); }, []);
+  useSettingsDraftSource({ id: "auto-name-sessions", page: "sessions", isDirty, commit, reset });
+  return (
+    <ToggleField
+      label={i18nT("settings.autoNameSessions", undefined, "Auto-name sessions")}
       value={draft}
       onChange={setDraft}
     />
@@ -1655,6 +1691,7 @@ function DisplayPrefsSection() {
       <ToggleField label={t("settings.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} onChange={(v) => patch({ toolResults: v })} />
       <ToggleField label={t("settings.turnMetadata", undefined, "Turn metadata separators")} value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} />
       <ToggleField label={t("settings.changeSummaryTable", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} onChange={(v) => patch({ changeSummaryTable: v })} />
+      <ToggleField label={t("settings.reserveProcessLineAtIdle", undefined, "Reserve process line at idle")} value={prefs.reserveProcessLineAtIdle} onChange={(v) => patch({ reserveProcessLineAtIdle: v })} />
       <ToggleField label={t("settings.debugEvents", undefined, "Debug events")} value={prefs.debugTools} onChange={(v) => patch({ debugTools: v })} />
       <div className="pt-2">
         <h3 className="text-xs font-semibold text-[var(--text-primary)] mb-2">{t("settings.toolCallsHeader", undefined, "Tool calls - show these types")}</h3>
@@ -1737,7 +1774,7 @@ function BlockEventTrustBanner({
             data-testid={`block-event-${ev.ip}`}
           >
             <span className="flex-1 text-xs text-[var(--text-secondary)]">
-              <b className="font-mono text-[var(--amber,#e2b24a)]">{ev.ip}</b> refused — not trusted
+              <b className="font-mono text-[var(--amber,#e2b24a)]">{ev.ip}</b> {i18nT("settings.ipRefusedNotTrusted", undefined, "refused — not trusted")}
               {ev.count > 1 ? ` (${ev.count}×)` : ""}.
             </span>
             {suggestions.map((s) => (
@@ -1747,8 +1784,8 @@ function BlockEventTrustBanner({
                 data-testid={`block-event-trust-${s.value}`}
                 title={
                   s.wide
-                    ? `Grants unauthenticated access to the whole ${s.value} range`
-                    : "Grants unauthenticated access to this exact host"
+                    ? i18nT("settings.trustWholeRangeTitle", { range: s.value }, "Grants unauthenticated access to the whole {range} range")
+                    : i18nT("settings.trustExactHostTitle", undefined, "Grants unauthenticated access to this exact host")
                 }
                 onClick={() => trust(ev.ip, s.value)}
                 className={`rounded border px-2 py-0.5 text-[11px] font-semibold ${
@@ -1889,7 +1926,7 @@ function TrustedNetworksSection({
           value={manualEntry}
           onChange={(e) => setManualEntry(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleManualAdd(); } }}
-          placeholder={i18nT("auto.ip_wildcard_or_cidr", undefined, "IP, wildcard, or CIDR")}
+          placeholder={i18nT("common.ipWildcardOrCidr", undefined, "IP, wildcard, or CIDR")}
           className="flex-1 min-w-[160px] bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-xs font-mono text-[var(--text-primary)]"
           data-testid="trusted-networks-manual-input"
         />
@@ -1908,8 +1945,8 @@ function TrustedNetworksSection({
           className="text-xs text-[var(--text-tertiary)] mt-2"
           data-testid="trusted-networks-legacy-hint"
         >
-          {legacyTrustedNetworks.length} {legacyTrustedNetworks.length === 1 ? "entry" : "entries"} from <code>config.json</code> → <code>{i18nT("auto.trustednetworks", undefined, "trustedNetworks")}</code>
-          {" "}{i18nT("auto.are_also_active_edit_them_directly", undefined, "are also active. Edit them directly in that file.")}
+          {legacyTrustedNetworks.length} {legacyTrustedNetworks.length === 1 ? "entry" : "entries"} from <code>config.json</code> → <code>{i18nT("common.trustednetworks", undefined, "trustedNetworks")}</code>
+          {" "}{i18nT("common.areAlsoActiveEditThemDirectly", undefined, "are also active. Edit them directly in that file.")}
         </p>
       )}
 
@@ -2139,19 +2176,19 @@ function ProviderSection({ providerKey, provider, onChange }: {
       {enabled && (
         <div className="space-y-2">
           <TextField
-            label={i18nT("auto.client_id", undefined, "Client ID")}
+            label={i18nT("gateway.clientId", undefined, "Client ID")}
             value={provider!.clientId}
             onChange={(v) => onChange({ ...provider!, clientId: v })}
           />
           <TextField
-            label={i18nT("auto.client_secret", undefined, "Client Secret")}
+            label={i18nT("gateway.clientSecret", undefined, "Client Secret")}
             value={provider!.clientSecret}
             onChange={(v) => onChange({ ...provider!, clientSecret: v })}
             type="password"
           />
           {needsIssuer && (
             <TextField
-              label={i18nT("auto.issuer_url", undefined, "Issuer URL")}
+              label={i18nT("gateway.issuerUrl", undefined, "Issuer URL")}
               value={provider!.issuerUrl || ""}
               onChange={(v) => onChange({ ...provider!, issuerUrl: v })}
               placeholder="https://keycloak.example.com/realms/myrealm"
@@ -2349,20 +2386,20 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
       </div>
       <div className="space-y-2">
         <TextField
-          label={i18nT("auto.base_url", undefined, "Base URL")}
+          label={i18nT("providers.baseUrl", undefined, "Base URL")}
           value={provider.baseUrl}
           onChange={(v) => handleChange({ ...provider, baseUrl: v })}
           placeholder="https://api.example.com/v1"
         />
         <TextField
-          label={i18nT("auto.api_key", undefined, "API Key")}
+          label={i18nT("gateway.apiKey", undefined, "API Key")}
           value={provider.apiKey}
           onChange={(v) => handleChange({ ...provider, apiKey: v })}
           type="password"
-          placeholder={i18nT("auto.sk_or_env_var_name", undefined, "sk-... or $ENV_VAR_NAME")}
+          placeholder={i18nT("common.skOrEnvVarName", undefined, "sk-... or $ENV_VAR_NAME")}
         />
         <div>
-          <label className="block text-xs text-[var(--text-tertiary)] mb-0.5">{i18nT("auto.api_type", undefined, "API Type")}</label>
+          <label className="block text-xs text-[var(--text-tertiary)] mb-0.5">{i18nT("gateway.apiType", undefined, "API Type")}</label>
           <select
             className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
             value={provider.api}
@@ -2402,7 +2439,7 @@ function TestPill({ state }: { state: TestState }) {
         className="flex items-center gap-1.5 text-xs text-green-400"
         data-testid="test-pill"
         data-state="ok"
-        title={state.sample.length > 0 ? `Sample: ${state.sample.join(", ")}` : undefined}
+        title={state.sample.length > 0 ? i18nT("settings.sampleModels", { list: state.sample.join(", ") }, "Sample: {list}") : undefined}
       >
         <Icon path={mdiCheckCircle} size={0.5} />
         {label}

@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback, useEffect } from "react";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { t } from "../lib/i18n";
 
 export type ToastVariant = "error" | "success" | "info";
 
@@ -49,7 +50,6 @@ export interface UseAsyncActionResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 15000;
-const STILL_WORKING = "Still working in the background…";
 
 /**
  * Wrap an async action with a `idle → pending → success | error` lifecycle.
@@ -113,7 +113,10 @@ export function useAsyncAction<T = unknown>(
         });
       }
       timerRef.current = setTimeout(() => {
-        o.showToast?.(o.stillWorkingToast ?? STILL_WORKING, "info");
+        o.showToast?.(
+          o.stillWorkingToast ?? t("common.stillWorking", undefined, "Still working in the background…"),
+          "info",
+        );
         finish();
       }, o.confirmTimeoutMs ?? DEFAULT_TIMEOUT_MS);
       fnRef.current().then((result) => { resultRef.current = result; }).catch(fail);

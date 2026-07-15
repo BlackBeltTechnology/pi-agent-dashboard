@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { Icon } from "@mdi/react";
 import { mdiAlert, mdiClose, mdiContentCopy, mdiStop } from "@mdi/js";
-import { CopyButton } from "./CopyButton";
-import { t as i18nT } from "../lib/i18n";
+import { Icon } from "@mdi/react";
+import { useState } from "react";
 import type { BannerState } from "../lib/event-reducer.js";
+import { t as i18nT } from "../lib/i18n";
+import { CopyButton } from "./CopyButton";
 
 export type { BannerState } from "../lib/event-reducer.js";
 
@@ -87,8 +87,8 @@ export function SessionBanner({
           {retrying && (
             <div data-testid="retry-banner" className="mt-1 text-xs text-amber-300/90">
               <span data-testid="retry-banner-attempt">
-                {i18nT("auto.retrying_attempt", undefined, "retrying…")} (
-                {i18nT("auto.attempt", undefined, "attempt")} {retry!.attempt})
+                {i18nT("status.retryingAttempt", undefined, "retrying…")} (
+                {i18nT("common.attempt", undefined, "attempt")} {retry!.attempt})
               </span>
             </div>
           )}
@@ -108,17 +108,17 @@ export function SessionBanner({
               <button
                 data-testid="error-banner-stop"
                 onClick={onAbort}
-                title={i18nT("auto.stop_ends_session", undefined, "Stop (ends the session)")}
+                title={i18nT("session.stopEndsSession", undefined, "Stop (ends the session)")}
                 className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-red-500/40 text-red-200 hover:bg-red-500/15"
               >
                 <Icon path={mdiStop} size={0.55} />
-                {i18nT("auto.stop_ends_session", undefined, "Stop (ends the session)")}
+                {i18nT("session.stopEndsSession", undefined, "Stop (ends the session)")}
               </button>
             )}
             <CopyButton
               getText={() => headerText}
               icon={<Icon path={mdiContentCopy} size={0.6} />}
-              title={i18nT("auto.copy_error_message", undefined, "Copy error message")}
+              title={i18nT("session.copyErrorMessage", undefined, "Copy error message")}
             />
           </div>
         </div>
@@ -127,7 +127,7 @@ export function SessionBanner({
             data-testid="error-banner-dismiss"
             onClick={onDismiss}
             className="text-red-400 hover:text-red-300 shrink-0"
-            title={i18nT("auto.dismiss", undefined, "Dismiss")}
+            title={i18nT("common.dismiss", undefined, "Dismiss")}
           >
             <Icon path={mdiClose} size={0.6} />
           </button>

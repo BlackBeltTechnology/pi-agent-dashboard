@@ -47,24 +47,43 @@ async function pinFixture(page: Page, cwd: string): Promise<void> {
   await dialog.waitFor({ state: "hidden" });
 }
 
-/** Click Initialize, confirm the TOFU trust dialog, return the folder group. */
-async function trustAndRun(page: Page, basename: string): Promise<Locator> {
+/**
+ * Click Initialize, confirm the TOFU trust dialog, return the folder group.
+ * `action` picks which affirmative to click (default "always" → persisted).
+ */
+async function trustAndRun(page: Page, basename: string, action: "session" | "always" = "always"): Promise<Locator> {
   const group = folderGroup(page, basename);
   const initBtn = group.getByTestId("worktree-init-btn");
   await expect(initBtn).toBeVisible({ timeout: 20_000 });
   await initBtn.click();
-  // Untrusted hook → trust-confirm dialog naming the gate + run command.
+  // Untrusted hook → two-action trust dialog (change: add-session-scoped-init-trust).
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await dialog.getByRole("button", { name: "Run" }).click();
+  const testId = action === "session" ? "worktree-init-trust-session" : "worktree-init-trust-always";
+  await dialog.getByTestId(testId).click();
   return group;
 }
 
 test.describe("worktree-init feedback", () => {
-  test("manual init streams a chip, survives a mid-run reload, then collapses on success", async ({ page }) => {
+  // S14 (test-plan #S14): the untrusted dialog for sample-hook-ok is a one-shot
+  // per container (trust is process-global; the gate flips once initialized), so
+  // the two-action-dialog + session-path assertion folds into THIS test rather
+  // than a colliding standalone one.
+  test("S14 two-action dialog + session path streams a chip, survives a mid-run reload, then collapses", async ({ page }) => {
     await pinFixture(page, HOOK_OK);
 
-    const group = await trustAndRun(page, "sample-hook-ok");
+    // Untrusted hook → two-action trust dialog: Cancel + both honest labels.
+    const group = folderGroup(page, "sample-hook-ok");
+    const initBtn = group.getByTestId("worktree-init-btn");
+    await expect(initBtn).toBeVisible({ timeout: 20_000 });
+    await initBtn.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: 10_000 });
+    await expect(dialog.getByTestId("worktree-init-trust-cancel")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Trust until dashboard restarts" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Always trust" })).toBeVisible();
+    // Session action drives the run (S14: clicking the session action → done).
+    await dialog.getByTestId("worktree-init-trust-session").click();
 
     // Running feedback is a status chip, NOT a raw terminal <pre>.
     await expect(group.getByTestId("worktree-init-chip")).toBeVisible({ timeout: 15_000 });
@@ -84,10 +103,15 @@ test.describe("worktree-init feedback", () => {
     await expect(folderGroup(page, "sample-hook-ok").getByTestId("worktree-init-btn")).toHaveCount(0);
   });
 
-  test("a failing hook renders a sticky, retryable failure chip", async ({ page }) => {
+  // S15 (test-plan #S15): sample-hook-fail is the untrusted-dialog consumer for
+  // the "Always trust" (project) path. Its gate always needsInit, so after the
+  // grant the row stays actionable — letting us prove the persisted grant holds
+  // (re-run needs NO trust dialog) alongside the sticky-failure-chip assertion.
+  test("S15 always-trust path runs, persists (no re-prompt), sticky retryable failure chip", async ({ page }) => {
     await pinFixture(page, HOOK_FAIL);
 
-    const group = await trustAndRun(page, "sample-hook-fail");
+    // Click "Always trust" (project scope) on the untrusted hook.
+    const group = await trustAndRun(page, "sample-hook-fail", "always");
 
     // Failure: plain-language chip + Retry, log opt-in.
     const err = group.getByTestId("worktree-init-error");
@@ -98,11 +122,12 @@ test.describe("worktree-init feedback", () => {
     await page.waitForTimeout(2_500);
     await expect(err).toBeVisible();
 
-    // Retry re-issues the run (hook is now trusted → no dialog). Prove a NEW
-    // run actually started: the failure chip must CLEAR (running transition,
-    // ~1s hook sleep) and then re-appear when it fails again — not stay put.
+    // Retry re-issues the run WITHOUT a trust dialog — the "Always trust" grant
+    // persisted (S15). Prove a NEW run started: the chip CLEARS then re-appears
+    // on the next failure; assert no trust dialog surfaced in between.
     await group.getByTestId("worktree-init-retry").click();
     await expect(group.getByTestId("worktree-init-error")).toBeHidden({ timeout: 10_000 });
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(group.getByTestId("worktree-init-error")).toBeVisible({ timeout: 20_000 });
   });
 });

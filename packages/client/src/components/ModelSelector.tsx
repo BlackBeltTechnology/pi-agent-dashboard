@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Icon } from "@mdi/react";
-import { mdiChevronDown, mdiLoading, mdiStar, mdiStarOutline, mdiBrain, mdiEye, mdiRefresh } from "@mdi/js";
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiBrain, mdiChevronDown, mdiEye, mdiLoading, mdiRefresh, mdiStar, mdiStarOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../lib/i18n";
 
@@ -84,15 +84,15 @@ function CapBadges({ m }: { m: ModelInfo }) {
     // Provider reported nothing: vision force-assumed, reasoning unknown.
     return (
       <>
-        <CapIcon path={mdiEye} uncertain title={i18nT("auto.vision_assumed_provider_reported_no_capabi", undefined, "Vision assumed — provider reported no capabilities; image input defaulted on")} />
-        <CapIcon path={mdiBrain} uncertain title={i18nT("auto.reasoning_unknown_provider_reported_none", undefined, "Reasoning unknown — provider reported none")} />
+        <CapIcon path={mdiEye} uncertain title={i18nT("providers.visionAssumedProviderReportedNoCapabi", undefined, "Vision assumed — provider reported no capabilities; image input defaulted on")} />
+        <CapIcon path={mdiBrain} uncertain title={i18nT("providers.reasoningUnknownProviderReportedNone", undefined, "Reasoning unknown — provider reported none")} />
       </>
     );
   }
   return (
     <>
-      {m.reasoning && <CapIcon path={mdiBrain} title={i18nT("auto.reasoning_confirmed", undefined, "Reasoning (confirmed)")} />}
-      {m.vision && <CapIcon path={mdiEye} title={i18nT("auto.vision_capable_confirmed", undefined, "Vision-capable (confirmed)")} />}
+      {m.reasoning && <CapIcon path={mdiBrain} title={i18nT("session.reasoningConfirmed", undefined, "Reasoning (confirmed)")} />}
+      {m.vision && <CapIcon path={mdiEye} title={i18nT("common.visionCapableConfirmed", undefined, "Vision-capable (confirmed)")} />}
     </>
   );
 }
@@ -312,7 +312,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
                   className="flex-1 min-w-0 px-2 py-1 text-xs bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
                   data-testid="provider-filter"
                 >
-                  <option value="">{i18nT("auto.all_providers", undefined, "All Providers")}</option>
+                  <option value="">{i18nT("providers.allProviders", undefined, "All Providers")}</option>
                   {uniqueProviders.map((p) => (
                     <option key={p} value={p}>{p}</option>
                   ))}
@@ -329,7 +329,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
                     : "text-[var(--text-secondary)] border-[var(--border-primary)] bg-[var(--bg-tertiary)]"
                 }`}
               >
-                <Icon path={favOnly ? mdiStar : mdiStarOutline} size={0.55} /> {i18nT("auto.favs", undefined, "Favs")}
+                <Icon path={favOnly ? mdiStar : mdiStarOutline} size={0.55} /> {i18nT("common.favs", undefined, "Favs")}
               </button>
             </div>
             <input
@@ -337,7 +337,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
               value={filter}
               onChange={(e) => { setFilter(e.target.value); setSelectedIndex(0); }}
               onKeyDown={handleKeyDown}
-              placeholder={i18nT("auto.filter_models", undefined, "Filter models…")}
+              placeholder={i18nT("common.filterModels", undefined, "Filter models…")}
               className="w-full px-2 py-1 text-xs bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-blue)]"
               data-testid="model-filter"
             />
@@ -346,7 +346,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
           {/* ── Grouped list ── */}
           <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto">
             {flat.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-[var(--text-muted)]">{i18nT("auto.no_models_match", undefined, "No models match")}</div>
+              <div className="px-3 py-2 text-xs text-[var(--text-muted)]">{i18nT("common.noModelsMatch", undefined, "No models match")}</div>
             ) : (
               <>
                 {providerGroups.map((g) => (
@@ -371,8 +371,8 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
               >
                 <Icon path={mdiRefresh} size={0.55} className={refreshing ? "animate-spin" : undefined} />
                 {refreshing
-                  ? i18nT("auto.refreshing_models", undefined, "Refreshing…")
-                  : i18nT("auto.refresh_models", undefined, "Refresh models")}
+                  ? i18nT("common.refreshingModels", undefined, "Refreshing…")
+                  : i18nT("common.refreshModels", undefined, "Refresh models")}
               </button>
             </div>
           )}

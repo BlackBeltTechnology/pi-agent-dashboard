@@ -20,13 +20,12 @@ import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSup
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../lib/event-reducer.js";
 import { formatMessageTime } from "../lib/format.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../lib/group-tool-bursts.js";
-import { buildTurnSummaries, type TurnSummary } from "../lib/lineDelta.js";
-import { normalizeUnderCwd } from "../lib/normalize-path.js";
-import { ChangeSummaryBlock } from "./ChangeSummaryBlock.js";
-import { useOptionalSplitWorkspace } from "./SplitWorkspaceContext.js";
 import type { ToolCallGroup } from "../lib/group-tool-calls.js";
 import { t as i18nT } from "../lib/i18n";
+import { buildTurnSummaries, type TurnSummary } from "../lib/lineDelta.js";
+import { normalizeUnderCwd } from "../lib/normalize-path.js";
 import { BashOutputCard } from "./BashOutputCard.js";
+import { ChangeSummaryBlock } from "./ChangeSummaryBlock.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
 import { CopyButton } from "./CopyButton.js";
@@ -40,6 +39,7 @@ import { PreviewCard } from "./PreviewCard.js";
 import { RawEventCard } from "./RawEventCard.js";
 import { RetriedErrorBadge } from "./RetriedErrorBadge.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
+import { useOptionalSplitWorkspace } from "./SplitWorkspaceContext.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolBurstGroup } from "./ToolBurstGroup.js";
 import { ToolCallStep } from "./ToolCallStep.js";
@@ -181,12 +181,12 @@ function MessageBubble({ content, className, timestamp, entryId, onFork, context
         {timestamp != null && (
           <span className="text-[10px] text-[var(--text-tertiary)] mr-auto">{formatMessageTime(timestamp)}</span>
         )}
-        <CopyButton getText={() => content} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")} />
-        <CopyButton getText={getPlainText} icon={<Icon path={mdiTextBox} size={0.6} />} title={i18nT("auto.copy_as_plain_text", undefined, "Copy as plain text")} />
+        <CopyButton getText={() => content} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("common.copyAsMarkdown", undefined, "Copy as Markdown")} />
+        <CopyButton getText={getPlainText} icon={<Icon path={mdiTextBox} size={0.6} />} title={i18nT("common.copyAsPlainText", undefined, "Copy as plain text")} />
         {entryId && onFork && (
           <button
             onClick={() => onFork(entryId)}
-            title={i18nT("auto.fork_from_here", undefined, "Fork from here")}
+            title={i18nT("session.forkFromHere", undefined, "Fork from here")}
             className="p-0.5 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)]"
           >
             <Icon path={mdiSourceFork} size={0.6} />
@@ -340,9 +340,38 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       : state.messages.filter((m) => m.role !== "toolResult" || !isDebugTool(m.toolName ?? ""));
     return base.filter((m) => !m.retriedFrom);
   }, [state.messages, showDebugTools]);
-  const groupedMessages = useMemo(() => groupToolBursts(filteredMessages), [filteredMessages]);
   const retriedErrorIds = useMemo(() => findRetriedErrorIds(filteredMessages), [filteredMessages]);
   const hiddenToolResultIds = useMemo(() => findActiveInteractiveToolResultIds(filteredMessages), [filteredMessages]);
+  // toolCallIds owned by live `interactiveUi` messages still in the list. The
+  // paired `ask_user` tool card is redundant with the interactive card (both
+  // render title + message), so it is suppressed while the interactive card
+  // lives — regardless of pending/resolved status or adjacency (unlike
+  // hiddenToolResultIds, which is pending + adjacency only). On history reload
+  // an answered prompt has NO interactiveUi row, so the set misses and the tool
+  // card renders as the sole record. The reducer stamps `toolCallId` top-level
+  // on the interactiveUi row (event-reducer addInteractiveRequest); `requestId`
+  // (in args) is the defensive fallback. See change: fix-ask-user-card-duplication.
+  const interactiveToolCallIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const m of filteredMessages) {
+      if (m.role !== "interactiveUi") continue;
+      const key = m.toolCallId ?? (m.args as { requestId?: string } | undefined)?.requestId;
+      if (key) ids.add(key);
+    }
+    return ids;
+  }, [filteredMessages]);
+  // Drop the redundant `ask_user` tool card BEFORE tool-burst grouping (every
+  // toolResult is wrapped in a burst — threshold 1 — so post-group row filtering
+  // never reaches it). The interactive card is the single render while its
+  // interactiveUi row lives; on history reload (no pair) the tool card stays.
+  // See change: fix-ask-user-card-duplication.
+  const groupedMessages = useMemo(() => {
+    const forGrouping = filteredMessages.filter(
+      (m) =>
+        !(m.role === "toolResult" && m.toolName === "ask_user" && interactiveToolCallIds.has(m.toolCallId ?? m.id)),
+    );
+    return groupToolBursts(forGrouping);
+  }, [filteredMessages, interactiveToolCallIds]);
   // Single-red-surface: while the error-lifecycle surface (SessionBanner) owns
   // a failure, collapse the trailing inline failed-tool card so red isn't
   // shown twice. See change: unify-error-retry-lifecycle.
@@ -1079,7 +1108,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           <div className={`relative bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
             <div className="flex items-center gap-1.5 mb-1 text-[10px] uppercase tracking-wider text-blue-400/80 font-medium">
               <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-              {i18nT("auto.steering", undefined, "Steering")}
+              {i18nT("session.steering", undefined, "Steering")}
             </div>
             <MarkdownContent content={steerText} />
           </div>
@@ -1132,7 +1161,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             className="flex flex-col gap-3 px-4 py-3"
             aria-busy="true"
             role="status"
-            aria-label={i18nT("auto.loading_conversation", undefined, "Loading conversation…")}
+            aria-label={i18nT("status.loadingConversation", undefined, "Loading conversation…")}
             data-testid="chat-history-skeleton"
           >
             <Skeleton variant="bubble" count={3} />
@@ -1140,9 +1169,9 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         ) : (
           <div className="flex items-center justify-center h-full">
             <EmptyState
-              title={i18nT("auto.no_messages_yet", undefined, "No messages yet")}
+              title={i18nT("session.noMessagesYet", undefined, "No messages yet")}
               body={i18nT(
-                "auto.no_messages_yet_body",
+                "session.noMessagesYetBody",
                 undefined,
                 "Send a prompt below to start the conversation.",
               )}
@@ -1156,7 +1185,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         data-testid="scroll-to-top"
         onClick={scrollToTop}
         className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-full p-2 shadow-lg hover:bg-[var(--bg-surface)] transition-colors"
-        title={i18nT("auto.scroll_to_top", undefined, "Scroll to top")}
+        title={i18nT("common.scrollToTop", undefined, "Scroll to top")}
       >
         <Icon path={mdiChevronUp} size={0.8} className="text-[var(--text-secondary)]" />
       </button>
@@ -1166,7 +1195,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         data-testid="scroll-to-bottom"
         onClick={scrollToBottom}
         className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-full p-2 shadow-lg hover:bg-[var(--bg-surface)] transition-colors"
-        title={i18nT("auto.scroll_to_bottom", undefined, "Scroll to bottom")}
+        title={i18nT("common.scrollToBottom", undefined, "Scroll to bottom")}
       >
         <Icon path={mdiChevronDown} size={0.8} className="text-[var(--text-secondary)]" />
       </button>

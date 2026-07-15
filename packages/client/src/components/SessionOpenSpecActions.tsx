@@ -1,35 +1,35 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import {
-  mdiCompassOutline,
-  mdiChevronRight,
-  mdiFastForward,
-  mdiPlayCircleOutline,
-  mdiCheckCircleOutline,
-  mdiArchiveOutline,
-  mdiArchiveArrowUp,
-  mdiLinkOff,
-  mdiPlus,
-  mdiLightbulbOnOutline,
-  mdiPaperclip,
-  mdiFormatListChecks,
-} from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, OpenSpecGroup, ImageContent, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ChangeState, deriveChangeState, DEFAULT_OPENSPEC_CONFIG } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ExploreDialog } from "./ExploreDialog.js";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import type { DashboardSession, ImageContent, OpenSpecChange, OpenSpecConfig, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, DEFAULT_OPENSPEC_CONFIG, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import {
+  mdiArchiveArrowUp,
+  mdiArchiveOutline,
+  mdiCheckCircleOutline,
+  mdiChevronRight,
+  mdiCompassOutline,
+  mdiFastForward,
+  mdiFormatListChecks,
+  mdiLightbulbOnOutline,
+  mdiLinkOff,
+  mdiPaperclip,
+  mdiPlayCircleOutline,
+  mdiPlus,
+} from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import { DialogPortal } from "./DialogPortal.js";
+import { ExploreDialog } from "./ExploreDialog.js";
+import { GroupedAttachDialog } from "./GroupedAttachDialog.js";
 // ArtifactLettersButton removed — stepper P/D/S nodes are now clickable
 // and replace the standalone letters button. See change:
 // redesign-session-card-and-composer (stepper-click-to-open).
 import { NewChangeDialog } from "./NewChangeDialog.js";
+import { OpenSpecStepper } from "./OpenSpecStepper.js";
 import { ProposeDialog } from "./ProposeDialog.js";
 import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDialog.js";
-import { GroupedAttachDialog } from "./GroupedAttachDialog.js";
 import { StatePill } from "./StatePill.js";
 import { TasksPopover } from "./TasksPopover.js";
-import { OpenSpecStepper } from "./OpenSpecStepper.js";
-import { t as i18nT } from "../lib/i18n";
 
 /**
  * Semantic palette — kept in sync with ComposerSessionActions so sidecard
@@ -67,11 +67,11 @@ function ActionButton({ label, icon, onClick, testId, disabled, title, variant =
 // for OpenSpec action gating + tooltips.
 export function buildOpenSpecTooltips(args: { attached: string | null; state: ChangeState | null; streaming: boolean }): { explore?: string; archive?: string } {
   const { attached, state, streaming } = args;
-  const explore = attached ? "Detach proposal to explore freely" : undefined;
+  const explore = attached ? i18nT("openspec.detachToExplore", undefined, "Detach proposal to explore freely") : undefined;
   let archive: string | undefined;
-  if (streaming) archive = "Session is streaming";
-  else if (!attached) archive = "Attach a change to archive";
-  else if (state !== ChangeState.COMPLETE) archive = "Complete tasks first";
+  if (streaming) archive = i18nT("session.sessionIsStreaming", undefined, "Session is streaming");
+  else if (!attached) archive = i18nT("openspec.attachToArchive", undefined, "Attach a change to archive");
+  else if (state !== ChangeState.COMPLETE) archive = i18nT("openspec.completeTasksFirst", undefined, "Complete tasks first");
   return { explore, archive };
 }
 
@@ -107,9 +107,9 @@ function ReplaceProposalDialog({
     <Confirm
       open
       testId="replace-proposal-dialog"
-      title={i18nT("auto.replace_attached_proposal", undefined, "Replace attached proposal?")}
-      message={`This session is attached to “${session.attachedProposal}”, but the agent is now working on a different change.`}
-      confirmLabel={`Replace with ${committedTarget}`}
+      title={i18nT("openspec.replaceAttachedProposal", undefined, "Replace attached proposal?")}
+      message={i18nT("openspec.attachedDivergedMessage", { proposal: session.attachedProposal }, "This session is attached to “{proposal}”, but the agent is now working on a different change.")}
+      confirmLabel={i18nT("openspec.replaceWith", { target: committedTarget }, "Replace with {target}")}
       body={
         diverged ? (
           <div
@@ -117,14 +117,14 @@ function ReplaceProposalDialog({
             className="mt-2 flex items-center gap-2 rounded border border-orange-500/40 bg-orange-500/5 px-2 py-1 text-[11px] text-orange-300"
           >
             <span>
-              {i18nT("auto.newer_change_detected", undefined, "Newer change detected:")} <code className="text-orange-200">{pending}</code>.
+              {i18nT("common.newerChangeDetected", undefined, "Newer change detected:")} <code className="text-orange-200">{pending}</code>.
             </span>
             <button
               data-testid="use-latest-btn"
               onClick={() => setCommittedTarget(pending)}
               className="ml-auto rounded border border-orange-500/50 px-1.5 py-0.5 hover:border-orange-400 hover:text-orange-200"
             >
-              {i18nT("auto.use_latest", undefined, "Use latest")}
+              {i18nT("common.useLatest", undefined, "Use latest")}
             </button>
           </div>
         ) : undefined
@@ -198,7 +198,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
 
   const bulkArchiveButton = hasCompletedChanges && onBulkArchive && wf("bulk-archive") ? (
     <ActionButton
-      label={i18nT("auto.bulk_archive", undefined, "Bulk Archive")}
+      label={i18nT("openspec.bulkArchive", undefined, "Bulk Archive")}
       icon={mdiArchiveArrowUp}
       onClick={() => setBulkArchiveConfirm(true)}
       testId="bulk-archive-btn"
@@ -209,9 +209,9 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
   const bulkArchiveDialog = bulkArchiveConfirm ? (
     <Confirm
       open
-      title={i18nT("auto.bulk_archive_changes", undefined, "Bulk archive changes?")}
-      message="Bulk archive all completed changes?"
-      confirmLabel="Bulk Archive"
+      title={i18nT("openspec.bulkArchiveChanges", undefined, "Bulk archive changes?")}
+      message={i18nT("openspec.bulkArchiveAllMessage", undefined, "Bulk archive all completed changes?")}
+      confirmLabel={i18nT("openspec.bulkArchive", undefined, "Bulk Archive")}
       onConfirm={() => {
         onBulkArchive?.();
         setBulkArchiveConfirm(false);
@@ -230,7 +230,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
     if (attachingName) {
       return (
         <div className="mt-1 text-[10px] text-blue-400 animate-pulse" data-testid="session-openspec-actions">
-          {i18nT("auto.attaching", undefined, "Attaching:")} {attachingName}…
+          {i18nT("common.attaching", undefined, "Attaching:")} {attachingName}…
         </div>
       );
     }
@@ -241,10 +241,10 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
     ].map((c) => {
       const state = deriveChangeState(c);
       const stateLabels: Record<string, string> = {
-        PLANNING: "Planning",
-        READY: "Ready to implement",
-        IMPLEMENTING: `Implementing — ${c.completedTasks}/${c.totalTasks} tasks`,
-        COMPLETE: `Complete — ${c.completedTasks}/${c.totalTasks} tasks`,
+        PLANNING: i18nT("openspec.statePlanning", undefined, "Planning"),
+        READY: i18nT("openspec.stateReady", undefined, "Ready to implement"),
+        IMPLEMENTING: i18nT("openspec.stateImplementing", { completed: c.completedTasks, total: c.totalTasks }, "Implementing — {completed}/{total} tasks"),
+        COMPLETE: i18nT("openspec.stateComplete", { completed: c.completedTasks, total: c.totalTasks }, "Complete — {completed}/{total} tasks"),
       };
       const desc = stateLabels[state] || c.status;
       const artifactNames = c.artifacts.map(a => a.id).join(", ");
@@ -266,18 +266,18 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
             onClick={(e) => { e.stopPropagation(); setAttachPickerOpen(true); }}
             className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:border-blue-500/50 disabled:opacity-40"
           >
-            <Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{changes.length === 0 ? "No changes" : "Attach change..."}
+            <Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{changes.length === 0 ? i18nT("openspec.noChanges", undefined, "No changes") : i18nT("openspec.attachChange", undefined, "Attach change...")}
           </button>
           {!isEnded && (
             <>
               {wf("new") && (
-                <ActionButton label={i18nT("auto.change", undefined, "Change")} icon={mdiPlus} onClick={() => setNewChangeOpen(true)} testId="new-change-btn" variant="primary" />
+                <ActionButton label={i18nT("common.change", undefined, "Change")} icon={mdiPlus} onClick={() => setNewChangeOpen(true)} testId="new-change-btn" variant="primary" />
               )}
               {wf("propose") && (
-                <ActionButton label={i18nT("auto.propose", undefined, "Propose")} icon={mdiLightbulbOnOutline} onClick={() => setProposeOpen(true)} testId="propose-btn" variant="primary" />
+                <ActionButton label={i18nT("common.propose", undefined, "Propose")} icon={mdiLightbulbOnOutline} onClick={() => setProposeOpen(true)} testId="propose-btn" variant="primary" />
               )}
               {wf("explore") && (
-                <ActionButton label={i18nT("auto.explore", undefined, "Explore")} icon={mdiCompassOutline} onClick={() => setExploreOpen(true)} testId="explore-unattached-btn" variant="info" />
+                <ActionButton label={i18nT("common.explore", undefined, "Explore")} icon={mdiCompassOutline} onClick={() => setExploreOpen(true)} testId="explore-unattached-btn" variant="info" />
               )}
               {/* Archive + Bulk Archive intentionally hidden in the unattached
                   branch — they're meaningless without an attached proposal.
@@ -328,10 +328,10 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           />
         ) : (
           <SearchableSelectDialog
-            title={i18nT("auto.attach_openspec_change_2", undefined, "Attach OpenSpec Change")}
+            title={i18nT("openspec.attachOpenspecChange2", undefined, "Attach OpenSpec Change")}
             options={changeOptions}
-            placeholder={i18nT("auto.search_changes", undefined, "Search changes...")}
-            emptyMessage="No changes available"
+            placeholder={i18nT("common.searchChanges", undefined, "Search changes...")}
+            emptyMessage={i18nT("openspec.noChangesAvailable", undefined, "No changes available")}
             onSelect={(value) => {
               setAttachingName(value);
               onAttach(value);
@@ -354,7 +354,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] text-[var(--text-tertiary)]"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{attached}</span>
           <span className="flex-1" />
-          <ActionButton label={i18nT("auto.detach", undefined, "Detach")} icon={mdiLinkOff} onClick={onDetach} testId="detach-btn" />
+          <ActionButton label={i18nT("common.detach", undefined, "Detach")} icon={mdiLinkOff} onClick={onDetach} testId="detach-btn" />
         </div>
         {replaceDialog}
       </div>
@@ -375,7 +375,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
       <div className="flex items-center gap-1.5">
         <span className="text-[11px]" data-testid="attached-badge"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" /><span className="text-blue-400">{attached}</span></span>
         <StatePill state={state} />
-        <ActionButton label={i18nT("auto.detach", undefined, "Detach")} icon={mdiLinkOff} onClick={onDetach} testId="detach-btn" />
+        <ActionButton label={i18nT("common.detach", undefined, "Detach")} icon={mdiLinkOff} onClick={onDetach} testId="detach-btn" />
         <span className="flex-1" />
       </div>
       {/* OpenSpec stepper — nodes are clickable for artifact + tasks open.
@@ -397,30 +397,30 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           <div className="flex items-center gap-1 flex-wrap">
             {wf("explore") && (
               <ActionButton
-                label={i18nT("auto.explore", undefined, "Explore")}
+                label={i18nT("common.explore", undefined, "Explore")}
                 icon={mdiCompassOutline}
                 onClick={() => setExploreOpen(true)}
                 testId="explore-btn"
                 disabled={true /* attached path always disables Explore */}
-                title={actionsDisabled ? "Session is streaming" : tips.explore}
+                title={actionsDisabled ? i18nT("session.sessionIsStreaming", undefined, "Session is streaming") : tips.explore}
                 variant="info"
               />
             )}
             {state === ChangeState.PLANNING && (
               <>
-                {wf("continue") && <ActionButton label={i18nT("auto.continue", undefined, "Continue")} icon={mdiChevronRight} onClick={() => onSendPrompt(`/skill:openspec-continue-change ${attached}`)} testId="continue-btn" disabled={actionsDisabled} variant="neutral" />}
-                {wf("ff") && <ActionButton label="FF" icon={mdiFastForward} onClick={() => onSendPrompt(`/skill:openspec-ff-change ${attached}`)} testId="ff-btn" disabled={actionsDisabled} variant="neutral" />}
+                {wf("continue") && <ActionButton label={i18nT("common.continue", undefined, "Continue")} icon={mdiChevronRight} onClick={() => onSendPrompt(`/skill:openspec-continue-change ${attached}`)} testId="continue-btn" disabled={actionsDisabled} variant="neutral" />}
+                {wf("ff") && <ActionButton label={i18nT("openspec.ff", undefined, "FF")} icon={mdiFastForward} onClick={() => onSendPrompt(`/skill:openspec-ff-change ${attached}`)} testId="ff-btn" disabled={actionsDisabled} variant="neutral" />}
               </>
             )}
             {wf("apply") && (state === ChangeState.READY || state === ChangeState.IMPLEMENTING) && (
-              <ActionButton label={i18nT("auto.apply", undefined, "Apply")} icon={mdiPlayCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-apply-change ${attached}`)} testId="apply-btn" disabled={actionsDisabled} variant="primary" />
+              <ActionButton label={i18nT("common.apply", undefined, "Apply")} icon={mdiPlayCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-apply-change ${attached}`)} testId="apply-btn" disabled={actionsDisabled} variant="primary" />
             )}
             {wf("verify") && state === ChangeState.COMPLETE && (
-              <ActionButton label={i18nT("auto.verify", undefined, "Verify")} icon={mdiCheckCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-verify-change ${attached}`)} testId="verify-btn" disabled={actionsDisabled} variant="success" />
+              <ActionButton label={i18nT("common.verify", undefined, "Verify")} icon={mdiCheckCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-verify-change ${attached}`)} testId="verify-btn" disabled={actionsDisabled} variant="success" />
             )}
             {wf("archive") && (
               <ActionButton
-                label={i18nT("auto.archive", undefined, "Archive")}
+                label={i18nT("openspec.archive", undefined, "Archive")}
                 icon={mdiArchiveOutline}
                 onClick={() => setArchiveConfirm(true)}
                 testId="archive-btn"
@@ -438,7 +438,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
                 plain button. A menu with one item is meaningless. */}
             {showArchiveAnyway && (
               <ActionButton
-                label={i18nT("auto.archive_anyway", undefined, "Archive anyway")}
+                label={i18nT("openspec.archiveAnyway", undefined, "Archive anyway")}
                 icon={mdiArchiveArrowUp}
                 onClick={() => setArchiveAnywayConfirm(true)}
                 testId="archive-anyway-btn"
@@ -464,9 +464,9 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
       {archiveConfirm && (
         <Confirm
           open
-          title={i18nT("auto.archive_change", undefined, "Archive change?")}
-          message={`Archive "${attached}"?`}
-          confirmLabel="Archive"
+          title={i18nT("openspec.archiveChange", undefined, "Archive change?")}
+          message={i18nT("openspec.archiveConfirmMessage", { name: attached }, 'Archive "{name}"?')}
+          confirmLabel={i18nT("openspec.archive", undefined, "Archive")}
           onConfirm={() => {
             onSendPrompt(`/skill:openspec-archive-change ${attached}`);
             setArchiveConfirm(false);
@@ -478,9 +478,9 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         <Confirm
           open
           testId="archive-anyway-confirm"
-          title={i18nT("auto.archive_anyway_2", undefined, "Archive anyway?")}
-          message={`${uncheckedCount} of ${change.totalTasks} tasks are unchecked. Archive anyway?`}
-          confirmLabel="Archive anyway"
+          title={i18nT("openspec.archiveAnyway2", undefined, "Archive anyway?")}
+          message={i18nT("openspec.archiveAnywayMessage", { unchecked: uncheckedCount, total: change.totalTasks }, "{unchecked} of {total} tasks are unchecked. Archive anyway?")}
+          confirmLabel={i18nT("openspec.archiveAnyway", undefined, "Archive anyway")}
           onConfirm={() => {
             onSendPrompt(`/skill:openspec-archive-change ${attached}`);
             setArchiveAnywayConfirm(false);

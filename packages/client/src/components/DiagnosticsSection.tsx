@@ -17,12 +17,13 @@
  * See change: doctor-rich-output (tasks 5.2–5.6).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MarkdownContent } from "./MarkdownContent.js";
-import { DialogPortal } from "./DialogPortal.js";
-import { fetchDoctorReport, DoctorFetchError } from "../lib/doctor-api.js";
 import { getApiBase } from "../lib/api-context.js";
-import type { DoctorReport, DoctorCheck } from "../lib/doctor-api.js";
+import type { DoctorCheck, DoctorReport } from "../lib/doctor-api.js";
+import { DoctorFetchError, fetchDoctorReport } from "../lib/doctor-api.js";
 import { t as i18nT } from "../lib/i18n";
+import { resolveServerMessage } from "../lib/server-error.js";
+import { DialogPortal } from "./DialogPortal.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 
 type DoctorSection = DoctorCheck["section"];
 
@@ -164,12 +165,12 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
       const body = await res.json().catch(() => null);
       if (!res.ok || body?.success === false) {
         const msg = body?.error || `HTTP ${res.status}`;
-        setError({ status: res.status, excerpt: "", message: `Failed to set git source: ${msg}` });
+        setError({ status: res.status, excerpt: "", message: i18nT("err.setGitSource", { detail: msg }, "Failed to set git source: {detail}") });
         return;
       }
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
-      setError({ status: null, excerpt: "", message: `Failed to set git source: ${e.message}` });
+      setError({ status: null, excerpt: "", message: i18nT("err.setGitSource", { detail: e.message }, "Failed to set git source: {detail}") });
       return;
     }
     await run();
@@ -215,9 +216,9 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
 
   return (
     <section className="mb-6">
-      <h2 className="text-base font-semibold text-slate-200 mb-2">{i18nT("auto.diagnostics", undefined, "Diagnostics")}</h2>
+      <h2 className="text-base font-semibold text-slate-200 mb-2">{i18nT("doctor.diagnostics", undefined, "Diagnostics")}</h2>
       <p className="text-sm text-slate-400 mb-3">
-        {i18nT("auto.diagnoses_the_server_you_re_connected", undefined, "Diagnoses the server you're connected to. Local installation issues are best diagnosed\n        from the Electron app's Help → Doctor menu.")}
+        {i18nT("connection.diagnosesTheServerYouReConnected", undefined, "Diagnoses the server you're connected to. Local installation issues are best diagnosed\n        from the Electron app's Help → Doctor menu.")}
       </p>
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -236,7 +237,7 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
           className="px-3 py-1.5 text-sm rounded bg-slate-700 text-slate-200 hover:bg-slate-600"
           data-testid="diagnostics-copy-md"
         >
-          {i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")}
+          {i18nT("common.copyAsMarkdown", undefined, "Copy as Markdown")}
         </button>
         <button
           type="button"
@@ -244,7 +245,7 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
           className="px-3 py-1.5 text-sm rounded bg-slate-700 text-slate-200 hover:bg-slate-600"
           data-testid="diagnostics-copy-plain"
         >
-          {i18nT("auto.copy_as_plain", undefined, "Copy as Plain")}
+          {i18nT("common.copyAsPlain", undefined, "Copy as Plain")}
         </button>
         {report?.generatedAt ? (
           <span className="text-xs text-slate-500 ml-auto">
@@ -263,7 +264,7 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
           data-testid="diagnostics-error"
         >
           <div className="font-semibold mb-1">
-            {i18nT("auto.doctor_fetch_failed", undefined, "Doctor fetch failed")}{error.status != null ? ` (HTTP ${error.status})` : ""}
+            {i18nT("doctor.doctorFetchFailed", undefined, "Doctor fetch failed")}{error.status != null ? ` (HTTP ${error.status})` : ""}
           </div>
           <div className="text-xs text-red-300 mb-1">{error.message}</div>
           {error.excerpt ? (
@@ -275,7 +276,7 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
       ) : null}
 
       {!report && !error && !running ? (
-        <div className="text-sm text-slate-500">{i18nT("auto.no_report_yet", undefined, "No report yet.")}</div>
+        <div className="text-sm text-slate-500">{i18nT("common.noReportYet", undefined, "No report yet.")}</div>
       ) : null}
 
       {report ? (
@@ -301,7 +302,9 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
                       </span>
                       <span className="text-sm font-semibold text-slate-100">{c.name}</span>
                     </div>
-                    <div className="text-sm text-slate-300">{c.message}</div>
+                    <div className="text-sm text-slate-300">
+                      {resolveServerMessage({ code: c.code, vars: c.vars, message: c.message })}
+                    </div>
                     {c.detail ? (
                       <pre className="mt-1 text-[11px] text-slate-500 whitespace-pre-wrap break-words font-mono max-h-32 overflow-auto">
                         {c.detail}
@@ -320,7 +323,7 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
                           className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-200 hover:bg-slate-600"
                           data-testid="git-source-switch-host"
                         >
-                          {i18nT("auto.switch_to_host", undefined, "Switch to host")}
+                          {i18nT("common.switchToHost", undefined, "Switch to host")}
                         </button>
                         <button
                           type="button"
@@ -328,7 +331,7 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
                           className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-200 hover:bg-slate-600"
                           data-testid="git-source-switch-bundled"
                         >
-                          {i18nT("auto.switch_to_bundled", undefined, "Switch to bundled")}
+                          {i18nT("common.switchToBundled", undefined, "Switch to bundled")}
                         </button>
                       </div>
                     ) : null}
@@ -370,7 +373,7 @@ function CopyFallbackModal({ text, onClose }: { text: string; onClose: () => voi
           onClick={(e) => e.stopPropagation()}
         >
           <div className="text-sm text-slate-200 mb-2">
-            {i18nT("auto.your_browser_blocked_clipboard_access_pres", undefined, "Your browser blocked clipboard access — press Ctrl/Cmd+C to copy.")}
+            {i18nT("common.yourBrowserBlockedClipboardAccessPres", undefined, "Your browser blocked clipboard access — press Ctrl/Cmd+C to copy.")}
           </div>
           <textarea
             ref={ref}
@@ -385,7 +388,7 @@ function CopyFallbackModal({ text, onClose }: { text: string; onClose: () => voi
               className="px-3 py-1.5 text-sm rounded bg-slate-700 text-slate-200 hover:bg-slate-600"
               onClick={onClose}
             >
-              {i18nT("auto.close", undefined, "Close")}
+              {i18nT("common.close", undefined, "Close")}
             </button>
           </div>
         </div>

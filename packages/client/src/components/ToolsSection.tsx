@@ -5,30 +5,31 @@
  * Rendered inside the SettingsPanel General tab. Talks to /api/tools*.
  * See change: consolidate-tool-resolution (specs/tool-settings-ui).
  */
-import React, { useCallback, useEffect, useState } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { Icon } from "@mdi/react";
-import {
-  mdiCheck, mdiClose, mdiAlert, mdiRefresh, mdiChevronDown, mdiChevronRight,
-  mdiContentSaveEdit, mdiDownload, mdiBackspaceOutline,
-  mdiContentCopy, mdiOpenInNew,
+
+import {mdiAlert, mdiBackspaceOutline,
+  mdiCheck, mdiChevronDown, mdiChevronRight,mdiClose, 
+  mdiContentCopy, 
+  mdiContentSaveEdit, mdiDownload, mdiOpenInNew,mdiRefresh, 
 } from "@mdi/js";
-import type { Resolution, ToolListEntry, PlatformInstallHint } from "../lib/tools-api.js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useState } from "react";
+import { type HostPlatform, useHostPlatform } from "../hooks/useHostPlatform.js";
+import { getApiBase } from "../lib/api-context.js";
+import { copyText } from "../lib/clipboard.js";
+import { t as i18nT } from "../lib/i18n";
 import {
+  consumePendingToolInstall,
+  OPEN_TOOL_INSTALL_EVENT,
+} from "../lib/tool-install-deeplink.js";
+import type { PlatformInstallHint, Resolution, ToolListEntry } from "../lib/tools-api.js";
+import {
+  clearOverride,
+  downloadDiagnostics,
   fetchTools,
   rescanAll,
   rescanOne,
   setOverride,
-  clearOverride,
-  downloadDiagnostics,
 } from "../lib/tools-api.js";
-import { t as i18nT } from "../lib/i18n";
-import { useHostPlatform, type HostPlatform } from "../hooks/useHostPlatform.js";
-import { copyText } from "../lib/clipboard.js";
-import {
-  OPEN_TOOL_INSTALL_EVENT,
-  consumePendingToolInstall,
-} from "../lib/tool-install-deeplink.js";
 
 export function ToolsSection() {
   const [tools, setTools] = useState<ToolListEntry[]>([]);
@@ -140,42 +141,42 @@ export function ToolsSection() {
   return (
     <div>
       <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3 pb-1 border-b border-[var(--border-secondary)]">
-        {i18nT("auto.tools", undefined, "Tools")}
+        {i18nT("common.tools", undefined, "Tools")}
       </h2>
       <div className="space-y-2">
       <div className="flex items-center justify-between">
         <div className="text-xs text-[var(--text-secondary)]">
-          {i18nT("auto.external_binaries_and_modules_the_dashboar", undefined, "External binaries and modules the dashboard resolves. Click a row to see the full resolution trail or set an override.")}
+          {i18nT("packages.externalBinariesAndModulesTheDashboar", undefined, "External binaries and modules the dashboard resolves. Click a row to see the full resolution trail or set an override.")}
         </div>
         <div className="flex gap-1 flex-shrink-0 ml-2">
           <button
             onClick={onRescanAll}
             disabled={globalBusy !== null}
             className="px-2 py-1 text-xs border border-[var(--border-secondary)] rounded hover:bg-[var(--bg-hover)] disabled:opacity-50 flex items-center gap-1"
-            title={i18nT("auto.re_run_every_tool_s_strategy", undefined, "Re-run every tool's strategy chain")}
+            title={i18nT("common.reRunEveryToolSStrategy", undefined, "Re-run every tool's strategy chain")}
           >
-            <Icon path={mdiRefresh} size={0.6} /> {i18nT("auto.rescan", undefined, "Rescan")}
+            <Icon path={mdiRefresh} size={0.6} /> {i18nT("common.rescan", undefined, "Rescan")}
           </button>
           <button
             onClick={onResetOverrides}
             disabled={globalBusy !== null}
             className="px-2 py-1 text-xs border border-[var(--border-secondary)] rounded hover:bg-[var(--bg-hover)] disabled:opacity-50 flex items-center gap-1"
-            title={i18nT("auto.clear_every_per_tool_path_override", undefined, "Clear every per-tool path override")}
+            title={i18nT("common.clearEveryPerToolPathOverride", undefined, "Clear every per-tool path override")}
           >
-            <Icon path={mdiBackspaceOutline} size={0.6} /> {i18nT("auto.reset", undefined, "Reset")}
+            <Icon path={mdiBackspaceOutline} size={0.6} /> {i18nT("common.reset", undefined, "Reset")}
           </button>
           <button
             onClick={onExport}
             disabled={globalBusy !== null}
             className="px-2 py-1 text-xs border border-[var(--border-secondary)] rounded hover:bg-[var(--bg-hover)] disabled:opacity-50 flex items-center gap-1"
-            title={i18nT("auto.download_a_text_file_with_every", undefined, "Download a text file with every tool's resolution trail")}
+            title={i18nT("common.downloadATextFileWithEvery", undefined, "Download a text file with every tool's resolution trail")}
           >
-            <Icon path={mdiDownload} size={0.6} /> {i18nT("auto.export", undefined, "Export")}
+            <Icon path={mdiDownload} size={0.6} /> {i18nT("common.export", undefined, "Export")}
           </button>
         </div>
       </div>
 
-      {loading && <div className="text-xs text-[var(--text-secondary)]">{i18nT("auto.loading_tool_resolutions", undefined, "Loading tool resolutions…")}</div>}
+      {loading && <div className="text-xs text-[var(--text-secondary)]">{i18nT("status.loadingToolResolutions", undefined, "Loading tool resolutions…")}</div>}
       {error && (
         <div className="text-xs text-red-500 border border-red-500/40 rounded px-2 py-1">
           {error}
@@ -276,7 +277,7 @@ function ToolRow({ tool, hostOs, autoOpenInstall, onAutoOpenConsumed, busy, onRe
           onClick={onRescan}
           disabled={busy}
           className="flex-shrink-0 px-1.5 py-0.5 border border-[var(--border-secondary)] rounded hover:bg-[var(--bg-hover)] disabled:opacity-50"
-          title={i18nT("auto.re_run_this_tool_s_strategy", undefined, "Re-run this tool's strategy chain")}
+          title={i18nT("common.reRunThisToolSStrategy", undefined, "Re-run this tool's strategy chain")}
         >
           <Icon path={mdiRefresh} size={0.55} />
         </button>
@@ -311,18 +312,18 @@ function ToolRow({ tool, hostOs, autoOpenInstall, onAutoOpenConsumed, busy, onRe
               onClick={() => { if (draftPath.trim()) { onSetOverride(draftPath.trim()); setDraftPath(""); } }}
               disabled={busy || !draftPath.trim()}
               className="px-2 py-1 text-xs border border-[var(--border-secondary)] rounded hover:bg-[var(--bg-hover)] disabled:opacity-50 flex items-center gap-1"
-              title={i18nT("auto.save_override", undefined, "Save override")}
+              title={i18nT("common.saveOverride", undefined, "Save override")}
             >
-              <Icon path={mdiContentSaveEdit} size={0.55} /> {i18nT("auto.save", undefined, "Save")}
+              <Icon path={mdiContentSaveEdit} size={0.55} /> {i18nT("common.save2", undefined, "Save")}
             </button>
             {hasOverride && (
               <button
                 onClick={onClearOverride}
                 disabled={busy}
                 className="px-2 py-1 text-xs border border-[var(--border-secondary)] rounded hover:bg-[var(--bg-hover)] disabled:opacity-50 flex items-center gap-1"
-                title={i18nT("auto.remove_override", undefined, "Remove override")}
+                title={i18nT("common.removeOverride", undefined, "Remove override")}
               >
-                <Icon path={mdiClose} size={0.55} /> {i18nT("auto.clear", undefined, "Clear")}
+                <Icon path={mdiClose} size={0.55} /> {i18nT("common.clear", undefined, "Clear")}
               </button>
             )}
           </div>
@@ -330,7 +331,7 @@ function ToolRow({ tool, hostOs, autoOpenInstall, onAutoOpenConsumed, busy, onRe
           {invalidOverride && (
             <div className="text-[11px] text-amber-500 flex items-center gap-1">
               <Icon path={mdiAlert} size={0.5} />
-              {i18nT("auto.override_path_didn_t_validate_fell", undefined, "Override path didn't validate — fell through to the next strategy.")}
+              {i18nT("common.overridePathDidnTValidateFell", undefined, "Override path didn't validate — fell through to the next strategy.")}
             </div>
           )}
         </div>
@@ -456,7 +457,7 @@ export function sourceBadgeStyle(source: NonNullable<Resolution["source"]>): { c
 function StatusBadge({ tool, invalidOverride }: { tool: Resolution; invalidOverride: boolean }) {
   if (tool.ok && invalidOverride) {
     return (
-      <span className="flex-shrink-0 text-amber-500" title={i18nT("auto.override_invalid_using_fallback", undefined, "Override invalid; using fallback")}>
+      <span className="flex-shrink-0 text-amber-500" title={i18nT("common.overrideInvalidUsingFallback", undefined, "Override invalid; using fallback")}>
         <Icon path={mdiAlert} size={0.6} />
       </span>
     );
@@ -469,7 +470,7 @@ function StatusBadge({ tool, invalidOverride }: { tool: Resolution; invalidOverr
     );
   }
   return (
-    <span className="flex-shrink-0 text-red-500" title={i18nT("auto.not_found", undefined, "Not found")}>
+    <span className="flex-shrink-0 text-red-500" title={i18nT("common.notFound", undefined, "Not found")}>
       <Icon path={mdiClose} size={0.6} />
     </span>
   );
@@ -518,13 +519,13 @@ export function SpawnFailuresSection() {
         onClick={expanded ? () => setExpanded(false) : load}
         className="w-full flex items-center justify-between px-4 py-2.5 bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-sm font-medium text-[var(--text-primary)]"
       >
-        <span>{i18nT("auto.recent_session_failures", undefined, "Recent +Session Failures")}</span>
+        <span>{i18nT("session.recentSessionFailures", undefined, "Recent +Session Failures")}</span>
         <span className="text-[var(--text-tertiary)] text-xs">{loading ? "Loading…" : expanded ? "▲" : "▼"}</span>
       </button>
       {expanded && entries !== null && (
         <div className="divide-y divide-[var(--border-secondary)]">
           {entries.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-[var(--text-tertiary)]">{i18nT("auto.no_spawn_failures_recorded", undefined, "No spawn failures recorded.")}</p>
+            <p className="px-4 py-3 text-sm text-[var(--text-tertiary)]">{i18nT("session.noSpawnFailuresRecorded", undefined, "No spawn failures recorded.")}</p>
           ) : (
             entries.map((e, i) => <SpawnFailureRow key={i} entry={e} />)
           )}
@@ -553,7 +554,7 @@ function SpawnFailureRow({ entry }: { entry: SpawnFailureEntry }) {
           <p className="text-[var(--text-secondary)]">{entry.message}</p>
           {entry.stderrTail && (
             <details>
-              <summary className="cursor-pointer text-[var(--text-tertiary)]">{i18nT("auto.pi_stderr", undefined, "Pi stderr")}</summary>
+              <summary className="cursor-pointer text-[var(--text-tertiary)]">{i18nT("terminal.piStderr", undefined, "Pi stderr")}</summary>
               <pre className="mt-1 text-[10px] font-mono text-[var(--text-tertiary)] whitespace-pre-wrap break-all max-h-24 overflow-y-auto">{entry.stderrTail}</pre>
             </details>
           )}

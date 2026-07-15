@@ -13,11 +13,12 @@
  *   (resets on page reload) but re-appears on the next load while the
  *   condition persists.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+
+import { mdiAlertCircle, mdiClose, mdiFlashAuto, mdiLoading, mdiPlusCircle } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiAlertCircle, mdiClose, mdiPlusCircle, mdiLoading, mdiFlashAuto } from "@mdi/js";
-import { useRecommendedExtensions } from "../hooks/useRecommendedExtensions.js";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
+import { useRecommendedExtensions } from "../hooks/useRecommendedExtensions.js";
 import { t as i18nT } from "../lib/i18n";
 
 const DISMISSED_KEY = "pi-dashboard:missing-required-dismissed";
@@ -108,10 +109,10 @@ export function MissingRequiredBanner() {
             <li key={entry.id}>
               <strong>{entry.displayName}</strong>
               {entry.installed.scope && (
-                <> <span className="text-success">{i18nT("auto.on_disk", undefined, "(on disk:")} {entry.installed.scope})</span></>
+                <> <span className="text-success">{i18nT("common.onDisk", undefined, "(on disk:")} {entry.installed.scope})</span></>
               )}
               {entry.unlocks.length > 0 && (
-                <> {i18nT("auto.unlocks", undefined, "— unlocks:")} {entry.unlocks.join(", ")}</>
+                <> {i18nT("common.unlocks", undefined, "— unlocks:")} {entry.unlocks.join(", ")}</>
               )}
             </li>
           ))}
@@ -131,7 +132,7 @@ export function MissingRequiredBanner() {
           onClick={onDismiss}
           className="text-xs p-1 rounded hover:bg-surface text-muted"
           data-testid="missing-required-dismiss"
-          aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
+          aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
         >
           <Icon path={mdiClose} size={0.7} />
         </button>

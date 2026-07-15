@@ -3,10 +3,11 @@
  * linking to `/api/file/raw`. For URL targets: "[Open in new tab]" linking to
  * the URL. See change: render-file-previews.
  */
-import React from "react";
+
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { rawUrl } from "./raw-url.js";
+import React from "react";
 import { t as i18nT } from "../../lib/i18n";
+import { rawUrl } from "./raw-url.js";
 
 interface Props {
   target: ViewTarget;
@@ -16,13 +17,13 @@ export function FallbackPreview({ target }: Props) {
   if (target.kind === "file") {
     return (
       <div className="p-4 text-sm text-[var(--text-secondary)]">
-        {i18nT("auto.we_can_t_preview_this_file", undefined, "We can't preview this file.")}{" "}
+        {i18nT("common.weCanTPreviewThisFile", undefined, "We can't preview this file.")}{" "}
         <a
           href={rawUrl(target)}
           download
           className="text-[var(--accent)] underline"
         >
-          {i18nT("auto.download", undefined, "Download")}
+          {i18nT("common.download", undefined, "Download")}
         </a>
       </div>
     );
@@ -35,7 +36,7 @@ export function FallbackPreview({ target }: Props) {
         rel="noopener noreferrer"
         className="text-[var(--accent)] underline"
       >
-        {i18nT("auto.open_in_new_tab", undefined, "Open in new tab")}
+        {i18nT("common.openInNewTab", undefined, "Open in new tab")}
       </a>{" "}
       <span className="text-[var(--text-muted)]">{target.url}</span>
     </div>

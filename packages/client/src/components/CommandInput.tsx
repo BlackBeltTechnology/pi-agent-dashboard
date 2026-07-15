@@ -746,7 +746,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       data-testid="stop-after-turn-button"
     >
       <Icon path={mdiStopCircleOutline} size={0.6} />
-      <span className="hidden sm:inline">{t("command.afterTurn", undefined, "after turn")}</span>
+      <span className="hidden @[30rem]:inline">{t("command.afterTurn", undefined, "after turn")}</span>
     </button>
   );
 
@@ -922,7 +922,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       {/* One unified bordered card: attachments → textarea → inner toolbar. */}
       <div
         data-testid="composer-card"
-        className={`bg-[var(--bg-tertiary)] border rounded-xl px-2.5 pt-2 pb-1.5 transition-colors ${
+        className={`@container bg-[var(--bg-tertiary)] border rounded-xl px-2.5 pt-2 pb-1.5 transition-colors ${
           focused ? "border-[color-mix(in_srgb,var(--accent-primary)_60%,transparent)]" : "border-[var(--border-secondary)]"
         }`}
       >
@@ -1009,13 +1009,13 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           )}
 
           {/* Thinking + delivery + terminal — desktop inline; folded into ⋯ on mobile. */}
-          <span className="hidden md:inline-flex">{thinkingChip}</span>
-          <span className="hidden md:inline-flex">{deliveryControl}</span>
+          <span className="hidden @[44rem]:inline-flex">{thinkingChip}</span>
+          <span className="hidden @[44rem]:inline-flex">{deliveryControl}</span>
 
           <span className="flex-1" />
 
           {/* Mobile overflow (⋯) hosts thinking / delivery / terminal. */}
-          <div className="relative md:hidden" ref={overflowRef}>
+          <div className="relative @[44rem]:hidden" ref={overflowRef}>
             <button
               type="button"
               onClick={() => setOverflowOpen((v) => !v)}
@@ -1042,7 +1042,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           </div>
 
           {/* Terminal — desktop only (mobile via ⋯). */}
-          <span className="hidden md:inline-flex">{terminalButton}</span>
+          <span className="hidden @[44rem]:inline-flex">{terminalButton}</span>
 
           {stopAfterTurnNode}
           {actionButton}

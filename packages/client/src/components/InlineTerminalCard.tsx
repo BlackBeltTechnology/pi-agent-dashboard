@@ -1,10 +1,10 @@
-import React, { useRef, useEffect, useCallback } from "react";
-import { Icon } from "@mdi/react";
 import { mdiConsoleLine } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import { Terminal } from "@xterm/xterm";
+import React, { useCallback, useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { TerminalView } from "./TerminalView.js";
 import { t as i18nT } from "../lib/i18n";
+import { TerminalView } from "./TerminalView.js";
 
 /**
  * Inline interactive terminal card rendered in the chat stream.
@@ -74,8 +74,8 @@ export function InlineTerminalCard({ terminalId, closed, transcript, onClose }: 
         <>
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] text-sm text-[var(--text-secondary)]">
             <Icon path={mdiConsoleLine} size={0.6} className="text-[var(--text-tertiary)]" />
-            <span className="truncate">{i18nT("auto.terminal_closed", undefined, "Terminal closed")}</span>
-            <span className="ml-auto text-xs text-[var(--text-tertiary)]">{i18nT("auto.read_only_transcript", undefined, "read-only transcript")}</span>
+            <span className="truncate">{i18nT("terminal.terminalClosed", undefined, "Terminal closed")}</span>
+            <span className="ml-auto text-xs text-[var(--text-tertiary)]">{i18nT("common.readOnlyTranscript", undefined, "read-only transcript")}</span>
           </div>
           <FrozenTranscript transcript={transcript} />
         </>

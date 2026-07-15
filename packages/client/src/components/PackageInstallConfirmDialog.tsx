@@ -1,7 +1,7 @@
-import React from "react";
-import { Icon } from "@mdi/react";
-import { mdiDownload, mdiPackageVariantClosed } from "@mdi/js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { mdiDownload, mdiPackageVariantClosed } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
 import { t as i18nT } from "../lib/i18n";
 
 interface PackageInstallConfirmDialogProps {
@@ -32,29 +32,29 @@ export function PackageInstallConfirmDialog({
     <Dialog
       open
       onClose={onCancel}
-      title={i18nT("auto.install_package", undefined, "Install Package")}
+      title={i18nT("packages.installPackage", undefined, "Install Package")}
       icon={mdiPackageVariantClosed}
       size="sm"
       testId="package-install-confirm-dialog"
     >
           <p className="text-[11px] text-[var(--text-muted)] -mt-2">
-            {i18nT("auto.this_will_install_the_package_and", undefined, "This will install the package and reload all active sessions.")}
+            {i18nT("packages.thisWillInstallThePackageAnd", undefined, "This will install the package and reload all active sessions.")}
           </p>
 
           <div className="bg-[var(--bg-surface)] rounded p-3 space-y-1.5">
             {packageName && (
               <div className="flex justify-between text-xs">
-                <span className="text-[var(--text-muted)]">{i18nT("auto.name", undefined, "Name")}</span>
+                <span className="text-[var(--text-muted)]">{i18nT("common.name", undefined, "Name")}</span>
                 <span className="text-[var(--text-primary)] font-medium">{packageName}</span>
               </div>
             )}
             <div className="flex justify-between text-xs">
-              <span className="text-[var(--text-muted)]">{i18nT("auto.source", undefined, "Source")}</span>
+              <span className="text-[var(--text-muted)]">{i18nT("common.source", undefined, "Source")}</span>
               <span className="text-[var(--text-primary)] font-mono text-[11px]">{source}</span>
             </div>
             {!showScopePicker && (
               <div className="flex justify-between text-xs">
-                <span className="text-[var(--text-muted)]">{i18nT("auto.scope", undefined, "Scope")}</span>
+                <span className="text-[var(--text-muted)]">{i18nT("settings.scope", undefined, "Scope")}</span>
                 <span className="text-[var(--text-primary)]">{scope === "global" ? "Global" : "Local (project)"}</span>
               </div>
             )}
@@ -65,9 +65,9 @@ export function PackageInstallConfirmDialog({
               className="p-3 rounded border border-[var(--border-secondary)] bg-[var(--bg-surface)]"
               data-testid="package-install-scope-picker"
               role="radiogroup"
-              aria-label={i18nT("auto.install_scope", undefined, "Install scope")}
+              aria-label={i18nT("packages.installScope", undefined, "Install scope")}
             >
-              <div className="text-[11px] text-[var(--text-muted)] mb-2">{i18nT("auto.install_to", undefined, "Install to")}</div>
+              <div className="text-[11px] text-[var(--text-muted)] mb-2">{i18nT("packages.installTo", undefined, "Install to")}</div>
               <div className="flex flex-col gap-1.5">
                 {(["local", "global"] as const).map((opt) => (
                   <label
@@ -103,7 +103,7 @@ export function PackageInstallConfirmDialog({
             <Dialog.Cancel onClick={onCancel} />
             <Dialog.Action onClick={onConfirm}>
               <Icon path={mdiDownload} size={0.4} className="inline mr-1" />
-              {i18nT("auto.install", undefined, "Install")}
+              {i18nT("common.install2", undefined, "Install")}
             </Dialog.Action>
           </Dialog.Footer>
     </Dialog>

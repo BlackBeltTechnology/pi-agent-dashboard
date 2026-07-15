@@ -30,7 +30,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return this.props.fallback ?? (
         <div className="p-2 text-xs text-red-400 bg-red-500/10 rounded border border-red-500/20">
-          {i18nT("auto.render_error", undefined, "Render error:")} {this.state.error?.message ?? "Unknown error"}
+          {i18nT("status.renderError", undefined, "Render error:")} {this.state.error?.message ?? "Unknown error"}
         </div>
       );
     }

@@ -11,24 +11,26 @@
  *
  * See change: add-goals-folder-page (tasks 4.1, 4.3, 4.4).
  */
-import React, { useMemo, useState } from "react";
-import { useLocation } from "wouter";
+
+import { sendPluginAction, useAllSessions, useSessionEvents, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { GoalCriterion, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiArrowLeft, mdiBroom, mdiCheck, mdiClose, mdiLinkVariant, mdiOpenInNew, mdiPause, mdiPlay, mdiPlus, mdiRefresh, mdiTrashCanOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiArrowLeft, mdiRefresh, mdiPlus, mdiClose, mdiOpenInNew, mdiLinkVariant, mdiPause, mdiPlay, mdiCheck, mdiBroom, mdiTrashCanOutline } from "@mdi/js";
-import { useAllSessions, useSessionEvents, sendPluginAction } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { GoalRecordStatus, GoalCriterion } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useGoals, statusMeta } from "./useGoals.js";
-import { deriveSnapshot } from "./goal-state.js";
+import type React from "react";
+import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { GOAL_PLUGIN_ID } from "../shared/goal-types.js";
+import { deriveSnapshot } from "./goal-state.js";
 import {
   decodeFolderPath,
-  goalsBoardUrl,
-  updateGoal,
   deleteGoal,
-  spawnSession,
+  goalsBoardUrl,
   linkSession,
+  spawnSession,
   unlinkSession,
+  updateGoal,
 } from "./goals-api.js";
+import { statusMeta, useGoals } from "./useGoals.js";
 
 const STATUS_ACTIONS: { status: GoalRecordStatus; label: string }[] = [
   { status: "pursuing", label: "Pursuing" },
@@ -56,6 +58,7 @@ export interface GoalDetailClaimProps {
 
 export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React.ReactElement {
   const cwd = decodeFolderPath(params.encodedCwd ?? "") ?? "";
+  const t = useT();
   const goalId = params.goalId ?? "";
   const [, navigate] = useLocation();
   const { goals, loading, error, refetch } = useGoals(cwd);
@@ -72,7 +75,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
 
   const dispatch = (action: string, payload?: Record<string, unknown>): void => {
     if (!driverSessionId) {
-      setActionErr("No driver session to control. Start or link one first.");
+      setActionErr(t("noDriverSession", undefined, "No driver session to control. Start or link one first."));
       return;
     }
     sendPluginAction(GOAL_PLUGIN_ID, driverSessionId, action, payload);
@@ -94,7 +97,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
 
   const removeGoal = async (): Promise<void> => {
     if (!goal) return;
-    if (!window.confirm(`Delete goal “${goal.objective}”? Linked sessions are unlinked.`)) return;
+    if (!window.confirm(t("deleteGoalConfirm", { objective: goal.objective }, `Delete goal “${goal.objective}”? Linked sessions are unlinked.`))) return;
     await run(() => deleteGoal(cwd, goal.id));
     navigate(goalsBoardUrl(cwd));
   };
@@ -117,7 +120,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
       await fn();
       refetch();
     } catch (e) {
-      setActionErr(e instanceof Error ? e.message : "Action failed");
+      setActionErr(e instanceof Error ? e.message : t("actionFailed", undefined, "Action failed"));
     } finally {
       setBusy(false);
     }
@@ -125,20 +128,20 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
 
   const header = (
     <div className="px-3 py-2 border-b border-[var(--border-primary)] bg-[var(--bg-primary)] flex items-center gap-2 flex-shrink-0">
-      <button onClick={onBack} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]" title="Back">
+      <button onClick={onBack} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]" title={t("back", undefined, "Back")}>
         <Icon path={mdiArrowLeft} size={0.7} />
       </button>
       <button
         onClick={() => navigate(goalsBoardUrl(cwd))}
         className="text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
       >
-        Goals
+        {t("goalsBreadcrumb", undefined, "Goals")}
       </button>
       <span className="text-[var(--text-muted)]">›</span>
       <span className="text-sm font-medium text-[var(--text-primary)] flex-1 truncate">
-        {goal?.objective ?? "Goal"}
+        {goal?.objective ?? t("goalFallback", undefined, "Goal")}
       </span>
-      <button onClick={refetch} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]" title="Refresh">
+      <button onClick={refetch} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]" title={t("refresh", undefined, "Refresh")}>
         <Icon path={mdiRefresh} size={0.6} />
       </button>
     </div>
@@ -149,7 +152,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
       <div className="flex flex-col h-full overflow-hidden" data-testid="goal-detail-page">
         {header}
         <div className="flex-1 flex items-center justify-center text-sm text-[var(--text-muted)]">
-          {loading ? "Loading goal…" : error ? error : "Goal not found."}
+          {loading ? t("loadingGoal", undefined, "Loading goal…") : error ? error : t("goalNotFound", undefined, "Goal not found.")}
         </div>
       </div>
     );
@@ -183,20 +186,20 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
           {/* Loop-control bar (task 5.1) — dispatches via existing plugin_action. */}
           <div className="flex items-center gap-1.5 mt-3 flex-wrap" data-testid="goal-loop-controls">
             <button disabled={busy} onClick={() => dispatch("pause")} className="text-[10px] px-1.5 py-px rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-amber-300 flex items-center gap-0.5 disabled:opacity-40" data-testid="goal-ctl-pause">
-              <Icon path={mdiPause} size={0.45} />Pause
+              <Icon path={mdiPause} size={0.45} />{t("pause", undefined, "Pause")}
             </button>
             <button disabled={busy} onClick={() => dispatch("resume")} className="text-[10px] px-1.5 py-px rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-indigo-300 flex items-center gap-0.5 disabled:opacity-40" data-testid="goal-ctl-resume">
-              <Icon path={mdiPlay} size={0.45} />Resume
+              <Icon path={mdiPlay} size={0.45} />{t("resume", undefined, "Resume")}
             </button>
             <button disabled={busy} onClick={() => dispatch("done")} className="text-[10px] px-1.5 py-px rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-green-300 flex items-center gap-0.5 disabled:opacity-40" data-testid="goal-ctl-done">
-              <Icon path={mdiCheck} size={0.45} />Done
+              <Icon path={mdiCheck} size={0.45} />{t("done", undefined, "Done")}
             </button>
             <button disabled={busy} onClick={() => dispatch("clear")} className="text-[10px] px-1.5 py-px rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] flex items-center gap-0.5 disabled:opacity-40" data-testid="goal-ctl-clear">
-              <Icon path={mdiBroom} size={0.45} />Clear
+              <Icon path={mdiBroom} size={0.45} />{t("clear", undefined, "Clear")}
             </button>
             <span className="flex-1" />
             <button disabled={busy} onClick={() => void removeGoal()} className="text-[10px] px-1.5 py-px rounded border border-red-500/30 text-red-400 hover:bg-red-500/10 flex items-center gap-0.5 disabled:opacity-40" data-testid="goal-detail-delete">
-              <Icon path={mdiTrashCanOutline} size={0.45} />Delete
+              <Icon path={mdiTrashCanOutline} size={0.45} />{t("delete", undefined, "Delete")}
             </button>
           </div>
 
@@ -204,7 +207,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
           <div className="grid grid-cols-2 gap-3 mt-3" data-testid="goal-budget-gauges">
             <div data-testid="goal-gauge-turns">
               <div className="flex items-center justify-between text-[10px] text-[var(--text-tertiary)]">
-                <span>Turns</span>
+                <span>{t("turns", undefined, "Turns")}</span>
                 <span className="font-mono">{snap ? `${snap.turnsUsed}/${goal.budget?.maxTurns ?? snap.maxTurns}` : `—/${goal.budget?.maxTurns ?? "—"}`}</span>
               </div>
               <div className="h-1.5 rounded bg-[var(--border-subtle)] overflow-hidden mt-0.5">
@@ -213,8 +216,8 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
             </div>
             <div data-testid="goal-gauge-spend">
               <div className="flex items-center justify-between text-[10px] text-[var(--text-tertiary)]">
-                <span>Spend</span>
-                <span className="font-mono">{goal.budget?.maxSpendUsd !== undefined ? `cap $${goal.budget.maxSpendUsd}` : "no cap"}</span>
+                <span>{t("spend", undefined, "Spend")}</span>
+                <span className="font-mono">{goal.budget?.maxSpendUsd !== undefined ? t("capAmount", { amount: goal.budget.maxSpendUsd }, `cap $${goal.budget.maxSpendUsd}`) : t("noCap", undefined, "no cap")}</span>
               </div>
               <div className="h-1.5 rounded bg-[var(--border-subtle)] overflow-hidden mt-0.5">
                 <div className="h-full bg-emerald-400/70" style={{ width: "0%" }} />
@@ -224,7 +227,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
 
           {/* Editable criteria (task 5.1) + add-subgoal. */}
           <div className="mt-3" data-testid="goal-criteria-editor">
-            <div className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)] mb-1">Criteria</div>
+            <div className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)] mb-1">{t("criteria", undefined, "Criteria")}</div>
             {goal.criteria.length > 0 && (
               <ul className="space-y-0.5">
                 {goal.criteria.map((c, i) => (
@@ -241,13 +244,13 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
               <input
                 value={subgoalDraft}
                 onChange={(e) => setSubgoalDraft(e.target.value)}
-                placeholder="Add criterion / subgoal…"
+                placeholder={t("addCriterionPlaceholder", undefined, "Add criterion / subgoal…")}
                 className="flex-1 min-w-0 text-[11px] px-1.5 py-px rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] outline-none focus:border-indigo-400"
                 onKeyDown={(e) => { if (e.key === "Enter") addSubgoal(); }}
                 data-testid="goal-subgoal-input"
               />
               <button onClick={addSubgoal} disabled={!subgoalDraft.trim()} className="text-[10px] px-1.5 py-px rounded border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 disabled:opacity-50" data-testid="goal-subgoal-add">
-                Add
+                {t("add", undefined, "Add")}
               </button>
             </div>
           </div>
@@ -255,9 +258,9 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
 
         {/* Judge verdict timeline (task 5.2). */}
         <section data-testid="goal-verdict-timeline">
-          <div className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase mb-2">Judge verdicts</div>
+          <div className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase mb-2">{t("judgeVerdicts", undefined, "Judge verdicts")}</div>
           {!goal.verdicts || goal.verdicts.length === 0 ? (
-            <div className="text-[11px] text-[var(--text-muted)]" data-testid="goal-verdict-empty">No verdicts recorded yet.</div>
+            <div className="text-[11px] text-[var(--text-muted)]" data-testid="goal-verdict-empty">{t("noVerdicts", undefined, "No verdicts recorded yet.")}</div>
           ) : (
             <ul className="space-y-1">
               {[...goal.verdicts].reverse().map((v, i) => (
@@ -276,7 +279,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
         {/* Linked sessions */}
         <section data-testid="goal-linked-sessions">
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase">Linked sessions ({goal.sessionIds.length})</span>
+            <span className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase">{t("linkedSessions", { count: goal.sessionIds.length }, `Linked sessions (${goal.sessionIds.length})`)}</span>
             <span className="flex-1" />
             <button
               disabled={busy}
@@ -284,20 +287,20 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
               className="text-[10px] px-1.5 py-px rounded border border-indigo-500/40 text-indigo-400 hover:bg-indigo-500/10 disabled:opacity-50 flex items-center gap-0.5"
               data-testid="goal-new-session"
             >
-              <Icon path={mdiPlus} size={0.4} />New session
+              <Icon path={mdiPlus} size={0.4} />{t("newSession", undefined, "New session")}
             </button>
             <button
               onClick={() => setLinking((v) => !v)}
               className="text-[10px] px-1.5 py-px rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] flex items-center gap-0.5"
               data-testid="goal-link-existing"
             >
-              <Icon path={mdiLinkVariant} size={0.4} />Link existing…
+              <Icon path={mdiLinkVariant} size={0.4} />{t("linkExisting", undefined, "Link existing…")}
             </button>
           </div>
 
           {linking && (
             <div className="mb-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-2 space-y-1" data-testid="goal-link-picker">
-              {linkable.length === 0 && <div className="text-[10px] text-[var(--text-muted)]">No other running sessions in this folder.</div>}
+              {linkable.length === 0 && <div className="text-[10px] text-[var(--text-muted)]">{t("noRunningSessions", undefined, "No other running sessions in this folder.")}</div>}
               {linkable.map((s) => (
                 <button
                   key={s.id}
@@ -312,7 +315,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
           )}
 
           {goal.sessionIds.length === 0 ? (
-            <div className="text-[11px] text-[var(--text-muted)]">No sessions linked yet.</div>
+            <div className="text-[11px] text-[var(--text-muted)]">{t("noSessionsLinked", undefined, "No sessions linked yet.")}</div>
           ) : (
             <ul className="space-y-1">
               {goal.sessionIds.map((sid) => (
@@ -321,12 +324,12 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
                   className="flex items-center gap-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-2 py-1"
                   data-testid="goal-session-row"
                 >
-                  {sid === goal.driverSessionId && <span title="driver">⚑</span>}
+                  {sid === goal.driverSessionId && <span title={t("driver", undefined, "driver")}>⚑</span>}
                   <span className="flex-1 text-[11px] text-[var(--text-secondary)] truncate font-mono">{sessionLabel(sid)}</span>
                   <button
                     onClick={() => navigate(`/session/${encodeURIComponent(sid)}`)}
                     className="text-[var(--text-tertiary)] hover:text-indigo-400"
-                    title="Open chat"
+                    title={t("openChat", undefined, "Open chat")}
                     data-testid="goal-open-session"
                   >
                     <Icon path={mdiOpenInNew} size={0.5} />
@@ -335,7 +338,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
                     disabled={busy}
                     onClick={() => void run(() => unlinkSession(cwd, goal.id, sid))}
                     className="text-[var(--text-tertiary)] hover:text-red-400 disabled:opacity-50"
-                    title="Unlink"
+                    title={t("unlink", undefined, "Unlink")}
                     data-testid="goal-unlink-session"
                   >
                     <Icon path={mdiClose} size={0.5} />

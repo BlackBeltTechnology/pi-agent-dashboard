@@ -11,23 +11,24 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import React, { useEffect, useState } from "react";
-import { Icon } from "@mdi/react";
+
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   mdiArrowUpBoldOutline,
-  mdiSourcePull,
-  mdiSourceMerge,
   mdiCloseBoxOutline,
   mdiDotsHorizontal,
+  mdiSourceMerge,
+  mdiSourcePull,
 } from "@mdi/js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { pushWorktreeBranch, createWorktreePR } from "../lib/git-api.js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useState } from "react";
+import { useMobile } from "../hooks/useMobile.js";
+import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
+import { createWorktreePR, pushWorktreeBranch } from "../lib/git-api.js";
+import { t as i18nT } from "../lib/i18n";
 import { fetchTool } from "../lib/tools-api.js";
 import { CloseWorktreeDialog } from "./CloseWorktreeDialog.js";
 import { MergeConfirmDialog } from "./MergeConfirmDialog.js";
-import { useMobile } from "../hooks/useMobile.js";
-import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
-import { t as i18nT } from "../lib/i18n";
 
 /**
  * Module-level cache of `gh` availability — one fetch per page load,
@@ -84,14 +85,14 @@ interface ToastMsg {
  */
 function labelForCode(code: string): string {
   switch (code) {
-    case "no_remote":            return "no `origin` remote configured";
-    case "auth_failed":          return "git auth failed";
-    case "non_fast_forward":     return "remote has commits you don't have — pull first";
-    case "gh_not_found":         return "`gh` CLI not installed";
-    case "gh_not_authed":        return "`gh` not authenticated — run `gh auth login`";
-    case "pr_exists":            return "PR already exists for this branch";
-    case "base_not_found":       return "base branch not found on origin";
-    case "pushed_but_pr_failed": return "branch pushed, but `gh pr create` failed";
+    case "no_remote":            return i18nT("worktree.errNoRemote", undefined, "no `origin` remote configured");
+    case "auth_failed":          return i18nT("worktree.errAuthFailed", undefined, "git auth failed");
+    case "non_fast_forward":     return i18nT("worktree.errNonFastForward", undefined, "remote has commits you don't have — pull first");
+    case "gh_not_found":         return i18nT("worktree.errGhNotFound", undefined, "`gh` CLI not installed");
+    case "gh_not_authed":        return i18nT("worktree.errGhNotAuthed", undefined, "`gh` not authenticated — run `gh auth login`");
+    case "pr_exists":            return i18nT("worktree.errPrExists", undefined, "PR already exists for this branch");
+    case "base_not_found":       return i18nT("worktree.errBaseNotFound", undefined, "base branch not found on origin");
+    case "pushed_but_pr_failed": return i18nT("worktree.errPushedButPrFailed", undefined, "branch pushed, but `gh pr create` failed");
     default:                     return code;
   }
 }
@@ -127,8 +128,8 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
     setToast(null);
     const result = await pushWorktreeBranch({ cwd: session.cwd });
     setBusy(null);
-    if (result.ok) setToast({ level: "success", text: "Pushed." });
-    else setToast({ level: "error", text: `push failed: ${labelForCode(result.code)}`, stderr: result.stderr });
+    if (result.ok) setToast({ level: "success", text: i18nT("worktree.pushed", undefined, "Pushed.") });
+    else setToast({ level: "error", text: i18nT("worktree.pushFailed", { reason: labelForCode(result.code) }, "push failed: {reason}"), stderr: result.stderr });
   };
 
   const onOpenPr = async () => {
@@ -142,9 +143,9 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
     setBusy(null);
     if (result.ok && result.data?.url) {
       window.open(result.data.url, "_blank", "noopener,noreferrer");
-      setToast({ level: "success", text: "PR opened." });
+      setToast({ level: "success", text: i18nT("worktree.prOpened", undefined, "PR opened.") });
     } else if (!result.ok) {
-      setToast({ level: "error", text: `PR failed: ${labelForCode(result.code)}`, stderr: result.stderr });
+      setToast({ level: "error", text: i18nT("worktree.prFailed", { reason: labelForCode(result.code) }, "PR failed: {reason}"), stderr: result.stderr });
     }
   };
 
@@ -160,36 +161,36 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
   }> = [
     {
       key: "push",
-      label: "Push",
+      label: i18nT("worktree.push", undefined, "Push"),
       icon: mdiArrowUpBoldOutline,
       onClick: onPush,
-      title: "Push branch to origin",
+      title: i18nT("worktree.pushBranchToOrigin", undefined, "Push branch to origin"),
       disabled: busy !== null,
       variant: "warn",
     },
     ...(showPrButton ? [{
       key: "pr",
-      label: session.gitPrNumber != null ? `View PR #${session.gitPrNumber}` : "Open PR",
+      label: session.gitPrNumber != null ? i18nT("worktree.viewPrNumber", { number: session.gitPrNumber }, "View PR #{number}") : i18nT("worktree.openPr", undefined, "Open PR"),
       icon: mdiSourcePull,
       onClick: onOpenPr,
-      title: session.gitPrNumber != null ? `Open PR #${session.gitPrNumber} in browser` : "Open a pull request via gh",
+      title: session.gitPrNumber != null ? i18nT("worktree.openPrNumberInBrowser", { number: session.gitPrNumber }, "Open PR #{number} in browser") : i18nT("worktree.openPrViaGh", undefined, "Open a pull request via gh"),
       disabled: busy !== null,
       variant: "warn" as const,
     }] : []),
     {
       key: "merge",
-      label: "Merge",
+      label: i18nT("worktree.merge", undefined, "Merge"),
       icon: mdiSourceMerge,
       onClick: () => setMergeOpen(true),
-      title: "Merge this branch into its base",
+      title: i18nT("worktree.mergeBranchIntoBase", undefined, "Merge this branch into its base"),
       variant: "success",
     },
     {
       key: "close",
-      label: "Close",
+      label: i18nT("worktree.close", undefined, "Close"),
       icon: mdiCloseBoxOutline,
       onClick: () => setCloseOpen(true),
-      title: "Close (remove) this worktree",
+      title: i18nT("worktree.closeRemoveWorktree", undefined, "Close (remove) this worktree"),
       variant: "danger",
     },
   ];
@@ -210,7 +211,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
       type="button"
       onClick={b.onClick}
       disabled={b.disabled || externalDisabled}
-      title={externalDisabled ? "Session is streaming" : b.title}
+      title={externalDisabled ? i18nT("session.sessionIsStreaming", undefined, "Session is streaming") : b.title}
       data-testid={`worktree-action-${b.key}`}
       data-variant={b.variant}
       className={`inline-flex items-center px-1.5 py-[1px] rounded border disabled:opacity-50 disabled:cursor-not-allowed ${variantClasses[b.variant]}`}
@@ -228,7 +229,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
             ref={sheetTriggerRef}
             type="button"
             onClick={() => setSheetOpen((s) => !s)}
-            title={i18nT("auto.worktree_actions", undefined, "Worktree actions")}
+            title={i18nT("worktree.worktreeActions", undefined, "Worktree actions")}
             data-testid="worktree-actions-mobile-trigger"
             className="inline-flex items-center px-1.5 py-[1px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
@@ -258,7 +259,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
           <span>{toast.text}</span>
           {toast.stderr && (
             <details className="inline" data-testid="worktree-actions-toast-details">
-              <summary className="cursor-pointer text-[var(--text-muted)] underline decoration-dotted">details</summary>
+              <summary className="cursor-pointer text-[var(--text-muted)] underline decoration-dotted">{i18nT("common.details", undefined, "details")}</summary>
               <pre className="mt-1 text-[10px] bg-[var(--bg-tertiary)] p-2 rounded whitespace-pre-wrap max-w-md max-h-40 overflow-auto">{toast.stderr}</pre>
             </details>
           )}
@@ -266,7 +267,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
             type="button"
             onClick={() => setToast(null)}
             className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-            title="dismiss"
+            title={i18nT("common.dismiss", undefined, "dismiss")}
           >×</button>
         </span>
       )}
@@ -277,7 +278,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
           allSessions={allSessions}
           onShutdownSession={onShutdownSession}
           onClose={() => setCloseOpen(false)}
-          onRemoved={() => setToast({ level: "success", text: "Worktree removed." })}
+          onRemoved={() => setToast({ level: "success", text: i18nT("worktree.worktreeRemoved", undefined, "Worktree removed.") })}
         />
       )}
       {mergeOpen && (

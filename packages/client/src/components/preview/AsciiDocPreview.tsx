@@ -5,8 +5,8 @@
  * See change: render-file-previews.
  */
 import React, { useEffect, useState } from "react";
-import { renderUrl } from "./raw-url.js";
 import { t as i18nT } from "../../lib/i18n";
+import { renderUrl } from "./raw-url.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -40,7 +40,7 @@ export function AsciiDocPreview({ target }: Props) {
   }, [target.cwd, target.path]);
 
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
-  if (html == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("auto.loading", undefined, "Loading…")}</div>;
+  if (html == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
   return (
     <div
       className="asciidoc-body prose prose-invert max-w-none"

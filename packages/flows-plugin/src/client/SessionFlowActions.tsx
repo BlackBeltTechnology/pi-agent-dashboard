@@ -1,24 +1,25 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiPlay, mdiPencil } from "@mdi/js";
+import {
+  usePluginSend,
+  useSessionData,
+  useT,
+  useUiPrimitive,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
+import { usePluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import type { UiSelectOption as SelectOption } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type {
   CommandInfo,
   DashboardSession,
   FlowInfo,
   FlowState,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
-import { FlowAuthorPromptDialog } from "./FlowAuthorPromptDialog.js";
+import { mdiPencil, mdiPlay } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useRef, useState } from "react";
 import { FlowActivityBadge } from "./FlowActivityBadge.js";
+import { FlowAuthorPromptDialog } from "./FlowAuthorPromptDialog.js";
+import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type { UiSelectOption as SelectOption } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import {
-  useUiPrimitive,
-  usePluginSend,
-  useSessionData,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { usePluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { FlowsPluginConfig } from "./FlowsSettings.js";
 
 export function SessionFlowActions({
@@ -46,6 +47,7 @@ export function SessionFlowActions({
   /** Dispatch flow_control abort. Called by the running-flow pill's Abort button. */
   onAbortFlow?: () => void;
 }) {
+  const t = useT();
   const ConfirmDialog = useUiPrimitive(UI_PRIMITIVE_KEYS.confirmDialog);
   const SearchableSelectDialog = useUiPrimitive(UI_PRIMITIVE_KEYS.searchableSelectDialog);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -83,7 +85,7 @@ export function SessionFlowActions({
   }));
   // Edit launcher options: existing flows + a "new flow" sentinel.
   const editOptions: SelectOption[] = [
-    { value: "__new__", label: "+ New flow", description: "Author a new flow with the edit-flow skill" },
+    { value: "__new__", label: t("newFlowOption", undefined, "+ New flow"), description: t("newFlowOptionDesc", undefined, "Author a new flow with the edit-flow skill") },
     ...flowOptions,
   ];
 
@@ -102,7 +104,7 @@ export function SessionFlowActions({
               onClick={(e) => { e.stopPropagation(); setPickerOpen(true); }}
               className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
             >
-              <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />Run Flow...
+              <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />{t("runFlowButton", undefined, "Run Flow...")}
             </button>
           )}
           {editMode && (
@@ -111,7 +113,7 @@ export function SessionFlowActions({
               className="text-[10px] px-1.5 py-0.5 rounded border border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
               data-testid="flows-new-edit-button"
             >
-              <Icon path={mdiPencil} size={0.4} className="inline mr-0.5" />New / Edit…
+              <Icon path={mdiPencil} size={0.4} className="inline mr-0.5" />{t("newEditButton", undefined, "New / Edit…")}
             </button>
           )}
           {hasFlowsDelete && flows.length > 0 && (
@@ -119,7 +121,7 @@ export function SessionFlowActions({
               onClick={(e) => { e.stopPropagation(); setDeletePickerOpen(true); }}
               className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             >
-              &#215; Delete
+              &#215; {t("delete", undefined, "Delete")}
             </button>
           )}
         </div>
@@ -128,10 +130,10 @@ export function SessionFlowActions({
       {/* Run: pick flow → task dialog */}
       {pickerOpen && (
         <SearchableSelectDialog
-          title="Run Flow"
+          title={t("runFlowDialogTitle", undefined, "Run Flow")}
           options={flowOptions}
-          placeholder="Search flows..."
-          emptyMessage="No flows available"
+          placeholder={t("searchFlows", undefined, "Search flows...")}
+          emptyMessage={t("noFlowsAvailable", undefined, "No flows available")}
           onSelect={(value) => {
             const flow = flows.find(f => f.name === value);
             if (flow) setSelectedFlow(flow);
@@ -156,10 +158,10 @@ export function SessionFlowActions({
       {/* New / Edit: pick an existing flow or "new" → launch the edit-flow skill */}
       {editPickerOpen && (
         <SearchableSelectDialog
-          title="New / Edit flow"
+          title={t("newEditFlowTitle", undefined, "New / Edit flow")}
           options={editOptions}
-          placeholder="Pick a flow to edit, or + New flow…"
-          emptyMessage="No flows yet — pick + New flow"
+          placeholder={t("pickFlowToEdit", undefined, "Pick a flow to edit, or + New flow…")}
+          emptyMessage={t("noFlowsYet", undefined, "No flows yet — pick + New flow")}
           onSelect={(value) => {
             setAuthorTarget(
               value === "__new__" ? { mode: "new" } : { mode: "edit", flowName: value },
@@ -186,10 +188,10 @@ export function SessionFlowActions({
       {/* Delete: pick flow → confirm dialog */}
       {deletePickerOpen && (
         <SearchableSelectDialog
-          title="Delete Flow"
+          title={t("deleteFlowTitle", undefined, "Delete Flow")}
           options={flowOptions}
-          placeholder="Search flows..."
-          emptyMessage="No flows available"
+          placeholder={t("searchFlows", undefined, "Search flows...")}
+          emptyMessage={t("noFlowsAvailable", undefined, "No flows available")}
           onSelect={(value) => {
             setDeleteFlowName(value);
             setDeletePickerOpen(false);
@@ -200,8 +202,8 @@ export function SessionFlowActions({
 
       {deleteFlowName && (
         <ConfirmDialog
-          message={`Delete flow "${deleteFlowName}"? This will remove the flow file and any associated agents.`}
-          confirmLabel="Delete"
+          message={t("deleteFlowConfirm", { name: deleteFlowName }, `Delete flow "${deleteFlowName}"? This will remove the flow file and any associated agents.`)}
+          confirmLabel={t("delete", undefined, "Delete")}
           onConfirm={() => {
             onFlowAction("delete", { flowName: deleteFlowName });
             setDeleteFlowName(null);

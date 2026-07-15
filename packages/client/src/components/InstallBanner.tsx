@@ -1,6 +1,6 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
 import { mdiClose, mdiDownload } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
 const DISMISSED_KEY = "pwa-install-dismissed";
@@ -33,10 +33,10 @@ export function InstallBanner({ canInstall, isIOS, isInstalled, prompt }: Props)
       <div className="flex-1 min-w-0">
         {isIOS ? (
           <span>
-            {i18nT("auto.tap", undefined, "Tap")} <strong>{i18nT("auto.share", undefined, "Share")}</strong> → <strong>{i18nT("auto.add_to_home_screen", undefined, "Add to Home Screen")}</strong> {i18nT("auto.to_install", undefined, "to install")}
+            {i18nT("common.tap", undefined, "Tap")} <strong>{i18nT("common.share", undefined, "Share")}</strong> → <strong>{i18nT("landing.addToHomeScreen", undefined, "Add to Home Screen")}</strong> {i18nT("packages.toInstall", undefined, "to install")}
           </span>
         ) : (
-          <span>{i18nT("auto.install_pi_dashboard_for_quick_access", undefined, "Install PI Dashboard for quick access")}</span>
+          <span>{i18nT("packages.installPiDashboardForQuickAccess", undefined, "Install PI Dashboard for quick access")}</span>
         )}
       </div>
       {canInstall && (
@@ -44,14 +44,14 @@ export function InstallBanner({ canInstall, isIOS, isInstalled, prompt }: Props)
           onClick={prompt}
           className="px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 font-medium flex-shrink-0"
         >
-          {i18nT("auto.install", undefined, "Install")}
+          {i18nT("common.install2", undefined, "Install")}
         </button>
       )}
       <button
         onClick={handleDismiss}
         data-testid="install-banner-dismiss"
         className="flex-shrink-0 hover:bg-white/20 rounded p-0.5"
-        aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
+        aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
       >
         <Icon path={mdiClose} size={0.5} />
       </button>

@@ -164,9 +164,9 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
           <span
             data-testid="tool-superseded-badge"
             className="ml-1 shrink-0 rounded px-1 text-[10px] leading-4 bg-[var(--bg-secondary)] text-[var(--text-muted)] border border-[var(--border-subtle)]"
-            title={i18nT("auto.result_not_captured_recovered", undefined, "Result not captured — the tool finished but its output was unrecoverable; recovered from the transcript.")}
+            title={i18nT("common.resultNotCapturedRecovered", undefined, "Result not captured — the tool finished but its output was unrecoverable; recovered from the transcript.")}
           >
-            {i18nT("auto.recovered", undefined, "recovered")}
+            {i18nT("common.recovered", undefined, "recovered")}
           </span>
         )}
         {status === "running" && onAbort && stopState === "idle" && (
@@ -175,7 +175,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             data-testid="tool-stop-button"
             onClick={(e) => { e.stopPropagation(); onAbort(); if (onForceKill) setStopState("aborting"); }}
             className="ml-1 p-0.5 rounded text-red-400 hover:text-red-300 hover:bg-red-900/30 inline-flex"
-            title={i18nT("auto.stop", undefined, "Stop")}
+            title={i18nT("common.stop", undefined, "Stop")}
           >
             <Icon path={mdiStop} size={0.45} />
           </span>
@@ -186,7 +186,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             data-testid="tool-force-stop-button"
             onClick={(e) => { e.stopPropagation(); onForceKill(); setStopState("killing"); }}
             className="ml-1 p-0.5 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-900/30 animate-pulse inline-flex"
-            title={i18nT("auto.force_stop_kill_the_process", undefined, "Force Stop — kill the process")}
+            title={i18nT("common.forceStopKillTheProcess", undefined, "Force Stop — kill the process")}
           >
             <Icon path={mdiAlert} size={0.45} />
           </span>
@@ -233,7 +233,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                   className="text-[var(--accent)] hover:underline"
                   data-testid="tool-collapse-output"
                 >
-                  {i18nT("auto.collapse_output", undefined, "Collapse output")}
+                  {i18nT("common.collapseOutput", undefined, "Collapse output")}
                 </button>
               ) : (
                 <button
@@ -242,7 +242,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                   className="text-[var(--accent)] hover:underline disabled:opacity-50"
                   data-testid="tool-show-full-output"
                 >
-                  {fullResult.loading ? i18nT("auto.loading", undefined, "Loading…") : i18nT("auto.show_full_output", undefined, "Show full output")}
+                  {fullResult.loading ? i18nT("common.loading2", undefined, "Loading…") : i18nT("common.showFullOutput", undefined, "Show full output")}
                 </button>
               )}
             </div>

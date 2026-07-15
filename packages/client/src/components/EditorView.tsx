@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { getApiBase } from "../lib/api-context.js";
+import { mdiCodeBraces, mdiLoading, mdiRefresh, mdiStop } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiLoading, mdiRefresh, mdiCodeBraces, mdiStop } from "@mdi/js";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { getApiBase } from "../lib/api-context.js";
+import { t as i18nT } from "../lib/i18n";
 import { EditorInstallGuide } from "./EditorInstallGuide.js";
 import { useThemeContext } from "./ThemeProvider.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface EditorInfo {
   id: string;
@@ -148,8 +148,8 @@ export function EditorView({ cwd, onClose }: Props) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)] gap-3">
         <Icon path={mdiLoading} size={1.5} spin className="text-blue-400" />
-        <p className="text-sm">{i18nT("auto.starting_code_server", undefined, "Starting code-server...")}</p>
-        <p className="text-xs text-[var(--text-tertiary)]">{i18nT("auto.this_usually_takes_2_5_seconds", undefined, "This usually takes 2-5 seconds")}</p>
+        <p className="text-sm">{i18nT("editor.startingCodeServer", undefined, "Starting code-server...")}</p>
+        <p className="text-xs text-[var(--text-tertiary)]">{i18nT("common.thisUsuallyTakes25Seconds", undefined, "This usually takes 2-5 seconds")}</p>
       </div>
     );
   }
@@ -164,7 +164,7 @@ export function EditorView({ cwd, onClose }: Props) {
           className="px-4 py-2 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm"
         >
           <span className="inline-flex items-center gap-1">
-            <Icon path={mdiRefresh} size={0.6} /> {i18nT("auto.retry", undefined, "Retry")}
+            <Icon path={mdiRefresh} size={0.6} /> {i18nT("common.retry", undefined, "Retry")}
           </span>
         </button>
       </div>
@@ -179,7 +179,7 @@ export function EditorView({ cwd, onClose }: Props) {
         <button
           onClick={stopEditor}
           className="text-[var(--text-tertiary)] hover:text-red-400 transition-colors p-1 rounded hover:bg-[var(--bg-surface)]"
-          title={i18nT("auto.stop_code_server", undefined, "Stop code-server")}
+          title={i18nT("editor.stopCodeServer", undefined, "Stop code-server")}
         >
           <Icon path={mdiStop} size={0.7} />
         </button>

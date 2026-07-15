@@ -6,11 +6,18 @@
  * See change: render-file-previews.
  */
 import React, { useEffect, useRef, useState } from "react";
-import { rawUrl } from "./raw-url.js";
 import { t as i18nT } from "../../lib/i18n";
+import { rawUrl } from "./raw-url.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
+  /**
+   * Optional source-URL override. Defaults to `/api/file/raw` for the target.
+   * `DocxPreview` passes `/api/file/rendered-pdf` to stream a docx→PDF render;
+   * `EmlPreview` passes a `blob:` URL for a PDF attachment.
+   * See change: render-office-previews. See change: add-eml-preview.
+   */
+  srcUrl?: string;
 }
 
 // Lazy single-load of pdfjs. The dynamic import keeps it out of the main
@@ -26,7 +33,7 @@ async function loadPdfJs(): Promise<typeof import("pdfjs-dist")> {
   return mod;
 }
 
-export function PdfPreview({ target }: Props) {
+export function PdfPreview({ target, srcUrl }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pageNum, setPageNum] = useState(1);
   const [pageCount, setPageCount] = useState(0);
@@ -42,7 +49,7 @@ export function PdfPreview({ target }: Props) {
     (async () => {
       try {
         const pdfjs = await loadPdfJs();
-        const loadingTask = pdfjs.getDocument({ url: rawUrl(target) });
+        const loadingTask = pdfjs.getDocument({ url: srcUrl ?? rawUrl(target) });
         const doc = await loadingTask.promise;
         if (cancelled) {
           doc.destroy();
@@ -60,7 +67,7 @@ export function PdfPreview({ target }: Props) {
       docRef.current = null;
       if (doc) doc.destroy();
     };
-  }, [target.cwd, target.path]);
+  }, [target.cwd, target.path, srcUrl]);
 
   // Render the current page when doc or pageNum changes.
   useEffect(() => {
@@ -97,7 +104,7 @@ export function PdfPreview({ target }: Props) {
           disabled={pageNum <= 1 || pageCount === 0}
           onClick={() => setPageNum((n) => Math.max(1, n - 1))}
         >
-          {i18nT("auto.prev", undefined, "Prev")}
+          {i18nT("common.prev", undefined, "Prev")}
         </button>
         <span className="text-[var(--text-muted)]">
           {pageCount === 0 ? "Loading…" : `Page ${pageNum} of ${pageCount}`}
@@ -107,7 +114,7 @@ export function PdfPreview({ target }: Props) {
           disabled={pageNum >= pageCount || pageCount === 0}
           onClick={() => setPageNum((n) => Math.min(pageCount, n + 1))}
         >
-          {i18nT("auto.next_2", undefined, "Next")}
+          {i18nT("common.next2", undefined, "Next")}
         </button>
       </div>
       <div className="flex-1 overflow-auto p-2 bg-[var(--bg-canvas)] flex justify-center">

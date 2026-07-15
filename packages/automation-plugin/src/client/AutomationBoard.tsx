@@ -14,36 +14,37 @@
  * See change: add-automation-plugin, fix-automation-slot-parity-and-routing,
  * redesign-automation-editor-and-board, automation-ui-mockup-parity.
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Icon } from "@mdi/react";
-import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+
+import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import {
-  listAutomations,
-  listRuns,
-  deleteAutomation,
-  runAutomationNow,
-  stopAutomationRun,
-  getAutomationDefinition,
-  updateAutomation,
-  getRunResult,
-} from "./api.js";
-import { CreateAutomationDialog } from "./CreateAutomationDialog.js";
-import { decodeFolderPath } from "./folder-encoding.js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { AutomationConfig, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
 import { nextFire } from "../shared/cron.js";
 import {
+  deleteAutomation,
+  getAutomationDefinition,
+  getRunResult,
+  listAutomations,
+  listRuns,
+  runAutomationNow,
+  stopAutomationRun,
+  updateAutomation,
+} from "./api.js";
+import {
   deriveCardState,
-  railBgClass,
   dotClass,
-  pillLabel,
-  pillClass,
-  stripeFxClass,
-  headlessSourceIcon,
   GLOW_FX_CLASS,
   GLOW_FX_OUTER_CLASS,
+  headlessSourceIcon,
+  pillClass,
+  pillLabel,
   RING_FX_CLASS,
+  railBgClass,
+  stripeFxClass,
 } from "./automation-card-visuals.js";
-import type { AutomationConfig, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
+import { CreateAutomationDialog } from "./CreateAutomationDialog.js";
+import { decodeFolderPath } from "./folder-encoding.js";
 
 export interface AutomationBoardProps {
   params?: Record<string, string>;
@@ -64,6 +65,7 @@ interface EditTarget {
 }
 
 export function AutomationBoard({ params, onBack }: AutomationBoardProps): React.ReactElement {
+  const t = useT();
   const decoded = params?.encodedCwd ? decodeFolderPath(params.encodedCwd) : undefined;
   const invalidRoute = !!params?.encodedCwd && decoded === null;
   const cwd = decoded ?? undefined;
@@ -119,7 +121,7 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
   }, [runs]);
 
   async function onDelete(a: DiscoveredAutomation): Promise<void> {
-    const ok = typeof window !== "undefined" ? window.confirm(`Delete automation "${a.name}"?`) : true;
+    const ok = typeof window !== "undefined" ? window.confirm(t("deleteConfirm", { name: a.name }, `Delete automation "${a.name}"?`)) : true;
     if (!ok) return;
     await deleteAutomation(a.scope, a.scope === "folder" ? cwd : undefined, a.name);
     refresh();
@@ -160,7 +162,7 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
     // Run records don't carry scope; try folder (cwd) first, then global.
     const text =
       (await getRunResult("folder", cwd, r.runId)) ?? (await getRunResult("global", undefined, r.runId));
-    setOpenResult({ runId: r.runId, text: text ?? "(no result)" });
+    setOpenResult({ runId: r.runId, text: text ?? t("noResult", undefined, "(no result)") });
   }
 
   if (invalidRoute) {
@@ -169,11 +171,11 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
         <div className="flex items-center gap-3">
           {onBack && (
             <button type="button" data-testid="automation-board-back" onClick={onBack} className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
-              ← Back
+              {t("back", undefined, "← Back")}
             </button>
           )}
           <p className="text-xs text-[var(--danger,#ef4444)]" data-testid="automation-board-invalid">
-            Invalid folder route.
+            {t("invalidRoute", undefined, "Invalid folder route.")}
           </p>
         </div>
       </div>
@@ -186,10 +188,10 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
         <div className="flex items-center gap-3">
           {onBack && (
             <button type="button" data-testid="automation-board-back" onClick={onBack} className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
-              ← Back
+              {t("back", undefined, "← Back")}
             </button>
           )}
-          <h2 className="text-base font-semibold">Automations</h2>
+          <h2 className="text-base font-semibold">{t("automations", undefined, "Automations")}</h2>
           {repoCrumb && (
             <span className="text-xs text-[var(--text-muted)]" data-testid="automation-repo-crumb">
               {repoCrumb}
@@ -198,11 +200,11 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
         </div>
         <div className="flex items-center gap-3">
           <button type="button" data-testid="automation-create-btn" onClick={() => setCreating(true)} className="text-xs px-2 py-1 rounded bg-[var(--accent,#6366f1)] text-white">
-            + Create Automation
+            {t("createAutomation", undefined, "+ Create Automation")}
           </button>
           <label className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
             <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} data-testid="automation-show-all" />
-            Show archived
+            {t("showArchived", undefined, "Show archived")}
           </label>
         </div>
       </div>
@@ -223,9 +225,9 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
       )}
 
       <section data-testid="automation-list">
-        <h3 className="text-xs uppercase tracking-wide text-[var(--text-muted)] mb-1">Definitions</h3>
+        <h3 className="text-xs uppercase tracking-wide text-[var(--text-muted)] mb-1">{t("definitions", undefined, "Definitions")}</h3>
         {automations.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)]">No automations in this folder.</p>
+          <p className="text-xs text-[var(--text-muted)]">{t("noAutomations", undefined, "No automations in this folder.")}</p>
         ) : (
           <ul className="space-y-2">
             {automations.map((a) => (
@@ -249,10 +251,10 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
       </section>
 
       <section data-testid="automation-triage">
-        <h3 className="text-xs uppercase tracking-wide text-[var(--text-muted)] mb-1">Recent runs</h3>
+        <h3 className="text-xs uppercase tracking-wide text-[var(--text-muted)] mb-1">{t("recentRuns", undefined, "Recent runs")}</h3>
         {visibleRuns.length === 0 ? (
           <p className="text-xs text-[var(--text-muted)]" data-testid="automation-triage-empty">
-            No runs yet.
+            {t("noRunsYet", undefined, "No runs yet.")}
           </p>
         ) : (
           <table className="w-full text-xs">
@@ -267,7 +269,7 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
                   </td>
                   <td className="py-1 pr-2">
                     {r.archived && (
-                      <span className="text-[10px] text-[var(--text-muted)]" data-testid={`run-archived-${r.runId}`}>archived</span>
+                      <span className="text-[10px] text-[var(--text-muted)]" data-testid={`run-archived-${r.runId}`}>{t("archived", undefined, "archived")}</span>
                     )}
                   </td>
                   <td className="py-1">
@@ -319,6 +321,7 @@ function AutomationCard({
   onDelete: () => void;
   onViewResult: (r: RunRecord) => void;
 }): React.ReactElement {
+  const t = useT();
   const cfg = a.config;
   const disabled = !!cfg?.disabled;
   const running = !!runningRun;
@@ -360,10 +363,10 @@ function AutomationCard({
         {a.valid ? (
           <div className="text-[11px] text-[var(--text-muted)] flex flex-wrap gap-x-3">
             <span data-testid={`automation-summary-${a.name}`}>{summary}</span>
-            {next && <span>next: {next.toLocaleString()}</span>}
-            <span>model: {cfg?.model ?? "?"}</span>
-            <span>action: {cfg?.action.kind ?? "?"}</span>
-            <span data-testid={`automation-mode-${a.name}`}>mode: {cfg?.mode ?? "?"}</span>
+            {next && <span>{t("cardNext", undefined, "next:")} {next.toLocaleString()}</span>}
+            <span>{t("cardModel", undefined, "model:")} {cfg?.model ?? "?"}</span>
+            <span>{t("cardAction", undefined, "action:")} {cfg?.action.kind ?? "?"}</span>
+            <span data-testid={`automation-mode-${a.name}`}>{t("cardMode", undefined, "mode:")} {cfg?.mode ?? "?"}</span>
           </div>
         ) : (
           <p className="text-[11px] text-[var(--danger,#ef4444)]" data-testid={`automation-error-${a.name}`}>{a.error}</p>
@@ -391,11 +394,11 @@ function AutomationCard({
         <div className="flex items-center gap-2 pt-0.5" onClick={(e) => e.stopPropagation()}>
           {a.valid && (
             running ? (
-              <CardBtn testid={`stop-${a.name}`} onClick={() => onStop(runningRun!)} label="⏹ Stop" danger />
+              <CardBtn testid={`stop-${a.name}`} onClick={() => onStop(runningRun!)} label={t("stop", undefined, "⏹ Stop")} danger />
             ) : (
               <>
-                <CardBtn testid={`run-now-${a.name}`} onClick={onRunNow} label="▶ Run now" />
-                <CardBtn testid={`toggle-${a.name}`} onClick={onToggle} label={disabled ? "Enable" : "Disable"} />
+                <CardBtn testid={`run-now-${a.name}`} onClick={onRunNow} label={t("runNow", undefined, "▶ Run now")} />
+                <CardBtn testid={`toggle-${a.name}`} onClick={onToggle} label={disabled ? t("enable", undefined, "Enable") : t("disable", undefined, "Disable")} />
               </>
             )
           )}
@@ -410,8 +413,8 @@ function AutomationCard({
                 data-testid={`overflow-menu-${a.name}`}
                 className="flex flex-col rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] p-1 shadow"
               >
-                <CardBtn testid={`edit-${a.name}`} onClick={() => { setMenuOpen(false); onEdit(); }} label="Edit" />
-                <CardBtn testid={`delete-${a.name}`} onClick={() => { setMenuOpen(false); onDelete(); }} label="Delete" danger />
+                <CardBtn testid={`edit-${a.name}`} onClick={() => { setMenuOpen(false); onEdit(); }} label={t("edit", undefined, "Edit")} />
+                <CardBtn testid={`delete-${a.name}`} onClick={() => { setMenuOpen(false); onDelete(); }} label={t("delete", undefined, "Delete")} danger />
               </div>
             </Popover>
           )}

@@ -9,12 +9,15 @@ import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types
 export type RendererKind =
   | "markdown"
   | "asciidoc"
+  | "docx"
+  | "spreadsheet"
   | "html"
   | "pdf"
   | "video"
   | "audio"
   | "image"
   | "youtube"
+  | "email"
   | "fallback";
 
 /** Lowercase extension (including leading dot) → renderer. */
@@ -23,6 +26,9 @@ export const RENDERER_BY_EXT: Record<string, RendererKind> = {
   ".markdown": "markdown",
   ".adoc": "asciidoc",
   ".asciidoc": "asciidoc",
+  ".docx": "docx",
+  ".xlsx": "spreadsheet",
+  ".csv": "spreadsheet",
   ".html": "html",
   ".htm": "html",
   ".pdf": "pdf",
@@ -40,6 +46,7 @@ export const RENDERER_BY_EXT: Record<string, RendererKind> = {
   ".gif": "image",
   ".svg": "image",
   ".webp": "image",
+  ".eml": "email",
 };
 
 const YOUTUBE_HOSTS = new Set([

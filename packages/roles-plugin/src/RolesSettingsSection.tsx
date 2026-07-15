@@ -24,15 +24,17 @@
  * See change: fix-pi-flows-end-to-end (Group 5 — global roles refactor).
  * See change: defer-role-persistence-with-save-reload.
  */
-import React, { useState, useEffect } from "react";
+
+import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
+  useAllSessions,
   usePluginConfig,
   usePluginSend,
-  useAllSessions,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { useUiPrimitive, useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { isValidRoleName } from "@blackbelt-technology/pi-dashboard-shared/role-name-validation.js";
+import type React from "react";
+import { useEffect, useState } from "react";
 
 interface ModelInfo {
   provider: string;
@@ -147,6 +149,7 @@ function shortModel(fullId: string): string {
 }
 
 export function BuiltInRolesSettings() {
+  const t = useT();
   const cfg = usePluginConfig<BuiltinsConfig>();
   const send = usePluginSend();
   // pi-flows roles are GLOBAL, but the server's WS routing forwards
@@ -277,7 +280,8 @@ export function BuiltInRolesSettings() {
   // The rolesMap effect above still auto-reconciles inbound acks/external edits.
   // See change: unify-settings-save-contract.
   const commit = async () => {
-    if (!liveSessionId) throw new Error("No live pi session to apply role changes");
+    if (!liveSessionId)
+      throw new Error(t("noLiveSession", undefined, "No live pi session to apply role changes"));
     flushPending();
   };
   const reset = () => setPending({});
@@ -289,7 +293,7 @@ export function BuiltInRolesSettings() {
     // (preset load wholesale replaces config.roles). See D7.
     if (isDirty) {
       const ok = typeof window !== "undefined"
-        ? window.confirm("Discard unsaved role changes?")
+        ? window.confirm(t("discardUnsavedRoleChanges", undefined, "Discard unsaved role changes?"))
         : true;
       if (!ok) return;
       setPending({});
@@ -337,7 +341,13 @@ export function BuiltInRolesSettings() {
    */
   function removeCustomRole(role: string) {
     const ok = typeof window !== "undefined"
-      ? window.confirm(`Remove custom role @${role}? This deletes it from every preset.`)
+      ? window.confirm(
+          t(
+            "removeCustomRoleConfirm",
+            { role },
+            `Remove custom role @${role}? This deletes it from every preset.`,
+          ),
+        )
       : true;
     if (!ok) return;
     setPending((prev) => {
@@ -375,7 +385,7 @@ export function BuiltInRolesSettings() {
             ? "bg-[color-mix(in_srgb,var(--accent-blue)_25%,transparent)] outline outline-2 outline-[var(--accent-blue)]"
             : "bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)]"
         }`}
-        title={assigned ? displayLabel : `Set a model for @${role}`}
+        title={assigned ? displayLabel : t("setModelForRole", { role }, `Set a model for @${role}`)}
       >
         <span className={`text-[11px] font-semibold shrink-0 ${isEditing ? "text-[var(--accent-blue)]" : "text-[var(--accent-blue)]/70"}`}>
           @{role}
@@ -386,13 +396,13 @@ export function BuiltInRolesSettings() {
           </span>
         ) : (
           <span className="text-[11px] text-[var(--accent-blue)] truncate flex-1">
-            + Add model
+            {t("addModel", undefined, "+ Add model")}
           </span>
         )}
         {dirty && (
           <span
             data-testid={`roles-row-${role}-dirty`}
-            aria-label="unsaved"
+            aria-label={t("unsaved", undefined, "unsaved")}
             className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent-warning,#f59e0b)] shrink-0"
           />
         )}
@@ -411,8 +421,8 @@ export function BuiltInRolesSettings() {
           data-testid={`roles-row-${role}-remove`}
           onClick={(e) => { e.stopPropagation(); removeCustomRole(role); }}
           className="flex items-center justify-center px-1.5 leading-none text-[12px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--accent-red)] hover:bg-[var(--bg-hover)] transition-colors"
-          aria-label={`Remove custom role @${role}`}
-          title={`Remove custom role @${role}`}
+          aria-label={t("removeCustomRoleLabel", { role }, `Remove custom role @${role}`)}
+          title={t("removeCustomRoleLabel", { role }, `Remove custom role @${role}`)}
         >
           ×
         </button>
@@ -456,7 +466,7 @@ export function BuiltInRolesSettings() {
             if (e.key === "Enter") confirmAddRole();
             else if (e.key === "Escape") cancelAddRole();
           }}
-          placeholder="custom-role-name…"
+          placeholder={t("customRoleNamePlaceholder", undefined, "custom-role-name…")}
           className="w-40 px-2 py-0.5 text-[11px] bg-[var(--bg-tertiary)] border border-[var(--accent-blue)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none"
         />
         <button
@@ -464,7 +474,7 @@ export function BuiltInRolesSettings() {
           disabled={!addValidation.ok}
           onClick={confirmAddRole}
           className="text-[11px] text-[var(--accent-blue)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
-          title="Pick a model for this role"
+          title={t("pickModelForRole", undefined, "Pick a model for this role")}
         >
           ✓
         </button>
@@ -472,7 +482,7 @@ export function BuiltInRolesSettings() {
           data-testid="roles-add-custom-cancel"
           onClick={cancelAddRole}
           className="text-[11px] text-[var(--text-muted)] hover:text-[var(--accent-red)]"
-          aria-label="Cancel add custom role"
+          aria-label={t("cancelAddCustomRole", undefined, "Cancel add custom role")}
         >
           ✕
         </button>
@@ -492,7 +502,7 @@ export function BuiltInRolesSettings() {
       onClick={() => { setAddingRole(true); setNewRoleName(""); }}
       className="px-2 py-1 text-[11px] rounded text-left bg-[var(--bg-tertiary)] text-[var(--accent-blue)] hover:bg-[var(--bg-hover)] transition-colors"
     >
-      + Add custom role
+      {t("addCustomRole", undefined, "+ Add custom role")}
     </button>
   );
 
@@ -503,10 +513,10 @@ export function BuiltInRolesSettings() {
     >
       <div className="flex items-baseline justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-          Roles
+          {t("rolesHeading", undefined, "Roles")}
         </h3>
         <span className="text-[10px] text-[var(--text-muted)]">
-          global role → model assignments
+          {t("rolesSubheading", undefined, "global role → model assignments")}
         </span>
       </div>
 
@@ -519,7 +529,11 @@ export function BuiltInRolesSettings() {
           data-testid="roles-settings-setup-banner"
           className="text-[11px] text-[var(--accent-warning,#f59e0b)] border border-[var(--border-secondary)] rounded px-2 py-1.5 bg-[var(--bg-tertiary)]"
         >
-          No roles have been set up — set up now by assigning a model to a role below.
+          {t(
+            "setupBanner",
+            undefined,
+            "No roles have been set up — set up now by assigning a model to a role below.",
+          )}
         </div>
       )}
 
@@ -558,8 +572,8 @@ export function BuiltInRolesSettings() {
                     ? "text-white/70 hover:text-white hover:bg-white/15"
                     : "text-[var(--text-muted)] hover:text-[var(--accent-red)] hover:bg-[var(--bg-hover)]"
                 }`}
-                aria-label={`Delete preset ${preset.name}`}
-                title={`Delete preset "${preset.name}"`}
+                aria-label={t("deletePresetLabel", { name: preset.name }, `Delete preset ${preset.name}`)}
+                title={t("deletePresetTitle", { name: preset.name }, `Delete preset "${preset.name}"`)}
               >
                 ×
               </button>
@@ -572,7 +586,7 @@ export function BuiltInRolesSettings() {
             onClick={() => { setSavingPreset(true); setPresetName(""); }}
             className="px-2.5 py-1 text-[11px] rounded-md shrink-0 bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
           >
-            + Save current as preset
+            {t("saveCurrentAsPreset", undefined, "+ Save current as preset")}
           </button>
         )}
         {savingPreset && (
@@ -587,7 +601,7 @@ export function BuiltInRolesSettings() {
                   if (e.key === "Enter" && presetName.trim()) savePreset(presetName.trim());
                   else if (e.key === "Escape") { setSavingPreset(false); setPresetName(""); }
                 }}
-                placeholder="preset name…"
+                placeholder={t("presetNamePlaceholder", undefined, "preset name…")}
                 className="w-32 px-2 py-0.5 text-[11px] bg-[var(--bg-tertiary)] border border-[var(--accent-blue)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none"
               />
               <button
@@ -603,7 +617,7 @@ export function BuiltInRolesSettings() {
                 data-testid="roles-preset-save-dirty-hint"
                 className="text-[10px] text-[var(--text-muted)]"
               >
-                Unsaved edits will be saved first.
+                {t("unsavedEditsSavedFirst", undefined, "Unsaved edits will be saved first.")}
               </span>
             )}
           </span>
@@ -627,7 +641,7 @@ export function BuiltInRolesSettings() {
         <div className="space-y-3">
           <div data-testid="roles-group-builtin" className="space-y-1">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-              Built-in
+              {t("builtinGroup", undefined, "Built-in")}
             </div>
             <div className="grid grid-cols-2 gap-1">
               {roleGroups.builtin.map(renderRolePill)}
@@ -635,7 +649,7 @@ export function BuiltInRolesSettings() {
           </div>
           <div data-testid="roles-group-custom" className="space-y-1">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-              Custom
+              {t("customGroup", undefined, "Custom")}
             </div>
             {roleGroups.custom.length > 0 && (
               <div className="grid grid-cols-2 gap-1">
@@ -653,7 +667,8 @@ export function BuiltInRolesSettings() {
       {editingRole && (
         <div data-testid="roles-model-picker" className="border border-[var(--border-primary)] rounded p-2">
           <div className="text-[11px] text-[var(--text-muted)] mb-1">
-            Assign model to <span className="font-semibold text-[var(--accent-blue)]">@{editingRole}</span>
+            {t("assignModelTo", undefined, "Assign model to")}{" "}
+            <span className="font-semibold text-[var(--accent-blue)]">@{editingRole}</span>
           </div>
           <ModelSelectorPrimitive
             current={inferProviderForBareId(effective(editingRole), models)}

@@ -15,8 +15,9 @@
  *
  * See change: add-subagent-inspector §16.
  */
+
+import { usePluginConfig, useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { usePluginConfig, useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 
 interface SubagentsPluginConfig {
 	inheritContext?: boolean;
@@ -25,6 +26,7 @@ interface SubagentsPluginConfig {
 export function SubagentsSettings() {
 	// Buffered source: the toggle edits a local draft and persists via the
 	// host Settings panel's unified Save. See change: unify-settings-save-contract.
+	const t = useT();
 	const config = usePluginConfig<SubagentsPluginConfig>();
 	const baseline = config.inheritContext ?? true;
 	const [draft, setDraft] = useState(baseline);
@@ -43,9 +45,11 @@ export function SubagentsSettings() {
 		});
 		if (!res.ok) {
 			const body = await res.text().catch(() => "");
-			throw new Error(`HTTP ${res.status}: ${body || res.statusText}`);
+			throw new Error(
+				t("saveError", { status: res.status, detail: body || res.statusText }, "HTTP {status}: {detail}"),
+			);
 		}
-	}, []);
+	}, [t]);
 	const reset = useCallback(() => setDraft(baseline), [baseline]);
 	useSettingsDraftSource({ id: "plugin:subagents", page: "general", isDirty, commit, reset });
 	const checked = draft;
@@ -54,10 +58,12 @@ export function SubagentsSettings() {
 		<section className="space-y-3 p-4">
 			<header>
 				<h3 className="text-sm font-semibold text-[var(--text-primary)]">
-					Subagent Inspector
+					{t("subagentInspectorHeading", undefined, "Subagent Inspector")}
 				</h3>
 				<p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
-					Settings for the <code className="font-mono">pi-dashboard-subagents</code> producer.
+					{t("producerSettingsPre", undefined, "Settings for the ")}
+					<code className="font-mono">pi-dashboard-subagents</code>
+					{t("producerSettingsPost", undefined, " producer.")}
 				</p>
 			</header>
 
@@ -74,12 +80,17 @@ export function SubagentsSettings() {
 				data-testid="subagents-settings-roles-dep"
 				className="text-[11px] text-[var(--text-tertiary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 bg-[var(--bg-tertiary)]"
 			>
-				Configure the{" "}
-				<code className="font-mono text-[var(--text-secondary)]">Roles</code> plugin
-				so the bundled <code className="font-mono">Explore</code> agent can resolve{" "}
-				<code className="font-mono">@fast</code>. If no model is assigned to{" "}
-				<code className="font-mono">@fast</code>, agents using <code className="font-mono">@role</code>{" "}
-				aliases report “not configured yet” at spawn time — Subagents still loads.
+				{t("rolesDepConfigurePre", undefined, "Configure the ")}
+				<code className="font-mono text-[var(--text-secondary)]">Roles</code>
+				{t("rolesDepPluginResolve", undefined, " plugin so the bundled ")}
+				<code className="font-mono">Explore</code>
+				{t("rolesDepAgentResolve", undefined, " agent can resolve ")}
+				<code className="font-mono">@fast</code>
+				{t("rolesDepIfNoModel", undefined, ". If no model is assigned to ")}
+				<code className="font-mono">@fast</code>
+				{t("rolesDepAgentsUsing", undefined, ", agents using ")}
+				<code className="font-mono">@role</code>
+				{t("rolesDepAliasesReport", undefined, " aliases report “not configured yet” at spawn time — Subagents still loads.")}
 			</div>
 
 			<label className="flex items-start gap-2 cursor-pointer">
@@ -91,11 +102,14 @@ export function SubagentsSettings() {
 				/>
 				<span className="flex-1">
 					<span className="block text-sm text-[var(--text-primary)]">
-						Fork parent context into every subagent
+						{t("forkContextLabel", undefined, "Fork parent context into every subagent")}
 					</span>
 					<span className="block text-[11px] text-[var(--text-tertiary)] mt-0.5">
-						When on, the subagent inherits a compressed copy of the parent's recent turns.
-						When off, every subagent starts with an empty conversation (isolated).
+						{t(
+							"forkContextDescription",
+							undefined,
+							"When on, the subagent inherits a compressed copy of the parent's recent turns. When off, every subagent starts with an empty conversation (isolated).",
+						)}
 					</span>
 				</span>
 			</label>

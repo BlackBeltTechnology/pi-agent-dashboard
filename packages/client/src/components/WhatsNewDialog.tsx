@@ -12,23 +12,25 @@
  *
  * See change: pi-update-whats-new-panel.
  */
-import React, { useState, useMemo } from "react";
-import { Icon } from "@mdi/react";
+
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import type {
+  ChangelogBullet,
+  ChangelogRelease,
+  ChangelogResponse,
+} from "@blackbelt-technology/pi-dashboard-shared/changelog-types.js";
 import {
   mdiAlertCircleOutline,
+  mdiArrowUpBold,
   mdiChevronDown,
   mdiChevronRight,
   mdiOpenInNew,
-  mdiArrowUpBold,
 } from "@mdi/js";
-import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { MarkdownContent } from "./MarkdownContent.js";
-import type {
-  ChangelogResponse,
-  ChangelogRelease,
-  ChangelogBullet,
-} from "@blackbelt-technology/pi-dashboard-shared/changelog-types.js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useMemo, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { MarkdownContent } from "./MarkdownContent.js";
 
 export interface WhatsNewDialogProps {
   /** When false, the component renders nothing. */
@@ -96,7 +98,7 @@ export function WhatsNewDialog({
                 className="text-sm text-[var(--text-muted)] italic"
                 data-testid="whats-new-empty"
               >
-                {i18nT("auto.no_release_notes_available_for_this", undefined, "No release notes available for this version range.")}
+                {i18nT("common.noReleaseNotesAvailableForThis", undefined, "No release notes available for this version range.")}
               </p>
             )}
 
@@ -133,7 +135,7 @@ export function WhatsNewDialog({
                   className="text-xs text-[var(--accent-primary)] hover:underline inline-flex items-center gap-1"
                   data-testid="whats-new-github-link"
                 >
-                  {i18nT("auto.open_full_changelog_on_github", undefined, "Open full changelog on GitHub")}
+                  {i18nT("git.openFullChangelogOnGithub", undefined, "Open full changelog on GitHub")}
                   <Icon path={mdiOpenInNew} size={0.45} />
                 </a>
               </div>
@@ -149,7 +151,7 @@ export function WhatsNewDialog({
               data-testid="whats-new-update"
             >
               <Icon path={mdiArrowUpBold} size={0.45} />
-              {i18nT("auto.update_to", undefined, "Update to")} {latestVersion}
+              {i18nT("common.updateTo", undefined, "Update to")} {latestVersion}
             </button>
           </Dialog.Footer>
     </Dialog>
@@ -170,7 +172,7 @@ function BreakingSection({ releases }: { releases: ChangelogRelease[] }): React.
           className="text-amber-400 flex-shrink-0"
         />
         <h4 className="text-xs font-semibold text-amber-200">
-          {total} {i18nT("auto.breaking_change", undefined, "breaking change")}{total === 1 ? "" : "s"} {i18nT("auto.since_your_version", undefined, "since your version")}
+          {total} {i18nT("common.breakingChange", undefined, "breaking change")}{total === 1 ? "" : "s"} {i18nT("common.sinceYourVersion", undefined, "since your version")}
         </h4>
       </header>
       <BulletGroups groups={groups} />

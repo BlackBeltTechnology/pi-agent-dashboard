@@ -153,7 +153,7 @@ export function ThinkingBlock({
           <Icon path={mdiHeadLightbulb} size={0.55} />
         </span>
         <span className="truncate">
-          {i18nT("auto.reasoning", undefined, "Reasoning")}
+          {i18nT("session.reasoning", undefined, "Reasoning")}
           {isStreaming && <span className="ml-1 animate-pulse">…</span>}
         </span>
         <ElapsedBadge startedAt={startedAt} duration={duration} />

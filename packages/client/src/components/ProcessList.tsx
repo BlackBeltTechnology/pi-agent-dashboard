@@ -13,25 +13,26 @@
  *   - drawer ✕  → "Force-kill process tree"   (this file)
  *   - activity bar ⏹ → "Stop this tool (lets the agent continue)" (SessionActivityBar)
  *
- * Changes from the previous (always-expanded) layout:
- *   - `MIN_SLOTS` skeleton padding removed — the SessionActivityBar above
- *     provides the card's stable visual surface, so drawer height bouncing
- *     0→N rows is acceptable.
- *   - Header becomes a clickable summary row: `⚠ N background processes`.
- *   - `expanded` is a controlled prop; parent (SessionCard) owns the
- *     per-session toggle memory.
+ * Rows-only: the component renders its process rows + `+N more processes`
+ * overflow tail whenever mounted. The standalone `⚠ N` summary row and the
+ * controlled `expanded`/`onToggle` props were removed — `ProcessSubcard` now
+ * owns ONE unified summary line + the single expand/collapse toggle, and this
+ * component contributes the bg rows to that line's expanded body.
  *
- * `MAX_VISIBLE` row ceiling + `+N more processes` overflow tail are
- * preserved unchanged.
+ * `MAX_VISIBLE` row ceiling + `+N more processes` overflow tail preserved.
  *
+ * See change: stable-process-line (folded standalone drawer summary into the
+ * unified line).
  * See change: redesign-process-list-activity-bar.
  * See change: tighten-process-list-ux (original ceiling/floor contract).
  */
-import React from "react";
-import { Icon } from "@mdi/react";
-import { mdiClose, mdiChevronDown, mdiChevronRight, mdiAlertOutline, mdiRobotOutline, mdiPowerPlugOutline, mdiCogOutline } from "@mdi/js";
+
 import type { ProcessKind } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { mdiClose, mdiCogOutline, mdiPowerPlugOutline, mdiRobotOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
 import { t as i18nT } from "../lib/i18n";
+import { splitOverflow } from "./collapse-summary.js";
 
 export interface ProcessEntry {
   pid: number;
@@ -97,18 +98,13 @@ interface VisibleRows {
 
 /**
  * Pure helper: sort by `elapsedMs` descending, slice to `MAX_VISIBLE`,
- * compute overflow.
+ * compute overflow. Thin wrapper over the shared `splitOverflow` primitive.
  *
- * Skeleton padding (previously gated on a `MIN_SLOTS` floor) has been
- * removed — see change: redesign-process-list-activity-bar (Decision 3).
- *
+ * See change: stable-process-line (shared collapse-summary helper).
  * Exported for unit tests.
  */
 export function computeVisibleRows(processes: readonly ProcessEntry[]): VisibleRows {
-  const sorted = [...processes].sort((a, b) => b.elapsedMs - a.elapsedMs);
-  const visible = sorted.slice(0, MAX_VISIBLE);
-  const overflow = sorted.slice(MAX_VISIBLE);
-  return { visible, overflow };
+  return splitOverflow(processes, MAX_VISIBLE, (a, b) => b.elapsedMs - a.elapsedMs);
 }
 
 /** One process row: kind icon + (linkable) label + elapsed + kill button. */
@@ -163,80 +159,46 @@ function ProcessRow({
 interface ProcessListProps {
   processes: ProcessEntry[];
   onKill: (pgid: number) => void;
-  /** Controlled expansion state. Parent (SessionCard) owns per-session memory. */
-  expanded: boolean;
-  /** Invoked when the user clicks the summary row. */
-  onToggle: () => void;
   compact?: boolean;
   /** Focus/scroll to a referenced session (for `sub-session` rows). */
   onNavigateToSession?: (sessionId: string) => void;
 }
 
-export function ProcessList({ processes, onKill, expanded, onToggle, compact, onNavigateToSession }: ProcessListProps) {
+/**
+ * Background-process rows — the bg section of the PROCESS subcard's expanded
+ * body. Rows-only: the parent (`ProcessSubcard`) owns the unified summary line
+ * + expand/collapse toggle, so this component no longer renders its own `⚠ N`
+ * summary or gate on an `expanded` prop. It renders whenever mounted.
+ *
+ * See change: stable-process-line (folded standalone drawer summary into the
+ * unified line).
+ */
+export function ProcessList({ processes, onKill, compact, onNavigateToSession }: ProcessListProps) {
   if (processes.length === 0) return null;
 
   const { visible, overflow } = computeVisibleRows(processes);
   const overflowTitle = overflow.map((p) => p.command).join("\n");
-  const summaryText = `${processes.length} background process${processes.length === 1 ? "" : "es"}`;
 
-  const summaryRow = (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onToggle();
-      }}
-      aria-expanded={expanded}
-      data-testid="background-drawer-summary"
-      className={`flex items-center gap-1 ${compact ? "text-[11px]" : "text-[11px]"} text-[var(--text-muted)] hover:text-[var(--text-secondary)] w-full text-left`}
-    >
-      <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.4} />
-      <Icon path={mdiAlertOutline} size={0.4} className="text-amber-500/80" />
-      <span>{summaryText}</span>
-    </button>
-  );
-
-  if (compact) {
-    return (
-      <div className="mt-1 space-y-0.5" data-testid="background-drawer">
-        {summaryRow}
-        {expanded && (
-          <>
-            {visible.map((p) => (
-              <ProcessRow key={p.pid} p={p} compact onKill={onKill} onNavigateToSession={onNavigateToSession} />
-            ))}
-            {overflow.length > 0 && (
-              <div
-                className="flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)]"
-                title={overflowTitle}
-              >
-                <span className="truncate flex-1">+{overflow.length} {i18nT("auto.more_processes", undefined, "more processes")}</span>
-              </div>
-            )}
-          </>
-        )}
+  const overflowTail =
+    overflow.length > 0 ? (
+      <div
+        className={
+          compact
+            ? "flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)]"
+            : "flex items-center gap-1.5 text-[11px] ml-1 pl-2 border-l border-[var(--border-subtle)] text-[var(--text-tertiary)]"
+        }
+        title={overflowTitle}
+      >
+        <span className="truncate flex-1">+{overflow.length} {i18nT("common.moreProcesses", undefined, "more processes")}</span>
       </div>
-    );
-  }
+    ) : null;
 
   return (
-    <div className="mt-1.5" data-testid="background-drawer">
-      {summaryRow}
-      {expanded && (
-        <>
-          {visible.map((p) => (
-            <ProcessRow key={p.pid} p={p} compact={false} onKill={onKill} onNavigateToSession={onNavigateToSession} />
-          ))}
-          {overflow.length > 0 && (
-            <div
-              className="flex items-center gap-1.5 text-[11px] ml-1 pl-2 border-l border-[var(--border-subtle)] text-[var(--text-tertiary)]"
-              title={overflowTitle}
-            >
-              <span className="truncate flex-1">+{overflow.length} {i18nT("auto.more_processes", undefined, "more processes")}</span>
-            </div>
-          )}
-        </>
-      )}
+    <div className={compact ? "space-y-0.5" : undefined} data-testid="background-drawer">
+      {visible.map((p) => (
+        <ProcessRow key={p.pid} p={p} compact={!!compact} onKill={onKill} onNavigateToSession={onNavigateToSession} />
+      ))}
+      {overflowTail}
     </div>
   );
 }

@@ -35,6 +35,7 @@ import { useMobile } from "../hooks/useMobile.js";
 import type { ChatMessage } from "../lib/event-reducer.js";
 import type { ToolBurstGroup as ToolBurstGroupData } from "../lib/group-tool-bursts.js";
 import type { ChatItem, ToolCallGroup } from "../lib/group-tool-calls.js";
+import { t as i18nT } from "../lib/i18n";
 import { getSummary, getToolIcon } from "../lib/tool-summary.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -321,7 +322,7 @@ function headerSlots(p: {
 }): { title: ReactNode; meta: ReactNode } {
   if (p.isRunning) {
     return {
-      title: <span className="font-medium text-[var(--text-secondary)]">Working</span>,
+      title: <span className="font-medium text-[var(--text-secondary)]">{i18nT("status.working", undefined, "Working")}</span>,
       meta: (
         <>
           <span className="ml-1 px-1.5 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] text-[10px] font-medium">

@@ -1,13 +1,14 @@
-import React from "react";
-import { Icon } from "@mdi/react";
+import type { OpenSpecArtifact, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
-  mdiCompassOutline,
-  mdiPlay,
   mdiArchiveOutline,
   mdiCheck,
+  mdiCompassOutline,
+  mdiPlay,
 } from "@mdi/js";
-import type { OpenSpecChange, OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useI18n } from "../lib/i18n";
 
 /**
  * OpenSpec workflow stepper — 7 nodes (Explore → Proposal → Design → Specs →
@@ -189,8 +190,10 @@ function StepperNode({
   onClick?: () => void;
   taskSub?: string;
 }) {
+  const { t } = useI18n();
   const isCompact = variant === "compact";
   const showLabel = !isCompact;
+  const nodeLabel = t(`openspec.node.${node.id}`, undefined, node.label);
 
   // State-dependent border + text colors.
   const colorClass =
@@ -239,7 +242,7 @@ function StepperNode({
       data-testid={`stepper-node-${node.id}`}
       data-state={state}
       data-clickable={clickable ? "true" : undefined}
-      title={isCompact ? node.label : undefined}
+      title={isCompact ? nodeLabel : undefined}
     >
       {/* Connecting line from previous node — drawn behind the circle */}
       {!isFirst && (
@@ -268,7 +271,7 @@ function StepperNode({
             }`}
             style={{ maxWidth: 60 }}
           >
-            {node.label}
+            {nodeLabel}
           </span>
           {taskSub && (
             <sub className="text-[9px] text-[var(--text-muted)] leading-none mt-px" style={{ verticalAlign: "baseline" }}>

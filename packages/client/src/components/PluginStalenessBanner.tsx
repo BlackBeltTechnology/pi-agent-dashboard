@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { PLUGIN_REGISTRY_HASH } from "../generated/plugin-registry.js";
 import { t as i18nT } from "../lib/i18n";
 
@@ -58,10 +59,10 @@ export function PluginStalenessBanner(): React.ReactElement | null {
       className="flex items-center justify-between gap-2 px-3 py-1 text-xs bg-amber-500/15 text-amber-300 border-b border-amber-500/30"
     >
       <span>
-        {i18nT("auto.dashboard_plugins_were_updated_refresh_to", undefined, "Dashboard plugins were updated. Refresh to load the latest contributions.")}
+        {i18nT("packages.dashboardPluginsWereUpdatedRefreshTo", undefined, "Dashboard plugins were updated. Refresh to load the latest contributions.")}
         {serverHash && (
           <span className="ml-2 opacity-60 font-mono">
-            (server {serverHash.slice(0, 7)} {i18nT("auto.client", undefined, "≠ client")} {PLUGIN_REGISTRY_HASH.slice(0, 7)})
+            (server {serverHash.slice(0, 7)} {i18nT("common.client", undefined, "≠ client")} {PLUGIN_REGISTRY_HASH.slice(0, 7)})
           </span>
         )}
       </span>
@@ -71,7 +72,7 @@ export function PluginStalenessBanner(): React.ReactElement | null {
           onClick={() => window.location.reload()}
           className="px-2 py-0.5 text-[11px] rounded bg-amber-500/30 hover:bg-amber-500/50 text-amber-100"
         >
-          {i18nT("auto.refresh", undefined, "Refresh")}
+          {i18nT("common.refresh", undefined, "Refresh")}
         </button>
         <button
           data-testid="plugin-staleness-dismiss"
@@ -84,7 +85,7 @@ export function PluginStalenessBanner(): React.ReactElement | null {
             setDismissed(true);
           }}
           className="text-[11px] text-amber-200/70 hover:text-amber-100"
-          aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
+          aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
         >
           ×
         </button>

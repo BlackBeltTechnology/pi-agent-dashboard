@@ -15,6 +15,7 @@
 import { mdiChevronRight } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import type { ClientInitRun } from "../lib/worktree-init-store.js";
 
 /** Label prefix — "Initializing" (manual/folder) vs "Auto-init" (spawn). */
@@ -67,14 +68,14 @@ function shortSummary(run: ClientInitRun): string {
   const parts: string[] = [];
   if (run.code) parts.push(run.code);
   if (run.message && run.message !== run.code) parts.push(run.message);
-  return parts.join(" · ") || "init failed";
+  return parts.join(" · ") || i18nT("worktree.initFailedShort", undefined, "init failed");
 }
 
 export function WorktreeInitChip({ run, variant = "manual", onRetry, compact }: Props) {
   const elapsed = useElapsed(run.startedAt, run.phase === "running");
   const pad = compact ? "px-2 py-1" : "px-2.5 py-1.5";
-  const runningLabel = variant === "auto" ? "Auto-initializing…" : "Initializing…";
-  const failedLabel = variant === "auto" ? "Auto-init failed" : "Init failed";
+  const runningLabel = variant === "auto" ? i18nT("worktree.autoInitializing", undefined, "Auto-initializing…") : i18nT("worktree.initializing", undefined, "Initializing…");
+  const failedLabel = variant === "auto" ? i18nT("worktree.autoInitFailed", undefined, "Auto-init failed") : i18nT("err.initFailed", undefined, "Init failed");
 
   if (run.phase === "running") {
     return (
@@ -92,7 +93,7 @@ export function WorktreeInitChip({ run, variant = "manual", onRetry, compact }: 
             {run.lastLine}
           </div>
         )}
-        {run.logTail && <LogDisclosure label="View log" body={run.logTail} />}
+        {run.logTail && <LogDisclosure label={i18nT("common.viewLog", undefined, "View log")} body={run.logTail} />}
       </div>
     );
   }
@@ -103,7 +104,7 @@ export function WorktreeInitChip({ run, variant = "manual", onRetry, compact }: 
         className={`inline-flex items-center gap-1 text-[11.5px] rounded-lg ${pad} border border-green-500/35 bg-green-500/[0.06] text-green-400`}
         data-testid="worktree-init-chip"
       >
-        ✓ <span className="font-semibold">Initialized</span>
+        ✓ <span className="font-semibold">{i18nT("worktree.initialized", undefined, "Initialized")}</span>
         <span className="text-[var(--text-muted)]">· {elapsed}s</span>
       </span>
     );
@@ -122,11 +123,11 @@ export function WorktreeInitChip({ run, variant = "manual", onRetry, compact }: 
             data-testid="worktree-init-retry"
             className="ml-2 text-[11px] px-2 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/[0.06] text-amber-400 hover:text-amber-300"
           >
-            ↻ Retry
+            ↻ {i18nT("common.retry", undefined, "Retry")}
           </button>
         )}
       </span>
-      {run.stderr && <LogDisclosure label="View log" body={run.stderr} />}
+      {run.stderr && <LogDisclosure label={i18nT("common.viewLog", undefined, "View log")} body={run.stderr} />}
     </div>
   );
 }

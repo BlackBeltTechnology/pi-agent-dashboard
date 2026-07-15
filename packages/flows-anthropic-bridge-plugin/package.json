@@ -44,6 +44,7 @@
   "pi-dashboard-plugin": {
     "id": "flows-anthropic-bridge",
     "displayName": "Anthropic Messages Bridge",
+    "i18nCatalog": "catalog",
     "priority": 500,
     "client": "./src/client.tsx",
     "server": "./src/server/index.ts",

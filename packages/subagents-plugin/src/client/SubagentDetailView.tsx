@@ -17,14 +17,15 @@
  * See change: extract-minimal-chat-view (shim over MinimalChatView);
  * see change: add-subagent-inspector (tier structure).
  */
-import React from "react";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+
+import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
-  MinimalChatView,
   type MinimalChatEntry,
   type MinimalChatStatus,
+  MinimalChatView,
 } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type React from "react";
 import type { SubagentState, SubagentTimelineEntry } from "./types.js";
 
 /** Minimal session-state shape this component cares about. */
@@ -101,12 +102,13 @@ export function SubagentDetailView({
   onBack,
   sessionId,
 }: SubagentDetailViewProps) {
+  const t = useT();
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
   const sub = session.subagents.get(agentId);
   if (!sub) {
     return (
       <div className="text-sm text-[var(--text-muted)] py-4 px-3 text-center">
-        Subagent not found in this session.
+        {t("subagentNotFound", undefined, "Subagent not found in this session.")}
       </div>
     );
   }
@@ -140,7 +142,7 @@ export function SubagentDetailView({
     if (isComplete && sub.result) {
       footer = (
         <div className="mt-3 pt-2 border-t border-[var(--border-subtle)]">
-          <div className="text-[11px] text-[var(--text-muted)] mb-1">Result</div>
+          <div className="text-[11px] text-[var(--text-muted)] mb-1">{t("result", undefined, "Result")}</div>
           <MarkdownContent content={sub.result} />
         </div>
       );
@@ -157,7 +159,7 @@ export function SubagentDetailView({
         {sub.result && (
           <div>
             <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">
-              Result
+              {t("result", undefined, "Result")}
             </div>
             <MarkdownContent content={sub.result} />
           </div>
@@ -169,7 +171,7 @@ export function SubagentDetailView({
   } else {
     // Tier 4
     entries = [];
-    emptyMessage = "No detail available yet.";
+    emptyMessage = t("noDetailYet", undefined, "No detail available yet.");
   }
 
   return (

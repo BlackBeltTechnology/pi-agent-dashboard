@@ -24,7 +24,7 @@ export function FolderStatusRollup({ sessions }: { sessions: DashboardSession[] 
       className="inline-flex items-center gap-2 text-[10px] text-[var(--text-tertiary)] shrink-0"
       data-testid="folder-status-rollup"
       aria-label={i18nT(
-        "auto.folder_status_rollup",
+        "folders.folderStatusRollup",
         { working, idle },
         `${working} running, ${idle} idle`,
       )}
