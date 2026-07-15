@@ -444,6 +444,15 @@ export default function App() {
   const selectedSessionIdRef = useRef<string | undefined>(selectedId);
   selectedSessionIdRef.current = selectedId;
 
+  // Seek-to-card reveal request. A one-shot `{ sessionId, nonce }`: the Seek
+  // button in SessionHeader bumps `nonce` so re-seeking the SAME session (its
+  // card may have been re-collapsed since) still re-fires the SessionList
+  // reveal effect (keyed on nonce, not id). See change: add-seek-to-session-card.
+  const [revealRequest, setRevealRequest] = useState<{ sessionId: string; nonce: number } | null>(null);
+  const seekToCard = useCallback((sessionId: string) => {
+    setRevealRequest((prev) => ({ sessionId, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
+
   // Drives the server-side viewed-session tracker for unread state.
   // See change: session-card-unread-stripes.
   useViewDispatcher({
@@ -1319,6 +1328,8 @@ export default function App() {
       terminals={Array.from(terminals.values())}
       selectedId={selectedId}
       onSelect={handleSelect}
+      revealRequest={revealRequest}
+      onSeekToCard={seekToCard}
       contextUsageMap={contextUsageMap}
       openspecMap={openspecMap}
       folderGitMap={folderGitMap}
@@ -1481,6 +1492,7 @@ export default function App() {
         onRename={handleRenameSession}
         allTags={allTags}
         onSetTags={selectedId ? (tags) => handleSetSessionTags(selectedId, tags) : undefined}
+        onSeekToCard={selectedId ? () => seekToCard(selectedId) : undefined}
         showBack
         onBack={goBack}
         onResume={selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
