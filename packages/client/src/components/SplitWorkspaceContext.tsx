@@ -26,6 +26,7 @@ import {
   useEditorPaneState,
 } from "../lib/editor-pane-state.js";
 import { type SplitOrientation, type SplitState, useSplitState } from "../lib/split-state.js";
+import { saveTreeVisible } from "../lib/tree-visible.js";
 
 export interface PendingScroll {
   path: string;
@@ -145,9 +146,16 @@ export function SplitWorkspaceProvider({
 
   const [changesRevealSignal, setChangesRevealSignal] = useState(0);
   const openChanges = useCallback(() => {
+    // Persist tree visibility BEFORE the split opens so a freshly-mounted
+    // EditorPane reads it visible (the rail defaults collapsed — change:
+    // collapse-files-panel-by-default — and the pane mounts AFTER this bump, so
+    // an in-pane reveal effect alone would miss the first open). An
+    // already-mounted pane is handled by its changesRevealSignal effect. See
+    // change: detect-tool-created-files.
+    saveTreeVisible(sessionId, true);
     updateSplit({ open: true });
     setChangesRevealSignal((n) => n + 1);
-  }, [updateSplit]);
+  }, [sessionId, updateSplit]);
 
   const toggleSplit = useCallback(() => updateSplit({ open: !split.open }), [split.open, updateSplit]);
   const consumePendingScroll = useCallback(() => setPendingScroll(null), []);

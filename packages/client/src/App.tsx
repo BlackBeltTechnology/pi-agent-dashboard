@@ -955,14 +955,17 @@ export default function App() {
     () => extractUserPromptHistory(selectedState.messages),
     [selectedState.messages],
   );
-  // Monotonic edit/write count for the selected session — drives the shared
-  // session-diff refetch (change: add-change-summary-table).
+  // Monotonic edit/write/bash count for the selected session — drives the
+  // shared session-diff refetch (change: add-change-summary-table). Bash is
+  // included so tool-created files (converter/image/script output detected via
+  // git-status) surface after the command completes, not just Write/Edit.
+  // See change: detect-tool-created-files.
   const diffChangeSignal = useMemo(
     () =>
       selectedState.messages.reduce(
         (n, m) =>
           n +
-          (m.role === "toolResult" && /^(edit|write)$/i.test(m.toolName ?? "") ? 1 : 0),
+          (m.role === "toolResult" && /^(edit|write|bash)$/i.test(m.toolName ?? "") ? 1 : 0),
         0,
       ),
     [selectedState.messages],

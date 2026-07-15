@@ -18,6 +18,12 @@ export interface FileSelection {
 
 interface DiffFileTreeProps {
   files: FileDiffEntry[];
+  /**
+   * Working-tree changes this session cannot claim. Rendered under a muted,
+   * collapsed `▸ N other working-tree changes` group, hidden by the
+   * "this session only" header toggle. See change: detect-tool-created-files.
+   */
+  otherChanges?: FileDiffEntry[];
   selection: FileSelection | null;
   onSelect: (selection: FileSelection) => void;
   /** Aggregate additions (numstat, or summed per-turn deltas when `summed`). */
@@ -34,6 +40,7 @@ interface DiffFileTreeProps {
 
 export function DiffFileTree({
   files,
+  otherChanges = [],
   selection,
   onSelect,
   totalAdditions,
@@ -43,6 +50,10 @@ export function DiffFileTree({
   const tree = useMemo(() => buildFileTree(files), [files]);
   const totalFiles = files.length;
   const hasTotals = totalAdditions !== undefined || totalDeletions !== undefined;
+  // "this session only" hides the other-working-tree-changes group entirely.
+  const [sessionOnly, setSessionOnly] = useState(false);
+  const [otherExpanded, setOtherExpanded] = useState(false);
+  const hasOther = otherChanges.length > 0;
 
   return (
     <div className="flex flex-col h-full text-sm">
@@ -57,10 +68,25 @@ export function DiffFileTree({
             <CountBadges additions={totalAdditions ?? 0} deletions={totalDeletions ?? 0} />
           </>
         )}
+        {hasOther && (
+          <label
+            data-testid="session-only-toggle"
+            className="ml-auto flex items-center gap-1 cursor-pointer select-none"
+            title={i18nT("diff.sessionOnlyHint", undefined, "Hide working-tree changes this session did not make")}
+          >
+            <input
+              type="checkbox"
+              checked={sessionOnly}
+              onChange={(e) => setSessionOnly(e.target.checked)}
+              className="h-3 w-3"
+            />
+            <span>{i18nT("diff.sessionOnly", undefined, "this session only")}</span>
+          </label>
+        )}
         {summed && (
           <span
             title={i18nT("common.summedBadgeHint", undefined, "Summed per-turn deltas (non-git), not git-net")}
-            className="ml-auto rounded bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]"
+            className={`${hasOther ? "" : "ml-auto "}rounded bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]`}
           >
             {i18nT("common.summed", undefined, "summed")}
           </span>
@@ -78,8 +104,60 @@ export function DiffFileTree({
             onSelect={onSelect}
           />
         ))}
+
+        {/* Other working-tree changes (not owned by this session) — muted,
+            collapsed by default, hidden entirely by the "this session only"
+            toggle. See change: detect-tool-created-files. */}
+        {hasOther && !sessionOnly && (
+          <div data-testid="other-changes-group" className="mt-1 border-t border-[var(--border-primary)] pt-1">
+            <div
+              className="flex items-center gap-1 px-2 py-0.5 cursor-pointer hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] italic"
+              onClick={() => setOtherExpanded((v) => !v)}
+            >
+              <span className="text-xs">{otherExpanded ? "▾" : "▸"}</span>
+              <span className="truncate">
+                {otherChanges.length}{" "}
+                {i18nT("diff.otherWorkingTreeChanges", undefined, "other working-tree changes")}
+              </span>
+            </div>
+            {otherExpanded &&
+              otherChanges.map((file) => (
+                <div
+                  key={file.path}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 cursor-pointer hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] ${
+                    selection?.filePath === file.path ? "bg-[var(--bg-tertiary)]" : ""
+                  }`}
+                  style={{ paddingLeft: "24px" }}
+                  onClick={() => onSelect({ filePath: file.path, changeIndex: null })}
+                >
+                  <span className="truncate flex-1">{file.path}</span>
+                </div>
+              ))}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+/** Small file-origin badge for tool-created / mixed rows. */
+function OriginBadge({ file }: { file: FileDiffEntry }) {
+  if (file.origin !== "tool" && file.origin !== "mixed") return null;
+  const label =
+    file.origin === "mixed"
+      ? i18nT("diff.originMixed", undefined, "tool+edit")
+      : i18nT("diff.originTool", undefined, "tool");
+  const title = file.producedBy
+    ? `${i18nT("diff.createdBy", undefined, "created by")} ${file.producedBy}`
+    : i18nT("diff.onDisk", undefined, "detected on disk");
+  return (
+    <span
+      data-testid="origin-badge"
+      title={title}
+      className="shrink-0 rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[9px] uppercase tracking-wide text-[var(--text-tertiary)]"
+    >
+      {label}
+    </span>
   );
 }
 
@@ -188,7 +266,17 @@ function FileNodeView({
           </span>
         )}
         {statusIndicator}
-        <span className="truncate flex-1">{node.name}</span>
+        <span className="truncate">{node.name}</span>
+        <OriginBadge file={file} />
+        {(file.origin === "tool" || file.origin === "mixed") && file.producedBy && (
+          <span
+            className="truncate text-[10px] text-[var(--text-tertiary)] italic"
+            title={file.producedBy}
+          >
+            {i18nT("diff.createdBy", undefined, "created by")} {file.producedBy}
+          </span>
+        )}
+        <span className="flex-1" />
         {(file.additions !== undefined || file.deletions !== undefined) && (
           <span className="text-[10px] shrink-0">
             <CountBadges additions={file.additions ?? 0} deletions={file.deletions ?? 0} />

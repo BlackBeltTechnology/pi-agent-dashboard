@@ -33,7 +33,8 @@ export function ChangesRailSection({ activePath }: { activePath?: string | null 
   }, [changesRevealSignal]);
 
   const files = diff?.data?.files ?? [];
-  if (files.length === 0) return null;
+  const otherChanges = diff?.data?.otherChanges ?? [];
+  if (files.length === 0 && otherChanges.length === 0) return null;
 
   const isGitRepo = diff?.data?.isGitRepo ?? false;
   // Git session → numstat totals; non-git → the payload carries no counts, so
@@ -69,6 +70,7 @@ export function ChangesRailSection({ activePath }: { activePath?: string | null 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <DiffFileTree
             files={files}
+            otherChanges={otherChanges}
             selection={selection}
             onSelect={(sel) => openDiffTab(sel.filePath)}
             totalAdditions={totalAdditions}

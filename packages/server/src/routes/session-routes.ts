@@ -8,7 +8,7 @@ import type { SessionManager } from "../memory-session-manager.js";
 import type { EventStore } from "../memory-event-store.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { NetworkGuard } from "./route-deps.js";
-import { extractFileChanges, enrichWithVcsDiff } from "../session-diff.js";
+import { buildSessionDiff } from "../session-diff.js";
 
 export function registerSessionRoutes(
   fastify: FastifyInstance,
@@ -71,12 +71,12 @@ export function registerSessionRoutes(
         return { success: false, error: "session not found" } satisfies ApiResponse;
       }
       const events = eventStore.getEvents(sessionId, 0).map((e) => e.event);
-      const files = extractFileChanges(events, session.cwd);
-      const result = enrichWithVcsDiff(session.cwd, files);
+      const result = buildSessionDiff(events, session.cwd);
       return {
         success: true,
         data: {
-          files: result.enrichedFiles,
+          files: result.files,
+          otherChanges: result.otherChanges,
           isGitRepo: result.isGitRepo,
           vcsKind: result.vcsKind,
           diffBase: result.diffBase,
