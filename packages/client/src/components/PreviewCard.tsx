@@ -11,6 +11,8 @@ import {
   mdiFileDocumentOutline,
   mdiFileMusicOutline,
   mdiFilePdfBox,
+  mdiFileTableOutline,
+  mdiFileWordOutline,
   mdiImageOutline,
   mdiLanguageHtml5,
   mdiOpenInNew,
@@ -26,10 +28,12 @@ import { t as i18nT } from "../lib/i18n";
 import { dispatchPreview, type RendererKind } from "../lib/preview-dispatch.js";
 import { AsciiDocPreview } from "./preview/AsciiDocPreview.js";
 import { AudioPreview } from "./preview/AudioPreview.js";
+import { DocxPreview } from "./preview/DocxPreview.js";
 import { FallbackPreview } from "./preview/FallbackPreview.js";
 import { HtmlPreview } from "./preview/HtmlPreview.js";
 import { ImagePreview } from "./preview/ImagePreview.js";
 import { MarkdownPreview } from "./preview/MarkdownPreview.js";
+import { SpreadsheetPreview } from "./preview/SpreadsheetPreview.js";
 import { VideoPreview } from "./preview/VideoPreview.js";
 import { YouTubePreview } from "./preview/YouTubePreview.js";
 
@@ -46,6 +50,10 @@ function iconFor(kind: RendererKind): string {
     case "markdown":
     case "asciidoc":
       return mdiFileDocumentOutline;
+    case "docx":
+      return mdiFileWordOutline;
+    case "spreadsheet":
+      return mdiFileTableOutline;
     case "pdf":
       return mdiFilePdfBox;
     case "image":
@@ -73,6 +81,8 @@ function bodyClassFor(kind: RendererKind): string {
     case "markdown":
     case "asciidoc":
     case "html":
+    case "docx":
+    case "spreadsheet":
       return "max-h-[60vh] overflow-auto";
     case "pdf":
       return "h-[60vh]";
@@ -109,6 +119,10 @@ export function PreviewBody({
       return <MarkdownPreview target={target} />;
     case "asciidoc":
       return <AsciiDocPreview target={target} />;
+    case "docx":
+      return <DocxPreview target={target} />;
+    case "spreadsheet":
+      return <SpreadsheetPreview target={target} />;
     case "html":
       return <HtmlPreview target={target} />;
     case "pdf":

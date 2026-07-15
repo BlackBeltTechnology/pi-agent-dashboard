@@ -9,6 +9,8 @@ import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types
 export type RendererKind =
   | "markdown"
   | "asciidoc"
+  | "docx"
+  | "spreadsheet"
   | "html"
   | "pdf"
   | "video"
@@ -23,6 +25,9 @@ export const RENDERER_BY_EXT: Record<string, RendererKind> = {
   ".markdown": "markdown",
   ".adoc": "asciidoc",
   ".asciidoc": "asciidoc",
+  ".docx": "docx",
+  ".xlsx": "spreadsheet",
+  ".csv": "spreadsheet",
   ".html": "html",
   ".htm": "html",
   ".pdf": "pdf",

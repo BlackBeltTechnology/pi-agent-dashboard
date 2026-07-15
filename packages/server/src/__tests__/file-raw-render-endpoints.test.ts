@@ -2,17 +2,21 @@
  * Tests for `/api/file/raw` (binary-safe streaming) and `/api/file/render`
  * (server-side AsciiDoc rendering). See change: render-file-previews.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
-import fsp from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
+
 
 import { execFile } from "node:child_process";
+import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
-
-import { registerFileRoutes } from "../routes/file-routes.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import iconv from "iconv-lite";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import * as XLSX from "xlsx";
 import { extToContentType } from "../lib/mime-types.js";
+import type { DocxPdfEngine, OfficeCaps } from "../lib/office-preview.js";
+import { OFFICE_CAPS } from "../lib/office-preview.js";
+import { registerFileRoutes } from "../routes/file-routes.js";
 
 const execFileAsync = promisify(execFile);
 async function git(cwd: string, ...args: string[]): Promise<void> {
@@ -50,7 +54,14 @@ describe("extToContentType (mime-types.ts)", () => {
   });
 });
 
-function makeApp(cwds: string[]): FastifyInstance {
+function makeApp(
+  cwds: string[],
+  office?: {
+    docxPdfEngine?: DocxPdfEngine;
+    officeCaps?: Partial<OfficeCaps>;
+    docxRenderMode?: "pdf" | "html" | "auto";
+  },
+): FastifyInstance {
   const app = Fastify({ logger: false });
   registerFileRoutes(app, {
     sessionManager: {
@@ -58,8 +69,67 @@ function makeApp(cwds: string[]): FastifyInstance {
     } as any,
     preferencesStore: { getPinnedDirectories: () => [] } as any,
     networkGuard: async () => undefined,
+    docxPdfEngine: office?.docxPdfEngine,
+    officeCaps: office?.officeCaps ? { ...OFFICE_CAPS, ...office.officeCaps } : undefined,
+    docxRenderMode: office?.docxRenderMode,
   });
   return app;
+}
+
+// ── docx fixtures (jszip; a mammoth dependency) ───────────────────────────────
+const DOCX_CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+const DOCX_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+function docXml(body: string): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`;
+}
+async function buildDocx(body: string): Promise<Buffer> {
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", DOCX_CONTENT_TYPES);
+  zip.file("_rels/.rels", DOCX_RELS);
+  zip.file("word/document.xml", docXml(body));
+  return zip.generateAsync({ type: "nodebuffer" });
+}
+const DOCX_HEADING_TABLE =
+  "<w:p><w:r><w:t>Hello heading</w:t></w:r></w:p>" +
+  "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cellA</w:t></w:r></w:p></w:tc>" +
+  "<w:tc><w:p><w:r><w:t>cellB</w:t></w:r></w:p></w:tc></w:tr></w:tbl>";
+// A hyperlink with NO r:id and NO w:anchor → mammoth href=null/anchor=null →
+// crashes without the guard (design D2).
+const DOCX_NULL_HYPERLINK =
+  "<w:p><w:hyperlink><w:r><w:t>dangling link</w:t></w:r></w:hyperlink></w:p>";
+
+function stubEngine(
+  available: boolean,
+  opts?: { throwOnAvailable?: boolean; throwOnPdf?: boolean },
+): DocxPdfEngine {
+  return {
+    async available() {
+      if (opts?.throwOnAvailable) throw Object.assign(new Error("DOCKER_UNAVAILABLE"), { code: "DOCKER_UNAVAILABLE" });
+      return available;
+    },
+    async toPdf(_docx: string, out: string) {
+      if (opts?.throwOnPdf) throw new Error("render failed");
+      await fsp.writeFile(out, Buffer.from("%PDF-1.4\n%stub\n"));
+    },
+  };
+}
+
+function xlsxBuf(sheets: Record<string, unknown[][]>): Buffer {
+  const wb = XLSX.utils.book_new();
+  for (const [name, aoa] of Object.entries(sheets)) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), name);
+  }
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
 describe("GET /api/file/raw", () => {
@@ -278,5 +348,237 @@ describe("GET /api/file/render (AsciiDoc)", () => {
       url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent("../foo.adoc")}`,
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("GET /api/file/render (docx, two-tier — design D8)", () => {
+  let app: FastifyInstance;
+  let tmp: string;
+
+  afterEach(async () => {
+    if (app) await app.close();
+    if (tmp) await fsp.rm(tmp, { recursive: true, force: true });
+  });
+
+  async function setup(office?: Parameters<typeof makeApp>[1]) {
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "docx-render-"));
+    app = makeApp([tmp], office);
+    await app.ready();
+  }
+
+  it("engine available → mode:'pdf'; /api/file/rendered-pdf streams application/pdf (test-plan #7)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true) });
+    await fsp.writeFile(path.join(tmp, "d.docx"), await buildDocx(DOCX_HEADING_TABLE));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=d.docx`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ success: true, data: { mode: "pdf" } });
+    const pdf = await app.inject({
+      method: "GET",
+      url: `/api/file/rendered-pdf?cwd=${encodeURIComponent(tmp)}&path=d.docx`,
+    });
+    expect(pdf.statusCode).toBe(200);
+    expect(pdf.headers["content-type"]).toBe("application/pdf");
+    expect(pdf.rawPayload.subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("engine unavailable → mode:'html' with markup, no <script> (test-plan #8)", async () => {
+    await setup({ docxPdfEngine: stubEngine(false) });
+    await fsp.writeFile(path.join(tmp, "d.docx"), await buildDocx(DOCX_HEADING_TABLE));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=d.docx`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.mode).toBe("html");
+    expect(body.data.html).toContain("Hello heading");
+    expect(body.data.html).toContain("<table>");
+    expect(body.data.html).not.toContain("<script>");
+  });
+
+  it("engine throws DOCKER_UNAVAILABLE mid-request → falls through to mode:'html' (test-plan #9)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true, { throwOnAvailable: true }) });
+    await fsp.writeFile(path.join(tmp, "d.docx"), await buildDocx(DOCX_HEADING_TABLE));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=d.docx`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.mode).toBe("html");
+  });
+
+  it("null-href hyperlink docx (html mode) → success:true, guard applied, no crash (test-plan #10)", async () => {
+    await setup({ docxPdfEngine: stubEngine(false) });
+    await fsp.writeFile(path.join(tmp, "d.docx"), await buildDocx(DOCX_NULL_HYPERLINK));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=d.docx`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.html).toContain("dangling link");
+  });
+
+  it("html over the byte cap → truncated:true (bounded-preview wiring, test-plan #11)", async () => {
+    // Force the bounded-preview branch with a tiny html byte cap. The image
+    // strip mechanics are covered by the office-preview unit test.
+    await setup({ docxPdfEngine: stubEngine(false), officeCaps: { htmlByteCap: 1 } });
+    await fsp.writeFile(path.join(tmp, "d.docx"), await buildDocx(DOCX_HEADING_TABLE));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=d.docx`,
+    });
+    expect(res.json().data.truncated).toBe(true);
+  });
+
+  it("corrupt / non-zip docx → {success:false}, no crash (test-plan #12)", async () => {
+    await setup({ docxPdfEngine: stubEngine(false) });
+    await fsp.writeFile(path.join(tmp, "bad.docx"), Buffer.from("PK\x03\x04not a real docx"));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=bad.docx`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().success).toBe(false);
+  });
+
+  it("ext .pdf on render → HTTP 400 (test-plan #13)", async () => {
+    await setup();
+    await fsp.writeFile(path.join(tmp, "x.pdf"), Buffer.from("%PDF-1.4"));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=x.pdf`,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("size under cap → 200, over cap → 413 before read (BVA, test-plan #14)", async () => {
+    await setup({ docxPdfEngine: stubEngine(false), officeCaps: { docxSizeCap: 100_000 } });
+    // Under cap: a real (small) docx renders.
+    await fsp.writeFile(path.join(tmp, "small.docx"), await buildDocx(DOCX_HEADING_TABLE));
+    const under = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=small.docx`,
+    });
+    expect(under.statusCode).toBe(200);
+    // Over cap: a 200 KB dummy .docx is rejected before any parse.
+    await fsp.writeFile(path.join(tmp, "big.docx"), Buffer.alloc(200_000, 1));
+    const over = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=big.docx`,
+    });
+    expect(over.statusCode).toBe(413);
+  });
+
+  it("traversal → 403 on render AND rendered-pdf (test-plan #15)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true) });
+    const trav = encodeURIComponent("../../../etc/passwd.docx");
+    const r1 = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=${trav}`,
+    });
+    expect(r1.statusCode).toBe(403);
+    const r2 = await app.inject({
+      method: "GET",
+      url: `/api/file/rendered-pdf?cwd=${encodeURIComponent(tmp)}&path=${trav}`,
+    });
+    expect(r2.statusCode).toBe(403);
+  });
+});
+
+describe("GET /api/file/sheet (xlsx/csv)", () => {
+  let app: FastifyInstance;
+  let tmp: string;
+
+  afterEach(async () => {
+    if (app) await app.close();
+    if (tmp) await fsp.rm(tmp, { recursive: true, force: true });
+  });
+
+  async function setup(office?: Parameters<typeof makeApp>[1]) {
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "sheet-"));
+    app = makeApp([tmp], office);
+    await app.ready();
+  }
+
+  it("multi-sheet xlsx → one entry per sheet, activeSheet=0 (test-plan #14)", async () => {
+    await setup();
+    const buf = xlsxBuf({ Alpha: [["a", "b"], [1, 2]], Beta: [["c"], [3]] });
+    await fsp.writeFile(path.join(tmp, "book.xlsx"), buf);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/sheet?cwd=${encodeURIComponent(tmp)}&path=book.xlsx`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.sheets.map((s: any) => s.name)).toEqual(["Alpha", "Beta"]);
+    expect(body.data.activeSheet).toBe(0);
+  });
+
+  it("row cap via limit → rows==cap, truncated, totalRows true (BVA, test-plan #15)", async () => {
+    await setup();
+    const body = [["h"], ...Array.from({ length: 12 }, (_, i) => [i])];
+    await fsp.writeFile(path.join(tmp, "big.xlsx"), xlsxBuf({ S: body }));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/sheet?cwd=${encodeURIComponent(tmp)}&path=big.xlsx&limit=5`,
+    });
+    const s = res.json().data.sheets[0];
+    expect(s.rows.length).toBe(5);
+    expect(s.totalRows).toBe(12);
+    expect(s.truncated).toBe(true);
+  });
+
+  it("CP1250 csv → accented chars decode, non-UTF-8 charset reported (test-plan #16)", async () => {
+    await setup();
+    const rows = ["nev;varos"];
+    for (let i = 0; i < 40; i++) rows.push("Árvíztűrő;Győr Székesfehérvár");
+    await fsp.writeFile(path.join(tmp, "hu.csv"), iconv.encode(`${rows.join("\n")}\n`, "windows-1250"));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/sheet?cwd=${encodeURIComponent(tmp)}&path=hu.csv`,
+    });
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(JSON.stringify(body.data.sheets)).toContain("Árvíztűrő");
+    expect(body.data.encoding).toBeDefined();
+    expect(body.data.encoding).not.toBe("UTF-8");
+  });
+
+  it("password-protected / corrupt xlsx → {success:false}, no crash (test-plan #17)", async () => {
+    await setup();
+    await fsp.writeFile(path.join(tmp, "enc.xlsx"), Buffer.from("PK\x03\x04" + "g".repeat(60)));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/sheet?cwd=${encodeURIComponent(tmp)}&path=enc.xlsx`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().success).toBe(false);
+  });
+
+  it("ext .txt → HTTP 400 (test-plan #18)", async () => {
+    await setup();
+    await fsp.writeFile(path.join(tmp, "x.txt"), "hi");
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/sheet?cwd=${encodeURIComponent(tmp)}&path=x.txt`,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("oversize → 413 before read (test-plan #19)", async () => {
+    await setup({ officeCaps: { sheetSizeCap: 1000 } });
+    await fsp.writeFile(path.join(tmp, "big.csv"), Buffer.alloc(5000, 65));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/sheet?cwd=${encodeURIComponent(tmp)}&path=big.csv`,
+    });
+    expect(res.statusCode).toBe(413);
   });
 });

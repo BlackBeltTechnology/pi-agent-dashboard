@@ -24,3 +24,23 @@ export function readTextUrl(target: { kind: "file"; cwd: string; path: string })
   const p = encodeURIComponent(target.path);
   return `${base}/api/file?cwd=${cwd}&path=${p}`;
 }
+
+/** `/api/file/rendered-pdf` URL for a docx→PDF stream. See change: render-office-previews. */
+export function renderedPdfUrl(target: { kind: "file"; cwd: string; path: string }): string {
+  const base = getApiBase();
+  const cwd = encodeURIComponent(target.cwd);
+  const p = encodeURIComponent(target.path);
+  return `${base}/api/file/rendered-pdf?cwd=${cwd}&path=${p}`;
+}
+
+/** `/api/file/sheet` URL for xlsx/csv structured JSON. See change: render-office-previews. */
+export function sheetUrl(
+  target: { kind: "file"; cwd: string; path: string },
+  limit?: number,
+): string {
+  const base = getApiBase();
+  const cwd = encodeURIComponent(target.cwd);
+  const p = encodeURIComponent(target.path);
+  const q = limit != null ? `&limit=${encodeURIComponent(String(limit))}` : "";
+  return `${base}/api/file/sheet?cwd=${cwd}&path=${p}${q}`;
+}

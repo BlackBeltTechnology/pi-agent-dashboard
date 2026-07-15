@@ -2,7 +2,7 @@
  * Tests for `dispatchPreview` and `RENDERER_BY_EXT`. See change:
  * render-file-previews.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { dispatchPreview, RENDERER_BY_EXT } from "../preview-dispatch.js";
 
 const f = (path: string) => ({ kind: "file" as const, cwd: "/x", path });
@@ -23,6 +23,16 @@ describe("dispatchPreview — file targets", () => {
 
   it("maps PDF", () => {
     expect(dispatchPreview(f("paper.pdf"))).toBe("pdf");
+  });
+
+  it("maps docx (test-plan #1, #2)", () => {
+    expect(dispatchPreview(f("spec.docx"))).toBe("docx");
+    expect(dispatchPreview(f("SPEC.DOCX"))).toBe("docx"); // ext lowercased
+  });
+
+  it("maps spreadsheets: xlsx + csv (test-plan #3, #4)", () => {
+    expect(dispatchPreview(f("data.xlsx"))).toBe("spreadsheet");
+    expect(dispatchPreview(f("export.csv"))).toBe("spreadsheet");
   });
 
   it("maps video extensions", () => {
@@ -48,9 +58,15 @@ describe("dispatchPreview — file targets", () => {
     expect(dispatchPreview(f("x.htm"))).toBe("html");
   });
 
-  it("falls back on unknown file extension", () => {
+  it("falls back on unknown file extension (test-plan #5)", () => {
     expect(dispatchPreview(f("x.dat"))).toBe("fallback");
     expect(dispatchPreview(f("noext"))).toBe("fallback");
+  });
+
+  it("a URL target ending .docx dispatches by extension (test-plan #6)", () => {
+    // dispatch itself is shape-based; a URL .docx maps to "docx", but PreviewBody
+    // guards kind on target.kind !== "file" and falls back (covered there).
+    expect(dispatchPreview(u("https://example.com/report.docx"))).toBe("docx");
   });
 
   it("covers every entry of RENDERER_BY_EXT", () => {

@@ -14,6 +14,17 @@ import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
 import { extToContentType } from "../lib/mime-types.js";
+import {
+  createDefaultDocxPdfEngine,
+  type DocxPdfEngine,
+  type DocxRenderMode,
+  OFFICE_CAPS,
+  type OfficeCaps,
+  parseSheet,
+  pdfCachePath,
+  renderDocx,
+  resolveRowLimit,
+} from "../lib/office-preview.js";
 import { isAllowed } from "../lib/path-containment.js";
 import { isWritableMdTarget } from "../lib/writable-md-target.js";
 import type { SessionManager } from "../memory-session-manager.js";
@@ -151,9 +162,50 @@ export function registerFileRoutes(
     sessionManager: SessionManager;
     preferencesStore: PreferencesStore;
     networkGuard: NetworkGuard;
+    // Office-preview seams (change: render-office-previews). Injectable for
+    // tests; production uses the document-converter-backed default + fixed caps.
+    docxPdfEngine?: DocxPdfEngine;
+    officeCaps?: OfficeCaps;
+    docxRenderMode?: DocxRenderMode;
   },
 ) {
   const { sessionManager, preferencesStore, networkGuard } = deps;
+  const officeCaps = deps.officeCaps ?? OFFICE_CAPS;
+  const docxRenderMode = deps.docxRenderMode ?? "auto";
+  const docxPdfEngine = deps.docxPdfEngine ?? createDefaultDocxPdfEngine();
+
+  // Shared office-file gate (change: render-office-previews). Reuses the
+  // `/api/file/raw` anti-traversal posture (known cwd + containment) and adds
+  // an extension allowlist (else 400) plus a `stat.size` cap (>cap → 413
+  // BEFORE any read). Returns the resolved path + stat, or a {code,error}.
+  async function gateOfficeFile(
+    cwd: string | undefined,
+    relPath: string | undefined,
+    allowedExts: string[],
+    sizeCap: number,
+  ): Promise<
+    | { resolved: string; ext: string; stat: import("node:fs").Stats }
+    | { code: number; error: string }
+  > {
+    if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
+    const ext = path.extname(relPath).toLowerCase();
+    if (!allowedExts.includes(ext)) return { code: 400, error: "renderer not supported for extension" };
+    if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
+      return { code: 403, error: "unknown session path" };
+    }
+    const resolved = path.resolve(cwd, relPath);
+    if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
+      return { code: 403, error: "path outside working directory" };
+    }
+    let stat: import("node:fs").Stats;
+    try {
+      stat = await fs.stat(resolved);
+    } catch {
+      return { code: 404, error: "not found" };
+    }
+    if (stat.size > sizeCap) return { code: 413, error: "file too large to preview" };
+    return { resolved, ext, stat };
+  }
 
   // Directory browse endpoint.
   // `detect=1` opts into eager `.git` / `.pi` classification on every entry
@@ -617,10 +669,13 @@ export function registerFileRoutes(
     },
   );
 
-  // Server-side AsciiDoc rendering (change: render-file-previews).
-  // Runs `asciidoctor` in `safe: "secure"` mode so include directives /
-  // dangerous attributes are neutralized. Rejects non-`.adoc`/`.asciidoc`
-  // extensions with HTTP 400. Same anti-traversal gate as `/api/file/raw`.
+  // Server-side render endpoint (change: render-file-previews;
+  // render-office-previews). `.adoc`/`.asciidoc` → asciidoctor `safe:"secure"`
+  // HTML. `.docx` → two-tier (design D8): a document-converter PDF render when
+  // the engine is available (`{mode:"pdf"}` + companion `/api/file/rendered-pdf`),
+  // else an in-process mammoth HTML baseline with the hyperlink-guard (D2),
+  // DOMPurify sanitize, and bounded-preview image cap (D3). Non-supported
+  // extensions → 400. Same anti-traversal gate as `/api/file/raw`.
   fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
     "/api/file/render",
     { preHandler: networkGuard },
@@ -633,9 +688,32 @@ export function registerFileRoutes(
       }
 
       const ext = path.extname(relPath).toLowerCase();
-      if (ext !== ".adoc" && ext !== ".asciidoc") {
+      const isAdoc = ext === ".adoc" || ext === ".asciidoc";
+      const isDocx = ext === ".docx";
+      if (!isAdoc && !isDocx) {
         reply.code(400);
         return { success: false, error: "renderer not supported for extension" } satisfies ApiResponse;
+      }
+
+      // docx: gate (incl. size cap → 413 before read) then two-tier render.
+      if (isDocx) {
+        const gate = await gateOfficeFile(cwd, relPath, [".docx"], officeCaps.docxSizeCap);
+        if ("code" in gate) {
+          reply.code(gate.code);
+          return { success: false, error: gate.error } satisfies ApiResponse;
+        }
+        const result = await renderDocx(
+          gate.resolved,
+          { mtimeMs: gate.stat.mtimeMs, size: gate.stat.size },
+          { mode: docxRenderMode, engine: docxPdfEngine, caps: officeCaps },
+        );
+        if (!result.success) {
+          // Unrenderable tail (corrupt/password/library bug) → 200 + success:false
+          // so the client maps it to FallbackPreview (design D5).
+          return { success: false, error: result.error } satisfies ApiResponse;
+        }
+        const { success: _s, ...data } = result;
+        return { success: true, data } satisfies ApiResponse;
       }
 
       const allSessions = sessionManager.listAll();
@@ -667,6 +745,83 @@ export function registerFileRoutes(
         reply.code(500);
         return { success: false, error: msg } satisfies ApiResponse;
       }
+    },
+  );
+
+  // Cached docx→PDF byte stream (change: render-office-previews, design D8).
+  // Companion to `/api/file/render` `mode:"pdf"`. Serves the cached PDF
+  // (path+mtime+size key); regenerates via the engine on cache miss/stale.
+  // `.docx`-only; same gate + size cap as the render route.
+  fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
+    "/api/file/rendered-pdf",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const gate = await gateOfficeFile(
+        request.query.cwd,
+        request.query.path,
+        [".docx"],
+        officeCaps.docxSizeCap,
+      );
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return { success: false, error: gate.error } satisfies ApiResponse;
+      }
+      const out = pdfCachePath(gate.resolved, gate.stat.mtimeMs, gate.stat.size);
+      try {
+        await fs.access(out);
+      } catch {
+        try {
+          await fs.mkdir(path.dirname(out), { recursive: true });
+          await docxPdfEngine.toPdf(gate.resolved, out);
+        } catch (err) {
+          reply.code(500);
+          return {
+            success: false,
+            error: err instanceof Error ? err.message : "failed to render pdf",
+          } satisfies ApiResponse;
+        }
+      }
+      reply.header("Content-Type", "application/pdf");
+      reply.header("Content-Disposition", "inline");
+      reply.header("Cache-Control", "private, max-age=60");
+      return reply.send(createReadStream(out));
+    },
+  );
+
+  // Spreadsheet parse endpoint (change: render-office-previews). Parses
+  // `.xlsx`/`.csv` to bounded structured JSON with SheetJS (no Docker). `.csv`
+  // encoding is detected (chardet) + decoded (iconv-lite) so CP1250 renders
+  // correctly (design D6). `.xlsx`/`.csv`-only → 400; size cap → 413 before read;
+  // corrupt/password-protected → 200 + success:false (design D5).
+  fastify.get<{ Querystring: { cwd?: string; path?: string; limit?: string } }>(
+    "/api/file/sheet",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const gate = await gateOfficeFile(
+        request.query.cwd,
+        request.query.path,
+        [".xlsx", ".csv"],
+        officeCaps.sheetSizeCap,
+      );
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return { success: false, error: gate.error } satisfies ApiResponse;
+      }
+      let buffer: Buffer;
+      try {
+        buffer = await fs.readFile(gate.resolved);
+      } catch {
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+      const limit = request.query.limit ? Number(request.query.limit) : undefined;
+      const rowLimit = resolveRowLimit(limit, officeCaps);
+      const result = await parseSheet(buffer, gate.ext, { rowLimit, colCap: officeCaps.colCap });
+      if (!result.success) {
+        return { success: false, error: result.error } satisfies ApiResponse;
+      }
+      const { success: _s, ...data } = result;
+      return { success: true, data } satisfies ApiResponse;
     },
   );
 }
