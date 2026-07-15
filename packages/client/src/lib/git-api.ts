@@ -1,7 +1,7 @@
 /**
  * Client-side git API helpers for the BranchPicker / BranchSwitchDialog.
  */
-import type { ActiveWorktreeInit } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { ActiveWorktreeInit, WorktreeInitTrustScope } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { GitBranchesResult, GitChangedFile, GitCommitResult, GitStashPopResult, PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { getApiBase } from "./api-context.js";
@@ -313,10 +313,12 @@ export type WorktreeInitResult = WorktreeInitRanOk | WorktreeInitUntrusted | Wor
  * POST /api/git/worktree/init — runs the declared hook for a checkout.
  * Without `confirmHash` an untrusted hook returns `untrusted` carrying the
  * def + hash for the client to confirm; re-issue with `confirmHash: hash`.
+ * On confirm, `scope` picks the trust durability (`session` = until dashboard
+ * restart; `project` = persisted). Omitted → project (server default).
  * Progress events stream via the requestId-tagged WS channel.
- * See change: generalize-worktree-init-hook.
+ * See change: generalize-worktree-init-hook, add-session-scoped-init-trust.
  */
-export async function runWorktreeInit(params: { cwd: string; requestId?: string; confirmHash?: string }): Promise<WorktreeInitResult> {
+export async function runWorktreeInit(params: { cwd: string; requestId?: string; confirmHash?: string; scope?: WorktreeInitTrustScope }): Promise<WorktreeInitResult> {
   const { json } = await fetchJsonResponse(`${getApiBase()}/api/git/worktree/init`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
