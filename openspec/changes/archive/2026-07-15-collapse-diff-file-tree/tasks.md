@@ -44,7 +44,7 @@ Exemplars to copy harness glue from: `packages/client/src/components/__tests__/D
 
 ## 6. Manual / QA
 
-- [ ] 6.1 Visual density / tint (test-plan: manual-only) — eyeball the merged rail + Preview: additions tint legible, rail not cramped, folder dots readable. (test-plan #M1)
-- [ ] 6.2 Load a session with many changes; confirm one tree with inline markers on visible changed files, folder dots on collapsed ancestors, no 45% Changes box, deleted/other changes in the bottom group.
-- [ ] 6.3 Open a changed file's diff; toggle Preview (changed-regions, removals gone); confirm the separate `File` mode still shows the whole file.
-- [ ] 6.4 Activate a changed-file link in the chat transcript; confirm the rail reveals and the file's diff opens via the unchanged `openDiffTab` path.
+- [x] 6.1 Visual density / tint (test-plan: manual-only) — eyeball the merged rail + Preview: additions tint legible, rail not cramped, folder dots readable. (test-plan #M1)
+- [x] 6.2 Load a session with many changes; confirm one tree with inline markers on visible changed files, folder dots on collapsed ancestors, no 45% Changes box, other-changes in the bottom group. (test-plan: manual-only)
+- [x] 6.3 Open a changed file's diff; toggle Preview (changed-regions, removals gone); confirm the separate `File` mode still shows the whole file. (test-plan: manual-only)
+- [x] 6.4 Activate a changed-file link in the chat transcript; confirm the rail reveals and the file's diff opens via the unchanged `openDiffTab` path. (test-plan: manual-only)
