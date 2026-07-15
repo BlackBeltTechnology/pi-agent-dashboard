@@ -594,6 +594,15 @@ export interface BootstrapStatusUpdateMessage {
  * which describe the dashboard's own pi-core install. See change:
  * generalize-worktree-init-hook (renamed from worktree_bootstrap_*).
  */
+/**
+ * Trust scope chosen at confirm time for `POST /api/git/worktree/init`.
+ * `session` = ephemeral (server memory, gone on restart); `project` = persisted
+ * (today's behavior). Omitted → `project` (backward compatible). Any other value
+ * is rejected `bad_request` by the server — no upward coercion.
+ * See change: add-session-scoped-init-trust.
+ */
+export type WorktreeInitTrustScope = "session" | "project";
+
 export interface WorktreeInitProgressMessage {
   type: "worktree_init_progress";
   requestId: string;
@@ -767,8 +776,20 @@ export interface RecoveryDismissMessage {
   sessionIds: string[];
 }
 
+/**
+ * Server → browser: automatic session naming failed for `sessionId`. Forwarded
+ * from the bridge's `auto_name_error`; the client renders a one-shot toast
+ * ("Couldn't auto-name session: <reason>"). See change: add-auto-session-naming.
+ */
+export interface AutoNameErrorBrowserMessage {
+  type: "auto_name_error";
+  sessionId: string;
+  reason: string;
+}
+
 export type ServerToBrowserMessage =
   | ServerRestartingMessage
+  | AutoNameErrorBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
   | SessionAddedMessage

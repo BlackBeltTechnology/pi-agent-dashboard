@@ -15,6 +15,10 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
   return {
     source: session.source,
     name: session.name,
+    // Persist name provenance. MUST be listed here because this save does a
+    // full .meta.json overwrite (not a merge) — omitting it wipes the auto/user
+    // lockout signal on the next unrelated save. See change: add-auto-session-naming.
+    nameSource: session.nameSource,
     attachedProposal: session.attachedProposal,
     displayPrefsOverride: session.displayPrefsOverride,
     processDrawerCollapsed: session.processDrawerCollapsed,

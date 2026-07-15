@@ -56,6 +56,12 @@ interface PreferencesData {
    */
   autoInitWorktreeOnSpawn?: boolean;
   /**
+   * Global toggle for automatic session topic-naming by the bridge. Defaults
+   * to `true` when absent. Relayed to bridges via config push; the bridge
+   * attempts naming only when this is true. See change: add-auto-session-naming.
+   */
+  autoNameSessions?: boolean;
+  /**
    * First-run marker for `PI_DASHBOARD_PIN_DIRS` seeding. Set true the first
    * time the store loads; gates env-driven pin seeding so it never re-seeds
    * after the user has edited pins via the UI (even after unpinning all).
@@ -130,6 +136,11 @@ export interface PreferencesStore {
   getAutoInitWorktreeOnSpawn(): boolean;
   /** Persists the opt-in auto-init-on-spawn flag. */
   setAutoInitWorktreeOnSpawn(value: boolean): void;
+  // ── add-auto-session-naming ────────────────────────────────
+  /** Returns the auto-session-naming toggle. Absent → `true` (default ON). */
+  getAutoNameSessions(): boolean;
+  /** Persists the auto-session-naming toggle. */
+  setAutoNameSessions(value: boolean): void;
   // ── live-server-preview (improve-content-editor §6) ────────
   /** Returns the persisted live-server allowlist. Absent → `[]`. */
   getLiveServers(): LiveServerTarget[];
@@ -252,6 +263,8 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
   let openspecUpdateSignatures: Record<string, string> = data.openspecUpdateSignatures ?? {};
   // Opt-in auto-init flag. Absent/non-boolean → false (today's behavior).
   let autoInitWorktreeOnSpawn: boolean = data.autoInitWorktreeOnSpawn === true;
+  // Auto-naming toggle. Absent/non-false → true (default ON).
+  let autoNameSessions: boolean = data.autoNameSessions !== false;
   let liveServers: LiveServerTarget[] = Array.isArray(data.liveServers) ? data.liveServers : [];
   // Favorite model labels — deduped, insertion-ordered. Default [] for legacy files.
   let favoriteModels: string[] = dedupePreserveOrder(
@@ -277,7 +290,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
       debounceTimer = null;
       if (dirty) {
         dirty = false;
-        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, pinSeeded, liveServers } satisfies PreferencesData);
+        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers } satisfies PreferencesData);
       }
     }, DEBOUNCE_MS);
   }
@@ -289,7 +302,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
     }
     if (dirty) {
       dirty = false;
-      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, pinSeeded, liveServers } satisfies PreferencesData);
+      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers } satisfies PreferencesData);
     }
   }
 
@@ -481,6 +494,17 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
       const next = value === true;
       if (autoInitWorktreeOnSpawn === next) return;
       autoInitWorktreeOnSpawn = next;
+      scheduleSave();
+    },
+
+    getAutoNameSessions(): boolean {
+      return autoNameSessions;
+    },
+
+    setAutoNameSessions(value: boolean): void {
+      const next = value !== false;
+      if (autoNameSessions === next) return;
+      autoNameSessions = next;
       scheduleSave();
     },
 

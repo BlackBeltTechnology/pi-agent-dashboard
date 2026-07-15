@@ -393,7 +393,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
   //
   // Runs the declared hook for a checkout. TOFU-gated: an untrusted hook
   // returns `init_untrusted` carrying the def for the client to confirm.
-  fastify.post<{ Body: { cwd?: string; requestId?: string; confirmHash?: string } }>(
+  fastify.post<{ Body: { cwd?: string; requestId?: string; confirmHash?: string; scope?: unknown } }>(
     "/api/git/worktree/init",
     { preHandler: networkGuard },
     async (request, reply) => {
@@ -428,7 +428,17 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       }
       const hash = hookDefHash(hook);
       if (typeof body.confirmHash === "string" && body.confirmHash === hash) {
-        recordTrust(configRoot, hash);
+        // Strict scope validation (no upward coercion): omitted → project
+        // (backward compatible); exactly `session`|`project` honored; any other
+        // present value is rejected WITHOUT recording trust or running, so a
+        // malformed value can never escalate an ephemeral-intent confirm into a
+        // permanent on-disk grant. See change: add-session-scoped-init-trust.
+        const rawScope = body.scope;
+        if (rawScope !== undefined && rawScope !== "session" && rawScope !== "project") {
+          return { success: false, code: "bad_request", error: "invalid scope" } satisfies ApiResponse;
+        }
+        const scope = rawScope === "session" ? "session" : "project";
+        recordTrust(configRoot, hash, scope);
       }
       if (!isTrusted(configRoot, hash)) {
         // Echo the hash so the client confirms with `confirmHash` without

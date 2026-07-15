@@ -13,6 +13,14 @@ export interface SessionMeta {
   // Dashboard-owned (user-set via UI)
   source?: string;
   name?: string;
+  /**
+   * Provenance of the current session name. `"auto"` = set by the bridge's
+   * automatic topic-naming; `"user"` = set by a dashboard rename or an in-pi
+   * rename. Absent = no name has been set by either path. Dashboard-owned;
+   * drives the auto-naming lockout — once `"user"`, auto-naming never runs
+   * again for that session. See change: add-auto-session-naming.
+   */
+  nameSource?: "auto" | "user";
   attachedProposal?: string | null;
   hidden?: boolean;
 

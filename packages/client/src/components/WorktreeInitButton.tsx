@@ -22,7 +22,8 @@
  * friendlier-worktree-init.
  */
 
-import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import type { WorktreeInitTrustScope } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { mdiCogPlayOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -83,10 +84,10 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
     if (!run || run.phase === "running") wasDone.current = false;
   }, [run, refetch]);
 
-  const doRun = useCallback(async (confirmHash?: string) => {
+  const doRun = useCallback(async (confirmHash?: string, scope?: WorktreeInitTrustScope) => {
     initStore.startRun(cwd);
     try {
-      const res = await runWorktreeInit({ cwd, confirmHash });
+      const res = await runWorktreeInit({ cwd, confirmHash, scope });
       if (res.ok) {
         // ran:false (already_initialized / no_hook) has no ws terminal event —
         // resolve the optimistic run here; a real run's done arrives via ws.
@@ -138,17 +139,37 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
       </button>
 
       {confirm && (
-        <Confirm
+        <Dialog
           open
           title={i18nT("worktree.runWorktreeInitHook", undefined, "Run worktree-init hook?")}
-          message={
-            `Run this project's worktree-init hook?\n\ngate: ${confirm.hook.gate}\n${describeRun(confirm.hook)}\n\n` +
-            `This executes repo-provided code on your machine.`
-          }
-          confirmLabel="Run"
-          onConfirm={() => { const hash = confirm.hash; setConfirm(null); void doRun(hash); }}
+          size="sm"
           onClose={() => setConfirm(null)}
-        />
+          testId="worktree-init-trust-dialog"
+        >
+          <p className="text-sm text-[var(--text-secondary)] whitespace-pre-line">
+            {`Run this project's worktree-init hook?\n\ngate: ${confirm.hook.gate}\n${describeRun(confirm.hook)}\n\n` +
+              `This executes repo-provided code on your machine. Choose how long to trust it.`}
+          </p>
+          <Dialog.Footer>
+            <Dialog.Cancel onClick={() => setConfirm(null)} testId="worktree-init-trust-cancel">
+              {i18nT("common.cancel", undefined, "Cancel")}
+            </Dialog.Cancel>
+            <Dialog.Action
+              intent="neutral"
+              onClick={() => { const hash = confirm.hash; setConfirm(null); void doRun(hash, "session"); }}
+              testId="worktree-init-trust-session"
+            >
+              {i18nT("worktree.trustUntilDashboardRestarts", undefined, "Trust until dashboard restarts")}
+            </Dialog.Action>
+            <Dialog.Action
+              intent="primary"
+              onClick={() => { const hash = confirm.hash; setConfirm(null); void doRun(hash, "project"); }}
+              testId="worktree-init-trust-always"
+            >
+              {i18nT("worktree.alwaysTrust", undefined, "Always trust")}
+            </Dialog.Action>
+          </Dialog.Footer>
+        </Dialog>
       )}
     </div>
   );

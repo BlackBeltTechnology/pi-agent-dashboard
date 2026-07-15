@@ -107,6 +107,7 @@ import { registerPluginActivationRoutes } from "./routes/plugin-activation-route
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
+import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
@@ -1399,6 +1400,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   // Opt-in worktree auto-init-on-spawn preference (auto-init-worktree-on-spawn).
   registerPreferencesWorktreeInitRoutes(fastify, { preferencesStore, networkGuard });
+  // Global auto-session-naming toggle (add-auto-session-naming). Broadcasts
+  // `preferences_update` to bridges on change.
+  registerPreferencesAutoNameRoutes(fastify, { preferencesStore, piGateway, networkGuard });
   registerPluginActivationRoutes(fastify, {
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),

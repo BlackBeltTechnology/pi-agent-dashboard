@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+Persist global, cross-session UI preferences in `preferences.json` (pinned directories, session order, feature toggles) — read on startup, written with debounced atomic writes, and never mixed with per-session state.
+## Requirements
 ### Requirement: Global preferences stored in preferences.json
 The system SHALL persist global UI preferences in `~/.pi/dashboard/preferences.json`. This file SHALL contain only cross-session/global state, not per-session data.
 
@@ -43,3 +45,19 @@ The system SHALL debounce writes to `preferences.json` and use atomic write oper
 #### Scenario: Server shutdown flushes preferences
 - **WHEN** the server shuts down with pending preference changes
 - **THEN** the system SHALL flush pending changes before exit
+
+### Requirement: Auto-name toggle persisted in preferences
+The system SHALL persist a global boolean `autoNameSessions` in `preferences.json`, defaulting to `true` when absent. The value SHALL be read on startup and relayed to bridge extensions so they gate auto-naming on it.
+
+#### Scenario: Default when absent
+- **WHEN** `preferences.json` has no `autoNameSessions` field
+- **THEN** the system SHALL treat it as `true`
+
+#### Scenario: Toggle persisted
+- **WHEN** the user toggles auto-naming in the Settings panel
+- **THEN** the new value SHALL be written to `autoNameSessions` in `preferences.json`
+
+#### Scenario: Relayed to bridges
+- **WHEN** `autoNameSessions` is loaded or changed
+- **THEN** the value SHALL be relayed to connected bridge extensions via config push
+

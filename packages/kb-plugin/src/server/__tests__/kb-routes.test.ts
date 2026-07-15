@@ -4,8 +4,9 @@
  * See change: add-kb-folder-slot.
  */
 
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -33,6 +34,25 @@ function makeFolder(opts: { withConfig?: boolean; extraConfig?: Record<string, u
     );
   }
   return root;
+}
+
+function git(cwd: string, args: string[]): void {
+  execFileSync("git", ["-c", "user.email=t@t.com", "-c", "user.name=T", ...args], {
+    cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+/** A real git repo (canonicalized main path) plus one linked worktree. */
+function makeRepoWithWorktree(): { main: string; worktree: string } {
+  const main = realpathSync(mkdtempSync(join(tmpdir(), "kb-main-")));
+  cleanup.push(main);
+  git(main, ["-c", "init.defaultBranch=main", "init"]);
+  git(main, ["commit", "--allow-empty", "-m", "init"]);
+  const worktree = join(realpathSync(tmpdir()), `kb-wt-${process.pid}-${Math.random().toString(36).slice(2)}`);
+  cleanup.push(worktree);
+  git(main, ["worktree", "add", "-b", "wt", worktree]);
+  return { main, worktree };
 }
 
 function buildApp(knownCwds: string[]): { app: FastifyInstance; registry: KbJobRegistry } {
@@ -86,6 +106,40 @@ describe("GET /api/kb/stats", () => {
     const other = makeFolder();
     const { app } = buildApp([known]);
     const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(other)}` });
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  // Fix 1: pins are stored realpath-canonicalized while a session cwd / raw
+  // query string may reach the same folder via a symlink; both sides of the
+  // guard must canonicalize or the match spuriously fails. See change:
+  // fix-kb-worktree-cwd-guard.
+  it("admits a known cwd reached through a symlinked alias", async () => {
+    const real = realpathSync(makeFolder());
+    const alias = join(realpathSync(tmpdir()), `kb-alias-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    symlinkSync(real, alias);
+    cleanup.push(alias);
+    const { app } = buildApp([real]); // known = canonical path
+    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(alias)}` }); // reached via symlink
+    expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
+  // Fix 2b: a git worktree whose MAIN repo is a known folder is admitted, even
+  // with no live session / pin covering the worktree itself (the session-less
+  // worktree case from the kb-folder-slot spec).
+  it("admits a worktree whose main repo is a known folder", async () => {
+    const { main, worktree } = makeRepoWithWorktree();
+    const { app } = buildApp([main]); // only the MAIN repo is known
+    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(worktree)}` });
+    expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("still 403s a worktree whose main repo is NOT a known folder", async () => {
+    const { worktree } = makeRepoWithWorktree(); // main repo left out of known
+    const { app } = buildApp([makeFolder()]);
+    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(worktree)}` });
     expect(res.statusCode).toBe(403);
     await app.close();
   });

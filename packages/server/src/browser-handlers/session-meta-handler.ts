@@ -33,7 +33,10 @@ export function handleRenameSession(
   ctx: BrowserHandlerContext,
 ): void {
   const { sessionManager, piGateway, broadcast } = ctx;
-  const nameUpdates = { name: msg.name || undefined };
+  // A dashboard-initiated rename is a user action — tag provenance "user" so
+  // auto-naming is permanently locked out for this session.
+  // See change: add-auto-session-naming.
+  const nameUpdates = { name: msg.name || undefined, nameSource: "user" as const };
   sessionManager.update(msg.sessionId, nameUpdates);
   broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: nameUpdates });
   piGateway.sendToSession(msg.sessionId, { type: "rename_session", sessionId: msg.sessionId, name: msg.name });
