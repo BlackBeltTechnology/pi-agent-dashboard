@@ -25,12 +25,15 @@ import {
 const KIND_LABELS: Record<CanvasKind, string> = {
   markdown: "Markdown",
   asciidoc: "AsciiDoc",
+  docx: "Word (docx)",
+  spreadsheet: "Spreadsheet",
   html: "HTML",
   pdf: "PDF",
   video: "Video",
   audio: "Audio",
   image: "Image",
   youtube: "YouTube",
+  email: "Email",
 };
 
 export function CanvasTypesSettingsSection({ selectedCwd }: { selectedCwd?: string }) {

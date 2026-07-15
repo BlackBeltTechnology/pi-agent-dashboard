@@ -114,9 +114,11 @@ helper as `/api/file/raw`, and SHALL reject a file whose size exceeds a configur
   true row count
 
 #### Scenario: Non-UTF-8 csv decoded
-- **GIVEN** a `.csv` encoded as windows-1250
+- **GIVEN** a `.csv` encoded as windows-1250 (e.g. Hungarian, with ő/ű double-acute vowels)
 - **WHEN** it is requested
-- **THEN** the accented characters decode correctly and `data.encoding` is `"windows-1250"`
+- **THEN** the accented characters decode correctly and `data.encoding` reports a
+  Central-European (Latin-2 family) charset such as `"ISO-8859-2"` or `"windows-1250"`
+  (statistical detection may label either; both decode the shared Hungarian letters identically)
 
 #### Scenario: Password-protected or corrupt spreadsheet degrades
 - **WHEN** a password-protected or corrupt spreadsheet is requested

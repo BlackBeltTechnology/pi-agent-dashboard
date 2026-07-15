@@ -14,6 +14,13 @@ Type `/view <target>` in the composer.
 - `/view @pic.png` — image, capped `max-h-[40vh]`.
 - `/view https://youtu.be/dQw4w9WgXcQ` — YouTube embed iframe.
 - `/view https://example.com/spec.pdf` — URL with PDF extension renders inline pdfjs viewer.
+- `/view @spec.docx` — docx. Two-tier: `document-converter` PDF render when engine available (mounts pdfjs `PdfPreview` via `/api/file/rendered-pdf`), else in-process `mammoth` HTML baseline (hyperlink-guard + DOMPurify + image cap). Any engine error falls through to HTML.
+- `/view @data.xlsx` — spreadsheet. SheetJS structured JSON via `/api/file/sheet`, frozen-header grid + sheet tabs, no Docker.
+- `/view @export.csv` — spreadsheet. Encoding detected (chardet) + decoded (iconv-lite); charset pill shown.
+
+Bounded preview: server caps rows/images/bytes; truncation banner "Showing first N of M"; download reaches full file. Corrupt / password-protected / oversize degrade to Download fallback.
+
+docx render mode configurable: `docxRender` `"pdf"|"html"|"auto"` (default `"auto"` = fidelity-first). Engine image name from `PI_DOC_ENGINE_IMAGE` env (default `pi-doc-engine`).
 
 Click `⤢` icon on card to expand to full-viewport overlay (`/folder/:cwd/view?path=` or `/pi-view?url=`).
 
@@ -27,6 +34,10 @@ Cross-refs:
 - openspec/changes/render-file-previews/
 - packages/client/src/components/PreviewCard.tsx
 - packages/server/src/routes/file-routes.ts
+- openspec/changes/render-office-previews/
+- packages/server/src/lib/office-preview.ts
+- packages/client/src/components/preview/DocxPreview.tsx
+- packages/client/src/components/preview/SpreadsheetPreview.tsx
 
 ## How to build Windows electron zip?
 

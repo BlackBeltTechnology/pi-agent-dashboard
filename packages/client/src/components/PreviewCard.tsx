@@ -8,9 +8,12 @@
 
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
+  mdiEmailOutline,
   mdiFileDocumentOutline,
   mdiFileMusicOutline,
   mdiFilePdfBox,
+  mdiFileTableOutline,
+  mdiFileWordOutline,
   mdiImageOutline,
   mdiLanguageHtml5,
   mdiOpenInNew,
@@ -26,10 +29,13 @@ import { t as i18nT } from "../lib/i18n";
 import { dispatchPreview, type RendererKind } from "../lib/preview-dispatch.js";
 import { AsciiDocPreview } from "./preview/AsciiDocPreview.js";
 import { AudioPreview } from "./preview/AudioPreview.js";
+import { DocxPreview } from "./preview/DocxPreview.js";
+import { EmlPreview } from "./preview/EmlPreview.js";
 import { FallbackPreview } from "./preview/FallbackPreview.js";
 import { HtmlPreview } from "./preview/HtmlPreview.js";
 import { ImagePreview } from "./preview/ImagePreview.js";
 import { MarkdownPreview } from "./preview/MarkdownPreview.js";
+import { SpreadsheetPreview } from "./preview/SpreadsheetPreview.js";
 import { VideoPreview } from "./preview/VideoPreview.js";
 import { YouTubePreview } from "./preview/YouTubePreview.js";
 
@@ -46,6 +52,10 @@ function iconFor(kind: RendererKind): string {
     case "markdown":
     case "asciidoc":
       return mdiFileDocumentOutline;
+    case "docx":
+      return mdiFileWordOutline;
+    case "spreadsheet":
+      return mdiFileTableOutline;
     case "pdf":
       return mdiFilePdfBox;
     case "image":
@@ -58,6 +68,8 @@ function iconFor(kind: RendererKind): string {
       return mdiYoutube;
     case "html":
       return mdiLanguageHtml5;
+    case "email":
+      return mdiEmailOutline;
     default:
       return mdiWeb;
   }
@@ -73,6 +85,9 @@ function bodyClassFor(kind: RendererKind): string {
     case "markdown":
     case "asciidoc":
     case "html":
+    case "email":
+    case "docx":
+    case "spreadsheet":
       return "max-h-[60vh] overflow-auto";
     case "pdf":
       return "h-[60vh]";
@@ -109,8 +124,14 @@ export function PreviewBody({
       return <MarkdownPreview target={target} />;
     case "asciidoc":
       return <AsciiDocPreview target={target} />;
+    case "docx":
+      return <DocxPreview target={target} />;
+    case "spreadsheet":
+      return <SpreadsheetPreview target={target} />;
     case "html":
       return <HtmlPreview target={target} />;
+    case "email":
+      return <EmlPreview target={target} />;
     case "pdf":
       return (
         <Suspense fallback={<div className="text-[var(--text-muted)] text-sm p-2">{i18nT("status.loadingPdfViewer", undefined, "Loading PDF viewer…")}</div>}>

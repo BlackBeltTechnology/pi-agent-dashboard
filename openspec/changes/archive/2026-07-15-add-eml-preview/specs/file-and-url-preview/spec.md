@@ -8,7 +8,7 @@ A pure function `dispatchPreview(target: ViewTarget): RendererKind` SHALL select
 renderer using only the target's shape (extension for files; host + URL extension for
 URLs). It SHALL NOT perform server round-trips, MIME sniffing, or file reads to make the
 decision. `RendererKind` SHALL be one of
-`"markdown" | "asciidoc" | "html" | "pdf" | "video" | "audio" | "image" | "youtube" | "email" | "fallback"`.
+`"markdown" | "asciidoc" | "html" | "pdf" | "video" | "audio" | "image" | "youtube" | "docx" | "spreadsheet" | "email" | "fallback"`.
 
 #### Scenario: Markdown extension
 - **WHEN** `dispatchPreview({ kind: "file", cwd, path: "x.md" })` is called
@@ -33,6 +33,14 @@ decision. `RendererKind` SHALL be one of
 #### Scenario: HTML extension
 - **WHEN** the file extension is `.html` or `.htm`
 - **THEN** the result is `"html"`
+
+#### Scenario: DOCX extension
+- **WHEN** the file extension is `.docx` (compared case-insensitively)
+- **THEN** the result is `"docx"`
+
+#### Scenario: Spreadsheet extensions
+- **WHEN** the file extension is `.xlsx` or `.csv` (compared case-insensitively)
+- **THEN** the result is `"spreadsheet"`
 
 #### Scenario: EML extension
 - **WHEN** the file extension is `.eml`

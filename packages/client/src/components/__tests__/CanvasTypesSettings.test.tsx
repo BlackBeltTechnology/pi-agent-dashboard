@@ -5,7 +5,13 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { displayedCanvasTypes } from "../../lib/canvas-types-api.js";
+import { DEFAULT_CANVAS_TYPES } from "@blackbelt-technology/pi-dashboard-shared/canvas-types.js";
+import { NON_FALLBACK_KINDS } from "@blackbelt-technology/pi-dashboard-shared/renderer-by-ext.js";
 import { CanvasTypesSettingsSection } from "../CanvasTypesSettingsSection.js";
+
+// Derive expectations from the live kind union so new preview kinds
+// (docx/spreadsheet/email …) don't break these tests.
+const ALL_KINDS = [...NON_FALLBACK_KINDS].sort();
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch as unknown as typeof fetch;
@@ -47,7 +53,7 @@ describe("displayedCanvasTypes", () => {
 });
 
 describe("CanvasTypesSettingsSection", () => {
-  it("renders 8 checkboxes reflecting fetched global values", async () => {
+  it("renders checkboxes reflecting fetched global values", async () => {
     jsonOnce({
       global: { html: false },
       project: {},
@@ -63,17 +69,14 @@ describe("CanvasTypesSettingsSection", () => {
       expect((screen.getByTestId("canvas-type-html") as HTMLInputElement).checked).toBe(false);
     });
     expect((screen.getByTestId("canvas-type-markdown") as HTMLInputElement).checked).toBe(true);
-    // all 8 kinds present
-    for (const k of ["markdown", "asciidoc", "html", "pdf", "video", "audio", "image", "youtube"]) {
+    // every non-fallback kind present
+    for (const k of NON_FALLBACK_KINDS) {
       expect(screen.getByTestId(`canvas-type-${k}`)).toBeTruthy();
     }
   });
 
-  it("toggling a checkbox PATCHes the full 8-key map for the global scope", async () => {
-    const allOn = {
-      markdown: true, asciidoc: true, html: true, pdf: true,
-      video: true, audio: true, image: true, youtube: true,
-    };
+  it("toggling a checkbox PATCHes the full kind map for the global scope", async () => {
+    const allOn = { ...DEFAULT_CANVAS_TYPES };
     jsonOnce({ global: {}, project: {}, effective: allOn }); // initial GET
     jsonOnce({ global: { pdf: false }, project: {}, effective: { ...allOn, pdf: false } }); // PATCH
 
@@ -94,10 +97,8 @@ describe("CanvasTypesSettingsSection", () => {
     const body = JSON.parse(patchCall[1].body);
     expect(body.scope).toBe("global");
     expect(body.canvasTypes).toEqual({ ...allOn, pdf: false });
-    // full 8-key map
-    expect(Object.keys(body.canvasTypes).sort()).toEqual(
-      ["asciidoc", "audio", "html", "image", "markdown", "pdf", "video", "youtube"],
-    );
+    // full kind map (sized to the live union)
+    expect(Object.keys(body.canvasTypes).sort()).toEqual(ALL_KINDS);
   });
 
   it("disables project scope with a hint when no session selected", async () => {

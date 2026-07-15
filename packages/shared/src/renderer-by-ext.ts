@@ -12,24 +12,34 @@
 export type RendererKind =
   | "markdown"
   | "asciidoc"
+  | "docx"
+  | "spreadsheet"
   | "html"
   | "pdf"
   | "video"
   | "audio"
   | "image"
   | "youtube"
+  | "email"
   | "fallback";
 
-/** The 8 non-`fallback` renderer kinds — the canvas policy universe. */
+/**
+ * The non-`fallback` renderer kinds — the canvas policy universe. Grows as
+ * sibling preview changes add kinds (docx/spreadsheet via render-office-previews,
+ * email via add-eml-preview). `canvasTypes` is sized to this live union.
+ */
 export const NON_FALLBACK_KINDS: readonly Exclude<RendererKind, "fallback">[] = [
   "markdown",
   "asciidoc",
+  "docx",
+  "spreadsheet",
   "html",
   "pdf",
   "video",
   "audio",
   "image",
   "youtube",
+  "email",
 ];
 
 /** Lowercase extension (including leading dot) → renderer. */
@@ -38,6 +48,9 @@ export const RENDERER_BY_EXT: Record<string, RendererKind> = {
   ".markdown": "markdown",
   ".adoc": "asciidoc",
   ".asciidoc": "asciidoc",
+  ".docx": "docx",
+  ".xlsx": "spreadsheet",
+  ".csv": "spreadsheet",
   ".html": "html",
   ".htm": "html",
   ".pdf": "pdf",
@@ -55,6 +68,7 @@ export const RENDERER_BY_EXT: Record<string, RendererKind> = {
   ".gif": "image",
   ".svg": "image",
   ".webp": "image",
+  ".eml": "email",
 };
 
 /**

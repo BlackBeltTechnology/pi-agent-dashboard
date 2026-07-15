@@ -1,0 +1,37 @@
+From: Alice Example <alice@example.com>
+To: Bob Reviewer <bob@example.com>
+Subject: <img src=x onerror=alert(1)> Quarterly Report
+Date: Wed, 01 Jan 2025 12:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="RICH1"
+
+--RICH1
+Content-Type: text/html; charset=utf-8
+
+<style>.hero{background-image:url(cid:logo@x);height:20px}</style><h1>Quarterly Report</h1><div class="hero"></div><script>window.__EML_XSS__=1;document.title="pwned"</script><img src="cid:logo@x" alt="logo"><img src="https://tracker.example/pixel.gif" alt="tracker"><p>See attachments.</p>
+--RICH1
+Content-Type: image/png
+Content-Disposition: inline; filename="logo.png"
+Content-ID: <logo@x>
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFElEQVR4nGP8z8Dwn4EIwDiqkL4KAYU2BBpD3Q0vAAAAAElFTkSuQmCC
+--RICH1
+Content-Type: application/pdf; name="report.pdf"
+Content-Disposition: attachment; filename="report.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlwZS9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveFswIDAgMjAwIDIwMF0+PmVuZG9iagp4cmVmCjAgNAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1MiAwMDAwMCBuIAowMDAwMDAwMTAxIDAwMDAwIG4gCnRyYWlsZXI8PC9TaXplIDQvUm9vdCAxIDAgUj4+CnN0YXJ0eHJlZgoxNjQKJSVFT0YK
+--RICH1
+Content-Type: image/jpeg; name="photo.jpg"
+Content-Disposition: attachment; filename="photo.jpg"
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFElEQVR4nGP8z8Dwn4EIwDiqkL4KAYU2BBpD3Q0vAAAAAElFTkSuQmCC
+--RICH1
+Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document; name="notes.docx"
+Content-Disposition: attachment; filename="notes.docx"
+Content-Transfer-Encoding: base64
+
+UEsDBCBmYWtlIGRvY3ggemlw
+--RICH1--
