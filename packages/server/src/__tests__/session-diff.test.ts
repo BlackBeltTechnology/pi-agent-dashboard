@@ -6,8 +6,23 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", () => ({
   statusPorcelainOr: vi.fn(() => ""),
 }));
 vi.mock("../git-operations.js", () => ({ isGitRepo: vi.fn(() => true) }));
+vi.mock("node:fs", () => ({
+  existsSync: vi.fn(() => true),
+  readFileSync: vi.fn(() => Buffer.from("hello\nworld")),
+  statSync: vi.fn(() => ({ size: 10, mtimeMs: 0 })),
+}));
 
-import { extractFileChanges, gitNumstat, enrichWithGitDiff } from "../session-diff.js";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import {
+  extractFileChanges,
+  gitNumstat,
+  enrichWithGitDiff,
+  buildSessionDiff,
+  parsePorcelain,
+  bashOutputCandidates,
+  redactCommand,
+  extractBashWindows,
+} from "../session-diff.js";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { isGitRepo } from "../git-operations.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -238,5 +253,353 @@ describe("enrichWithGitDiff numstat counts", () => {
     expect(isRepo).toBe(false);
     expect(enrichedFiles).toEqual(files);
     expect(totalAdditions).toBeUndefined();
+  });
+});
+
+// ── detect-tool-created-files: detection / attribution / ownership ──────────
+
+function makeBash(command: string, timestamp: number, toolCallId = `b-${timestamp}`): DashboardEvent {
+  return makeEvent("tool_execution_start", timestamp, { toolName: "bash", toolCallId, args: { command } });
+}
+function makeBashEnd(timestamp: number, toolCallId: string): DashboardEvent {
+  return makeEvent("tool_execution_end", timestamp, { toolName: "bash", toolCallId, result: "" });
+}
+
+describe("parsePorcelain", () => {
+  const cwd = "/project";
+
+  it("C-unquotes quoted paths and resolves rename targets to normalizePath keys", () => {
+    const raw = `?? "dir with space/f.txt"\nR  old.ts -> new.ts\n`;
+    const { paths } = parsePorcelain(raw, cwd);
+    expect(paths.has("dir with space/f.txt")).toBe(true);
+    expect(paths.has("new.ts")).toBe(true);
+    expect(paths.has("old.ts")).toBe(false);
+  });
+
+  it("drops out-of-cwd and sibling-prefix entries", () => {
+    const raw = `?? ../sibling/x\n?? ../project-backup/y.ts\n M src/in.ts\n`;
+    const { paths } = parsePorcelain(raw, "/home/user/project");
+    // cwd-relative resolution: ../sibling and ../project-backup escape cwd
+    expect([...paths]).toEqual(["src/in.ts"]);
+  });
+
+  it("skips pure deletions", () => {
+    const { paths } = parsePorcelain(" D gone.ts\nD  staged-gone.ts\n?? kept.ts\n", cwd);
+    expect(paths.has("gone.ts")).toBe(false);
+    expect(paths.has("staged-gone.ts")).toBe(false);
+    expect(paths.has("kept.ts")).toBe(true);
+  });
+
+  it("drops node_modules / .git noise even when not gitignored", () => {
+    const raw = "?? node_modules/.cache/x.mjs\n?? .git/index.lock\n?? src/real.ts\n";
+    const { paths } = parsePorcelain(raw, cwd);
+    expect([...paths]).toEqual(["src/real.ts"]);
+  });
+});
+
+describe("bashOutputCandidates", () => {
+  it("parses redirects, -o/--output, and tee", () => {
+    expect(bashOutputCandidates("python b.py > notes.md")).toContain("notes.md");
+    expect(bashOutputCandidates("cat x >> log.txt")).toContain("log.txt");
+    expect(bashOutputCandidates('npx nano-banana "logo" --output logo.png')).toContain("logo.png");
+    expect(bashOutputCandidates("pandoc a.md -o out.docx")).toContain("out.docx");
+    expect(bashOutputCandidates("echo hi | tee saved.txt")).toContain("saved.txt");
+    expect(bashOutputCandidates("cmd --output=res.json")).toContain("res.json");
+  });
+});
+
+describe("redactCommand", () => {
+  it("strips secret shapes and caps length", () => {
+    const red = redactCommand("curl -u user:s3cr3tTOKEN https://x > dump.json");
+    expect(red).not.toContain("s3cr3tTOKEN");
+    expect(red.length).toBeLessThanOrEqual(120);
+  });
+});
+
+describe("extractBashWindows", () => {
+  it("pairs start/end by toolCallId and open windows use now", () => {
+    const events = [
+      makeBash("cmd", 100, "a"),
+      makeBashEnd(200, "a"),
+      makeBash("cmd2", 300, "b"), // no end
+    ];
+    const windows = extractBashWindows(events, 999);
+    expect(windows).toContainEqual({ start: 100, end: 200 });
+    expect(windows).toContainEqual({ start: 300, end: 999 });
+  });
+});
+
+describe("buildSessionDiff — detection (git)", () => {
+  const cwd = "/project";
+  beforeEach(() => {
+    vi.mocked(isGitRepo).mockReset().mockReturnValue(true);
+    vi.mocked(git.diffOr).mockReset().mockReturnValue("");
+    vi.mocked(git.numstatOr).mockReset().mockReturnValue("");
+    vi.mocked(git.statusPorcelainOr).mockReset().mockReturnValue("");
+    vi.mocked(existsSync).mockReset().mockReturnValue(true);
+    vi.mocked(readFileSync).mockReset().mockImplementation((_p: any, enc: any) =>
+      enc === "utf-8" ? "hello\nworld" : Buffer.from("hello\nworld"),
+    );
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 0 } as any);
+  });
+
+  it("D1 — tool-created file detected", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? out.docx\n");
+    const events = [makeBash("pandoc report.md -o out.docx", 1000)];
+    const { files } = buildSessionDiff(events, cwd);
+    const entry = files.find((f) => f.path === "out.docx");
+    expect(entry).toBeDefined();
+    expect(entry!.origin).toBe("tool");
+    expect(entry!.detectedVia).toBe("git-status");
+  });
+
+  it("D2 — mixed dedup, no ghost event", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const events = [makeToolStart("Write", { path: "a.ts", content: "x" }, 1000)];
+    const { files } = buildSessionDiff(events, cwd);
+    const entry = files.filter((f) => f.path === "a.ts");
+    expect(entry).toHaveLength(1);
+    expect(entry[0].origin).toBe("mixed");
+    expect(entry[0].changes).toHaveLength(1);
+    expect(entry[0].changes[0].type).toBe("write");
+    expect(entry[0].changes.some((c) => c.type === "tool")).toBe(false);
+  });
+
+  it("D3 — quoted + rename porcelain keys equal normalizePath keys and dedup", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(`?? "dir with space/f.txt"\nR  old.ts -> new.ts\n`);
+    const events = [
+      makeToolStart("Write", { path: "dir with space/f.txt", content: "x" }, 1000),
+      makeToolStart("Write", { path: "new.ts", content: "y" }, 1001),
+    ];
+    const { files } = buildSessionDiff(events, cwd);
+    expect(files.filter((f) => f.path === "dir with space/f.txt")).toHaveLength(1);
+    expect(files.filter((f) => f.path === "new.ts")).toHaveLength(1);
+  });
+
+  it("D3a — absolute-under-cwd yields relative key + dedups", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M src/foo.ts\n");
+    const events = [makeToolStart("Write", { path: `${cwd}/src/foo.ts`, content: "x" }, 1000)];
+    const { files } = buildSessionDiff(events, cwd);
+    const matches = files.filter((f) => f.path === "src/foo.ts");
+    expect(matches).toHaveLength(1);
+    expect(files.every((f) => !f.path.startsWith("/"))).toBe(true);
+  });
+
+  it("D3b — sibling-prefix directory not admitted", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? ../project-backup/x.ts\n");
+    const { files, otherChanges } = buildSessionDiff([], "/home/user/project");
+    const all = [...files, ...otherChanges];
+    expect(all.some((f) => f.path.includes("project-backup"))).toBe(false);
+  });
+
+  it("D4 — out-of-cwd porcelain entry excluded", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? ../sibling/x\n");
+    const { files, otherChanges } = buildSessionDiff([], cwd);
+    expect([...files, ...otherChanges].some((f) => f.path.endsWith("x"))).toBe(false);
+  });
+
+  it("D5 — gitignored excluded (not reported by porcelain)", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? kept.ts\n");
+    const { files, otherChanges } = buildSessionDiff([makeBash("echo x > kept.ts", 1)], cwd);
+    const all = [...files, ...otherChanges];
+    expect(all.some((f) => f.path === "build/artifact.js")).toBe(false);
+  });
+});
+
+describe("buildSessionDiff — attribution", () => {
+  const cwd = "/project";
+  beforeEach(() => {
+    vi.mocked(isGitRepo).mockReset().mockReturnValue(true);
+    vi.mocked(git.diffOr).mockReset().mockReturnValue("");
+    vi.mocked(git.numstatOr).mockReset().mockReturnValue("");
+    vi.mocked(git.statusPorcelainOr).mockReset().mockReturnValue("");
+    vi.mocked(existsSync).mockReset().mockReturnValue(true);
+    vi.mocked(readFileSync).mockReset().mockImplementation((_p: any, enc: any) =>
+      enc === "utf-8" ? "x" : Buffer.from("x"),
+    );
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 0 } as any);
+  });
+
+  it("A1 — attribution labels a detected file", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? logo.png\n");
+    const events = [makeBash('npx nano-banana "logo" --output logo.png', 1000)];
+    const { files } = buildSessionDiff(events, cwd);
+    const entry = files.find((f) => f.path === "logo.png");
+    expect(entry!.producedBy).toContain("nano-banana");
+    expect(entry!.detectedVia).toBe("git-status");
+  });
+
+  it("A2 — false-positive token adds/re-tags nothing", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("");
+    const events = [
+      makeBash("grep -o pattern src/index.ts", 1000),
+      makeToolStart("Write", { path: "src/index.ts", content: "x" }, 1001),
+    ];
+    const { files } = buildSessionDiff(events, cwd);
+    expect(files.some((f) => f.path === "pattern")).toBe(false);
+    const idx = files.find((f) => f.path === "src/index.ts");
+    expect(idx!.changes).toHaveLength(1);
+    expect(idx!.changes[0].type).toBe("write");
+  });
+
+  it("A3 — secret redaction on producedBy", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? dump.json\n");
+    const events = [makeBash("curl -u user:s3cr3tTOKEN https://x > dump.json", 1000)];
+    const { files } = buildSessionDiff(events, cwd);
+    const entry = files.find((f) => f.path === "dump.json");
+    expect(entry!.producedBy).toBeDefined();
+    expect(entry!.producedBy).not.toContain("s3cr3tTOKEN");
+    expect(entry!.producedBy!.length).toBeLessThanOrEqual(120);
+  });
+
+  it("A4 — collision resolves by timestamp, no throw", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? same.png\n");
+    const events = [
+      makeBash("echo one --output same.png", 1),
+      makeBash("echo two --output same.png", 2),
+    ];
+    const { files } = buildSessionDiff(events, cwd);
+    const entry = files.find((f) => f.path === "same.png");
+    expect(entry!.producedBy).toContain("two");
+  });
+});
+
+describe("buildSessionDiff — non-git detection", () => {
+  const cwd = "/project";
+  beforeEach(() => {
+    vi.mocked(isGitRepo).mockReset().mockReturnValue(false);
+    vi.mocked(existsSync).mockReset();
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 0 } as any);
+  });
+
+  it("N1 — non-git in-cwd tool file listed", () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    const events = [makeBash("python b.py > notes.md", 1000)];
+    const { files, isGitRepo: isRepo } = buildSessionDiff(events, cwd);
+    expect(isRepo).toBe(false);
+    const entry = files.find((f) => f.path === "notes.md");
+    expect(entry).toBeDefined();
+    expect(entry!.origin).toBe("tool");
+    expect(entry!.detectedVia).toBe("bash-artifact");
+  });
+
+  it("N2 — non-git out-of-cwd path not probed", () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    const events = [makeBash("gen --output /etc/shadow", 1000)];
+    const { files } = buildSessionDiff(events, cwd);
+    // The out-of-cwd path normalizes to null, so existsSync is never called on it.
+    const probed = vi.mocked(existsSync).mock.calls.map((c) => String(c[0]));
+    expect(probed.some((p) => p.includes("shadow"))).toBe(false);
+    expect(files.some((f) => f.path.includes("shadow"))).toBe(false);
+  });
+});
+
+describe("buildSessionDiff — binary / size / count safety", () => {
+  const cwd = "/project";
+  beforeEach(() => {
+    vi.mocked(isGitRepo).mockReset().mockReturnValue(true);
+    vi.mocked(git.diffOr).mockReset().mockReturnValue("");
+    vi.mocked(git.numstatOr).mockReset().mockReturnValue("");
+    vi.mocked(git.statusPorcelainOr).mockReset().mockReturnValue("");
+    vi.mocked(existsSync).mockReset().mockReturnValue(true);
+    vi.mocked(readFileSync).mockReset().mockImplementation((_p: any, enc: any) =>
+      enc === "utf-8" ? "hello\nworld" : Buffer.from("hello\nworld"),
+    );
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 0 } as any);
+  });
+
+  it("B1 — generated PNG not rendered as text diff", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? logo.png\n");
+    const events = [makeBash("gen --output logo.png", 1000)];
+    const { files } = buildSessionDiff(events, cwd);
+    const entry = files.find((f) => f.path === "logo.png");
+    expect(entry!.origin).toBe("tool");
+    expect(entry!.gitDiff).toBeUndefined();
+    // .png is binary by extension → no utf-8 read of the file.
+    const utf8Reads = vi.mocked(readFileSync).mock.calls.filter((c) => c[1] === "utf-8");
+    expect(utf8Reads).toHaveLength(0);
+  });
+
+  it("B2 — synthetic-diff size cap (256 KB)", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? big.txt\n");
+    const events = [makeBash("gen --output big.txt", 1000)];
+
+    vi.mocked(statSync).mockReturnValue({ size: 256 * 1024 - 1, mtimeMs: 0 } as any);
+    const under = buildSessionDiff(events, cwd).files.find((f) => f.path === "big.txt");
+    expect(under!.gitDiff).toBeDefined();
+
+    vi.mocked(statSync).mockReturnValue({ size: 256 * 1024 + 1, mtimeMs: 0 } as any);
+    const over = buildSessionDiff(events, cwd).files.find((f) => f.path === "big.txt");
+    expect(over!.gitDiff).toBeUndefined();
+  });
+
+  it("B3 — file-count cap (200)", () => {
+    const porcelain = Array.from({ length: 200 }, (_, i) => `?? f${i}.txt`).join("\n");
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(`${porcelain}\n`);
+    // A Bash window covering all files' mtime makes the 200 detector-only owned.
+    vi.mocked(statSync).mockReturnValue({ size: 10, mtimeMs: 150 } as any);
+    const events = [
+      makeToolStart("Write", { path: "main.ts", content: "x" }, 100),
+      makeBash("build", 100, "w"),
+      makeBashEnd(200, "w"),
+    ];
+    const { files } = buildSessionDiff(events, cwd);
+    expect(files).toHaveLength(200);
+    expect(files.some((f) => f.path === "main.ts")).toBe(true);
+  });
+});
+
+describe("buildSessionDiff — ownership gate", () => {
+  const cwd = "/project";
+  beforeEach(() => {
+    vi.mocked(isGitRepo).mockReset().mockReturnValue(true);
+    vi.mocked(git.diffOr).mockReset().mockReturnValue("");
+    vi.mocked(git.numstatOr).mockReset().mockReturnValue("");
+    vi.mocked(git.statusPorcelainOr).mockReset().mockReturnValue("");
+    vi.mocked(existsSync).mockReset().mockReturnValue(true);
+    vi.mocked(readFileSync).mockReset().mockImplementation((_p: any, enc: any) =>
+      enc === "utf-8" ? "x" : Buffer.from("x"),
+    );
+  });
+
+  it("O1 — mtime-in-window file is owned", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? out.pdf\n");
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 150 } as any);
+    const events = [makeBash("pandoc convert", 100, "w"), makeBashEnd(200, "w")];
+    const { files, otherChanges } = buildSessionDiff(events, cwd);
+    const entry = files.find((f) => f.path === "out.pdf");
+    expect(entry).toBeDefined();
+    expect(entry!.sessionOwned).toBe(true);
+    expect(otherChanges.some((f) => f.path === "out.pdf")).toBe(false);
+  });
+
+  it("O2 — other-session file diverted (no evidence)", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? stray.ts\n");
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 5000 } as any);
+    const { files, otherChanges } = buildSessionDiff([], cwd);
+    expect(files.some((f) => f.path === "stray.ts")).toBe(false);
+    expect(otherChanges.some((f) => f.path === "stray.ts")).toBe(true);
+  });
+
+  it("O3 — formatter-bump outside any window not claimed", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? fmt.ts\n");
+    // mtime is AFTER the window end + slack → not owned.
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 100000 } as any);
+    const events = [makeBash("lint", 100, "w"), makeBashEnd(200, "w")];
+    const { files, otherChanges } = buildSessionDiff(events, cwd);
+    expect(files.some((f) => f.path === "fmt.ts")).toBe(false);
+    expect(otherChanges.some((f) => f.path === "fmt.ts")).toBe(true);
+  });
+});
+
+describe("buildSessionDiff — degradation", () => {
+  const cwd = "/project";
+  it("G1 — git absent, still returns Write/Edit entries", () => {
+    vi.mocked(isGitRepo).mockReset().mockReturnValue(false);
+    const events = [makeToolStart("Write", { path: "src/a.ts", content: "x" }, 1000)];
+    const { files, isGitRepo: isRepo, otherChanges } = buildSessionDiff(events, cwd);
+    expect(isRepo).toBe(false);
+    expect(files.some((f) => f.path === "src/a.ts")).toBe(true);
+    expect(otherChanges).toEqual([]);
   });
 });

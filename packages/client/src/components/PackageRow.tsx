@@ -18,6 +18,7 @@ import {
 	mdiDotsVertical,
 	mdiInformationOutline,
 	mdiLoading,
+	mdiRestore,
 	mdiSwapHorizontal,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -53,6 +54,18 @@ export interface PackageRowProps {
 	onUninstall?: () => void;
 	onViewReadme?: () => void;
 	onReset?: () => void;
+	/**
+	 * Canonical published spec (`npm:<name>` / git URL) this row can reset TO.
+	 * When set (with `onResetToNpm`), the row renders a second source line
+	 * (published link + available version) and both an inline ↺ Reset to npm
+	 * and a ⋮-menu "Reset to published version" item. Distinct from the generic
+	 * `onReset` ("Reset (reinstall)"). See change: reset-override-to-npm.
+	 */
+	publishedVariantSource?: string;
+	/** Available version of `publishedVariantSource`, shown as "<v> available". */
+	publishedVariantVersion?: string;
+	/** Fires AFTER the user confirms the reset dialog. */
+	onResetToNpm?: () => void;
 	/**
 	 * Move → button. Caller supplies the destination scope this row
 	 * should offer; the button label is computed from `currentScope`.
@@ -126,6 +139,9 @@ export function PackageRow({
 	onUninstall,
 	onViewReadme,
 	onReset,
+	publishedVariantSource,
+	publishedVariantVersion,
+	onResetToNpm,
 	onMove,
 	currentScope,
 	moveDestinationScope,
@@ -136,6 +152,8 @@ export function PackageRow({
 	testId,
 }: PackageRowProps) {
 	const [menuOpen, setMenuOpen] = useState(false);
+	const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+	const canResetToNpm = !!publishedVariantSource && !!onResetToNpm;
 	const menuRef = useRef<HTMLDivElement | null>(null);
 	const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const { flipUp: menuFlipUp, maxHeight: menuMaxHeight } = usePopoverFlip(menuTriggerRef, { open: menuOpen });
@@ -156,7 +174,7 @@ export function PackageRow({
 	const moveLabel = `Move → ${destScope === "global" ? "Global" : "Local"}`;
 
 	const hasMenu =
-		(canUninstall && !!onUninstall) || !!onViewReadme || !!onReset || showMove;
+		(canUninstall && !!onUninstall) || !!onViewReadme || !!onReset || showMove || canResetToNpm;
 
 	return (
 		<div
@@ -186,6 +204,30 @@ export function PackageRow({
 						)}
 					</div>
 					<code className="text-[10px] text-[var(--text-muted)] font-mono break-all">{source}</code>
+					{canResetToNpm && (
+						<div
+							className="flex items-center gap-1.5 mt-0.5"
+							data-testid={testId ? `${testId}-published-variant` : undefined}
+						>
+							<code className="text-[10px] text-[var(--text-secondary)] font-mono break-all">
+								{publishedVariantSource}
+							</code>
+							{publishedVariantVersion && (
+								<span className="text-[10px] text-[var(--text-muted)]">
+									{publishedVariantVersion} {i18nT("packages.available", undefined, "available")}
+								</span>
+							)}
+							<button
+								onClick={() => setResetConfirmOpen(true)}
+								disabled={busy}
+								className="text-[10px] text-[var(--accent-primary)] hover:underline disabled:opacity-50 flex items-center gap-0.5"
+								data-testid={testId ? `${testId}-reset-inline` : undefined}
+							>
+								<Icon path={mdiRestore} size={0.4} />
+								{i18nT("packages.resetToNpm", undefined, "Reset to npm")}
+							</button>
+						</div>
+					)}
 				</div>
 				<div className="flex items-center gap-2 flex-shrink-0">
 					{updateAvailable && currentVersion && latestVersion ? (
@@ -278,6 +320,17 @@ export function PackageRow({
 											{i18nT("common.viewReadme", undefined, "View README")}
 										</button>
 									)}
+									{canResetToNpm && (
+										<button
+											className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+											disabled={busy}
+											onClick={() => { setMenuOpen(false); setResetConfirmOpen(true); }}
+											data-testid={testId ? `${testId}-reset-to-published` : undefined}
+										>
+											<Icon path={mdiRestore} size={0.45} />
+											{i18nT("packages.resetToPublished", undefined, "Reset to published version")}
+										</button>
+									)}
 									{onReset && (
 										<button
 											className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
@@ -309,6 +362,41 @@ export function PackageRow({
 				<div className="text-[10px] text-red-400 mt-0.5 flex items-start gap-1">
 					<Icon path={mdiAlertCircle} size={0.4} className="flex-shrink-0 mt-0.5" />
 					<span>{error}</span>
+				</div>
+			)}
+			{resetConfirmOpen && canResetToNpm && (
+				<div
+					className="mt-1 px-2 py-1.5 rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[11px]"
+					data-testid={testId ? `${testId}-reset-confirm` : undefined}
+				>
+					<div className="text-[var(--text-primary)] mb-1">
+						{i18nT(
+							"packages.resetConfirmBody",
+							undefined,
+							"This discards your local checkout link and installs the published version. Your working-tree files are not deleted \u2014 only the packages[] link is removed. The published version installs first.",
+						)}
+					</div>
+					<div className="font-mono text-[10px] text-[var(--text-muted)] mb-2 break-all">
+						<span className="text-red-400">{source}</span>
+						{" \u2192 "}
+						<span className="text-[var(--accent-primary)]">{publishedVariantSource}</span>
+					</div>
+					<div className="flex items-center gap-2 justify-end">
+						<button
+							onClick={() => setResetConfirmOpen(false)}
+							className="px-2 py-0.5 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+							data-testid={testId ? `${testId}-reset-confirm-cancel` : undefined}
+						>
+							{i18nT("common.cancel", undefined, "Cancel")}
+						</button>
+						<button
+							onClick={() => { setResetConfirmOpen(false); onResetToNpm?.(); }}
+							className="px-2 py-0.5 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30"
+							data-testid={testId ? `${testId}-reset-confirm-accept` : undefined}
+						>
+							{i18nT("packages.resetToNpm", undefined, "Reset to npm")}
+						</button>
+					</div>
 				</div>
 			)}
 		</div>

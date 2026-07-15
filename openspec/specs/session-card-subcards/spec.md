@@ -48,121 +48,38 @@ The previous `WORKSPACE` subcard SHALL be removed and replaced by two sibling su
 - **THEN** no element with title text `WORKSPACE` SHALL appear in the rendered DOM
 
 ### Requirement: Subcards hide when their content is empty
+
 Each subcard's content SHALL be wrapped in the existing prop guards. When a guard yields no element, the corresponding `SessionSubcard` SHALL render nothing (no panel, no title).
 
-| Subcard | Renders only when |
-|---|---|
-| OPENSPEC | `openspecChanges && onSendPrompt && onAttachProposal && onDetachProposal` AND `SessionOpenSpecActions` produces output (attached proposal OR available changes OR phase) AND the dashboard `openspec.enabled` config is `true` AND the per-cwd `OpenSpecData` indicates the directory is OpenSpec-applicable (`hasOpenspecDir === true` OR `pending === true`) |
-| GIT | `showGitInfo === true` OR `session.gitWorktree` is set |
-| STATUS | A plugin contributes to the `session-card-badge` slot whose `shouldRender` (if declared) returns `true` for the session |
-| PROCESS | `processes && processes.length > 0 && onKillProcess` |
-| FLOWS | A plugin contributes to the `session-card-flows` slot whose `shouldRender` (if declared) returns `true` for the session. Claims without a `shouldRender` declaration are treated as always rendering. |
-| MEMORY | A plugin contributes to the `session-card-memory` slot whose `shouldRender` (if declared) returns `true` for the session. Claims without a `shouldRender` declaration are treated as always rendering. |
+For MEMORY, WORKSPACE, and FLOWS, the wrapper's visibility is governed by the `shouldRender` claim field (see `dashboard-plugin-loader` capability). The wrapper SHALL hide when EITHER no plugin claims the slot OR every claim has `shouldRender(session) === false`. A plugin that registers a claim whose component conditionally returns `null` SHALL declare a `shouldRender` **whose boolean condition matches the claim component's own render/skip condition**, so the wrapper never renders an empty panel.
 
-The new OPENSPEC sub-conditions distinguish *"feature applicable, nothing happening yet"* (still show the attach/init CTA) from *"feature not applicable here"* (hide entirely). The visibility signal is `OpenSpecData.hasOpenspecDir`:
-
-- `openspec.enabled === false` means the user has globally disabled OpenSpec in settings — server broadcasts `hasOpenspecDir: false` for every cwd — hide.
-- `OpenSpecData.hasOpenspecDir === false && pending === false` means the server has confirmed there is no `openspec/` directory in the session's `cwd` — hide.
-- `OpenSpecData.pending === true` means the server is still polling — show.
-- `OpenSpecData.hasOpenspecDir === true && initialized === false` means the project is OpenSpec-initialized (`openspec/` directory exists) but no `openspec/changes/` subdir yet (no proposals authored) — show (init/attach CTA).
-- `OpenSpecData.initialized === true` means full poll returned data — show.
-
-The `hasOpenspecDir` field is strictly weaker than `initialized`: `initialized === true` implies `hasOpenspecDir === true`, but `hasOpenspecDir === true` does NOT imply `initialized === true` (the `openspec/changes/` subdir may not exist yet). The session-card visibility gate consults `hasOpenspecDir` (not `initialized`) so freshly-initialized OpenSpec projects without proposals still surface the OPENSPEC subcard.
-
-For MEMORY, STATUS, and FLOWS, the wrapper's visibility is now governed by the new `shouldRender` claim field (see `dashboard-plugin-loader` capability). The wrapper SHALL hide when EITHER no plugin claims the slot OR every claim has `shouldRender(session) === false`. A plugin that registers a claim whose component conditionally returns `null` SHALL declare a `shouldRender` so the wrapper does not render an empty panel.
-
-The OPENSPEC subcard SHALL receive enough information to evaluate `OpenSpecData.hasOpenspecDir`, `OpenSpecData.initialized`, and `OpenSpecData.pending`. The exact prop shape is left to implementation; either passing `openspecData?: OpenSpecData` in place of `openspecChanges?: OpenSpecChange[]`, or passing sibling props `openspecHasDir?: boolean`, `openspecInitialized?: boolean`, `openspecPending?: boolean` alongside `openspecChanges` is acceptable. Existing callers without the new signal SHALL behave as if the directory is OpenSpec-applicable (preserve current visibility) until the parent is updated.
-
-The GIT subcard's predicate is strictly git-scoped: it SHALL NOT consider plugin slot claims. The STATUS subcard's predicate is strictly plugin-scoped (it consults `session-card-badge` slot claims): it SHALL NOT consider `showGitInfo` or `session.gitWorktree`. Both subcards SHALL render independently — when both a git signal and a `session-card-badge` claim are present, both subcards SHALL appear; with only a git signal, only `GIT`; with only a `session-card-badge` claim, only `STATUS`; in neither, both hide.
-
-#### Scenario: Git signal and badge claim show both GIT and STATUS subcards
-- **WHEN** a desktop session card is rendered with `showGitInfo === true` AND a plugin claims `session-card-badge` matching the session
-- **THEN** the rendered DOM SHALL contain a `GIT` titled subcard
-- **AND** the rendered DOM SHALL contain a `STATUS` titled subcard
-- **AND** `GIT` SHALL appear before `STATUS` in document order
-
-#### Scenario: Pure-git repo shows only GIT subcard
-- **WHEN** a desktop session card is rendered with `showGitInfo === true` AND no plugin claims `session-card-badge` for the session
-- **THEN** the rendered DOM SHALL contain a `GIT` titled subcard
-- **AND** the rendered DOM SHALL NOT contain a `STATUS` titled subcard
-
-#### Scenario: Badge claim only shows only STATUS subcard
-- **WHEN** a desktop session card is rendered with `showGitInfo === false` AND `session.gitWorktree` is undefined AND a plugin claims `session-card-badge` matching the session
-- **THEN** the rendered DOM SHALL NOT contain a `GIT` titled subcard
-- **AND** the rendered DOM SHALL contain a `STATUS` titled subcard
-
-#### Scenario: Neither git signal nor badge claim — both hide
-- **WHEN** a desktop session card is rendered with `showGitInfo === false`, `session.gitWorktree` undefined, AND no plugin claims `session-card-badge`
-- **THEN** the rendered DOM SHALL NOT contain a `GIT` titled subcard
-- **AND** the rendered DOM SHALL NOT contain a `STATUS` titled subcard
+For the FLOWS subcard specifically, the `session-card-flows` claim (`SessionFlowActionsClaim`) returns `null` when the session has zero flows AND edit mode is off AND no flow is running or has run. Its `shouldRender` predicate (`shouldRenderFlowsSubcard`) SHALL therefore return `true` **iff at least one of**: the session's `flowsList` is non-empty, the flows plugin's edit mode (`editFlow`) is on, or the session has at least one flow event. The predicate SHALL NOT open on mere pi-flows extension presence (existence of a `flows` / `flows:*` command) when none of those conditions hold.
 
 #### Scenario: Empty PROCESS subcard is hidden
+
 - **WHEN** a desktop session card is rendered with `processes={[]}`
 - **THEN** no element with title text `PROCESS` SHALL appear
 
-#### Scenario: Empty MEMORY subcard is hidden when no plugin claims slot
-- **WHEN** a desktop session card is rendered and no plugin has registered a `session-card-memory` claim
-- **THEN** no element with title text `MEMORY` SHALL appear
+#### Scenario: FLOWS subcard hidden when extension loaded but nothing actionable
 
-#### Scenario: Empty MEMORY subcard is hidden when all claims' `shouldRender` returns false
-- **WHEN** a desktop session card is rendered and at least one plugin claims `session-card-memory`
-- **AND** every such claim declares a `shouldRender(session)` that returns `false`
-- **THEN** no element with title text `MEMORY` SHALL appear
-
-#### Scenario: MEMORY subcard appears when at least one claim's `shouldRender` returns true
-- **WHEN** at least one `session-card-memory` claim's `shouldRender(session)` returns `true` (or the claim has no `shouldRender` declared)
-- **THEN** an element with title text `MEMORY` SHALL appear
-- **AND** only the claims whose `shouldRender` returned `true` (or which have no `shouldRender`) SHALL be mounted inside it
-
-#### Scenario: Empty FLOWS subcard is hidden when no plugin claims slot
-- **WHEN** a desktop session card is rendered and no plugin has registered a `session-card-flows` claim
+- **WHEN** a desktop session card is rendered for a session whose cwd has the pi-flows extension loaded (a `flows` command is present)
+- **AND** the session's `flowsList` is empty
+- **AND** the flows plugin edit mode (`editFlow`) is off
+- **AND** the session has no flow event (no flow running or previously run)
 - **THEN** no element with title text `FLOWS` SHALL appear
+- **AND** no empty flows panel SHALL be rendered
 
-#### Scenario: Empty FLOWS subcard is hidden when all claims' `shouldRender` returns false
-- **WHEN** a desktop session card is rendered and at least one plugin claims `session-card-flows`
-- **AND** every such claim declares a `shouldRender(session)` that returns `false`
-- **THEN** no element with title text `FLOWS` SHALL appear
+#### Scenario: FLOWS subcard appears in edit mode with zero flows
 
-#### Scenario: FLOWS subcard appears when at least one claim's `shouldRender` returns true
-- **WHEN** at least one `session-card-flows` claim's `shouldRender(session)` returns `true` (or the claim has no `shouldRender` declared)
+- **WHEN** a desktop session card is rendered for a session with an empty `flowsList`
+- **AND** the flows plugin edit mode (`editFlow`) is on
+- **THEN** an element with title text `FLOWS` SHALL appear (the author-first / New-Edit entry point)
+
+#### Scenario: FLOWS subcard appears when a flow has run with zero listed flows
+
+- **WHEN** a desktop session card is rendered for a session with an empty `flowsList` and edit mode off
+- **AND** the session has at least one flow event (a flow ran or is running)
 - **THEN** an element with title text `FLOWS` SHALL appear
-- **AND** only the claims whose `shouldRender` returned `true` (or which have no `shouldRender`) SHALL be mounted inside it
-
-#### Scenario: Empty OPENSPEC subcard is hidden when handlers absent
-- **WHEN** a desktop session card is rendered without `openspecChanges` or `onAttachProposal`
-- **THEN** no element with title text `OPENSPEC` SHALL appear
-
-#### Scenario: OPENSPEC subcard hides when global openspec.enabled is false
-- **WHEN** a desktop session card is rendered for a session whose cwd has an `openspec/` directory (`OpenSpecData.initialized === true`)
-- **AND** `DashboardConfig.openspec.enabled` is `false`
-- **THEN** no element with title text `OPENSPEC` SHALL appear
-
-#### Scenario: OPENSPEC subcard hides when cwd has no openspec directory
-- **WHEN** a desktop session card is rendered for a session whose `OpenSpecData` is `{ initialized: false, pending: false, hasOpenspecDir: false, changes: [] }`
-- **AND** `DashboardConfig.openspec.enabled` is `true`
-- **THEN** no element with title text `OPENSPEC` SHALL appear
-
-#### Scenario: OPENSPEC subcard shows when openspec/ exists but openspec/changes/ does not (fresh init)
-- **WHEN** a desktop session card is rendered for a session whose `OpenSpecData` is `{ initialized: false, pending: false, hasOpenspecDir: true, changes: [] }` (typical of a project where `openspec init` was run but no proposals have been authored)
-- **AND** `DashboardConfig.openspec.enabled` is `true`
-- **THEN** an element with title text `OPENSPEC` SHALL appear (init/attach CTA)
-
-#### Scenario: OPENSPEC subcard shows during initial poll (pending state)
-- **WHEN** a desktop session card is rendered for a session whose `OpenSpecData.pending` is `true`
-- **AND** `DashboardConfig.openspec.enabled` is `true`
-- **THEN** an element with title text `OPENSPEC` SHALL appear
-
-#### Scenario: OPENSPEC subcard shows when openspec/ exists but no proposal attached
-- **WHEN** a desktop session card is rendered for a session whose cwd has an `openspec/` directory (`OpenSpecData.initialized === true`)
-- **AND** `session.openspecChange` is null and `openspecChanges` is empty
-- **AND** `DashboardConfig.openspec.enabled` is `true`
-- **THEN** an element with title text `OPENSPEC` SHALL appear (preserving the attach/init CTA affordance)
-
-#### Scenario: Old client without initialized signal preserves current visibility
-- **WHEN** a desktop session card is rendered without an `openspecData` / `openspecInitialized` prop being passed by the parent
-- **AND** `DashboardConfig.openspec.enabled` is `true`
-- **AND** the existing prop guard (`openspecChanges && onSendPrompt && onAttachProposal && onDetachProposal`) passes
-- **THEN** the OPENSPEC subcard SHALL render (do not regress existing call sites that have not yet been migrated)
 
 ### Requirement: New plugin slot `session-card-flows` is reserved and consumed by FLOWS subcard
 A new dashboard plugin slot identifier `session-card-flows` SHALL be added to `SLOT_DEFINITIONS` in `packages/shared/src/dashboard-plugin/slot-types.ts`. Multiplicity SHALL be `many`. Payload tier SHALL be `react-only` (matching `session-card-action-bar` and `session-card-memory`). The slot SHALL render its claims inside the FLOWS subcard. When no plugin claims the slot, the subcard renders nothing.
@@ -334,28 +251,32 @@ The session card SHALL disable its resume button and show tooltip "session's dir
 - **AND** the tooltip SHALL read "session's directory no longer exists"
 
 ### Requirement: PROCESS subcard composition
-The PROCESS subcard SHALL render two stacked surfaces in order: `<SessionActivityBar />` above `<BackgroundProcessesDrawer />`. The subcard SHALL be hidden when both surfaces have nothing to render.
+The PROCESS subcard SHALL present its in-flight bash activity and background-process inventory through a single collapsible summary line of fixed height, so that starting or finishing a tool does not change the subcard's collapsed height. The subcard SHALL NOT render a variable stack of always-open rows whose count changes the card height.
 
-#### Scenario: Both surfaces empty hides subcard
-- **GIVEN** the activity bar has zero in-flight bash tools AND the drawer receives zero processes
-- **WHEN** the session card renders
-- **THEN** the PROCESS subcard SHALL NOT render (zero DOM nodes for that section)
+The subcard's presence at idle SHALL be governed by the `reserveProcessLineAtIdle` display preference (effective value from `useDisplayPrefs(session.id)`).
 
-#### Scenario: Only activity bar non-empty
-- **GIVEN** the activity bar has 1 in-flight bash tool AND the drawer receives zero processes
-- **WHEN** the session card renders
-- **THEN** the PROCESS subcard SHALL render with the activity bar visible and the drawer absent
+#### Scenario: Collapsed height invariant across tool count
+- **GIVEN** the PROCESS summary line is collapsed
+- **WHEN** the number of in-flight bash tools changes between 0, 1, and 3
+- **THEN** the collapsed subcard height SHALL remain unchanged
 
-#### Scenario: Only drawer non-empty (pure-orphan)
-- **GIVEN** the activity bar has zero in-flight bash tools AND the drawer receives 2 processes
-- **WHEN** the session card renders
-- **THEN** the PROCESS subcard SHALL render with the activity bar absent and the drawer visible and expanded by default
+#### Scenario: Idle with reservation off hides the subcard
+- **GIVEN** no in-flight bash tools and no background processes
+- **AND** effective `reserveProcessLineAtIdle` is `false`
+- **WHEN** the PROCESS subcard renders
+- **THEN** it SHALL render nothing (returns null)
 
-#### Scenario: Both surfaces non-empty
-- **GIVEN** the activity bar has 1 in-flight bash tool AND the drawer receives 2 processes
-- **WHEN** the session card renders
-- **THEN** the PROCESS subcard SHALL render with the activity bar above and the drawer below
-- **AND** the drawer SHALL be collapsed by default
+#### Scenario: Idle with reservation on shows one reserved line
+- **GIVEN** no in-flight bash tools and no background processes
+- **AND** effective `reserveProcessLineAtIdle` is `true`
+- **WHEN** the PROCESS subcard renders
+- **THEN** it SHALL render exactly one reserved summary line with an idle indicator
+
+#### Scenario: Expanding reveals the full body
+- **GIVEN** the collapsed summary line with one or more in-flight bash tools and/or background processes
+- **WHEN** the user activates (clicks) the summary line
+- **THEN** it SHALL expand in place to show every in-flight bash row followed by every background-process row
+- **AND** the expand/collapse state SHALL persist per session via the existing process-drawer collapse persistence
 
 ### Requirement: Per-session drawer toggle state
 The session card SHALL own per-session client state for the drawer's user-overridden expansion. The override SHALL persist for the lifetime of the client session and SHALL take precedence over the contextual default.

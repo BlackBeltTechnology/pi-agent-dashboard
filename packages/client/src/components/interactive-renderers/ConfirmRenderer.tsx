@@ -31,6 +31,9 @@ export function ConfirmRenderer({ params, status, result, onRespond, onCancel }:
           <Icon path={mdiShieldAlert} size={0.55} className="text-[var(--text-secondary)] shrink-0" />
           <span className="text-[var(--text-primary)] font-medium"><InlineMarkdown content={title} /></span>
         </div>
+        {message && (
+          <div className="text-xs text-[var(--text-secondary)] mb-2 ml-6"><MarkdownContent content={message} /></div>
+        )}
         <div className="flex gap-2 ml-6">
           <AnsweredOption title={i18nT("common.yes", undefined, "Yes")} picked={!!confirmed} />
           <AnsweredOption title={i18nT("common.no", undefined, "No")} picked={!confirmed} />

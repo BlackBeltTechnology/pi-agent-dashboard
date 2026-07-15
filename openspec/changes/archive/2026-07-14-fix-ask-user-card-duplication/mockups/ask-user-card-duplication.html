@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ask_user de-duplication — mockups</title>
+<style>
+  :root{
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+    --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --blue:#60a5fa; --green:#4ade80; --yellow:#facc15; --red:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg-primary);color:var(--text-secondary);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:32px}
+  h1{color:var(--text-primary);font-size:20px;margin:0 0 4px}
+  .sub{color:var(--text-tertiary);font-size:13px;margin:0 0 8px;max-width:900px}
+  .sub b{color:var(--text-secondary)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:24px;max-width:1240px;margin-top:20px}
+  .col{background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:12px;padding:18px}
+  .col h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;margin:0 0 4px;color:var(--text-primary)}
+  .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;margin-bottom:14px}
+  .bad{color:var(--red);background:rgba(248,113,113,.12)}
+  .good{color:var(--green);background:rgba(74,222,128,.12)}
+  .note{font-size:12px;color:var(--text-tertiary);margin:14px 0 0;padding-top:12px;border-top:1px solid var(--border-subtle)}
+  .note b{color:var(--text-secondary)}
+  .mark{position:relative}
+  .mark-title{outline:2px dashed var(--red);outline-offset:2px;border-radius:4px}
+  .mark-desc{outline:2px dashed var(--yellow);outline-offset:2px;border-radius:4px}
+  .lg{position:relative;display:flex;gap:16px;font-size:11px;margin:6px 0 0}
+  .lg span{display:inline-flex;align-items:center;gap:5px}
+  .sw{width:12px;height:12px;border:2px dashed;border-radius:3px}
+  .sw.r{border-color:var(--red)} .sw.y{border-color:var(--yellow)}
+
+  .assistant{color:var(--text-secondary);font-size:13px;margin:0 0 12px}
+  .stagelabel{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin:14px 0 6px}
+  .stagelabel:first-of-type{margin-top:0}
+  .arrow{color:var(--text-tertiary);font-size:11px;text-align:center;margin:8px 0}
+
+  /* tool card */
+  .toolcard{border:1px solid var(--border-secondary);border-radius:10px;background:var(--bg-primary);padding:12px 14px;margin:0 0 10px}
+  .toolhead{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-tertiary);margin-bottom:8px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--blue);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(96,165,250,.5)}70%{box-shadow:0 0 0 6px rgba(96,165,250,0)}100%{box-shadow:0 0 0 0 rgba(96,165,250,0)}}
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--blue);margin-bottom:8px}
+  .badge svg{width:14px;height:14px}
+  .title{font-size:14px;color:var(--text-primary);margin-bottom:8px}
+  .desc{font-size:13px;color:var(--text-secondary);line-height:1.5}
+
+  /* interactive dialog */
+  .dialog{margin:8px 0;padding:14px;background:var(--bg-hover);border:1px solid var(--border-secondary);border-radius:12px}
+  .dtitle{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:10px}
+  .dtitle svg{width:16px;height:16px;color:var(--yellow)}
+  .dmsg{font-size:13px;color:var(--text-secondary);margin:0 0 12px 24px}
+  .ansrow{display:flex;gap:10px;margin-left:24px}
+  .ans{display:inline-flex;align-items:center;gap:8px;font-size:13px;padding:6px 14px;border-radius:8px}
+  .ans .box{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;font-size:12px}
+  .ans.pick{border:1px solid rgba(74,222,128,.4);background:rgba(74,222,128,.1);color:var(--text-primary)}
+  .ans.pick .box{background:var(--green);color:#06210f}
+  .ans.skip{color:var(--text-tertiary)}
+  .ans.skip .box{border:1.5px solid var(--border-secondary)}
+  /* live buttons */
+  button.opt{font-size:13px;padding:7px 16px;border-radius:8px;border:none;cursor:pointer;color:#fff}
+  .yes{background:#16a34a}.no{background:#dc2626}
+  .cancelb{background:transparent;color:var(--text-tertiary);border:1px solid var(--border-secondary)!important}
+
+  .summary{border:1px solid var(--border-secondary);border-radius:10px;background:var(--bg-primary);padding:11px 14px}
+</style>
+</head>
+<body>
+<h1>ask_user — one card, description preserved</h1>
+<p class="sub">Real capture: a live <code>ask_user{method:"confirm"}</code> paints <b>two</b> stacked cards. The <b style="color:var(--red)">title is duplicated</b> across both. The <b style="color:var(--yellow)">description only exists on the tool card</b> — the dialog card never renders <code>message</code>. So we can't just hide the tool card, or the description vanishes.</p>
+<div class="lg">
+  <span><span class="sw r"></span> title — shown twice</span>
+  <span><span class="sw y"></span> description — only on tool card, lost if hidden</span>
+</div>
+
+<div class="grid">
+
+  <!-- CURRENT -->
+  <div class="col">
+    <h2>Current (the screenshot)</h2>
+    <span class="tag bad">two cards · title ×2 · desc stranded</span>
+
+    <div class="assistant">I'll commit just this file.</div>
+
+    <!-- tool card: badge + title + description -->
+    <div class="toolcard">
+      <div class="toolhead"><span class="dot"></span> ask_user · running</div>
+      <div class="badge">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4l3 3 3-3h4a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Z"/></svg>
+        Confirm
+      </div>
+      <div class="title mark mark-title">Commit the AGENTS.md .mov doc-sync?</div>
+      <div class="desc mark mark-desc">The video-transcription src/AGENTS.md edit correctly documents .mov support (already shipped in source via commit 4dbdc8d17). I'll commit just this file. Choose No if you'd rather I revert/discard it instead.</div>
+    </div>
+
+    <!-- dialog: title + answer widget, NO description -->
+    <div class="dialog">
+      <div class="dtitle mark mark-title">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 1 21h22L12 2Zm0 15h-.01M12 9v4"/></svg>
+        Commit the AGENTS.md .mov doc-sync?
+      </div>
+      <div class="ansrow">
+        <span class="ans pick"><span class="box">✔</span>Yes</span>
+        <span class="ans skip"><span class="box"></span>No</span>
+      </div>
+    </div>
+
+    <p class="note"><b>Two problems:</b> the title repeats (red), and the description (yellow) lives only on the top card — the answer card can't show it.</p>
+  </div>
+
+  <!-- PROPOSED A -->
+  <div class="col">
+    <h2>Proposed · A — dialog owns it, gains the description</h2>
+    <span class="tag good">hide tool card · move desc into dialog</span>
+
+    <div class="assistant">I'll commit just this file.</div>
+
+    <div class="stagelabel">While waiting</div>
+    <div class="dialog">
+      <div class="dtitle">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 1 21h22L12 2Zm0 15h-.01M12 9v4"/></svg>
+        Commit the AGENTS.md .mov doc-sync?
+      </div>
+      <div class="dmsg">The video-transcription src/AGENTS.md edit correctly documents .mov support (already shipped via 4dbdc8d17). I'll commit just this file. Choose No to revert/discard.</div>
+      <div class="ansrow">
+        <button class="opt yes">Yes</button>
+        <button class="opt no">No</button>
+      </div>
+    </div>
+
+    <div class="arrow">▼ user clicks “Yes”</div>
+
+    <div class="stagelabel">Answered</div>
+    <div class="dialog">
+      <div class="dtitle">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 1 21h22L12 2Zm0 15h-.01M12 9v4"/></svg>
+        Commit the AGENTS.md .mov doc-sync?
+      </div>
+      <div class="dmsg">The video-transcription src/AGENTS.md edit correctly documents .mov support… </div>
+      <div class="ansrow">
+        <span class="ans pick"><span class="box">✔</span>Yes</span>
+        <span class="ans skip"><span class="box"></span>No</span>
+      </div>
+    </div>
+
+    <p class="note">Suppress the <code>ask_user</code> tool card entirely; the dialog renders <code>message</code> in <b>all</b> states (pending + resolved). Smallest DOM change — but the interactive-renderers now must always show description.</p>
+  </div>
+
+  <!-- PROPOSED B -->
+  <div class="col">
+    <h2>Proposed · B — one merged card</h2>
+    <span class="tag good">tool card hosts the widget · morphs in place</span>
+
+    <div class="assistant">I'll commit just this file.</div>
+
+    <div class="stagelabel">While waiting</div>
+    <div class="toolcard" style="border-color:var(--blue)">
+      <div class="toolhead"><span class="dot"></span> ask_user · needs you</div>
+      <div class="badge">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4l3 3 3-3h4a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Z"/></svg>
+        Confirm
+      </div>
+      <div class="title">Commit the AGENTS.md .mov doc-sync?</div>
+      <div class="desc" style="margin-bottom:12px">The video-transcription src/AGENTS.md edit correctly documents .mov support (already shipped via 4dbdc8d17). Choose No to revert/discard.</div>
+      <div class="ansrow" style="margin-left:0">
+        <button class="opt yes">Yes</button>
+        <button class="opt no">No</button>
+      </div>
+    </div>
+
+    <div class="arrow">▼ user clicks “Yes”</div>
+
+    <div class="stagelabel">Answered — same node</div>
+    <div class="summary">
+      <div class="badge">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4l3 3 3-3h4a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Z"/></svg>
+        Confirm
+      </div>
+      <div class="title">Commit the AGENTS.md .mov doc-sync?</div>
+      <div class="desc" style="margin-bottom:10px">The video-transcription src/AGENTS.md edit correctly documents .mov support…</div>
+      <div class="ansrow" style="margin-left:0">
+        <span class="ans pick"><span class="box">✔</span>Yes</span>
+        <span class="ans skip"><span class="box"></span>No</span>
+      </div>
+    </div>
+
+    <p class="note">The tool card <b>hosts</b> the interactive body inline; the separate dialog message never renders. Badge + title + description + widget all live in one node that morphs prompt → answered. No duplication possible by construction.</p>
+  </div>
+
+</div>
+
+<p class="sub" style="margin-top:28px">Either path removes the duplicate title <i>and</i> keeps the description visible after answering. <b>A</b> is the smaller change (suppress the tool-card branch for <code>ask_user</code>, teach interactive-renderers to always render <code>message</code>). <b>B</b> is cleaner long-term (single morphing card) but touches the reducer/placement so the widget and tool result share one message.</p>
+
+</body>
+</html>

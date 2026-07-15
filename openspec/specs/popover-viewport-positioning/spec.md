@@ -9,9 +9,7 @@ hand-rolled "open upward + cap height" logic previously duplicated across
 several popovers.
 
 See change: fix-popover-viewport-flip.
-
 ## Requirements
-
 ### Requirement: Viewport-anchored popovers SHALL flip and clamp to stay on-screen
 
 The client SHALL provide a shared `usePopoverFlip` hook consumed by
@@ -29,8 +27,19 @@ direction, with a minimum floor (≈120px). Consuming popovers SHALL apply this
 `maxHeight` together with internal vertical scroll, so the popover never extends
 past the viewport edge even when neither direction has room for the full list.
 
-Direction and `maxHeight` SHALL be recomputed on each open and on `resize` /
-`scroll` while open. Listeners SHALL be attached only while the popover is open.
+In addition to the vertical axis, the hook SHALL decide a horizontal anchor
+edge so the popover stays within the viewport horizontally. The default
+horizontal anchor SHALL preserve the consumer's existing edge (right-anchored
+popovers stay right-anchored). The hook SHALL flip the horizontal anchor to the
+opposite edge when the space extending from the current anchor is smaller than
+the popover's needed width AND the opposite side has more room. The hook SHALL
+return a `maxWidth` clamped to the available horizontal space in the chosen
+anchor direction, with a minimum floor, so a popover in a container narrower
+than its natural width never extends past the viewport/container edge.
+
+Direction, `maxHeight`, horizontal anchor, and `maxWidth` SHALL be recomputed on
+each open and on `resize` / `scroll` while open. Listeners SHALL be attached
+only while the popover is open.
 
 #### Scenario: Opens downward with room below
 - **GIVEN** a popover trigger in the upper half of the viewport
@@ -50,6 +59,26 @@ Direction and `maxHeight` SHALL be recomputed on each open and on `resize` /
 - **THEN** its rendered height equals the available space in that direction
 - **AND** its content scrolls internally rather than overflowing the viewport
 
+#### Scenario: Keeps its horizontal anchor when there is room
+- **GIVEN** a right-anchored popover in a container wider than the popover's width
+- **WHEN** the popover opens
+- **THEN** it stays right-anchored
+- **AND** its content is not clipped horizontally
+
+#### Scenario: Flips horizontal anchor in a slim container
+- **GIVEN** a right-anchored popover whose trigger sits near the left edge of a
+  slim container narrower than the popover's natural width
+- **WHEN** the popover opens
+- **THEN** it anchors to the edge with more available horizontal space
+- **AND** the popover stays within the viewport rather than clipping off-screen
+
+#### Scenario: Clamps width when neither side fits the full width
+- **GIVEN** a popover whose natural width exceeds the larger of the two
+  horizontal side spaces
+- **WHEN** it opens in the chosen anchor direction
+- **THEN** its rendered width equals the available space in that direction
+  (down to the minimum floor)
+
 #### Scenario: Re-evaluates on resize while open
 - **GIVEN** an open popover positioned downward
 - **WHEN** the viewport is resized so the popover would extend past the bottom
@@ -59,3 +88,4 @@ Direction and `maxHeight` SHALL be recomputed on each open and on `resize` /
 - **GIVEN** a popover whose `open` state is false
 - **WHEN** the viewport is resized or scrolled
 - **THEN** the hook performs no measurement and attaches no resize/scroll listeners
+

@@ -38,6 +38,9 @@ export function InputRenderer({ params, status, result, onRespond, onCancel }: I
           <Icon path={mdiCheckCircle} size={0.55} className="text-green-400 shrink-0" />
           <span className="text-[var(--text-primary)] font-medium"><InlineMarkdown content={title} /></span>
         </div>
+        {message && (
+          <div className="text-xs text-[var(--text-secondary)] mb-2 ml-6"><MarkdownContent content={message} /></div>
+        )}
         <div
           className={
             isBlank

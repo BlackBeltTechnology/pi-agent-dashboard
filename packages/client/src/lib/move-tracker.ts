@@ -28,6 +28,12 @@ export interface MoveState {
 	fromCwd?: string;
 	toScope: PackageScope;
 	toCwd?: string;
+	/**
+	 * Which composite op this state tracks. `"reset"` (reset-to-npm) reuses the
+	 * exact moveId-keyed + partial-success machinery as `"move"`; only the
+	 * display copy differs. Defaults to `"move"`. See change: reset-override-to-npm.
+	 */
+	kind?: "move" | "reset";
 	phase: MovePhase;
 	message: string;
 	partialSuccess?: {
@@ -51,10 +57,13 @@ class MoveTracker {
 	}
 
 	register(state: Omit<MoveState, "phase" | "message">): void {
+		const isReset = state.kind === "reset";
 		this.byMoveId.set(state.moveId, {
 			...state,
 			phase: "running",
-			message: i18nT("status.moving", undefined, "Moving…"),
+			message: isReset
+				? i18nT("status.resetting", undefined, "Resetting…")
+				: i18nT("status.moving", undefined, "Moving…"),
 		});
 		this.notify();
 	}
@@ -121,7 +130,9 @@ class MoveTracker {
 				this.byMoveId.set(msg.moveId, {
 					...state,
 					phase: "success",
-					message: i18nT("status.moveComplete", undefined, "Move complete"),
+					message: state.kind === "reset"
+						? i18nT("status.resetComplete", undefined, "Reset complete")
+						: i18nT("status.moveComplete", undefined, "Move complete"),
 				});
 				const t = setTimeout(() => {
 					this.byMoveId.delete(msg.moveId);

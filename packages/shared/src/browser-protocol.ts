@@ -593,6 +593,15 @@ export interface BootstrapStatusUpdateMessage {
  * which describe the dashboard's own pi-core install. See change:
  * generalize-worktree-init-hook (renamed from worktree_bootstrap_*).
  */
+/**
+ * Trust scope chosen at confirm time for `POST /api/git/worktree/init`.
+ * `session` = ephemeral (server memory, gone on restart); `project` = persisted
+ * (today's behavior). Omitted → `project` (backward compatible). Any other value
+ * is rejected `bad_request` by the server — no upward coercion.
+ * See change: add-session-scoped-init-trust.
+ */
+export type WorktreeInitTrustScope = "session" | "project";
+
 export interface WorktreeInitProgressMessage {
   type: "worktree_init_progress";
   requestId: string;
@@ -633,18 +642,20 @@ export interface BootstrapTicketCompleteMessage {
 export interface PackageOperationCompleteMessage {
   type: "package_operation_complete";
   operationId: string;
-  /** Optional move grouping id; set on every event of a composite move op. */
+  /** Optional composite grouping id; set on every event of a composite move/reset op. */
   moveId?: string;
-  action: "install" | "remove" | "update" | "move";
+  action: "install" | "remove" | "update" | "move" | "reset";
   source: string;
   scope: "global" | "local";
   success: boolean;
   error?: string;
   /** Number of sessions reloaded (only on success). */
   sessionsReloaded?: number;
-  /** Set on a move op when install succeeded but remove failed.
-   * Indicates the package now exists in BOTH scopes; UI should surface
-   * a recovery action (POST /api/packages/remove against fromScope). */
+  /** Set on a composite move OR reset op when install succeeded but remove
+   * failed. Move: the package now exists in BOTH scopes. Reset: the published
+   * spec installed but the local/git entry is still registered. Either way the
+   * UI should surface a recovery action (POST /api/packages/remove of the
+   * still-present entry). */
   partialSuccess?: {
     installed: boolean;
     removed: boolean;

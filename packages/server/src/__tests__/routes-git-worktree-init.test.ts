@@ -10,9 +10,10 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveMainPath } from "../git-operations.js";
@@ -197,6 +198,118 @@ describe("POST /api/git/worktree/init", () => {
     expect(body.success).toBe(false);
     expect(body.code).toBe("init_failed");
     expect(body.stderr).toContain("nope");
+  });
+});
+
+// ── Trust scope on confirm (change: add-session-scoped-init-trust) ───────
+function storeFile(): string {
+  return join(getDashboardConfigDir(), "worktree-init-trust.json");
+}
+/** True iff SOME persisted trust key ends with the given hash. */
+function diskHasHash(hash: string): boolean {
+  const p = storeFile();
+  if (!existsSync(p)) return false;
+  const map = JSON.parse(readFileSync(p, "utf8")) as Record<string, true>;
+  return Object.keys(map).some((k) => k.endsWith(`\u0000${hash}`));
+}
+
+describe("POST /api/git/worktree/init — trust scope", () => {
+  let app: FastifyInstance;
+  let repo: string;
+  let dir: string;
+  beforeEach(async () => { app = await makeApp(); rmSync(storeFile(), { force: true }); });
+  afterEach(async () => {
+    if (repo) rmSync(repo, { recursive: true, force: true });
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    rmSync(storeFile(), { force: true });
+    await app.close();
+  });
+
+  it("S8 unrecognized scope → bad_request, no trust recorded, hook NOT run", async () => {
+    const hook = scriptHook("test ! -d node_modules", "touch RAN_MARKER");
+    for (const scope of ["Session", "permanent", "", 5, null]) {
+      repo = makeHookRepo(hook);
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/git/worktree/init",
+        payload: { cwd: repo, confirmHash: hookDefHash(hook), scope },
+      });
+      const body = res.json();
+      expect(body.success).toBe(false);
+      expect(body.code).toBe("bad_request");
+      expect(existsSync(join(repo, "RAN_MARKER"))).toBe(false); // runInitHook NOT called
+      expect(diskHasHash(hookDefHash(hook))).toBe(false); // recordTrust NOT called
+      rmSync(repo, { recursive: true, force: true });
+    }
+    repo = "";
+  });
+
+  it("S9 valid session confirm → runs, nothing persisted to disk", async () => {
+    const hook = scriptHook("test ! -d node_modules", "touch RAN_MARKER");
+    repo = makeHookRepo(hook);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/init",
+      payload: { cwd: repo, confirmHash: hookDefHash(hook), scope: "session" },
+    });
+    expect(res.json().data.ran).toBe(true);
+    expect(existsSync(join(repo, "RAN_MARKER"))).toBe(true); // hook ran
+    expect(diskHasHash(hookDefHash(hook))).toBe(false); // JSON store unchanged
+  });
+
+  it("S10 omitted scope confirm → runs + persisted (project default)", async () => {
+    const hook = scriptHook("test ! -d node_modules", "touch RAN_MARKER");
+    repo = makeHookRepo(hook);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/init",
+      payload: { cwd: repo, confirmHash: hookDefHash(hook) },
+    });
+    expect(res.json().data.ran).toBe(true);
+    expect(existsSync(join(repo, "RAN_MARKER"))).toBe(true);
+    expect(diskHasHash(hookDefHash(hook))).toBe(true); // persisted
+  });
+
+  it("S11 untrusted both stores, no confirmHash → init_untrusted, hook NOT run", async () => {
+    const hook = scriptHook("test ! -d node_modules", "touch RAN_MARKER");
+    repo = makeHookRepo(hook);
+    const res = await app.inject({ method: "POST", url: "/api/git/worktree/init", payload: { cwd: repo } });
+    const body = res.json();
+    expect(body.success).toBe(false);
+    expect(body.code).toBe("init_untrusted");
+    expect(body.data.hash).toBe(hookDefHash(hook));
+    expect(existsSync(join(repo, "RAN_MARKER"))).toBe(false);
+  });
+
+  it("S12 session scope on external non-git dir → runs, disk unchanged", async () => {
+    const hook = scriptHook("test ! -d node_modules", "touch RAN_MARKER");
+    dir = realpathSync(mkdtempSync(join(tmpdir(), "nongit-scope-")));
+    mkdirSync(join(dir, ".pi"), { recursive: true });
+    writeFileSync(join(dir, ".pi", "settings.json"), JSON.stringify({ worktreeInit: hook }));
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/init",
+      payload: { cwd: dir, confirmHash: hookDefHash(hook), scope: "session" },
+    });
+    expect(res.json().data.ran).toBe(true);
+    expect(existsSync(join(dir, "RAN_MARKER"))).toBe(true);
+    expect(diskHasHash(hookDefHash(hook))).toBe(false);
+  });
+
+  it("S13 auto-init cannot bypass — untrusted + no confirm never runs", async () => {
+    // The POST /init route grants trust ONLY via confirmHash===hash. It reads no
+    // "auto" flag, so an auto-on-spawn path (which carries no confirm) hits the
+    // same TOFU gate and cannot forge trust.
+    const hook = scriptHook("test ! -d node_modules", "touch RAN_MARKER");
+    repo = makeHookRepo(hook);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/init",
+      payload: { cwd: repo, requestId: "auto-spawn" },
+    });
+    expect(res.json().code).toBe("init_untrusted");
+    expect(existsSync(join(repo, "RAN_MARKER"))).toBe(false);
+    expect(diskHasHash(hookDefHash(hook))).toBe(false);
   });
 });
 

@@ -45,8 +45,23 @@ export function EditorPane() {
     onFilenameSearch,
     changedFiles,
     clearChanged,
+    changesRevealSignal,
   } = useSplitWorkspace();
   const [treeVisible, setTreeVisible] = useTreeVisible(sessionId);
+
+  // openChanges() (the Changed Files chip) bumps changesRevealSignal to request
+  // the Changes rail. The tree rail defaults to collapsed (change:
+  // collapse-files-panel-by-default), so reveal it here — otherwise the split
+  // opens but ChangesRailSection (mounted only when treeVisible) stays hidden
+  // and the chip appears to do nothing. Skip the initial mount value so it does
+  // not fight a user's collapse choice. See change: detect-tool-created-files.
+  const prevRevealRef = useRef(changesRevealSignal);
+  useEffect(() => {
+    if (changesRevealSignal !== prevRevealRef.current) {
+      prevRevealRef.current = changesRevealSignal;
+      setTreeVisible(true);
+    }
+  }, [changesRevealSignal, setTreeVisible]);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [railWidth, setRailWidth] = useRailWidth(sessionId);

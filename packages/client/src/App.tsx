@@ -11,6 +11,7 @@ import { CommandInput } from "./components/CommandInput.js";
 import { CommitDialogProvider } from "./components/CommitDialog.js";
 import { ComposerSessionActions } from "./components/ComposerSessionActions.js";
 import { ConnectionStatusBanner } from "./components/ConnectionStatusBanner.js";
+import { DirectoryHomeView } from "./components/DirectoryHomeView.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
 import { EditorView } from "./components/EditorView.js";
 import { FileDiffView } from "./components/FileDiffView.js";
@@ -371,6 +372,11 @@ export default function App() {
   // /folder/:encodedCwd/terminals. The dual-mount it caused (one
   // <TerminalView> here + one inside <TerminalsView>) was the root
   // cause of half-height rendering and competing FitAddon resizes.
+  // Bare directory home page (design D1). wouter's regexparam compiles
+  // `/folder/:encodedCwd` to `^/folder/([^/]+?)/?$`; `[^/]+?` never crosses `/`,
+  // so it cannot match `/folder/:enc/terminals` — no shadowing of deeper folder
+  // routes. See change: add-directory-home-page.
+  const [folderHomeMatch, folderHomeParams] = useRoute("/folder/:encodedCwd");
   const [folderTermMatch, folderTermParams] = useRoute("/folder/:encodedCwd/terminals");
   const [folderEditorMatch, folderEditorParams] = useRoute("/folder/:encodedCwd/editor");
   const [settingsMatch] = useRoute("/settings/:page?");
@@ -444,6 +450,15 @@ export default function App() {
   const selectedSessionIdRef = useRef<string | undefined>(selectedId);
   selectedSessionIdRef.current = selectedId;
 
+  // Seek-to-card reveal request. A one-shot `{ sessionId, nonce }`: the Seek
+  // button in SessionHeader bumps `nonce` so re-seeking the SAME session (its
+  // card may have been re-collapsed since) still re-fires the SessionList
+  // reveal effect (keyed on nonce, not id). See change: add-seek-to-session-card.
+  const [revealRequest, setRevealRequest] = useState<{ sessionId: string; nonce: number } | null>(null);
+  const seekToCard = useCallback((sessionId: string) => {
+    setRevealRequest((prev) => ({ sessionId, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
+
   // Drives the server-side viewed-session tracker for unread state.
   // See change: session-card-unread-stripes.
   useViewDispatcher({
@@ -451,6 +466,7 @@ export default function App() {
     connectionStatus: status,
     send,
   });
+  const folderHomeCwd = folderHomeMatch ? decodeFolderPath(folderHomeParams?.encodedCwd ?? "") : null;
   const folderTermCwd = folderTermMatch ? decodeFolderPath(folderTermParams?.encodedCwd ?? "") : null;
   const folderEditorCwd = folderEditorMatch ? decodeFolderPath(folderEditorParams?.encodedCwd ?? "") : null;
   const sidebar = useSidebarState();
@@ -518,6 +534,11 @@ export default function App() {
   const pendingSpawnsRef = useRef<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>(new Map());
   const [sessionOrderMap, setSessionOrderMap] = useState<Map<string, string[]>>(new Map());
   const [pinnedDirectories, setPinnedDirectories] = useState<string[]>([]);
+  // Flipped true on the first `pinned_dirs_updated` (server sends it on
+  // connect). Gates DirectoryHomeView's cold-load guard so a direct URL /
+  // refresh shows a loading state instead of flashing "not pinned".
+  // See change: add-directory-home-page.
+  const [pinnedDirsLoaded, setPinnedDirsLoaded] = useState(false);
   // Favorite model labels ("provider/id"), server-persisted. Synced via
   // `favorite_models_updated`; cold-loaded from GET /api/favorite-models.
   // See change: enrich-model-selector-capabilities-favorites.
@@ -705,7 +726,7 @@ export default function App() {
   }, []);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current, showToast },
   );
 
@@ -955,14 +976,17 @@ export default function App() {
     () => extractUserPromptHistory(selectedState.messages),
     [selectedState.messages],
   );
-  // Monotonic edit/write count for the selected session — drives the shared
-  // session-diff refetch (change: add-change-summary-table).
+  // Monotonic edit/write/bash count for the selected session — drives the
+  // shared session-diff refetch (change: add-change-summary-table). Bash is
+  // included so tool-created files (converter/image/script output detected via
+  // git-status) surface after the command completes, not just Write/Edit.
+  // See change: detect-tool-created-files.
   const diffChangeSignal = useMemo(
     () =>
       selectedState.messages.reduce(
         (n, m) =>
           n +
-          (m.role === "toolResult" && /^(edit|write)$/i.test(m.toolName ?? "") ? 1 : 0),
+          (m.role === "toolResult" && /^(edit|write|bash)$/i.test(m.toolName ?? "") ? 1 : 0),
         0,
       ),
     [selectedState.messages],
@@ -1319,6 +1343,8 @@ export default function App() {
       terminals={Array.from(terminals.values())}
       selectedId={selectedId}
       onSelect={handleSelect}
+      revealRequest={revealRequest}
+      onSeekToCard={seekToCard}
       contextUsageMap={contextUsageMap}
       openspecMap={openspecMap}
       folderGitMap={folderGitMap}
@@ -1481,6 +1507,7 @@ export default function App() {
         onRename={handleRenameSession}
         allTags={allTags}
         onSetTags={selectedId ? (tags) => handleSetSessionTags(selectedId, tags) : undefined}
+        onSeekToCard={selectedId ? () => seekToCard(selectedId) : undefined}
         showBack
         onBack={goBack}
         onResume={selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
@@ -1879,6 +1906,27 @@ export default function App() {
 
   const allSessionsList = useMemo(() => Array.from(sessions.values()), [sessions]);
 
+  // Bare `/folder/:encodedCwd` directory home page (design D1/D2/D4).
+  // Rendered in BOTH the desktop and mobile chains. See change:
+  // add-directory-home-page.
+  const directoryHomeView = folderHomeCwd ? (
+    <DirectoryHomeView
+      cwd={folderHomeCwd}
+      pinnedDirectories={pinnedDirectories}
+      pinnedDirectoriesLoaded={pinnedDirsLoaded}
+      sessions={allSessionsList.filter((s) => s.cwd === folderHomeCwd)}
+      onSpawnSession={handleSpawnSession}
+      onSelectSession={handleSelect}
+      onPinDirectory={(dirPath) => {
+        setPinnedDirectories((prev) => (prev.includes(dirPath) ? prev : [...prev, dirPath]));
+        send({ type: "pin_directory", path: dirPath });
+      }}
+      onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/terminals`)}
+      onOpenEditor={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
+      onOpenSettings={(cwd) => navigate(buildFolderSettingsUrl(cwd))}
+    />
+  ) : null;
+
   // Outer chrome ErrorBoundary — defense-in-depth for first-party shell
   // components (sidebar, session list, content header, MobileShell). The
   // inner ChatView ErrorBoundary still wins for chat-tree errors via React's
@@ -1985,7 +2033,7 @@ export default function App() {
   if (isMobile) {
     const mobileDepth = getMobileDepth({
       hasSessionRoute: !!selectedId,
-      hasFolderRoute: !!folderTermCwd || !!folderEditorCwd,
+      hasFolderRoute: !!folderTermCwd || !!folderEditorCwd || !!folderHomeCwd,
       hasSettingsRoute: !!settingsMatch,
       hasFolderSettingsRoute: !!folderSettingsMatch,
       hasTunnelRoute: !!tunnelSetupMatch,
@@ -2083,6 +2131,8 @@ export default function App() {
               />
             ) : folderEditorCwd ? (
               <EditorView cwd={folderEditorCwd} onClose={handleEditorClose} />
+            ) : folderHomeCwd ? (
+              directoryHomeView
             ) : sessionDetail ?? (
             // Legacy /terminal/:id branch removed — see change:
             // fix-terminal-half-height-dual-mount.
@@ -2192,6 +2242,8 @@ export default function App() {
               target={{ kind: "url", url: urlViewUrl }}
               onBack={goBack}
             />
+          ) : folderHomeCwd && !selectedId ? (
+            directoryHomeView
           ) : (
             /* Plugin slot: content-view — only render when at least one
                registered claim's predicate returns true for the current

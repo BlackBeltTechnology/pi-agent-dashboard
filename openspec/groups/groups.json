@@ -139,14 +139,28 @@
     "add-session-tags": "ui",
     "extract-distill-session-knowledge-package": "ui",
     "make-all-ui-text-i18n": "ui",
-    "fix-session-diff-open-nongit-and-preview": "ui"
+    "fix-session-diff-open-nongit-and-preview": "ui",
+    "stable-process-line": "ui",
+    "add-auto-session-naming": "ui",
+    "markdown-table-styling": "ui",
+    "fix-empty-flows-subcard": "ui",
+    "fix-ask-user-card-duplication": "ui",
+    "reset-override-to-npm": "ui",
+    "integrate-develop-before-ship-gate": "ui",
+    "add-seek-to-session-card": "ui",
+    "add-session-scoped-init-trust": "ui",
+    "detect-tool-created-files": "ui",
+    "fix-popover-horizontal-flip": "ui",
+    "add-directory-home-page": "ui",
+    "add-eml-preview": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
       "add-chat-gateway",
       "add-google-oauth-provider",
-      "fix-split-composer-overflow",
-      "stable-process-line"
+      "auto-canvas",
+      "render-office-previews",
+      "render-pptx-preview"
     ],
     "kowledge-base": [
       "add-lora-dataset-export-skill",
@@ -156,13 +170,18 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "make-all-ui-text-i18n",
-      "fix-session-diff-open-nongit-and-preview"
+      "add-auto-session-naming",
+      "fix-session-diff-open-nongit-and-preview",
+      "add-seek-to-session-card",
+      "add-directory-home-page",
+      "add-session-scoped-init-trust",
+      "detect-tool-created-files",
+      "fix-popover-horizontal-flip",
+      "add-eml-preview"
     ],
     "next-phase": [
       "add-connector-layer",
       "add-end-user-docs",
-      "add-change-summary-table",
       "add-hyperframes-skills",
       "external-dashboard-plugins",
       "focus-driven-folder-compaction"

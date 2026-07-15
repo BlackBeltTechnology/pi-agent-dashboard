@@ -959,6 +959,28 @@ The dashboard provides a GitHub-style file diff viewer for sessions. It shows wh
 
 **Entry point**: SessionHeader `ChangedFilesChip` calls `openChanges()` (Changes rail); only visible when Write/Edit tool events exist. `/session/:id/diff` takeover retained as fallback. Works for both active and ended sessions.
 
+**Tool-created-file detection** (change: detect-tool-created-files):
+
+`/api/session-diff` built by `buildSessionDiff(events, cwd)` in `packages/server/src/session-diff.ts` (replaces `extractFileChanges` + `enrichWithVcsDiff`).
+
+git-status DETECTOR: git repo → `git status --porcelain` (cwd = session.cwd). C-unquotes paths. Rename `R old -> new` resolves to new path. Skips deletions. Routes each via same `normalizePath(abs, cwd)` as Write/Edit (one shared key space; out-of-cwd dropped). Unions detected files into changed-file list.
+
+Bash ATTRIBUTOR: scans `tool_execution_start` bash events for output tokens (`>`, `>>`, `-o`, `--output`, `tee`) → labels detected file with redacted, 120-char-capped producing command (`producedBy`). Inside cwd it only LABELS, never adds a file (kills `grep -o` false positives). Secret shapes stripped.
+
+Non-git detector: Bash-token scan + in-cwd `existsSync` only (anchored to cwd, no arbitrary-path probe).
+
+File-level origin: `FileDiffEntry.origin` = write | edit | tool | mixed. `detectedVia` = git-status | bash-artifact. Reserved `previewable`. mixed = Write/Edit event AND on-disk detection; no synthetic ghost change event injected.
+
+Binary/size safety: before synthetic new-file diff, sniff binary (NUL byte / known ext) + 256 KB size cap → binary/oversized rows listed with no text `gitDiff`.
+
+Session-ownership gate (git state cwd-scoped, not session-scoped): each git-detected file classified by evidence from THIS session — Write/Edit event, Bash output-token, or mtime inside Bash execution window `[start,end]` (fallback `[start,now]`, ±1s slack). Owned → `data.files` (`sessionOwned:true`); rest → `data.otherChanges[]`. Worktree-isolated sessions → empty `otherChanges`.
+
+200-entry file-count cap. Write/Edit take precedence when truncating.
+
+Client: Files panel badges tool/mixed rows (`created by <command>`). `otherChanges` render under muted, collapsed "N other working-tree changes" group with "this session only" toggle.
+
+Scope (v1): out-of-cwd files + deleted files excluded. No change to `/api/session-file` cwd 403 gate.
+
 ### Internal Monaco editor pane (v1 read-only)
 
 Route `/session/:id/editor?file=&line=` renders `EditorPane` in content area. Replaces ChatView. Mirrors FileDiffView takeover. Back button → `goBack`.

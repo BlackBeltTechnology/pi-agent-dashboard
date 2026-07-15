@@ -64,6 +64,18 @@ export interface DisplayPrefs {
    * See change: add-change-summary-table.
    */
   changeSummaryTable: boolean;
+  /**
+   * When true, the session card's PROCESS subcard reserves one line of height
+   * even while the session is idle (both the in-flight activity list and the
+   * background-process list empty), showing `⏵ idle`. When false (default for
+   * `simple`/`standard`), the subcard mounts on the first tool of a run — one
+   * jump, then stable for the run — and unmounts back to zero height at idle.
+   * ON (default for `everything`) trades a permanent thin line on quiet cards
+   * for zero grid reflow ever. Only affects the desktop subcard; mobile keeps
+   * its chip/sheet. Default `false`.
+   * See change: stable-process-line.
+   */
+  reserveProcessLineAtIdle: boolean;
 }
 
 /**
@@ -89,6 +101,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     keepReasoningOpenUntilTurnEnds: false,
     toolGroupDefaultCollapsed: false,
     changeSummaryTable: false,
+    reserveProcessLineAtIdle: false,
   },
   standard: {
     tokenStatsBar: true,
@@ -102,6 +115,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     keepReasoningOpenUntilTurnEnds: false,
     toolGroupDefaultCollapsed: false,
     changeSummaryTable: true,
+    reserveProcessLineAtIdle: false,
   },
   everything: {
     tokenStatsBar: true,
@@ -115,6 +129,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     keepReasoningOpenUntilTurnEnds: false,
     toolGroupDefaultCollapsed: false,
     changeSummaryTable: true,
+    reserveProcessLineAtIdle: true,
   },
 };
 
@@ -147,6 +162,8 @@ export function mergeDisplayPrefs(
     toolGroupDefaultCollapsed:
       override.toolGroupDefaultCollapsed ?? global.toolGroupDefaultCollapsed,
     changeSummaryTable: override.changeSummaryTable ?? global.changeSummaryTable,
+    reserveProcessLineAtIdle:
+      override.reserveProcessLineAtIdle ?? global.reserveProcessLineAtIdle,
   };
 }
 

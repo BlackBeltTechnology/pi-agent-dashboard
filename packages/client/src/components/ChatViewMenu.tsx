@@ -45,7 +45,10 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const { flipUp, maxHeight } = usePopoverFlip(triggerRef, { open });
+  const { flipUp, maxHeight, anchorRight, maxWidth } = usePopoverFlip(triggerRef, {
+    open,
+    estimatedWidth: 256, // w-64 natural width
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -119,10 +122,10 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
       {open && (
         <div
           data-testid="chat-view-popover"
-          style={{ maxHeight }}
-          className={`absolute right-0 z-30 w-64 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg p-2 text-xs ${
-            flipUp ? "bottom-full mb-1" : "top-full mt-1"
-          }`}
+          style={{ maxHeight, maxWidth }}
+          className={`absolute z-30 w-64 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg p-2 text-xs ${
+            anchorRight ? "right-0" : "left-0"
+          } ${flipUp ? "bottom-full mb-1" : "top-full mt-1"}`}
         >
           <Row label={i18nT("common.tokenStatsBar", undefined, "Token stats bar")} value={prefs.tokenStatsBar} marked={isOverridden("tokenStatsBar")} onChange={(v) => patch({ tokenStatsBar: v })} />
           <Row label={i18nT("common.contextUsageBar", undefined, "Context usage bar")} value={prefs.contextUsageBar} marked={isOverridden("contextUsageBar")} onChange={(v) => patch({ contextUsageBar: v })} />
@@ -132,6 +135,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
           <Row label={i18nT("common.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} marked={isOverridden("toolResults")} onChange={(v) => patch({ toolResults: v })} />
           <Row label={i18nT("session.turnMetadata", undefined, "Turn metadata")} value={prefs.turnMetadata} marked={isOverridden("turnMetadata")} onChange={(v) => patch({ turnMetadata: v })} />
           <Row label={i18nT("common.changeSummaryTable", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} marked={isOverridden("changeSummaryTable")} onChange={(v) => patch({ changeSummaryTable: v })} />
+          <Row label={i18nT("common.reserveProcessLineAtIdle", undefined, "Reserve process line at idle")} value={prefs.reserveProcessLineAtIdle} marked={isOverridden("reserveProcessLineAtIdle")} onChange={(v) => patch({ reserveProcessLineAtIdle: v })} />
           <Row label={i18nT("common.debugEvents", undefined, "Debug events")} value={prefs.debugTools} marked={isOverridden("debugTools")} onChange={(v) => patch({ debugTools: v })} />
           <div className="my-2 border-t border-[var(--border-subtle)]" />
           <div className="text-[var(--text-tertiary)] mb-1">{i18nT("common.toolCalls", undefined, "Tool calls")}</div>
