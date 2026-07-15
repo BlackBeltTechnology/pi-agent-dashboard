@@ -9,16 +9,32 @@
  *   POST /api/plugins/invoicebot/setup   → ib_setup  (action)
  *   POST /api/plugins/invoicebot/rules   → ib_rules  (action)
  *   GET  /api/plugins/invoicebot/blob    → stream a retained original document
+ *   POST /api/plugins/invoicebot/automation → enable/disable a schedule automation
+ *   GET  /api/plugins/invoicebot/automation → list schedule automations + state
  *
  * The plugin forwards `{ selector, ...args }` to the matching `InvoiceEngine`
  * port method and normalizes the tool result to `{ ok, text, data, sessionId?,
  * consequential? }`. For the five flow-triggering ops (the engine returns a
  * `flow` spec) the route dispatches `flow:run` into the workspace session and
  * attaches the resulting `sessionId`. See change: add-invoicebot-rest-plugin.
+ *
+ * The two `/automation` routes are the exception: they do a direct filesystem
+ * flip of the `disabled` field on an on-disk `automation.yaml` (no engine port,
+ * no `ib_*` tool touches `disabled`). NOTE: a second, independent gate
+ * (`intake_paused`, engine soft-loop STOP) can still swallow processing even
+ * after a schedule automation is enabled here; the two switches can contradict.
+ * Reconciling them is deferred to an optional engine change. See change:
+ * surface-automation-enable.
  */
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import type { FastifyInstance } from "fastify";
+import {
+  AutomationNotFoundError,
+  badAutomationName,
+  flipAutomationDisabled,
+  listInvoicebotAutomations,
+} from "./automation-toggle.js";
 import { contentTypeFor, resolveBlobPath } from "./blob.js";
 import type { EngineResult, FlowRunSpec, InvoiceEngine } from "./engine/port.js";
 
@@ -179,6 +195,43 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
       .header("Content-Range", `bytes ${start}-${end}/${size}`)
       .header("Content-Length", String(end - start + 1));
     return reply.send(createReadStream(abs, { start, end }));
+  });
+
+  // ── /automation (POST) — enable/disable a schedule automation in place ─────
+  // First invoicebot route that writes the filesystem directly (flips ONLY the
+  // `disabled` field); no engine port. The automation-plugin watcher re-arms
+  // the scheduler live. Response makes the resulting per-automation state
+  // plainly visible (the arm/disarm happens async in another module).
+  fastify.post("/api/plugins/invoicebot/automation", async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const cwdErr = badCwd(body.cwd);
+    if (cwdErr) { reply.code(400); return { error: cwdErr }; }
+    const nameErr = badAutomationName(body.name);
+    if (nameErr) { reply.code(400); return { error: nameErr }; }
+    if (typeof body.enabled !== "boolean") { reply.code(400); return { error: "enabled must be a boolean" }; }
+    try {
+      const { enabled } = flipAutomationDisabled(body.cwd as string, body.name as string, body.enabled);
+      req.log.info({ name: body.name, enabled }, "invoicebot automation flipped");
+      return { ok: true, name: body.name, enabled };
+    } catch (err) {
+      if (err instanceof AutomationNotFoundError) {
+        req.log.info({ name: body.name, code: 404 }, "invoicebot automation flip rejected: not found");
+        reply.code(404);
+        return { error: "automation not found" };
+      }
+      req.log.error({ err, name: body.name }, "invoicebot automation flip failed");
+      reply.code(500);
+      return { error: "flip failed" };
+    }
+  });
+
+  // ── /automation (GET) — discover automations + per-automation state ────────
+  fastify.get("/api/plugins/invoicebot/automation", async (req, reply) => {
+    const q = (req.query ?? {}) as Record<string, unknown>;
+    const cwdErr = badCwd(q.cwd);
+    if (cwdErr) { reply.code(400); return { error: cwdErr }; }
+    const automations = listInvoicebotAutomations(q.cwd as string);
+    return { automations };
   });
 
   // ── /rules — rule authoring (action); request is flow-triggering ───────────

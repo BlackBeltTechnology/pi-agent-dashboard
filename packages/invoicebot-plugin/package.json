@@ -30,7 +30,8 @@
   },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.5.4",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",
+    "yaml": "^2.9.0"
   },
   "//optionalDependencies": "TODO(release): unpublished — replace file: link with a published npm range or a vendored in-monorepo package. @blackbelt-technology/invoicebot is private:true. optionalDependencies (not dependencies) so CI/release-cut installs cleanly without the sibling checkout and bind FakeInvoiceEngine. Tracked: tasks §8.",
   "optionalDependencies": {
