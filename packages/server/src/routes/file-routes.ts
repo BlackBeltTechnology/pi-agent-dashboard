@@ -24,6 +24,7 @@ import {
   parseSheet,
   pdfCachePath,
   renderDocx,
+  renderPptx,
   resolveRowLimit,
 } from "../lib/office-preview.js";
 import { isAllowed } from "../lib/path-containment.js";
@@ -695,7 +696,9 @@ export function registerFileRoutes(
   // HTML. `.docx` → two-tier (design D8): a document-converter PDF render when
   // the engine is available (`{mode:"pdf"}` + companion `/api/file/rendered-pdf`),
   // else an in-process mammoth HTML baseline with the hyperlink-guard (D2),
-  // DOMPurify sanitize, and bounded-preview image cap (D3). Non-supported
+  // DOMPurify sanitize, and bounded-preview image cap (D3). `.pptx` →
+  // engine-only PDF render (`{mode:"pdf"}`; no in-process fallback — engine
+  // absent → {success:false}; change: render-pptx-preview). Non-supported
   // extensions → 400. Same anti-traversal gate as `/api/file/raw`.
   fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
     "/api/file/render",
@@ -711,9 +714,31 @@ export function registerFileRoutes(
       const ext = path.extname(relPath).toLowerCase();
       const isAdoc = ext === ".adoc" || ext === ".asciidoc";
       const isDocx = ext === ".docx";
-      if (!isAdoc && !isDocx) {
+      const isPptx = ext === ".pptx";
+      if (!isAdoc && !isDocx && !isPptx) {
         reply.code(400);
         return { success: false, error: "renderer not supported for extension" } satisfies ApiResponse;
+      }
+
+      // pptx: gate (incl. size cap → 413 before convert) then engine-only PDF
+      // render (design P1/P4). No in-process fallback — engine absent →
+      // {success:false} so the client maps to FallbackPreview (download).
+      if (isPptx) {
+        const gate = await gateOfficeFile(cwd, relPath, [".pptx"], officeCaps.pptxSizeCap);
+        if ("code" in gate) {
+          reply.code(gate.code);
+          return { success: false, error: gate.error } satisfies ApiResponse;
+        }
+        const result = await renderPptx(
+          gate.resolved,
+          { mtimeMs: gate.stat.mtimeMs, size: gate.stat.size },
+          { engine: docxPdfEngine },
+        );
+        if (!result.success) {
+          return { success: false, error: result.error } satisfies ApiResponse;
+        }
+        const { success: _s, ...data } = result;
+        return { success: true, data } satisfies ApiResponse;
       }
 
       // docx: gate (incl. size cap → 413 before read) then two-tier render.
@@ -772,16 +797,21 @@ export function registerFileRoutes(
   // Cached docx→PDF byte stream (change: render-office-previews, design D8).
   // Companion to `/api/file/render` `mode:"pdf"`. Serves the cached PDF
   // (path+mtime+size key); regenerates via the engine on cache miss/stale.
-  // `.docx`-only; same gate + size cap as the render route.
+  // `.docx` + `.pptx` (change: render-pptx-preview); same gate + per-ext size
+  // cap as the render route.
   fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
     "/api/file/rendered-pdf",
     { preHandler: networkGuard },
     async (request, reply) => {
+      // Widened to `.pptx` (change: render-pptx-preview) — the pptx render path
+      // reuses this same cached PDF stream. Size cap selected by extension.
+      const pdfExt = path.extname(request.query.path ?? "").toLowerCase();
+      const pdfSizeCap = pdfExt === ".pptx" ? officeCaps.pptxSizeCap : officeCaps.docxSizeCap;
       const gate = await gateOfficeFile(
         request.query.cwd,
         request.query.path,
-        [".docx"],
-        officeCaps.docxSizeCap,
+        [".docx", ".pptx"],
+        pdfSizeCap,
       );
       if ("code" in gate) {
         reply.code(gate.code);

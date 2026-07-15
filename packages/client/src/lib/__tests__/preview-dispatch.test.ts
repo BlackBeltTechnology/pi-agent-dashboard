@@ -34,6 +34,11 @@ describe("dispatchPreview — file targets", () => {
     expect(dispatchPreview(f("SPEC.DOCX"))).toBe("docx"); // ext lowercased
   });
 
+  it("maps pptx (test-plan #1, #2)", () => {
+    expect(dispatchPreview(f("deck.pptx"))).toBe("pptx");
+    expect(dispatchPreview(f("DECK.PPTX"))).toBe("pptx"); // ext lowercased
+  });
+
   it("maps spreadsheets: xlsx + csv (test-plan #3, #4)", () => {
     expect(dispatchPreview(f("data.xlsx"))).toBe("spreadsheet");
     expect(dispatchPreview(f("export.csv"))).toBe("spreadsheet");
@@ -79,6 +84,11 @@ describe("dispatchPreview — file targets", () => {
   it("falls back on unknown file extension (test-plan #5)", () => {
     expect(dispatchPreview(f("x.dat"))).toBe("fallback");
     expect(dispatchPreview(f("noext"))).toBe("fallback");
+  });
+
+  it("a URL target ending .pptx dispatches by extension (test-plan #6.3)", () => {
+    // dispatch is shape-based; PreviewBody guards kind !== "file" → FallbackPreview.
+    expect(dispatchPreview(u("https://example.com/slides.pptx"))).toBe("pptx");
   });
 
   it("a URL target ending .docx dispatches by extension (test-plan #6)", () => {
