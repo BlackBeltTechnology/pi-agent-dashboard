@@ -7,12 +7,13 @@
  * See change: improve-content-editor (per-kind tab icon #2).
  */
 
-import { mdiClose } from "@mdi/js";
+import { mdiClose, mdiConsoleLine } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useRef, useState } from "react";
 import type { OpenFile } from "../../lib/editor-pane-state.js";
 import { fileIcon } from "../../lib/file-icon.js";
 import { useI18n } from "../../lib/i18n";
+import { stripTermId } from "../../lib/use-terminal-pane-tabs.js";
 
 interface EditorTabsProps {
   openFiles: OpenFile[];
@@ -20,6 +21,8 @@ interface EditorTabsProps {
   onActivate: (index: number) => void;
   onClose: (index: number) => void;
   onReorder: (from: number, to: number) => void;
+  /** Resolve a terminal id to its display title (for `term:<id>` tabs). */
+  terminalTitle?: (id: string) => string | undefined;
 }
 
 function basename(p: string): string {
@@ -27,7 +30,7 @@ function basename(p: string): string {
   return i >= 0 ? p.slice(i + 1) : p;
 }
 
-export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReorder }: EditorTabsProps) {
+export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReorder, terminalTitle }: EditorTabsProps) {
   const { t } = useI18n();
   const dragFrom = useRef<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -110,8 +113,16 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
             dragOver === i ? "border-l-2 border-l-[var(--accent-blue)]" : "",
           ].join(" ")}
         >
-          <Icon path={fileIcon(file.path).iconPath} size={0.5} className={fileIcon(file.path).colorClass} />
-          <span className="truncate">{basename(file.path)}</span>
+          {file.viewer === "terminal" ? (
+            <Icon path={mdiConsoleLine} size={0.5} className="text-cyan-500" />
+          ) : (
+            <Icon path={fileIcon(file.path).iconPath} size={0.5} className={fileIcon(file.path).colorClass} />
+          )}
+          <span className="truncate">
+            {file.viewer === "terminal"
+              ? (terminalTitle?.(stripTermId(file.path) ?? "") ?? t("terminal.terminal", undefined, "terminal"))
+              : basename(file.path)}
+          </span>
           {file.viewer === "diff" && (
             <span className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[9px] uppercase tracking-wide text-[var(--text-tertiary)]">
               diff

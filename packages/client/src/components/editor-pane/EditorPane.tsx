@@ -12,7 +12,7 @@
  */
 
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
-import { mdiClose, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
+import { mdiClose, mdiConsoleLine, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { grepContents } from "../../lib/grep-api.js";
@@ -25,7 +25,9 @@ import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import { ChangesRailSection } from "./ChangesRailSection.js";
 import { EditorFileTree } from "./EditorFileTree.js";
 import { EditorSearchPanel } from "./EditorSearchPanel.js";
+import { stripTermId } from "../../lib/use-terminal-pane-tabs.js";
 import { EditorTabs } from "./EditorTabs.js";
+import { TerminalPaneLayer } from "./TerminalPaneLayer.js";
 import { viewerRegistry } from "./viewer-registry.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
@@ -47,7 +49,15 @@ export function EditorPane() {
     clearChanged,
     changesRevealSignal,
     openDiffTab,
+    terminal,
   } = useSplitWorkspace();
+  const terminalTitle = useCallback(
+    (id: string) => {
+      const s = terminal.terminals.find((t) => t.id === id);
+      return s?.title || s?.shell?.split("/").pop() || undefined;
+    },
+    [terminal.terminals],
+  );
   const [treeVisible, setTreeVisible] = useTreeVisible(sessionId);
   // Rail-local `this session only` (D3 — NOT lifted to context; that would
   // break the FileDiffView takeover, which renders DiffFileTree outside the
@@ -173,6 +183,15 @@ export function EditorPane() {
         </button>
         <button
           type="button"
+          onClick={() => terminal.createTerminal()}
+          data-testid="new-terminal-launch"
+          className="text-[var(--text-tertiary)] hover:text-cyan-400"
+          title={t("terminal.newTerminal", undefined, "New Terminal")}
+        >
+          <Icon path={mdiConsoleLine} size={0.7} />
+        </button>
+        <button
+          type="button"
           onClick={() => setSearchOpen((v) => !v)}
           aria-pressed={searchOpen}
           data-testid="editor-search-toggle"
@@ -206,8 +225,15 @@ export function EditorPane() {
         <EditorTabs
           openFiles={state.openFiles}
           activeIndex={state.activeIndex}
+          terminalTitle={terminalTitle}
           onActivate={(i) => dispatch({ type: "setActive", index: i })}
-          onClose={(i) => dispatch({ type: "closeTab", index: i })}
+          onClose={(i) => {
+            const f = state.openFiles[i];
+            const termId = f?.viewer === "terminal" ? stripTermId(f.path) : null;
+            // D4 — closing a terminal tab kills its terminal.
+            if (termId) terminal.closeTerminalTab(termId);
+            else dispatch({ type: "closeTab", index: i });
+          }}
           onReorder={(from, to) => dispatch({ type: "reorderTabs", from, to })}
         />
       )}
@@ -264,7 +290,14 @@ export function EditorPane() {
               onDismiss={() => clearChanged(activePath)}
             />
           )}
-          <div className="min-h-0 flex-1">{body}</div>
+          {/* File viewer + keep-alive terminal layer share the body region.
+              When a file tab is active the terminals are display:none; when a
+              term tab is active `body` is the null placeholder and the layer's
+              active terminal fills. See change: terminals-in-tabbed-panes. */}
+          <div className="min-h-0 flex-1 flex flex-col">
+            {body}
+            <TerminalPaneLayer />
+          </div>
         </div>
       </div>
 

@@ -34,6 +34,13 @@ const MonacoBuffer = lazy(() => import("./MonacoBuffer.js"));
 /** Adapt the editor-pane `ViewerProps` to a `preview/*` file target. */
 const asTarget = ({ cwd, path }: ViewerProps) => ({ kind: "file" as const, cwd, path });
 
+/**
+ * `terminal` viewer placeholder. A `term:<id>` tab's real xterm mount lives in
+ * the keep-alive `TerminalPaneLayer` (single mount per id — see change:
+ * terminals-in-tabbed-panes), so the registry entry renders nothing.
+ */
+const TerminalPlaceholder = (_p: ViewerProps) => null;
+
 const PdfViewer = (p: ViewerProps) => <PdfPreview target={asTarget(p)} />;
 const HtmlViewer = (p: ViewerProps) => <HtmlPreview target={asTarget(p)} restrictCsp={p.restrictCsp} />;
 const VideoViewer = (p: ViewerProps) => <VideoPreview target={asTarget(p)} />;
@@ -54,5 +61,7 @@ export const viewerRegistry: Record<ViewerKind, ComponentType<ViewerProps>> = {
   // for `canvas()` url/youtube declares. See change: auto-canvas (S35).
   url: UrlViewer,
   diff: DiffViewer,
+  // See TerminalPlaceholder above — real mount is the keep-alive layer.
+  terminal: TerminalPlaceholder,
   "binary-warn": BinaryWarn,
 };

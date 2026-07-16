@@ -28,6 +28,10 @@ export type ViewerKind =
   // Diff tabs open under a virtual `diff:<relPath>` path so they coexist with
   // a monaco tab of the same file. See change: add-change-summary-table.
   | "diff"
+  // Opened explicitly (never returned by `fileKind()`), like `live-server`.
+  // A terminal opens under a virtual `term:<terminalId>` tab hosting the
+  // xterm `TerminalView`. See change: terminals-in-tabbed-panes.
+  | "terminal"
   | "binary-warn";
 
 /** Coarse semantic file class. */

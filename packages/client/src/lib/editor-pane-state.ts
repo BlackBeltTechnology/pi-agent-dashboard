@@ -39,6 +39,10 @@ export interface EditorPaneState {
 export type EditorPaneAction =
   | { type: "openFile"; path: string; viewer: ViewerKind; restrictCsp?: boolean }
   | { type: "closeTab"; index: number }
+  // Close the tab addressed by its full path (stable across index shifts).
+  // Used by the terminal-tab reconcile loop, which drops several stale
+  // `term:<id>` tabs in one pass. See change: terminals-in-tabbed-panes.
+  | { type: "closeByPath"; path: string }
   | { type: "setActive"; index: number }
   | { type: "toggleTreeRoot"; relPath: string }
   | { type: "reorderTabs"; from: number; to: number }
@@ -85,6 +89,12 @@ export function editorPaneReducer(state: EditorPaneState, action: EditorPaneActi
       }
       const openFiles = [...state.openFiles, { path: action.path, viewer: action.viewer, addedAt: Date.now(), restrictCsp: action.restrictCsp }];
       return { ...state, openFiles, activeIndex: openFiles.length - 1, treeOpenRoots };
+    }
+
+    case "closeByPath": {
+      const index = state.openFiles.findIndex((f) => f.path === action.path);
+      if (index < 0) return state;
+      return editorPaneReducer(state, { type: "closeTab", index });
     }
 
     case "closeTab": {
@@ -142,7 +152,7 @@ function keyFor(sessionId: string): string {
 }
 
 const VALID_VIEWERS: ReadonlySet<string> = new Set([
-  "monaco", "image", "pdf", "markdown", "html", "mermaid", "video", "audio", "live-server", "url", "diff", "binary-warn",
+  "monaco", "image", "pdf", "markdown", "html", "mermaid", "video", "audio", "live-server", "url", "diff", "terminal", "binary-warn",
 ]);
 
 /** True only for well-formed persisted state; rejects corrupt/partial blobs. */

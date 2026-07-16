@@ -1727,7 +1727,7 @@ This is separate from the main JSON dashboard WebSocket (`/ws`).
 1. Browser sends `create_terminal` on main WS → server spawns PTY via `node-pty`
 2. Server broadcasts `terminal_added` to all browsers
 3. Browser opens binary WS to `/ws/terminal/:id`, attaches `xterm.js`
-4. Shell exit → PTY `onExit` → server broadcasts `terminal_removed` → card removed
+4. Shell exit → PTY `onExit` → server broadcasts `terminal_removed` → `term:<id>` tab reconciled away (dropped from the pane).
 
 **Native binary permissions.** `node-pty`'s prebuilt `spawn-helper` (and `pty.node`) must be executable for `pty.spawn` to succeed on macOS/Linux. Three layers of defense ensure this:
 
@@ -1798,9 +1798,23 @@ Each terminal maintains a 256KB ring buffer of raw PTY output. When a new WebSoc
 
 Terminal xterm.js instances stay mounted in the DOM (CSS hidden/shown) for instant switching without replay flicker. The binary WebSocket stays open while mounted.
 
-### Folder-Scoped View
+### Terminals as Editor-Pane Tabs
 
-Terminals are displayed in a tabbed `TerminalsView` per folder, accessed via the folder action bar's `Terminals(N)` button. Terminal cards no longer appear in the sidebar — the sidebar shows only pi session cards. The tab bar supports switching, closing, renaming, and creating new terminals.
+Terminals host as virtual `term:<id>` tabs (`ViewerKind` `terminal`) inside the editor pane, not a standalone view. Open via `dispatch(openFile, path:"term:<id>", viewer:"terminal")`, mirrors `live:`/`diff:` idiom.
+
+Two hosts. Session split (`/session/:id/editor`): terminal cwd = session cwd, terminals open opt-in on user action. Folder-scoped pane (`/folder/:cwd/editor`): terminal cwd = folder cwd, auto-surfaces every non-ephemeral cwd terminal via `autoSurfaceTerminals`.
+
+Real xterm mount = keep-alive `TerminalPaneLayer` (single `TerminalView` per id, visibility-toggled) inside `EditorPane`. `viewer-registry` `terminal` entry = no-op placeholder.
+
+Terminal-tab slice = `SplitWorkspaceContext` hook `useTerminalPaneTabs` (open/create/kill/rename/onTitle, D5 reconcile stale `term:` tabs, D3 auto-surface, D4 close-tab-kills-PTY). `closeByPath` reducer drops a `term:` tab by path.
+
+Persisted `term:` tabs survive reload (`VALID_VIEWERS` includes `terminal`); reconciled against live terminals at that cwd on load, stale dropped.
+
+Sidebar `[Terminals(N)]` retargets to `/folder/:cwd/editor`; badge count unchanged (non-ephemeral terminals at cwd). Standalone `TerminalsView` + route `/folder/:cwd/terminals` REMOVED.
+
+Inline `!!` ephemeral cards (`InlineTerminalCard`) unchanged, excluded from tabs. Server PTY / WS protocol / `terminal-manager` unchanged.
+
+See change: terminals-in-tabbed-panes.
 
 ### Known Servers Configuration
 
