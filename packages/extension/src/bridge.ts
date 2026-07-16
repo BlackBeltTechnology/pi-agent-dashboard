@@ -2391,7 +2391,13 @@ function initBridge(pi: ExtensionAPI) {
         spinnerTimer = null;
       }
       activeLoader = null;
-      ctx.ui.setWidget("pi-dashboard-launch", undefined);
+      // Tolerate a stale ctx: autoStartServer() can resolve after the session
+      // was replaced (headless flow runs), where touching ctx.ui throws.
+      try {
+        ctx.ui.setWidget("pi-dashboard-launch", undefined);
+      } catch {
+        /* stale ctx after session replacement — widget died with the old session */
+      }
     };
     autoStartServer(config, {
       discoverDashboard,
