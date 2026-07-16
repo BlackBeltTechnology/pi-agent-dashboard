@@ -5,6 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -28,6 +29,7 @@ import {
   resolveRowLimit,
 } from "../lib/office-preview.js";
 import { isAllowed } from "../lib/path-containment.js";
+import { resolveFileMention } from "../lib/resolve-file-mention.js";
 import { isWritableMdTarget } from "../lib/writable-md-target.js";
 import type { SessionManager } from "../memory-session-manager.js";
 import type { PreferencesStore } from "../preferences-store.js";
@@ -39,6 +41,15 @@ import type { NetworkGuard } from "./route-deps.js";
 // write instead of returning 409. Keyed by resolved path; the chain swallows
 // errors so one failed write does not poison the next. See change:
 // directory-settings-page-and-scoped-md-editing.
+// Fixed, server-derived `~/.pi` containment anchor shared by the resolve
+// endpoint and the open/preview routes, so a resolved `~/.pi/…` path the
+// resolve endpoint accepts also opens/previews without a 403 (design D7).
+// Read at call time so it tracks the process HOME (fake-HOME safe in tests);
+// never derived from request input. See change: server-side-file-mention-resolution.
+function homePiAnchor(): string {
+  return path.join(os.homedir(), ".pi");
+}
+
 const fileWriteLocks = new Map<string, Promise<unknown>>();
 function serializeWrite<T>(key: string, task: () => Promise<T>): Promise<T> {
   const run = (fileWriteLocks.get(key) ?? Promise.resolve()).then(task, task);
@@ -315,7 +326,9 @@ export function registerFileRoutes(
       }
 
       const resolved = path.resolve(cwd, relPath);
-      if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
+      // Anchors include the fixed `~/.pi` allowlist so a resolved `~/.pi/…`
+      // mention (from `/api/file/resolve-mention`) previews without a 403 (D7).
+      if (!(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] }))) {
         reply.code(403);
         return { success: false, error: "path outside working directory" } satisfies ApiResponse;
       }
@@ -575,6 +588,38 @@ export function registerFileRoutes(
     },
   );
 
+  // Lazy file-mention resolver (change: server-side-file-mention-resolution).
+  //
+  // Body `{ cwd, mention }` → `{ resolved, kind }` or `{ resolved: null }`.
+  // `cwd` is UNTRUSTED request input and is gated against the known-session set
+  // (mirrors `/api/file`, NOT the wider exists-only pinned set — design D2/F6/F7,
+  // so a resolve never succeeds on a path the open route would 403) BEFORE any
+  // resolution. `resolveFileMention` then expands `~/`, runs containment
+  // (cwd + git-root + `~/.pi`) BEFORE `fs.stat`, and returns null for a
+  // non-existent in-scope mention (never an error).
+  fastify.post<{ Body: { cwd?: unknown; mention?: unknown } }>(
+    "/api/file/resolve-mention",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const body = request.body ?? {};
+      const cwd = typeof body.cwd === "string" ? body.cwd : "";
+      const mention = typeof body.mention === "string" ? body.mention : "";
+      if (!cwd || !mention) {
+        reply.code(400);
+        return { success: false, error: "cwd and mention are required" } satisfies ApiResponse;
+      }
+      if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
+        reply.code(403);
+        return { success: false, error: "unknown session path" } satisfies ApiResponse;
+      }
+      const result = await resolveFileMention(mention, { cwd });
+      return {
+        success: true,
+        data: result ? { resolved: result.resolved, kind: result.kind } : { resolved: null },
+      } satisfies ApiResponse;
+    },
+  );
+
   // Pinned directories endpoint
   fastify.get("/api/pinned-dirs", async () => {
     return { success: true, data: preferencesStore.getPinnedDirectories() } satisfies ApiResponse;
@@ -614,7 +659,7 @@ export function registerFileRoutes(
       // screenshots that live outside every cwd and git root.
       // See change: serve-agent-artifact-previews.
       if (
-        !(await isAllowed(resolved, { anchors: [cwd] })) &&
+        !(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] })) &&
         !(await isImageUnderArtifactRoot(resolved))
       ) {
         reply.code(403);
@@ -769,7 +814,7 @@ export function registerFileRoutes(
       }
 
       const resolved = path.resolve(cwd, relPath);
-      if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
+      if (!(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] }))) {
         reply.code(403);
         return { success: false, error: "path outside working directory" } satisfies ApiResponse;
       }

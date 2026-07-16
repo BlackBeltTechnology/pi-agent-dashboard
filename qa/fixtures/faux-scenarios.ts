@@ -395,6 +395,22 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "src/ghost.ts" },
   },
 
+  // Assistant text referencing a `~/.pi/…` home config file. Exercises the
+  // Phase-1 tilde-home mention path end-to-end: the client tokenizer emits ONE
+  // `~/…` FileLink, and on click the server resolve endpoint expands `~/` and
+  // authorizes it via the fixed `~/.pi` anchor — so the preview opens the
+  // resolved home file (`$HOME/.pi/agent/settings.json`, seeded by
+  // test-entrypoint under PI_E2E_SEED), NOT a `/`-rooted 404 from the old
+  // tilde-split bug. See change: server-side-file-mention-resolution.
+  "text-tildelink": {
+    script: [
+      fauxAssistantMessage([
+        fauxText("see ~/.pi/agent/settings.json for the config"),
+      ]),
+    ],
+    expect: { text: "settings.json" },
+  },
+
   // Assistant text referencing a REAL fixture file. The explicit `./` prefix
   // gives the tokenizer the separator it needs to linkify (a bare `hello.txt`
   // has no separator and stays prose); the link resolves against the session

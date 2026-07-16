@@ -26,13 +26,33 @@ function renderFLNoProvider(ui: React.ReactElement) {
   return render(<ThemeProvider>{ui}</ThemeProvider>);
 }
 
+function jsonResponse(obj: unknown, status = 200): Response {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  }) as any;
+}
+
+// Route `fetch`: the `/api/file/resolve-mention` POST is answered by `resolve`
+// (defaulting to echoing the mention back as the resolved path); every other
+// call (the preview overlay's `/api/file` GET) returns empty file content.
+function mockFetchRouting(
+  resolve: (mention: string) => Response = (m) =>
+    jsonResponse({ success: true, data: { resolved: m, kind: "relative" } }),
+) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any, init?: any) => {
+    const url = String(input);
+    if (url.includes("/api/file/resolve-mention")) {
+      const mention = init?.body ? JSON.parse(init.body).mention : "";
+      return resolve(mention);
+    }
+    return jsonResponse({ success: true, data: { type: "file", content: "" } });
+  });
+}
+
+// Back-compat alias for the existing overlay-open tests.
 function mockFileFetch() {
-  return vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    new Response(JSON.stringify({ success: true, data: { type: "file", content: "" } }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }) as any,
-  );
+  return mockFetchRouting();
 }
 
 beforeAll(() => {
@@ -135,6 +155,120 @@ describe("FileLink — absolute paths skip the cwd join", () => {
     const overlay = await findByTestId("file-preview-overlay");
     expect(overlay.textContent).toContain("/Users/other/app.ts");
     fetchSpy.mockRestore();
+  });
+});
+
+describe("FileLink — lazy resolve-on-click", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("click resolves the mention and opens the server-resolved path (S13)", async () => {
+    const serverPath = "/Users/me/.pi/agent/settings.json";
+    const fetchSpy = mockFetchRouting(() =>
+      jsonResponse({ success: true, data: { resolved: serverPath, kind: "tilde" } }),
+    );
+    const ctx: ToolContext = { cwd: "/Users/me/repo" };
+    const { getByRole, findByTestId } = renderFL(
+      <FileLink path="~/.pi/agent/settings.json" absolute context={ctx}>
+        ~/.pi/agent/settings.json
+      </FileLink>,
+    );
+    fireEvent.click(getByRole("button"));
+    const overlay = await findByTestId("file-preview-overlay");
+    // Opened the SERVER-resolved path, not a `/`-rooted or verbatim `~/` path.
+    expect(overlay.textContent).toContain(serverPath);
+    // The resolve endpoint was actually consulted.
+    expect(
+      fetchSpy.mock.calls.some(([u]) => String(u).includes("/api/file/resolve-mention")),
+    ).toBe(true);
+  });
+
+  it("null resolution shows an inline not-found affordance and makes NO open call (S14)", async () => {
+    const fetchSpy = mockFetchRouting(() =>
+      jsonResponse({ success: true, data: { resolved: null } }),
+    );
+    const ctx: ToolContext = { cwd: "/Users/me/repo" };
+    const { getByRole, queryByTestId } = renderFL(
+      <FileLink path="ghost.ts" context={ctx}>
+        ghost.ts
+      </FileLink>,
+    );
+    const button = getByRole("button");
+    fireEvent.click(button);
+    // Let the async resolve settle.
+    await vi.waitFor(() => expect(button.getAttribute("data-not-found")).toBe("true"));
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.className).toContain("line-through");
+    // No preview overlay opened (no open call).
+    expect(queryByTestId("file-preview-overlay")).toBeNull();
+    // Exactly one fetch — the resolve — and never an `/api/file` open.
+    expect(fetchSpy.mock.calls.every(([u]) => String(u).includes("/api/file/resolve-mention"))).toBe(
+      true,
+    );
+  });
+
+  it("a resolve request FAILURE falls back to client-side open, not treated as null (S15)", async () => {
+    // 5xx with a non-JSON body → fetchJson throws (transport failure).
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
+      const url = String(input);
+      if (url.includes("/api/file/resolve-mention")) {
+        return new Response("gateway boom", {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }) as any;
+      }
+      return jsonResponse({ success: true, data: { type: "file", content: "" } });
+    });
+    const ctx: ToolContext = { cwd: "/Users/me/repo" };
+    const { getByRole, findByTestId } = renderFL(
+      <FileLink path="src/foo.ts" context={ctx}>
+        src/foo.ts
+      </FileLink>,
+    );
+    const button = getByRole("button");
+    fireEvent.click(button);
+    // Fallback opened the preview overlay (client-side path), NOT a not-found.
+    const overlay = await findByTestId("file-preview-overlay");
+    expect(overlay.textContent).toContain("src/foo.ts");
+    expect(button.getAttribute("data-not-found")).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
+  it("opens the server path exactly — no double resolveLinkOrigin re-root (S16)", async () => {
+    const serverPath = "/repo/.worktrees/x/vitest.config.ts";
+    const fetchSpy = mockFetchRouting(() =>
+      jsonResponse({ success: true, data: { resolved: serverPath, kind: "abs" } }),
+    );
+    // Worktree session + a parent-rooted absolute token: the client must NOT
+    // re-root the server path a second time.
+    const ctx: ToolContext = { cwd: "/repo/.worktrees/x" };
+    const { getByRole, findByTestId } = renderFL(
+      <FileLink path="/repo/vitest.config.ts" absolute context={ctx}>
+        /repo/vitest.config.ts
+      </FileLink>,
+    );
+    fireEvent.click(getByRole("button"));
+    const overlay = await findByTestId("file-preview-overlay");
+    expect(overlay.textContent).toContain(serverPath);
+    // Not re-rooted twice into `/repo/.worktrees/x/repo/...`.
+    expect(overlay.textContent).not.toContain("/x/repo/vitest.config.ts");
+    fetchSpy.mockRestore();
+  });
+
+  it("fires zero resolve calls until a click (lazy render invariant, S18)", () => {
+    const fetchSpy = mockFetchRouting();
+    const ctx: ToolContext = { cwd: "/Users/me/repo" };
+    renderFL(
+      <div>
+        <FileLink path="a.ts" context={ctx}>a.ts</FileLink>
+        <FileLink path="b.ts" context={ctx}>b.ts</FileLink>
+        <FileLink path="c.ts" context={ctx}>c.ts</FileLink>
+      </div>,
+    );
+    // Mount alone must not touch the network.
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

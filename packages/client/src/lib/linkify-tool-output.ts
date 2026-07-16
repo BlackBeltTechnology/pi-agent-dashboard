@@ -57,6 +57,11 @@ const COMBINED = new RegExp(
   // Windows drive segment (`C:/` / `C:\`) is admitted because URISEG excludes
   // `:`, so `file:///C:/src/app.ts` would otherwise never tokenize.
   `|(?<file_uri>file:\\/\\/\\/?(?:[A-Za-z]:[\\\\/])?(?:${URISEG}[\\\\/])*${URISEG}\\.${EXT}${LINE_COL})` +
+  // Tilde-home path (`~/…`). Leading `~/` then absolute-context segments; the
+  // `~/` prefix disambiguates from prose so no bare-segment guard is needed.
+  // Kept verbatim in the token `path` (the server expands `~/` on resolve).
+  // See change: server-side-file-mention-resolution.
+  `|(?<file_tilde>~\\/(?:${ASEG}[\\\\/])*${ASEG}\\.${EXT}${LINE_COL})` +
   // POSIX absolute path (dot-directory segments allowed)
   `|(?<file_posix>\\/(?:${ASEG}\\/)*${ASEG}\\.${EXT}${LINE_COL})` +
   // Windows drive-absolute path (`\\` or `/` separators; dot-dirs allowed)
@@ -167,6 +172,7 @@ export function tokenize(text: string): Token[] {
     const groups = (m.groups ?? {}) as {
       url?: string;
       file_uri?: string;
+      file_tilde?: string;
       file_posix?: string;
       file_win?: string;
       file_line?: string;
@@ -230,9 +236,11 @@ export function tokenize(text: string): Token[] {
       }
       tokens.push({ kind: "file", text: matchText, path: decoded, line, col, absolute: true });
       linkCount++;
-    } else if (groups.file_posix || groups.file_win) {
-      // Absolute path (root preserved). Parse only a trailing line:col so a
-      // Windows drive colon is never consumed.
+    } else if (groups.file_posix || groups.file_win || groups.file_tilde) {
+      // Absolute path (root preserved) or a `~/…` home path (kept verbatim so
+      // the server expands the tilde on resolve). Parse only a trailing
+      // line:col so a Windows drive colon is never consumed. `absolute: true`
+      // keeps `~/…` out of the cwd-relative split-open branch.
       const { path: pathPart, line, col } = splitLineCol(matchText);
       tokens.push({ kind: "file", text: matchText, path: pathPart, line, col, absolute: true });
       linkCount++;

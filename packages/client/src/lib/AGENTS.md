@@ -80,6 +80,7 @@ Files in this directory. One row per source file.
 | `preview-dispatch.ts` | Pure `dispatchPreview(target: ViewTarget): RendererKind`. → see `preview-dispatch.ts.AGENTS.md` |
 | `prompt-answer-encoder.ts` | Pure helper encoding interactive renderer `result` → `answer` string for PromptBus `prompt_response`. → see `prompt-answer-encoder.ts.AGENTS.md` |
 | `prompt-component-registry.ts` | Compatibility shim re-exporting prompt component registry from… → see `prompt-component-registry.ts.AGENTS.md` |
+| `resolve-mention-api.ts` | NEW. Client transport for the lazy resolver. `resolveFileMention(cwd, mention): Promise<{resolved: string\|null, kind?}>` POSTs `/api/file/resolve-mention` via `fetchJson`. `resolved:null` = no in-scope file; a transport failure (5xx/network/non-JSON) THROWS `ApiHttpError` so callers fall back to client-side open (D5), never treat failure as absent. See change: server-side-file-mention-resolution. |
 | `resources-api.ts` | Fetch helpers for pi-resource activation (distinct from `packages-api`). → see `resources-api.ts.AGENTS.md` |
 | `providers-api.ts` | Fetch helper for custom-LLM-provider management. Exports `TestProviderInput`, `TestProviderResult`… → see `providers-api.ts.AGENTS.md` |
 | `rail-width.ts` | Per-session browse-rail width, localStorage `pi-dashboard:rail:<id>`, clamp [160,480], default 224. `useRailWidth`. Independent of outer split ratio. See change: split-editor-workspace. |
