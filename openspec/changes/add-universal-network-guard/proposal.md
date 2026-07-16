@@ -32,24 +32,38 @@ the guard **structural** so no route can be forgotten.
 
 ## What Changes
 
-- **Promote `networkGuard` to a single universal `onRequest` hook** that runs on
-  every request **regardless of whether auth is configured**, covering core
-  routes, plugin routes, and provider-auth/models-introspection routes with one
-  enforcement point.
-- **Introduce an explicit public-route allowlist** (the only routes that skip the
-  guard), modeled on the allowlist already in `auth-plugin.ts`:
-  `/api/health`, `/manifest.json`, `PUBLIC_PAIRING_PREFIXES`, the OAuth
-  `/auth/*` login/callback routes, the WS-ticket-minting endpoint, static
-  assets, and configured `bypassUrls`/`bypassHosts`. Everything not on the list
-  is guarded by default (deny-by-default, not allow-by-default).
+> **Design pivoted after doubt-driven review** (see `design.md`). The first draft
+> tried to deny-everything-except-an-enumerated-public-allowlist; two reviewers
+> showed that is unimplementable (hashed static assets rooted at `/`, SPA
+> history-fallback via `setNotFoundHandler`) and would brick the app shell with
+> auth off over a tunnel. The design scopes the guard to the sensitive API
+> namespaces instead.
+
+- **Promote `networkGuard` to a single universal `onRequest` hook** that runs
+  **regardless of whether auth is configured**, with jurisdiction over the
+  sensitive HTTP namespaces (`/api/*`, `/v1/*`, `/editor/*`, `/live/*`). Within
+  jurisdiction it is deny-by-default; **outside jurisdiction it does nothing** —
+  static assets, the SPA shell (`/` + deep-link fallback), `/manifest.json`,
+  `/auth/*`, favicon, PWA icons are served as today. (Verified: every dangerous
+  route lives under those four namespaces.)
+- **In-namespace public exceptions** (reachable unauthenticated within `/api`):
+  `/api/health`, `PUBLIC_PAIRING_PREFIXES`, and configured `auth.bypassUrls`.
+- **`/v1/*` is authenticated by the model-proxy gate.** That gate SHALL set
+  `request.isAuthenticated` on a valid `pi-proxy-*` key so the guard admits it via
+  the normal pass condition; the guard registers **last** (after the bearer,
+  OAuth, and proxy-gate `onRequest` hooks). No `/v1` public allowlist entry (that
+  would be a hole when the proxy is disabled).
 - **Preserve every existing pass condition** — loopback / genuine-local,
-  trusted-network CIDR, local-token, valid bearer, valid OAuth cookie. No change
-  to who is *allowed*; only a change to *which routes are checked*.
+  trusted-network CIDR, local-token, valid bearer, valid OAuth cookie. The
+  intended behavior change is that previously-ungated `/api` sensitive routes
+  become guarded when auth is off.
 - **Keep WS upgrades on their existing path** — `validateWsUpgrade` + single-use
-  scoped ws-ticket is unchanged and remains the WS auth mechanism.
+  scoped ws-ticket, unchanged. The ws-ticket **mint** endpoint is under `/api` and
+  stays **guarded** (an authed client mints a ticket; it is not public).
 - **Leave the per-route `preHandler: networkGuard` in place** as redundant
-  defense-in-depth (removing them is a separate cleanup; keeping them is
-  harmless and avoids a large diff).
+  defense-in-depth.
+- **Add a namespace-coverage test** asserting no dangerous route sits outside the
+  guarded namespaces (preserves the deny-by-default guarantee).
 - **Log every denial** (path, source IP, reason) so a probing LAN/tunnel client
   is observable.
 
@@ -62,11 +76,13 @@ each plugin (defense-in-depth on top of this guard).
 
 - **Closes:** VD2 automation-plugin RCE (tunnel, auth-off); provider-auth
   credential read/overwrite + browser-spawn DoS; kb/flows plugin route exposure.
-- **Behavior change / risk:** any route not on the public allowlist that was
-  previously reachable unauthenticated becomes guarded. The allowlist must be
-  complete or a legitimately-public surface (PWA manifest, pairing bootstrap,
-  OAuth callback) could be locked out — this is the primary risk and the reason
-  a `doubt-driven-review` + scenario pass gate this change.
+- **Behavior change / risk:** previously-ungated `/api` sensitive routes become
+  guarded when auth is off (intended). Residual risks: (a) a future dangerous
+  route added *outside* the guarded namespaces would be unguarded — mitigated by
+  the namespace-coverage test; (b) the `/v1` proxy-gate ordering + `isAuthenticated`
+  wiring must be correct or model-proxy traffic bricks — covered by dedicated
+  scenarios. The SPA/login lockout risk of the first draft is eliminated by
+  scoping (public surface is out of jurisdiction).
 - **Affected specs:** `trusted-networks`, `auth-bypass-url-list`,
   `dashboard-plugin-loader` (plugin routes now inherit the guard). Delta specs to
   be authored in the next artifact step.
