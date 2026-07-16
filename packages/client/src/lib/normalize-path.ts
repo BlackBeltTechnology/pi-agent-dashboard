@@ -37,3 +37,14 @@ export function normalizeUnderCwd(rawPath: string, cwd: string | undefined): str
 
   return rawPath; // absolute outside cwd — unchanged
 }
+
+/**
+ * True when `rawPath` is a file this session wrote OUTSIDE its `cwd`
+ * (absolute AND not under cwd). After `normalizeUnderCwd`, an in-cwd path is
+ * relative and an out-of-cwd path stays absolute, so residual absoluteness is
+ * the out-of-cwd signal. Mirrors the server carrying out-of-cwd entries by
+ * absolute key. See change: opt-in-out-of-cwd-session-diffs.
+ */
+export function isOutOfCwd(rawPath: string, cwd: string | undefined): boolean {
+  return isAbsolutePath(normalizeUnderCwd(rawPath, cwd));
+}

@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Split Layout Redesign — session holder + editor/chat divider</title>
+<style>
+  /* ── Grounded theme tokens (verbatim from packages/client/src/index.css) ── */
+  :root{
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06); --bg-selected:#1e1e1e;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+    --text-muted:#585858; --border-primary:#252525; --border-secondary:#333333;
+    --border-subtle:rgba(255,255,255,.06); --accent-primary:#3b82f6;
+    --shadow-card:rgba(0,0,0,.5); --elevation-rim:rgba(255,255,255,.04);
+  }
+  html[data-theme="light"]{
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+    --bg-surface:#e0e0e0; --bg-hover:rgba(0,0,0,.04); --bg-selected:#e8e8e8;
+    --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#777777;
+    --text-muted:#aaaaaa; --border-primary:#e0e0e0; --border-secondary:#cccccc;
+    --border-subtle:rgba(0,0,0,.06); --accent-primary:#2563eb;
+    --shadow-card:rgba(0,0,0,.12); --elevation-rim:rgba(255,255,255,.6);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg-primary); color:var(--text-primary);
+    font-size:14px; -webkit-font-smoothing:antialiased;
+  }
+  .shell{display:flex; height:100vh; overflow:hidden}
+
+  /* ── SESSION HOLDER (left rail) ── */
+  .rail{
+    display:flex; flex-direction:column; flex-shrink:0;
+    width:264px; min-width:180px; max-width:500px;
+    background:var(--bg-secondary); border-right:1px solid var(--border-primary);
+    position:relative;
+  }
+  .rail.collapsed{width:44px}
+  .rail-head{
+    display:flex; align-items:center; gap:8px;
+    height:44px; padding:0 12px; flex-shrink:0;
+    border-bottom:1px solid var(--border-primary);
+  }
+  .logo{width:22px;height:22px;border-radius:6px;
+    background:linear-gradient(135deg,var(--accent-primary),#8b5cf6);flex-shrink:0}
+  .rail-title{font-size:11px;font-weight:600;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--text-tertiary)}
+  .rail.collapsed .rail-title,.rail.collapsed .grp,.rail.collapsed .card,
+  .rail.collapsed .rail-foot{display:none}
+  .rail-scroll{flex:1;overflow-y:auto;padding:8px 8px 0}
+  .grp{margin-bottom:10px}
+  .grp-h{display:flex;align-items:center;gap:6px;padding:4px 6px;
+    font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--text-muted)}
+  .grp-h .caret{transition:transform .15s}
+  .card{
+    display:flex;flex-direction:column;gap:3px;
+    padding:8px 10px;margin:3px 0;border-radius:12px;cursor:pointer;
+    border:1px solid transparent;
+    box-shadow:inset 0 1px 0 var(--elevation-rim),0 2px 4px var(--shadow-card);
+    background:var(--bg-tertiary);transition:transform .12s,box-shadow .12s,border-color .12s;
+  }
+  .card:hover{transform:translateY(-1px);
+    box-shadow:inset 0 1px 0 var(--elevation-rim),0 6px 12px var(--shadow-card)}
+  .card.sel{border-color:color-mix(in srgb,var(--accent-primary) 45%,transparent);
+    background:var(--bg-selected)}
+  .card-top{display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .dot.working{background:#eab308;animation:pulse 1.6s infinite}
+  .dot.idle{background:#22c55e}
+  .dot.ended{background:var(--bg-surface)}
+  @keyframes pulse{50%{opacity:.35}}
+  .card-name{font-size:13px;font-weight:600;flex:1;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .src{color:var(--text-muted);font-size:11px}
+  .card-model{font-size:11px;color:var(--text-tertiary);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:16px}
+  .card-meta{display:flex;gap:10px;font-size:10px;color:var(--text-muted);padding-left:16px}
+  .card.ended{opacity:.55;box-shadow:none;background:transparent;border-color:var(--border-primary)}
+  .rail-foot{border-top:1px solid var(--border-primary);padding:8px 10px;
+    display:flex;gap:8px;font-size:11px;color:var(--text-tertiary)}
+
+  /* ── Shared "seam" resize language (rail edge + split divider) ── */
+  .seam{
+    position:relative;flex-shrink:0;width:8px;cursor:col-resize;
+    display:flex;align-items:center;justify-content:center;
+    background:transparent;transition:background .12s;
+  }
+  .seam::before{ /* the actual thin hairline */
+    content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;
+    transform:translateX(-50%);background:var(--border-primary);transition:background .12s,width .12s;
+  }
+  .seam:hover::before,.seam.dragging::before{
+    width:2px;background:color-mix(in srgb,var(--accent-primary) 55%,transparent)}
+  .seam .grip{opacity:0;transition:opacity .12s;display:flex;flex-direction:column;
+    gap:3px;z-index:5}
+  .seam:hover .grip,.seam.dragging .grip{opacity:.9}
+  .seam .grip i{width:3px;height:3px;border-radius:50%;background:var(--text-tertiary)}
+
+  /* Rail collapse pill — same visual family as the seam grips */
+  .rail-collapse{
+    position:absolute;right:0;top:50%;transform:translate(50%,-50%);z-index:20;
+    width:18px;height:30px;border-radius:9px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    background:var(--bg-tertiary);border:1px solid var(--border-secondary);
+    color:var(--text-tertiary);box-shadow:0 2px 6px var(--shadow-card);
+    transition:color .12s,background .12s;
+  }
+  .rail-collapse:hover{color:var(--text-primary);background:var(--bg-surface)}
+
+  /* ── CONTENT AREA ── */
+  .content{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+  .header{
+    display:flex;align-items:center;gap:10px;height:44px;padding:0 14px;flex-shrink:0;
+    border-bottom:1px solid var(--border-primary);background:var(--bg-secondary);
+  }
+  .crumb{font-size:13px;font-weight:600}
+  .crumb .muted{color:var(--text-tertiary);font-weight:400}
+  .spacer{flex:1}
+  /* Segmented Chat│Split│Editor — the ONE explicit control (deduped) */
+  .modesw{display:inline-flex;border:1px solid var(--border-secondary);
+    border-radius:8px;overflow:hidden}
+  .modesw button{display:inline-flex;align-items:center;gap:5px;
+    font-size:11px;padding:5px 10px;border:0;cursor:pointer;
+    background:transparent;color:var(--text-tertiary);
+    border-right:1px solid var(--border-secondary);transition:.12s}
+  .modesw button:last-child{border-right:0}
+  .modesw button:hover{color:var(--text-primary);background:var(--bg-hover)}
+  .modesw button.on{color:#fff;background:var(--accent-primary)}
+  html[data-theme="light"] .modesw button.on{color:#fff}
+  .ico{width:14px;height:14px;flex-shrink:0}
+
+  .work{flex:1;display:flex;min-width:0;min-height:0;position:relative}
+  .pane{display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+  .pane-h{display:flex;align-items:center;gap:6px;height:30px;padding:0 12px;
+    flex-shrink:0;font-size:10px;font-weight:700;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--text-muted);
+    border-bottom:1px solid var(--border-subtle)}
+  .pane-body{flex:1;overflow:auto;padding:14px;font-size:13px;line-height:1.55;
+    color:var(--text-secondary)}
+  .chat .pane-body p{margin:0 0 12px}
+  .bubble{background:var(--bg-tertiary);border:1px solid var(--border-subtle);
+    border-radius:12px;padding:10px 12px;margin-bottom:12px}
+  .code{background:var(--bg-secondary);border:1px solid var(--border-subtle);
+    border-radius:8px;padding:10px 12px;font-family:ui-monospace,monospace;font-size:12px;
+    color:var(--text-tertiary);white-space:pre}
+
+  /* ── THE REDESIGNED DIVIDER ── */
+  /* Seam is the drag zone; each pane owns a rotated tab flush at ITS inner edge,
+     so nothing floats over a 6px bar and nothing can overlap a narrow pane. */
+  .divider{width:10px}
+  .divider .grip i{background:var(--text-muted)}
+
+  /* Rotated collapse tab — anchored inside the pane edge, revealed on work-hover */
+  .foldtab{
+    position:absolute;top:50%;z-index:15;
+    display:flex;align-items:center;gap:5px;cursor:pointer;
+    padding:9px 4px;border-radius:8px;
+    writing-mode:vertical-rl;
+    font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+    background:var(--bg-tertiary);border:1px solid var(--border-secondary);
+    color:var(--text-tertiary);box-shadow:0 2px 8px var(--shadow-card);
+    opacity:0;transition:opacity .14s,color .12s,background .12s;
+  }
+  .work:hover .foldtab,.foldtab:focus-visible{opacity:1}
+  .foldtab:hover{color:var(--accent-primary);
+    border-color:color-mix(in srgb,var(--accent-primary) 45%,transparent);
+    background:color-mix(in srgb,var(--accent-primary) 10%,var(--bg-tertiary))}
+  .foldtab .chev{writing-mode:horizontal-tb;font-size:12px;line-height:1}
+  /* chat tab sits at chat's right edge, transform up-and-left of the seam */
+  .foldtab.chat{right:0;transform:translate(-6px,-50%)}
+  .foldtab.editor{left:0;transform:translate(6px,-50%)}
+
+  /* Edge peeks for closed/full — reuse the same tab language */
+  .peek{position:absolute;top:50%;transform:translateY(-50%);z-index:15;cursor:pointer;
+    display:flex;align-items:center;gap:5px;padding:10px 5px;
+    writing-mode:vertical-rl;font-size:10px;font-weight:700;letter-spacing:.12em;
+    text-transform:uppercase;background:var(--bg-tertiary);
+    border:1px solid var(--border-secondary);color:var(--text-tertiary);
+    box-shadow:0 2px 8px var(--shadow-card);transition:.12s}
+  .peek:hover{color:var(--accent-primary)}
+  .peek.left{left:0;border-left:0;border-radius:0 8px 8px 0}
+  .peek.right{right:0;border-right:0;border-radius:8px 0 0 8px}
+  .peek .chev{writing-mode:horizontal-tb;font-size:12px}
+
+  /* ── control bar (mockup chrome, not part of product) ── */
+  .fab{position:fixed;right:14px;bottom:14px;display:flex;gap:8px;z-index:50}
+  .fab button{font-size:12px;padding:7px 12px;border-radius:8px;cursor:pointer;
+    border:1px solid var(--border-secondary);background:var(--bg-tertiary);
+    color:var(--text-secondary);box-shadow:0 2px 8px var(--shadow-card)}
+  .fab button:hover{color:var(--text-primary);background:var(--bg-surface)}
+  .hint{position:fixed;left:14px;bottom:14px;z-index:50;max-width:340px;
+    font-size:11px;line-height:1.5;color:var(--text-muted);
+    background:color-mix(in srgb,var(--bg-secondary) 90%,transparent);
+    border:1px solid var(--border-subtle);border-radius:10px;padding:9px 12px}
+  .hint b{color:var(--text-secondary)}
+  svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ═══ SESSION HOLDER (left) ═══ -->
+  <aside class="rail" id="rail">
+    <div class="rail-head">
+      <div class="logo"></div>
+      <span class="rail-title">Sessions</span>
+    </div>
+    <div class="rail-scroll">
+      <div class="grp">
+        <div class="grp-h"><span class="caret">▾</span> pi-agent-dashboard</div>
+        <div class="card sel">
+          <div class="card-top"><span class="dot working"></span>
+            <span class="card-name">redesign split divider</span>
+            <span class="src">TUI</span></div>
+          <div class="card-model">claude-opus-4 · thinking</div>
+          <div class="card-meta"><span>↓12.4K</span><span>↑3.1K</span><span>$0.18</span>
+            <span style="color:#eab308">⚙ Edit</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><span class="dot idle"></span>
+            <span class="card-name">ship-it worktree</span>
+            <span class="src">TMX</span></div>
+          <div class="card-model">gpt-5 · high</div>
+          <div class="card-meta"><span>↓8.0K</span><span>↑1.2K</span><span>$0.05</span></div>
+        </div>
+      </div>
+      <div class="grp">
+        <div class="grp-h"><span class="caret">▾</span> notes-vault</div>
+        <div class="card">
+          <div class="card-top"><span class="dot idle"></span>
+            <span class="card-name">faq mining</span>
+            <span class="src">WEB</span></div>
+          <div class="card-model">gemini-2.5 · flash</div>
+          <div class="card-meta"><span>↓4.1K</span><span>↑0.9K</span><span>$0.01</span></div>
+        </div>
+        <div class="card ended">
+          <div class="card-top"><span class="dot ended"></span>
+            <span class="card-name">archived: tags refactor</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="rail-foot"><span>3 active</span><span class="spacer"></span><span>$0.24</span></div>
+    <div class="rail-collapse" id="railCollapse" title="Collapse sessions">‹</div>
+  </aside>
+
+  <!-- rail resize seam (same visual family as the divider) -->
+  <div class="seam" id="railSeam" title="Drag to resize">
+    <div class="grip"><i></i><i></i><i></i></div>
+  </div>
+
+  <!-- ═══ CONTENT AREA ═══ -->
+  <div class="content">
+    <div class="header">
+      <span class="crumb">redesign split divider <span class="muted">/ SplitDivider.tsx</span></span>
+      <span class="spacer"></span>
+      <div class="modesw" id="modesw">
+        <button data-mode="closed"><svg class="ico" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat</button>
+        <button data-mode="split" class="on"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="12" y1="4" x2="12" y2="20"/></svg>Split</button>
+        <button data-mode="full"><svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Editor</button>
+      </div>
+    </div>
+
+    <div class="work" id="work">
+      <!-- CHAT PANE -->
+      <div class="pane chat" id="chatPane" style="flex:1 1 0">
+        <div class="pane-h">💬 Chat</div>
+        <div class="pane-body">
+          <div class="bubble">Redesign the split divider so the collapse controls are discoverable and never overlap a narrow pane.</div>
+          <p>I'll anchor a rotated <b>CHAT</b> / <b>EDITOR</b> tab to each pane's inner edge. Hover the workspace to reveal them; drag the seam to resize.</p>
+          <div class="code">- foldtab.chat  → right:0 of chat
+- foldtab.editor→ left:0 of editor
+  never floats over the 6px bar</div>
+          <p style="color:var(--text-muted)">99ms · applied SplitDivider.tsx ›</p>
+        </div>
+      </div>
+
+      <!-- DIVIDER (drag seam) + two rotated fold tabs owned by the panes -->
+      <div class="seam divider" id="divider" title="Drag to resize">
+        <div class="grip"><i></i><i></i><i></i><i></i></div>
+      </div>
+      <!-- tabs are absolutely placed against the work container, anchored to edges -->
+      <div class="foldtab chat" id="foldChat" tabindex="0" title="Collapse chat (show editor)">
+        <span class="chev">‹</span>Chat</div>
+      <div class="foldtab editor" id="foldEditor" tabindex="0" title="Collapse editor">
+        Editor<span class="chev">›</span></div>
+
+      <!-- EDITOR PANE -->
+      <div class="pane editor" id="editorPane" style="flex:1 1 0">
+        <div class="pane-h">📄 SplitDivider.tsx</div>
+        <div class="pane-body"><div class="code">export function SplitDivider({
+  orientation, onResize,
+  onCollapseChat, onCollapseEditor,
+}: SplitDividerProps) {
+  // seam = drag zone
+  // rotated tabs = collapse affordance,
+  //   anchored to each pane edge
+  ...
+}</div></div>
+      </div>
+
+      <!-- edge peeks (shown only in closed / full) -->
+      <div class="peek right" id="peekEditor" style="display:none" title="Open editor">
+        <span class="chev">‹</span>Editor</div>
+      <div class="peek left" id="peekChat" style="display:none" title="Show chat">
+        Chat<span class="chev">›</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="hint">
+  <b>Try it:</b> hover the workspace → rotated <b>Chat / Editor</b> tabs fade in at each pane edge.
+  Click a tab to collapse that pane. Drag the center seam (grip dots) to resize.
+  Use the header <b>Chat│Split│Editor</b> switch as the explicit control.
+</div>
+<div class="fab">
+  <button id="themeBtn">◐ Theme</button>
+</div>
+
+<script>
+  // theme toggle
+  themeBtn.onclick=()=>{const h=document.documentElement;
+    h.dataset.theme=h.dataset.theme==="dark"?"light":"dark";};
+
+  // rail collapse
+  railCollapse.onclick=()=>{
+    const r=rail; r.classList.toggle("collapsed");
+    railCollapse.textContent=r.classList.contains("collapsed")?"›":"‹";
+  };
+
+  // ── mode state machine (single source of truth = header switch) ──
+  const chat=chatPane, ed=editorPane, div=divider,
+        fc=foldChat, fe=foldEditor, pe=peekEditor, pc=peekChat;
+  let ratio=0.5;
+  function apply(mode){
+    [...modesw.children].forEach(b=>b.classList.toggle("on",b.dataset.mode===mode));
+    const split=mode==="split", closed=mode==="closed", full=mode==="full";
+    chat.style.display=full?"none":"flex";
+    ed.style.display=closed?"none":"flex";
+    div.style.display=split?"flex":"none";
+    fc.style.display=split?"flex":"none";
+    fe.style.display=split?"flex":"none";
+    pe.style.display=closed?"flex":"none";
+    pc.style.display=full?"flex":"none";
+    if(split){chat.style.flex=ratio+" 1 0";ed.style.flex=(1-ratio)+" 1 0";}
+    else{chat.style.flex="1 1 0";ed.style.flex="1 1 0";}
+  }
+  modesw.onclick=e=>{const b=e.target.closest("button");if(b)apply(b.dataset.mode);};
+  fc.onclick=()=>apply("full");      // collapse chat → editor full
+  fe.onclick=()=>apply("closed");    // collapse editor → chat only
+  pe.onclick=()=>apply("split");
+  pc.onclick=()=>apply("split");
+  fc.onkeydown=e=>{if(e.key==="Enter"||e.key===" ")apply("full")};
+  fe.onkeydown=e=>{if(e.key==="Enter"||e.key===" ")apply("closed")};
+
+  // ── drag resize on the divider seam ──
+  let dragging=false;
+  div.addEventListener("mousedown",e=>{e.preventDefault();dragging=true;
+    div.classList.add("dragging");document.body.style.cursor="col-resize";});
+  window.addEventListener("mousemove",e=>{if(!dragging)return;
+    const r=work.getBoundingClientRect();
+    ratio=Math.max(.15,Math.min(.85,(e.clientX-r.left)/r.width));
+    chat.style.flex=ratio+" 1 0";ed.style.flex=(1-ratio)+" 1 0";});
+  window.addEventListener("mouseup",()=>{dragging=false;
+    div.classList.remove("dragging");document.body.style.cursor="";});
+
+  // ── rail seam drag ──
+  let rd=false;
+  railSeam.addEventListener("mousedown",e=>{e.preventDefault();rd=true;
+    railSeam.classList.add("dragging");document.body.style.cursor="col-resize";});
+  window.addEventListener("mousemove",e=>{if(!rd)return;
+    rail.style.width=Math.max(180,Math.min(500,e.clientX))+"px";});
+  window.addEventListener("mouseup",()=>{rd=false;
+    railSeam.classList.remove("dragging");document.body.style.cursor="";});
+
+  apply("split");
+</script>
+</body>
+</html>

@@ -603,6 +603,24 @@ describe("preferences-store", () => {
       expect(merged.reserveProcessLineAtIdle).toBe(true);
       store.dispose();
     });
+
+    // opt-in-out-of-cwd-session-diffs (E8): default OFF for legacy files.
+    it("backfills showOutOfCwdSessionDiffs to false for a legacy displayPrefs file", () => {
+      fs.writeFileSync(filePath, JSON.stringify({
+        displayPrefs: {
+          tokenStatsBar: true,
+          contextUsageBar: true,
+          reasoning: false,
+          toolResults: true,
+          turnMetadata: true,
+          debugTools: false,
+          toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+        },
+      }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getDisplayPrefs()?.showOutOfCwdSessionDiffs).toBe(false);
+      store.dispose();
+    });
   });
 
   describe("openspec update signatures", () => {
