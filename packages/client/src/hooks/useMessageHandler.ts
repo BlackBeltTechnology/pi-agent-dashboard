@@ -17,7 +17,6 @@ import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/coalesce-live-events.js";
 import { isVisibleCwd } from "../lib/cwd-visibility.js";
 import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/event-reducer.js";
-import { encodeFolderPath } from "../lib/folder-encoding.js";
 import { t } from "../lib/i18n";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/loading-history.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/recovery-offer-bus.js";
@@ -988,10 +987,16 @@ export function useMessageHandler(
           next.set(msg.terminal.id, msg.terminal);
           return next;
         });
+        // A newly-created terminal now surfaces as a `term:<id>` tab inside the
+        // pane that requested it (the pane's terminal slice watches the
+        // terminal set and opens the tab in-place). The standalone
+        // /folder/:cwd/terminals route was removed, so DO NOT navigate here —
+        // doing so deselected the session and landed on the empty state.
+        // We still clear the pending marker + record the id for parity.
+        // See change: terminals-in-tabbed-panes.
         if (pendingTerminalCwdRef.current === msg.terminal.cwd) {
           pendingTerminalCwdRef.current = null;
           lastCreatedTerminalIdRef.current = msg.terminal.id;
-          navigate(`/folder/${encodeFolderPath(msg.terminal.cwd)}/terminals`);
         }
         break;
 

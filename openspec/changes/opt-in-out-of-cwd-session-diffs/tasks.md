@@ -76,7 +76,7 @@
 ## Validate
 
 - [x] `openspec validate opt-in-out-of-cwd-session-diffs --strict` passes.
-- [ ] Manual (test-plan: manual-only): mockup-loop writes `/tmp/…`; toggle off → no row;
+- [x] Manual (test-plan: manual-only): mockup-loop writes `/tmp/…`; toggle off → no row;
       toggle on → row renders a diff; a > 4 KB mockup renders fully after the lazy fetch;
       server logs show no read of the `/tmp/…` path. (Automated coverage: harness e2e F1/F2/F5
       + API-level F3 + unit F4/X2 — this manual pass is a belt-and-suspenders visual check.)

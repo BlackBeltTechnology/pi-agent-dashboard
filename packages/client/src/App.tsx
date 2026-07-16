@@ -44,7 +44,6 @@ import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
 import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
 import { SplitWorkspaceProvider } from "./components/SplitWorkspaceContext.js";
 import { StatusBar } from "./components/StatusBar.js";
-import { TerminalsView } from "./components/TerminalsView.js";
 import { Toast, useToast } from "./components/Toast.js";
 import { TokenStatsBar } from "./components/TokenStatsBar.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
@@ -368,16 +367,15 @@ export default function App() {
   }, []);
   const [match, params] = useRoute("/session/:id");
   // Legacy /terminal/:id route removed — see change:
-  // fix-terminal-half-height-dual-mount. Terminals are reached via
-  // /folder/:encodedCwd/terminals. The dual-mount it caused (one
-  // <TerminalView> here + one inside <TerminalsView>) was the root
-  // cause of half-height rendering and competing FitAddon resizes.
+  // fix-terminal-half-height-dual-mount. The standalone /folder/:cwd/terminals
+  // route + TerminalsView were removed by terminals-in-tabbed-panes; terminals
+  // now open as `term:<id>` tabs inside the folder-scoped editor pane
+  // (/folder/:encodedCwd/editor), auto-surfaced there.
   // Bare directory home page (design D1). wouter's regexparam compiles
   // `/folder/:encodedCwd` to `^/folder/([^/]+?)/?$`; `[^/]+?` never crosses `/`,
   // so it cannot match `/folder/:enc/terminals` — no shadowing of deeper folder
   // routes. See change: add-directory-home-page.
   const [folderHomeMatch, folderHomeParams] = useRoute("/folder/:encodedCwd");
-  const [folderTermMatch, folderTermParams] = useRoute("/folder/:encodedCwd/terminals");
   const [folderEditorMatch, folderEditorParams] = useRoute("/folder/:encodedCwd/editor");
   const [settingsMatch] = useRoute("/settings/:page?");
   const [tunnelSetupMatch] = useRoute("/tunnel-setup");
@@ -467,7 +465,6 @@ export default function App() {
     send,
   });
   const folderHomeCwd = folderHomeMatch ? decodeFolderPath(folderHomeParams?.encodedCwd ?? "") : null;
-  const folderTermCwd = folderTermMatch ? decodeFolderPath(folderTermParams?.encodedCwd ?? "") : null;
   const folderEditorCwd = folderEditorMatch ? decodeFolderPath(folderEditorParams?.encodedCwd ?? "") : null;
   const sidebar = useSidebarState();
   const chatViewRef = useRef<ChatViewHandle>(null);
@@ -1086,7 +1083,7 @@ export default function App() {
   // Per-cwd OpenSpec workflow config — drives which action buttons render.
   // See change: redesign-session-card-and-composer (config-driven-workflow).
   const openspecConfig = useOpenSpecConfig(selectedSession?.cwd);
-  const folderTitleCwd = folderEditorCwd ?? folderTermCwd
+  const folderTitleCwd = folderEditorCwd
     ?? openspecPreviewCwd ?? archiveCwd ?? specsCwd
     ?? piResourcesCwd ?? folderSettingsCwd ?? null;
   useDocumentTitle(selectedSession, folderTitleCwd ?? undefined);
@@ -1391,7 +1388,7 @@ export default function App() {
       onSetProcessDrawer={(sessionId, collapsed) => send({ type: "set_session_process_drawer", sessionId, collapsed })}
       inflightBashMap={inflightBashMap}
       onAbortTool={handleAbortTool}
-      onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/terminals`)}
+      onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
       onOpenEditor={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
       gitWorktreeEnabled={gitWorktreeEnabled}
       errorSessionIds={errorSessionIds}
@@ -1850,16 +1847,14 @@ export default function App() {
   navigateRef.current = navigate;
   const handleEditorClose = useCallback(() => navigateRef.current("/"), []);
 
-  // Folder view content (TerminalsView or FolderEditorView)
+  // Folder view content (folder-scoped editor pane — hosts terminal tabs).
   const folderViewContent = useMemo(() => {
-    if (folderTermCwd) {
-      const pendingTermId = lastCreatedTerminalIdRef.current;
-      if (pendingTermId) lastCreatedTerminalIdRef.current = null;
+    if (folderEditorCwd) {
       return (
-        <TerminalsView
-          cwd={folderTermCwd}
-          terminals={getTerminalsForCwd(folderTermCwd)}
-          activeTerminalId={pendingTermId ?? undefined}
+        <FolderEditorView
+          cwd={folderEditorCwd}
+          onClose={handleEditorClose}
+          terminals={getTerminalsForCwd(folderEditorCwd)}
           onCreateTerminal={handleCreateTerminal}
           onKillTerminal={handleKillTerminal}
           onRenameTerminal={handleRenameTerminal}
@@ -1867,11 +1862,8 @@ export default function App() {
         />
       );
     }
-    if (folderEditorCwd) {
-      return <FolderEditorView cwd={folderEditorCwd} onClose={handleEditorClose} />;
-    }
     return null;
-  }, [folderTermCwd, folderEditorCwd, getTerminalsForCwd, handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle, handleEditorClose]);
+  }, [folderEditorCwd, getTerminalsForCwd, handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle, handleEditorClose]);
 
   const allSessionsList = useMemo(() => Array.from(sessions.values()), [sessions]);
 
@@ -1890,7 +1882,7 @@ export default function App() {
         setPinnedDirectories((prev) => (prev.includes(dirPath) ? prev : [...prev, dirPath]));
         send({ type: "pin_directory", path: dirPath });
       }}
-      onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/terminals`)}
+      onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
       onOpenEditor={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
       onOpenSettings={(cwd) => navigate(buildFolderSettingsUrl(cwd))}
     />
@@ -1972,6 +1964,11 @@ export default function App() {
             onFilenameSearch={handleListFiles}
             changedFiles={selectedId ? changedOnDisk.get(selectedId) ?? null : null}
             onWatchFiles={(sid, cwd, paths) => send({ type: "watch_files", sessionId: sid, cwd, paths })}
+            terminals={selectedSession?.cwd ? getTerminalsForCwd(selectedSession.cwd) : undefined}
+            onCreateTerminal={handleCreateTerminal}
+            onKillTerminal={handleKillTerminal}
+            onRenameTerminal={handleRenameTerminal}
+            onTerminalTitle={handleTerminalTitle}
             onClearChanged={(path) => {
               if (!selectedId) return;
               setChangedOnDisk((prev) => {
@@ -2003,7 +2000,7 @@ export default function App() {
   if (isMobile) {
     const mobileDepth = getMobileDepth({
       hasSessionRoute: !!selectedId,
-      hasFolderRoute: !!folderTermCwd || !!folderEditorCwd || !!folderHomeCwd,
+      hasFolderRoute: !!folderEditorCwd || !!folderHomeCwd,
       hasSettingsRoute: !!settingsMatch,
       hasFolderSettingsRoute: !!folderSettingsMatch,
       hasTunnelRoute: !!tunnelSetupMatch,
@@ -2089,18 +2086,16 @@ export default function App() {
                 target={{ kind: "url", url: urlViewUrl }}
                 onBack={goBack}
               />
-            ) : folderTermCwd ? (
-              <TerminalsView
-                cwd={folderTermCwd}
-                terminals={getTerminalsForCwd(folderTermCwd)}
-                activeTerminalId={lastCreatedTerminalIdRef.current ?? undefined}
+            ) : folderEditorCwd ? (
+              <FolderEditorView
+                cwd={folderEditorCwd}
+                onClose={handleEditorClose}
+                terminals={getTerminalsForCwd(folderEditorCwd)}
                 onCreateTerminal={handleCreateTerminal}
                 onKillTerminal={handleKillTerminal}
                 onRenameTerminal={handleRenameTerminal}
                 onTerminalTitle={handleTerminalTitle}
               />
-            ) : folderEditorCwd ? (
-              <FolderEditorView cwd={folderEditorCwd} onClose={handleEditorClose} />
             ) : folderHomeCwd ? (
               directoryHomeView
             ) : sessionDetail ?? (
@@ -2157,17 +2152,14 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {connectionBanner}
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
-        {/* Folder views (TerminalsView or FolderEditorView) — single owner of
-            <TerminalView> mounting. The legacy keep-alive list above
-            (mounted unconditionally for the /terminal/:id route) was
-            removed; it caused dual-mounting per terminal id and the
-            half-height rendering bug. See change:
-            fix-terminal-half-height-dual-mount. */}
+        {/* Folder-scoped editor pane (hosts terminal tabs via the keep-alive
+            TerminalPaneLayer — single <TerminalView> mount per id). See change:
+            terminals-in-tabbed-panes, fix-terminal-half-height-dual-mount. */}
         {folderViewContent && (
           <div className="flex-1 flex flex-col min-w-0 min-h-0">{folderViewContent}</div>
         )}
         {/* Show session detail or landing page when no folder view is selected */}
-        {!folderTermCwd && !folderEditorCwd && !settingsMatch && !tunnelSetupMatch && (
+        {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && (
           pluginOverlayMatched ? (
             // Plugin-owned overlay routes — see change: add-flow-agent-popout.
             // Pass `_pluginRegistry` explicitly (see comment on

@@ -705,6 +705,22 @@ export interface BrowserAssetRegisterMessage {
   data: string;
 }
 
+/**
+ * Server → browser: a `plugin_action` arrived for a `pluginId` with no
+ * registered handler. Surfaced to the sender so the action is never silently
+ * dropped. Best-effort out-of-band signal (plugin_action is fire-and-forget,
+ * not correlated). See change: fix-plugin-action-fanout-and-handlers.
+ */
+export interface PluginActionErrorMessage {
+  type: "plugin_action_error";
+  /** The pluginId that had no registered handler. */
+  pluginId: string;
+  /** The action that could not be delivered (echoed for client branching). */
+  action?: string;
+  /** Human-readable error description. */
+  error: string;
+}
+
 /** Sent when a plugin's config changes; carries only that plugin's namespace. */
 export interface PluginConfigUpdateMessage {
   type: "plugin_config_update";
@@ -783,6 +799,7 @@ export type ServerToBrowserMessage =
   | AutoNameErrorBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
+  | PluginActionErrorMessage
   | SessionAddedMessage
   | SessionUpdatedMessage
   | SessionRemovedMessage

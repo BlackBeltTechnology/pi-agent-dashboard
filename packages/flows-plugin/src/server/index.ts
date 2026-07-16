@@ -46,7 +46,7 @@ export function makeFlowsForCwd(
  * Plugin entrypoint called by the dashboard plugin loader at boot.
  */
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
-  const { logger, broadcastToSubscribers, registerBrowserHandler } = ctx;
+  const { logger, broadcastToSubscribers, registerBrowserHandler, emitEventToSession, sendToSession } = ctx;
   logger.info("flows-plugin server entry activated (server-driven intents)");
 
   // Publish the flows automation action (flows.run) for the automation plugin
@@ -84,7 +84,10 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     });
   }
 
-  // Action handler: dispatched from any connected client.
+  // Action handler: dispatched from any connected client (or a bus script).
+  // The gateway fans out plugin_action by pluginId, so this only fires for
+  // pluginId==="flows"; the guard below is defense-in-depth.
+  // See change: fix-plugin-action-fanout-and-handlers.
   registerBrowserHandler("plugin_action", (msg) => {
     const m = msg as {
       pluginId?: string;
@@ -93,18 +96,52 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       payload?: Record<string, unknown>;
     };
     if (m.pluginId !== PLUGIN_ID) return;
-    if (!m.sessionId) return;
+    if (!m.sessionId) {
+      logger.warn(`flows ${m.action ?? "(no action)"}: missing sessionId`);
+      return;
+    }
+    const payload = m.payload ?? {};
 
     switch (m.action) {
       case "flow.run": {
-        logger.info(`flow.run from session=${m.sessionId} payload=${JSON.stringify(m.payload)}`);
-        // v1: log and stub. Production wiring TBD in tasks 16.3 (likely
-        // calls into pi via send_prompt with the appropriate /flows
-        // command). For now, the broadcast is the proof of round-trip.
+        // Accept `flow` (intent path) or `flowName`; run in the target session
+        // by emitting the `flow:run` event pi-flows consumes headlessly — the
+        // same event the `flow_management run` client path and the automation
+        // `flows.run` action dispatch.
+        const flowName = String(payload.flow ?? payload.flowName ?? "").trim();
+        if (!flowName) {
+          logger.warn(`flow.run from session=${m.sessionId}: missing flow name`);
+          return;
+        }
+        const task = typeof payload.task === "string" ? payload.task.trim() : "";
+        // Reject a non-object / array `inputs` (typeof [] === "object") — pi-flows
+        // consumes it as a keyed record, so an array would be malformed.
+        if (
+          payload.inputs !== undefined &&
+          (payload.inputs === null ||
+            typeof payload.inputs !== "object" ||
+            Array.isArray(payload.inputs))
+        ) {
+          logger.warn(`flow.run session=${m.sessionId}: invalid inputs (expected object)`);
+          return;
+        }
+        const inputs = payload.inputs as Record<string, unknown> | undefined;
+        const data: Record<string, unknown> = { flowName };
+        if (task) data.task = task;
+        if (inputs) data.inputs = inputs;
+        const delivered = emitEventToSession(m.sessionId, "flow:run", data);
+        logger.info(`flow.run "${flowName}" session=${m.sessionId} delivered=${delivered}`);
         break;
       }
       case "flow.new": {
-        logger.info(`flow.new from session=${m.sessionId}`);
+        // No dedicated server core — authoring is the manage-flows skill,
+        // launched via a slash prompt into the session (mirrors the client's
+        // New/Edit path). An optional `instruction` is appended.
+        const instruction =
+          typeof payload.instruction === "string" ? payload.instruction.trim() : "";
+        const command = instruction ? `/skill:manage-flows ${instruction}` : "/skill:manage-flows";
+        const delivered = sendToSession(m.sessionId, command);
+        logger.info(`flow.new session=${m.sessionId} delivered=${delivered}`);
         break;
       }
       default:

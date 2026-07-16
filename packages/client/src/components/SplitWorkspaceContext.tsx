@@ -17,6 +17,7 @@
  */
 
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -25,6 +26,7 @@ import {
   type EditorPaneState,
   useEditorPaneState,
 } from "../lib/editor-pane-state.js";
+import { type TerminalPaneTabs, useTerminalPaneTabs } from "../lib/use-terminal-pane-tabs.js";
 import { type SplitMode, type SplitOrientation, type SplitState, useSplitState } from "../lib/split-state.js";
 import { saveTreeVisible } from "../lib/tree-visible.js";
 
@@ -70,11 +72,20 @@ export interface SplitWorkspaceContextValue {
   changedFiles: Set<string> | null;
   /** Clear a path's changed-on-disk flag (Refresh or Dismiss). */
   clearChanged: (path: string) => void;
+  /**
+   * Terminal-tab slice for the pane cwd (`term:<id>` tabs). Inert when the
+   * shell wires no terminal handlers (tests, standalone surfaces).
+   * See change: terminals-in-tabbed-panes.
+   */
+  terminal: TerminalPaneTabs;
 }
 
 const SplitWorkspaceContext = createContext<SplitWorkspaceContextValue | null>(null);
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
+
+/** Stable empty terminals array — avoids a new [] identity each render. */
+const EMPTY_TERMINALS: TerminalSession[] = [];
 
 interface ProviderProps {
   sessionId: string;
@@ -93,6 +104,14 @@ interface ProviderProps {
   onWatchFiles?: (sessionId: string, cwd: string, paths: string[]) => void;
   /** Clear a path's changed flag (from `App`). */
   onClearChanged?: (path: string) => void;
+  /** cwd-scoped terminals from `App` (ephemeral filtered inside the pane). */
+  terminals?: TerminalSession[];
+  /** Folder pane auto-surfaces every cwd terminal; session split is opt-in. */
+  autoSurfaceTerminals?: boolean;
+  onCreateTerminal?: (cwd: string) => void;
+  onKillTerminal?: (terminalId: string) => void;
+  onRenameTerminal?: (terminalId: string, title: string) => void;
+  onTerminalTitle?: (terminalId: string, title: string) => void;
   children: React.ReactNode;
 }
 
@@ -105,10 +124,29 @@ export function SplitWorkspaceProvider({
   changedFiles = null,
   onWatchFiles,
   onClearChanged,
+  terminals: cwdTerminals,
+  autoSurfaceTerminals = false,
+  onCreateTerminal,
+  onKillTerminal,
+  onRenameTerminal,
+  onTerminalTitle,
   children,
 }: ProviderProps) {
   const [split, updateSplit] = useSplitState(sessionId);
   const [paneState, dispatch] = useEditorPaneState(sessionId);
+  const ensurePaneOpen = useCallback(() => updateSplit({ mode: "split" }), [updateSplit]);
+  const terminal = useTerminalPaneTabs({
+    cwd,
+    terminals: cwdTerminals ?? EMPTY_TERMINALS,
+    autoSurface: autoSurfaceTerminals,
+    paneState,
+    dispatch,
+    ensureOpen: ensurePaneOpen,
+    onCreateTerminal,
+    onKillTerminal,
+    onRenameTerminal,
+    onTerminalTitle,
+  });
   const [pendingScroll, setPendingScroll] = useState<PendingScroll | null>(null);
 
   // Keep the persisted orientation in step with the responsive layout so a
@@ -226,8 +264,9 @@ export function SplitWorkspaceProvider({
       onFilenameSearch: filenameSearch,
       changedFiles,
       clearChanged,
+      terminal,
     }),
-    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, openInSplit, openLiveTarget, openUrlTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged],
+    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, openInSplit, openLiveTarget, openUrlTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, terminal],
   );
 
   return <SplitWorkspaceContext.Provider value={value}>{children}</SplitWorkspaceContext.Provider>;
