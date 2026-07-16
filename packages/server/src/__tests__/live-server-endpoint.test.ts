@@ -21,11 +21,11 @@ function fakePrefs() {
 function makeApp() {
   const app = Fastify({ logger: false });
   const manager = createLiveServerManager(fakePrefs());
-  // In the real server `@fastify/reply-from` is provided by the editor proxy
-  // (registered first). Standalone here, register it ourselves so the proxy's
-  // `reply.from` exists.
-  app.register(import("@fastify/reply-from"));
   registerLiveServerRoutes(app, manager, { networkGuard: async () => undefined });
+  // Do NOT register `@fastify/reply-from` here: `registerLiveServerProxy`
+  // self-registers it (Option A). Registering it in the test would mask a
+  // regression where the proxy loses its `reply.from` dependency — exactly the
+  // failure that shipped when the editor proxy was deleted.
   registerLiveServerProxy(app, manager);
   return { app, manager };
 }

@@ -20,10 +20,13 @@ function upstreamHost(host: string): string {
 }
 
 export function registerLiveServerProxy(fastify: FastifyInstance, manager: LiveServerManager) {
-  // NOTE: `@fastify/reply-from` is registered once by `registerEditorProxy`
-  // (called first on this same instance) — the `from` decorator is global, so
-  // we reuse it here. Registering it again throws "decorator 'from' has already
-  // been added". See change: improve-content-editor.
+  // Register the `@fastify/reply-from` proxy plugin. live-server-proxy is now
+  // the SOLE consumer of the `from` decorator — the editor proxy that used to
+  // provide it was deleted in change: remove-external-editor-integration, which
+  // orphaned this call and produced `reply.from is not a function` on
+  // `/live/:id/*`. Owning the dependency here keeps the proxy self-contained.
+  // See change: improve-content-editor, fix-live-server-proxy-reply-from.
+  fastify.register(import("@fastify/reply-from"));
 
   function resolve(url: string) {
     const match = url.match(/^\/live\/([^/?]+)(.*)$/);
