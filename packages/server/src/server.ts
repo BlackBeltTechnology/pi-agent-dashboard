@@ -1773,10 +1773,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 }
                 return out;
               },
+              // plugin_action fans out by pluginId (manifest-authoritative, not
+              // self-declared) so multiple plugins coexist; other custom types
+              // stay single-owner. See change: fix-plugin-action-fanout-and-handlers.
               registerBrowserHandler: (type, handler) =>
-                browserGateway.registerHandler(type, (msg, ws) =>
-                  handler(msg, ws as unknown),
-                ),
+                type === "plugin_action"
+                  ? browserGateway.registerPluginActionHandler(
+                      plugin.manifest.id,
+                      (msg, ws) => handler(msg, ws as unknown),
+                    )
+                  : browserGateway.registerHandler(type, (msg, ws) =>
+                      handler(msg, ws as unknown),
+                    ),
               getPluginConfig: (id) => {
                 const cfg = loadConfig();
                 return getPluginConfigFromFile(cfg, id);
