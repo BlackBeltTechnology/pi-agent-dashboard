@@ -169,3 +169,57 @@ describe("DiffPanel Preview mode (collapse-diff-file-tree)", () => {
     expect((screen.getByTestId("preview-toggle") as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+// opt-in-out-of-cwd-session-diffs: out-of-cwd entries render payload-only,
+// hide the File toggle (previewable:false), and lazy-upgrade truncated payloads.
+describe("DiffPanel out-of-cwd payload render", () => {
+  const outOfCwd: FileDiffEntry = {
+    path: "/tmp/mockup/index.html",
+    previewable: false,
+    changes: [{ type: "write", timestamp: 0, content: "<h1>hi</h1>\n" }],
+  };
+
+  it("(F5) hides the File content-view toggle when previewable is false", () => {
+    render1(outOfCwd);
+    expect(screen.queryByTestId("file-view-toggle")).toBeNull();
+    expect(screen.queryByText("File")).toBeNull();
+    // The Diff payload still renders (Path C).
+    expect(screen.getByTestId("rich-diff")).toBeTruthy();
+  });
+
+  it("(F3) lazy-fetches the full payload for a truncated Write and renders it", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      json: async () => ({ success: true, data: { content: "FULL 1MB CONTENT" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const truncated: FileDiffEntry = {
+      path: "/tmp/mockup/big.html",
+      previewable: false,
+      changes: [
+        { type: "write", timestamp: 0, content: "partial\n…[truncated]", truncated: true, toolCallId: "tc-1" },
+      ],
+    };
+    render1(truncated);
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/api/session-change/s1/tc-1"))).toBe(true),
+    );
+    // No persistent truncation banner once the full payload arrives.
+    await waitFor(() => expect(screen.queryByTestId("diff-truncation-banner")).toBeNull());
+  });
+
+  it("(X2) shows a truncation banner when the lazy fetch fails (never blank)", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
+    vi.stubGlobal("fetch", fetchMock);
+    const truncated: FileDiffEntry = {
+      path: "/tmp/mockup/big.html",
+      previewable: false,
+      changes: [
+        { type: "write", timestamp: 0, content: "partial\n…[truncated]", truncated: true, toolCallId: "tc-1" },
+      ],
+    };
+    render1(truncated);
+    await waitFor(() => expect(screen.getByTestId("diff-truncation-banner")).toBeTruthy());
+    // The partial diff still renders (never blank).
+    expect(screen.getByTestId("rich-diff")).toBeTruthy();
+  });
+});

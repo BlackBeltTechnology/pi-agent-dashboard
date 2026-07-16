@@ -24,6 +24,20 @@ export interface FileChangeEvent {
   edits?: EditOperation[];
   /** Written content (only for type "write") */
   content?: string;
+  /**
+   * The originating tool call's id, threaded from `tool_execution_start`. Used
+   * to lazily fetch the FULL untruncated payload from the session JSONL via
+   * `GET /api/session-change/:sessionId/:toolCallId` when `truncated` is set.
+   * See change: opt-in-out-of-cwd-session-diffs.
+   */
+  toolCallId?: string;
+  /**
+   * True when the in-memory event store trimmed this event's payload: `content`
+   * ends with `…[truncated]` (>~4 KB) or the `edits` array collapsed (>20 ops,
+   * dropped from this entry). The client upgrades to full fidelity via the
+   * session-addressed endpoint. See change: opt-in-out-of-cwd-session-diffs.
+   */
+  truncated?: boolean;
 }
 
 /** A file entry with all its change events */

@@ -2,11 +2,11 @@
  * Session diff extraction — scans session events for file changes
  * and optionally enriches with git diffs.
  */
-import { readFileSync, existsSync, statSync } from "node:fs";
-import { resolve, relative, isAbsolute, sep as pathSep, extname } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { extname, isAbsolute, sep as pathSep, relative, resolve } from "node:path";
+import type { EditOperation, FileChangeEvent, FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { FileChangeEvent, FileDiffEntry, EditOperation } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { isGitRepo } from "./git-operations.js";
 
 const GIT_TIMEOUT = 15_000;
@@ -70,20 +70,31 @@ export function extractFileChanges(events: DashboardEvent[], cwd: string): FileD
     const rawPath = (args.path || args.file_path) as string | undefined;
     if (!rawPath) continue;
 
-    // Resolve and filter paths outside cwd
-    const filePath = normalizePath(rawPath, cwd);
-    if (!filePath) continue;
+    // In-cwd → relative posix key (enriched). Out-of-cwd → absolute key,
+    // carried payload-only (no fs/git enrichment). See change:
+    // opt-in-out-of-cwd-session-diffs.
+    const filePath = resolvePathKey(rawPath, cwd).key;
 
+    const toolCallId = event.data.toolCallId as string | undefined;
     const changeEvent: FileChangeEvent = {
       type: toolName === "write" ? "write" : "edit",
       timestamp: event.timestamp,
       message: lastAssistantMessage,
+      ...(toolCallId ? { toolCallId } : {}),
     };
 
+    // Detect in-memory truncation (memory-event-store caps strings at ~4 KB
+    // with a `…[truncated]` marker and collapses `edits` arrays >20 to the
+    // string `"[array truncated]"`). Flag it so the client lazy-fetches the
+    // full payload from the JSONL. See change: opt-in-out-of-cwd-session-diffs.
     if (toolName === "write") {
-      changeEvent.content = args.content as string | undefined;
+      const c = args.content;
+      changeEvent.content = typeof c === "string" ? c : undefined;
+      if (typeof c === "string" && c.endsWith("…[truncated]")) changeEvent.truncated = true;
     } else {
-      changeEvent.edits = args.edits as EditOperation[] | undefined;
+      const e = args.edits;
+      if (Array.isArray(e)) changeEvent.edits = e as EditOperation[];
+      else if (e === "[array truncated]") changeEvent.truncated = true;
     }
 
     const existing = fileMap.get(filePath);
@@ -106,28 +117,33 @@ export function extractFileChanges(events: DashboardEvent[], cwd: string): FileD
 }
 
 /**
+ * Resolve a Write/Edit raw path to its changed-file key.
+ *
+ * In-cwd → a cwd-relative posix key (`outOfCwd: false`), the enriched key
+ * space shared with git-status detection. Out-of-cwd → the absolute path
+ * itself (`outOfCwd: true`), carried payload-only and NEVER passed to git/fs
+ * enrichment (the read channel the doubt-review closed). `isAbsolute(key)`
+ * reliably re-derives `outOfCwd` downstream (in-cwd keys are always relative).
+ * See change: opt-in-out-of-cwd-session-diffs.
+ */
+export function resolvePathKey(rawPath: string, cwd: string): { key: string; outOfCwd: boolean } {
+  const absPath = isAbsolute(rawPath) ? rawPath : resolve(cwd, rawPath);
+  const rel = relative(cwd, absPath);
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    return { key: absPath, outOfCwd: true };
+  }
+  // Normalize to posix separators (shared with git-diff headers / client URLs).
+  const key = pathSep === "/" ? rel : rel.split(pathSep).join("/");
+  return { key, outOfCwd: false };
+}
+
+/**
  * Normalize a file path relative to cwd.
  * Returns null if the path is outside cwd.
  */
 function normalizePath(rawPath: string, cwd: string): string | null {
-  let absPath: string;
-  if (isAbsolute(rawPath)) {
-    absPath = rawPath;
-  } else {
-    absPath = resolve(cwd, rawPath);
-  }
-
-  // Check if the resolved path is inside cwd
-  const rel = relative(cwd, absPath);
-  if (rel.startsWith("..") || isAbsolute(rel)) {
-    return null;
-  }
-
-  // Normalize to posix separators. These paths are embedded into git diff
-  // headers (`diff --git a/<path> b/<path>`) which expect forward slashes,
-  // and are also used by the client for display and URL construction.
-  // See change: fix-windows-server-parity.
-  return pathSep === "/" ? rel : rel.split(pathSep).join("/");
+  const { key, outOfCwd } = resolvePathKey(rawPath, cwd);
+  return outOfCwd ? null : key;
 }
 
 // ── Detection: git-status porcelain parser ──────────────────────────────
@@ -586,7 +602,15 @@ function safeIsGitRepo(cwd: string): boolean {
  */
 export function buildSessionDiff(events: DashboardEvent[], cwd: string): SessionDiffResult {
   const gitRepo = safeIsGitRepo(cwd);
-  const writeEdit = extractFileChanges(events, cwd);
+  const allWriteEdit = extractFileChanges(events, cwd);
+  // SECURITY (E3): out-of-cwd Write/Edit entries are keyed by absolute path and
+  // carried PAYLOAD-ONLY. They are split out BEFORE enrichment so an out-of-cwd
+  // absolute key can never reach `enrichWithGitDiff`'s untracked branch, whose
+  // `readFileSync(resolve(cwd, path))` would resolve `resolve(cwd, "/abs")` to
+  // the file itself → a disk read of an out-of-cwd path. The doubt-review closed
+  // exactly this channel. See change: opt-in-out-of-cwd-session-diffs.
+  const writeEdit = allWriteEdit.filter((f) => !isAbsolute(f.path));
+  const outOfCwd = allWriteEdit.filter((f) => isAbsolute(f.path));
   const writeEditPaths = new Set(writeEdit.map((f) => f.path));
   const attribution = parseBashArtifacts(events, cwd);
   const windows = extractBashWindows(events);
@@ -662,12 +686,25 @@ export function buildSessionDiff(events: DashboardEvent[], cwd: string): Session
   const cappedOwned = owned.slice(0, MAX_FILES);
   cappedOwned.sort((a, b) => a.path.localeCompare(b.path));
 
-  // ─ Enrich (binary-safe; threaded untracked set) ─
+  // ─ Enrich (binary-safe; threaded untracked set) — in-cwd ONLY ─
   const enrichedOwned = enrichWithGitDiff(cwd, cappedOwned, { untracked });
   const enrichedOther = enrichWithGitDiff(cwd, other, { untracked });
 
+  // ─ Out-of-cwd (payload-only; never enriched, never read/statted) ─
+  const outOfCwdEntries: FileDiffEntry[] = outOfCwd.map((f) => {
+    const hasWrite = f.changes.some((c) => c.type === "write");
+    return {
+      ...f,
+      origin: hasWrite ? "write" : "edit",
+      sessionOwned: true,
+      // The File-content view + relative file-tree assume an in-cwd key; both are
+      // gated on `previewable` client-side. Out-of-cwd renders payload-only.
+      previewable: false,
+    };
+  });
+
   return {
-    files: enrichedOwned.enrichedFiles,
+    files: [...enrichedOwned.enrichedFiles, ...outOfCwdEntries],
     otherChanges: enrichedOther.enrichedFiles,
     isGitRepo: enrichedOwned.isGitRepo,
     vcsKind: enrichedOwned.isGitRepo ? "git" : undefined,

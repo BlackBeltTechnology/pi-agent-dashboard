@@ -3,9 +3,10 @@
  * Reads pi session files without requiring @earendil-works/pi-coding-agent.
  * Falls back to linear entry order (no tree branching support).
  */
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+
 import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export interface SessionEntry {
   type: string;
@@ -74,6 +75,45 @@ export function loadSessionEntries(filePath: string): SessionEntry[] {
 
   // Fallback: return all entries except header in order
   return entries.filter(e => e.type !== "session");
+}
+
+/**
+ * Resolve the FULL, untruncated Write/Edit payload for a `(sessionFile,
+ * toolCallId)` pair by scanning the on-disk session JSONL. This is the durable
+ * source that survives the in-memory event store's ~4 KB string cap and >20-op
+ * `edits` collapse.
+ *
+ * SECURITY (opt-in-out-of-cwd-session-diffs): the ONLY inputs are a session
+ * transcript path (resolved by the caller via `sessionManager`, never built from
+ * the `sessionId` string) and a `toolCallId` used solely for equality against
+ * `message.content[].id`. No filesystem path is ever taken from the request; no
+ * traversal, realpath, or arbitrary read is possible. A missing file, unknown
+ * id, or unparseable transcript all yield `null` (the caller returns not-found)
+ * — there is NO path fallback of any kind.
+ *
+ * The JSONL correlation key is the tool call's nested `id` at
+ * `message.content[].id` (NOT the entry top-level id). Write payload rides on
+ * `arguments.content`; Edit on `arguments.edits` (older transcripts: `args`).
+ */
+export function findSessionToolCallPayload(
+  filePath: string,
+  toolCallId: string,
+): { content?: string; edits?: unknown[] } | null {
+  if (!toolCallId) return null;
+  const entries = loadSessionEntries(filePath);
+  for (const entry of entries) {
+    const msg = entry.message as { content?: unknown } | undefined;
+    if (!msg || !Array.isArray(msg.content)) continue;
+    for (const c of msg.content as Array<Record<string, unknown>>) {
+      if (!c || c.type !== "toolCall" || c.id !== toolCallId) continue;
+      const a = ((c.arguments ?? c.args) ?? {}) as Record<string, unknown>;
+      const out: { content?: string; edits?: unknown[] } = {};
+      if (typeof a.content === "string") out.content = a.content;
+      if (Array.isArray(a.edits)) out.edits = a.edits;
+      return out;
+    }
+  }
+  return null;
 }
 
 /**
