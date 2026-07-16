@@ -158,6 +158,17 @@ export interface BrowserGateway {
     handler: (msg: any, ws: WebSocket) => void,
   ): void;
   /**
+   * Register a `plugin_action` handler keyed by pluginId, so multiple plugins
+   * service `plugin_action` concurrently without one shadowing another. The
+   * host supplies the pluginId from the plugin manifest (not self-declared).
+   * See change: fix-plugin-action-fanout-and-handlers.
+   */
+  registerPluginActionHandler(
+    pluginId: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    handler: (msg: any, ws: WebSocket) => void,
+  ): void;
+  /**
    * Register a callback invoked when any browser connection closes, so
    * per-connection resources (e.g. the open-files watch) are torn down.
    * See change: split-editor-workspace.
@@ -194,6 +205,16 @@ export function createBrowserGateway(
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const customHandlers = new Map<string, (msg: any, ws: WebSocket) => void>();
+
+  /**
+   * `plugin_action` handlers keyed by pluginId (fan-out registry). Distinct
+   * from `customHandlers` (single-owner types like `watch_files`): a
+   * `plugin_action` is routed to the handler whose pluginId matches
+   * `message.pluginId`, so N plugins coexist regardless of load order.
+   * See change: fix-plugin-action-fanout-and-handlers.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pluginActionHandlers = new Map<string, (msg: any, ws: WebSocket) => void>();
 
   // Callbacks invoked on browser disconnect (per-connection resource cleanup).
   // See change: split-editor-workspace.
@@ -815,9 +836,28 @@ export function createBrowserGateway(
             break;
           }
           default: {
-            // Plugin-registered custom handler takes precedence over pi-gateway forward.
             const type = (msg as { type?: string } | undefined)?.type;
-            if (type && customHandlers.has(type)) {
+            // plugin_action fans out by pluginId to the owning plugin's handler.
+            // Unknown pluginId → structured error to the sender, never a silent
+            // drop. See change: fix-plugin-action-fanout-and-handlers.
+            if (type === "plugin_action") {
+              const pa = msg as { pluginId?: string; action?: string };
+              const handler = pa.pluginId ? pluginActionHandlers.get(pa.pluginId) : undefined;
+              if (handler) {
+                handler(msg, ws);
+              } else {
+                sendTo(ws, {
+                  type: "plugin_action_error",
+                  pluginId: pa.pluginId ?? "",
+                  ...(pa.action ? { action: pa.action } : {}),
+                  error: `no plugin_action handler for pluginId "${pa.pluginId ?? ""}"`,
+                });
+                console.error(
+                  `[browser-gw] plugin_action dropped: no handler for pluginId=${pa.pluginId ?? "(none)"} action=${pa.action ?? "(none)"}`,
+                );
+              }
+            } else if (type && customHandlers.has(type)) {
+              // Plugin-registered custom handler takes precedence over pi-gateway forward.
               customHandlers.get(type)!(msg, ws);
             } else {
               // Forward simple pi-gateway commands
@@ -868,6 +908,15 @@ export function createBrowserGateway(
 
     registerHandler(type, handler) {
       customHandlers.set(type, handler);
+    },
+
+    registerPluginActionHandler(pluginId, handler) {
+      if (pluginActionHandlers.has(pluginId)) {
+        console.warn(
+          `[browser-gw] duplicate plugin_action handler for pluginId=${pluginId}; replacing (manifest ids should be unique)`,
+        );
+      }
+      pluginActionHandlers.set(pluginId, handler);
     },
 
     registerDisconnectHandler(handler) {

@@ -39,7 +39,7 @@ const BUILTIN_ACTION_KINDS = new Set(Object.keys(BUILTIN_ACTION_ALIASES));
  * validation so `/create` + `/update` cannot persist a config that `/list`
  * would later mark invalid. See change: register-plugin-automation-events.
  */
-function unknownActionKind(
+export function unknownActionKind(
   config: AutomationConfig | undefined,
   ids: ReadonlySet<string> | undefined,
 ): string | undefined {
