@@ -6,9 +6,13 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const reindexAll = vi.fn(async () => ({ changed: 1, chunks: 2 }));
-const applyConfigPatch = vi.fn(() => ({ ok: true as const, projectPath: "/w/repo/.pi/dashboard/knowledge_base.json" }));
-const isAllowedCwd = vi.fn(() => true);
+// vi.mock is hoisted above module-level const initializers, so the mock fns must
+// live in vi.hoisted to avoid a TDZ hit inside the factory.
+const { reindexAll, applyConfigPatch, isAllowedCwd } = vi.hoisted(() => ({
+  reindexAll: vi.fn(async () => ({ changed: 1, chunks: 2 })),
+  applyConfigPatch: vi.fn(() => ({ ok: true as const, projectPath: "/w/repo/.pi/dashboard/knowledge_base.json" })),
+  isAllowedCwd: vi.fn(() => true),
+}));
 
 vi.mock("../kb-routes.js", () => ({
   mountKbRoutes: vi.fn(),

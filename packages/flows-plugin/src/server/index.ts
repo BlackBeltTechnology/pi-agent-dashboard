@@ -114,10 +114,18 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
           return;
         }
         const task = typeof payload.task === "string" ? payload.task.trim() : "";
-        const inputs =
-          payload.inputs && typeof payload.inputs === "object"
-            ? (payload.inputs as Record<string, unknown>)
-            : undefined;
+        // Reject a non-object / array `inputs` (typeof [] === "object") — pi-flows
+        // consumes it as a keyed record, so an array would be malformed.
+        if (
+          payload.inputs !== undefined &&
+          (payload.inputs === null ||
+            typeof payload.inputs !== "object" ||
+            Array.isArray(payload.inputs))
+        ) {
+          logger.warn(`flow.run session=${m.sessionId}: invalid inputs (expected object)`);
+          return;
+        }
+        const inputs = payload.inputs as Record<string, unknown> | undefined;
         const data: Record<string, unknown> = { flowName };
         if (task) data.task = task;
         if (inputs) data.inputs = inputs;

@@ -61,9 +61,13 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
         break;
       }
       case "config.set": {
-        const patch = (payload.patch && typeof payload.patch === "object"
-          ? payload.patch
-          : payload) as Parameters<typeof applyConfigPatch>[1];
+        // Require a plain-object patch (arrays pass a bare typeof check; a
+        // missing patch must NOT silently fall back to the control payload).
+        if (!payload.patch || typeof payload.patch !== "object" || Array.isArray(payload.patch)) {
+          ctx.logger.warn(`kb config.set rejected cwd=${cwd}: invalid patch (expected object)`);
+          return;
+        }
+        const patch = payload.patch as Parameters<typeof applyConfigPatch>[1];
         const result = applyConfigPatch(cwd, patch);
         if (!result.ok) {
           ctx.logger.warn(`kb config.set rejected cwd=${cwd}: ${result.error}`);
