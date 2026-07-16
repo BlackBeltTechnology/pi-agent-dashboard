@@ -20,11 +20,11 @@ describe("SplitWorkspaceProvider / openInSplit", () => {
 
   it("openInSplit opens the split when closed and opens the file as active tab", () => {
     const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper() });
-    expect(result.current.split.open).toBe(false);
+    expect(result.current.split.mode).toBe("closed");
 
     act(() => result.current.openInSplit("src/foo.ts"));
 
-    expect(result.current.split.open).toBe(true);
+    expect(result.current.split.mode).toBe("split");
     expect(result.current.paneState.openFiles.map((f) => f.path)).toEqual(["src/foo.ts"]);
     expect(result.current.paneState.activeIndex).toBe(0);
   });
@@ -38,20 +38,48 @@ describe("SplitWorkspaceProvider / openInSplit", () => {
     expect(result.current.pendingScroll).toBeNull();
   });
 
-  it("toggleSplit flips and persists open state", () => {
-    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sTog") });
-    act(() => result.current.toggleSplit());
-    expect(result.current.split.open).toBe(true);
-    act(() => result.current.toggleSplit());
-    expect(result.current.split.open).toBe(false);
+  it("setMode sets the layout mode and persists it", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sMode") });
+    act(() => result.current.setMode("split"));
+    expect(result.current.split.mode).toBe("split");
+    act(() => result.current.setMode("full"));
+    expect(result.current.split.mode).toBe("full");
+    act(() => result.current.setMode("closed"));
+    expect(result.current.split.mode).toBe("closed");
+  });
+
+  it("E8 direct closed↔full: select Chat from full lands in closed (never split between)", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sE8") });
+    const seen: string[] = [];
+    act(() => result.current.setMode("full"));
+    seen.push(result.current.split.mode);
+    // From `full`, the header Chat segment sets `closed` directly.
+    act(() => result.current.setMode("closed"));
+    seen.push(result.current.split.mode);
+    expect(seen).toEqual(["full", "closed"]);
+    expect(seen).not.toContain("split");
+  });
+
+  it("F9 openers from full land in split, never full (openChanges + openInSplit)", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sF9") });
+    act(() => result.current.setMode("full"));
+    expect(result.current.split.mode).toBe("full");
+    // The Changed-Files chip drives openChanges(); from full it must move to split.
+    act(() => result.current.openChanges());
+    expect(result.current.split.mode).toBe("split");
+
+    // A file opener from full likewise returns to split (chat stays visible).
+    act(() => result.current.setMode("full"));
+    act(() => result.current.openInSplit("src/foo.ts"));
+    expect(result.current.split.mode).toBe("split");
   });
 
   it("openLiveTarget opens a live-server tab with the encoded path, idempotent on repeat", () => {
     const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sLive") });
-    expect(result.current.split.open).toBe(false);
+    expect(result.current.split.mode).toBe("closed");
 
     act(() => result.current.openLiveTarget("http://localhost:50452/report.html"));
-    expect(result.current.split.open).toBe(true);
+    expect(result.current.split.mode).toBe("split");
     expect(result.current.paneState.openFiles.map((f) => f.path)).toEqual([
       "live:http://localhost:50452/report.html",
     ]);

@@ -7,9 +7,10 @@
  * File fetches `/api/session-file` and shows the whole file via
  * SyntaxHighlighter; clicking Diff returns to the diff.
  */
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
-import React from "react";
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -64,13 +65,38 @@ vi.mock("../ThemeProvider.js", async () => {
   };
 });
 
-import { DiffPanel } from "../DiffPanel.js";
 import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import { DiffPanel } from "../DiffPanel.js";
 
 const file: FileDiffEntry = {
   path: "src/a.ts",
   changes: [{ type: "write", timestamp: 0, content: "const a = 1;\n" }],
 };
+
+const GIT_DIFF = [
+  "@@ -18,7 +18,7 @@ export function accumulate(canvas) {",
+  " export function accumulate(canvas, delta) {",
+  "   const next = { ...canvas };",
+  "-  next.nodes = delta.nodes;",
+  "-  next.dirty = true;",
+  "+  next.nodes = mergeNodes(canvas.nodes, delta.nodes);",
+  "+  next.dirty = delta.nodes.length > 0;",
+  "   next.revision = canvas.revision + 1;",
+  "-  return next;",
+  "+  return freeze(next);",
+  " }",
+].join("\n");
+
+const fileWithDiff: FileDiffEntry = {
+  path: "src/acc.ts",
+  changes: [{ type: "edit", timestamp: 0 }],
+  additions: 3,
+  deletions: 3,
+  gitDiff: GIT_DIFF,
+};
+
+const render1 = (f: FileDiffEntry) =>
+  render(<DiffPanel file={f} selection={{ filePath: f.path, changeIndex: null }} sessionId="s1" />);
 
 describe("DiffPanel file preview", () => {
   it("toggles Diff → File (whole file) → Diff", async () => {
@@ -93,5 +119,53 @@ describe("DiffPanel file preview", () => {
     // Click Diff → back to the diff.
     fireEvent.click(screen.getByText("Diff"));
     expect(screen.getByTestId("rich-diff")).toBeTruthy();
+  });
+});
+
+describe("DiffPanel Preview mode (collapse-diff-file-tree)", () => {
+  it("(E1) Preview shows changed regions, removed lines omitted, new-file order", () => {
+    render1(fileWithDiff);
+    fireEvent.click(screen.getByTestId("preview-toggle"));
+    const body = screen.getByTestId("preview-body");
+    // Added line present; a removed line's text absent.
+    expect(body.textContent).toContain("return freeze(next);");
+    expect(body.textContent).not.toContain("next.nodes = delta.nodes;");
+    expect(body.textContent).not.toContain("return next;");
+    // New-file line numbers are contiguous 18..24 (removed lines don't advance).
+    const nums = Array.from(body.querySelectorAll("[data-preview-line]")).map((e) =>
+      e.getAttribute("data-preview-line"),
+    );
+    expect(nums).toEqual(["18", "19", "20", "21", "22", "23", "24"]);
+  });
+
+  it("(E2) Preview disabled without a parseable gitDiff", () => {
+    // No gitDiff at all.
+    const { unmount } = render1(file);
+    expect((screen.getByTestId("preview-toggle") as HTMLButtonElement).disabled).toBe(true);
+    unmount();
+    // Binary marker → zero hunks → still disabled.
+    render1({ ...file, gitDiff: "Binary files a/x.png and b/x.png differ" });
+    expect((screen.getByTestId("preview-toggle") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("(#4) exits Preview when refreshed data loses a parseable gitDiff", () => {
+    const sel = { filePath: fileWithDiff.path, changeIndex: null };
+    const { rerender } = render(<DiffPanel file={fileWithDiff} selection={sel} sessionId="s1" />);
+    fireEvent.click(screen.getByTestId("preview-toggle"));
+    expect(screen.getByTestId("preview-body")).toBeTruthy();
+    // Same tab, refreshed data no longer supports Preview.
+    rerender(<DiffPanel file={{ ...fileWithDiff, gitDiff: undefined }} selection={sel} sessionId="s1" />);
+    expect(screen.queryByTestId("preview-body")).toBeNull();
+    expect((screen.getByTestId("preview-toggle") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("(F5) Diff default; File + Preview coexist", () => {
+    render1(fileWithDiff);
+    // Default = Diff (git aggregate → DiffView).
+    expect(screen.getByTestId("diff-view")).toBeTruthy();
+    expect(screen.queryByTestId("preview-body")).toBeNull();
+    expect(screen.getByText("File")).toBeTruthy();
+    expect(screen.getByText("Preview")).toBeTruthy();
+    expect((screen.getByTestId("preview-toggle") as HTMLButtonElement).disabled).toBe(false);
   });
 });

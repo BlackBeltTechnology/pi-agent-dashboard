@@ -20,6 +20,8 @@ import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platfor
 export interface OfficeCaps {
   /** docx `stat.size` cap → 413 before read. */
   docxSizeCap: number;
+  /** pptx `stat.size` cap → 413 before convert (design P5). */
+  pptxSizeCap: number;
   /** xlsx/csv `stat.size` cap → 413 before read. */
   sheetSizeCap: number;
   /** html-mode: strip images if count exceeds this. */
@@ -36,6 +38,10 @@ export interface OfficeCaps {
 
 export const OFFICE_CAPS: OfficeCaps = {
   docxSizeCap: 40 * 1024 * 1024,
+  // Decks run large (corpus median 4.2 MB, tail 258 MB). Cap at 100 MB so the
+  // extreme tail is size-gated (413) before conversion; download is the escape
+  // hatch (design P5).
+  pptxSizeCap: 100 * 1024 * 1024,
   sheetSizeCap: 50 * 1024 * 1024,
   imageCap: 20,
   htmlByteCap: 2 * 1024 * 1024,
@@ -226,6 +232,40 @@ export async function renderDocx(
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "failed to render docx" };
   }
+}
+
+// ── pptx: PDF render (design P1/P4) ──────────────────────────────────────────
+
+export type PptxRenderResult =
+  | { success: true; mode: "pdf" }
+  | { success: false; error: string };
+
+/**
+ * Render a pptx to PDF via the `document-converter` engine, caching the output
+ * (path+mtime+size, reusing the docx PDF cache). Unlike docx there is NO
+ * in-process fallback renderer for pptx (design P4) — engine absent /
+ * `DOCKER_UNAVAILABLE` / convert failure → `{ success:false }`. Never throws.
+ */
+export async function renderPptx(
+  resolved: string,
+  stat: { mtimeMs: number; size: number },
+  opts: { engine: DocxPdfEngine },
+): Promise<PptxRenderResult> {
+  try {
+    if (await opts.engine.available()) {
+      const out = pdfCachePath(resolved, stat.mtimeMs, stat.size);
+      await fs.mkdir(pdfCacheDir(), { recursive: true });
+      try {
+        await fs.access(out);
+      } catch {
+        await opts.engine.toPdf(resolved, out);
+      }
+      return { success: true, mode: "pdf" };
+    }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "failed to render pptx" };
+  }
+  return { success: false, error: "presentation rendering requires the document engine" };
 }
 
 // ── xlsx/csv: sheet parse (design D3/D6) ─────────────────────────────────────

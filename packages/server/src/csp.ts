@@ -10,8 +10,8 @@
  * `PI_DASHBOARD_CSP=report|enforce|off`.
  *
  * The header is applied to the dashboard's OWN responses only. Proxied/embedded
- * prefixes (`/editor/*` code-server, `/live/*` sandboxed dev servers) are
- * skipped so their own policies are not overwritten.
+ * prefixes (`/live/*` sandboxed dev servers) are skipped so their own policies
+ * are not overwritten.
  *
  * See change: improve-content-editor (baseline CSP §7).
  */
@@ -20,7 +20,7 @@ import type { FastifyInstance } from "fastify";
 export type CspMode = "off" | "report" | "enforce";
 
 /** Prefixes served by a reverse proxy / sandbox — never stamp our CSP on them. */
-const SKIP_PREFIXES = ["/editor/", "/live/"];
+const SKIP_PREFIXES = ["/live/"];
 
 /**
  * Baseline directives. `script-src`/`style-src` keep `'unsafe-inline'` (Vite +

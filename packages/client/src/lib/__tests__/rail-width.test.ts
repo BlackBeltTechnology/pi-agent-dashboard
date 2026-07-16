@@ -49,7 +49,7 @@ describe("rail width is independent of the outer split ratio", () => {
   beforeEach(() => localStorage.clear());
 
   it("resizing the rail does not change the persisted split ratio", () => {
-    saveSplitState("sInd", { open: true, ratio: 0.6, orientation: "h" });
+    saveSplitState("sInd", { mode: "split", ratio: 0.6, orientation: "h" });
     saveRailWidth("sInd", 300);
     expect(loadSplitState("sInd").ratio).toBe(0.6);
     expect(loadRailWidth("sInd")).toBe(300);
@@ -57,7 +57,7 @@ describe("rail width is independent of the outer split ratio", () => {
 
   it("changing the split ratio does not change the persisted rail width", () => {
     saveRailWidth("sInd2", 300);
-    saveSplitState("sInd2", { open: true, ratio: 0.3, orientation: "h" });
+    saveSplitState("sInd2", { mode: "split", ratio: 0.3, orientation: "h" });
     expect(loadRailWidth("sInd2")).toBe(300);
     expect(loadSplitState("sInd2").ratio).toBe(0.3);
   });

@@ -13,6 +13,7 @@ export type RendererKind =
   | "markdown"
   | "asciidoc"
   | "docx"
+  | "pptx"
   | "spreadsheet"
   | "html"
   | "pdf"
@@ -32,6 +33,7 @@ export const NON_FALLBACK_KINDS: readonly Exclude<RendererKind, "fallback">[] = 
   "markdown",
   "asciidoc",
   "docx",
+  "pptx",
   "spreadsheet",
   "html",
   "pdf",
@@ -49,6 +51,7 @@ export const RENDERER_BY_EXT: Record<string, RendererKind> = {
   ".adoc": "asciidoc",
   ".asciidoc": "asciidoc",
   ".docx": "docx",
+  ".pptx": "pptx",
   ".xlsx": "spreadsheet",
   ".csv": "spreadsheet",
   ".html": "html",

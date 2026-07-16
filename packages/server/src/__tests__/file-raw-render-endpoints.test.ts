@@ -748,6 +748,101 @@ describe("GET /api/file/render (docx, two-tier — design D8)", () => {
   });
 });
 
+describe("GET /api/file/render (pptx, engine-only PDF — design P1/P4)", () => {
+  let app: FastifyInstance;
+  let tmp: string;
+
+  afterEach(async () => {
+    if (app) await app.close();
+    if (tmp) await fsp.rm(tmp, { recursive: true, force: true });
+  });
+
+  async function setup(office?: Parameters<typeof makeApp>[1]) {
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "pptx-render-"));
+    app = makeApp([tmp], office);
+    await app.ready();
+  }
+
+  // The engine is stubbed, so any bytes named `.pptx` suffice (LibreOffice
+  // never runs in the unit suite).
+  const PPTX_BYTES = Buffer.from("PK\x03\x04 fake pptx zip");
+
+  it("engine available → mode:'pdf'; /api/file/rendered-pdf streams application/pdf (test-plan #6.5)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true) });
+    await fsp.writeFile(path.join(tmp, "deck.pptx"), PPTX_BYTES);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=deck.pptx`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ success: true, data: { mode: "pdf" } });
+    const pdf = await app.inject({
+      method: "GET",
+      url: `/api/file/rendered-pdf?cwd=${encodeURIComponent(tmp)}&path=deck.pptx`,
+    });
+    expect(pdf.statusCode).toBe(200);
+    expect(pdf.headers["content-type"]).toBe("application/pdf");
+    expect(pdf.rawPayload.subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("engine unavailable → {success:false}, no in-process render, no crash (test-plan #6.6)", async () => {
+    await setup({ docxPdfEngine: stubEngine(false) });
+    await fsp.writeFile(path.join(tmp, "deck.pptx"), PPTX_BYTES);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=deck.pptx`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().success).toBe(false);
+  });
+
+  it("engine throws DOCKER_UNAVAILABLE → {success:false}, no crash (test-plan #6.6)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true, { throwOnAvailable: true }) });
+    await fsp.writeFile(path.join(tmp, "deck.pptx"), PPTX_BYTES);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=deck.pptx`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().success).toBe(false);
+  });
+
+  it("ext .key → HTTP 400 (test-plan #6.7)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true) });
+    await fsp.writeFile(path.join(tmp, "deck.key"), PPTX_BYTES);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=deck.key`,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("size > cap → HTTP 413 before convert (BVA, test-plan #6.8)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true), officeCaps: { pptxSizeCap: 100_000 } });
+    await fsp.writeFile(path.join(tmp, "big.pptx"), Buffer.alloc(200_000, 1));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=big.pptx`,
+    });
+    expect(res.statusCode).toBe(413);
+  });
+
+  it("traversal → 403 on render AND rendered-pdf (test-plan #6.9)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true) });
+    const trav = encodeURIComponent("../../../etc/passwd.pptx");
+    const r1 = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=${trav}`,
+    });
+    expect(r1.statusCode).toBe(403);
+    const r2 = await app.inject({
+      method: "GET",
+      url: `/api/file/rendered-pdf?cwd=${encodeURIComponent(tmp)}&path=${trav}`,
+    });
+    expect(r2.statusCode).toBe(403);
+  });
+});
+
 describe("GET /api/file/sheet (xlsx/csv)", () => {
   let app: FastifyInstance;
   let tmp: string;

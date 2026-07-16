@@ -15,6 +15,7 @@ Type `/view <target>` in the composer.
 - `/view https://youtu.be/dQw4w9WgXcQ` — YouTube embed iframe.
 - `/view https://example.com/spec.pdf` — URL with PDF extension renders inline pdfjs viewer.
 - `/view @spec.docx` — docx. Two-tier: `document-converter` PDF render when engine available (mounts pdfjs `PdfPreview` via `/api/file/rendered-pdf`), else in-process `mammoth` HTML baseline (hyperlink-guard + DOMPurify + image cap). Any engine error falls through to HTML.
+- `/view @deck.pptx` — pptx (slide deck). On-demand: card shows "Render slides" button, no auto-convert. Activate → `document-converter` renders pptx→PDF (LibreOffice Impress export filter, cached), mounts pdfjs `PdfPreview` via `/api/file/rendered-pdf`. NO in-process fallback — engine absent → Download fallback. Size cap 100 MB → 413. See change: render-pptx-preview.
 - `/view @data.xlsx` — spreadsheet. SheetJS structured JSON via `/api/file/sheet`, frozen-header grid + sheet tabs, no Docker.
 - `/view @export.csv` — spreadsheet. Encoding detected (chardet) + decoded (iconv-lite); charset pill shown.
 
@@ -38,6 +39,8 @@ Cross-refs:
 - packages/server/src/lib/office-preview.ts
 - packages/client/src/components/preview/DocxPreview.tsx
 - packages/client/src/components/preview/SpreadsheetPreview.tsx
+- openspec/changes/render-pptx-preview/
+- packages/client/src/components/preview/PptxPreview.tsx
 
 ## How to build Windows electron zip?
 

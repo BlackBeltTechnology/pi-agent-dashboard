@@ -32,7 +32,6 @@ describe("registerCsp hook", () => {
     const app = Fastify({ logger: false });
     registerCsp(app, mode);
     app.get("/", async () => "ok");
-    app.get("/editor/x/", async () => "editor");
     app.get("/live/x/", async () => "live");
     await app.ready();
     return app;
@@ -53,9 +52,9 @@ describe("registerCsp hook", () => {
     await app.close();
   });
 
-  it("skips proxied/embedded prefixes (/editor, /live)", async () => {
+  it("skips proxied/embedded prefixes (/live)", async () => {
     const app = await appWith("enforce");
-    for (const url of ["/editor/x/", "/live/x/"]) {
+    for (const url of ["/live/x/"]) {
       const res = await app.inject({ method: "GET", url });
       expect(res.headers["content-security-policy"], url).toBeUndefined();
     }

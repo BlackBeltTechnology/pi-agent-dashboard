@@ -20,16 +20,26 @@ export const RATIO_MAX = 0.75;
 
 export type SplitOrientation = "h" | "v";
 
+/**
+ * Content-area layout mode:
+ *   - `closed` — chat only (editor collapsed to a right-edge peek),
+ *   - `split`  — chat | divider | editor (draggable),
+ *   - `full`   — editor only (chat collapsed to a leading-edge peek).
+ */
+export type SplitMode = "closed" | "split" | "full";
+
 export interface SplitState {
-  /** Whether the editor pane is co-mounted alongside ChatView. */
-  open: boolean;
-  /** Chat pane fraction of the split (0..1); editor gets the remainder. */
+  /** Which of the three content-area layouts is active. */
+  mode: SplitMode;
+  /** Chat pane fraction of the split (0..1); editor gets the remainder. Only applies in `split`. */
   ratio: number;
   /** `h` = side-by-side (desktop), `v` = stacked (mobile). */
   orientation: SplitOrientation;
 }
 
-export const DEFAULT_SPLIT_STATE: SplitState = { open: false, ratio: 0.5, orientation: "h" };
+export const DEFAULT_SPLIT_STATE: SplitState = { mode: "closed", ratio: 0.5, orientation: "h" };
+
+const isMode = (v: unknown): v is SplitMode => v === "closed" || v === "split" || v === "full";
 
 /** Clamp a divider ratio into `[RATIO_MIN, RATIO_MAX]`; NaN → default ratio. */
 export function clampRatio(ratio: number): number {
@@ -41,16 +51,25 @@ function keyFor(sessionId: string): string {
   return SPLIT_KEY_PREFIX + sessionId;
 }
 
-/** True only for well-formed persisted state; rejects corrupt/partial blobs. */
-function isValidState(v: unknown): v is SplitState {
-  if (!v || typeof v !== "object") return false;
+/**
+ * Migrate a raw persisted blob to a well-formed `SplitState`, or `null` when
+ * corrupt. Accepts both the new `mode` shape and the legacy `open` boolean, with
+ * an explicit **precedence** so a blob carrying both fields cannot corrupt:
+ *   1. `mode` in the enum → use it (mode wins over any legacy `open`).
+ *   2. else `typeof open === "boolean"` → `open ? "split" : "closed"`.
+ *   3. else → corrupt (`null`).
+ * `ratio` is clamped (an out-of-clamp legacy ratio like `1.2` is clamped, not rejected).
+ */
+function migrateState(v: unknown): SplitState | null {
+  if (!v || typeof v !== "object") return null;
   const s = v as Record<string, unknown>;
-  return (
-    typeof s.open === "boolean" &&
-    typeof s.ratio === "number" &&
-    Number.isFinite(s.ratio) &&
-    (s.orientation === "h" || s.orientation === "v")
-  );
+  if (typeof s.ratio !== "number" || !Number.isFinite(s.ratio)) return null;
+  if (s.orientation !== "h" && s.orientation !== "v") return null;
+  let mode: SplitMode;
+  if (isMode(s.mode)) mode = s.mode;
+  else if (typeof s.open === "boolean") mode = s.open ? "split" : "closed";
+  else return null;
+  return { mode, ratio: clampRatio(s.ratio), orientation: s.orientation };
 }
 
 /** Read persisted state for a session; default (closed) on absence/corruption. */
@@ -60,12 +79,12 @@ export function loadSplitState(sessionId: string): SplitState {
     const raw = globalThis.localStorage?.getItem(keyFor(sessionId));
     if (!raw) return DEFAULT_SPLIT_STATE;
     const parsed = JSON.parse(raw);
-    if (!isValidState(parsed)) {
+    const migrated = migrateState(parsed);
+    if (!migrated) {
       console.error(`[split-state] discarding corrupt state for session ${sessionId}`);
       return DEFAULT_SPLIT_STATE;
     }
-    // Defensive clamp — a persisted ratio may predate a clamp-range change.
-    return { ...parsed, ratio: clampRatio(parsed.ratio) };
+    return migrated;
   } catch (err) {
     console.error(`[split-state] failed to read state for session ${sessionId}`, err);
     return DEFAULT_SPLIT_STATE;

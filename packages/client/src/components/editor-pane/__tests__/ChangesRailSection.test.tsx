@@ -1,62 +1,68 @@
 /**
- * ChangesRailSection integration (change: add-change-summary-table):
- * renders the shared session-diff files and opens a `diff:` tab on row select.
+ * ChangesRailSection — slim summary bar (change: collapse-diff-file-tree).
+ * No per-file list, no DiffFileTree; shows Changes (N) · +X −Y · summed badge
+ * · this-session-only toggle. Per-file rows now live in EditorFileTree.
  */
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+
 import type { SessionDiffResponse } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-const DIFF: SessionDiffResponse = {
-  isGitRepo: true,
-  totalAdditions: 8,
-  totalDeletions: 1,
-  files: [
-    { path: "a.ts", changes: [{ type: "edit", timestamp: 1 }], additions: 3, deletions: 1 },
-    { path: "b.ts", changes: [{ type: "write", timestamp: 2 }], additions: 5, deletions: 0 },
-  ],
-};
-
-// Mock the shared-diff fetch so SessionDiffProvider yields canned data (no network).
+const h = vi.hoisted(() => ({ diff: null as SessionDiffResponse | null }));
 vi.mock("../../../hooks/useSessionDiff.js", () => ({
-  useSessionDiff: () => ({ data: DIFF, isLoading: false, error: null, refresh: () => {} }),
+  useSessionDiff: () => ({ data: h.diff, isLoading: false, error: null, refresh: () => {} }),
 }));
 
-import { ChangesRailSection } from "../ChangesRailSection.js";
 import { SessionDiffProvider } from "../../SessionDiffContext.js";
-import { SplitWorkspaceProvider, useSplitWorkspace } from "../../SplitWorkspaceContext.js";
+import { ChangesRailSection } from "../ChangesRailSection.js";
 
 afterEach(cleanup);
 
-function OpenTabsProbe() {
-  const { paneState } = useSplitWorkspace();
-  return <div data-testid="open-tabs">{paneState.openFiles.map((f) => f.path).join("|")}</div>;
-}
-
-function mount() {
+function mount(diff: SessionDiffResponse) {
+  h.diff = diff;
   return render(
-    <SplitWorkspaceProvider sessionId="s1" cwd="/repo" orientation="h">
-      <SessionDiffProvider sessionId="s1">
-        <ChangesRailSection />
-        <OpenTabsProbe />
-      </SessionDiffProvider>
-    </SplitWorkspaceProvider>,
+    <SessionDiffProvider sessionId="s1">
+      <ChangesRailSection sessionOnly={false} onSessionOnlyChange={() => {}} />
+    </SessionDiffProvider>,
   );
 }
 
-describe("ChangesRailSection", () => {
-  it("renders the Changes header + per-file rows from the shared diff", () => {
-    mount();
+describe("ChangesRailSection summary bar", () => {
+  it("(F1) renders a summary bar with no per-file list / DiffFileTree", () => {
+    mount({
+      isGitRepo: true,
+      totalAdditions: 8,
+      totalDeletions: 1,
+      files: [
+        { path: "a.ts", changes: [{ type: "edit", timestamp: 1 }], additions: 3, deletions: 1 },
+        { path: "b.ts", changes: [{ type: "write", timestamp: 2 }], additions: 5, deletions: 0 },
+        { path: "c.ts", changes: [{ type: "edit", timestamp: 3 }], additions: 0, deletions: 0 },
+      ],
+    });
     expect(screen.getByTestId("changes-rail-section")).toBeTruthy();
     expect(screen.getByText("Changes")).toBeTruthy();
-    expect(screen.getByText("a.ts")).toBeTruthy();
-    expect(screen.getByText("b.ts")).toBeTruthy();
-    // Aggregate header count (+8).
+    expect(screen.getByText("(3)")).toBeTruthy();
     expect(screen.getByText("+8")).toBeTruthy();
+    // No per-file rows leaked into the summary bar.
+    expect(screen.queryByText("a.ts")).toBeNull();
+    expect(screen.queryByText("b.ts")).toBeNull();
+    // No roll-up "N files changed" sub-header (that was DiffFileTree).
+    expect(screen.queryByText(/files? changed/i)).toBeNull();
   });
 
-  it("opens a diff: tab when a Changes row is activated", () => {
-    mount();
-    fireEvent.click(screen.getByText("a.ts"));
-    expect(screen.getByTestId("open-tabs").textContent).toContain("diff:a.ts");
+  it("(E5) shows the summed badge for a non-git session", () => {
+    mount({
+      isGitRepo: false,
+      totalAdditions: 12,
+      totalDeletions: 4,
+      files: [{ path: "a.ts", changes: [{ type: "write", timestamp: 1 }] }],
+    });
+    expect(screen.getByText("summed")).toBeTruthy();
+    expect(screen.queryByText("a.ts")).toBeNull();
+  });
+
+  it("returns nothing when there are no changes", () => {
+    const { container } = mount({ isGitRepo: true, files: [] });
+    expect(container.querySelector("[data-testid='changes-rail-section']")).toBeNull();
   });
 });

@@ -77,60 +77,63 @@ The per-turn inline change block SHALL be gated by a new `DisplayPrefs` boolean 
 - **THEN** `changeSummaryTable` SHALL be set to `true` before it reaches any client
 
 ### Requirement: Changed Files integrated into the split editor pane
-The client SHALL surface changed files inside the split editor pane rather than as a full-screen takeover: a Changes section pinned atop the pane's project-tree rail, with each file's diff opened as a per-file `diff`-viewer tab (a new `ViewerKind` `diff`). A `SplitWorkspaceContext` helper `openChanges()` SHALL open the split and reveal the Changes section. The chat SHALL remain mounted in the adjacent pane.
 
-Changed-file paths derived client-side from raw tool-call `args.path` SHALL be normalized to relative-posix when they are absolute AND under the session cwd, using the same rule the server applies (`session-diff-extraction`: absolute-under-cwd → relative-posix). The normalized path SHALL be used BOTH for the displayed row AND for the value passed to `openDiffTab`, so the row and the diff-open lookup can never diverge and always match the session-diff `data.files` keys.
+The client SHALL surface changed files inside the split editor pane rather than as a full-screen takeover. Changed files SHALL be marked **inline in the single workspace file tree** (`EditorFileTree`), NOT as a separate `DiffFileTree` section. A slim summary bar SHALL be pinned atop the rail showing `Changes (N)`, the aggregate `+X −Y` counts, a `this session only` toggle, and the `summed` badge for non-git sessions. Each file's diff SHALL open as a per-file `diff`-viewer tab (`ViewerKind` `diff`). A `SplitWorkspaceContext` helper `openChanges()` SHALL open the split and reveal the rail. The chat SHALL remain mounted in the adjacent pane.
 
-#### Scenario: Open changed files into the split
-- **WHEN** the user activates the session-header Changed Files summary chip
-- **THEN** `openChanges()` SHALL open the split (if closed) and reveal the Changes section in the pane rail
-- **AND** `ChatView` SHALL remain mounted in the adjacent pane (no takeover)
+A session-owned changed file that is currently visible in the tree SHALL show a status indicator (`+` added / `●` modified or tool-origin) and `+X −Y` count badges, and SHALL reveal a `diff` affordance on hover that opens the file's `diff`-viewer tab. Clicking the row's name SHALL open the **normal file viewer**, not the diff. A changed file with more than one recorded change event SHALL expand to its per-event `✏️/📝` rows.
 
-#### Scenario: Open a specific file's diff
-- **WHEN** the user activates a Changes-section row OR the open affordance on a per-turn block file row
-- **THEN** that file SHALL open/activate as a `diff`-viewer tab (sibling to normal file tabs)
-- **AND** the Changes section SHALL mark that file as the active selection
+A directory row whose subtree contains a session-owned changed file SHALL show a change dot, derived from the changed-file path list by prefix (no additional directory fetch), so changes inside collapsed directories remain discoverable. The tree SHALL NOT auto-expand to reveal changed files.
 
-#### Scenario: Absolute-path tool call opens the correct diff
-- **WHEN** a per-turn block file row was derived from a tool call whose `args.path` was absolute and under the session cwd (e.g., `/home/user/project/openspec/changes/x/proposal.md`)
-- **THEN** activating the row SHALL open a `diff`-viewer tab whose path matches the relative-posix session-diff key (`openspec/changes/x/proposal.md`)
-- **AND** the diff panel SHALL render the file's changes (it SHALL NOT show "No changes for this file")
+Working-tree changes this session did not make (`otherChanges`) SHALL render as a muted, collapsed group at the bottom of the rail's scroll region; the `this session only` toggle SHALL hide it. No `this session only` or view-mode state SHALL persist across sessions; tree expansion SHALL retain its existing persistence, and this change SHALL add no new persisted state.
 
-#### Scenario: Diff tab coexists with a monaco tab for the same file
-- **WHEN** a file is already open as a `monaco` tab AND the same file is opened as a diff
-- **THEN** a separate `diff`-viewer tab SHALL open (the two SHALL NOT collapse into one tab)
-- **AND** both tabs SHALL be independently selectable
+#### Scenario: Changed files marked inline in the workspace tree
+- **WHEN** the editor pane rail mounts for a session that has changes
+- **THEN** the rail SHALL render a single workspace tree with a slim `Changes (N) · +X −Y · [this session only]` summary bar above it
+- **AND** each visible session-owned changed file's row SHALL show a status indicator and `+X −Y` counts
+- **AND** no standalone `DiffFileTree` changed-file list SHALL be rendered in the rail
 
-#### Scenario: Persisted diff tab survives reload
-- **WHEN** a `diff`-viewer tab is open AND the page is reloaded
-- **THEN** the restored editor-pane state SHALL retain the `diff` tab (it SHALL NOT be discarded as an invalid viewer)
+#### Scenario: Folder dot marks changes in collapsed directories
+- **WHEN** a session-owned changed file lives inside a directory that is not expanded
+- **THEN** that directory's row SHALL show a change dot
+- **AND** the tree SHALL NOT auto-expand to reveal the file
 
-#### Scenario: Diff render uses shared session-diff data, no per-tab fetch
-- **WHEN** a `diff`-viewer tab renders a file
-- **THEN** it SHALL read that file's diff from the shared session-diff data already loaded for the session
-- **AND** opening the tab SHALL NOT trigger an additional per-file network request
+#### Scenario: Row click opens the file, diff chip opens the diff
+- **WHEN** the user clicks a changed file row's name
+- **THEN** the normal file viewer tab SHALL open
+- **WHEN** the user activates the hover `diff` chip on that row
+- **THEN** a `diff`-viewer tab SHALL open for that file
 
-#### Scenario: Fallback takeover route retained
-- **WHEN** the `/session/:id/diff` route is navigated (deep-link or very narrow mobile)
-- **THEN** the standalone `FileDiffView` SHALL render the same enriched changed-files tree as a full-screen view
+#### Scenario: Multi-event file expands to its change history
+- **WHEN** a changed file has more than one recorded change event
+- **THEN** its row SHALL offer an expander that reveals the per-event `✏️/📝` rows
 
-### Requirement: Merged roll-up in the Changes-section header
-The session-wide net roll-up SHALL be rendered as the header of the Changes section in the pane rail (not a separate pinned dock), sourced from `useSessionDiff` and the numstat-derived counts. Changes-section rows SHALL carry per-file net `+additions −deletions`.
+#### Scenario: Other changes appear in the bottom group
+- **WHEN** the session has working-tree changes it did not make (`otherChanges`)
+- **THEN** they SHALL render in a muted, collapsed group at the bottom of the rail's scroll region
+- **AND** enabling the `this session only` toggle SHALL hide that group
+
+#### Scenario: openChanges reveals the rail
+- **WHEN** `openChanges()` fires
+- **THEN** the split SHALL open and the rail SHALL be revealed
+- **AND** opening a specific file's diff SHALL remain the responsibility of the chat file-link `openDiffTab` path, unchanged by this requirement
+
+### Requirement: Merged roll-up in the rail summary bar
+The session-wide net roll-up SHALL be rendered in the slim Changes summary bar atop the pane rail (not a Changes-section header, not a separate pinned dock), sourced from `useSessionDiff` and the numstat-derived counts. Per-file net `+additions −deletions` SHALL be shown on each changed file's inline row in the workspace tree.
 
 #### Scenario: Git session aggregate + per-file counts
 - **WHEN** the session cwd is a git repository with changed files
-- **THEN** the Changes-section header SHALL show the `N files · +X −Y` aggregate
-- **AND** each row SHALL show that file's net `+additions −deletions` from the numstat fields
-- **AND** each row SHALL provide the open-in-editor affordance
+- **THEN** the summary bar SHALL show the `Changes (N) · +X −Y` aggregate
+- **AND** each inline changed-file row SHALL show that file's net `+additions −deletions` from the numstat fields
+- **AND** each inline changed-file row SHALL provide the diff affordance
 
 #### Scenario: Non-git session fallback
 - **WHEN** the session cwd is not a git repository
 - **THEN** the aggregate and per-file counts SHALL be summed per-turn event deltas instead of numstat
-- **AND** the header SHALL visibly flag that the counts are summed deltas rather than git-net (a `summed` badge)
+- **AND** the summary bar SHALL visibly flag that the counts are summed deltas rather than git-net (a `summed` badge)
 
 #### Scenario: No changes
 - **WHEN** the session has no file changes
-- **THEN** the session-header summary chip SHALL be hidden and the Changes section SHALL be absent
+- **THEN** the session-header summary chip SHALL be hidden and the summary bar SHALL be absent
 
 ### Requirement: Per-turn and net counts are distinct and labeled
 The per-turn blocks and the running roll-up MAY report different totals for the same file (e.g. a line added in one turn and removed in another). The UI SHALL label each surface so the two are not read as contradictory.
@@ -140,4 +143,23 @@ The per-turn blocks and the running roll-up MAY report different totals for the 
 - **THEN** the per-turn blocks SHALL each reflect that turn's activity (`+1 −0` then `+0 −1`)
 - **AND** the roll-up SHALL reflect the net state (`+0 −0`) for that file
 - **AND** the surfaces SHALL be labeled such that both readings are unambiguous
+
+### Requirement: Diff viewer Preview mode
+
+The `diff`-viewer tab SHALL offer a `Diff / Preview` segmented control alongside the existing `File` view mode. In **Diff** mode it renders the unified red/green diff (current behavior). In **Preview** mode it renders the **changed regions** of the current file — context and added lines from the unified `gitDiff` in new-file line-number order, with removed lines omitted and additions tinted. Preview is derived client-side from the cached `gitDiff` with no server request; it is scoped to hunk regions and SHALL NOT be represented as the whole file (the existing `File` mode covers whole-file view). The mode SHALL default to Diff and SHALL NOT persist across mounts. When the file has no parseable `gitDiff` (non-git, summed-delta, or binary), the `Preview` control SHALL be disabled.
+
+#### Scenario: Preview shows changed regions without removed lines
+- **WHEN** the user selects `Preview` on a `diff`-viewer tab whose file has a parseable `gitDiff`
+- **THEN** the tab SHALL render context and added lines in new-file line order
+- **AND** no removed (`-`) lines SHALL be shown
+
+#### Scenario: Diff is the default mode
+- **WHEN** a `diff`-viewer tab first opens
+- **THEN** it SHALL render in Diff mode
+- **AND** the existing `File` (whole-file) mode SHALL remain available and unchanged
+
+#### Scenario: Preview disabled without a parseable gitDiff
+- **WHEN** the file backing the `diff`-viewer tab has no parseable `gitDiff` (non-git, summed, or binary)
+- **THEN** the `Preview` control SHALL be disabled
+- **AND** the tab SHALL remain in Diff mode
 
