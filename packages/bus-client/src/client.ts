@@ -39,8 +39,10 @@ import {
 } from "./errors.js";
 import { isTicketExpired, TICKET_TTL_MS, type Ticket, type WsTicketScope } from "./ticket.js";
 
-/** PluginIds with a working server-side `plugin_action` handler as-built. */
-export const KNOWN_PLUGIN_HANDLERS: readonly string[] = ["goal"] as const;
+/** PluginIds with a working server-side `plugin_action` handler as-built.
+ *  flows/kb/automation lit up by change: fix-plugin-action-fanout-and-handlers
+ *  (pluginId fan-out + real per-plugin handlers). */
+export const KNOWN_PLUGIN_HANDLERS: readonly string[] = ["goal", "flows", "kb", "automation"] as const;
 
 const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
 
@@ -416,9 +418,11 @@ export class BusClient {
 
   /**
    * Emit a `plugin_action`. Only pluginIds with a working server-side handler
-   * are allowed today (goal); others throw `NoPluginHandlerError` rather than
-   * silently dropping the message. See the follow-up change
-   * `fix-plugin-action-fanout-and-handlers`.
+   * (`KNOWN_PLUGIN_HANDLERS`: goal, flows, kb, automation) are allowed; others
+   * throw `NoPluginHandlerError` rather than silently dropping the message. The
+   * server fans out by pluginId (change: fix-plugin-action-fanout-and-handlers),
+   * so an unknown pluginId that slips past this guard yields a structured
+   * `plugin_action_error` from the gateway.
    */
   plugin(
     pluginId: string,

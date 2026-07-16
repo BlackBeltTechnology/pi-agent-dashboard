@@ -29,7 +29,7 @@ import {
   coreActionContributions,
 } from "./action-registry.js";
 import type { Engine } from "./engine.js";
-import { mountAutomationRoutes } from "./routes.js";
+import { mountAutomationRoutes, unknownActionKind } from "./routes.js";
 
 const PLUGIN_ID = "automation";
 
@@ -92,6 +92,60 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     listActions: (cwd) => descriptorsForCwdCached(cwd ?? process.cwd()),
     actionIds: () => collectRegistry!().ids(),
   });
+  // plugin_action handler: run/stop/create dispatch to the SAME engine cores
+  // and writer the REST routes call (no HTTP re-entry). Fan-out routes this
+  // only for pluginId==="automation"; the guard is defense-in-depth.
+  // See change: fix-plugin-action-fanout-and-handlers.
+  ctx.registerBrowserHandler("plugin_action", (msg) => {
+    const m = msg as { pluginId?: string; action?: string; payload?: Record<string, unknown> };
+    if (m.pluginId !== PLUGIN_ID) return;
+    const p = m.payload ?? {};
+    const scope: AutomationScope = p.scope === "global" ? "global" : "folder";
+    const cwd = typeof p.cwd === "string" ? p.cwd : undefined;
+    void (async () => {
+      try {
+        switch (m.action) {
+          case "run": {
+            const name = typeof p.name === "string" ? p.name : "";
+            if (!name) return ctx.logger.warn("automation run: name required");
+            const r = await runNowViaEngine(scope, cwd, name);
+            ctx.logger.info(`automation run "${name}" scope=${scope} ok=${r.ok}${r.runId ? ` runId=${r.runId}` : ""}${r.error ? ` error=${r.error}` : ""}`);
+            break;
+          }
+          case "stop": {
+            const runId = typeof p.runId === "string" ? p.runId : "";
+            if (!runId) return ctx.logger.warn("automation stop: runId required");
+            const r = await stopRunViaEngine(runId);
+            ctx.logger.info(`automation stop runId=${runId} ok=${r.ok}${r.error ? ` error=${r.error}` : ""}`);
+            break;
+          }
+          case "create": {
+            const name = typeof p.name === "string" ? p.name : "";
+            const config = p.config as import("../shared/automation-types.js").AutomationConfig | undefined;
+            if (!name || !config) return ctx.logger.warn("automation create: name and config required");
+            const { writeAutomation, isValidAutomationName } = await import("./automation-writer.js");
+            if (!isValidAutomationName(name)) return ctx.logger.warn(`automation create: invalid name "${name}"`);
+            const badKind = unknownActionKind(config, collectRegistry?.().ids());
+            if (badKind) return ctx.logger.warn(`automation create: unknown action kind "${badKind}"`);
+            const base = scope === "global" ? os.homedir() : cwd ? path.resolve(cwd) : process.cwd();
+            const result = writeAutomation({
+              scopeBase: base,
+              name,
+              config,
+              ...(typeof p.promptBody === "string" ? { promptBody: p.promptBody } : {}),
+            });
+            ctx.logger.info(`automation create "${name}" scope=${scope} dir=${result.dir}`);
+            break;
+          }
+          default:
+            ctx.logger.warn(`unknown automation action: ${m.action}`);
+        }
+      } catch (err) {
+        ctx.logger.error(`automation ${m.action ?? "(no action)"} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    })();
+  });
+
   // Detach: do not block server boot on engine init / heavy imports, and
   // delay past the immediate post-boot window so short integration tests
   // (which boot + assert + tear down within ~1 s) never race the engine's
