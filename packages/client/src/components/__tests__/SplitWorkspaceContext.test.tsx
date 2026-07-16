@@ -98,6 +98,14 @@ describe("SplitWorkspaceProvider / openInSplit", () => {
     const { result } = renderHook(() => useOptionalSplitWorkspace());
     expect(result.current).toBeNull();
   });
+
+  it("X1: malformed persisted split state falls back to closed, does not throw", () => {
+    localStorage.setItem("pi-dashboard:split:sX1", "{not-valid-json");
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sX1") });
+    // Corrupt JSON → the loader swallows the parse error and returns the
+    // default; the caption / restore-tab code renders against `closed`.
+    expect(result.current.split.mode).toBe("closed");
+  });
 });
 
 describe("SplitWorkspaceProvider — open-files watch + changed-on-disk", () => {

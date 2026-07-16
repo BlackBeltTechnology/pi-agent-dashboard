@@ -36,14 +36,17 @@ describe("ResizableSidebar", () => {
     expect(wrapper?.style.width).toBe("350px");
   });
 
-  it("shows collapsed strip with expand button when collapsed", () => {
+  it("collapsed: renders the vertical SESSIONS restore tab, hides children", () => {
     render(
       <ResizableSidebar sidebar={makeSidebar({ collapsed: true })}>
         <div data-testid="child">Hidden</div>
       </ResizableSidebar>,
     );
     expect(screen.queryByTestId("child")).toBeNull();
-    expect(screen.getByTestId("sidebar-expand")).toBeTruthy();
+    const tab = screen.getByTestId("sidebar-expand");
+    expect(tab).toBeTruthy();
+    // Same rotated-tab idiom as the pane peeks (vertical writing mode).
+    expect(tab.style.writingMode).toBe("vertical-rl");
   });
 
   it("calls toggleCollapse when collapse button clicked", () => {
@@ -68,21 +71,15 @@ describe("ResizableSidebar", () => {
     expect(sidebar.toggleCollapse).toHaveBeenCalledOnce();
   });
 
-  it("floats the collapse/expand affordance above sticky content (z-30)", () => {
-    // The toggle overhangs into the content area where a sticky slot (z-10)
+  it("floats the collapse knob above sticky content (z-30)", () => {
+    // The knob overhangs into the content area where a sticky slot (z-10)
     // would otherwise occlude it. See change: improve-flow-graph-fidelity.
-    const { rerender } = render(
+    render(
       <ResizableSidebar sidebar={makeSidebar()}>
         <div>Content</div>
       </ResizableSidebar>,
     );
     expect(screen.getByTestId("sidebar-collapse").className).toMatch(/z-30/);
-    rerender(
-      <ResizableSidebar sidebar={makeSidebar({ collapsed: true })}>
-        <div>Content</div>
-      </ResizableSidebar>,
-    );
-    expect(screen.getByTestId("sidebar-expand").className).toMatch(/z-30/);
   });
 
   it("calls setWidth on drag end", () => {
@@ -96,6 +93,30 @@ describe("ResizableSidebar", () => {
     fireEvent.mouseDown(handle);
     fireEvent.mouseUp(document, { clientX: 400 });
     expect(sidebar.setWidth).toHaveBeenCalledWith(400);
+  });
+
+  it("E3: drag past the min clamps the persisted width to 180", () => {
+    const sidebar = makeSidebar();
+    render(
+      <ResizableSidebar sidebar={sidebar}>
+        <div>Content</div>
+      </ResizableSidebar>,
+    );
+    fireEvent.mouseDown(screen.getByTestId("drag-handle"));
+    fireEvent.mouseUp(document, { clientX: 120 });
+    expect(sidebar.setWidth).toHaveBeenCalledWith(180);
+  });
+
+  it("E4: drag past the max clamps the persisted width to 500", () => {
+    const sidebar = makeSidebar();
+    render(
+      <ResizableSidebar sidebar={sidebar}>
+        <div>Content</div>
+      </ResizableSidebar>,
+    );
+    fireEvent.mouseDown(screen.getByTestId("drag-handle"));
+    fireEvent.mouseUp(document, { clientX: 640 });
+    expect(sidebar.setWidth).toHaveBeenCalledWith(500);
   });
 
   it("collapse button does not trigger drag", () => {
