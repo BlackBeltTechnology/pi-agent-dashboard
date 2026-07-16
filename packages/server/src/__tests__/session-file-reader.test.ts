@@ -154,13 +154,17 @@ describe("findSessionToolCallPayload", () => {
   });
 
   it("reads the nested content[].id, not the entry top-level id", () => {
+    // Decoy: the entry's TOP-LEVEL id differs from the nested tool-call id.
     const file = writeSession([
       { type: "session", id: "s1", cwd: "/tmp" },
       {
-        type: "message", id: "tc-write", parentId: null, // top-level id collides with the tool id
-        message: { role: "assistant", content: [{ type: "toolCall", id: "tc-write", name: "write", arguments: { path: "a", content: "correct" } }] },
+        type: "message", id: "entry-top-level-id", parentId: null,
+        message: { role: "assistant", content: [{ type: "toolCall", id: "tc-nested", name: "write", arguments: { path: "a", content: "correct" } }] },
       },
     ]);
-    expect(findSessionToolCallPayload(file, "tc-write")!.content).toBe("correct");
+    // Matching the NESTED tool-call id resolves the payload.
+    expect(findSessionToolCallPayload(file, "tc-nested")!.content).toBe("correct");
+    // Matching the entry TOP-LEVEL id must NOT resolve (never keyed on it).
+    expect(findSessionToolCallPayload(file, "entry-top-level-id")).toBeNull();
   });
 });

@@ -686,10 +686,15 @@ describe("buildSessionDiff — out-of-cwd carry", () => {
     const entry = files.find((f) => f.path === "/repo/.env");
     expect(entry).toBeDefined();
     expect(entry!.gitDiff).toBeUndefined();
-    // No disk read and no per-file git diff for the out-of-cwd path.
+    // No disk read and no per-file git diff for the out-of-cwd path — and no
+    // existence/stat probe of it either.
     const readPaths = vi.mocked(readFileSync).mock.calls.map((c) => String(c[0]));
     expect(readPaths.some((p) => p.includes(".env"))).toBe(false);
     const diffPaths = vi.mocked(git.diffOr).mock.calls.map((c) => String((c[0] as any)?.path));
     expect(diffPaths.some((p) => p.includes(".env"))).toBe(false);
+    const existsPaths = vi.mocked(existsSync).mock.calls.map((c) => String(c[0]));
+    expect(existsPaths.some((p) => p.includes(".env"))).toBe(false);
+    const statPaths = vi.mocked(statSync).mock.calls.map((c) => String(c[0]));
+    expect(statPaths.some((p) => p.includes(".env"))).toBe(false);
   });
 });

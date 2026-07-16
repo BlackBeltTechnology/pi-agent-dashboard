@@ -71,4 +71,8 @@ describe("isOutOfCwd", () => {
   it("is true for a sibling-escape path", () => {
     expect(isOutOfCwd("/repo-backup/x.ts", "/repo")).toBe(true);
   });
+  it("treats an absolute path as out-of-cwd when cwd is undefined", () => {
+    // Undefined cwd cannot confine an absolute path → out-of-cwd.
+    expect(isOutOfCwd("/repo/src/a.ts", undefined)).toBe(true);
+  });
 });

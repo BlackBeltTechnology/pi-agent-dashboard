@@ -112,8 +112,15 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
       .then((res) => res.json())
       .then((body) => {
         if (cancelled) return;
-        if (body?.success && body.data) setFullPayload(body.data as { content?: string; edits?: EditOperation[] });
-        else setFullFetchError(true);
+        // Accept only a well-formed payload (string `content` or an `edits`
+        // array). A `{ success:true, data:{} }` miss falls through to the
+        // truncation banner rather than silently rendering nothing.
+        const data = body?.success ? (body.data as { content?: unknown; edits?: unknown }) : null;
+        if (data && (typeof data.content === "string" || Array.isArray(data.edits))) {
+          setFullPayload(data as { content?: string; edits?: EditOperation[] });
+        } else {
+          setFullFetchError(true);
+        }
       })
       .catch(() => {
         if (!cancelled) setFullFetchError(true);
@@ -143,6 +150,14 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
   useEffect(() => {
     if (viewMode === "preview" && !previewAvailable) setViewMode("diff");
   }, [viewMode, previewAvailable]);
+
+  // If a refresh flips this entry to out-of-cwd (previewable:false) while File
+  // mode is active, fall back to Diff so the File-view /api/session-file fetch
+  // (which 403s for out-of-cwd) can never fire. See change:
+  // opt-in-out-of-cwd-session-diffs.
+  useEffect(() => {
+    if (viewMode === "file" && file.previewable === false) setViewMode("diff");
+  }, [viewMode, file.previewable]);
 
   // Reset file content when file changes
   useEffect(() => {
