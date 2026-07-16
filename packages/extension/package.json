@@ -30,6 +30,7 @@
     ".pi/skills/doctor/"
   ],
   "dependencies": {
+    "@blackbelt-technology/pi-dashboard-bus-client": "^0.5.4",
     "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",
     "ws": "^8.18.0"
   },

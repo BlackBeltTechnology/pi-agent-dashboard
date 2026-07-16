@@ -16,6 +16,37 @@ metadata:
 
 Interact with the pi-dashboard server from any pi session via its REST API.
 
+## Typed bus client (preferred for commands)
+
+Session/flow COMMAND verbs now ride the SAME WebSocket bus the web client uses,
+via [`scripts/dashboard-bus.ts`](scripts/dashboard-bus.ts) — a thin CLI wrapping
+`@blackbelt-technology/pi-dashboard-bus-client`. It discovers the port itself
+(config.json / `DASHBOARD_PORT` / 8000) and resolves an id-prefix to a full
+session id from the live subscription snapshot, so command prose no longer needs
+to teach BASE-URL derivation or GET `/api/sessions` id-resolution.
+
+Canonical example:
+
+```bash
+npx tsx ./scripts/dashboard-bus.ts spawn /path/to/proj --prompt "/opsx-explore add-auth"
+npx tsx ./scripts/dashboard-bus.ts until <id> idle
+npx tsx ./scripts/dashboard-bus.ts prompt <id> "run the tests"
+```
+
+LLM authors can also write an ordinary type-checked `.ts` script importing
+`{ connect }` from `@blackbelt-technology/pi-dashboard-bus-client` for multi-step
+orchestration (spawn → prompt → until idle → read → plugin) using `connect()`,
+`spawn()`, `prompt()`, `until()`, `read.sessions()`, and `plugin("goal", …)`.
+
+### Tier split
+
+- **COMMAND verbs → bus** (`dashboard-bus.ts`): abort, send_prompt, spawn,
+  resume, flow_control, set_model, set_thinking_level, rename, hide/unhide,
+  attach/detach_proposal, plugin goal.
+- **READ-ONLY + no-WS-twin → REST** (`dashboard-api.sh`): session / health /
+  config reads, git ops, grep/browse, `plugin_config_write`, tunnel, peer scan,
+  openspec archive/toggle. REST remains a supported compatibility shell.
+
 ## Setup — Discover the Dashboard URL
 
 Read the port from config, defaulting to `8000`:
@@ -59,6 +90,10 @@ curl -s -b "pi_dash_token=YOUR_JWT" "$BASE/api/sessions" | jq .
 | List pinned dirs | `curl -s "$BASE/api/pinned-dirs" \| jq .` |
 
 ### Control Sessions
+
+> The `/dashboard:session-*` and `/dashboard:flow-*` MUTATION commands now route
+> through the bus CLI (`scripts/dashboard-bus.ts`). The REST rows below stay as a
+> supported compatibility shell.
 
 | Action | Command |
 |--------|---------|

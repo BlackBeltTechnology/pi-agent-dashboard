@@ -289,6 +289,7 @@ jobs:
           # which enforces every non-private workspace appears here.
           PACKAGES=(
             "@blackbelt-technology/pi-dashboard-shared"
+            "@blackbelt-technology/pi-dashboard-bus-client"
             "@blackbelt-technology/pi-dashboard-extension"
             "@blackbelt-technology/pi-dashboard-server"
             "@blackbelt-technology/pi-dashboard-web"

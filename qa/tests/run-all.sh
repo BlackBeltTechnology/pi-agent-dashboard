@@ -12,6 +12,7 @@ TESTS=(
   "01-install.sh"
   "02-server-start.sh"
   "03-websocket.sh"
+  "04-ws-ticket-auth.sh"  # bus-client connect ticket path. See change: add-dashboard-bus-client-scripting.
   "04-terminal.sh"
   "05-git-ops.sh"
   "08-electron-real-launch.sh"  # skips when AppImage absent. See change: expand-electron-qa-coverage.

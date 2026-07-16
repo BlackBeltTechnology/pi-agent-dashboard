@@ -1,0 +1,29 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-bus-client",
+  "version": "0.5.4",
+  "description": "Headless, ticket-authenticated WebSocket bus client for the pi-dashboard control plane. Typed command send, correlated awaits, bus-consistent reads.",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*.js": "./src/*.ts",
+    "./*": "./src/*"
+  },
+  "files": [
+    "src/"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build",
+    "codegen": "tsx src/codegen/generate-verbs.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3"
+  }
+}
