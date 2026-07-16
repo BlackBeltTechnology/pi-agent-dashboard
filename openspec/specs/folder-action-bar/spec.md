@@ -5,19 +5,16 @@
 Define the folder-group action bar and elevated spawn buttons rendered in the sidebar.
 ## Requirements
 ### Requirement: Folder action bar layout
-Each folder group in the sidebar SHALL render a horizontal action bar below the group header containing buttons in this order: `Terminals(N)`, `Editor`, native editors (e.g. `Zed`), `Clean up broken (N)` (conditional), and Pi Resources (right-aligned). The action bar SHALL NOT contain `+Session` or `+Worktree` buttons — those are relocated to the elevated spawn-button stack (see "Elevated folder spawn buttons").
 
-#### Scenario: Action bar omits spawn buttons
-- **WHEN** a folder group action bar is rendered for a git repository with Zed detected
-- **THEN** the action bar SHALL display: Terminals(0), Editor, Zed, and the Pi Resources icon
+Each folder group in the sidebar SHALL render a horizontal action bar below the group header containing buttons in this order: `Terminals(N)`, `Editor`, `Clean up broken (N)` (conditional), and Pi Resources (right-aligned). The action bar SHALL NOT contain native-editor (e.g. `Zed`) buttons, `+Session`, or `+Worktree` buttons — native-editor launch is removed, and spawn buttons live in the elevated spawn-button stack.
+
+#### Scenario: Action bar omits native-editor and spawn buttons
+
+- **WHEN** a folder group action bar is rendered for a git repository
+- **THEN** the action bar SHALL display: Terminals(0), Editor, and the Pi Resources icon
+- **THEN** the action bar SHALL NOT contain a `Zed` (or any native-editor) button
 - **THEN** the action bar SHALL NOT contain a `+Session` button
 - **THEN** the action bar SHALL NOT contain a `+Worktree` button
-- **THEN** the action bar SHALL NOT contain a `+Terminal` button
-
-#### Scenario: Zed not detected
-- **WHEN** a folder group is rendered and Zed is not detected
-- **THEN** the Zed button SHALL NOT appear in the action bar
-- **THEN** all other action-bar buttons SHALL remain visible
 
 ### Requirement: +Worktree button opens worktree dialog
 The `+ New Worktree` action SHALL be presented as a full-width line button in the elevated spawn-button stack (see "Elevated folder spawn buttons"), not as a pill in the action bar. Clicking it SHALL open `WorktreeSpawnDialog` scoped to the folder's cwd. The button SHALL be hidden (not disabled) unless the folder is detected as a git repository AND the global preference `gitWorktreeEnabled` is `true` AND a spawn handler is wired.
@@ -60,36 +57,20 @@ The Terminals button SHALL display the count of open terminals for the folder as
 - **WHEN** a folder has no terminals
 - **THEN** the Terminals button SHALL display `Terminals(0)`
 
-### Requirement: Editor button with status indicator
-The Editor button SHALL navigate to the EditorView for the folder. It SHALL display a status indicator: green dot when code-server is running, pulsing dot when starting, yellow warning icon when code-server binary is not found, no indicator when stopped.
+### Requirement: Editor button opens the internal folder pane
 
-#### Scenario: Editor running
-- **WHEN** a code-server instance is running for the folder
-- **THEN** the Editor button SHALL display a green dot indicator
+The Editor button SHALL navigate to `/folder/:encodedCwd/editor`, which mounts the internal Monaco editor pane rooted at the folder cwd (see capability `folder-scoped-editor-pane`). The button SHALL NOT display any `code-server` status indicator (green/pulsing/warning), because no external editor process exists.
 
-#### Scenario: Editor starting
-- **WHEN** a code-server instance is starting for the folder
-- **THEN** the Editor button SHALL display a pulsing dot indicator
+#### Scenario: Click navigates to the internal folder pane
 
-#### Scenario: Editor stopped
-- **WHEN** no code-server instance exists for the folder
-- **THEN** the Editor button SHALL display no indicator
-
-#### Scenario: code-server not found
-- **WHEN** code-server binary is not detected on the system
-- **THEN** the Editor button SHALL display a yellow warning icon
-
-#### Scenario: Click navigates to editor
-- **WHEN** user clicks the Editor button
+- **WHEN** the user clicks the Editor button
 - **THEN** the content area SHALL navigate to `/folder/:encodedCwd/editor`
+- **AND** the internal Monaco pane SHALL mount rooted at the folder cwd
 
-### Requirement: Zed button for native launch
-The Zed button SHALL launch Zed natively via the existing `POST /api/open-editor` endpoint. It SHALL NOT cause any content area navigation. It SHALL only appear when Zed is detected as running.
+#### Scenario: Editor button has no status indicator
 
-#### Scenario: Launch Zed
-- **WHEN** user clicks the Zed button
-- **THEN** the system SHALL call `POST /api/open-editor` with `{ path: cwd, editor: "zed" }`
-- **THEN** no content area navigation SHALL occur
+- **WHEN** the Editor button is rendered for any folder
+- **THEN** it SHALL NOT display a green/pulsing dot or a yellow warning icon
 
 ### Requirement: Pi Resources button with updated icon
 The Pi Resources button SHALL be right-aligned in the action bar and use a more representative icon (replacing `mdiPuzzleOutline`). Clicking it SHALL open the PiResourcesView (existing behavior, relocated).
