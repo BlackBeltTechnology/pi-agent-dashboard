@@ -31,7 +31,8 @@ A pure function `dispatchPreview(target: ViewTarget): RendererKind` SHALL select
 renderer using only the target's shape (extension for files; host + URL extension for
 URLs). It SHALL NOT perform server round-trips, MIME sniffing, or file reads to make the
 decision. `RendererKind` SHALL be one of
-`"markdown" | "asciidoc" | "html" | "pdf" | "video" | "audio" | "image" | "youtube" | "docx" | "spreadsheet" | "email" | "fallback"`.
+`"markdown" | "asciidoc" | "html" | "pdf" | "video" | "audio" | "image" | "youtube" | "docx" | "pptx" | "spreadsheet" | "email" | "fallback"`.
+The `.pptx` file extension (compared case-insensitively) SHALL map to `"pptx"`.
 
 #### Scenario: Markdown extension
 - **WHEN** `dispatchPreview({ kind: "file", cwd, path: "x.md" })` is called
@@ -60,6 +61,10 @@ decision. `RendererKind` SHALL be one of
 #### Scenario: DOCX extension
 - **WHEN** the file extension is `.docx` (compared case-insensitively)
 - **THEN** the result is `"docx"`
+
+#### Scenario: PPTX extension
+- **WHEN** the file extension is `.pptx` (compared case-insensitively)
+- **THEN** the result is `"pptx"`
 
 #### Scenario: Spreadsheet extensions
 - **WHEN** the file extension is `.xlsx` or `.csv` (compared case-insensitively)
@@ -407,9 +412,9 @@ cache keyed by path + mtime + size so the attachment endpoint does not re-parse 
 
 ### Requirement: EML sanitizer loads lazily so a broken jsdom cannot block server boot
 
-The server-side HTML sanitizer (`isomorphic-dompurify`, which constructs a `jsdom` window
-on first evaluation) SHALL be loaded via dynamic `import()` at first sanitize, NOT via a
-static top-level import. A failure to initialize the sanitizer (e.g. a corrupt/torn `jsdom`
+The server-side HTML sanitizer (`isomorphic-dompurify`) SHALL be loaded via dynamic `import()`
+at first sanitize, NOT via a static top-level import (it constructs a `jsdom` window on first
+evaluation). A failure to initialize the sanitizer (e.g. a corrupt/torn `jsdom`
 install) SHALL therefore surface only on an EML preview request, and SHALL NOT prevent the
 server from starting or registering routes.
 
@@ -558,4 +563,40 @@ appear in CSS `url()` within `<style>` blocks and inline `style` attributes.
   attachment part
 - **WHEN** `EmlPreview` renders it
 - **THEN** the image is displayed (sourced from `/api/file/eml-attachment`), not blocked
+
+### Requirement: PPTX renders on demand via a rendering engine
+
+The `.pptx` preview SHALL be rendered by a rendering engine (via `document-converter`, whose
+image already bundles LibreOffice) rather than an in-process library, and SHALL be **user-
+initiated** (an explicit "Render slides" affordance), NOT auto-rendered on mount — because
+engine conversion incurs multi-second Docker latency. On activation the server SHALL convert
+the deck to PDF via `renderPdf` (cached by path+mtime+size) and the client SHALL mount the
+existing `PdfPreview` against the shared `GET /api/file/rendered-pdf` stream. The render SHALL
+be bounded by a `stat.size` cap (oversize → HTTP 413 before conversion) with a download-original
+escape hatch. Unlike docx, there is NO in-process fallback renderer for pptx: when the engine /
+image is unavailable (or conversion fails), the server SHALL return `{ success:false }` and the
+client SHALL degrade to the existing `FallbackPreview` download card with a clear reason.
+
+#### Scenario: PPTX preview is user-initiated, not inline-auto
+- **GIVEN** a `.pptx` file in the content area
+- **WHEN** it first appears
+- **THEN** it does not auto-convert; a "Render slides" affordance is offered, and no server
+  render request is made until the user activates it
+
+#### Scenario: PPTX render mounts PdfPreview against the streamed PDF
+- **GIVEN** the `document-converter` engine is available
+- **WHEN** the user activates the render
+- **THEN** the server returns `{ mode: "pdf" }` and the client mounts `PdfPreview` against
+  `/api/file/rendered-pdf`, which streams `application/pdf`
+
+#### Scenario: Engine unavailable degrades clearly
+- **GIVEN** the `document-converter` engine image is not available
+- **WHEN** a `.pptx` render is requested
+- **THEN** the server returns `{ success:false }` with no in-process render attempted, and the
+  client shows the `FallbackPreview` download card with a reason, and no crash
+
+#### Scenario: Oversize deck is size-gated before conversion
+- **GIVEN** a `.pptx` file whose size exceeds the pptx size cap
+- **WHEN** a render is requested
+- **THEN** the server responds HTTP 413 before invoking the engine
 

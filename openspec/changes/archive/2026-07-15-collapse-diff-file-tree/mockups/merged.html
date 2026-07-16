@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Merged changed-files tree + diff preview mode</title>
+<style>
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06); --bg-selected:#20293a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333;
+    --green:#22c55e; --red:#ef4444; --yellow:#eab308; --blue:#3b82f6;
+    --add-bg:rgba(34,197,94,.10); --del-bg:rgba(239,68,68,.10);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg-primary); color:var(--text-primary); font-family:var(--font); }
+  header { padding:18px 24px 6px; }
+  header h1 { font-size:18px; margin:0 0 4px; }
+  header p { margin:0; color:var(--text-tertiary); font-size:13px; max-width:80ch; line-height:1.5; }
+  header p code { background:var(--bg-tertiary); padding:1px 5px; border-radius:4px; font-size:11px; color:var(--text-secondary); }
+
+  .wrap { display:flex; gap:20px; padding:18px 24px 40px; align-items:flex-start; flex-wrap:wrap; }
+  .panel { flex:0 0 auto; }
+  .panel > h2 { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-tertiary); margin:0 0 8px; display:flex; align-items:center; gap:8px; }
+  .tag { font-size:9px; padding:1px 6px; border-radius:999px; font-weight:600; letter-spacing:.03em; }
+  .tag.rec { background:#0d2a16; color:var(--green); }
+  .tag.new { background:#132a3a; color:#5bb3f0; }
+  .note { font-size:11px; color:var(--text-muted); margin:10px 2px 0; line-height:1.5; max-width:44ch; }
+  .note b { color:var(--text-secondary); }
+
+  /* ── rail ── */
+  .rail { width:320px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:8px; overflow:hidden; font-size:12.5px; }
+  .summary { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--border-primary); color:var(--text-tertiary); font-size:11px; }
+  .summary .lbl { color:var(--text-secondary); font-weight:500; }
+  .summary .add { color:var(--green); } .summary .del { color:var(--red); }
+  .summary label { margin-left:auto; display:flex; align-items:center; gap:5px; cursor:pointer; user-select:none; }
+  .summary input { width:12px; height:12px; }
+  .tree { padding:4px 0; max-height:520px; overflow:auto; }
+  .row { display:flex; align-items:center; gap:6px; padding:2px 8px; cursor:pointer; white-space:nowrap; color:var(--text-secondary); position:relative; }
+  .row:hover { background:var(--bg-hover); }
+  .row.sel { background:var(--bg-selected); color:var(--text-primary); }
+  .row .chev { color:var(--text-tertiary); width:10px; font-size:10px; flex:0 0 10px; text-align:center; }
+  .row .ic { flex:0 0 auto; font-size:12px; }
+  .row .name { overflow:hidden; text-overflow:ellipsis; }
+  .row .folder { color:#60a5fa; }
+  .row.changed .name { color:var(--text-primary); }
+  .dot { flex:0 0 auto; font-weight:700; font-size:12px; }
+  .dot.add { color:var(--green); } .dot.mod { color:var(--yellow); }
+  .counts { margin-left:auto; font-family:var(--mono); font-size:10px; padding-left:8px; }
+  .counts .add { color:var(--green); } .counts .del { color:var(--red); }
+  .viewdiff { flex:0 0 auto; margin-left:6px; font-size:9.5px; padding:1px 6px; border:1px solid var(--border-secondary); border-radius:5px;
+    color:var(--text-tertiary); opacity:0; background:var(--bg-tertiary); }
+  .row:hover .viewdiff { opacity:1; }
+  .row:hover .counts.hide-on-hover { display:none; }
+  .evrow { display:flex; align-items:center; gap:8px; padding:1px 8px; color:var(--text-tertiary); font-size:11px; white-space:nowrap; }
+  .evrow:hover { background:var(--bg-hover); cursor:pointer; }
+  .evrow .t { flex:0 0 auto; }
+  .evrow .msg { color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; }
+  .other { border-top:1px solid var(--border-primary); margin-top:4px; padding-top:4px; }
+  .other .head { display:flex; align-items:center; gap:6px; padding:2px 8px; color:var(--text-tertiary); font-style:italic; cursor:pointer; }
+  .other .head:hover { background:var(--bg-hover); }
+
+  /* ── diff view ── */
+  .diff { width:560px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:8px; overflow:hidden; }
+  .diff-head { display:flex; align-items:center; gap:10px; padding:7px 10px; border-bottom:1px solid var(--border-primary); font-size:12px; }
+  .diff-head .fp { font-family:var(--mono); font-size:11.5px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; }
+  .diff-head .stat { font-family:var(--mono); font-size:10.5px; }
+  .diff-head .stat .add { color:var(--green); } .diff-head .stat .del { color:var(--red); }
+  .seg { margin-left:auto; display:inline-flex; border:1px solid var(--border-secondary); border-radius:6px; overflow:hidden; }
+  .seg button { background:transparent; border:0; color:var(--text-tertiary); font-size:11px; padding:3px 12px; cursor:pointer; font-family:var(--font); }
+  .seg button.on { background:var(--bg-surface); color:var(--text-primary); }
+  .code { font-family:var(--mono); font-size:11.5px; line-height:1.55; overflow:auto; max-height:520px; }
+  .cl { display:flex; }
+  .cl .gut { flex:0 0 74px; display:flex; text-align:right; color:var(--text-muted); user-select:none; }
+  .cl .gut span { flex:0 0 37px; padding:0 6px; }
+  .cl .sign { flex:0 0 16px; text-align:center; color:var(--text-muted); }
+  .cl .txt { white-space:pre; padding-right:10px; }
+  .cl.add { background:var(--add-bg); } .cl.add .sign { color:var(--green); }
+  .cl.del { background:var(--del-bg); } .cl.del .sign { color:var(--red); }
+  .cl.add .txt { color:#c6f0d4; } .cl.del .txt { color:#f0c6c6; }
+  .hunk { color:var(--blue); background:rgba(59,130,246,.07); padding:1px 10px; font-family:var(--mono); font-size:10.5px; }
+  .pv-caption { padding:5px 12px; border-bottom:1px solid var(--border-primary); color:var(--text-muted); font-size:10.5px; font-style:italic; }
+  .cl.newln .txt { color:#c6f0d4; }        /* preview: added lines subtly greened */
+  .cl.newln .gut span { color:var(--green); }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Merged changed-files tree + diff <em>Preview</em> mode</h1>
+  <p>Chosen shape: the separate <code>Changes</code> file list is gone. A slim summary bar keeps the roll-up + <code>this session only</code> toggle, and changed files are marked <b>inline in the one workspace tree</b>. Changed rows expand to their ✏️/📝 change-event history, click opens the normal file viewer, and a hover <code>diff</code> chip opens the diff tab. Working-tree changes this session did not make stay in a muted group at the bottom. Right: the diff tab gains a <code>Diff / Preview</code> toggle — Preview renders the <b>current</b> file with removed lines omitted.</p>
+</header>
+
+<div class="wrap">
+  <!-- ── merged rail ── -->
+  <div class="panel">
+    <h2>Merged rail<span class="tag rec">CHOSEN</span></h2>
+    <div class="rail">
+      <div class="summary">
+        <span class="lbl">Changes (24)</span>
+        <span>·</span>
+        <span class="add">+168</span> <span class="del">−38</span>
+        <label><input type="checkbox" /> this session only</label>
+      </div>
+      <div class="tree" id="tree"></div>
+    </div>
+    <div class="note"><b>One tree, one scroll.</b> Changed files carry a status dot + hover <code style="font-size:10px">diff</code> chip; multi-edit files expand to their event history. The 45%-height Changes box is gone.</div>
+  </div>
+
+  <!-- ── diff view ── -->
+  <div class="panel">
+    <h2>Diff tab — Preview mode<span class="tag new">NEW</span></h2>
+    <div class="diff">
+      <div class="diff-head">
+        <span class="fp">packages/server/src/canvas-accumulator.ts</span>
+        <span class="stat"><span class="add">+9</span> <span class="del">−4</span></span>
+        <div class="seg">
+          <button id="btn-diff" class="on" onclick="setMode('diff')">Diff</button>
+          <button id="btn-pv" onclick="setMode('preview')">Preview</button>
+        </div>
+      </div>
+      <div id="pv-caption" class="pv-caption hidden">Preview · current file after changes — removed lines omitted</div>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="note"><b>Preview</b> answers “what does the file look like <i>now</i>?” — additions + untouched context in real line-number order, deletions dropped entirely. Toggle back to <b>Diff</b> for the red/green side-by-change view.</div>
+  </div>
+</div>
+
+<script>
+// ── merged tree data: workspace nodes, some flagged as changed ────────────
+// dir | file, changed files carry s(status)/a(+)/d(−)/ev(event history)
+const T = [
+  {t:"dir", name:".github", pad:8},
+  {t:"dir", name:".pi", pad:8},
+  {t:"dir", name:"docker", pad:8, open:true},
+  {t:"file", name:"AGENTS.md", pad:8, s:"add", a:41, d:0},
+  {t:"file", name:"compose.yml", pad:8, s:"mod", a:6, d:2},
+  {t:"dir", name:"docs", pad:8, open:true},
+  {t:"file", name:"architecture.md", pad:8, s:"mod", a:12, d:3},
+  {t:"file", name:"AGENTS.md", pad:8, s:"mod", a:4, d:1},
+  {t:"dir", name:"openspec", pad:8},
+  {t:"dir", name:"packages", pad:8, open:true},
+  {t:"dir", name:"server/src", pad:22, open:true},          // compact chain
+  {t:"file", name:"canvas-accumulator.ts", pad:22, s:"mod", a:34, d:11, sel:true,
+    ev:[{i:"✏️",t:"3m ago",m:"tighten delta accumulation"},
+        {i:"✏️",t:"12m ago",m:"handle empty canvas"},
+        {i:"📝",t:"18m ago",m:"seed accumulator"},
+        {i:"✏️",t:"31m ago",m:"initial edit"}]},
+  {t:"file", name:"session-store.ts", pad:22, s:"mod", a:7, d:2},
+  {t:"dir", name:"client/src/components", pad:22, open:true},// compact chain
+  {t:"file", name:"DiffFileTree.tsx", pad:22, s:"mod", a:19, d:6,
+    ev:[{i:"✏️",t:"5m ago",m:"inline markers"},{i:"✏️",t:"9m ago",m:"summary bar"}]},
+  {t:"dir", name:"qa", pad:8},
+  {t:"file", name:"README.md", pad:8, s:"mod", a:5, d:1},
+];
+
+const OTHER = ["dist/bundle.js", "package-lock.json", ".env.local"];
+
+const dot = s => s==="add" ? '<span class="dot add">+</span>' : '<span class="dot mod">●</span>';
+const counts = f => `<span class="counts hide-on-hover"><span class="add">+${f.a}</span> <span class="del">−${f.d}</span></span>`;
+
+function render(){
+  let h = "";
+  for(const n of T){
+    if(n.t==="dir"){
+      h += `<div class="row" style="padding-left:${n.pad}px"><span class="chev">${n.open?"▾":"▸"}</span><span class="ic folder">▸</span><span class="name">${n.name}</span></div>`;
+    } else {
+      const changed = !!n.s;
+      const hasEv = n.ev && n.ev.length>1;
+      h += `<div class="row ${changed?"changed":""} ${n.sel?"sel":""}" style="padding-left:${n.pad+9}px">`
+         + (hasEv ? `<span class="chev" onclick="toggleEv(event,'${n.name}')">▾</span>` : (changed?`<span class="chev"></span>`:""))
+         + (changed?dot(n.s):`<span class="ic">📄</span>`)
+         + `<span class="name">${n.name}</span>`
+         + (changed?counts(n):"")
+         + (changed?`<button class="viewdiff">diff</button>`:"")
+         + `</div>`;
+      if(n.ev){
+        for(const e of n.ev){
+          h += `<div class="evrow" data-ev="${n.name}" style="padding-left:${n.pad+30}px"><span class="t">${e.i}</span><span class="t">${e.t}</span><span class="msg">${e.m}</span></div>`;
+        }
+      }
+    }
+  }
+  // other working-tree changes
+  h += `<div class="other"><div class="head" onclick="toggleOther(event)"><span class="chev" id="oc-chev">▸</span><span>${OTHER.length} other working-tree changes</span></div>`;
+  h += OTHER.map(p=>`<div class="row evrow hidden oc-item" style="padding-left:30px"><span class="name" style="color:var(--text-muted)">${p}</span></div>`).join("");
+  h += `</div>`;
+  document.getElementById("tree").innerHTML = h;
+}
+function toggleEv(e,name){
+  e.stopPropagation();
+  const chev=e.target;
+  const open = chev.textContent==="▾";
+  chev.textContent = open ? "▸" : "▾";
+  document.querySelectorAll(`.evrow[data-ev="${name}"]`).forEach(r=>r.classList.toggle("hidden", open));
+}
+function toggleOther(e){
+  const chev=document.getElementById("oc-chev");
+  const open = chev.textContent==="▾";
+  chev.textContent = open ? "▸" : "▾";
+  document.querySelectorAll(".oc-item").forEach(r=>r.classList.toggle("hidden", !open ? false : true));
+}
+render();
+
+// ── diff / preview ────────────────────────────────────────────────────────
+// each line: k = context|add|del ; n1 old line#, n2 new line#, txt
+const HUNK = "@@ -18,7 +18,12 @@ export function accumulate(canvas) {";
+const LINES = [
+  {k:"ctx", n1:18, n2:18, txt:"export function accumulate(canvas, delta) {"},
+  {k:"ctx", n1:19, n2:19, txt:"  const next = { ...canvas };"},
+  {k:"del", n1:20, txt:"  next.nodes = delta.nodes;"},
+  {k:"del", n1:21, txt:"  next.dirty = true;"},
+  {k:"add", n2:20, txt:"  next.nodes = mergeNodes(canvas.nodes, delta.nodes);"},
+  {k:"add", n2:21, txt:"  next.edges = mergeEdges(canvas.edges, delta.edges);"},
+  {k:"add", n2:22, txt:"  next.dirty = delta.nodes.length > 0;"},
+  {k:"ctx", n1:22, n2:23, txt:"  next.revision = canvas.revision + 1;"},
+  {k:"del", n1:23, txt:"  return next;"},
+  {k:"add", n2:24, txt:"  if (delta.reset) return seed(canvas.id);"},
+  {k:"add", n2:25, txt:"  return freeze(next);"},
+  {k:"ctx", n1:24, n2:26, txt:"}"},
+];
+
+function renderDiff(){
+  let h = `<div class="hunk">${HUNK}</div>`;
+  for(const l of LINES){
+    const sign = l.k==="add"?"+":l.k==="del"?"−":" ";
+    h += `<div class="cl ${l.k}"><div class="gut"><span>${l.n1??""}</span><span>${l.n2??""}</span></div>`
+       + `<div class="sign">${sign}</div><div class="txt">${l.txt}</div></div>`;
+  }
+  return h;
+}
+function renderPreview(){
+  // current file = context + additions, in new-line order; deletions dropped
+  let h = "";
+  for(const l of LINES){
+    if(l.k==="del") continue;
+    const isNew = l.k==="add";
+    h += `<div class="cl ${isNew?"newln":""}"><div class="gut"><span></span><span>${l.n2}</span></div>`
+       + `<div class="sign"> </div><div class="txt">${l.txt}</div></div>`;
+  }
+  return h;
+}
+function setMode(m){
+  document.getElementById("btn-diff").classList.toggle("on", m==="diff");
+  document.getElementById("btn-pv").classList.toggle("on", m==="preview");
+  document.getElementById("pv-caption").classList.toggle("hidden", m!=="preview");
+  document.getElementById("code").innerHTML = m==="diff" ? renderDiff() : renderPreview();
+}
+setMode("diff");
+</script>
+</body>
+</html>

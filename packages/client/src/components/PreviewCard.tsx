@@ -12,6 +12,7 @@ import {
   mdiFileDocumentOutline,
   mdiFileMusicOutline,
   mdiFilePdfBox,
+  mdiFilePresentationBox,
   mdiFileTableOutline,
   mdiFileWordOutline,
   mdiImageOutline,
@@ -35,6 +36,7 @@ import { FallbackPreview } from "./preview/FallbackPreview.js";
 import { HtmlPreview } from "./preview/HtmlPreview.js";
 import { ImagePreview } from "./preview/ImagePreview.js";
 import { MarkdownPreview } from "./preview/MarkdownPreview.js";
+import { PptxPreview } from "./preview/PptxPreview.js";
 import { SpreadsheetPreview } from "./preview/SpreadsheetPreview.js";
 import { VideoPreview } from "./preview/VideoPreview.js";
 import { YouTubePreview } from "./preview/YouTubePreview.js";
@@ -54,6 +56,8 @@ function iconFor(kind: RendererKind): string {
       return mdiFileDocumentOutline;
     case "docx":
       return mdiFileWordOutline;
+    case "pptx":
+      return mdiFilePresentationBox;
     case "spreadsheet":
       return mdiFileTableOutline;
     case "pdf":
@@ -90,6 +94,7 @@ function bodyClassFor(kind: RendererKind): string {
     case "spreadsheet":
       return "max-h-[60vh] overflow-auto";
     case "pdf":
+    case "pptx":
       return "h-[60vh]";
     case "video":
     case "youtube":
@@ -126,6 +131,8 @@ export function PreviewBody({
       return <AsciiDocPreview target={target} />;
     case "docx":
       return <DocxPreview target={target} />;
+    case "pptx":
+      return <PptxPreview target={target} />;
     case "spreadsheet":
       return <SpreadsheetPreview target={target} />;
     case "html":

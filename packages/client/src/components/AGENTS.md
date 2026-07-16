@@ -63,6 +63,7 @@ Files in this directory. One row per source file.
 | `InstalledPackagesList.tsx` | Shared installed-packages list for Settings + Pi Resources. → see `InstalledPackagesList.tsx.AGENTS.md` |
 | `KnownServersSection.tsx` | Settings section managing persisted known remote servers. → see `KnownServersSection.tsx.AGENTS.md` |
 | `LandingPage.tsx` | Onboarding landing screen. Three-step gated flow: credentials → pin folder → spawn session; step states… → see `LandingPage.tsx.AGENTS.md` |
+| `LayoutModeSwitch.tsx` | Header `Chat│Split│Editor` segmented switch. WAI-ARIA radiogroup (3 `role=radio`, roving tabindex, Arrow/Home/End + Enter/Space), `aria-checked`=`split.mode`; sets `setMode`. Renders null without provider. testid `layout-mode-switch`. See change: editor-layout-modes. |
 | `MarkdownContent.tsx` | ReactMarkdown renderer (chat/thinking/flow agent detail/READMEs/previews); KaTeX math + `pi-asset:` image… → see `MarkdownContent.tsx.AGENTS.md` |
 | `MarkdownPreviewView.tsx` | Markdown preview pane with header (back + title + `MarkdownSearch`) and optional tab bar (`PreviewTab[]`). → see `MarkdownPreviewView.tsx.AGENTS.md` |
 | `MarkdownSearch.tsx` | In-markdown fuzzy search overlay. `fuse.js` index over text blocks; exact-substring match first, fuzzy… → see `MarkdownSearch.tsx.AGENTS.md` |
@@ -133,7 +134,7 @@ Files in this directory. One row per source file.
 | `SessionList.tsx` | Main sidebar session list. DnD-ordered (`@dnd-kit`) pinned/unpinned + workspace tiers, folder grouping,… → see `SessionList.tsx.AGENTS.md` |
 | `SessionOpenSpecActions.tsx` | OpenSpec action panel for a session (attach/detach, New/Propose/Explore, Continue/FF/Apply/Verify/Archive,… → see `SessionOpenSpecActions.tsx.AGENTS.md` |
 | `SessionSidebar.tsx` | Legacy compact session sidebar. Active + ended (`<details>`) lists with status dots, source icons, model,… → see `SessionSidebar.tsx.AGENTS.md` |
-| `SessionSplitView.tsx` | Connects context → `SplitWorkspace` (editor slot=`EditorPane`). `SplitRouteSync` opens split from `/session/:id/editor` deep-link via `openInSplit`. See change: split-editor-workspace. |
+| `SessionSplitView.tsx` | Connects context → `SplitWorkspace` (editor slot=`EditorPane`), passing `mode`/`onModeChange`. `SplitRouteSync` opens split from `/session/:id/editor` deep-link via `openInSplit` (else `mode:"split"`). See change: split-editor-workspace. See change: editor-layout-modes. |
 | `SessionSubcard.tsx` | Inset titled panel wrapper grouping session-card sections (OPENSPEC, WORKSPACE, PROCESS, MEMORY, FLOWS). → see `SessionSubcard.tsx.AGENTS.md` |
 | `SettingsPanel.tsx` | Settings UI: left-nav rail + page content… → see `SettingsPanel.tsx.AGENTS.md` |
 | `SkillInvocationCard.tsx` | Collapsible card rendering a `<skill>` user invocation. Purple-tinted, wrench icon, default-collapsed body… → see `SkillInvocationCard.tsx.AGENTS.md` |
@@ -144,9 +145,8 @@ Files in this directory. One row per source file.
 | `SpawnErrorBanner.tsx` | Renders structured spawn error: code→hint, preflight reasons, stderr details, timeout banner. See change: spawn-failure-diagnostics. |
 | `SpawnErrorToastHost.tsx` | App-level toast container for off-screen `spawn_error` events. → see `SpawnErrorToastHost.tsx.AGENTS.md` |
 | `SpecsBrowserView.tsx` | Full-page main specs reader for a cwd. Combobox jump-to-spec + `MarkdownPreviewView` (searchable). Backed by `useMainSpecsReader`. Props: `cwd`, `onBack`. Exports `SpecsBrowserView`. |
-| `SplitDivider.tsx` | Draggable divider (outer chat/editor + inner rail). Reports pointer coord; orientation-aware cursor. See change: split-editor-workspace. |
-| `SplitToggleButton.tsx` | Session-header split/unsplit toggle. Consumes context; renders null without session. See change: split-editor-workspace. |
-| `SplitWorkspace.tsx` | Pure layout. Chat slot alone when closed; chat+divider+editor when open. Horizontal desktop / vertical stack mobile. Flex-grow from ratio. See change: split-editor-workspace. |
+| `SplitDivider.tsx` | Draggable divider (outer chat/editor + inner rail). Reports pointer coord; orientation-aware cursor. Optional `‹`/`›` collapse chevrons (`onCollapseChat`→full, `onCollapseEditor`→closed; `stopPropagation` drag-vs-click guard, testids `split-fold-chat`/`split-fold-editor`). See change: split-editor-workspace. See change: editor-layout-modes. |
+| `SplitWorkspace.tsx` | Pure layout, 3 modes via `mode` prop: `closed` (chat + right-edge Editor peek), `split` (chat+divider+editor), `full` (editor + leading Chat peek; ChatView kept mounted hidden). Stable chat/editor keys → no remount. `onModeChange` for peeks/chevrons. See change: split-editor-workspace. See change: editor-layout-modes. |
 | `SplitWorkspaceContext.tsx` | Per-session provider. Lifts `useSplitState`+`useEditorPaneState`. → see `SplitWorkspaceContext.tsx.AGENTS.md` |
 | `StatePill.tsx` | Color-coded OpenSpec ChangeState pill (`PLANNING`=zinc, `READY`=blue, `IMPLEMENTING`=amber, `COMPLETE`=green)… → see `StatePill.tsx.AGENTS.md` |
 | `StatusBar.tsx` | Working-status label ONLY; null when idle. Model row retired; model/thinking moved to composer toolbar → see `StatusBar.tsx.AGENTS.md`. See change: redesign-prompt-input. |

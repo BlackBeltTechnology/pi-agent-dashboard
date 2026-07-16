@@ -10,6 +10,7 @@ import { getSessionDisplayName } from "../lib/session-display-name.js";
 import { CountBadges } from "./CountBadges.js";
 import { FooterSegmentSlot } from "./extension-ui/FooterSegmentSlot.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
+import { LayoutModeSwitch } from "./LayoutModeSwitch.js";
 import { MobileActionMenu } from "./MobileActionMenu.js";
 import { ArtifactLettersButton } from "./openspec-helpers.js";
 // FlowLaunchDialog removed: flow launching is owned entirely by
@@ -17,7 +18,6 @@ import { ArtifactLettersButton } from "./openspec-helpers.js";
 // SessionFlowActionsClaim. See change: pluginize-flows-via-registry.
 import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDialog.js";
 import { useOptionalSessionDiff } from "./SessionDiffContext.js";
-import { SplitToggleButton } from "./SplitToggleButton.js";
 import { useOptionalSplitWorkspace } from "./SplitWorkspaceContext.js";
 import { TagChip } from "./tags/TagChip.js";
 import { TagEditor } from "./tags/TagEditor.js";
@@ -210,6 +210,8 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
           onDetach={mobileActions.onDetachProposal}
         />
       )}
+      {/* Layout-mode switch (Chat│Split│Editor; no-op without a split provider). */}
+      <LayoutModeSwitch />
       {mobileActions && (
         <MobileActionMenu
           session={session}
@@ -445,8 +447,8 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       )}
       {/* OpenSpec + Flow buttons */}
       <span className="flex-1" />
-      {/* Split/unsplit editor toggle (self-contained; no-op without a session). */}
-      <SplitToggleButton />
+      {/* Layout-mode switch (Chat│Split│Editor; self-contained; no-op without a session). */}
+      <LayoutModeSwitch />
       {onAttachProposal && openspecChanges && openspecChanges.length > 0 && (
         attached ? (
           <span className="text-[10px] flex items-center gap-1 mr-2">

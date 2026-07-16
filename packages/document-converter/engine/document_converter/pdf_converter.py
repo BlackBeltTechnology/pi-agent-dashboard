@@ -265,14 +265,18 @@ if __name__ == "__main__":
 def _convert_with_local_libreoffice(
     docx_path: Path,
     output_path: Path,
-    libreoffice_path: str
+    libreoffice_path: str,
+    export_filter: str = 'writer_pdf_Export'
 ) -> None:
-    """Convert DOCX to PDF using local LibreOffice.
+    """Convert a document to PDF using local LibreOffice.
 
     Args:
-        docx_path: Path to input DOCX file.
+        docx_path: Path to input document (DOCX or, with `impress_pdf_Export`,
+            PPTX).
         output_path: Path to output PDF file.
         libreoffice_path: Path to LibreOffice soffice binary.
+        export_filter: LibreOffice PDF export filter. `writer_pdf_Export` for
+            Writer docs (default); `impress_pdf_Export` for Impress decks.
 
     Raises:
         PDFConversionError: If conversion fails.
@@ -282,13 +286,14 @@ def _convert_with_local_libreoffice(
     output_dir = output_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Run LibreOffice in headless mode with font embedding
-    # Use writer_pdf_Export filter with EmbedStandardFonts option
+    # Run LibreOffice in headless mode with font embedding. The export filter
+    # is chosen by document type (Writer vs Impress); EmbedStandardFonts is a
+    # shared PDF-export option.
     result = subprocess.run(
         [
             libreoffice_path,
             '--headless',
-            '--convert-to', 'pdf:writer_pdf_Export:{"EmbedStandardFonts":{"type":"boolean","value":"true"}}',
+            '--convert-to', f'pdf:{export_filter}:{{"EmbedStandardFonts":{{"type":"boolean","value":"true"}}}}',
             '--outdir', str(output_dir),
             str(docx_path)
         ],
@@ -662,6 +667,10 @@ def convert_to_pdf(
         )
         return None
 
+    elif ext == '.pptx':
+        convert_pptx_to_pdf(input_path, output_path)
+        return None
+
     elif ext in ('.md', '.markdown'):
         return convert_md_to_pdf(
             input_path,
@@ -685,8 +694,48 @@ def convert_to_pdf(
     else:
         raise ValueError(
             f"Cannot detect format for file: {input_path}. "
-            "Supported extensions: .docx, .md, .markdown, .adoc, .asciidoc, .asc"
+            "Supported extensions: .docx, .pptx, .md, .markdown, .adoc, .asciidoc, .asc"
         )
+
+
+def convert_pptx_to_pdf(
+    input_path: Union[str, Path],
+    output_path: Union[str, Path],
+) -> None:
+    """Convert a PPTX deck to PDF.
+
+    Uses local LibreOffice with the Impress export filter (faithful slide
+    layout, fonts, charts). Falls back to the Docker/Gotenberg LibreOffice route
+    when no local soffice is present.
+
+    Args:
+        input_path: Path to input PPTX file.
+        output_path: Path to output PDF file.
+
+    Raises:
+        FileNotFoundError: If input file does not exist.
+        PDFServerError: If Docker/server is not available and no local LibreOffice.
+        PDFConversionError: If conversion fails.
+    """
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file does not exist: {input_path}")
+
+    libreoffice_path = find_local_libreoffice()
+    if libreoffice_path:
+        _convert_with_local_libreoffice(
+            input_path, output_path, libreoffice_path, export_filter='impress_pdf_Export'
+        )
+        return
+
+    # Fall back to Docker/Gotenberg (its LibreOffice route handles pptx too).
+    server = get_server()
+    base_url = server.ensure_running()
+    pdf_bytes = _send_conversion_request(input_path, base_url)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(pdf_bytes)
 
 
 def batch_convert_to_pdf(

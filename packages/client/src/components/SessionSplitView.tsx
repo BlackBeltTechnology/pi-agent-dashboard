@@ -23,13 +23,14 @@ export function SessionSplitView({ chat }: { chat: React.ReactNode }) {
   const tier = useCanvasTier();
   return (
     <SplitWorkspace
-      open={split.open}
+      mode={split.mode}
       ratio={split.ratio}
       orientation={split.orientation}
       onRatioChange={(ratio) => updateSplit({ ratio })}
+      onModeChange={(mode) => updateSplit({ mode })}
       chat={chat}
       editor={<EditorPane />}
-      replaceChat={tier === "tablet" && split.open}
+      replaceChat={tier === "tablet" && split.mode !== "closed"}
     />
   );
 }
@@ -50,7 +51,7 @@ export function SplitRouteSync({ active, file, line }: SplitRouteSyncProps) {
   useEffect(() => {
     if (!active) return;
     if (file) openInSplit(file, line ?? undefined);
-    else updateSplit({ open: true });
+    else updateSplit({ mode: "split" });
   }, [active, file, line, openInSplit, updateSplit]);
   return null;
 }
