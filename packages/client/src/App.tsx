@@ -14,7 +14,7 @@ import { ComposerSessionActions } from "./components/ComposerSessionActions.js";
 import { ConnectionStatusBanner } from "./components/ConnectionStatusBanner.js";
 import { DirectoryHomeView } from "./components/DirectoryHomeView.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
-import { EditorView } from "./components/EditorView.js";
+import { FolderEditorView } from "./components/FolderEditorView.js";
 import { FileDiffView } from "./components/FileDiffView.js";
 import { InstallBanner } from "./components/InstallBanner.js";
 import { LandingPage } from "./components/LandingPage.js";
@@ -102,7 +102,6 @@ import {
 } from "./lib/route-builders.js";
 import { performServerSwitch } from "./lib/server-switch.js";
 import { openStagingSocket } from "./lib/staging-socket.js";
-import { useEditors } from "./lib/use-editors.js";
 import { resendActiveCwdSubscriptions, setInitSender } from "./lib/worktree-init-bus.js";
 import { initStore } from "./lib/worktree-init-store.js";
 
@@ -112,7 +111,6 @@ const NAV_TRACKER = { predecessor, popNav };
 
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DialogPortal } from "./components/DialogPortal.js";
@@ -555,8 +553,6 @@ export default function App() {
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
   const pendingTerminalCwdRef = useRef<string | null>(null);
   const lastCreatedTerminalIdRef = useRef<string | null>(null);
-  const [editorStatuses, setEditorStatuses] = useState<Map<string, { id: string; status: EditorInstanceStatus }>>(new Map());
-  const [editorAvailable, setEditorAvailable] = useState<boolean | undefined>(undefined);
   // UI preference: show worktree spawn buttons. Fetched from /api/config on
   // mount. Defaults to true while loading. See change:
   // openspec-worktree-spawn-button.
@@ -731,7 +727,7 @@ export default function App() {
   }, []);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory, setCanvasMap },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory, setCanvasMap },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current, showToast },
   );
 
@@ -744,14 +740,6 @@ export default function App() {
   // tool-result route. Session-scoped (survives transcript virtualization).
   // See change: fix-stuck-tool-card-on-dropped-event.
   useStaleToolReconcile(sessionStates, setSessionStates, apiBase);
-
-  // Detect code-server binary availability on mount
-  useEffect(() => {
-    fetch(`${apiBase}/api/editor/detect`)
-      .then((r) => r.json())
-      .then((d) => { if (d.success) setEditorAvailable(d.data.available); })
-      .catch(() => {});
-  }, []);
 
   // Fetch the gitWorktreeEnabled preference on mount.
   // See change: openspec-worktree-spawn-button.
@@ -819,21 +807,6 @@ export default function App() {
       // `sessions_snapshot` message — no pre-reset needed.
       // See change: fix-stale-sessions-on-reconnect.
       setTerminals(new Map());
-      // Fetch current editor statuses
-      fetch(`${apiBase}/api/editor/status`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.success && Array.isArray(data.data)) {
-            const map = new Map<string, { id: string; status: EditorInstanceStatus }>();
-            for (const inst of data.data) {
-              if (inst.status !== "stopped") {
-                map.set(inst.cwd, { id: inst.id, status: inst.status });
-              }
-            }
-            setEditorStatuses(map);
-          }
-        })
-        .catch(() => {});
     }
     prevStatusRef.current = status;
   }, [status]);
@@ -1118,15 +1091,12 @@ export default function App() {
     ?? piResourcesCwd ?? folderSettingsCwd ?? null;
   useDocumentTitle(selectedSession, folderTitleCwd ?? undefined);
   const selectedCwd = selectedSession?.cwd;
-  const editorCwds = useMemo(() => selectedCwd ? [selectedCwd] : [], [selectedCwd]);
-  const editorMap = useEditors(editorCwds);
   const toolContext: ToolContext = useMemo(() => ({
     cwd: selectedCwd,
-    editors: selectedCwd ? editorMap.get(selectedCwd) ?? [] : [],
     sessionId: selectedId,
     session: selectedId ? sessionStates.get(selectedId) : undefined,
     send,
-  }), [selectedCwd, editorMap, selectedId, sessionStates, send]);
+  }), [selectedCwd, selectedId, sessionStates, send]);
 
   const contextUsageMap = useMemo(
     () => buildContextUsageMap(sessionStates, sessions),
@@ -1423,8 +1393,6 @@ export default function App() {
       onAbortTool={handleAbortTool}
       onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/terminals`)}
       onOpenEditor={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
-      editorStatuses={editorStatuses}
-      editorAvailable={editorAvailable}
       gitWorktreeEnabled={gitWorktreeEnabled}
       errorSessionIds={errorSessionIds}
       noticeSessionIds={noticeSessionIds}
@@ -1517,15 +1485,11 @@ export default function App() {
         onBack={goBack}
         onResume={selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
         mobileActions={isMobile ? {
-          editors: selectedCwd ? editorMap.get(selectedCwd) : undefined,
           openspecChanges: selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined,
           onHide: () => handleHideSession(selectedId),
           onUnhide: () => handleUnhideSession(selectedId),
           onResume: (mode) => handleResumeSession(selectedId, mode),
           onShutdown: () => handleShutdownSession(selectedId),
-          onOpenEditor: selectedCwd ? (editorId) => {
-            import("./lib/editor-api.js").then(({ openEditor }) => openEditor(selectedCwd!, editorId));
-          } : undefined,
           onAttachProposal: (changeName) => handleAttachProposal(selectedId, changeName),
           onDetachProposal: () => handleDetachProposal(selectedId),
           onSendPrompt: (text) => wrappedHandleSend(text),
@@ -1886,7 +1850,7 @@ export default function App() {
   navigateRef.current = navigate;
   const handleEditorClose = useCallback(() => navigateRef.current("/"), []);
 
-  // Folder view content (TerminalsView or EditorView)
+  // Folder view content (TerminalsView or FolderEditorView)
   const folderViewContent = useMemo(() => {
     if (folderTermCwd) {
       const pendingTermId = lastCreatedTerminalIdRef.current;
@@ -1904,7 +1868,7 @@ export default function App() {
       );
     }
     if (folderEditorCwd) {
-      return <EditorView cwd={folderEditorCwd} onClose={handleEditorClose} />;
+      return <FolderEditorView cwd={folderEditorCwd} onClose={handleEditorClose} />;
     }
     return null;
   }, [folderTermCwd, folderEditorCwd, getTerminalsForCwd, handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle, handleEditorClose]);
@@ -2136,7 +2100,7 @@ export default function App() {
                 onTerminalTitle={handleTerminalTitle}
               />
             ) : folderEditorCwd ? (
-              <EditorView cwd={folderEditorCwd} onClose={handleEditorClose} />
+              <FolderEditorView cwd={folderEditorCwd} onClose={handleEditorClose} />
             ) : folderHomeCwd ? (
               directoryHomeView
             ) : sessionDetail ?? (
@@ -2193,7 +2157,7 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {connectionBanner}
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
-        {/* Folder views (TerminalsView or EditorView) — single owner of
+        {/* Folder views (TerminalsView or FolderEditorView) — single owner of
             <TerminalView> mounting. The legacy keep-alive list above
             (mounted unconditionally for the /terminal/:id route) was
             removed; it caused dual-mounting per terminal id and the

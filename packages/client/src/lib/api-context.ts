@@ -45,7 +45,7 @@ export const VITE_API_URL: string = (import.meta as any).env?.VITE_API_URL ?? ""
 
 // ── Module-level API base for non-React code ──────────────────────
 // Set once by App.tsx when the WebSocket URL is known.
-// Used by lib helpers (git-api, editor-api, browse-api) that can't use hooks.
+// Used by lib helpers (git-api, browse-api) that can't use hooks.
 
 let _apiBase = "";
 

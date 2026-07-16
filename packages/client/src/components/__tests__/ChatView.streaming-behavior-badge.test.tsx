@@ -15,7 +15,7 @@ import type { ToolContext } from "../tool-renderers/index.js";
 
 afterEach(() => cleanup());
 
-const defaultToolContext: ToolContext = { editors: [] };
+const defaultToolContext: ToolContext = {};
 
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};

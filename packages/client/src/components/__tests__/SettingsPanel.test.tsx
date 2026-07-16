@@ -191,7 +191,7 @@ describe("SettingsPanel", () => {
     const { unmount } = render(<SettingsPanel />);
     await waitFor(() => {
       expect(window.location.pathname).toBe("/settings/developer");
-      expect(screen.getByText("Editor (code-server)")).toBeTruthy();
+      expect(screen.getByText("Dev Build on Reload")).toBeTruthy();
     });
     unmount();
     cleanup();
@@ -231,11 +231,11 @@ describe("SettingsPanel", () => {
     // Memory Limits lives on Server only.
     gotoPage("Server");
     await waitFor(() => screen.getByText("Memory Limits"));
-    expect(screen.queryByText("Editor (code-server)")).toBeNull();
+    expect(screen.queryByText("Dev Build on Reload")).toBeNull();
 
-    // Editor lives on Developer only; Memory Limits is gone there.
+    // Dev Build on Reload lives on Developer only; Memory Limits is gone there.
     gotoPage("Developer");
-    await waitFor(() => screen.getByText("Editor (code-server)"));
+    await waitFor(() => screen.getByText("Dev Build on Reload"));
     expect(screen.queryByText("Memory Limits")).toBeNull();
   });
 

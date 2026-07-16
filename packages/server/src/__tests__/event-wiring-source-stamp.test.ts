@@ -55,7 +55,6 @@ async function startServerWithEnv(env: Record<string, string | undefined>): Prom
     autoShutdown: false,
     shutdownIdleSeconds: 999,
     tunnel: false,
-    editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
   });
   await server.start();
   const piPort = server.piPort()!;

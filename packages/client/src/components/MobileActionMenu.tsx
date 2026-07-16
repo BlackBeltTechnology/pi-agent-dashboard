@@ -11,7 +11,6 @@ import {
   mdiEyeOutline,
   mdiFastForward,
   mdiLinkVariant,
-  mdiOpenInNew,
   mdiPencilOutline,
   mdiPlay,
   mdiPlayCircleOutline,
@@ -21,7 +20,6 @@ import {
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useRef, useState } from "react";
-import type { DetectedEditor } from "../lib/editor-api.js";
 import { t as i18nT } from "../lib/i18n";
 import { DialogPortal } from "./DialogPortal.js";
 import { ExploreDialog } from "./ExploreDialog.js";
@@ -29,14 +27,12 @@ import { NewChangeDialog } from "./NewChangeDialog.js";
 
 interface Props {
   session: DashboardSession;
-  editors?: DetectedEditor[];
   openspecChanges?: OpenSpecChange[];
   onRename?: () => void;
   onHide?: () => void;
   onUnhide?: () => void;
   onResume?: (mode: "continue" | "fork") => void;
   onShutdown?: () => void;
-  onOpenEditor?: (editorId: string) => void;
   onAttachProposal?: (changeName: string) => void;
   onDetachProposal?: () => void;
   onSendPrompt?: (text: string, images?: ImageContent[]) => void;
@@ -69,7 +65,7 @@ function MenuRow({ icon, label, onClick, danger, disabled }: {
   );
 }
 
-export function MobileActionMenu({ session, editors, openspecChanges, onRename, onHide, onUnhide, onResume, onShutdown, onOpenEditor, onAttachProposal, onDetachProposal, onSendPrompt, onReadArtifact, onRefresh }: Props) {
+export function MobileActionMenu({ session, openspecChanges, onRename, onHide, onUnhide, onResume, onShutdown, onAttachProposal, onDetachProposal, onSendPrompt, onReadArtifact, onRefresh }: Props) {
   const [open, setOpen] = useState(false);
   const [exploreOpen, setExploreOpen] = useState(false);
   const [newChangeOpen, setNewChangeOpen] = useState(false);
@@ -161,16 +157,6 @@ export function MobileActionMenu({ session, editors, openspecChanges, onRename, 
               <MenuRow icon={mdiSourceFork} label={i18nT("session.fork", undefined, "Fork")} onClick={() => act(() => onResume("fork"))} />
             </>
           )}
-
-          {/* Editors */}
-          {editors?.map((editor) => (
-            <MenuRow
-              key={editor.id}
-              icon={mdiOpenInNew}
-              label={`Open in ${editor.name}`}
-              onClick={() => act(() => onOpenEditor?.(editor.id))}
-            />
-          ))}
 
           {/* OpenSpec commands (unattached: Explore + New Change) */}
           {!session.attachedProposal && isAlive && onSendPrompt && (

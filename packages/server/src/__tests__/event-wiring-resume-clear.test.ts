@@ -33,7 +33,6 @@ describe("event-wiring: pending-resume clears old session resuming flag", () => 
       autoShutdown: false,
       shutdownIdleSeconds: 999,
       tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
     browserPort = server.httpPort()!;

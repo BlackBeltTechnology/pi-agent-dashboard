@@ -65,7 +65,6 @@ const baseConfig: ServerConfig = {
   autoShutdown: false,
   shutdownIdleSeconds: 999,
   tunnel: false,
-  editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
 };
 
 describe("session-card ordering gates (integration)", () => {

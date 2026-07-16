@@ -17,7 +17,7 @@ function restoreHost() {
   Object.defineProperty(window, "location", { value: originalLocation, writable: true });
 }
 
-const remoteCtx: ToolContext = { cwd: "/repo", editors: [] };
+const remoteCtx: ToolContext = { cwd: "/repo" };
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {

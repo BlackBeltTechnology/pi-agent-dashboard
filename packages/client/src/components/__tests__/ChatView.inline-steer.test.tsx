@@ -15,7 +15,7 @@ import { ThemeProvider } from "../ThemeProvider.js";
 import { createInitialState } from "../../lib/event-reducer.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
-const defaultToolContext: ToolContext = { editors: [] };
+const defaultToolContext: ToolContext = {};
 
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};

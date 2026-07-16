@@ -19,16 +19,11 @@ Files in this directory. One row per source file.
 | `config-api.ts` | Config REST helpers: `readConfigRedacted` (redacts `auth.secret`/`providers[].clientSecret` + tunnel provider… → see `config-api.ts.AGENTS.md` |
 | `dashboard-source-decision.ts` | Pure decision: stamp `source:"dashboard"` on `session_register`? Exports `decideDashboardSource(input)` →… → see `dashboard-source-decision.ts.AGENTS.md` |
 | `directory-service.ts` | Server-side directory-scoped ops. Exports `createDirectoryService`, `DirectoryService` interface,… → see `directory-service.ts.AGENTS.md` |
-| `editor-detection.ts` | Auto-detect code-server/openvscode-server binary. Exports `detectCodeServerBinary` (order: config override →… → see `editor-detection.ts.AGENTS.md` |
-| `editor-manager.ts` | Lifecycle manager for code-server child processes via editor-keeper sidecar. → see `editor-manager.ts.AGENTS.md` |
-| `editor-pid-registry.ts` | Boot-time code-server orphan reconciliation. Exports `createEditorPidRegistry`, `EditorPidRegistry`,… → see `editor-pid-registry.ts.AGENTS.md` |
 | `cors-origin.ts` | Pure CORS origin allow-decision extracted from the `@fastify/cors` callback in `server.ts` so it is… → see `cors-origin.ts.AGENTS.md` |
 | `csp.ts` | Baseline Content-Security-Policy (defense in depth). `buildCsp()` (default-src/object-src… → see `csp.ts.AGENTS.md` |
 | `launch-source-effective.ts` | `computeEffectiveLaunchSource({raw, activeBridgeCount, uptimeMs})` → `LaunchSourceEffective`… → see `launch-source-effective.ts.AGENTS.md` |
 | `live-server-manager.ts` | Live-server-preview allowlist registry + SSRF gate. `createLiveServerManager(preferencesStore)`. → see `live-server-manager.ts.AGENTS.md` |
-| `live-server-proxy.ts` | Reverse proxy for live-server targets on MAIN origin `/live/:id/*` (mirrors editor-proxy). → see `live-server-proxy.ts.AGENTS.md` |
-| `editor-proxy.ts` | Reverse proxy for code-server instances. Exports `registerEditorProxy` (Fastify `reply-from` for… → see `editor-proxy.ts.AGENTS.md` |
-| `editor-registry.ts` | Static editor detection (Zed, VS Code, IntelliJ). Exports `EDITORS` (id/name/cli/winCli/processPattern per… → see `editor-registry.ts.AGENTS.md` |
+| `live-server-proxy.ts` | Reverse proxy for live-server targets on MAIN origin `/live/:id/*`. → see `live-server-proxy.ts.AGENTS.md` |
 | `event-status-extraction.ts` | Extract session status/tool/model stats from forwarded events. → see `event-status-extraction.ts.AGENTS.md` |
 | `event-wiring.ts` | Wires pi-gateway events → browser-gateway + session manager. Exports `wireEvents`, `EventWiringDeps`. → see `event-wiring.ts.AGENTS.md` |
 | `eventloop-sampler.ts` | Dedicated ELD safety-net sampler. `startEventLoopSampler({floorMs,intervalMs,onSpike,histogram?})` →… → see `eventloop-sampler.ts.AGENTS.md` |

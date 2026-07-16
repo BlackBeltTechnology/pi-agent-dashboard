@@ -7,7 +7,6 @@ import type {
   PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
-import type { EditorInstanceStatus } from "./editor-types.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type {
   CommandInfo,
@@ -445,14 +444,6 @@ export interface SessionStateResetMessage {
   sessionId: string;
 }
 
-/** Notifies browsers of editor instance status changes. */
-export interface EditorStatusMessage {
-  type: "editor_status";
-  cwd: string;
-  id: string;
-  status: EditorInstanceStatus;
-}
-
 // ── PromptBus protocol (Server → Browser) ───────────────────────────
 
 export interface BrowserPromptRequestMessage {
@@ -826,7 +817,6 @@ export type ServerToBrowserMessage =
   | PackageOperationCompleteMessage
   | PiCoreUpdateProgressMessage
   | PiCoreUpdateCompleteMessage
-  | EditorStatusMessage
   | ForceKillResultMessage
   | BrowserRolesListMessage
   | ProcessListUpdateMessage

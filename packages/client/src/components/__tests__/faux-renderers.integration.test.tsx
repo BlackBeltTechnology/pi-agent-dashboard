@@ -50,7 +50,7 @@ import { BatchRenderer } from "../interactive-renderers/BatchRenderer.js";
 import { GenericInteractiveRenderer } from "../interactive-renderers/GenericInteractiveRenderer.js";
 import { SCENARIOS, type Scenario, type MiniToolCall } from "../../../../../qa/fixtures/faux-scenarios.js";
 
-const defaultToolContext: ToolContext = { editors: [] };
+const defaultToolContext: ToolContext = {};
 
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};

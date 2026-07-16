@@ -4,7 +4,7 @@ import React from "react";
 import { GenericToolRenderer } from "../GenericToolRenderer.js";
 import type { ToolContext } from "../types.js";
 
-const ctx: ToolContext = { cwd: "/r", editors: [] };
+const ctx: ToolContext = { cwd: "/r" };
 
 describe("GenericToolRenderer — linkification", () => {
   it("renders two file links for a grep-style result", () => {

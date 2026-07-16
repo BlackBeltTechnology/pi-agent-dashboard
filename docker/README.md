@@ -1,8 +1,8 @@
 # pi-dashboard in Docker
 
-Run the entire pi-dashboard ecosystem — server, pi coding agent, code-server,
-zrok, tmux, terminals — in one self-contained container. No host install of
-pi, Node, or any tool required.
+Run the entire pi-dashboard ecosystem — server, pi coding agent, zrok, tmux,
+terminals — in one self-contained container. No host install of pi, Node, or
+any tool required.
 
 ## Quick start
 
@@ -114,9 +114,8 @@ install**:
 
 ## Notes
 
-- **Single container by design.** pi sessions, terminals (node-pty),
-  code-server, and the gateway share one filesystem and localhost. A
-  multi-container split fights the architecture.
+- **Single container by design.** pi sessions, terminals (node-pty), and the
+  gateway share one filesystem and localhost. A multi-container split fights
+  the architecture.
 - **Debian, not Alpine.** node-pty needs glibc for correct PTY behavior.
 - **Non-root.** All processes run as user `pi` (UID 1000).
-- **Image size** ~2.5 GB (code-server alone is ~500 MB).

@@ -37,7 +37,6 @@ async function startServer(): Promise<TestRig> {
     autoShutdown: false,
     shutdownIdleSeconds: 999,
     tunnel: false,
-    editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
   });
   await server.start();
   const tmpDir = mkdtempSync(path.join(os.tmpdir(), "pi-isgitrepo-"));

@@ -19,7 +19,7 @@
 import crypto from "node:crypto";
 
 /** WS route scopes a ticket may be bound to. */
-export type WsRouteScope = "browser" | "terminal" | "editor" | "live";
+export type WsRouteScope = "browser" | "terminal" | "live";
 
 const TICKET_TTL_MS = 15_000; // seconds-scale; client mints one per connect.
 const TICKET_BYTES = 32;
@@ -35,7 +35,6 @@ export function routeScopeForUrl(url: string | undefined): WsRouteScope | null {
   const pathOnly = url.split("?")[0];
   if (pathOnly === "/ws") return "browser";
   if (pathOnly.startsWith("/ws/terminal/")) return "terminal";
-  if (pathOnly.startsWith("/editor/")) return "editor";
   if (pathOnly.startsWith("/live/")) return "live";
   return null;
 }

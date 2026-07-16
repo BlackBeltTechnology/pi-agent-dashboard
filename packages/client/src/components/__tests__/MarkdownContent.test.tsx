@@ -96,7 +96,7 @@ describe("isFencedBlockComplete — mermaid streaming gate", () => {
 });
 
 describe("MarkdownContent — prose & inline-code linkification", () => {
-  const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [] };
+  const ctx: ToolContext = { cwd: "/Users/me/repo" };
   const renderWithCtx = (content: string) =>
     render(<ThemeProvider><MarkdownContent content={content} context={ctx} /></ThemeProvider>);
 

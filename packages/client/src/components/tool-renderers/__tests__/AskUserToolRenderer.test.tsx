@@ -19,7 +19,7 @@ beforeAll(() => {
   });
 });
 
-const ctx: ToolContext = { cwd: "/r", editors: [] };
+const ctx: ToolContext = { cwd: "/r" };
 
 function renderWithTheme(ui: React.ReactElement) {
   return render(<ThemeProvider>{ui}</ThemeProvider>);

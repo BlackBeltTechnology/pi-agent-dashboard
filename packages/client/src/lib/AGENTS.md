@@ -23,7 +23,6 @@ Files in this directory. One row per source file.
 | `doctor-api.ts` | Typed `fetchDoctorReport(): Promise<DoctorReport>` against `/api/doctor` via auth-aware fetch wrapper. |
 | `document-title.ts` | Exports `buildDocumentTitle(session, folderCwd?)` — derives `<projectDir>` from `cwd` last segment, composes `"<name> (<dir>) — PI Dashboard"` title. Falls back to folder cwd or `"PI Dashboard"`. |
 | `draft-storage.ts` | Per-session chat-input draft persistence in `localStorage` under `chat-draft:<sessionId>`. → see `draft-storage.ts.AGENTS.md` |
-| `editor-api.ts` | Client editor detection + open-editor API. Exports `isLocalhost`, `DetectedEditor`, `fetchEditors(cwd)` (GET… → see `editor-api.ts.AGENTS.md` |
 | `editor-pane-state.ts` | Per-session pane state + localStorage persistence under `pi-dashboard:editor-pane:<sessionId>`. → see `editor-pane-state.ts.AGENTS.md` |
 | `event-reducer.ts` | `ChatMessage` gains `view?: ViewTarget` field. View rows produced by server-side `ViewMessageStore` are… → see `event-reducer.ts.AGENTS.md` |
 | `extract-urls.ts` | Pure `extractRecentUrls(messages: ChatMessage[]): string[]`. → see `extract-urls.ts.AGENTS.md` |
@@ -32,6 +31,7 @@ Files in this directory. One row per source file.
 | `file-icon.ts` | `fileIcon(pathOrName)` → `{ iconPath, colorClass }`. Extension-keyed `@mdi/js` glyph + accent color for… → see `file-icon.ts.AGENTS.md` |
 | `fetch-json.ts` | Shared client transport guard. Exports `ApiHttpError` class (`status`, `statusText`, `contentType`,… → see `fetch-json.ts.AGENTS.md` |
 | `folder-encoding.ts` | Base64url encode/decode for cwd paths in URL routes. Exports `encodeFolderPath(cwd)` (UTF-8 safe, URL-safe… → see `folder-encoding.ts.AGENTS.md` |
+| `folder-pane-id.ts` | Namespaced localStorage key for the folder-scoped editor pane. Exports `FOLDER_PANE_PREFIX` (`folder:`), `folderPaneId(cwd)`, `isFolderPaneId(id)`. Disjoint from UUID session-id key space. See change: remove-external-editor-integration. |
 | `format.ts` | Display formatting utils. `formatTokens` (12400→"12.4k"), `formatMessageTime` (today/yesterday/weekday/full-date HH:MM:SS), `formatRelativeTime` (ms→"3m"/"2h"/"1d"). |
 | `gateway-api.ts` | Client fetch helpers for the Gateway surfaces. Exports `getBlockEvents`, `runEnrollStep`, `getConfig`,… → see `gateway-api.ts.AGENTS.md` |
 | `gateway-config-ops.ts` | Pure config-mutation helpers for the Gateway UI. Exports `isSecureBaseUrl`, `appendPublicBaseUrl`… → see `gateway-config-ops.ts.AGENTS.md` |
@@ -107,7 +107,6 @@ Files in this directory. One row per source file.
 | `tool-install-deeplink.ts` | Deep-link bus between `MissingToolInlineError` and `ToolsSection`. → see `tool-install-deeplink.ts.AGENTS.md` |
 | `tools-api.ts` | Client-side fetch helpers for `/api/tools*` (`fetchTools`, `rescanAll`, `rescanOne`, `setOverride`,… → see `tools-api.ts.AGENTS.md` |
 | `truncate-path.ts` | Pure middle-truncation of filesystem path. Exports `truncatePathMiddle(path, maxLen)`. → see `truncate-path.ts.AGENTS.md` |
-| `use-editors.ts` | React hook fetching + caching detected editors per unique cwd. → see `use-editors.ts.AGENTS.md` |
 | `use-loopback-link-open.ts` | `useLoopbackLinkOpen()` → `(e,href)` click handler shared by `MarkdownContent.a()` + `UrlLink`. → see `use-loopback-link-open.ts.AGENTS.md` |
 | `useSplitRatio.ts` | Split-divider drag math. `ratioFromPointer`, `clampWidth`, `useSplitRatio(containerRef,orientation,onRatioChange)`. See change: split-editor-workspace. |
 | `worktree-init-bus.ts` | Module-singleton bus for `worktree_init_*` events. `subscribeInit(requestId,listener)` (legacy) +… → see `worktree-init-bus.ts.AGENTS.md` |

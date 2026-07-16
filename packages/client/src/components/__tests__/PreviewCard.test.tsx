@@ -15,7 +15,7 @@ import { PreviewCard } from "../PreviewCard.js";
 import { ThemeProvider } from "../ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
-const defaultToolContext: ToolContext = { editors: [] };
+const defaultToolContext: ToolContext = {};
 
 afterEach(() => cleanup());
 

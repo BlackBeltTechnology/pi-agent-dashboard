@@ -1,6 +1,6 @@
-import { mdiAlertOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiOpenInNew, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
+import { mdiAlertOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { type ReactNode, useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../lib/api-context.js";
 import {
   deriveDotColorWithFlags,
@@ -33,7 +33,6 @@ import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../hooks/useFxVisibility.js";
 import type { InflightBashTool } from "../hooks/useInflightBashTools.js";
 import { useMobile } from "../hooks/useMobile.js";
-import type { DetectedEditor } from "../lib/editor-api.js";
 import { formatRelativeTime, formatTokens } from "../lib/format.js";
 import { refreshGitStatus, setCachedGitStatus, useGitStatus } from "../lib/git-status-cache.js";
 import { t as i18nT } from "../lib/i18n";
@@ -371,39 +370,6 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
   );
 }
 
-const editorIcons: Record<string, ReactNode> = {
-  zed: <Icon path={mdiOpenInNew} size={0.5} />,
-  vscode: <Icon path={mdiOpenInNew} size={0.5} />,
-  idea: <Icon path={mdiOpenInNew} size={0.5} />,
-};
-
-export function EditorButtons({
-  editors,
-  onOpen,
-}: {
-  editors: DetectedEditor[];
-  onOpen: (editorId: string) => void;
-}) {
-  if (editors.length === 0) return null;
-
-  return (
-    <div className="flex items-center gap-1">
-      {editors.map((editor) => (
-        <button
-          key={editor.id}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(editor.id);
-          }}
-          className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50"
-          title={i18nT("session.openInEditor", { editor: editor.name }, "Open in {editor}")}
-        >
-          <span className="inline-flex items-center gap-0.5">{editorIcons[editor.id] ?? <Icon path={mdiOpenInNew} size={0.5} />} {editor.name}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export function SessionCard({
   session,

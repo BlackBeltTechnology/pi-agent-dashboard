@@ -5,7 +5,7 @@ import { LinkifiedText } from "../LinkifiedText.js";
 import * as tokenizer from "../../../lib/linkify-tool-output.js";
 import type { ToolContext } from "../types.js";
 
-const ctx: ToolContext = { cwd: "/r", editors: [] };
+const ctx: ToolContext = { cwd: "/r" };
 
 afterEach(() => vi.restoreAllMocks());
 

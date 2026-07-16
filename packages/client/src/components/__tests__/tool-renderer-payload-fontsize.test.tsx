@@ -56,7 +56,7 @@ import { BashToolRenderer } from "../tool-renderers/BashToolRenderer.js";
 import { GenericToolRenderer } from "../tool-renderers/GenericToolRenderer.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 
-const ctx: ToolContext = { editors: [] };
+const ctx: ToolContext = {};
 
 afterEach(() => cleanup());
 

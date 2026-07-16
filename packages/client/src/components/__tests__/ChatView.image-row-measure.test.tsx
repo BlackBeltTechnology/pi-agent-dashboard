@@ -5,7 +5,7 @@ import { ChatView } from "../ChatView.js";
 import { ThemeProvider } from "../ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
-const defaultToolContext: ToolContext = { editors: [] };
+const defaultToolContext: ToolContext = {};
 
 // 1×1 transparent PNG.
 const PNG_1x1 =

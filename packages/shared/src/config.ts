@@ -178,29 +178,6 @@ export const DEFAULT_KEEPER_LOG: KeeperLogConfig = {
   capturePiOutput: false,
 };
 
-export interface EditorConfig {
-  /** Override path to code-server binary */
-  binary?: string;
-  /** Minutes before idle instance is killed (default: 10) */
-  idleTimeoutMinutes: number;
-  /** Maximum concurrent code-server instances (default: 3) */
-  maxInstances: number;
-  /**
-   * When true, graceful dashboard shutdown (stop / restart / shutdown)
-   * sends `{"cmd":"stop"}` to every editor keeper and waits for them to
-   * exit. When false or omitted (default), keepers and their code-server children
-   * persist across dashboard restarts so editor tabs and dirty buffers
-   * survive. See change: add-editor-keeper-sidecar.
-   */
-  stopOnDashboardExit?: boolean;
-}
-
-export const DEFAULT_EDITOR_CONFIG: EditorConfig = {
-  idleTimeoutMinutes: 10,
-  maxInstances: 3,
-  stopOnDashboardExit: false,
-};
-
 export interface KnownServer {
   host: string;
   port: number;
@@ -313,7 +290,6 @@ export interface DashboardConfig {
   auth?: AuthConfig;
   defaultModel: string;
   memoryLimits: MemoryLimitsConfig;
-  editor: EditorConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
   /** Session behavior — hydration worker offload toggle. */
@@ -468,7 +444,6 @@ const DEFAULTS: DashboardConfig = {
   devBuildOnReload: false,
   defaultModel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
-  editor: { ...DEFAULT_EDITOR_CONFIG },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
   sessions: { ...DEFAULT_SESSIONS },
   keeperLog: { ...DEFAULT_KEEPER_LOG },
@@ -550,19 +525,6 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
     ...(typeof raw.admin === "string" && raw.admin ? { admin: raw.admin } : {}),
   };
 }
-
-function parseEditorConfig(raw: any): EditorConfig {
-  if (!raw || typeof raw !== "object") return { ...DEFAULT_EDITOR_CONFIG };
-  return {
-    ...(typeof raw.binary === "string" ? { binary: raw.binary } : {}),
-    idleTimeoutMinutes: typeof raw.idleTimeoutMinutes === "number" ? raw.idleTimeoutMinutes : DEFAULT_EDITOR_CONFIG.idleTimeoutMinutes,
-    maxInstances: typeof raw.maxInstances === "number" ? raw.maxInstances : DEFAULT_EDITOR_CONFIG.maxInstances,
-    stopOnDashboardExit: typeof raw.stopOnDashboardExit === "boolean" ? raw.stopOnDashboardExit : DEFAULT_EDITOR_CONFIG.stopOnDashboardExit,
-  };
-}
-
-/** Exported for tests; same parser used by `parseConfig`. */
-export const parseEditorConfigForTest = parseEditorConfig;
 
 function clampNumber(raw: any, fallback: number, min: number, max: number): number {
   const n = typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
@@ -863,7 +825,6 @@ export function loadConfig(): DashboardConfig {
       defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : defaults.defaultModel,
       auth: parseAuthConfig(parsed.auth),
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
-      editor: parseEditorConfig(parsed.editor),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
       sessions: parseSessionsConfig(parsed.sessions),
       keeperLog: parseKeeperLogConfig(parsed.keeperLog),

@@ -8,7 +8,7 @@ import { ThemeProvider } from "../ThemeProvider.js";
 import { ToolCallStep } from "../ToolCallStep.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
-const defaultContext: ToolContext = { editors: [] };
+const defaultContext: ToolContext = {};
 
 // Mock useMobile so ToolCallStep (via EditToolRenderer → RichDiff) always runs in
 // desktop mode for the lazy-mount tests below. Hoisted before any imports of the

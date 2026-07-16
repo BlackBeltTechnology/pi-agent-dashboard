@@ -6,7 +6,7 @@ describe("routeScopeForUrl", () => {
     expect(routeScopeForUrl("/ws")).toBe("browser");
     expect(routeScopeForUrl("/ws?ticket=x")).toBe("browser");
     expect(routeScopeForUrl("/ws/terminal/abc")).toBe("terminal");
-    expect(routeScopeForUrl("/editor/xyz")).toBe("editor");
+    expect(routeScopeForUrl("/editor/xyz")).toBe(null);
     expect(routeScopeForUrl("/live/1")).toBe("live");
     expect(routeScopeForUrl("/api/health")).toBe(null);
     expect(routeScopeForUrl(undefined)).toBe(null);

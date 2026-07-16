@@ -118,12 +118,6 @@ interface Config {
   auth?: AuthConfig;
   memoryLimits: MemoryLimitsConfig;
   trustedNetworks?: string[];
-  editor?: {
-    binary?: string;
-    idleTimeoutMinutes?: number;
-    maxInstances?: number;
-    stopOnDashboardExit?: boolean;
-  };
   openspec?: {
     enabled?: boolean;
     pollIntervalSeconds?: number;
@@ -170,7 +164,7 @@ const CONFIG_FIELD_PAGE: Record<string, string> = {
   trustedNetworks: "security", auth: "security",
   modelProxy: "providers",
   openspec: "openspec",
-  devBuildOnReload: "developer", keeperLog: "developer", editor: "developer",
+  devBuildOnReload: "developer", keeperLog: "developer",
 };
 
 /**
@@ -241,9 +235,6 @@ function computeConfigPartial(config: Config, original: Config): Record<string, 
   }
   if (JSON.stringify(config.keeperLog) !== JSON.stringify(original.keeperLog)) {
     partial.keeperLog = config.keeperLog ?? { capturePiOutput: false };
-  }
-  if (JSON.stringify(config.editor) !== JSON.stringify(original.editor)) {
-    partial.editor = config.editor || null;
   }
   if (JSON.stringify(config.auth) !== JSON.stringify(original.auth)) {
     partial.auth = config.auth || null;
@@ -1395,47 +1386,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 <SpawnFailuresSection />
                 {/* See change: auto-canvas (task 5.2). */}
                 <CanvasTypesSettingsSection selectedCwd={selectedCwd} />
-                <Section title={t("settings.editor", undefined, "Editor (code-server)")}>
-                  <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                    {t("settings.editorDescription", undefined, "Configure the embedded VS Code editor powered by code-server.")}
-                  </p>
-                  <TextField
-                    label={i18nT("common.binaryPathLeaveEmptyForAuto", undefined, "Binary Path (leave empty for auto-detect)")}
-                    value={config.editor?.binary ?? ""}
-                    onChange={(v) => update((c) => {
-                      if (!c.editor) c.editor = {};
-                      c.editor.binary = v || undefined;
-                    })}
-                    placeholder="code-server"
-                  />
-                  <NumberField
-                    label={i18nT("status.idleTimeoutMinutes", undefined, "Idle Timeout (minutes)")}
-                    value={config.editor?.idleTimeoutMinutes ?? 10}
-                    onChange={(v) => update((c) => {
-                      if (!c.editor) c.editor = {};
-                      c.editor.idleTimeoutMinutes = v;
-                    })}
-                  />
-                  <NumberField
-                    label={i18nT("settings.maxConcurrentInstances", undefined, "Max Concurrent Instances")}
-                    value={config.editor?.maxInstances ?? 3}
-                    onChange={(v) => update((c) => {
-                      if (!c.editor) c.editor = {};
-                      c.editor.maxInstances = v;
-                    })}
-                  />
-                  <ToggleField
-                    label={i18nT("editor.stopEditorsWhenDashboardExits", undefined, "Stop editors when dashboard exits")}
-                    value={config.editor?.stopOnDashboardExit ?? false}
-                    onChange={(v) => update((c) => {
-                      if (!c.editor) c.editor = {};
-                      c.editor.stopOnDashboardExit = v;
-                    })}
-                  />
-                  <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                    {i18nT("common.leaveOffToLetTabsAnd", undefined, "Leave off to let tabs and dirty buffers survive a dashboard restart.")}
-                  </p>
-                </Section>
                 <SettingsSectionSlot tab="developer" />
               </>
             )}

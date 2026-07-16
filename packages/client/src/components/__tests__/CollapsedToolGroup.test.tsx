@@ -24,7 +24,7 @@ beforeAll(() => {
   });
 });
 
-const ctx: ToolContext = { editors: [] };
+const ctx: ToolContext = {};
 
 function makeMsg(id: string, command: string): ChatMessage {
   return {

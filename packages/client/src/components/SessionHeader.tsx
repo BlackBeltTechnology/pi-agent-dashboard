@@ -3,7 +3,6 @@ import { mdiArrowLeft, mdiCrosshairsGps, mdiFileCompare, mdiHeadLightbulb, mdiLi
 import { Icon } from "@mdi/react";
 import React, { useEffect, useRef, useState } from "react";
 import { useMobile } from "../hooks/useMobile.js";
-import type { DetectedEditor } from "../lib/editor-api.js";
 import type { SessionState } from "../lib/event-reducer.js";
 import { t as i18nT } from "../lib/i18n";
 import { getSessionDisplayName } from "../lib/session-display-name.js";
@@ -60,13 +59,11 @@ interface Props {
   onSeekToCard?: () => void;
   /** Mobile action menu props (only used on mobile) */
   mobileActions?: {
-    editors?: DetectedEditor[];
     openspecChanges?: OpenSpecChange[];
     onHide?: () => void;
     onUnhide?: () => void;
     onResume?: (mode: "continue" | "fork") => void;
     onShutdown?: () => void;
-    onOpenEditor?: (editorId: string) => void;
     onAttachProposal?: (changeName: string) => void;
     onDetachProposal?: () => void;
     onSendPrompt?: (text: string, images?: ImageContent[]) => void;
@@ -213,14 +210,12 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
       {mobileActions && (
         <MobileActionMenu
           session={session}
-          editors={mobileActions.editors}
           openspecChanges={mobileActions.openspecChanges}
           onRename={canRename ? onStartRename : undefined}
           onHide={mobileActions.onHide}
           onUnhide={mobileActions.onUnhide}
           onResume={mobileActions.onResume}
           onShutdown={mobileActions.onShutdown}
-          onOpenEditor={mobileActions.onOpenEditor}
           onAttachProposal={mobileActions.onAttachProposal}
           onDetachProposal={mobileActions.onDetachProposal}
           onSendPrompt={mobileActions.onSendPrompt}

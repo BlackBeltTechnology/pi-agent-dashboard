@@ -16,10 +16,10 @@ interface Props {
 }
 
 /**
- * Clickable file reference rendered inside tool output and prose. Routes
- * click by environment via the shared {@link useFileOpenRouting} hook:
- *   localhost + detected editor → POST /api/open-editor
- *   otherwise                   → inline read-only preview overlay
+ * Clickable file reference rendered inside tool output and prose. Opens the
+ * internal editor split when live for this session; otherwise routes the click
+ * to an inline read-only preview overlay via the shared
+ * {@link useFileOpenRouting} hook.
  *
  * Path resolution goes through {@link resolveLinkOrigin}: relative tokens join
  * against `cwd`; absolute tokens (POSIX `/`, decoded `file://`, Windows drive)
@@ -30,7 +30,7 @@ interface Props {
  * See change: unify-file-link-openability, fix-worktree-link-origin.
  */
 export function FileLink({ path, line, col, absolute, context, children }: Props) {
-  const { cwd, localEditorAvailable, editorName, openFile, hostManaged, previewTarget, closePreview } =
+  const { cwd, openFile, hostManaged, previewTarget, closePreview } =
     useFileOpenRouting(context);
 
   // Re-root an absolute parent-checkout path onto the worktree (worktree
@@ -42,7 +42,7 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
 
   // Prefer the in-dashboard editor split when it is available for this session
   // and the token is a cwd-relative path (the pane is rooted at cwd). Falls
-  // back to the external-editor / preview routing everywhere else.
+  // back to the preview overlay everywhere else.
   const ws = useOptionalSplitWorkspace();
   const canSplitOpen = !!ws && !absolute && !!context.sessionId && ws.sessionId === context.sessionId;
 
@@ -58,9 +58,7 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
 
   const resolved = origin;
   const titleSuffix = line ? `:${line}${col ? `:${col}` : ""}` : "";
-  const title = localEditorAvailable
-    ? `Open ${resolved}${titleSuffix} in ${editorName}`
-    : `Preview ${resolved}${titleSuffix}`;
+  const title = `Preview ${resolved}${titleSuffix}`;
 
   return (
     <>

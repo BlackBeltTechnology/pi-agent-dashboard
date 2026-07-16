@@ -42,7 +42,7 @@ function makeContext(
   sessionId?: string,
   send?: ToolContext["send"],
 ): ToolContext {
-  return { editors: [], sessionId, session, send };
+  return { sessionId, session, send };
 }
 
 function sessionWithAgent(agentId: string, sub: Partial<SubagentState> = {}): SessionState {

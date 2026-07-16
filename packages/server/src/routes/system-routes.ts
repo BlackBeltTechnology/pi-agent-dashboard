@@ -1,5 +1,5 @@
 /**
- * System REST API routes: config, health, shutdown, tunnel, editors.
+ * System REST API routes: config, health, shutdown, tunnel.
  */
 
 import fs from "node:fs";
@@ -15,7 +15,6 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
@@ -24,13 +23,9 @@ import type { FastifyInstance } from "fastify";
 import { bootParentPid, computeBootParentAlive, readLivePpid } from "../boot-parent-liveness.js";
 import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
-import { detectCodeServerBinary, resetDetectionCache } from "../editor-detection.js";
-import { detectEditors, EDITORS } from "../editor-registry.js";
 import type { EventLoopSpikeMetrics } from "../eventloop-spike-metrics.js";
 import type { HydrationMetrics } from "../hydration-metrics.js";
 import { computeEffectiveLaunchSource } from "../launch-source-effective.js";
-import { decodeFileUri } from "../lib/decode-file-uri.js";
-import { isAllowed } from "../lib/path-containment.js";
 import { localhostGuard, netmaskToCidrBits, networkAddress } from "../localhost-guard.js";
 import type { SessionManager } from "../memory-session-manager.js";
 import type { MetaPersistence } from "../meta-persistence.js";
@@ -173,75 +168,6 @@ export function registerSystemRoutes(
     compatCache = { at: now, value };
     return value;
   };
-
-  // Editor detection endpoint
-  fastify.get<{ Querystring: { path?: string } }>(
-    "/api/editors",
-    { preHandler: networkGuard },
-    async (request) => {
-      const cwd = request.query.path;
-      if (!cwd) {
-        return { success: false, error: "path parameter required" } satisfies ApiResponse;
-      }
-      const editors = detectEditors(cwd);
-      return { success: true, data: editors } satisfies ApiResponse;
-    },
-  );
-
-  // code-server binary detection endpoint
-  fastify.get(
-    "/api/editor/detect",
-    { preHandler: networkGuard },
-    async () => {
-      resetDetectionCache();
-      const result = detectCodeServerBinary(config.editor);
-      return { success: true, data: result } satisfies ApiResponse;
-    },
-  );
-
-  // Open editor endpoint
-  fastify.post<{ Body: { path?: string; editor?: string; file?: string; line?: number } }>(
-    "/api/open-editor",
-    { preHandler: networkGuard },
-    async (request) => {
-      const { path: cwd, editor: editorId, file: rawFile, line } = request.body ?? {};
-      const file = rawFile ? decodeFileUri(rawFile) : rawFile;
-      if (!cwd || !editorId) {
-        return { success: false, error: "path and editor required" } satisfies ApiResponse;
-      }
-
-      const allSessions = sessionManager.listAll();
-      if (!allSessions.some((s) => s.cwd === cwd)) {
-        return { success: false, error: "unknown session path" } satisfies ApiResponse;
-      }
-
-      const editorEntry = EDITORS.find((e) => e.id === editorId);
-      if (!editorEntry) {
-        return { success: false, error: "unknown editor" } satisfies ApiResponse;
-      }
-
-      const target = file ? path.resolve(cwd, file) : cwd;
-      // Containment gate (mirrors /api/file): the resolved target MUST stay
-      // under the known session cwd or its git common root. Rejects `../..`
-      // traversal and absolute paths (`/etc/...`, decoded `file://...`) outside
-      // the workspace.
-      if (!(await isAllowed(target, { anchors: [cwd] }))) {
-        return { success: false, error: "path outside working directory" } satisfies ApiResponse;
-      }
-      const args = line && file ? [`${target}:${line}`] : [target];
-
-      try {
-        const child = spawn(editorEntry.cli, args, {
-          detached: true,
-          stdio: "ignore",
-        });
-        child.unref();
-        return { success: true } satisfies ApiResponse;
-      } catch (err: any) {
-        return { success: false, error: `failed to open editor: ${err.message}` } satisfies ApiResponse;
-      }
-    },
-  );
 
   // Config endpoints
   fastify.get(

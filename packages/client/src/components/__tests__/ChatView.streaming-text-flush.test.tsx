@@ -25,7 +25,7 @@ import {
 import type { ToolContext } from "../tool-renderers/index.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-const defaultToolContext: ToolContext = { editors: [] };
+const defaultToolContext: ToolContext = {};
 
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};

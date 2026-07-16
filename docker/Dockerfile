@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # pi-dashboard all-in-one image.
 #
-# Stage `base`  — Debian Bookworm + Node 24 LTS, system tools, code-server, zrok.
+# Stage `base`  — Debian Bookworm + Node 24 LTS, system tools, zrok.
 # Stage `app`   — non-root `pi` user, global pi agent, built dashboard, cleanup.
 #
 # Debian (glibc), NOT Alpine (musl): node-pty needs glibc for correct PTY
@@ -13,7 +13,6 @@
 FROM node:24-bookworm-slim AS base
 
 # Pinned tool versions — override at build time with --build-arg.
-ARG CODE_SERVER_VERSION=4.96.4
 ARG ZROK_VERSION=1.0.6
 ARG GH_VERSION=2.62.0
 ARG JJ_VERSION=0.24.0
@@ -39,12 +38,7 @@ RUN apt-get update \
 # fd-find ships the binary as `fdfind` on Debian; expose `fd` too.
 RUN ln -s "$(command -v fdfind)" /usr/local/bin/fd || true
 
-# 1.2 code-server (pinned). Official installer auto-detects arch.
-RUN curl -fsSL https://code-server.dev/install.sh \
-      | sh -s -- --version "${CODE_SERVER_VERSION}" \
- && code-server --version
-
-# 1.3 zrok (pinned). Map Debian arch → zrok release arch.
+# 1.2 zrok (pinned). Map Debian arch → zrok release arch.
 RUN set -eux; \
     deb_arch="$(dpkg --print-architecture)"; \
     case "${deb_arch}" in \

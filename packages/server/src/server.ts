@@ -34,10 +34,6 @@ import { isCorsOriginAllowed } from "./cors-origin.js";
 import { registerCsp, resolveCspMode } from "./csp.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
-import { detectCodeServerBinary } from "./editor-detection.js";
-import { createEditorManager, type EditorManager } from "./editor-manager.js";
-import { createEditorPidRegistry } from "./editor-pid-registry.js";
-import { handleEditorUpgrade, registerEditorProxy } from "./editor-proxy.js";
 import { wireEvents } from "./event-wiring.js";
 import { startEventLoopSampler } from "./eventloop-sampler.js";
 import { createEventLoopSpikeMetrics } from "./eventloop-spike-metrics.js";
@@ -85,7 +81,6 @@ import { reconcileSessionOrder } from "./reconcile-session-order.js";
 import { resolveOrderKey } from "./resolve-order-key.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
-import { registerEditorRoutes } from "./routes/editor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGoalRoutes } from "./routes/goal-routes.js";
@@ -158,8 +153,6 @@ export interface ServerConfig {
   maxEventsPerSession?: number;
   maxStringFieldSize?: number;
   maxWsBufferBytes?: number;
-  /** Editor (code-server) config */
-  editor: import("@blackbelt-technology/pi-dashboard-shared/config.js").EditorConfig;
   /** OpenSpec polling config (interval, concurrency, change detection, jitter) */
   openspec?: import("@blackbelt-technology/pi-dashboard-shared/config.js").OpenSpecPollConfig;
   /** Session behavior — hydration worker offload toggle.
@@ -648,16 +641,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   const terminalGateway = createTerminalGateway(terminalManager);
 
-  // Create editor manager for code-server instances
-  const editorDetection = detectCodeServerBinary(config.editor);
-  const editorManager = createEditorManager({
-    config: config.editor,
-    detection: editorDetection,
-    onStatusChange: (cwd, id, status) => {
-      browserGateway.broadcastToAll({ type: "editor_status", cwd, id, status });
-    },
-  });
-  const editorPidRegistry = createEditorPidRegistry({ editorManager });
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
 
@@ -1342,13 +1325,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     packageManagerWrapper.listInstalled("local"),
   ]);
 
-  // Editor (code-server) routes and proxy.
-  // NOTE: routes are *registered* here but cannot dispatch until fastify.listen runs
-  // inside server.start(). The orphan sweep in editorPidRegistry.cleanupOrphans()
-  // runs at the top of server.start() BEFORE fastify.listen, so any
-  // POST /api/editor/start call is guaranteed to see a post-sweep clean state.
-  registerEditorRoutes(fastify, editorManager, { networkGuard });
-  registerEditorProxy(fastify, editorManager);
   // Live-server-preview routes + reverse proxy (main-origin /live/:id/*).
   registerLiveServerRoutes(fastify, liveServerManager, { networkGuard });
   registerLiveServerProxy(fastify, liveServerManager);
@@ -1382,7 +1358,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     { preHandler: networkGuard },
     async (request, reply) => {
       const scope = request.body?.scope;
-      if (scope !== "browser" && scope !== "terminal" && scope !== "editor" && scope !== "live") {
+      if (scope !== "browser" && scope !== "terminal" && scope !== "live") {
         reply.code(400);
         return { success: false as const, error: "invalid scope" };
       }
@@ -1618,23 +1594,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       } catch (err) {
         console.warn("[dashboard] keeper-manager wire-up failed (RPC dispatch disabled):", err);
       }
-
-      // Editor lifecycle boot order:
-      //   1. Adopt surviving editor keepers (per-editor sidecars) → reattach.
-      //   2. Defensive cmdline sweep for pre-keeper installs (no sidecar).
-      // See change: add-editor-keeper-sidecar.
-      try {
-        const summary = await editorPidRegistry.adoptOrphans();
-        if (summary.adopted.length > 0) {
-          console.log(`[dashboard] adopted ${summary.adopted.length} editor${summary.adopted.length === 1 ? "" : "s"}`);
-          for (const a of summary.adopted) {
-            console.log(`[dashboard]   editor ${a.editorId} cwd=${a.cwd} port=${a.port}`);
-          }
-        }
-      } catch (err) {
-        console.warn("[dashboard] editor adoptOrphans failed:", err);
-      }
-      await editorPidRegistry.cleanupOrphans();
 
       // Spawned pi sessions must connect back to THIS server's gateway, not
       // the config-default piPort. Critical for multi-instance setups (e.g. a
@@ -1892,9 +1851,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             break;
           case "terminal":
             terminalGateway.handleUpgrade(request, socket, head);
-            break;
-          case "editor":
-            handleEditorUpgrade(editorManager, request, socket, head);
             break;
           case "live":
             handleLiveServerUpgrade(liveServerManager, request, socket, head);
@@ -2178,9 +2134,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       for (const t of terminalManager.list()) {
         try { terminalManager.kill(t.id); } catch {}
       }
-      // Stop all code-server instances (config-gated; default no-op so
-      // keepers + tabs survive a dashboard restart).
-      try { await editorManager.stopAll(); } catch (err) { console.warn("[dashboard] editorManager.stopAll failed:", err); }
       // Close any pending OAuth callback servers
       try { const { closeAllCallbackServers } = await import("./oauth-callback-server.js"); await closeAllCallbackServers(); } catch {}
       // Close second port before main server

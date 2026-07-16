@@ -14,10 +14,8 @@ function renderBar(over: Partial<React.ComponentProps<typeof FolderActionBar>> =
   const props: React.ComponentProps<typeof FolderActionBar> = {
     cwd: "/repo",
     terminalCount: 0,
-    nativeEditors: [],
     onOpenTerminals: () => {},
     onOpenEditor: () => {},
-    onOpenNativeEditor: () => {},
     onOpenPiResources: () => {},
     ...over,
   };

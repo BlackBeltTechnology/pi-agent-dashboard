@@ -32,10 +32,8 @@ function renderBar(overrides: Partial<React.ComponentProps<typeof FolderActionBa
   const props: React.ComponentProps<typeof FolderActionBar> = {
     cwd: "/repo",
     terminalCount: 0,
-    nativeEditors: [],
     onOpenTerminals: () => {},
     onOpenEditor: () => {},
-    onOpenNativeEditor: () => {},
     onOpenPiResources: () => {},
     ...overrides,
   };

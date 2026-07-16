@@ -28,7 +28,7 @@ vi.mock("react-syntax-highlighter", () => ({
   ),
 }));
 
-const ctx: ToolContext = { editors: [] };
+const ctx: ToolContext = {};
 
 function renderWithTheme(ui: React.ReactElement) {
   return render(<ThemeProvider>{ui}</ThemeProvider>);

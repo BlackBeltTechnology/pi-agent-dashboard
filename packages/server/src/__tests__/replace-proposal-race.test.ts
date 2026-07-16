@@ -95,7 +95,6 @@ describe("replace-proposal race handling", () => {
     server = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true, autoShutdown: false,
       shutdownIdleSeconds: 999, tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
     browserPort = server.httpPort()!;

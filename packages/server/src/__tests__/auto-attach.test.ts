@@ -109,7 +109,6 @@ describe("Auto-attach from openspec activity", () => {
       autoShutdown: false,
       shutdownIdleSeconds: 999,
       tunnel: false,
-    editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
     browserPort = server.httpPort()!;
@@ -251,7 +250,6 @@ describe("Detach clears openspec state", () => {
       autoShutdown: false,
       shutdownIdleSeconds: 999,
       tunnel: false,
-    editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
     browserPort = server.httpPort()!;

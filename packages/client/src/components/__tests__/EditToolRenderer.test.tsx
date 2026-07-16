@@ -40,7 +40,7 @@ vi.mock("../ThemeProvider.js", () => ({
 import { EditToolRenderer } from "../tool-renderers/EditToolRenderer.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 
-const ctx: ToolContext = { editors: [] };
+const ctx: ToolContext = {};
 
 afterEach(() => cleanup());
 

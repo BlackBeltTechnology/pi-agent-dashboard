@@ -107,7 +107,7 @@ const ToolCallStepPrimitive: React.FC<UiToolCallStepProps> = (props) => (
     toolDetails={props.toolDetails}
     startedAt={props.startedAt}
     duration={props.duration}
-    context={{ editors: [], sessionId: props.sessionId }}
+    context={{ sessionId: props.sessionId }}
   />
 );
 registerUiPrimitive(

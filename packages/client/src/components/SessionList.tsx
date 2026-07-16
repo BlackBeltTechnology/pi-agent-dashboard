@@ -10,7 +10,6 @@ import { useLocation } from "wouter";
 import { useFolderUrgencySort } from "../hooks/useFolderUrgencySort.js";
 import { useInstallPrompt } from "../hooks/useInstallPrompt.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../lib/auto-init-worktree.js";
-import { openEditor } from "../lib/editor-api.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
 import { t as i18nT } from "../lib/i18n";
 import { useI18n } from "../lib/i18n.js";
@@ -34,7 +33,6 @@ import { selectedCardScrollFingerprint } from "../lib/session-list-scroll.js";
 import { floatAskUserFirst } from "../lib/session-status-visuals.js";
 import { resolveWorkspaceFolderReorder, resolveWorkspaceReorder, sameTypeClosestCenter } from "../lib/sidebar-dnd.js";
 import { truncatePathMiddle } from "../lib/truncate-path.js";
-import { useEditors } from "../lib/use-editors.js";
 import { AddToWorkspaceMenu } from "./AddToWorkspaceMenu.js";
 import { BranchSwitchDialog } from "./BranchSwitchDialog.js";
 import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
@@ -48,7 +46,7 @@ import { NewWorkspaceDialog } from "./NewWorkspaceDialog.js";
 import { PiLogo } from "./PiLogo.js";
 import { PinDirectoryDialog } from "./PinDirectoryDialog.js";
 import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
-import { branchCache, EditorButtons, GroupGitInfo, SessionCard } from "./SessionCard.js";
+import { branchCache, GroupGitInfo, SessionCard } from "./SessionCard.js";
 import { SortablePinnedGroup, useFolderDragHandle } from "./SortablePinnedGroup.js";
 import { SortableSessionCard } from "./SortableSessionCard.js";
 import { SortableWorkspace } from "./SortableWorkspace.js";
@@ -181,8 +179,6 @@ interface Props {
   onOpenBoard?: (cwd: string) => void;
   onOpenTerminals?: (cwd: string) => void;
   onOpenEditor?: (cwd: string) => void;
-  editorStatuses?: Map<string, { id: string; status: import("@blackbelt-technology/pi-dashboard-shared/editor-types.js").EditorInstanceStatus }>;
-  editorAvailable?: boolean;
   /** Extra content rendered in the sidebar header toolbar */
   headerExtra?: React.ReactNode;
   /** Set of session IDs that have an active error */
@@ -235,7 +231,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -281,17 +277,6 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     }
   }, [scrollFingerprint, selectedId]);
 
-
-  // Detect editors for all unique cwds (sessions + pinned directories)
-  const cwds = useMemo(() => [...sessions.map((s) => s.cwd), ...(pinnedDirectories ?? [])], [sessions, pinnedDirectories]);
-  const editorMap = useEditors(cwds);
-
-  const handleOpenEditor = useCallback(async (cwd: string, editorId: string) => {
-    const result = await openEditor(cwd, editorId);
-    if (!result.success) {
-      showToast(result.error ?? "Failed to open editor");
-    }
-  }, [showToast]);
 
   // Remove legacy client-side hidden storage on mount
   useEffect(() => {
@@ -990,12 +975,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             <FolderActionBar
               cwd={group.cwd}
               terminalCount={terminalsByCwd.get(group.cwd)?.length ?? 0}
-              editorStatus={editorStatuses?.get(group.cwd)}
-              editorAvailable={editorAvailable}
-              nativeEditors={editorMap.get(group.cwd) ?? []}
               onOpenTerminals={() => onOpenTerminals?.(group.cwd)}
               onOpenEditor={() => onOpenEditor?.(group.cwd)}
-              onOpenNativeEditor={(editorId) => handleOpenEditor(group.cwd, editorId)}
               onOpenPiResources={() => onOpenPiResources?.(group.cwd)}
               onInitializeProject={onSpawnSession ? (cwd) => onSpawnSession(cwd, undefined, { initialPrompt: "/skill:project-init" }) : undefined}
               brokenSessionCount={group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended" && !s.hidden).length}

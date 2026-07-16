@@ -17,7 +17,6 @@ function makeConfig(): ServerConfig {
     shutdownIdleSeconds: 2,
     tunnel: false,
     pingInterval: 0,
-    editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
   } as ServerConfig;
 }
 

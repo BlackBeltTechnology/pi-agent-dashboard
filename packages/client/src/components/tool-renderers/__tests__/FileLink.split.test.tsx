@@ -20,7 +20,7 @@ function renderInSplit(ui: React.ReactElement, sessionId: string, cwd: string) {
 
 describe("FileLink — split routing", () => {
   it("clicking a relative file-link auto-opens the split and adds the tab", () => {
-    const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [], sessionId: "sesh" };
+    const ctx: ToolContext = { cwd: "/Users/me/repo", sessionId: "sesh" };
     renderInSplit(
       <FileLink path="src/foo.ts" line={7} context={ctx}>
         src/foo.ts

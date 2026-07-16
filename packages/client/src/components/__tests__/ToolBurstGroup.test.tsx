@@ -18,7 +18,7 @@ import { ThemeProvider } from "../ThemeProvider.js";
 import { ToolBurstGroup } from "../ToolBurstGroup.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
-const toolContext: ToolContext = { editors: [] };
+const toolContext: ToolContext = {};
 
 // jsdom implements neither scrollTo nor matchMedia; shim them for the suite.
 // NOT restored in afterAll on purpose — sibling suites (e.g. EditorFileTree)

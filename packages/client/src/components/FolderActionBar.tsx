@@ -1,23 +1,18 @@
 /**
  * Unified action bar for folder groups in the sidebar.
- * Buttons: Terminals(N) | Editor | Zed | Clean up broken | Directory Settings
+ * Buttons: Terminals(N) | Editor | Clean up broken | Directory Settings
  */
 
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
-import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
 import {
-  mdiAlertCircleOutline,
   mdiBroom,
-  mdiCircleSmall,
   mdiCodeBraces,
   mdiCog,
   mdiConsoleLine,
-  mdiOpenInNew,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React from "react";
 import { useInitStatus } from "../hooks/useInitStatus.js";
-import type { DetectedEditor } from "../lib/editor-api.js";
 import { t as i18nT } from "../lib/i18n";
 import { ProjectInitButton } from "./ProjectInitButton.js";
 import { WorktreeInitButton } from "./WorktreeInitButton.js";
@@ -25,9 +20,6 @@ import { WorktreeInitButton } from "./WorktreeInitButton.js";
 interface Props {
   cwd: string;
   terminalCount: number;
-  editorStatus?: { id: string; status: EditorInstanceStatus } | null;
-  editorAvailable?: boolean; // Whether code-server binary is detected
-  nativeEditors: DetectedEditor[];
   /**
    * Number of ended sessions in this folder whose `cwdMissing === true`.
    * Drives the visibility + label of the `Clean up broken (N)` button.
@@ -44,31 +36,19 @@ interface Props {
   onInitializeProject?: (cwd: string) => void;
   onOpenTerminals: () => void;
   onOpenEditor: () => void;
-  onOpenNativeEditor: (editorId: string) => void;
   onOpenPiResources: () => void;
 }
-
-// Icon map for native editors
-const editorIcons: Record<string, string> = {
-  zed: "Z",
-};
 
 export function FolderActionBar({
   cwd,
   terminalCount,
-  editorStatus,
-  editorAvailable = true,
-  nativeEditors,
   brokenSessionCount,
   onCleanUpBroken,
   onInitializeProject,
   onOpenTerminals,
   onOpenEditor,
-  onOpenNativeEditor,
   onOpenPiResources,
 }: Props) {
-  // Filter out vscode/code from native editors (served via EditorView)
-  const filteredNativeEditors = nativeEditors.filter((e) => e.id !== "vscode" && e.id !== "code");
   const showCleanUp = (brokenSessionCount ?? 0) > 0 && !!onCleanUpBroken;
   const [confirmCleanUpOpen, setConfirmCleanUpOpen] = React.useState(false);
   // Single shared init-status probe feeds both init buttons (avoids a double
@@ -96,53 +76,17 @@ export function FolderActionBar({
         </span>
       </button>
 
-      {/* Editor */}
+      {/* Editor — opens the internal Monaco pane rooted at this folder. */}
       <button
         onClick={(e) => { e.stopPropagation(); onOpenEditor(); }}
-        className={`text-[10px] px-1.5 py-0.5 rounded border ${
-          editorStatus?.status === "ready"
-            ? "border-green-500/50 text-green-400 bg-green-500/5"
-            : editorStatus?.status === "starting"
-            ? "border-blue-500/50 text-blue-400 bg-blue-500/5"
-            : editorAvailable === false
-            ? "border-yellow-500/50 text-[var(--text-secondary)]"
-            : "text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300 hover:border-blue-500/70"
-        }`}
-        title={editorAvailable === false ? "code-server not found — click to see install guide" : editorStatus?.status === "ready" ? "Editor running — click to open" : editorStatus?.status === "starting" ? "Editor starting..." : "Open VS Code editor"}
+        className="text-[10px] px-1.5 py-0.5 rounded border text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300 hover:border-blue-500/70"
+        title="Open editor"
       >
         <span className="inline-flex items-center gap-0.5">
           <Icon path={mdiCodeBraces} size={0.5} />
           {i18nT("editor.editor", undefined, "Editor")}
-          {editorAvailable === false && (
-            <Icon path={mdiAlertCircleOutline} size={0.4} className="text-yellow-400" />
-          )}
-          {editorStatus?.status === "ready" && (
-            <Icon path={mdiCircleSmall} size={0.6} className="text-green-500" />
-          )}
-          {editorStatus?.status === "starting" && (
-            <Icon path={mdiCircleSmall} size={0.6} className="text-blue-400 animate-pulse" />
-          )}
         </span>
       </button>
-
-      {/* Native editors (e.g., Zed) — filtered to exclude vscode */}
-      {filteredNativeEditors.map((editor) => (
-        <button
-          key={editor.id}
-          onClick={(e) => { e.stopPropagation(); onOpenNativeEditor(editor.id); }}
-          className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50"
-          title={`Open in ${editor.name}`}
-        >
-          <span className="inline-flex items-center gap-0.5">
-            {editorIcons[editor.id] ? (
-              <span className="text-[10px] font-bold">{editorIcons[editor.id]}</span>
-            ) : (
-              <Icon path={mdiOpenInNew} size={0.5} />
-            )}
-            {editor.name}
-          </span>
-        </button>
-      ))}
 
       {showCleanUp && (
         <button

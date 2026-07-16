@@ -519,7 +519,7 @@ See change: eliminate-electron-runtime-install.
 The Stop button supports two-click escalation for stuck sessions:
 1. **Click 1 (Abort)**: Sends `abort` → bridge → `ctx.abort()`. Button transitions to orange pulsing "Force Stop".
 2. **Click 2 (Force Kill)**: Sends `force_kill` → server delegates termination to the **platform layer** (`packages/shared/src/platform/process.ts::killProcess(pid, { timeoutMs: 2000 })`), which:
-   - on **Windows** runs `taskkill /F /T /PID <pid>` (genuine tree kill — descendant `node.exe`, pi children, tmux panes, `wt` tabs, code-server subtrees all die together),
+   - on **Windows** runs `taskkill /F /T /PID <pid>` (genuine tree kill — descendant `node.exe`, pi children, tmux panes, `wt` tabs all die together),
    - on **POSIX** sends `SIGTERM`, polls liveness every 200ms for up to 2s, then escalates to `SIGKILL` if the process is still alive.
 
    Session marked "ended" (not removed), resumable via fork/continue.
@@ -535,7 +535,7 @@ All process termination across the codebase goes through `packages/shared/src/pl
 | `killProcess(pid, {timeoutMs})` | SIGTERM → wait → SIGKILL (tree via pgroup) | `taskkill /F /T /PID <pid>` |
 | `killPidWithGroup(pid, sig)` | `kill(-pid, sig)` (process group) | `kill(pid, sig)` (leaf) |
 
-Sites routed through these helpers: `session-action-handler.ts::handleForceKill`, `process-scanner.ts::killProcessByPgid`, `tunnel.ts::cleanupStaleZrok` + `deleteTunnel`, `editor-manager.ts::stop`, `headless-pid-registry.ts`, `server-pid.ts`. See specs: [`command-executor`](../openspec/specs/command-executor/spec.md), [`force-kill-handler`](../openspec/specs/force-kill-handler/spec.md).
+Sites routed through these helpers: `session-action-handler.ts::handleForceKill`, `process-scanner.ts::killProcessByPgid`, `tunnel.ts::cleanupStaleZrok` + `deleteTunnel`, `headless-pid-registry.ts`, `server-pid.ts`. See specs: [`command-executor`](../openspec/specs/command-executor/spec.md), [`force-kill-handler`](../openspec/specs/force-kill-handler/spec.md).
 
 `taskkill` is invoked via the platform's `execSync` wrapper (`platform/exec.ts`) so it inherits `windowsHide: true` — no console flash — and stays consistent with the `no-direct-child_process-import` invariant.
 
@@ -995,9 +995,9 @@ Viewer registry: monaco (lazy), image, pdf, markdown, binary-warn.
 
 Monaco lazy chunk loads on first text-file open. ts.worker omitted (no LSP). Theme derives from active dashboard theme via `buildMonacoTheme`. Recolors live on theme/mode change.
 
-`OpenFileButton` now split button: default → internal pane; dropdown → native editors.
+`OpenFileButton` plain button. Click → internal Monaco pane.
 
-Three file-open paths coexist; nothing removed. This pane = quick read-only glance. editor-view (code-server iframe) = full IDE. open-in-editor (native) = external.
+File-open surfaces: internal Monaco pane and preview overlay only.
 
 v2–v4 follow-on (pin-to-split, create-file, edit-with-conflicts) deferred to separate proposals.
 
@@ -1116,7 +1116,7 @@ Approval mints long-lived opaque bearer token. Registry `~/.pi/dashboard/paired-
 
 #### WS single-use ticket — D11/F4/F6
 
-Durable bearer never rides WS. Client mints short-lived ~15s single-use ticket via `POST /api/ws-ticket {scope}` (authenticated). Opens `wss://host/ws?ticket=`. Ticket deleted on first upgrade attempt. Bound to route scope (browser/terminal/editor/live). Mismatched-scope refused. Module `ws-ticket.ts`.
+Durable bearer never rides WS. Client mints short-lived ~15s single-use ticket via `POST /api/ws-ticket {scope}` (authenticated). Opens `wss://host/ws?ticket=`. Ticket deleted on first upgrade attempt. Bound to route scope (browser/terminal/live). Mismatched-scope refused. Module `ws-ticket.ts`.
 
 #### Genuine-local trust — D10, narrowed
 
@@ -1802,85 +1802,6 @@ Terminal xterm.js instances stay mounted in the DOM (CSS hidden/shown) for insta
 
 Terminals are displayed in a tabbed `TerminalsView` per folder, accessed via the folder action bar's `Terminals(N)` button. Terminal cards no longer appear in the sidebar — the sidebar shows only pi session cards. The tab bar supports switching, closing, renaming, and creating new terminals.
 
-## Embedded Editor (code-server)
-
-The dashboard supports embedding VS Code in the browser via code-server.
-
-### Architecture
-
-```
-Browser                     Dashboard Server              code-server
-┌──────────────┐         ┌─────────────────┐         ┌──────────────┐
-│  EditorView  │         │  EditorManager  │         │  VS Code     │
-│  (iframe)    │◄─HTTP──►│  EditorProxy    │◄─HTTP──►│  :10001      │
-│              │  same   │  /editor/:id/*  │  local  │  (per folder)│
-└──────────────┘  origin └─────────────────┘         └──────────────┘
-```
-
-### Lifecycle
-
-1. User clicks `Editor` button in folder action bar → navigates to `/folder/:encodedCwd/editor`
-2. `EditorView` sends `POST /api/editor/start` with `{ cwd }`
-3. `EditorManager` spawns code-server on a free port with `--auth none --bind-addr 127.0.0.1:<port>`
-4. Waits for TCP ready probe → returns `{ id, proxyPath }` → iframe loads
-5. Browser sends heartbeat every 30s → resets idle timer
-6. No heartbeat for 10 min → instance killed via SIGTERM
-
-### Reverse Proxy
-
-All code-server traffic is proxied through `/editor/:id/*` on the dashboard server. This provides same-origin access (no CORS/iframe issues) and works transparently through zrok tunnels.
-
-### Orphan Cleanup
-
-`EditorManager` state is purely in-memory. On graceful shutdown, `editorManager.stopAll()` SIGTERMs every child. On non-graceful shutdown (SIGKILL, crash, OOM, force-quit), spawned code-server processes get reparented to init/launchd and continue holding their port and `--user-data-dir` lockfile.
-
-To recover, every spawn is recorded in `~/.pi/dashboard/editor-pids.json` (`editor-pid-registry.ts`). On the next server boot, `editorPidRegistry.cleanupOrphans()` runs at the top of `server.start()` (before `fastify.listen`) and:
-
-1. Reads the persisted PIDs.
-2. For each entry whose PID is alive AND whose OS-reported command line contains `--user-data-dir <~/.pi/dashboard/editors/...>`, sends `SIGTERM`.
-3. After a 1 second grace period, sends `SIGKILL` to any survivor.
-4. Rewrites the file empty.
-
-The cmdline ownership check prevents killing unrelated `code-server` instances the user may run themselves. Cleanup completes before any `POST /api/editor/start` request can be served, so a new spawn for the same folder cannot race with a surviving orphan on the same `--user-data-dir` lockfile.
-
-### Editor keeper sidecar
-
-Supersedes the orphan-kill model above. code-server now survives dashboard restart; `/editor/<id>/` URL stays stable across restarts.
-
-Per-editor keeper (`packages/server/src/editor-keeper/keeper.cjs`) spawns detached, CJS-pure. Owns the code-server child, the UDS / named pipe, and the PID sidecar. Outlives the dashboard.
-
-Identity: `editorId = sha256(cwd).slice(0,12)`. Same cwd → same id across restarts. Same id → same `/editor/<id>/` URL.
-
-Files under `~/.pi/dashboard/editors/`:
-- POSIX: socket `<id>.sock`, PID sidecar `<id>.sock.pid`, log `keeper-<id>.log`.
-- Windows: pipe `\\.\pipe\pi-editor-<id>`, PID sidecar `pi-editor-<id>.pid`, log `keeper-<id>.log`.
-
-PID sidecar payload: `{editorId, keeperPid, childPid, port, cwd, dataDir, binary, spawnedAt}`.
-
-Protocol: JSON lines over the socket / pipe. Cmds: `heartbeat`, `getStatus`, `stop`. Events: `ack`, `status`, `child_exit`.
-
-Boot order in `server.start()`: `editorPidRegistry.adoptOrphans()` reattaches every live keeper via `editorManager.adopt(...)`; `editorPidRegistry.cleanupOrphans()` then sweeps pre-keeper installs (cmdline match on `--user-data-dir <~/.pi/dashboard/editors/...>` with no sidecar).
-
-`editorManager.start(cwd)` 3-way: in-memory hit → `keeperManager.probe(editorId)` adopt → `keeperManager.spawnKeeperFor(cwd)`.
-
-Shutdown: `stopAll()` gated by `editor.stopOnDashboardExit` (default `false`). Default → local map cleanup only; keepers + code-server children + browser tabs all survive. `true` → broadcasts `{cmd:"stop"}` to every keeper.
-
-Spec: [`openspec/changes/add-editor-keeper-sidecar/specs/editor-keeper-sidecar/spec.md`](../openspec/changes/add-editor-keeper-sidecar/specs/editor-keeper-sidecar/spec.md).
-
-### Configuration
-
-```json
-{
-  "editor": {
-    "binary": "/usr/local/bin/code-server",
-    "idleTimeoutMinutes": 10,
-    "maxInstances": 3
-  }
-}
-```
-
-Binary auto-detection order: config override → `code-server` on PATH → `openvscode-server` on PATH.
-
 ### Known Servers Configuration
 
 ```json
@@ -2007,7 +1928,7 @@ Settings → General → **Tools** renders one row per registered tool: status b
 
 ### Migration path
 
-`ToolResolver` remains the low-level PATH search primitive. The registry calls `ToolResolver.which()` from its `where` strategy. Unregistered binary names (e.g., ad-hoc `code-server` detection) still flow through `ToolResolver` directly. This keeps `ToolResolver` useful for one-off lookups and lets the registry focus on tools the dashboard formally depends on.
+`ToolResolver` remains the low-level PATH search primitive. The registry calls `ToolResolver.which()` from its `where` strategy. Unregistered binary names (e.g., ad-hoc `ripgrep` detection) still flow through `ToolResolver` directly. This keeps `ToolResolver` useful for one-off lookups and lets the registry focus on tools the dashboard formally depends on.
 
 See change: `consolidate-tool-resolution`.
 

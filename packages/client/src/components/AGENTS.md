@@ -37,8 +37,6 @@ Files in this directory. One row per source file.
 | `DiffPanel.tsx` | Diff renderer for a selected file. Exports `DiffPanel`. Modes: `diff` (split/unified via… → see `DiffPanel.tsx.AGENTS.md` |
 | `DiffView.tsx` | Minimal line-by-line unified-diff renderer. Exports `DiffView`. Colors `+` lines green, `-` lines red, `@@` hunk headers blue. No syntax highlighting. |
 | `DraggableChangeRow.tsx` | dnd-kit draggable wrapper for OpenSpec change rows. Exports `DraggableChangeRow`. → see `DraggableChangeRow.tsx.AGENTS.md` |
-| `EditorInstallGuide.tsx` | Install guide shown when `code-server` not found. Exports `EditorInstallGuide`. → see `EditorInstallGuide.tsx.AGENTS.md` |
-| `EditorView.tsx` | Embedded VS Code editor panel. Exports `EditorView`. State: loading/ready/error/not_found. → see `EditorView.tsx.AGENTS.md` |
 | `ElapsedBadge.tsx` | Elapsed-time badge. Exports `ElapsedBadge`, `formatElapsed`. Static when `duration` set; live ticking (1s interval) when only `startedAt` set. Formats <1s / Ns / Nm Ns / Nh Nm. |
 | `ErrorBoundary.tsx` | Generic React error boundary. Exports `ErrorBoundary`. Catches render errors via `getDerivedStateFromError`;… → see `ErrorBoundary.tsx.AGENTS.md` |
 | `ExploreDialog.tsx` | Modal dialog for OpenSpec Explore prompts. Textarea + `useImagePaste` for pasted images; `Cmd/Ctrl+Enter` sends `onSend(text, images?)`. Renders shared `ImagePreviewStrip`. Exports `ExploreDialog`. |
@@ -46,7 +44,8 @@ Files in this directory. One row per source file.
 | `FilePreviewContext.tsx` | Owns hoisted file-preview open-state above chat message list. → see `FilePreviewContext.tsx.AGENTS.md` |
 | `FilePreviewOverlay.tsx` | Modal overlay. Reads file via `/api/file?cwd&path`. Routes by ext: `.md`/`.mdx` → `MarkdownContent`; image →… → see `FilePreviewOverlay.tsx.AGENTS.md` |
 | `FirstLaunchDisplayModal.tsx` | One-shot preset picker (simple / standard / everything) shown when `/api/preferences/display.global ===… → see `FirstLaunchDisplayModal.tsx.AGENTS.md` |
-| `FolderActionBar.tsx` | Sidebar folder-group action bar. Buttons: Terminals(N), Editor (code-server status-colored), native editors… → see `FolderActionBar.tsx.AGENTS.md` |
+| `FolderActionBar.tsx` | Sidebar folder-group action bar. Buttons: Terminals(N), Editor (plain button → `/folder/:cwd/editor` internal pane), Clean up broken, Directory Settings. Native-editor / code-server status wiring removed. See change: remove-external-editor-integration. → see `FolderActionBar.tsx.AGENTS.md` |
+| `FolderEditorView.tsx` | Folder-scoped internal Monaco pane. Wraps `SplitWorkspaceProvider` keyed by `folderPaneId(cwd)`, renders `EditorPane` full-width; omits session file-watch (no changed-on-disk banner in folder scope, Non-Goal v1). Replaces removed external `EditorView`. Exports `FolderEditorView`. See change: remove-external-editor-integration. |
 | `FolderNeedsYouPill.tsx` | Folder-header "N need you" rollup pill. Counts chat-routed ask_user child sessions; excludes widget-bar via… → see `FolderNeedsYouPill.tsx.AGENTS.md` |
 | `FolderOpenSpecSection.tsx` | Slim single-line navigation entry `OpenSpec (N) →` to board route + Refresh + Specs/Archive buttons. → see `FolderOpenSpecSection.tsx.AGENTS.md` |
 | `FolderSpawnButtons.tsx` | Stacked spawn buttons in folder header: `+ New Session` (green, always) + `+ New Worktree` (orange, gated by `showWorktree`). Min-height 44px on mobile. Exports `FolderSpawnButtons`. |
@@ -69,7 +68,7 @@ Files in this directory. One row per source file.
 | `MergeConfirmDialog.tsx` | Fetches `/api/git/worktree/diff-stat`; renders 5-line summary; delete-branch checkbox. → see `MergeConfirmDialog.tsx.AGENTS.md` |
 | `MermaidBlock.tsx` | Renders fenced mermaid blocks via lazy `mermaid.render()`. → see `MermaidBlock.tsx.AGENTS.md` |
 | `MissingRequiredBanner.tsx` | Top banner for missing `required` recommended extensions (`useRecommendedExtensions`). → see `MissingRequiredBanner.tsx.AGENTS.md` |
-| `MobileActionMenu.tsx` | Kebab session-action menu for mobile. Rows: rename, hide/unhide, resume/fork, native editors, OpenSpec… → see `MobileActionMenu.tsx.AGENTS.md` |
+| `MobileActionMenu.tsx` | Kebab session-action menu for mobile. Rows: rename, hide/unhide, resume/fork, OpenSpec… Native-editor rows removed (change: remove-external-editor-integration). → see `MobileActionMenu.tsx.AGENTS.md` |
 | `MobileOverlay.tsx` | Mobile sidebar overlay (`md:hidden`): fixed backdrop + left 72-width panel. Exports `HamburgerButton` (menu trigger) and `MobileOverlay`. |
 | `MobileShell.tsx` | Two-panel mobile shell (list + detail) with CSS-transform slide transitions and `useSwipeBack` (finger-tracked transform). Depth 0=list, 1=detail, 2=preview reuses detail panel. Exports `MobileShell`. |
 | `ModelProxySection.tsx` | Settings panel section for model proxy. Exports `ModelProxySection`, `ModelProxyConfig`. → see `ModelProxySection.tsx.AGENTS.md` |
