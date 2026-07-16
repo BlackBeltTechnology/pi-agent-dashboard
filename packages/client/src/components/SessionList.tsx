@@ -286,7 +286,17 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // Show toast for spawn results
   useEffect(() => {
     if (spawnResult) {
-      showToast(spawnResult.success ? spawnResult.message : `${t("sessionList.sessionFailed", undefined, "+Session failed")}: ${spawnResult.message}`);
+      // Split the ternary so success/failure carry distinct severity variants
+      // — a trailing single arg would tag BOTH branches. See change:
+      // unify-message-severity-colors (D3).
+      if (spawnResult.success) {
+        showToast(spawnResult.message, "success");
+      } else {
+        showToast(
+          `${t("sessionList.sessionFailed", undefined, "+Session failed")}: ${spawnResult.message}`,
+          "error",
+        );
+      }
       onSpawnResultSeen?.();
     }
   }, [spawnResult, showToast, onSpawnResultSeen]);

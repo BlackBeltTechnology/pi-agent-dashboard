@@ -1,8 +1,13 @@
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ToastVariant } from "../components/Toast.js";
 import { t } from "../lib/i18n";
 
-export type ToastVariant = "error" | "success" | "info";
+// Single canonical definition lives in Toast.tsx; re-exported here so existing
+// `import { ToastVariant } from "../hooks/useAsyncAction"` consumers keep working
+// without a second, drift-prone declaration. See change:
+// unify-message-severity-colors (D7).
+export type { ToastVariant };
 
 /**
  * Options for {@link useAsyncAction}.
@@ -113,9 +118,11 @@ export function useAsyncAction<T = unknown>(
         });
       }
       timerRef.current = setTimeout(() => {
+        // Passive background hint — neutral, not mild-attention info. See
+        // change: unify-message-severity-colors (D5).
         o.showToast?.(
           o.stillWorkingToast ?? t("common.stillWorking", undefined, "Still working in the background…"),
-          "info",
+          "neutral",
         );
         finish();
       }, o.confirmTimeoutMs ?? DEFAULT_TIMEOUT_MS);

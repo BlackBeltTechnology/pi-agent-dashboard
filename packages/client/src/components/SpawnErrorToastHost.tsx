@@ -28,14 +28,14 @@ export function SpawnErrorToastHost() {
       {entries.map((e) => (
         <div
           key={e.id}
-          className="pointer-events-auto flex items-start gap-2 px-3 py-2 bg-red-900/90 text-red-200 text-sm rounded-lg shadow-lg border border-red-800 max-w-sm"
+          className="pointer-events-auto flex items-start gap-2 px-3 py-2 bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] text-sm rounded-lg shadow-lg border border-[var(--severity-error-border)] max-w-sm"
           data-testid={`spawn-error-toast-${e.id}`}
         >
           <span className="flex-1 whitespace-pre-line">{e.message}</span>
           <button
             type="button"
             onClick={() => dismissSpawnErrorToast(e.id)}
-            className="text-red-300/70 hover:text-red-100 flex-shrink-0 leading-none"
+            className="text-[var(--severity-error-fg)]/70 hover:text-[var(--severity-error-fg)] flex-shrink-0 leading-none"
             aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
             title={i18nT("common.dismiss", undefined, "Dismiss")}
           >

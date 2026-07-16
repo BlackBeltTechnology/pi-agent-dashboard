@@ -44,12 +44,18 @@ function levelIcon(level: ToastEntry["level"]): string {
   }
 }
 
+// Protocol `level` names bridge onto the shared --severity-* color tokens.
+// The protocol keeps `warn` (shared/types.ts); the token is `warning`, so the
+// `warn` branch maps explicitly onto the --severity-warning-* triple. Without
+// this bridge a protocol `warn` toast would address a token name that is never
+// declared (there is no `warn`-spelled severity token).
+// See change: unify-message-severity-colors (D5b).
 function levelClass(level: ToastEntry["level"]): string {
   switch (level) {
-    case "success": return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300";
-    case "warn":    return "border-amber-500/40 bg-amber-500/10 text-amber-300";
-    case "error":   return "border-red-500/40 bg-red-500/10 text-red-300";
-    default:        return "border-blue-500/40 bg-blue-500/10 text-blue-300";
+    case "success": return "border-[var(--severity-success-border)] bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)]";
+    case "warn":    return "border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)]";
+    case "error":   return "border-[var(--severity-error-border)] bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)]";
+    default:        return "border-[var(--severity-info-border)] bg-[var(--severity-info-bg)] text-[var(--severity-info-fg)]";
   }
 }
 

@@ -13,6 +13,7 @@ import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/
 import type { CommandInfo, DashboardSession, FileEntry, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback, useEffect, useRef } from "react";
 import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
+import type { ToastVariant } from "../components/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/coalesce-live-events.js";
 import { isVisibleCwd } from "../lib/cwd-visibility.js";
@@ -154,7 +155,7 @@ export interface MessageHandlerDeps {
    * auto-name a session). Optional for back-compat / lean test contexts.
    * See change: add-auto-session-naming.
    */
-  showToast?: (text: string, variant?: "error" | "success" | "info") => void;
+  showToast?: (text: string, variant?: ToastVariant) => void;
 }
 
 export function useMessageHandler(

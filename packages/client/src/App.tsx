@@ -630,7 +630,7 @@ export default function App() {
         persistLastServer: (h, p) => {
           localStorage.setItem(LAST_SERVER_KEY, `${h}:${p}`);
         },
-        notifyError: (msg) => showToast(msg),
+        notifyError: (msg) => showToast(msg, "error"),
       },
     ).finally(() => {
       inFlightSwitchKeyRef.current = null;
@@ -1921,7 +1921,7 @@ export default function App() {
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>
       <DisplayPrefsProvider value={displayPrefsContextValue}>
-      <CommitDialogProvider onCommitted={(shortHash, cwd) => { showToast(`Committed ${shortHash}`); void refreshGitStatus(cwd); }}>
+      <CommitDialogProvider onCommitted={(shortHash, cwd) => { showToast(`Committed ${shortHash}`, "success"); void refreshGitStatus(cwd); }}>
       <PluginContextProvider
         registry={_pluginRegistry}
         sessions={allSessionsList}

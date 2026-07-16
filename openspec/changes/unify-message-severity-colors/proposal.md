@@ -7,7 +7,7 @@ Message surfaces use multiple parallel color systems, so severity no longer maps
 ## What Changes
 
 - Introduce a single **color source of truth** — a `--severity-{error,warning,success,info,neutral}` token set — that every message surface derives its box/fg/border from. This unifies **color**, not the per-surface variant *strings* (the plugin toast protocol keeps its own vocabulary; see Non-Goals).
-- Each severity token is a **triple** (`--severity-<level>-{bg,fg,border}`) derived from one base accent via `color-mix` — `bg` mixes into `--bg-tertiary`, `fg` toward `--text-primary` (both theme-aware) — so the muted translucent box look is preserved and passes WCAG in **both** light and dark. A single flat accent, or mixing toward a hardcoded `white`, would regress (light-mode text ~1.6:1).
+- Each severity token is a **triple** (`--severity-<level>-{bg,fg,border}`) derived from one base accent via `color-mix` — `bg` mixes into `--bg-tertiary` (10%), `fg` toward `--text-primary` (46%), both theme-aware — so the muted translucent box look is preserved. A single flat accent, or mixing toward a hardcoded `white`, would regress (light-mode text ~1.6:1). Contrast is verified by a **relative** gate (a 3:1 legibility floor across all 9 themes × light+dark, full AA 4.5:1 on the majority) rather than an absolute AA-everywhere gate — 5/18 theme·mode combos already ship sub-AA base text, so no derived tint can beat them; see design D6.
 - Add a `warning` tier to the client `ToastVariant` / `VARIANT_CLASSES`, colored **orange** (`--accent-orange #f97316`), distinct from working-yellow (`--status-working`).
 - **BREAKING (behavioral):** flip the `showToast` default variant from `error` → `neutral`. This is a **co-requisite** with tagging every currently-untagged **error** call site `"error"` (see Impact) — otherwise real errors silently downgrade to gray. The prior draft's claim that no error path relied on the default was **wrong**; three do.
 - Tag call sites explicitly: **success** → spawn-success (`SessionList.tsx`), `Committed <hash>` (`App.tsx`); **error** → `notifyError` (`App.tsx:635`), open-editor failure (`SessionList.tsx:292`), spawn-failure branch (`SessionList.tsx:304`).
@@ -45,5 +45,5 @@ Message surfaces use multiple parallel color systems, so severity no longer maps
 
 ## Discipline Skills
 
-- `accessibility-a11y` — WCAG AA contrast floor for orange/blue, and for the derived triples in both light and dark themes.
+- `accessibility-a11y` — the relative contrast gate (3:1 floor / AA-on-majority) for the derived triples across all 9 themes × light+dark; see design D6 for why absolute AA-everywhere is unsatisfiable.
 - `code-simplification` — de-duplicating `ToastVariant` and collapsing raw literals into one token set.
