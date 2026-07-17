@@ -1,7 +1,7 @@
 ---
 name: systematic-debugging
 description: Root-cause a bug already in front of you, instead of guessing at fixes. Use on triggers like "root cause this", "why is this failing", "debug systematically", "this test is flaky", "it works locally but not in CI", or when a fix attempt has already failed once. Enforces a phased evidence-first process before any code change. Not a feature-build or ship workflow.
-related_skills: doubt-driven-review, code-review, observability-instrumentation
+related_skills: doubt-driven-review, review-code, observability-instrumentation
 ---
 
 # Systematic Debugging

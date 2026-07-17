@@ -1,5 +1,5 @@
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiArrowLeft, mdiCrosshairsGps, mdiFileCompare, mdiHeadLightbulb, mdiLinkOff, mdiPaperclip, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiRefresh, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
+import { mdiArrowLeft, mdiCrosshairsGps, mdiFileCompare, mdiLinkOff, mdiPaperclip, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiRefresh, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useRef, useState } from "react";
 import { useMobile } from "../hooks/useMobile.js";
@@ -406,23 +406,24 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
               <Icon path={mdiPencilOutline} size={0.5} />
             </button>
           )}
-          {onSeekToCard && (
-            <button
-              type="button"
-              onClick={onSeekToCard}
-              className="ml-0.5 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
-              title={i18nT("session.seekToCard", undefined, "Seek to this session's card in the sidebar")}
-              data-testid="session-header-seek-card"
-            >
-              <Icon path={mdiCrosshairsGps} size={0.45} />
-              {i18nT("session.seek", undefined, "Seek")}
-            </button>
-          )}
         </span>
       )}
-      {(state.model || session.model) && <span className="text-[var(--text-secondary)]">{state.model || session.model}</span>}
-      {(state.thinkingLevel || session.thinkingLevel) && (
-        <span className="text-[var(--text-tertiary)] inline-flex items-center gap-0.5"><Icon path={mdiHeadLightbulb} size={0.45} /> {state.thinkingLevel || session.thinkingLevel}</span>
+      {/* Single view selector — sits after name+rename, immediately before Seek
+          (change: redesign-split-layout-controls). Model + thinking level were
+          dropped from the header (both already render on the session card); the
+          pi version segment below is kept as the only per-session pi surface. */}
+      <LayoutModeSwitch />
+      {onSeekToCard && (
+        <button
+          type="button"
+          onClick={onSeekToCard}
+          className="ml-0.5 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
+          title={i18nT("session.seekToCard", undefined, "Seek to this session's card in the sidebar")}
+          data-testid="session-header-seek-card"
+        >
+          <Icon path={mdiCrosshairsGps} size={0.45} />
+          {i18nT("session.seek", undefined, "Seek")}
+        </button>
       )}
       {/* pi version the session actually runs, reported by the bridge. */}
       {/* See change: restore-pi-version-skew-surface. */}
@@ -442,8 +443,6 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       )}
       {/* OpenSpec + Flow buttons */}
       <span className="flex-1" />
-      {/* Layout-mode switch (Chat│Split│Editor; self-contained; no-op without a session). */}
-      <LayoutModeSwitch />
       {onAttachProposal && openspecChanges && openspecChanges.length > 0 && (
         attached ? (
           <span className="text-[10px] flex items-center gap-1 mr-2">

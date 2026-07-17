@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", () => ({
   numstatOr: vi.fn(() => ""),
@@ -13,20 +13,20 @@ vi.mock("node:fs", () => ({
 }));
 
 import { existsSync, readFileSync, statSync } from "node:fs";
+import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { isGitRepo } from "../git-operations.js";
 import {
+  bashOutputCandidates,
+  buildSessionDiff,
+  enrichWithGitDiff,
+  extractBashWindows,
   extractFileChanges,
   gitNumstat,
-  enrichWithGitDiff,
-  buildSessionDiff,
   parsePorcelain,
-  bashOutputCandidates,
   redactCommand,
-  extractBashWindows,
 } from "../session-diff.js";
-import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
-import { isGitRepo } from "../git-operations.js";
-import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 
 function makeEvent(eventType: string, timestamp: number, data: Record<string, unknown> = {}): DashboardEvent {
   return { eventType, timestamp, data: { type: eventType, ...data } };
@@ -110,15 +110,24 @@ describe("extractFileChanges", () => {
     expect(result[0].changes[1].timestamp).toBe(3000);
   });
 
-  it("should filter out absolute paths outside cwd", () => {
+  it("carries out-of-cwd absolute paths (in-cwd keyed relative)", () => {
+    // Behavior change (opt-in-out-of-cwd-session-diffs): out-of-cwd Write/Edit
+    // entries are no longer dropped — they are carried keyed by absolute path.
     const events = [
       makeToolStart("Write", { path: "/tmp/scratch.ts", content: "x" }, 1000),
       makeToolStart("Write", { path: "/project/src/inside.ts", content: "y" }, 2000),
       makeToolStart("Write", { path: "src/relative.ts", content: "z" }, 3000),
     ];
     const result = extractFileChanges(events, cwd);
-    expect(result).toHaveLength(2);
-    expect(result.map((f) => f.path).sort()).toEqual(["src/inside.ts", "src/relative.ts"]);
+    expect(result).toHaveLength(3);
+    expect(result.map((f) => f.path).sort()).toEqual([
+      "/tmp/scratch.ts",
+      "src/inside.ts",
+      "src/relative.ts",
+    ]);
+    // Out-of-cwd carries its content payload intact.
+    const scratch = result.find((f) => f.path === "/tmp/scratch.ts");
+    expect(scratch?.changes[0].content).toBe("x");
   });
 
   it("should extract preceding assistant message as context", () => {
@@ -601,5 +610,91 @@ describe("buildSessionDiff — degradation", () => {
     expect(isRepo).toBe(false);
     expect(files.some((f) => f.path === "src/a.ts")).toBe(true);
     expect(otherChanges).toEqual([]);
+  });
+});
+
+// opt-in-out-of-cwd-session-diffs: out-of-cwd Write/Edit entries are carried
+// PAYLOAD-ONLY (absolute key, no fs/git enrichment, previewable:false).
+describe("buildSessionDiff — out-of-cwd carry", () => {
+  beforeEach(() => {
+    vi.mocked(isGitRepo).mockReset().mockReturnValue(true);
+    vi.mocked(git.diffOr).mockReset().mockReturnValue("");
+    vi.mocked(git.numstatOr).mockReset().mockReturnValue("");
+    vi.mocked(git.statusPorcelainOr).mockReset().mockReturnValue("");
+    vi.mocked(existsSync).mockReset().mockReturnValue(true);
+    vi.mocked(readFileSync).mockReset().mockImplementation((_p: any, enc: any) =>
+      enc === "utf-8" ? "x" : Buffer.from("x"),
+    );
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 0 } as any);
+  });
+
+  it("E1 — out-of-cwd carried, payload-only (abs key, no gitDiff)", () => {
+    const events = [
+      makeToolStart("Write", { path: "/tmp/mockup/index.html", content: "<h1>hi</h1>" }, 1000),
+    ];
+    const { files } = buildSessionDiff(events, "/repo");
+    const entry = files.find((f) => f.path === "/tmp/mockup/index.html");
+    expect(entry).toBeDefined();
+    expect(entry!.changes[0].content).toBe("<h1>hi</h1>");
+    expect(entry!.gitDiff).toBeUndefined();
+    expect(entry!.sessionOwned).toBe(true);
+    expect(entry!.previewable).toBe(false);
+  });
+
+  it("E2 — in-cwd unchanged regression (relative key, enriched)", () => {
+    vi.mocked(git.diffOr).mockReturnValue("diff --git a/src/a.ts b/src/a.ts\n@@ -1 +1 @@\n-a\n+b");
+    const events = [
+      makeToolStart("Write", { path: "src/a.ts", content: "b" }, 1000),
+    ];
+    const { files } = buildSessionDiff(events, "/repo");
+    const entry = files.find((f) => f.path === "src/a.ts");
+    expect(entry).toBeDefined();
+    expect(entry!.gitDiff).toContain("diff --git a/src/a.ts");
+    expect(entry!.previewable).toBe(true);
+  });
+
+  it("threads toolCallId + marks truncated for a >4 KB content (lazy-fetch trigger, F3)", () => {
+    const truncated = `${"A".repeat(4096)}\n…[truncated]`;
+    const events = [
+      makeToolStart("Write", { path: "/tmp/mockup/big.html", content: truncated }, 1000),
+    ];
+    // makeToolStart stamps toolCallId `tc-1000`.
+    const { files } = buildSessionDiff(events, "/repo");
+    const entry = files.find((f) => f.path === "/tmp/mockup/big.html");
+    expect(entry!.changes[0].truncated).toBe(true);
+    expect(entry!.changes[0].toolCallId).toBe("tc-1000");
+  });
+
+  it("marks truncated for a collapsed >20-op edits array (F3/E5 trigger)", () => {
+    const events = [
+      // The in-memory store collapses edits arrays >20 to this string.
+      makeToolStart("Edit", { path: "/tmp/mockup/big.ts", edits: "[array truncated]" }, 1000),
+    ];
+    const { files } = buildSessionDiff(events, "/repo");
+    const entry = files.find((f) => f.path === "/tmp/mockup/big.ts");
+    expect(entry!.changes[0].truncated).toBe(true);
+    expect(entry!.changes[0].edits).toBeUndefined();
+  });
+
+  it("E3 — SECURITY: guard before enrichment, zero read/git for out-of-cwd", () => {
+    // cwd under repo; write /repo/.env (out-of-cwd, under repo, untracked).
+    const cwd = "/repo/packages/server";
+    const events = [
+      makeToolStart("Write", { path: "/repo/.env", content: "SECRET=1" }, 1000),
+    ];
+    const { files } = buildSessionDiff(events, cwd);
+    const entry = files.find((f) => f.path === "/repo/.env");
+    expect(entry).toBeDefined();
+    expect(entry!.gitDiff).toBeUndefined();
+    // No disk read and no per-file git diff for the out-of-cwd path — and no
+    // existence/stat probe of it either.
+    const readPaths = vi.mocked(readFileSync).mock.calls.map((c) => String(c[0]));
+    expect(readPaths.some((p) => p.includes(".env"))).toBe(false);
+    const diffPaths = vi.mocked(git.diffOr).mock.calls.map((c) => String((c[0] as any)?.path));
+    expect(diffPaths.some((p) => p.includes(".env"))).toBe(false);
+    const existsPaths = vi.mocked(existsSync).mock.calls.map((c) => String(c[0]));
+    expect(existsPaths.some((p) => p.includes(".env"))).toBe(false);
+    const statPaths = vi.mocked(statSync).mock.calls.map((c) => String(c[0]));
+    expect(statPaths.some((p) => p.includes(".env"))).toBe(false);
   });
 });

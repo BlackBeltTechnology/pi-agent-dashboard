@@ -3,8 +3,8 @@
  * (change: fix-session-diff-open-nongit-and-preview).
  * Pins the abs↔rel rule agreement with the server's `normalizePath`.
  */
-import { describe, it, expect } from "vitest";
-import { normalizeUnderCwd } from "../normalize-path.js";
+import { describe, expect, it } from "vitest";
+import { isOutOfCwd, normalizeUnderCwd } from "../normalize-path.js";
 
 describe("normalizeUnderCwd", () => {
   const cwd = "/Users/me/proj";
@@ -54,5 +54,25 @@ describe("normalizeUnderCwd", () => {
     expect(normalizeUnderCwd("/Users/me/proj/src/a.ts", undefined)).toBe(
       "/Users/me/proj/src/a.ts",
     );
+  });
+});
+
+// opt-in-out-of-cwd-session-diffs: out-of-cwd = absolute AND not under cwd.
+describe("isOutOfCwd", () => {
+  it("is false for a relative in-cwd path", () => {
+    expect(isOutOfCwd("src/a.ts", "/repo")).toBe(false);
+  });
+  it("is false for an absolute-under-cwd path", () => {
+    expect(isOutOfCwd("/repo/src/a.ts", "/repo")).toBe(false);
+  });
+  it("is true for an absolute path outside cwd", () => {
+    expect(isOutOfCwd("/tmp/mockup/index.html", "/repo")).toBe(true);
+  });
+  it("is true for a sibling-escape path", () => {
+    expect(isOutOfCwd("/repo-backup/x.ts", "/repo")).toBe(true);
+  });
+  it("treats an absolute path as out-of-cwd when cwd is undefined", () => {
+    // Undefined cwd cannot confine an absolute path → out-of-cwd.
+    expect(isOutOfCwd("/repo/src/a.ts", undefined)).toBe(true);
   });
 });

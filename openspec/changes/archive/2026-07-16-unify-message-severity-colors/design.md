@@ -44,15 +44,23 @@ Verification: after the change, `rg 'showToast\(' packages/client/src` shows eve
 A single flat `--accent-red` cannot reproduce the current `bg-red-900/90 text-red-200 border-red-800` muted-translucent box; `bg-[var(--severity-error)]` would render a saturated solid box (a contrast/usability regression). So each severity is a **triple**. Crucially, the `fg` mixes toward **`--text-primary`** (which flips per theme: `#e5e5e5` dark / `#1a1a1a` light) and the `bg` mixes into **`--bg-tertiary`** (the actual card token: `#1e1e1e` dark / `#f0f0f0` light) — NOT a nonexistent `--bg-card`, and NOT a hardcoded `white`. Mixing toward theme tokens makes one formula pass AA in **both** themes (light gets dark text on a pale box; dark gets light text on a deep box):
 
 ```css
---severity-error-bg:     color-mix(in srgb, var(--accent-red) 16%, var(--bg-tertiary));
---severity-error-fg:     color-mix(in srgb, var(--accent-red) 70%, var(--text-primary));
+--severity-error-bg:     color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+--severity-error-fg:     color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
 --severity-error-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
-/* …warning (orange), success (green), info (blue), neutral (--text-muted) analogously */
+/* …warning (orange), success (green), info (blue) analogously; neutral = literal base tokens */
 ```
+
+**Tuned percentages (implementation): bg 10% / fg 46% / border 40%.** These were
+solved offline against the real `themes.ts` token values for all 90 cells
+(`color-mix(in srgb)` = gamma-space lerp; WCAG 2.x luminance). At 10%/46% the
+worst non-exception accent cell is 3.15:1 and 61/72 accent cells clear full AA
+4.5:1 — see D6 for the gate and the single documented exception. Higher accent
+percentages were rejected: they pull `fg` and `bg` toward the same accent, which
+*reduces* contrast (the accent dominates both).
 
 Authored in `index.css` (NOT via `applyThemeVars`/`CSS_VAR_KEYS`) — they resolve against the inline `--accent-*` / `--bg-tertiary` / `--text-primary` a named theme sets at computed-value time, so no per-theme `--severity-*` entry is needed (verified: accents + bg-tertiary + text-primary are all in `CSS_VAR_KEYS`). The base accent stays the single knob; the triple is derived. `VARIANT_CLASSES` references it via arbitrary-value classes (`bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border-[var(--severity-error-border)]`). Exact percentages are tuned against WCAG in implementation (D6).
 
-**Exception — `neutral` is NOT color-mix-derived.** The `neutral` tier is the *absence* of severity, so it reuses the existing subdued UI tokens **literally**: `bg = --bg-tertiary`, `fg = --text-secondary`, `border = --border-primary` (today's `info` look, a proven ~7.7:1). Deriving `neutral` from `--text-muted` via the same mix was measured to **fail AA** (~4.2:1 dark, ~3.7:1 light) — rejected. The four accent tiers (error/warning/success/info) derive via color-mix; `neutral` maps to base semantic tokens. This split is deliberate, not an oversight.
+**Exception — `neutral` is NOT color-mix-derived.** The `neutral` tier is the *absence* of severity, so it reuses the existing subdued UI tokens **literally**: `bg = --bg-tertiary`, `fg = --text-secondary`, `border = --border-primary` (today's `info` look). Deriving `neutral` from `--text-muted` via the same mix was measured to **fail AA** (~4.2:1 dark, ~3.7:1 light) — rejected. The four accent tiers (error/warning/success/info) derive via color-mix; `neutral` maps to base semantic tokens. This split is deliberate, not an oversight. **Correction (impl):** the earlier claim that `--text-secondary`-on-`--bg-tertiary` is "a proven ~7.7:1" holds only for the *base* theme; it ranges down to ~3.67:1 (rose-pine/light) across the 9 themes — see D6. `neutral` still equals the theme's own base text by construction, so it can never be *worse* than the theme already ships.
 
 **Close-button shade.** Each variant's close (×) button reuses its `-fg` at reduced opacity (`text-[var(--severity-<level>-fg)]/70 hover:…/100`) — one derivation, no separate `-close` token.
 
@@ -66,8 +74,55 @@ Note the two "info" meanings the rename splits: `Toast.tsx`'s old `info` is *mut
 ### D5b — CSS var name is `warning`; ToastSlot maps the protocol `warn`  *(new cycle 2)*
 The client vocabulary and tokens use `warning`; the protocol `ToastPayload.level` uses `warn` (non-goal to rename — D8). `ToastSlot.levelClass` maps **all four** branches onto `--severity-*`: `success→success`, `error→error`, `warn→--severity-warning-*` (the name bridge), `default(info)→--severity-info`. Without the `warn` bridge, a protocol `warn` toast would address a nonexistent `--severity-warn-*`. The bridge lives only in `ToastSlot`.
 
-### D6 — Contrast is a gate, verified across all 9 themes × light+dark  *(strengthened; scoped in scenario-design)*
-Verify AA on the *derived* triples, not just the raw accents, across **all 9 named themes** (base, dracula, nord, github, catppuccin, tokyo-night, rose-pine, solarized, gruvbox) in **both** light and dark modes — **18 combos**: body text (`-fg` on `-bg`) ≥ 4.5:1; border/large ≥ 3:1. Orange-on-light and blue-on-dark are the tight cases. If a mix fails in any combo, adjust the percentage — the token indirection localizes the fix. `neutral` (literal tokens) is included in the sweep.
+### D6 — Contrast gate is RELATIVE, verified across all 9 themes × light+dark  *(revised in implementation — resolution A; see SHIP_IT_BLOCKED.md history)*
+
+**The original "AA 4.5:1 body on the derived triples across all 18 combos" gate is
+unsatisfiable — a spec defect caught in implementation.** Two facts kill it:
+
+1. Adding color to text *always* lowers its contrast below the pure base text
+   (a shared accent pulls `fg` and `bg` together). So no *colored* variant can be
+   ≥ its theme's own base text.
+2. **5 of 18 theme·mode combos already ship sub-AA base body text**
+   (`--text-secondary` on `--bg-tertiary`): catppuccin/light 4.05, tokyo-night/light
+   (its `--text-primary` is itself blue — 3.52), rose-pine/light 3.67, solarized/dark
+   4.06, solarized/light 3.95. A derived tint can never beat the tokens it derives
+   from.
+
+**Resolution A (user decision): relative gate + colored boxes.** Keep the
+translucent-tint architecture (D4). Verify, on the *derived* triples, computed in
+a real browser (`getComputedStyle` resolves `color-mix`) across all 9 themes ×
+{light,dark}:
+- **Accent tiers (error/warning/success/info): body contrast ≥ 3:1 floor.** 3:1
+  is the WCAG floor for UI components / large text; here it is a **minimum
+  legibility bar, NOT a body-text AA claim**. At bg 10% / fg 46%, **61 of 72
+  accent cells meet full AA 4.5:1**; the remaining **11/72 land in [3.0, 4.5) and
+  are intentional, documented accessibility exceptions** (sub-AA for normal body
+  text), accepted under resolution A because the color is a *redundant* cue
+  reinforcing the icon + message text. They are explicitly NOT claimed as
+  AA-compliant. The worst non-exception cell is 3.15:1.
+- **`neutral`: literal base tokens** — contrast equals the theme's own
+  `--text-secondary`-on-`--bg-tertiary` (**not** `--text-primary`; e.g.
+  tokyo-night/light `neutral` = 6.59:1 even though that theme's `--text-primary`
+  is only 3.52:1). So `neutral` can never be worse than the theme already ships;
+  its lowest is ~3.67:1 (rose-pine/light) — a documented sub-AA *theme baseline*,
+  not a regression this change introduces.
+- **Border is decorative** (the filled `-bg` identifies the component per WCAG
+  1.4.11) — the earlier `border ≥ 3:1` sub-clause is dropped; a 40%-alpha line
+  cannot meet it and is not required to.
+- **One documented exception:** tokyo-night/light `info` (blue tier on a
+  blue-text theme) lands ~2.7:1. Its ceiling is the theme's own 3.5:1 base text;
+  no derived blue tint can do better. Accepted — `info` is the least-critical tier
+  and the cue is redundant to the icon + text.
+
+The L3 sweep (test-plan E12 / tasks 5.12) encodes exactly this: per-cell floor
+**3:1 for accent tiers**; `neutral` ≥ its theme base ratio; the single documented
+exception (tokyo-night/light `info`, **measured ~2.7:1**) is asserted at **≥ 2.5**
+to leave browser-rounding margin below the ~2.7 measurement. Plus a coverage
+assertion that **≥ 55 of the 90 cells meet full AA 4.5:1** — a conservative gate
+floor; the implementation actually measures **75/90** (of which **61/72 are
+accent cells**). Denominators kept distinct: accent-cell AA = 61/72; total-cell
+AA (accent + neutral) = 75/90; the test's coverage gate uses the total-cell
+floor 55/90.
 
 ### D7 — Type de-duplication  *(new)*
 Collapse the two `ToastVariant` definitions to one canonical export (keep `Toast.tsx`'s; `useAsyncAction.ts` re-exports it) and replace the inline union at `useMessageHandler.ts:153` with `ToastVariant`. Otherwise adding `warning`/`neutral` type-errors the consumers importing the stale definition.

@@ -323,14 +323,16 @@ npm run reload
 ```
 `full-rebuild.ts` = **deploy** the checked-out dev version to the local running instance. NOT a feature-implementation step; worktree / Docker-isolated work does not run it.
 
-### Code-review gate (implementation phase)
-At implementation completion, before commit, run the advisory CodeRabbit gate on the diff. **Server-independent + worktree-safe** (no build, no restart) — works in a git worktree and alongside the Docker-isolated instance:
+### Code-review gates (implementation phase) — two tiers
+Review is split by moment. Inner loop uses an unlimited engine; the cloud quota is reserved for the PR.
+- **Inner loop (during dev, per non-trivial change):** the `review-code` discipline (eng-disciplines). Engine-agnostic, runs on an unlimited model engine — review the diff, fix blocking findings surgically, re-review, before commit. No cloud quota spent.
+- **Ship gate (opt-in, PR-time):** the advisory CodeRabbit gate. **Server-independent + worktree-safe** (no build, no restart) — works in a git worktree and alongside the Docker-isolated instance. **Opt-in** so its rate-limited quota is unspent during dev:
 ```bash
-npx tsx .pi/skills/implement/scripts/review-changes.ts          # uncommitted diff (default)
-npx tsx .pi/skills/implement/scripts/review-changes.ts -t committed --base main
-SKIP_CR_REVIEW=1 npx tsx .pi/skills/implement/scripts/review-changes.ts   # skip
+RUN_CR_REVIEW=1 npx tsx .pi/skills/implement/scripts/review-changes.ts             # opt in (uncommitted)
+npx tsx .pi/skills/implement/scripts/review-changes.ts --ship -t committed --base main
+npx tsx .pi/skills/implement/scripts/review-changes.ts                             # default: skips, points to review-code
 ```
-Warn-and-continue, never blocks: CodeRabbit is cloud rate-limited (no local model); on limit / missing CLI / auth failure it defers to a later cycle and exits 0. Fix Critical/Warning, then commit. Triage + fix loop: `code-review` skill.
+Warn-and-continue, never blocks: CodeRabbit is cloud rate-limited (no local model); on limit / missing CLI / auth failure it defers to a later cycle and exits 0. Fix Critical/Warning, then commit. CodeRabbit triage + fix loop: `code-review` skill.
 
 ### Code-quality gate (Biome ratchet)
 Static analysis via Biome. `npm run quality:changed` = oracle (biome `--changed` + `tsc --noEmit` + `npm test`, single exit code; goal-loop drivable). Tier A `error` (hard-gates CI), Tier B/C `warn`. Procedure: `code-quality` skill. Full ref: [`docs/code-quality.md`](docs/code-quality.md).
@@ -346,9 +348,10 @@ During implementation, invoke the matching `eng-disciplines` skill when a task s
 | non-trivial/irreversible step (migration, public API, cross-boundary) BEFORE it stands | `doubt-driven-review` |
 | a bug surfaces mid-implementation | `systematic-debugging` |
 | runtime state opaque, `console.log` insufficient (jiti server, PTY workers, WS closures) | `node-inspect-debugger` |
+| non-trivial change written + tests pass, BEFORE commit | `review-code` |
 | feature works + tests pass but the implementation feels heavy | `code-simplification` |
 
-The end gates (`code-review`, `code-quality`) remain unchanged and run at completion before commit.
+Code review is two-tier: `review-code` inline during the loop, the CodeRabbit gate opt-in at PR (above). The `code-quality` gate runs at completion before commit.
 
 ### Check current mode
 ```bash

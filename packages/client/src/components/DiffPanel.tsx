@@ -4,7 +4,7 @@
  * and git aggregate diff.
  */
 
-import type { FileChangeEvent, FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import type { EditOperation, FileChangeEvent, FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { highlighter } from "@git-diff-view/lowlight";
 import { DiffModeEnum, DiffView } from "@git-diff-view/react";
 import { mdiCompare, mdiEyeOutline, mdiFileOutline, mdiViewSequential, mdiViewSplitVertical } from "@mdi/js";
@@ -94,6 +94,52 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
     ? file.changes[selection.changeIndex] ?? null
     : null;
 
+  // The change actually rendered (selected, else the file's last change). When
+  // its payload was trimmed in memory (`truncated`), lazily upgrade to the FULL
+  // payload from the session JSONL via the session-addressed endpoint (never a
+  // path). See change: opt-in-out-of-cwd-session-diffs.
+  const activeChange = change ?? file.changes[file.changes.length - 1] ?? null;
+  const [fullPayload, setFullPayload] = useState<{ content?: string; edits?: EditOperation[] } | null>(null);
+  const [fullFetchError, setFullFetchError] = useState(false);
+
+  useEffect(() => {
+    setFullPayload(null);
+    setFullFetchError(false);
+    const tc = activeChange?.toolCallId;
+    if (!activeChange?.truncated || !tc) return;
+    let cancelled = false;
+    fetch(`${getApiBase()}/api/session-change/${encodeURIComponent(sessionId)}/${encodeURIComponent(tc)}`)
+      .then((res) => res.json())
+      .then((body) => {
+        if (cancelled) return;
+        // Accept only a well-formed payload (string `content` or an `edits`
+        // array). A `{ success:true, data:{} }` miss falls through to the
+        // truncation banner rather than silently rendering nothing.
+        const data = body?.success ? (body.data as { content?: unknown; edits?: unknown }) : null;
+        if (data && (typeof data.content === "string" || Array.isArray(data.edits))) {
+          setFullPayload(data as { content?: string; edits?: EditOperation[] });
+        } else {
+          setFullFetchError(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFullFetchError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChange?.toolCallId, activeChange?.truncated, sessionId]);
+
+  // Truncated payload with no successful upgrade → a degradation note (never a
+  // blank panel): edits collapsed → "too large inline"; content → "truncated".
+  const stillTruncated = !!activeChange?.truncated && !fullPayload;
+  const truncationNote =
+    stillTruncated && (fullFetchError || !activeChange?.toolCallId)
+      ? activeChange?.type === "edit" && !activeChange?.edits?.length
+        ? i18nT("diff.tooLargeInline", undefined, "Diff too large to show inline")
+        : i18nT("diff.contentTruncated", undefined, "Content truncated — full version unavailable")
+      : null;
+
   // Preview (changed regions of the current file). Available only when the
   // gitDiff yields parseable hunks (disabled for non-git / summed / binary).
   const previewLines = useMemo(() => buildPreviewLines(file.gitDiff), [file.gitDiff]);
@@ -104,6 +150,14 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
   useEffect(() => {
     if (viewMode === "preview" && !previewAvailable) setViewMode("diff");
   }, [viewMode, previewAvailable]);
+
+  // If a refresh flips this entry to out-of-cwd (previewable:false) while File
+  // mode is active, fall back to Diff so the File-view /api/session-file fetch
+  // (which 403s for out-of-cwd) can never fire. See change:
+  // opt-in-out-of-cwd-session-diffs.
+  useEffect(() => {
+    if (viewMode === "file" && file.previewable === false) setViewMode("diff");
+  }, [viewMode, file.previewable]);
 
   // Reset file content when file changes
   useEffect(() => {
@@ -145,9 +199,16 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
   const diffData = useMemo(() => {
     if (viewMode !== "diff") return null; // file/preview modes render directly
 
+    // Merge the lazily-fetched full payload over a (possibly truncated) change.
+    const mergeFull = (c: FileChangeEvent): FileChangeEvent => ({
+      ...c,
+      ...(fullPayload?.content !== undefined ? { content: fullPayload.content } : {}),
+      ...(fullPayload?.edits ? { edits: fullPayload.edits } : {}),
+    });
+
     // Diff view — Path A: change-derived diffs (oldText/newText)
     if (change) {
-      const texts = buildChangeDiffTexts(file.path, change);
+      const texts = buildChangeDiffTexts(file.path, mergeFull(change));
       return texts ? { richDiff: { ...texts, filePath: file.path } } : null;
     }
 
@@ -169,12 +230,12 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
     // Path C: non-git / no gitDiff — derive from the file's own last change.
     const lastChange = file.changes[file.changes.length - 1];
     if (lastChange) {
-      const texts = buildChangeDiffTexts(file.path, lastChange);
+      const texts = buildChangeDiffTexts(file.path, mergeFull(lastChange));
       return texts ? { richDiff: { ...texts, filePath: file.path } } : null;
     }
 
     return null;
-  }, [file, change, viewMode, fileContent]);
+  }, [file, change, viewMode, fileContent, fullPayload]);
 
   return (
     <div className="flex flex-col h-full">
@@ -190,12 +251,18 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
           >
             <Icon path={mdiCompare} size={0.45} className="inline mr-0.5" />{i18nT("diff.diff", undefined, "Diff")}
           </button>
-          <button
-            className={`px-2 py-0.5 ${viewMode === "file" ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"}`}
-            onClick={() => setViewMode("file")}
-          >
-            <Icon path={mdiFileOutline} size={0.45} className="inline mr-0.5" />{i18nT("common.file", undefined, "File")}
-          </button>
+          {/* The File view fetches /api/session-file, which 403s for out-of-cwd
+              paths (previewable:false). Hide the toggle so it is unreachable.
+              See change: opt-in-out-of-cwd-session-diffs. */}
+          {file.previewable !== false && (
+            <button
+              data-testid="file-view-toggle"
+              className={`px-2 py-0.5 ${viewMode === "file" ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"}`}
+              onClick={() => setViewMode("file")}
+            >
+              <Icon path={mdiFileOutline} size={0.45} className="inline mr-0.5" />{i18nT("common.file", undefined, "File")}
+            </button>
+          )}
           <button
             data-testid="preview-toggle"
             disabled={!previewAvailable}
@@ -228,6 +295,14 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
+        {truncationNote && (
+          <div
+            data-testid="diff-truncation-banner"
+            className="px-3 py-1.5 text-xs text-[var(--text-tertiary)] bg-[var(--bg-tertiary)] border-b border-[var(--border-primary)]"
+          >
+            {truncationNote}
+          </div>
+        )}
         {viewMode === "file" && fileLoading && (
           <div className="flex items-center justify-center h-32 text-[var(--text-tertiary)]">
             {i18nT("status.loadingFile", undefined, "Loading file...")}

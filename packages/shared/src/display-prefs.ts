@@ -76,6 +76,15 @@ export interface DisplayPrefs {
    * See change: stable-process-line.
    */
   reserveProcessLineAtIdle: boolean;
+  /**
+   * When true, the change-summary block lists files this session wrote OUTSIDE
+   * its workspace (out-of-cwd), rendered from the captured Write/Edit payload
+   * (the server never reads the out-of-cwd file). When false (default), those
+   * rows are suppressed — today's safe behavior (no dead diff tab). Display gate
+   * only; there is no server read surface for it to gate.
+   * See change: opt-in-out-of-cwd-session-diffs.
+   */
+  showOutOfCwdSessionDiffs: boolean;
 }
 
 /**
@@ -102,6 +111,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     toolGroupDefaultCollapsed: false,
     changeSummaryTable: false,
     reserveProcessLineAtIdle: false,
+    showOutOfCwdSessionDiffs: false,
   },
   standard: {
     tokenStatsBar: true,
@@ -116,6 +126,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     toolGroupDefaultCollapsed: false,
     changeSummaryTable: true,
     reserveProcessLineAtIdle: false,
+    showOutOfCwdSessionDiffs: false,
   },
   everything: {
     tokenStatsBar: true,
@@ -130,6 +141,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     toolGroupDefaultCollapsed: false,
     changeSummaryTable: true,
     reserveProcessLineAtIdle: true,
+    showOutOfCwdSessionDiffs: false,
   },
 };
 
@@ -164,6 +176,8 @@ export function mergeDisplayPrefs(
     changeSummaryTable: override.changeSummaryTable ?? global.changeSummaryTable,
     reserveProcessLineAtIdle:
       override.reserveProcessLineAtIdle ?? global.reserveProcessLineAtIdle,
+    showOutOfCwdSessionDiffs:
+      override.showOutOfCwdSessionDiffs ?? global.showOutOfCwdSessionDiffs,
   };
 }
 

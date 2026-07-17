@@ -1,7 +1,15 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
 
-export type ToastVariant = "error" | "success" | "info";
+/** Canonical toast severity vocabulary. Single source of truth: other
+ *  consumers (`useAsyncAction`, `useMessageHandler`) re-reference this type
+ *  rather than redeclaring it. See change: unify-message-severity-colors. */
+export type ToastVariant =
+  | "error"
+  | "warning"
+  | "success"
+  | "info"
+  | "neutral";
 
 /** Optional action affordance rendered as a button inside a toast. */
 export interface ToastAction {
@@ -12,7 +20,7 @@ export interface ToastAction {
 export interface ToastMessage {
   id: number;
   text: string;
-  /** Defaults to "error" (legacy red styling) when omitted. */
+  /** Defaults to "neutral" (subdued, no severity) when omitted. */
   variant?: ToastVariant;
   /** Optional action button (e.g. Retry). Renders when present. */
   action?: ToastAction;
@@ -23,18 +31,29 @@ export interface ToastMessage {
 
 let nextId = 0;
 
+// Every variant sources its box + close-button color from the shared
+// --severity-* triple tokens (index.css). The close (×) reuses the variant's
+// -fg at reduced opacity — one derivation, no separate -close token.
 const VARIANT_CLASSES: Record<ToastVariant, { box: string; close: string }> = {
   error: {
-    box: "bg-red-900/90 text-red-200 border-red-800",
-    close: "text-red-300/70 hover:text-red-100",
+    box: "bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border-[var(--severity-error-border)]",
+    close: "text-[var(--severity-error-fg)]/70 hover:text-[var(--severity-error-fg)]",
+  },
+  warning: {
+    box: "bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border-[var(--severity-warning-border)]",
+    close: "text-[var(--severity-warning-fg)]/70 hover:text-[var(--severity-warning-fg)]",
   },
   success: {
-    box: "bg-green-900/90 text-green-200 border-green-800",
-    close: "text-green-300/70 hover:text-green-100",
+    box: "bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)] border-[var(--severity-success-border)]",
+    close: "text-[var(--severity-success-fg)]/70 hover:text-[var(--severity-success-fg)]",
   },
   info: {
-    box: "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-primary)]",
-    close: "text-[var(--text-muted)] hover:text-[var(--text-primary)]",
+    box: "bg-[var(--severity-info-bg)] text-[var(--severity-info-fg)] border-[var(--severity-info-border)]",
+    close: "text-[var(--severity-info-fg)]/70 hover:text-[var(--severity-info-fg)]",
+  },
+  neutral: {
+    box: "bg-[var(--severity-neutral-bg)] text-[var(--severity-neutral-fg)] border-[var(--severity-neutral-border)]",
+    close: "text-[var(--severity-neutral-fg)]/70 hover:text-[var(--severity-neutral-fg)]",
   },
 };
 
@@ -69,7 +88,7 @@ function ToastItem({ message, onDismiss }: {
     return () => clearTimeout(timer);
   }, [message.noAutoDismiss, dismiss]);
 
-  const styles = VARIANT_CLASSES[message.variant ?? "error"];
+  const styles = VARIANT_CLASSES[message.variant ?? "neutral"];
 
   return (
     <div
@@ -110,7 +129,7 @@ export function useToast() {
 
   const showToast = (
     text: string,
-    variant: ToastVariant = "error",
+    variant: ToastVariant = "neutral",
     opts?: { action?: ToastAction; noAutoDismiss?: boolean },
   ) => {
     const id = nextId++;

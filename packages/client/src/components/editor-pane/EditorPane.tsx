@@ -19,13 +19,13 @@ import { grepContents } from "../../lib/grep-api.js";
 import { useI18n } from "../../lib/i18n";
 import { useRailWidth } from "../../lib/rail-width.js";
 import { useTreeVisible } from "../../lib/tree-visible.js";
+import { stripTermId } from "../../lib/use-terminal-pane-tabs.js";
 import { SplitDivider } from "../SplitDivider.js";
 import { useSplitWorkspace } from "../SplitWorkspaceContext.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import { ChangesRailSection } from "./ChangesRailSection.js";
 import { EditorFileTree } from "./EditorFileTree.js";
 import { EditorSearchPanel } from "./EditorSearchPanel.js";
-import { stripTermId } from "../../lib/use-terminal-pane-tabs.js";
 import { EditorTabs } from "./EditorTabs.js";
 import { TerminalPaneLayer } from "./TerminalPaneLayer.js";
 import { viewerRegistry } from "./viewer-registry.js";
@@ -153,6 +153,16 @@ export function EditorPane() {
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Header */}
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-primary)] px-3 py-2">
+        {/* Always-visible EDITOR caption, folded into the existing header row
+            (not a second bar). The active file name follows in the span below.
+            See change: redesign-split-layout-controls. */}
+        <span
+          data-testid="pane-caption-editor"
+          className="flex shrink-0 items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--text-tertiary)]"
+        >
+          <span className="h-1.5 w-1.5 rounded-sm bg-[#22c55e] opacity-70" />
+          {t("layout.editor", undefined, "Editor")}
+        </span>
         <button
           type="button"
           onClick={() => setTreeVisible(!treeVisible)}

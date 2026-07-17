@@ -16,17 +16,29 @@ export interface TreeNode {
   file?: FileDiffEntry;
 }
 
+/** Sentinel path for the synthetic "outside workspace" group node. */
+export const OUTSIDE_WORKSPACE_PATH = "\u0000outside-workspace";
+
 /**
  * Build a tree structure from file diff entries.
  * Groups files by directory, collapsing single-child directory chains.
+ *
+ * Out-of-cwd entries (`previewable === false`, keyed by ABSOLUTE path) are NOT
+ * split into the relative tree — an absolute `/tmp/x` would yield a blank-root
+ * (`""`) node and an incoherent mixed tree. They are collected under a distinct
+ * "outside workspace" group node (leaf per file, basename label). See change:
+ * opt-in-out-of-cwd-session-diffs.
  */
 export function buildFileTree(files: FileDiffEntry[]): TreeNode[] {
   if (files.length === 0) return [];
 
-  // Build raw tree
+  const inCwd = files.filter((f) => f.previewable !== false);
+  const outOfCwd = files.filter((f) => f.previewable === false);
+
+  // Build raw tree from in-cwd entries only.
   const root: TreeNode = { name: "", path: "", isDir: true, children: [] };
 
-  for (const file of files) {
+  for (const file of inCwd) {
     const parts = file.path.split("/");
     let current = root;
 
@@ -56,7 +68,27 @@ export function buildFileTree(files: FileDiffEntry[]): TreeNode[] {
   // Collapse single-child directory chains (e.g., src/server → src/server)
   collapseTree(root);
 
-  return root.children;
+  const result = root.children;
+
+  if (outOfCwd.length > 0) {
+    const children: TreeNode[] = outOfCwd
+      .map((file) => ({
+        name: file.path.split(/[/\\]/).pop() || file.path,
+        path: file.path,
+        isDir: false,
+        children: [],
+        file,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    result.push({
+      name: "outside workspace",
+      path: OUTSIDE_WORKSPACE_PATH,
+      isDir: true,
+      children,
+    });
+  }
+
+  return result;
 }
 
 function sortTree(node: TreeNode): void {

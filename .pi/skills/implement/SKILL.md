@@ -53,19 +53,23 @@ npx tsx ./scripts/full-rebuild.ts
 
 Full matrix with edge cases (dev-mode fallback, fault-tolerant restart, single-restart-path rule) lives in [`references/rebuild-matrix.md`](references/rebuild-matrix.md).
 
-## Review gate — before commit (server-independent)
+## Review — two tiers (inner loop vs ship gate)
 
-At implementation completion, before committing, run the advisory CodeRabbit gate on the diff. **Worktree-safe and server-independent** — no build, no restart; reviews the current working tree, so it works in a git worktree and alongside the Docker-isolated instance:
+Review is split by moment. The inner loop runs on an **unlimited** engine every non-trivial change; the rate-limited cloud gate is **reserved for the PR**.
+
+**Inner loop (during dev, before commit) — `review-code` discipline.** After writing a non-trivial change, review the diff with the **`review-code`** skill (eng-disciplines): engine-agnostic — inspect design→correctness→complexity→tests→naming→security, emit labelled findings, fix `issue(blocking)` surgically, re-review until no blocking finding remains, then commit. Runs on a model engine — no cloud quota spent, so run it freely per change.
+
+**Ship gate (opt-in, PR-time) — CodeRabbit.** Reserved for the pull request so its quota is unspent during dev. **Worktree-safe and server-independent** — no build, no restart:
 
 ```bash
-npx tsx ./scripts/review-changes.ts                    # uncommitted diff (default)
-npx tsx ./scripts/review-changes.ts -t committed --base main   # vs base branch
-SKIP_CR_REVIEW=1 npx tsx ./scripts/review-changes.ts   # skip
+RUN_CR_REVIEW=1 npx tsx ./scripts/review-changes.ts             # opt in (uncommitted)
+npx tsx ./scripts/review-changes.ts --ship -t committed --base main
+npx tsx ./scripts/review-changes.ts                            # default: skips → use review-code
 ```
 
-**Warn-and-continue, never blocks**: CodeRabbit is cloud rate-limited; on limit / missing CLI / auth failure it prints "deferred to a later cycle" and exits 0. Fix Critical/Warning findings, then commit. See the **`code-review`** skill for severity triage + the fix loop.
+**Warn-and-continue, never blocks**: CodeRabbit is cloud rate-limited; on limit / missing CLI / auth failure it prints "deferred to a later cycle" and exits 0. Fix Critical/Warning findings, then commit. See the **`code-review`** skill for the CodeRabbit severity triage + fix loop.
 
-> openspec-apply: run this after the last task completes (before suggesting archive/commit). It runs in the worktree without touching the main server.
+> openspec-apply: the `review-code` inner-loop pass runs after each task's code is written; the CodeRabbit gate is opt-in at ship (ship-change owns the PR-time review). Both run in the worktree without touching the main server.
 
 ## The discipline — write less code, write the right code
 
@@ -104,7 +108,8 @@ If your change went red in CI after `git push`, switch to the **`ci-troubleshoot
 - `openspec-new-change` — capture a non-trivial change as an OpenSpec proposal first
 - `openspec-apply-change` — implement tasks from an OpenSpec change with the artifact workflow
 - `openspec-verify-change` — validate implementation matches artifacts before archiving
-- `code-review` — review the diff before committing
+- `review-code` — inner-loop diff review discipline (unlimited engine), before commit
+- `code-review` — the opt-in CodeRabbit ship gate (PR-time)
 - `debug-dashboard` — diagnose a misbehaving running system
 - `ci-troubleshoot` — diagnose failed CI runs after push
 - `release-cut` — when the change is ready to ship as a versioned release

@@ -23,7 +23,7 @@ import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupD
 import type { ToolCallGroup } from "../lib/group-tool-calls.js";
 import { t as i18nT } from "../lib/i18n";
 import { buildTurnSummaries, type TurnSummary } from "../lib/lineDelta.js";
-import { normalizeUnderCwd } from "../lib/normalize-path.js";
+import { isOutOfCwd, normalizeUnderCwd } from "../lib/normalize-path.js";
 import { BashOutputCard } from "./BashOutputCard.js";
 import { ChangeSummaryBlock } from "./ChangeSummaryBlock.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
@@ -306,12 +306,18 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     if (!prefs.changeSummaryTable) return [];
     const raw = buildTurnSummaries(state.messages);
     // Normalize file paths at the source so the displayed row and the
-    // diff-open lookup share the relative key and can never diverge.
-    return raw.map((s) => ({
-      ...s,
-      files: s.files.map((f) => ({ ...f, path: normalizeUnderCwd(f.path, cwd) })),
-    }));
-  }, [state.messages, prefs.changeSummaryTable, cwd]);
+    // diff-open lookup share the relative key and can never diverge. Files this
+    // session wrote OUTSIDE cwd are suppressed unless the opt-in pref is on
+    // (opt-in-out-of-cwd-session-diffs); totals recompute over the kept files.
+    return raw.map((s) => {
+      const files = s.files
+        .filter((f) => prefs.showOutOfCwdSessionDiffs || !isOutOfCwd(f.path, cwd))
+        .map((f) => ({ ...f, path: normalizeUnderCwd(f.path, cwd) }));
+      const totalAdditions = files.reduce((n, f) => n + f.additions, 0);
+      const totalDeletions = files.reduce((n, f) => n + f.deletions, 0);
+      return { ...s, files, totalAdditions, totalDeletions };
+    });
+  }, [state.messages, prefs.changeSummaryTable, prefs.showOutOfCwdSessionDiffs, cwd]);
   const { anchoredSummaries, tailSummary } = useMemo(() => {
     const anchored = new Map<string, TurnSummary>();
     let tail: TurnSummary | null = null;

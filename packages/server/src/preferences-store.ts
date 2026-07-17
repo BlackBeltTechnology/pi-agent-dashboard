@@ -206,6 +206,11 @@ function backfillDisplayPrefs(prefs: DisplayPrefs | undefined): DisplayPrefs | u
   if (typeof out.reserveProcessLineAtIdle !== "boolean") {
     out = { ...out, reserveProcessLineAtIdle: false };
   }
+  // Legacy prefs predating out-of-cwd session diffs default it OFF (opt-in;
+  // suppresses out-of-cwd rows). See change: opt-in-out-of-cwd-session-diffs.
+  if (typeof out.showOutOfCwdSessionDiffs !== "boolean") {
+    out = { ...out, showOutOfCwdSessionDiffs: false };
+  }
   return out;
 }
 
@@ -522,6 +527,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         toolGroupDefaultCollapsed: false,
         changeSummaryTable: false,
         reserveProcessLineAtIdle: false,
+        showOutOfCwdSessionDiffs: false,
       };
       const merged: DisplayPrefs = {
         tokenStatsBar: partial.tokenStatsBar ?? base.tokenStatsBar,
@@ -539,6 +545,8 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         changeSummaryTable: partial.changeSummaryTable ?? base.changeSummaryTable,
         reserveProcessLineAtIdle:
           partial.reserveProcessLineAtIdle ?? base.reserveProcessLineAtIdle,
+        showOutOfCwdSessionDiffs:
+          partial.showOutOfCwdSessionDiffs ?? base.showOutOfCwdSessionDiffs,
       };
       displayPrefs = merged;
       scheduleSave();

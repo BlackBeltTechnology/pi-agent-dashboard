@@ -519,6 +519,21 @@ export const SCENARIOS: Record<string, Scenario> = {
     path: "src/new-file.ts",
     content: "export const x = 1;\n",
   }),
+  // opt-in-out-of-cwd-session-diffs: a Write OUTSIDE the session cwd. pi really
+  // creates the file (writable /tmp in the harness); the server carries it into
+  // data.files keyed by absolute path (payload-only, previewable:false). Drives
+  // tests/e2e/out-of-cwd-session-diffs.spec.ts (F1/F2/F4/F5, X1).
+  "tool-write-out-of-cwd": toolScenario("write", {
+    path: "/tmp/e2e-out-of-cwd/index.html",
+    content: "<!doctype html>\n<h1>out of cwd mockup</h1>\n",
+  }),
+  // A >4 KB out-of-cwd Write: the in-memory event store truncates `content`
+  // (`…[truncated]`) while the session JSONL keeps it whole → the client lazy-
+  // fetches full fidelity (F3). 6000 chars comfortably exceeds the 4 KB cap.
+  "tool-write-out-of-cwd-large": toolScenario("write", {
+    path: "/tmp/e2e-out-of-cwd/big.html",
+    content: `<!doctype html>\n<!-- ${"A".repeat(6000)} -->\n<h1>big out of cwd</h1>\n`,
+  }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
   // Strategy B (reduce-session-replay-traffic): a bash result with > 200 LINES.
   // On a FULL replay the server pre-truncates it to the display form
