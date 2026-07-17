@@ -26,6 +26,14 @@ export interface OpenFile {
    * restrictive CSP. See change: auto-canvas (Section 8 / S34).
    */
   restrictCsp?: boolean;
+  /**
+   * Tab was added/re-signalled in the background (agent auto-open while the
+   * editor was already shown) and has not been activated since. The tab strip
+   * renders an unread dot. INVARIANT: the active tab is never unread — cleared
+   * on any activation (setActive, closeTab re-point). See change:
+   * non-disruptive-file-open.
+   */
+  unread?: boolean;
 }
 
 export interface EditorPaneState {
@@ -37,7 +45,18 @@ export interface EditorPaneState {
 }
 
 export type EditorPaneAction =
-  | { type: "openFile"; path: string; viewer: ViewerKind; restrictCsp?: boolean }
+  | {
+      type: "openFile";
+      path: string;
+      viewer: ViewerKind;
+      restrictCsp?: boolean;
+      /**
+       * Focus intent. `true` (default) activates the opened tab (user click).
+       * `false` adds/re-signals the tab in the background without moving
+       * `activeIndex`, marking it `unread`. See change: non-disruptive-file-open.
+       */
+      activate?: boolean;
+    }
   | { type: "closeTab"; index: number }
   // Close the tab addressed by its full path (stable across index shifts).
   // Used by the terminal-tab reconcile loop, which drops several stale
@@ -73,53 +92,103 @@ function mergeRoots(existing: string[], add: string[]): string[] {
   return merged;
 }
 
+/**
+ * Clear `unread` on the tab at `index` (active-tab-never-unread invariant).
+ * Returns a NEW array so the tab strip re-renders the cleared dot; returns the
+ * SAME array (no churn) when the tab is absent or already read.
+ */
+function clearUnreadAt(openFiles: OpenFile[], index: number): OpenFile[] {
+  if (index < 0 || index >= openFiles.length || !openFiles[index].unread) return openFiles;
+  const next = [...openFiles];
+  next[index] = { ...next[index], unread: false };
+  return next;
+}
+
+/**
+ * Mark the tab at `index` unread (background add / re-signal). Always returns a
+ * NEW array AND a new tab object so the tab strip's per-tab pulse effect re-runs
+ * on a repeat background open of an already-unread tab (re-pulse).
+ */
+function setUnreadAt(openFiles: OpenFile[], index: number): OpenFile[] {
+  const next = [...openFiles];
+  next[index] = { ...next[index], unread: true };
+  return next;
+}
+
+/**
+ * `openFile` reducer case — extracted so the switch stays under the cognitive
+ * complexity budget. Handles the focus-intent matrix: foreground (default)
+ * activates + clears unread; background (`activate:false`) adds/re-signals a tab
+ * without moving `activeIndex`. See change: non-disruptive-file-open.
+ */
+function reduceOpenFile(state: EditorPaneState, action: Extract<EditorPaneAction, { type: "openFile" }>): EditorPaneState {
+  // Reveal the file's row: expand its ancestor dir chain (#5).
+  const treeOpenRoots = mergeRoots(state.treeOpenRoots, ancestorDirs(action.path));
+  const activate = action.activate !== false; // default true (foreground)
+  const existing = state.openFiles.findIndex((f) => f.path === action.path);
+  if (existing >= 0) {
+    // Foreground: activate the existing tab + clear its unread (invariant).
+    if (activate) return { ...state, openFiles: clearUnreadAt(state.openFiles, existing), activeIndex: existing, treeOpenRoots };
+    // Background on the ACTIVE tab → no-op (active tab is never unread).
+    if (existing === state.activeIndex) return { ...state, treeOpenRoots };
+    // Background on an inactive open tab → re-signal unread, keep active.
+    return { ...state, openFiles: setUnreadAt(state.openFiles, existing), treeOpenRoots };
+  }
+  const tab: OpenFile = { path: action.path, viewer: action.viewer, addedAt: Date.now(), restrictCsp: action.restrictCsp };
+  // Background new tab → push unread, keep the current active tab.
+  if (!activate) return { ...state, openFiles: [...state.openFiles, { ...tab, unread: true }], activeIndex: state.activeIndex, treeOpenRoots };
+  const openFiles = [...state.openFiles, tab];
+  return { ...state, openFiles, activeIndex: openFiles.length - 1, treeOpenRoots };
+}
+
+/**
+ * `closeTab` reducer case — extracted to keep the switch under the cognitive
+ * complexity budget. Removes the tab and re-points `activeIndex`, then enforces
+ * the active-tab-never-unread invariant on the tab it lands on.
+ */
+function reduceCloseTab(state: EditorPaneState, index: number): EditorPaneState {
+  if (index < 0 || index >= state.openFiles.length) return state;
+  const openFiles = state.openFiles.filter((_, i) => i !== index);
+  let activeIndex: number;
+  if (openFiles.length === 0) {
+    activeIndex = -1;
+  } else if (index < state.activeIndex) {
+    // A tab before the active one closed — shift the active pointer left.
+    activeIndex = state.activeIndex - 1;
+  } else if (index === state.activeIndex) {
+    // Active tab closed — activate the adjacent tab (next, or last).
+    activeIndex = Math.min(state.activeIndex, openFiles.length - 1);
+  } else {
+    activeIndex = state.activeIndex;
+  }
+  // Invariant: whatever tab activeIndex now lands on must not be unread.
+  return { ...state, openFiles: clearUnreadAt(openFiles, activeIndex), activeIndex };
+}
+
 /** Pure reducer — the single mutation point for pane state. */
 export function editorPaneReducer(state: EditorPaneState, action: EditorPaneAction): EditorPaneState {
   switch (action.type) {
     case "load":
       return action.state;
 
-    case "openFile": {
-      // Reveal the file's row: expand its ancestor dir chain (#5).
-      const treeOpenRoots = mergeRoots(state.treeOpenRoots, ancestorDirs(action.path));
-      const existing = state.openFiles.findIndex((f) => f.path === action.path);
-      if (existing >= 0) {
-        // Idempotent: activate the existing tab, never duplicate.
-        return { ...state, activeIndex: existing, treeOpenRoots };
-      }
-      const openFiles = [...state.openFiles, { path: action.path, viewer: action.viewer, addedAt: Date.now(), restrictCsp: action.restrictCsp }];
-      return { ...state, openFiles, activeIndex: openFiles.length - 1, treeOpenRoots };
-    }
+    case "openFile":
+      return reduceOpenFile(state, action);
 
     case "closeByPath": {
       const index = state.openFiles.findIndex((f) => f.path === action.path);
       if (index < 0) return state;
-      return editorPaneReducer(state, { type: "closeTab", index });
+      return reduceCloseTab(state, index);
     }
 
-    case "closeTab": {
-      if (action.index < 0 || action.index >= state.openFiles.length) return state;
-      const openFiles = state.openFiles.filter((_, i) => i !== action.index);
-      let activeIndex: number;
-      if (openFiles.length === 0) {
-        activeIndex = -1;
-      } else if (action.index < state.activeIndex) {
-        // A tab before the active one closed — shift the active pointer left.
-        activeIndex = state.activeIndex - 1;
-      } else if (action.index === state.activeIndex) {
-        // Active tab closed — activate the adjacent tab (next, or last).
-        activeIndex = Math.min(state.activeIndex, openFiles.length - 1);
-      } else {
-        activeIndex = state.activeIndex;
-      }
-      return { ...state, openFiles, activeIndex };
-    }
+    case "closeTab":
+      return reduceCloseTab(state, action.index);
 
     case "setActive": {
       if (action.index < 0 || action.index >= state.openFiles.length) return state;
       // Reveal the newly-active tab's row: expand its ancestor dir chain (#5).
       const treeOpenRoots = mergeRoots(state.treeOpenRoots, ancestorDirs(state.openFiles[action.index].path));
-      return { ...state, activeIndex: action.index, treeOpenRoots };
+      // Invariant: the newly-active tab is never unread.
+      return { ...state, openFiles: clearUnreadAt(state.openFiles, action.index), activeIndex: action.index, treeOpenRoots };
     }
 
     case "toggleTreeRoot": {
@@ -170,7 +239,11 @@ function isValidState(v: unknown): v is EditorPaneState {
   const filesOk = s.openFiles.every((f) => {
     if (!f || typeof f !== "object") return false;
     const file = f as OpenFile;
-    return typeof file.path === "string" && VALID_VIEWERS.has(file.viewer);
+    // Optional `unread`: absent in blobs written before non-disruptive-file-open
+    // (stay valid); a corrupt non-boolean (e.g. `unread: 42`) is rejected so it
+    // never renders as a stray dot.
+    const unreadOk = file.unread === undefined || typeof file.unread === "boolean";
+    return typeof file.path === "string" && VALID_VIEWERS.has(file.viewer) && unreadOk;
   });
   if (!filesOk) return false;
   // activeIndex must address an open tab, or be -1 only when no tabs are open.

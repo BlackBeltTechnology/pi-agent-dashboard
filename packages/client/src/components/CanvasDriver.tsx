@@ -34,22 +34,26 @@ interface Props {
  */
 function useOpenTarget() {
   const { openInSplit, openLiveTarget, openUrlTarget } = useSplitWorkspace();
-  // Stable identity across renders so effect deps don't churn.
+  // Stable identity across renders so effect deps don't churn. `background`
+  // splits the two callers: the auto-open EFFECT passes `true` (agent — add
+  // silently while the editor is shown); the mobile chip `onClick` passes
+  // `false` (user tap — foreground). See change: non-disruptive-file-open.
   return useCallback(
-    (state: CanvasState) => {
+    (state: CanvasState, background: boolean) => {
       const target = state.target;
       if (!target) return;
       if (target.kind === "file") {
         // Canvas auto-open (no user click) → restrictCsp so document viewers
         // block external subresources (auto-open egress ≤ manual-click, S34).
-        openInSplit(target.path, undefined, true);
+        // `restrictCsp` (egress) and `background` (focus) are orthogonal.
+        openInSplit(target.path, undefined, true, { background });
       } else if (target.kind === "url" && isLoopbackUrl(target.url)) {
         // Loopback dev-server URL → SSRF-gated live-server viewer.
-        openLiveTarget(target.url);
+        openLiveTarget(target.url, { background });
       } else if (target.kind === "url") {
         // Generic url/youtube declare → the `url` split viewer renders it
         // normally, NO document CSP (S35).
-        openUrlTarget(target.url);
+        openUrlTarget(target.url, { background });
       }
     },
     [openInSplit, openLiveTarget, openUrlTarget],
@@ -78,7 +82,8 @@ export function CanvasDriver({ state }: Props) {
     }
     if (key === lastKeyRef.current) return;
     lastKeyRef.current = key;
-    if (gateAllowsAutoOpen(tier)) openTarget(state);
+    // Agent auto-open → background (add silently while the editor is shown).
+    if (gateAllowsAutoOpen(tier)) openTarget(state, true);
     // mobile: do not yank — the tap-to-open chip below handles it.
   }, [key, tier, openTarget, state]);
 
@@ -92,7 +97,7 @@ export function CanvasDriver({ state }: Props) {
         <button
           type="button"
           data-testid="canvas-file-chip"
-          onClick={() => openTarget(state)}
+          onClick={() => openTarget(state, false)}
           className="flex min-h-[44px] items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
         >
           <span className="font-medium">

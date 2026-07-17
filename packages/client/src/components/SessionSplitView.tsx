@@ -47,11 +47,14 @@ interface SplitRouteSyncProps {
  * can reach `openInSplit`. No-op when the route is inactive or has no file.
  */
 export function SplitRouteSync({ active, file, line }: SplitRouteSyncProps) {
-  const { openInSplit, updateSplit } = useSplitWorkspace();
+  const { openInSplit, ensureRevealed } = useSplitWorkspace();
   useEffect(() => {
     if (!active) return;
+    // A param-less `/session/:id/editor` deep-link is a 6th mode-changer outside
+    // the openers; route it through the same reveal guard so a deep-link opened
+    // from `full` does not yank to `split`. See change: non-disruptive-file-open.
     if (file) openInSplit(file, line ?? undefined);
-    else updateSplit({ mode: "split" });
-  }, [active, file, line, openInSplit, updateSplit]);
+    else ensureRevealed();
+  }, [active, file, line, openInSplit, ensureRevealed]);
   return null;
 }

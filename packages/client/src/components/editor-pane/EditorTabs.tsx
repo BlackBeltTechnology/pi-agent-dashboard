@@ -30,6 +30,57 @@ function basename(p: string): string {
   return i >= 0 ? p.slice(i + 1) : p;
 }
 
+/** True while the OS requests reduced motion (WCAG 2.2.2). Reactive. */
+function usePrefersReducedMotion(): boolean {
+  const [reduce, setReduce] = useState(
+    () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+  );
+  useEffect(() => {
+    const mq = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!mq) return;
+    const onChange = () => setReduce(mq.matches);
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+  return reduce;
+}
+
+/**
+ * Unread indicator for a background-added tab (change: non-disruptive-file-open).
+ * The dot persists while `file.unread`; a one-time pulse plays each time this
+ * tab's OpenFile object identity changes (a fresh background add OR a re-signal
+ * — the reducer always mints a new object via setUnreadAt), so a repeat agent
+ * write re-pulses. Pulse is transient (local state, not persisted) and gated
+ * behind reduced-motion: the dot still shows, the animation does not run.
+ */
+function UnreadDot({ file }: { file: OpenFile }) {
+  const reduce = usePrefersReducedMotion();
+  const [pulse, setPulse] = useState(true);
+  // Re-runs on mount and whenever `file` changes reference. The reducer mints a
+  // NEW OpenFile object on every background add / re-signal (setUnreadAt) but
+  // preserves identity for untouched tabs — so this re-pulses on a repeat agent
+  // write without firing on unrelated re-renders. The `file` dep is the trigger
+  // itself, not a value read inside the effect.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `file` identity is the intended re-pulse trigger
+  useEffect(() => {
+    setPulse(true);
+    const id = setTimeout(() => setPulse(false), 700);
+    return () => clearTimeout(id);
+  }, [file]);
+  const animate = pulse && !reduce;
+  return (
+    <span
+      data-testid="unread-dot"
+      data-pulse={animate ? "true" : "false"}
+      aria-hidden="true"
+      className={[
+        "ml-0.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-blue)]",
+        animate ? "animate-ping" : "",
+      ].join(" ")}
+    />
+  );
+}
+
 export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReorder, terminalTitle }: EditorTabsProps) {
   const { t } = useI18n();
   const dragFrom = useRef<number | null>(null);
@@ -123,6 +174,7 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
               ? (terminalTitle?.(stripTermId(file.path) ?? "") ?? t("terminal.terminal", undefined, "terminal"))
               : basename(file.path)}
           </span>
+          {file.unread && i !== activeIndex && <UnreadDot file={file} />}
           {file.viewer === "diff" && (
             <span className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[9px] uppercase tracking-wide text-[var(--text-tertiary)]">
               diff

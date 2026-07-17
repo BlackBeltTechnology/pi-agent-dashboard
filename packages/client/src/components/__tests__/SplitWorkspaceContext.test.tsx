@@ -60,18 +60,105 @@ describe("SplitWorkspaceProvider / openInSplit", () => {
     expect(seen).not.toContain("split");
   });
 
-  it("F9 openers from full land in split, never full (openChanges + openInSplit)", () => {
+  // F4 (rewrites the old F9): full is now STICKY — openers from full stay full.
+  it("F4 openers from full stay full (openChanges + openInSplit) — rewrites F9", () => {
     const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sF9") });
     act(() => result.current.setMode("full"));
     expect(result.current.split.mode).toBe("full");
-    // The Changed-Files chip drives openChanges(); from full it must move to split.
+    // The Changed-Files chip drives openChanges(); from full it now STAYS full.
     act(() => result.current.openChanges());
-    expect(result.current.split.mode).toBe("split");
+    expect(result.current.split.mode).toBe("full");
 
-    // A file opener from full likewise returns to split (chat stays visible).
-    act(() => result.current.setMode("full"));
+    // A file opener from full likewise keeps full (chat stays hidden), tab active.
     act(() => result.current.openInSplit("src/foo.ts"));
+    expect(result.current.split.mode).toBe("full");
+    expect(result.current.paneState.openFiles.map((f) => f.path)).toEqual(["src/foo.ts"]);
+    expect(result.current.paneState.activeIndex).toBe(0);
+  });
+
+  it("F1 closed + openInSplit reveals split, target active", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sF1") });
+    expect(result.current.split.mode).toBe("closed");
+    act(() => result.current.openInSplit("a.ts"));
     expect(result.current.split.mode).toBe("split");
+    expect(result.current.paneState.openFiles.map((f) => f.path)).toEqual(["a.ts"]);
+    expect(result.current.paneState.activeIndex).toBe(0);
+  });
+
+  it("F3 split + openInSplit stays split", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sF3") });
+    act(() => result.current.setMode("split"));
+    act(() => result.current.openInSplit("a.ts"));
+    expect(result.current.split.mode).toBe("split");
+    expect(result.current.paneState.activeIndex).toBe(0);
+  });
+
+  it("F5 user click always activates (foreground), not unread", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sF5") });
+    act(() => result.current.openInSplit("a.ts")); // split, a.ts active
+    act(() => result.current.openInSplit("b.ts")); // foreground click
+    const files = result.current.paneState.openFiles;
+    expect(files.map((f) => f.path)).toEqual(["a.ts", "b.ts"]);
+    expect(result.current.paneState.activeIndex).toBe(1);
+    expect(files[1].unread).toBeUndefined();
+  });
+
+  it("F6 background open while reading a.ts — a.ts stays active, b.ts unread, mode unchanged", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sF6") });
+    act(() => result.current.openInSplit("a.ts")); // split, a.ts active
+    act(() => result.current.openInSplit("b.ts", undefined, undefined, { background: true }));
+    const files = result.current.paneState.openFiles;
+    expect(files.map((f) => f.path)).toEqual(["a.ts", "b.ts"]);
+    expect(result.current.paneState.activeIndex).toBe(0); // a.ts stays active
+    expect(files[1].unread).toBe(true);
+    expect(result.current.split.mode).toBe("split");
+  });
+
+  it("F6-full background open while full — stays full, a.ts active, b.ts unread", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sF6full") });
+    act(() => result.current.openInSplit("a.ts"));
+    act(() => result.current.setMode("full"));
+    act(() => result.current.openInSplit("b.ts", undefined, undefined, { background: true }));
+    expect(result.current.split.mode).toBe("full");
+    expect(result.current.paneState.activeIndex).toBe(0);
+    expect(result.current.paneState.openFiles[1].unread).toBe(true);
+  });
+
+  it("F7 background open from closed reveals split + activates (NOT unread)", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sF7") });
+    expect(result.current.split.mode).toBe("closed");
+    act(() => result.current.openInSplit("b.ts", undefined, undefined, { background: true }));
+    expect(result.current.split.mode).toBe("split");
+    expect(result.current.paneState.activeIndex).toBe(0);
+    expect(result.current.paneState.openFiles[0].unread).toBeUndefined();
+  });
+
+  it("F8 background openLiveTarget — live tab unread, a.ts stays active", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sF8") });
+    act(() => result.current.openInSplit("a.ts"));
+    act(() => result.current.openLiveTarget("http://localhost:5000/x.html", { background: true }));
+    const files = result.current.paneState.openFiles;
+    expect(files.map((f) => f.path)).toEqual(["a.ts", "live:http://localhost:5000/x.html"]);
+    expect(result.current.paneState.activeIndex).toBe(0);
+    expect(files[1].unread).toBe(true);
+  });
+
+  it("F9 background openUrlTarget — url tab unread, a.ts stays active", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sF9url") });
+    act(() => result.current.openInSplit("a.ts"));
+    act(() => result.current.openUrlTarget("https://youtu.be/x", { background: true }));
+    const files = result.current.paneState.openFiles;
+    expect(files.map((f) => f.path)).toEqual(["a.ts", "url:https://youtu.be/x"]);
+    expect(result.current.paneState.activeIndex).toBe(0);
+    expect(files[1].unread).toBe(true);
+  });
+
+  it("F10 background open with a line stashes NO pendingScroll", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sF10") });
+    act(() => result.current.openInSplit("a.ts"));
+    act(() => result.current.openInSplit("b.ts", 20, undefined, { background: true }));
+    expect(result.current.pendingScroll).toBeNull();
+    expect(result.current.paneState.activeIndex).toBe(0);
   });
 
   it("openLiveTarget opens a live-server tab with the encoded path, idempotent on repeat", () => {

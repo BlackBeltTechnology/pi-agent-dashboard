@@ -8,7 +8,6 @@
  */
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api-context.js", () => ({ getApiBase: () => "" }));
@@ -66,6 +65,60 @@ describe("EditorPane — openChanges reveals the rail (collapse-diff-file-tree F
     // Rail revealed; no diff tab opened by openChanges itself.
     expect(screen.queryByTestId("rail-divider")).toBeTruthy();
     expect(screen.getByTestId("open-tabs").textContent).toBe("");
+  });
+});
+
+function UnreadProbe() {
+  const { openInSplit } = useSplitWorkspace();
+  return (
+    <>
+      <button type="button" data-testid="open-a" onClick={() => openInSplit("a.ts")}>
+        open a
+      </button>
+      <button
+        type="button"
+        data-testid="bg-open-b"
+        onClick={() => openInSplit("b.ts", undefined, undefined, { background: true })}
+      >
+        bg open b
+      </button>
+    </>
+  );
+}
+
+describe("EditorPane — unread affordance (non-disruptive-file-open F16/F17)", () => {
+  function renderWithProbe(sessionId = "sUnread") {
+    return render(
+      <SplitWorkspaceProvider sessionId={sessionId} cwd="/proj" orientation="h">
+        <EditorPane />
+        <UnreadProbe />
+      </SplitWorkspaceProvider>,
+    );
+  }
+
+  it("F16: unread dot renders on a background tab and clears after activation", () => {
+    renderWithProbe();
+    fireEvent.click(screen.getByTestId("open-a")); // a.ts foreground, active
+    fireEvent.click(screen.getByTestId("bg-open-b")); // b.ts background, unread
+    // Dot present on the inactive unread b.ts tab.
+    expect(screen.getByTestId("unread-dot")).toBeTruthy();
+    // Activate b.ts by clicking its tab → dot clears (active tab never unread).
+    fireEvent.click(screen.getByTitle("b.ts"));
+    expect(screen.queryByTestId("unread-dot")).toBeNull();
+  });
+
+  it("F17: a repeat background open re-pulses and stays unread + inactive", () => {
+    renderWithProbe("sRepulse");
+    fireEvent.click(screen.getByTestId("open-a"));
+    fireEvent.click(screen.getByTestId("bg-open-b"));
+    // Second background open of the already-unread b.ts.
+    fireEvent.click(screen.getByTestId("bg-open-b"));
+    const dot = screen.getByTestId("unread-dot");
+    // Re-signal re-triggers the pulse (transient, keyed on the tab's identity).
+    expect(dot.getAttribute("data-pulse")).toBe("true");
+    // b.ts stays inactive (a.ts still active) → its dot is still shown.
+    expect(screen.getByTitle("a.ts").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTitle("b.ts").getAttribute("aria-selected")).toBe("false");
   });
 });
 

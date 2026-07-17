@@ -205,6 +205,29 @@ test.describe("editor layout modes", () => {
   });
 });
 
+// Browser E2E — non-disruptive-file-open: mode stickiness on the param-less
+// deep-link (test-plan F11). A param-less `/session/:id/editor` navigation is a
+// mode-changer OUTSIDE the openers (`SplitRouteSync`); it now routes through the
+// same reveal guard, so a deep-link opened from `full` no longer yanks to
+// `split`. The persisted mode loads `full` first; the OLD code's
+// `else updateSplit({mode:'split'})` would then force `split` — this asserts the
+// new sticky behaviour survives the effect.
+test.describe("non-disruptive-file-open — deep-link mode stickiness", () => {
+  test("F11: param-less /editor deep-link from full stays full", async ({ page }) => {
+    const card = await openSessionWithSwitch(page);
+    await robustClick(page, "layout-mode-full");
+    await expect(page.getByTestId("layout-mode-full")).toHaveAttribute("aria-checked", "true");
+
+    const sessionId = await card.getAttribute("data-session-id");
+    expect(sessionId).toBeTruthy();
+    // Param-less deep-link (no `?file=`) → SplitRouteSync's else branch.
+    await page.goto(`/session/${sessionId}/editor`);
+    await expect(page.getByTestId("layout-mode-full")).toHaveAttribute("aria-checked", "true", {
+      timeout: 30_000,
+    });
+  });
+});
+
 // F9 (opener from `full` → `split`, never `full`) is covered at L1 by
 // SplitWorkspaceContext.test.tsx (openChanges + openInSplit from full → split).
 // The L3 path depends on the Changed-Files chip, which is gated on

@@ -207,6 +207,103 @@ test.describe("auto-canvas — URL deep-link coexists (S28)", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// non-disruptive-file-open (test-plan F12/F13/F14/F15/F19).
+//
+// Layers the NEW opener contract onto the proven auto-canvas faux harness:
+//   · agent canvas opens are BACKGROUND when the editor is already shown (no
+//     focus steal, target arrives unread with a dot) — mode stays put;
+//   · from `closed` the agent open reveals split + activates (nothing to
+//     protect);
+//   · the mobile chip tap is FOREGROUND (target opens active, not unread);
+//   · reduced-motion shows the dot but runs no pulse.
+// `canvas-write-md` writes report.md → canvas_intent. Unread dot testid:
+// `unread-dot` (EditorTabs.tsx); `data-pulse` gates the animation.
+// ─────────────────────────────────────────────────────────────────────────
+test.describe("non-disruptive-file-open — agent opens are non-disruptive", () => {
+  // Seed a reading context WITHOUT a page reload (a hard `goto` leaves the
+  // composer disabled, so the follow-up faux never sends). An agent URL declare
+  // from `closed` reveals split + activates the url tab — that active tab is the
+  // "reading" context the next background write must not steal.
+  async function openReadingContext(page: import("@playwright/test").Page) {
+    await sendPrompt(page, "[[faux:canvas-declare-url]] go");
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible({ timeout: 30_000 });
+    // The url tab is active; nothing is unread yet.
+    await expect(page.getByTestId("unread-dot")).toHaveCount(0, { timeout: 15_000 });
+  }
+
+  test("F12: an agent write while a tab is active keeps it active; report.md arrives unread", async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await openReadingContext(page);
+
+    // Agent writes report.md → BACKGROUND open (editor already shown).
+    await sendPrompt(page, "[[faux:canvas-write-md]] go");
+
+    // report.md arrives unread (dot); the previously-active tab keeps focus
+    // (report.md is NOT the selected tab — no focus steal).
+    await expect(page.getByTestId("unread-dot")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("tab", { selected: true })).not.toContainText("report.md");
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible();
+  });
+
+  test("F13: agent canvas from closed reveals split with report.md active", async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 800 });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+
+    // Nothing open (closed) → the agent open reveals split AND activates.
+    await sendPrompt(page, "[[faux:canvas-write-md]] go");
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("tab", { selected: true })).toContainText("report.md", { timeout: 15_000 });
+    // Revealed from closed → NOT unread (it is the active tab).
+    await expect(page.getByTestId("unread-dot")).toHaveCount(0);
+  });
+
+  test("F14: mobile agent canvas surfaces the chip naming report.md, no yank", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.setViewportSize({ width: 767, height: 800 });
+
+    await sendPrompt(page, "[[faux:canvas-write-md]] go");
+    const chip = page.getByTestId("canvas-file-chip");
+    await expect(chip).toBeVisible({ timeout: 30_000 });
+    await expect(chip).toContainText("report.md");
+    await expect(page.getByTestId("split-editor-pane")).toHaveCount(0); // no yank
+  });
+
+  test("F15: mobile chip tap opens report.md as the active tab (foreground, not unread)", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.setViewportSize({ width: 767, height: 800 });
+
+    await sendPrompt(page, "[[faux:canvas-write-md]] go");
+    const chip = page.getByTestId("canvas-file-chip");
+    await expect(chip).toBeVisible({ timeout: 30_000 });
+
+    // Tap = foreground → report.md opens active, NOT unread.
+    await chip.click();
+    await expect(page.getByTestId("split-editor-pane")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("tab", { selected: true })).toContainText("report.md", { timeout: 15_000 });
+    await expect(page.getByTestId("unread-dot")).toHaveCount(0);
+  });
+
+  test("F19: reduced-motion shows the unread dot but runs no pulse", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1200, height: 800 });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await openReadingContext(page);
+
+    await sendPrompt(page, "[[faux:canvas-write-md]] go");
+    const dot = page.getByTestId("unread-dot");
+    await expect(dot).toBeVisible({ timeout: 30_000 });
+    // Dot shows; the pulse animation is gated off under reduced motion.
+    await expect(dot).toHaveAttribute("data-pulse", "false");
+  });
+});
+
 test.describe("auto-canvas — tablet replaces chat (S24)", () => {
   // Tablet (768–1023w, ≥600h) REPLACES chat: full-width canvas, no side-by-side,
   // no chip. `SessionSplitView` passes `replaceChat` to `SplitWorkspace` on the
