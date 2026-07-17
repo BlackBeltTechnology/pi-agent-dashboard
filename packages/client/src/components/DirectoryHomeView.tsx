@@ -32,6 +32,18 @@ export interface DirectoryHomeViewProps {
    * pinned" before data loads (design D4 cold-load guard).
    */
   pinnedDirectoriesLoaded: boolean;
+  /**
+   * Flat set of all workspace-owned folder paths (`workspaces[].folders`). A
+   * cwd in this set is eligible for the home page even when not pinned
+   * (change: enable-workspace-folder-home-page, design D1).
+   */
+  workspaceFolders: Set<string>;
+  /**
+   * True once the workspace snapshot has arrived. Pinned dirs and workspaces
+   * arrive in SEPARATE WS messages, so the guard must wait on both flags to
+   * avoid flashing the miss notice for a workspace-only cwd (design D3).
+   */
+  workspacesLoaded: boolean;
   /** Existing sessions whose cwd equals this folder. */
   sessions: DashboardSession[];
   /** Slash commands (optional; v1 has no session context). */
@@ -67,6 +79,8 @@ export function DirectoryHomeView({
   cwd,
   pinnedDirectories,
   pinnedDirectoriesLoaded,
+  workspaceFolders,
+  workspacesLoaded,
   sessions,
   commands = [],
   onSpawnSession,
@@ -83,9 +97,10 @@ export function DirectoryHomeView({
   // the page unmounts as it navigates to the new session.
   const [spawnInFlight, setSpawnInFlight] = useState(false);
 
-  // Cold-load guard: gate on the loaded flag so a direct URL never flashes the
-  // not-pinned notice before the snapshot arrives (design D4).
-  if (!pinnedDirectoriesLoaded) {
+  // Cold-load guard: gate on BOTH loaded flags so a direct URL never flashes
+  // the miss notice before either snapshot arrives. Pinned dirs and workspaces
+  // land in separate WS messages (design D3 / D4 cold-load guard).
+  if (!pinnedDirectoriesLoaded || !workspacesLoaded) {
     return (
       <div
         data-testid="directory-home-loading"
@@ -96,7 +111,10 @@ export function DirectoryHomeView({
     );
   }
 
-  if (!pinnedDirectories.includes(cwd)) {
+  // Eligibility: a cwd is a valid home page when it is EITHER pinned OR a
+  // member folder of some workspace (change: enable-workspace-folder-home-page,
+  // design D1). The miss notice covers "neither pinned nor a workspace folder".
+  if (!pinnedDirectories.includes(cwd) && !workspaceFolders.has(cwd)) {
     return (
       <div
         data-testid="directory-home-not-pinned"
@@ -105,7 +123,7 @@ export function DirectoryHomeView({
         <div className="flex flex-col items-center gap-4 text-center max-w-md">
           <Icon path={mdiFolderOpen} size={1.6} className="text-[var(--text-muted)]" />
           <div className="text-base font-semibold text-[var(--text-primary)]">
-            {t("directoryHome.notPinnedTitle", undefined, "This folder is not pinned")}
+            {t("directoryHome.notPinnedTitle", undefined, "This folder isn't available as a home page")}
           </div>
           <p className="text-sm text-[var(--text-tertiary)]">
             {t(

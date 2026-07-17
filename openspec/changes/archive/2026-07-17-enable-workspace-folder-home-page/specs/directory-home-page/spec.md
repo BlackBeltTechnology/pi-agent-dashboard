@@ -1,4 +1,9 @@
-## MODIFIED Requirements
+## REMOVED Requirements
+
+### Requirement: Pinned-directory guard
+**Reason**: Superseded by the broader "Directory-eligibility guard". The home page now renders for workspace-owned folders too (not pinned-only), the guard waits on BOTH the pinned-loaded and workspace-loaded flags, and the miss notice is de-pinned to "not available". The prior pinned-only scenarios are re-expressed under the new requirement.
+
+## ADDED Requirements
 
 ### Requirement: Directory-eligibility guard
 
@@ -31,6 +36,8 @@ load or refresh never flashes the notice for an eligible cwd.
 - **WHEN** the user opens `/folder/<encodedCwd>` directly
 - **THEN** a loading state SHALL render (the notice SHALL NOT flash in the window before workspaces load)
 - **AND** once `workspaces_updated` arrives the prompt surface SHALL render
+
+## MODIFIED Requirements
 
 ### Requirement: Sidebar open affordance
 

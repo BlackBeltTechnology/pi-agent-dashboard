@@ -83,6 +83,10 @@ export interface MessageHandlerSetters {
   setFavoriteModels: React.Dispatch<React.SetStateAction<string[]>>;
   /** folder-workspaces: full workspace list, kept in sync via `workspaces_updated`. */
   setWorkspaces: React.Dispatch<React.SetStateAction<import("@blackbelt-technology/pi-dashboard-shared/browser-protocol.js").Workspace[]>>;
+  /** Flipped true on the first `workspaces_updated` (sent on modern connect).
+      Gates DirectoryHomeView's cold-load guard for workspace-only cwds.
+      See change: enable-workspace-folder-home-page. */
+  setWorkspacesLoaded: React.Dispatch<React.SetStateAction<boolean>>;
   setTerminals: React.Dispatch<React.SetStateAction<Map<string, TerminalSession>>>;
   setDiscoveredServers: React.Dispatch<React.SetStateAction<DiscoveredServerInfo[]>>;
   setSpawnErrors: React.Dispatch<React.SetStateAction<Map<string, SpawnErrorDetail>>>;
@@ -165,7 +169,7 @@ export function useMessageHandler(
   const {
     setSessions, setSessionStates, setSessionCommands,
     setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
-    setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals,
+    setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setWorkspacesLoaded, setTerminals,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setViewMessagesMap, setLoadingHistory, setCanvasMap,
   } = setters;
@@ -885,6 +889,9 @@ export function useMessageHandler(
         // folder-workspaces: server sends full snapshot on subscribe and
         // after every mutation. Replace, do not merge.
         setWorkspaces(msg.workspaces);
+        // enable-workspace-folder-home-page: first snapshot marks workspaces
+        // loaded so the directory-home cold-load guard can release.
+        setWorkspacesLoaded(true);
         break;
 
       case "extension_ui_request":
@@ -1126,5 +1133,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setWorkspacesLoaded, setTerminals, setDiscoveredServers, setLoadingHistory, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
 }

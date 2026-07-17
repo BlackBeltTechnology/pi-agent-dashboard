@@ -935,8 +935,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             {/* Open the directory home page. Distinct from the collapse toggle
                 (the name row) and the drag gutter (a sibling) — stopPropagation
                 keeps the click from toggling collapse or starting a reorder.
-                Pinned rows only. See change: add-directory-home-page (D3). */}
-            {isPinned && !inWorkspace && (
+                Pinned rows only. See change: add-directory-home-page (D3).
+                Also shown on workspace-folder rows: an unpinned workspace
+                folder has `folder.pinned === false`, so `isPinned` alone would
+                hide it (change: enable-workspace-folder-home-page, D2). */}
+            {(isPinned || inWorkspace) && (
               <button
                 type="button"
                 onClick={(e) => {

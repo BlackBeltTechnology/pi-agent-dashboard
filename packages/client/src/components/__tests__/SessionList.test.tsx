@@ -579,3 +579,72 @@ describe("SessionList folder-home open affordance", () => {
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
   });
 });
+
+// enable-workspace-folder-home-page — the open affordance now renders on
+// workspace-folder rows too (condition `isPinned || inWorkspace`). An UNPINNED
+// workspace folder has `folder.pinned === false`, so the affordance must show
+// via `inWorkspace`. Scenario ids per that change's test-plan.md.
+describe("SessionList workspace-folder open affordance (enable-workspace-folder-home-page)", () => {
+  function LocationProbe() {
+    const [loc] = useLocation();
+    return <span data-testid="loc">{loc}</span>;
+  }
+
+  // Renders an UNPINNED folder inside a workspace container. The folder is NOT
+  // in pinnedDirectories, so `renderGroup(folder, folder.pinned=false, true)`.
+  function renderWorkspaceFolder() {
+    const cwd = "/home/user/ws-folder";
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <LocationProbe />
+          <SessionList
+            sessions={[makeSession({ cwd })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            workspaces={[{ id: "w1", name: "WS", collapsed: false, folders: [cwd] }]}
+          />
+        </ThemeProvider>
+      </Router>,
+    );
+    return { cwd };
+  }
+
+  it("F3: an unpinned workspace-folder row shows the open affordance", () => {
+    const { cwd } = renderWorkspaceFolder();
+    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
+  });
+
+  it("F4: activating the affordance navigates to /folder/<enc> without toggling collapse", () => {
+    const { cwd } = renderWorkspaceFolder();
+    // Expanded row shows the spawn/action bar; collapsing would hide it.
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+    // stopPropagation kept the collapse toggle from firing: still expanded.
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+  });
+
+  it("F5 (regression): a pinned non-workspace row still shows the affordance and navigates", () => {
+    const cwd = "/home/user/pinned-only";
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <LocationProbe />
+          <SessionList
+            sessions={[makeSession({ cwd })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            pinnedDirectories={[cwd]}
+            onUnpinDirectory={() => {}}
+          />
+        </ThemeProvider>
+      </Router>,
+    );
+    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
+    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+  });
+});

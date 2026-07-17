@@ -550,6 +550,12 @@ export default function App() {
   const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
   // folder-workspaces: full workspace list, kept in sync via workspaces_updated broadcast.
   const [workspaces, setWorkspaces] = useState<import("@blackbelt-technology/pi-dashboard-shared/browser-protocol.js").Workspace[]>([]);
+  // Flipped true on the first `workspaces_updated`. Pinned dirs and workspaces
+  // arrive in SEPARATE WS messages, so DirectoryHomeView's cold-load guard must
+  // wait on this flag too — otherwise a workspace-only cwd flashes the miss
+  // notice after `pinned_dirs_updated` lands but before workspaces arrive.
+  // See change: enable-workspace-folder-home-page (design D3).
+  const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const providersReady = useProvidersReady();
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
@@ -729,7 +735,7 @@ export default function App() {
   }, []);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory, setCanvasMap },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setWorkspacesLoaded, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory, setCanvasMap },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current, showToast },
   );
 
@@ -1893,6 +1899,15 @@ export default function App() {
 
   const allSessionsList = useMemo(() => Array.from(sessions.values()), [sessions]);
 
+  // Flat set of all workspace-owned folder paths, memoized on `workspaces` so a
+  // fresh Set isn't allocated every render (design D1 — keeps a future
+  // React.memo on DirectoryHomeView stable). See change:
+  // enable-workspace-folder-home-page.
+  const workspaceFolderSet = useMemo(
+    () => new Set(workspaces.flatMap((w) => w.folders)),
+    [workspaces],
+  );
+
   // Bare `/folder/:encodedCwd` directory home page (design D1/D2/D4).
   // Rendered in BOTH the desktop and mobile chains. See change:
   // add-directory-home-page.
@@ -1901,6 +1916,8 @@ export default function App() {
       cwd={folderHomeCwd}
       pinnedDirectories={pinnedDirectories}
       pinnedDirectoriesLoaded={pinnedDirsLoaded}
+      workspaceFolders={workspaceFolderSet}
+      workspacesLoaded={workspacesLoaded}
       sessions={allSessionsList.filter((s) => s.cwd === folderHomeCwd)}
       onSpawnSession={handleSpawnSession}
       onSelectSession={handleSelect}
