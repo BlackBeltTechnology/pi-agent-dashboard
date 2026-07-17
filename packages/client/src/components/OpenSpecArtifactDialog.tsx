@@ -1,6 +1,6 @@
-import type { OpenSpecArtifact, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import React, { useState } from "react";
+import type { OpenSpecArtifact, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { useState } from "react";
 import { useOpenSpecReader } from "../hooks/useOpenSpecReader.js";
 import { t as i18nT } from "../lib/i18n";
 import { MarkdownPreviewView } from "./MarkdownPreviewView.js";

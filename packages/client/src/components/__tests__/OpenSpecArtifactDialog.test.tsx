@@ -1,17 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-import React from "react";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OpenSpecArtifactDialog } from "../OpenSpecArtifactDialog.js";
 import { ArtifactLetters } from "../openspec-helpers.js";
 
+// Avoid full markdown rendering (ThemeProvider dependency) — assert on the raw
+// content text the reader hands MarkdownPreviewView. Same pattern as
+// MarkdownPreviewView.test.tsx.
+vi.mock("../MarkdownContent.js", () => ({
+  MarkdownContent: ({ content }: { content: string }) => (
+    <div data-testid="mock-markdown">{content}</div>
+  ),
+}));
+
 beforeEach(() => {
-  // The reader hook fires a fetch on mount (rules-of-hooks); in the not-found
-  // branch its output is masked, but stub fetch so no real network is hit and
-  // any "Failed to fetch" the reader might surface can only come from a real
-  // resolution (which must NOT leak into the not-found dialog).
+  // The reader hook fires a fetch on mount (rules-of-hooks). Return a
+  // successful markdown file so the cold-load path (X1) can converge to
+  // content, and so any "Failed to fetch" seen in the not-found test (X2)
+  // could ONLY come from the reader leaking — which must not happen.
   vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({
-    json: () => Promise.resolve({ success: false, error: "Failed to fetch file" }),
+    json: () => Promise.resolve({ success: true, data: { type: "file", content: "# Loaded artifact body" } }),
   })));
 });
 
@@ -66,6 +74,60 @@ describe("OpenSpecArtifactDialog — not-found (X2)", () => {
       />,
     );
     expect(screen.getByTestId("openspec-artifact-dialog")).toBeTruthy();
+  });
+});
+
+describe("OpenSpecArtifactDialog — live openspecMap transitions", () => {
+  it("X1: cold-load converges — empty map shows loading, then content once the entry arrives", async () => {
+    const empty = new Map<string, OpenSpecData>(); // no entry for /w yet
+    const { rerender } = render(
+      <OpenSpecArtifactDialog
+        cwd="/w"
+        changeName="e2e-artifact-demo"
+        initialArtifact="proposal"
+        openspecMap={empty}
+        onClose={() => {}}
+      />,
+    );
+    // Waiting-for-replay branch → loading spinner, no crash.
+    expect(screen.getByTestId("preview-loading")).toBeTruthy();
+
+    // WS replay populates the entry → dialog converges to artifact content.
+    rerender(
+      <OpenSpecArtifactDialog
+        cwd="/w"
+        changeName="e2e-artifact-demo"
+        initialArtifact="proposal"
+        openspecMap={mapWith(["e2e-artifact-demo"])}
+        onClose={() => {}}
+      />,
+    );
+    expect(await screen.findByText(/Loaded artifact body/)).toBeTruthy();
+  });
+
+  it("X3: change removed mid-dialog flips to not-found without throwing", async () => {
+    const { rerender } = render(
+      <OpenSpecArtifactDialog
+        cwd="/w"
+        changeName="e2e-artifact-demo"
+        initialArtifact="proposal"
+        openspecMap={mapWith(["e2e-artifact-demo"])}
+        onClose={() => {}}
+      />,
+    );
+    expect(await screen.findByText(/Loaded artifact body/)).toBeTruthy();
+
+    // WS update drops the change from the (still-present) cwd entry.
+    rerender(
+      <OpenSpecArtifactDialog
+        cwd="/w"
+        changeName="e2e-artifact-demo"
+        initialArtifact="proposal"
+        openspecMap={mapWith([])}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByText(/No OpenSpec change named "e2e-artifact-demo" in this folder\./)).toBeTruthy();
   });
 });
 
