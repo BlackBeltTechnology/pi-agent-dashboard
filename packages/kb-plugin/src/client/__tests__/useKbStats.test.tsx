@@ -43,6 +43,16 @@ function ReindexProbe({ cwd }: { cwd: string }): React.ReactElement {
 const getCount = (m: ReturnType<typeof vi.fn>) =>
   m.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method !== "POST").length;
 
+/** Probe that also surfaces the poll-outage `error` channel. */
+function ReindexProbeErr({ cwd }: { cwd: string }): React.ReactElement {
+  const { error, pending, reindex } = useKbStats(cwd);
+  return (
+    <div data-testid="probe" data-pending={String(pending)} data-error={error ?? ""}>
+      <button type="button" data-testid="go" onClick={() => reindex()}>go</button>
+    </div>
+  );
+}
+
 function Probe({ cwd }: { cwd: string }): React.ReactElement {
   const { stats, error, reindexError } = useKbStats(cwd);
   return (
@@ -146,6 +156,35 @@ describe("useKbStats", () => {
     );
     expect(getCount(fetchMock)).toBeGreaterThan(getsBefore);
   }, REINDEX_GUARD_MS + 6000);
+
+  it("resets pending when cwd changes so it never leaks across folders (CodeRabbit)", async () => {
+    // POST hangs so pending stays true; switching cwd must clear it, not carry it over.
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === "POST" ? new Promise<Response>(() => {}) : json(base()),
+    );
+    const { getByTestId, rerender } = render(<ReindexProbe cwd="/repo/a" />);
+    await waitFor(() => expect(getByTestId("probe").getAttribute("data-pending")).toBe("false"));
+    fireEvent.click(getByTestId("go"));
+    expect(getByTestId("probe").getAttribute("data-pending")).toBe("true");
+    rerender(<ReindexProbe cwd="/repo/b" />);
+    // The new folder starts clean — no leaked optimistic spinner.
+    expect(getByTestId("probe").getAttribute("data-pending")).toBe("false");
+  });
+
+  it("reindex() clears a prior poll `error` so the optimistic spinner is not masked (CodeRabbit)", async () => {
+    // First: a persistent poll outage surfaces `error`; then a reindex click must clear it.
+    let allow202 = false;
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") { allow202 = true; return json202(); }
+      return allow202 ? json(base({ indexing: true, jobStatus: "running" })) : new Response("<html/>", { status: 500, headers: { "content-type": "text/html" } });
+    });
+    const { getByTestId } = render(<ReindexProbeErr cwd="/repo" />);
+    await waitFor(() => expect(getByTestId("probe").getAttribute("data-error")).toMatch(/HTTP 500/), { timeout: 5000 });
+    fireEvent.click(getByTestId("go"));
+    // Optimistic pending fires AND the stale poll error is cleared in the same commit.
+    expect(getByTestId("probe").getAttribute("data-pending")).toBe("true");
+    expect(getByTestId("probe").getAttribute("data-error")).toBe("");
+  });
 
   it("tolerates a lone transient poll miss during indexing without dropping the spinner (task 2.3)", async () => {
     let call = 0;

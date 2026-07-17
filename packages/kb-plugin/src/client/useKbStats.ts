@@ -70,8 +70,15 @@ export function useKbStats(cwd: string | null | undefined): UseKbStatsResult {
     }
   }, []);
 
-  // Clear a stuck guard timer on unmount (armed only inside reindex()).
-  useEffect(() => clearGuard, [clearGuard]);
+  // Reset optimistic state on unmount OR when cwd changes, so a `pending` spinner /
+  // reindexError / armed guard from one folder never leaks into the next.
+  // See change: add-kb-index-optimistic-pending.
+  useEffect(() => {
+    setPending(false);
+    setReindexError(null);
+    clearGuard();
+    return () => clearGuard();
+  }, [cwd, clearGuard]);
 
   useEffect(() => {
     if (!cwd) {
@@ -135,6 +142,7 @@ export function useKbStats(cwd: string | null | undefined): UseKbStatsResult {
   const reindex = useCallback(() => {
     if (!cwd) return;
     setReindexError(null);
+    setError(null); // also clear a poll-outage `error` so it can't mask the optimistic spinner
     setPending(true); // synchronous optimistic click acknowledgement
     clearGuard();
     guardRef.current = setTimeout(() => {
