@@ -1,26 +1,26 @@
 # Tasks — non-mobile artifact dialog
 
 ## 1. App-level gate + dialog state
-- [ ] 1.1 Add `artifactDialog: { cwd, changeName, artifactId } | null` state + `openArtifact(cwd, changeName, artifactId)` handler in `App.tsx`: `isMobile ? handleReadArtifact(...) : setArtifactDialog(...)`. `useOpenSpecActions` stays navigate-only. → verify: unit test both branches.
-- [ ] 1.2 Swap all **5** badge wiring sites: the bare reference `onReadArtifact={handleReadArtifact}` at SessionList (~1339, by reference) + the 4 cwd-closures (~1431/1496/1515/1710) from `handleReadArtifact(cwd, …)` to `openArtifact(cwd, …)`; preserve each cwd binding. `openArtifact` keeps the 3-arg signature. → verify: every surface (SessionList/board/mobileActions/SessionHeader/ComposerSessionActions) opens the dialog on non-mobile, navigates on mobile.
-- [ ] 1.3 Add resize-close effect: `useEffect(() => { if (isMobile) setArtifactDialog(null); }, [isMobile])`. → verify: open dialog, flip isMobile true → closes.
+- [x] 1.1 Add `artifactDialog: { cwd, changeName, artifactId } | null` state + `openArtifact(cwd, changeName, artifactId)` handler in `App.tsx`: `isMobile ? handleReadArtifact(...) : setArtifactDialog(...)`. `useOpenSpecActions` stays navigate-only. → verify: unit test both branches.
+- [x] 1.2 Swap all **5** badge wiring sites: the bare reference `onReadArtifact={handleReadArtifact}` at SessionList (~1339, by reference) + the 4 cwd-closures (~1431/1496/1515/1710) from `handleReadArtifact(cwd, …)` to `openArtifact(cwd, …)`; preserve each cwd binding. `openArtifact` keeps the 3-arg signature. → verify: every surface (SessionList/board/mobileActions/SessionHeader/ComposerSessionActions) opens the dialog on non-mobile, navigates on mobile.
+- [x] 1.3 Add resize-close effect: `useEffect(() => { if (isMobile) setArtifactDialog(null); }, [isMobile])`. → verify: open dialog, flip isMobile true → closes.
 
 ## 2. OpenSpecArtifactDialog component
-- [ ] 2.1 New `packages/client/src/components/OpenSpecArtifactDialog.tsx` mirroring `ArchiveArtifactReader` (local `activeTab` → `useOpenSpecReader(cwd, changeName, activeTab, artifacts)` with `archive=false`; `onTabChange={setActiveTab}`), inside `<Dialog open size="full" flush onClose testId="openspec-artifact-dialog">`. **Wrap `MarkdownPreviewView` in a height-constrained `flex flex-col` box** (e.g. `h-[85vh] flex flex-col`) — flush Dialog is not flex and the reader uses `flex-1`. `onBack={onClose}`. Re-derive `change`/`artifacts` from `openspecMap`; loading state when the map has no entry (cold-load); **explicit not-found state (dedicated message, not a generic reader fetch error) when the change is absent after load**. → verify: renders content full-height (header+tabs+scrolling body visible); tab click swaps content, URL unchanged; cold-load shows loading; missing change shows not-found.
-- [ ] 2.2 Render `<OpenSpecArtifactDialog>` in `App.tsx` when `artifactDialog != null`, passing `openspecMap` + `onClose={() => setArtifactDialog(null)}`. → verify: badge click on non-mobile shows dialog over current view.
+- [x] 2.1 New `packages/client/src/components/OpenSpecArtifactDialog.tsx` mirroring `ArchiveArtifactReader` (local `activeTab` → `useOpenSpecReader(cwd, changeName, activeTab, artifacts)` with `archive=false`; `onTabChange={setActiveTab}`), inside `<Dialog open size="full" flush onClose testId="openspec-artifact-dialog">`. **Wrap `MarkdownPreviewView` in a height-constrained `flex flex-col` box** (e.g. `h-[85vh] flex flex-col`) — flush Dialog is not flex and the reader uses `flex-1`. `onBack={onClose}`. Re-derive `change`/`artifacts` from `openspecMap`; loading state when the map has no entry (cold-load); **explicit not-found state (dedicated message, not a generic reader fetch error) when the change is absent after load**. → verify: renders content full-height (header+tabs+scrolling body visible); tab click swaps content, URL unchanged; cold-load shows loading; missing change shows not-found.
+- [x] 2.2 Render `<OpenSpecArtifactDialog>` in `App.tsx` when `artifactDialog != null`, passing `openspecMap` + `onClose={() => setArtifactDialog(null)}`. → verify: badge click on non-mobile shows dialog over current view.
 
 ## 3. Non-goals stay intact
-- [ ] 3.1 Confirm `useOpenSpecActions`, `buildOpenSpecPreviewUrl`, the three route-match sites, and `ArchiveBrowserView` are untouched; archived badges still use the archive reader. → verify: mobile route + archive reading unchanged.
+- [x] 3.1 Confirm `useOpenSpecActions`, `buildOpenSpecPreviewUrl`, the three route-match sites, and `ArchiveBrowserView` are untouched; archived badges still use the archive reader. → verify: mobile route + archive reading unchanged.
 
 ## Tests (folded from test-plan.md — manifest is the automated/manual source of truth)
 
 ### L1 unit — packages/client/src/{components,hooks}/__tests__/ (vitest)
 Exemplars: `packages/client/src/components/__tests__/ArtifactLettersButton.test.tsx`, `Dialogs.test.tsx`.
-- [ ] T-E1 (test-plan #E1) openArtifact non-mobile branch → sets dialog state. input: `openArtifact("/w","ch","proposal")` with useMobile()=false · trigger: call · observable: `setArtifactDialog({cwd,changeName,artifactId})` invoked, `navigate` NOT called.
-- [ ] T-E2 (test-plan #E2) openArtifact mobile branch → navigate. input: same call, useMobile()=true · trigger: call · observable: `navigate(buildOpenSpecPreviewUrl("/w","ch","proposal"))`, `artifactDialog` stays null.
-- [ ] T-E3456 (test-plan #E3 #E4 #E5 #E6) useMobile boundary matrix. input/trigger/observable: (vw768,vh800)→dialog · (vw767,vh800)→navigate · (vw1400,vh599)→navigate (short-wide IS mobile) · (vw1400,vh600)→dialog.
-- [ ] T-X2 (test-plan #X2) not-found = dedicated message. input: populated map, change "ch" absent · trigger: render OpenSpecArtifactDialog for "ch" · observable: explicit not-found copy shown, NOT generic "Failed to fetch".
-- [ ] T-F8 (test-plan #F8) letter cursor hint. input: hover a badge letter · trigger: hover · observable: computed `cursor: pointer`.
+- [x] T-E1 (test-plan #E1) openArtifact non-mobile branch → sets dialog state. input: `openArtifact("/w","ch","proposal")` with useMobile()=false · trigger: call · observable: `setArtifactDialog({cwd,changeName,artifactId})` invoked, `navigate` NOT called.
+- [x] T-E2 (test-plan #E2) openArtifact mobile branch → navigate. input: same call, useMobile()=true · trigger: call · observable: `navigate(buildOpenSpecPreviewUrl("/w","ch","proposal"))`, `artifactDialog` stays null.
+- [x] T-E3456 (test-plan #E3 #E4 #E5 #E6) useMobile boundary matrix. input/trigger/observable: (vw768,vh800)→dialog · (vw767,vh800)→navigate · (vw1400,vh599)→navigate (short-wide IS mobile) · (vw1400,vh600)→dialog.
+- [x] T-X2 (test-plan #X2) not-found = dedicated message. input: populated map, change "ch" absent · trigger: render OpenSpecArtifactDialog for "ch" · observable: explicit not-found copy shown, NOT generic "Failed to fetch".
+- [x] T-F8 (test-plan #F8) letter cursor hint. input: hover a badge letter · trigger: hover · observable: computed `cursor: pointer`.
 
 ### L3 e2e — tests/e2e/*.spec.ts (Playwright, docker harness; read port from `.pi-test-harness.json`, never `:18000`)
 Exemplar: `tests/e2e/subagent-detail-dialog.spec.ts` (dialog e2e harness glue), `tests/e2e/file-preview-survives-churn.spec.ts`.

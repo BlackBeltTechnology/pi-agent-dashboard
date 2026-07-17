@@ -26,6 +26,7 @@ import { MarkdownPreviewView } from "./components/MarkdownPreviewView.js";
 import { MissingRequiredBanner } from "./components/MissingRequiredBanner.js";
 import { HamburgerButton, MobileOverlay } from "./components/MobileOverlay.js";
 import { MobileShell } from "./components/MobileShell.js";
+import { OpenSpecArtifactDialog } from "./components/OpenSpecArtifactDialog.js";
 import { OpenSpecBoardView } from "./components/OpenSpecBoardView.js";
 import { PiUpdateBadge } from "./components/PiUpdateBadge.js";
 import { PluginStalenessBanner } from "./components/PluginStalenessBanner.js";
@@ -121,6 +122,7 @@ import { PinDirectoryDialog } from "./components/PinDirectoryDialog.js";
 import { SearchableSelectDialog, type SelectOption } from "./components/SearchableSelectDialog.js";
 import type { ToolContext } from "./components/tool-renderers/index.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
+import { openArtifactForViewport } from "./lib/artifact-view-gate.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
 import { useSessionActions } from "./hooks/useSessionActions.js";
@@ -506,6 +508,9 @@ export default function App() {
   // Folded from `canvas_intent` / `canvas_server_chip`. See change: auto-canvas.
   const [canvasMap, setCanvasMap] = useState<Map<string, import("./lib/canvas-gate.js").CanvasState>>(() => new Map());
   const [openspecMap, setOpenspecMap] = useState<Map<string, OpenSpecData>>(new Map());
+  // Non-mobile artifact dialog (local-state, URL unchanged). Mobile keeps the
+  // full-page preview route. See change: openspec-artifact-dialog-desktop.
+  const [artifactDialog, setArtifactDialog] = useState<{ cwd: string; changeName: string; artifactId: string } | null>(null);
   // Folder-HEAD branch map (`cwd → branch | null`), synced via `git_head_update`.
   // See change: refresh-folder-header-branch.
   const [folderGitMap, setFolderGitMap] = useState<Map<string, string | null>>(new Map());
@@ -1248,6 +1253,27 @@ export default function App() {
     handleAttachProposal, handleDetachProposal, handleReplaceProposal,
   } = openspecActions;
 
+  // Viewport gate for badge clicks: non-mobile opens the local-state dialog
+  // over the current view (URL unchanged); mobile keeps the full-page preview
+  // route (`handleReadArtifact` → navigate). All 5 badge wiring sites call
+  // this instead of `handleReadArtifact`. See change:
+  // openspec-artifact-dialog-desktop.
+  const openArtifact = useCallback(
+    (cwd: string, changeName: string, artifactId: string) => {
+      openArtifactForViewport(isMobile, { cwd, changeName, artifactId }, {
+        navigateToPreview: (r) => handleReadArtifact(r.cwd, r.changeName, r.artifactId),
+        openDialog: (r) => setArtifactDialog(r),
+      });
+    },
+    [isMobile, handleReadArtifact],
+  );
+
+  // Crossing into mobile closes the dialog so a local-state modal is never
+  // stranded over a route that subsequent badge clicks would navigate behind.
+  useEffect(() => {
+    if (isMobile) setArtifactDialog(null);
+  }, [isMobile]);
+
   // Flow YAML viewer + agent source viewer moved into flows-plugin's
   // FlowYamlPreview (content-view route flow-yaml-preview) + the
   // FlowsUiStateContext setters. The shell no longer fetches yaml or
@@ -1333,7 +1359,7 @@ export default function App() {
       onSendPrompt={handleSendPromptToSession}
       onOpenSpecRefresh={handleOpenSpecRefresh}
       onBulkArchive={handleBulkArchive}
-      onReadArtifact={handleReadArtifact}
+      onReadArtifact={openArtifact}
       onOpenPiResources={handleOpenPiResources}
       onOpenSpecs={(cwd) => navigate(buildOpenSpecSpecsUrl(cwd))}
       onOpenArchive={(cwd) => navigate(buildOpenSpecArchiveUrl(cwd))}
@@ -1425,7 +1451,7 @@ export default function App() {
       groupsState={openspecGroupsMap.get(openspecBoardCwd)}
       onBack={goBack}
       onRefresh={() => handleOpenSpecRefresh(openspecBoardCwd)}
-      onReadArtifact={(changeName, artifactId) => handleReadArtifact(openspecBoardCwd, changeName, artifactId)}
+      onReadArtifact={(changeName, artifactId) => openArtifact(openspecBoardCwd, changeName, artifactId)}
       onNavigateToSession={handleSelect}
       onOpenSpecs={() => navigate(buildOpenSpecSpecsUrl(openspecBoardCwd))}
       onOpenArchive={() => navigate(buildOpenSpecArchiveUrl(openspecBoardCwd))}
@@ -1490,7 +1516,7 @@ export default function App() {
           onAttachProposal: (changeName) => handleAttachProposal(selectedId, changeName),
           onDetachProposal: () => handleDetachProposal(selectedId),
           onSendPrompt: (text) => wrappedHandleSend(text),
-          onReadArtifact: (changeName, artifactId) => handleReadArtifact(selectedCwd!, changeName, artifactId),
+          onReadArtifact: (changeName, artifactId) => openArtifact(selectedCwd!, changeName, artifactId),
           onRefresh: () => {
             setSessionStates((prev) => {
               const next = new Map(prev);
@@ -1509,7 +1535,7 @@ export default function App() {
         openspecChanges={selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined}
         onAttachProposal={(changeName) => handleAttachProposal(selectedId, changeName)}
         onDetachProposal={() => handleDetachProposal(selectedId)}
-        onReadArtifact={selectedCwd ? (changeName, artifactId) => handleReadArtifact(selectedCwd, changeName, artifactId) : undefined}
+        onReadArtifact={selectedCwd ? (changeName, artifactId) => openArtifact(selectedCwd, changeName, artifactId) : undefined}
         hasFileChanges={selectedState.hasFileChanges}
         onOpenDiffView={() => navigate(buildSessionDiffUrl(selectedId))}
         onOpenExtensionModulePicker={() => setExtensionModulePickerOpen(true)}
@@ -1704,7 +1730,7 @@ export default function App() {
                 openspecHasDir={selectedCwd ? openspecMap.get(selectedCwd)?.hasOpenspecDir : undefined}
                 openspecPending={selectedCwd ? openspecMap.get(selectedCwd)?.pending : undefined}
                 onSendPrompt={(text, images) => wrappedHandleSend(text, images)}
-                onReadArtifact={selectedCwd ? (changeName, artifactId) => handleReadArtifact(selectedCwd, changeName, artifactId) : undefined}
+                onReadArtifact={selectedCwd ? (changeName, artifactId) => openArtifact(selectedCwd, changeName, artifactId) : undefined}
                 onBulkArchive={selectedCwd ? () => handleBulkArchive(selectedCwd) : undefined}
                 allSessions={Array.from(sessions.values())}
                 showGitInfo={true}
@@ -2247,6 +2273,15 @@ export default function App() {
         })()} onMessage={onMessage} onBack={goBack} selectedCwd={selectedCwd} />}
         {tunnelSetupMatch && <ZrokInstallGuide onBack={goBack} />}
       </div>
+      {artifactDialog && (
+        <OpenSpecArtifactDialog
+          cwd={artifactDialog.cwd}
+          changeName={artifactDialog.changeName}
+          initialArtifact={artifactDialog.artifactId}
+          openspecMap={openspecMap}
+          onClose={() => setArtifactDialog(null)}
+        />
+      )}
       {boardWorktreeForChange && (
         <WorktreeSpawnDialog
           cwd={boardWorktreeForChange.cwd}
