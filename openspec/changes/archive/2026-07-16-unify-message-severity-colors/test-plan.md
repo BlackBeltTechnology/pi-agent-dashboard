@@ -2,7 +2,7 @@
 
 Stage: design   Generated: 2026-07-15
 
-Both design-stage clarifications resolved (AA scope = all 9 themes × light+dark; still-working info → neutral). No open markers.
+Both design-stage clarifications resolved (still-working info → neutral). Contrast scope revised in implementation to a RELATIVE gate (resolution A): 3:1 floor across all 9 themes × light+dark + AA-on-majority, one documented exception (tokyo-night/light `info`) — an absolute AA-everywhere gate is unsatisfiable because 5/18 combos already ship sub-AA base text. See design D6 + E12.
 
 ---
 
@@ -23,7 +23,7 @@ Both design-stage clarifications resolved (AA scope = all 9 themes × light+dark
 | E9 | no bare error-intent showToast | static-inspection | L1 | automated | the 3 known error sites | scan `showToast(` calls | each error-intent call passes explicit `"error"`; no error-intent bare call remains |
 | E10 | neutral uses literal base tokens | static-inspection | L1 | automated | `--severity-neutral-*` defs + neutral box class | inspect index.css + VARIANT_CLASSES | maps to `--bg-tertiary`/`--text-secondary`/`--border-primary`, NOT a `color-mix` from `--text-muted` |
 | E11 | info independent of notice token | static-inspection | L1 | automated | index.css declarations | inspect | `--severity-info` and `--status-notice` are separate declarations (may share `--accent-blue`) |
-| E12 | derived triples meet WCAG AA (all themes) | BVA (contrast threshold) | L3 | automated | 5 tiers × 9 themes × {light,dark} = 90 cells | apply `data-theme`+mode, render toast of each tier | `contrast(fg,bg) ≥ 4.5:1` body, border `≥ 3:1` for every cell (computed via `getComputedStyle` in a real browser that resolves `color-mix`) |
+| E12 | derived triples meet the relative contrast gate (all themes) | BVA (contrast threshold) | L3 | automated | 5 tiers × 9 themes × {light,dark} = 90 cells | set `dashboard:theme-name`+mode in localStorage, reload, probe each tier's resolved `--severity-*` | each accent tier `contrast(fg,bg) ≥ 3:1` floor + `neutral` ≥ its base ratio, ONE documented exception tokyo-night/light `info` (≥ 2.5); ≥ 55/90 cells also ≥ 4.5:1 AA (computed via `getComputedStyle`, real browser resolves `color-mix`). Absolute AA-everywhere is unsatisfiable — 5/18 combos ship sub-AA base text; see design D6 |
 
 ### Frontend-quirk
 

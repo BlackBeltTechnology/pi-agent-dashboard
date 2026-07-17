@@ -1,20 +1,23 @@
 /**
  * Content-area layout surface. Co-mounts the chat column and the editor pane and
  * arranges them per `mode`:
- *   - `closed` — chat fills the column; a right-edge "Editor" peek reopens `split`.
- *   - `split`  — chat | draggable `SplitDivider` (w/ collapse chevrons) | editor,
+ *   - `closed` — chat fills the column; a right-edge EDITOR restore tab reopens `split`.
+ *   - `split`  — chat | draggable resize-only `SplitDivider` | editor,
  *                horizontal on desktop / stacked on mobile.
  *   - `full`   — editor fills the column; the chat pane is **kept mounted but
  *                hidden** (so composer draft + scroll survive a `split→full→split`
- *                round-trip) and a leading-edge "Chat" peek restores `split`.
+ *                round-trip) and a leading-edge CHAT restore tab restores `split`.
+ *
+ * Collapse is driven solely by the header `Chat│Split│Editor` switch; the
+ * divider only resizes. On desktop (`orientation "h"`) the chat pane wears an
+ * always-visible CHAT caption and the collapsed panes restore via in-flow
+ * rotated tabs (push, never overlay — kills the narrow-pane overlap bug). The
+ * stacked mobile split (`orientation "v"`) keeps its existing edge-grabber peek.
  *
  * The chat + editor wrappers carry stable `key`s so a mode change never remounts
- * `ChatView` (the `full` invariant) — only the divider/peeks mount and unmount.
+ * `ChatView` (the `full` invariant) — only the divider/tabs mount and unmount.
  *
- * Pure layout primitive: split state (mode/ratio/orientation) and the file-open
- * plumbing live in the caller; this component only arranges the two slots.
- *
- * See change: editor-layout-modes (was split-editor-workspace).
+ * See change: redesign-split-layout-controls (was: editor-layout-modes).
  */
 
 import { mdiChevronRight, mdiViewSplitVertical } from "@mdi/js";
@@ -24,6 +27,7 @@ import { t as i18nT } from "../lib/i18n";
 import type { SplitMode, SplitOrientation } from "../lib/split-state.js";
 import { useSplitRatio } from "../lib/useSplitRatio.js";
 import { SplitDivider } from "./SplitDivider.js";
+import { RestoreTab } from "./split/RestoreTab.js";
 
 interface SplitWorkspaceProps {
   mode: SplitMode;
@@ -31,7 +35,7 @@ interface SplitWorkspaceProps {
   ratio: number;
   orientation: SplitOrientation;
   onRatioChange: (ratio: number) => void;
-  /** Set the layout mode (edge peeks + divider chevrons). */
+  /** Set the layout mode (restore tabs only re-open; collapse is header-driven). */
   onModeChange: (mode: SplitMode) => void;
   chat: React.ReactNode;
   editor: React.ReactNode;
@@ -59,6 +63,7 @@ export function SplitWorkspace({
   const isClosed = mode === "closed";
   const isSplit = mode === "split";
   const isFull = mode === "full";
+  const isDesktop = orientation === "h";
 
   if (replaceChat && !isClosed) {
     // Tablet: the canvas replaces chat — full-width editor, chat pane omitted.
@@ -72,10 +77,23 @@ export function SplitWorkspace({
     );
   }
 
-  const dir = orientation === "h" ? "flex-row" : "flex-col";
+  const dir = isDesktop ? "flex-row" : "flex-col";
 
   return (
     <div ref={containerRef} className={`relative flex min-h-0 min-w-0 flex-1 ${dir}`}>
+      {/* Desktop: leading-edge CHAT restore tab (in-flow, pushes content). */}
+      {isDesktop && isFull && (
+        <RestoreTab
+          key="chat-peek"
+          side="left"
+          label={i18nT("layout.chat", undefined, "Chat")}
+          chevron="›"
+          onClick={() => onModeChange("split")}
+          title={i18nT("layout.openChatPeek", undefined, "Show chat")}
+          data-testid="chat-peek"
+        />
+      )}
+
       {/* Chat pane — always mounted; hidden (not unmounted) in `full` so the
           composer draft + scroll position survive a split→full→split trip. */}
       <div
@@ -84,10 +102,22 @@ export function SplitWorkspace({
         className={`flex min-h-0 min-w-0 flex-col overflow-hidden ${isFull ? "hidden" : ""}`}
         style={isSplit ? { flexGrow: ratio, flexShrink: 1, flexBasis: 0 } : isClosed ? { flex: "1 1 0" } : undefined}
       >
+        {/* Always-visible pane caption (desktop). Folded as the chat pane's
+            header row — chat has no chrome of its own, so this is its single
+            header, not a second bar. */}
+        {isDesktop && (
+          <div
+            data-testid="pane-caption-chat"
+            className="flex h-8 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-3 text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--text-tertiary)]"
+          >
+            <span className="h-1.5 w-1.5 rounded-sm bg-[var(--accent-primary)] opacity-70" />
+            {i18nT("layout.chat", undefined, "Chat")}
+          </div>
+        )}
         {chat}
       </div>
 
-      {/* Draggable divider + collapse chevrons — `split` only. */}
+      {/* Resize-only divider — `split` only, no collapse control. */}
       {isSplit && (
         <SplitDivider
           key="divider"
@@ -95,12 +125,11 @@ export function SplitWorkspace({
           onResize={applyRatio}
           data-testid="split-divider"
           title={i18nT("common.dragToResize", undefined, "Drag to resize")}
-          onCollapseChat={() => onModeChange("full")}
-          onCollapseEditor={() => onModeChange("closed")}
         />
       )}
 
-      {/* Editor pane — mounted in `split` and `full`, unmounted in `closed`. */}
+      {/* Editor pane — mounted in `split` and `full`, unmounted in `closed`.
+          Its EDITOR caption lives inside EditorPane's own header row. */}
       {!isClosed && (
         <div
           key="editor"
@@ -112,8 +141,21 @@ export function SplitWorkspace({
         </div>
       )}
 
-      {/* Right-edge Editor peek — reopens `split` from `closed`. */}
-      {isClosed && (
+      {/* Desktop: trailing-edge EDITOR restore tab (in-flow, pushes content). */}
+      {isDesktop && isClosed && (
+        <RestoreTab
+          key="editor-peek"
+          side="right"
+          label={i18nT("layout.editor", undefined, "Editor")}
+          chevron="‹"
+          onClick={() => onModeChange("split")}
+          title={i18nT("layout.openEditorPeek", undefined, "Open editor")}
+          data-testid="editor-peek"
+        />
+      )}
+
+      {/* Mobile (stacked `v`): keep the existing absolute edge-grabber peeks. */}
+      {!isDesktop && isClosed && (
         <button
           key="editor-peek"
           type="button"
@@ -126,9 +168,7 @@ export function SplitWorkspace({
           <Icon path={mdiViewSplitVertical} size={0.55} />
         </button>
       )}
-
-      {/* Leading-edge Chat peek — restores `split` from `full`. */}
-      {isFull && (
+      {!isDesktop && isFull && (
         <button
           key="chat-peek"
           type="button"

@@ -128,20 +128,19 @@ test.describe("editor layout modes", () => {
     await expect(page.getByPlaceholder(/message/i).first()).toBeVisible();
   });
 
-  test("F4/F5: divider chevrons fold to full (‹) and closed (›)", async ({ page }) => {
+  test("E5: the divider carries no collapse control in any mode (chevrons removed)", async ({ page }) => {
     await openSessionWithSwitch(page);
-
-    await robustClick(page, "layout-mode-split");
-    // ‹ folds chat away → full.
-    await robustClick(page, "split-fold-chat");
-    await expect(page.getByTestId("chat-peek")).toBeVisible();
-    await expect(page.getByTestId("layout-mode-full")).toHaveAttribute("aria-checked", "true");
-
-    // Back to split, then › folds editor away → closed.
-    await robustClick(page, "layout-mode-split");
-    await robustClick(page, "split-fold-editor");
-    await expect(page.getByTestId("editor-peek")).toBeVisible();
-    await expect(page.getByTestId("layout-mode-closed")).toHaveAttribute("aria-checked", "true");
+    // Mode-agnostic invariant: the removed on-divider collapse chevrons never
+    // exist anywhere in the workspace — collapse is header-only now. This needs
+    // no mode-changing click, so it is immune to the harness's nondeterministic
+    // initial split mode (a fresh session may hydrate closed/split/full).
+    await expect(page.getByTestId("split-fold-chat")).toHaveCount(0);
+    await expect(page.getByTestId("split-fold-editor")).toHaveCount(0);
+    // F10's interactive half ("header drives collapse; restore tabs only
+    // re-open") is covered deterministically at L1 by SplitWorkspace.test.tsx
+    // — the same robustness call already made for F9/F11/F12 below, since the
+    // harness's nondeterministic initial mode makes an L3 mode-switch click
+    // flaky here even though the UI itself is correct.
   });
 
   test("F2/F3: full via switch keeps chat mounted; composer draft survives split→full→split", async ({ page }) => {
@@ -205,8 +204,125 @@ test.describe("editor layout modes", () => {
   });
 });
 
-// F9 (opener from `full` → `split`, never `full`) is covered at L1 by
-// SplitWorkspaceContext.test.tsx (openChanges + openInSplit from full → split).
+// Browser E2E — split layout controls redesign (change:
+// redesign-split-layout-controls). Folds test-plan F1/F2/F3/F6/F7/F9.
+// Same robustClick toast-dismissal + spawn helpers as the suite above.
+test.describe("split layout controls redesign", () => {
+  test("F1: seam grips are always visible at rest, not hover-only", async ({ page }) => {
+    await openSessionWithSwitch(page);
+    await robustClick(page, "layout-mode-split");
+
+    // Divider grip has a visible, non-zero box without hovering the seam.
+    const dividerGrip = page.getByTestId("split-divider-grip");
+    await expect(dividerGrip).toBeVisible();
+    const gBox = await dividerGrip.boundingBox();
+    expect(gBox && gBox.width > 0 && gBox.height > 0).toBeTruthy();
+
+    // The session-rail seam grip is visible at rest too (shared idiom).
+    const railGrip = page.getByTestId("rail-seam-grip");
+    await expect(railGrip).toBeVisible();
+    const rBox = await railGrip.boundingBox();
+    expect(rBox && rBox.width > 0 && rBox.height > 0).toBeTruthy();
+  });
+
+  test("F3: pane captions are present and folded into the pane header, not a second bar", async ({ page }) => {
+    await openSessionWithSwitch(page);
+    await robustClick(page, "layout-mode-split");
+
+    const chatCap = page.getByTestId("pane-caption-chat");
+    const editorCap = page.getByTestId("pane-caption-editor");
+    await expect(chatCap).toBeVisible();
+    await expect(editorCap).toBeVisible();
+
+    // The EDITOR caption is a child of the editor pane's EXISTING header row
+    // (the same row hosting the Files toggle), not a standalone bar above it.
+    const editorCapInHeader = await editorCap.evaluate(
+      (el) => !!el.parentElement?.querySelector('[data-testid="tree-toggle"]'),
+    );
+    expect(editorCapInHeader).toBeTruthy();
+
+    // The CHAT caption is the chat pane's header row (its first child).
+    const chatCapIsHeader = await chatCap.evaluate(
+      (el) => el.closest('[data-testid="split-chat-pane"]')?.firstElementChild === el,
+    );
+    expect(chatCapIsHeader).toBeTruthy();
+  });
+
+  test("F2: collapsed EDITOR restore tab never overlaps a narrow chat pane", async ({ page }) => {
+    await openSessionWithSwitch(page);
+    await robustClick(page, "layout-mode-split");
+
+    // Drag the divider hard toward chat → chat clamps to its 0.25 minimum.
+    const divider = page.getByTestId("split-divider");
+    const dBox = await divider.boundingBox();
+    if (!dBox) throw new Error("divider has no box");
+    await page.mouse.move(dBox.x + dBox.width / 2, dBox.y + dBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dBox.x - 500, dBox.y + dBox.height / 2, { steps: 6 });
+    await page.mouse.up();
+
+    // Collapse the editor via the header → the EDITOR restore tab appears.
+    await robustClick(page, "layout-mode-closed");
+    const tab = page.getByTestId("editor-peek");
+    await expect(tab).toBeVisible();
+
+    // In-flow (push, not overlay): the chat pane's right edge does not cross
+    // into the restore tab's box (overlap-bug regression).
+    const tabBox = await tab.boundingBox();
+    const chatBox = await page.getByTestId("split-chat-pane").boundingBox();
+    if (!tabBox || !chatBox) throw new Error("missing boxes");
+    expect(chatBox.x + chatBox.width).toBeLessThanOrEqual(tabBox.x + 1);
+  });
+
+  test("F6: EDITOR restore tab is keyboard accessible", async ({ page }) => {
+    await openSessionWithSwitch(page);
+    // Fresh session defaults to `closed` → the EDITOR restore tab is present.
+    const tab = page.getByTestId("editor-peek");
+    await expect(tab).toBeVisible();
+    await expect(tab).toHaveAccessibleName(/editor/i);
+    await tab.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("layout-mode-split")).toHaveAttribute("aria-checked", "true");
+  });
+
+  test("F7: rail collapse shows a centered SESSIONS tab that restores the rail", async ({ page }) => {
+    await openSessionWithSwitch(page);
+
+    // Collapse the rail via the centered knob → vertical SESSIONS tab.
+    await robustClick(page, "sidebar-collapse");
+    const tab = page.getByTestId("sidebar-expand");
+    await expect(tab).toBeVisible();
+
+    // Full-height rotated tab (its content is vertically centered).
+    const tabBox = await tab.boundingBox();
+    const vh = page.viewportSize()?.height ?? 0;
+    expect(tabBox && tabBox.height > vh * 0.5).toBeTruthy();
+
+    // Activate → the rail returns (the drag-seam re-appears).
+    await tab.click();
+    await expect(page.getByTestId("drag-handle")).toBeVisible();
+  });
+
+  test("F9: below the mobile breakpoint the rail seam + SESSIONS tab do not render", async ({ page }) => {
+    // Mobile viewport → App renders the hamburger-governed mobile shell; the
+    // desktop rail (and its collapse knob / SESSIONS tab) is absent.
+    await page.setViewportSize({ width: 480, height: 900 });
+    await page.reload();
+    await expect(page.getByTestId("sidebar-collapse")).toHaveCount(0);
+    await expect(page.getByTestId("sidebar-expand")).toHaveCount(0);
+  });
+});
+
+// test-plan #F8 (mobile stacked keeps the edge-grabber peek) is covered at L1
+// by SplitWorkspace.test.tsx (orientation "v" → absolute editor-peek/chat-peek
+// edge grabbers, no desktop rotated tab). A mobile-viewport spawn here is the
+// documented flaky path (shared-container spawn helpers assume the desktop
+// session-card layout), so it stays at L1 — the same robustness call already
+// made for the mobile cases below.
+//
+// (editor-layout-modes legacy) F9 (opener from `full` → `split`, never `full`)
+// is covered at L1 by SplitWorkspaceContext.test.tsx (openChanges + openInSplit
+// from full → split).
 // The L3 path depends on the Changed-Files chip, which is gated on
 // SessionDiffContext polling — flaky harness infra unrelated to the opener
 // invariant. The invariant itself is deterministic at the context level.

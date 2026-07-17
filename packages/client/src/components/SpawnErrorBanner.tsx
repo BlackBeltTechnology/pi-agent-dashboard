@@ -57,7 +57,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
   return (
     <div
       data-testid="spawn-error-banner"
-      className="mx-2 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-xs text-red-300"
+      className="mx-2 bg-[var(--severity-error-bg)] border border-[var(--severity-error-border)] rounded-lg px-3 py-2 text-xs text-[var(--severity-error-fg)]"
     >
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
@@ -65,7 +65,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
             <>
               <span className="font-medium">{i18nT(hint.labelKey, undefined, hint.label)}</span>
               {!code || code !== "PREFLIGHT_FAILED" ? (
-                <span className="ml-1 text-red-400/70">{message}</span>
+                <span className="ml-1 text-[var(--severity-error-fg)]/70">{message}</span>
               ) : null}
             </>
           ) : (
@@ -74,7 +74,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
 
           {/* Preflight reasons list */}
           {code === "PREFLIGHT_FAILED" && reasons && reasons.length > 0 && (
-            <ul className="mt-1 space-y-0.5 list-disc list-inside text-red-400/80">
+            <ul className="mt-1 space-y-0.5 list-disc list-inside text-[var(--severity-error-fg)]/80">
               {reasons.map((r, i) => (
                 <li key={i}>{r.message}</li>
               ))}
@@ -87,7 +87,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
               {hint.cta.action === "wizard" && (
                 <button
                   onClick={openWizard}
-                  className="text-xs text-red-300 underline hover:text-red-200"
+                  className="text-xs text-[var(--severity-error-fg)] underline hover:text-[var(--severity-error-fg)]/80"
                 >
                   {i18nT(hint.cta.labelKey, undefined, hint.cta.label)}
                 </button>
@@ -95,7 +95,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
               {hint.cta.action === "log" && (
                 <a
                   href="/settings/general"
-                  className="text-xs text-red-300 underline hover:text-red-200"
+                  className="text-xs text-[var(--severity-error-fg)] underline hover:text-[var(--severity-error-fg)]/80"
                 >
                   {i18nT(hint.cta.labelKey, undefined, hint.cta.label)}
                 </a>
@@ -106,8 +106,8 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
           {/* Stderr tail */}
           {stderr && (
             <details className="mt-1.5">
-              <summary className="cursor-pointer text-red-400/70 hover:text-red-300">{i18nT("terminal.piStderr", undefined, "Pi stderr")}</summary>
-              <pre className="mt-1 text-[10px] text-red-400/60 whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono">{stderr}</pre>
+              <summary className="cursor-pointer text-[var(--severity-error-fg)]/70 hover:text-[var(--severity-error-fg)]">{i18nT("terminal.piStderr", undefined, "Pi stderr")}</summary>
+              <pre className="mt-1 text-[10px] text-[var(--severity-error-fg)]/60 whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono">{stderr}</pre>
             </details>
           )}
         </div>
@@ -116,7 +116,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
           <button
             data-testid="spawn-error-dismiss"
             onClick={onDismiss}
-            className="text-red-400 hover:text-red-300 shrink-0 mt-0.5"
+            className="text-[var(--severity-error-fg)]/80 hover:text-[var(--severity-error-fg)] shrink-0 mt-0.5"
           >✕</button>
         )}
       </div>
@@ -136,15 +136,15 @@ function TimeoutBanner({ detail, onDismiss }: Props) {
   return (
     <div
       data-testid="spawn-timeout-banner"
-      className="mx-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-xs text-amber-300"
+      className="mx-2 bg-[var(--severity-warning-bg)] border border-[var(--severity-warning-border)] rounded-lg px-3 py-2 text-xs text-[var(--severity-warning-fg)]"
     >
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <span className="font-medium">{label}</span>
           {stderr && (
             <details className="mt-1.5">
-              <summary className="cursor-pointer text-amber-400/70 hover:text-amber-300">{i18nT("terminal.piStderr", undefined, "Pi stderr")}</summary>
-              <pre className="mt-1 text-[10px] text-amber-400/60 whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono">{stderr}</pre>
+              <summary className="cursor-pointer text-[var(--severity-warning-fg)]/70 hover:text-[var(--severity-warning-fg)]">{i18nT("terminal.piStderr", undefined, "Pi stderr")}</summary>
+              <pre className="mt-1 text-[10px] text-[var(--severity-warning-fg)]/60 whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono">{stderr}</pre>
             </details>
           )}
         </div>
@@ -152,7 +152,7 @@ function TimeoutBanner({ detail, onDismiss }: Props) {
           <button
             data-testid="spawn-timeout-dismiss"
             onClick={onDismiss}
-            className="text-amber-400 hover:text-amber-300 shrink-0 mt-0.5"
+            className="text-[var(--severity-warning-fg)]/80 hover:text-[var(--severity-warning-fg)] shrink-0 mt-0.5"
           >✕</button>
         )}
       </div>

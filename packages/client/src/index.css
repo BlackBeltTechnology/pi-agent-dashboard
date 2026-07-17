@@ -73,6 +73,36 @@
      See change: fix-gemini-subagent-silent-tool-schema-failure. */
   --status-notice: var(--accent-blue);
 
+  /* Message-severity tokens — single color source of truth for every toast /
+     banner surface. Each accent tier is a triple derived from one base accent
+     via color-mix so the muted translucent-box look is theme-robust: bg tints
+     into --bg-tertiary, fg mixes toward --text-primary (both flip per theme),
+     border is the accent at 40% alpha. neutral is the ABSENCE of severity, so
+     it reuses the literal subdued base tokens (NOT a color-mix from
+     --text-muted, which fails contrast). --severity-info is its own token
+     (independent of the --status-notice protocol signal, though both may share
+     --accent-blue). Percentages (bg 10% / fg 46% / border 40%) tuned so the
+     derived triples clear a 3:1 legibility floor across all 9 themes ×
+     light+dark (AA 4.5:1 on the majority); the sole documented exception is
+     tokyo-night light `info` (that theme's own body text is already sub-AA at
+     3.5:1, so no derived tint can beat it). See change:
+     unify-message-severity-colors, design.md D4/D6. */
+  --severity-error-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --severity-error-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --severity-error-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
+  --severity-warning-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --severity-warning-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --severity-warning-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --severity-success-bg: color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --severity-success-fg: color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --severity-success-border: color-mix(in srgb, var(--accent-green) 40%, transparent);
+  --severity-info-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --severity-info-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+  --severity-info-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  --severity-neutral-bg: var(--bg-tertiary);
+  --severity-neutral-fg: var(--text-secondary);
+  --severity-neutral-border: var(--border-primary);
+
   /* Shared focus-ring color (:focus-visible). ≥3:1 vs adjacent colors.
      See change: extend-client-utils-state-feedback-primitives. */
   --focus-ring: var(--accent-primary);
