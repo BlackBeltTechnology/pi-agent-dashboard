@@ -5,6 +5,7 @@ Files in this directory. One row per source file.
 | File | Purpose |
 |------|---------|
 | `api-context.ts` | React context + module-level store for HTTP API base URL. → see `api-context.ts.AGENTS.md` |
+| `artifact-view-gate.ts` | Pure viewport gate `openArtifactForViewport(isMobile, ref, handlers)`: non-mobile→`openDialog`, mobile→`navigateToPreview`. Shared by App + unit tests. See change: openspec-artifact-dialog-desktop. |
 | `auto-init-worktree.ts` | Fire-and-forget post-spawn worktree auto-init. Exports `maybeAutoInitWorktreeOnSpawn(cwd)`; no-op unless… → see `auto-init-worktree.ts.AGENTS.md` |
 | `back-target.ts` | Pure `computeBackTarget(route): string \| null` — maps route to parent route one shell depth up. → see `back-target.ts.AGENTS.md` |
 | `browse-api.ts` | Client-side browse API helper for PathPicker → see `browse-api.ts.AGENTS.md` |

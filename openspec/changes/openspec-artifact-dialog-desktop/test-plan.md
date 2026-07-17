@@ -57,8 +57,20 @@ Boundary values from `useMobile()` = `matchMedia("(max-width:767px),(max-height:
 
 ## New infra needed
 
-- none — L1 (vitest) + L3 (Playwright docker harness) already exist; reuses
-  `packages/client/src/components/__tests__/` and `tests/e2e/`.
+- **OpenSpec fixture (added during apply):** the docker harness `sample-git`
+  fixture shipped no `openspec/` project, so badges never rendered. Added
+  `docker/fixtures/sample-git/openspec/` — an active change `e2e-artifact-demo`
+  (all 4 artifacts) + an archived change — so `openspec list` yields P/D/S/T
+  badges for the L3 specs. (Original plan's "none" was inaccurate.)
+- L1 (vitest) + L3 (Playwright docker harness) frameworks already existed.
+- **X1/X3 landed at component-integration level, not L3.** Their states are
+  UI-unreachable through a real badge click: badges only render once
+  `openspecMap` is populated (so cold-load X1 has no click window), and no
+  runtime endpoint deletes an active change (so mid-dialog removal X3 can't be
+  triggered in-harness). Both are covered deterministically in
+  `OpenSpecArtifactDialog.test.tsx` by driving the `openspecMap` prop — the
+  exact source the component derives from — asserting the same observables
+  (loading→content; not-found flip, no crash).
 
 ## Notes
 
