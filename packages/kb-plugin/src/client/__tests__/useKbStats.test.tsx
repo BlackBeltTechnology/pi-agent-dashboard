@@ -158,10 +158,8 @@ describe("useKbStats", () => {
   }, REINDEX_GUARD_MS + 6000);
 
   it("resets pending when cwd changes so it never leaks across folders (CodeRabbit)", async () => {
-    // POST hangs so pending stays true; switching cwd must clear it, not carry it over.
-    (globalThis as { fetch?: unknown }).fetch = vi.fn(async (_url: string, init?: RequestInit) =>
-      init?.method === "POST" ? new Promise<Response>(() => {}) : json(base()),
-    );
+    // Hang ALL requests so pending stays true and no background fetch resolves after exit.
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(() => new Promise<Response>(() => {}));
     const { getByTestId, rerender } = render(<ReindexProbe cwd="/repo/a" />);
     await waitFor(() => expect(getByTestId("probe").getAttribute("data-pending")).toBe("false"));
     fireEvent.click(getByTestId("go"));
@@ -184,6 +182,9 @@ describe("useKbStats", () => {
     // Optimistic pending fires AND the stale poll error is cleared in the same commit.
     expect(getByTestId("probe").getAttribute("data-pending")).toBe("true");
     expect(getByTestId("probe").getAttribute("data-error")).toBe("");
+    // Settle the reindex flow (202 → poll sees indexing:true → pending clears) before exit
+    // so no background state update leaks past the test.
+    await waitFor(() => expect(getByTestId("probe").getAttribute("data-pending")).toBe("false"), { timeout: 5000 });
   });
 
   it("tolerates a lone transient poll miss during indexing without dropping the spinner (task 2.3)", async () => {
