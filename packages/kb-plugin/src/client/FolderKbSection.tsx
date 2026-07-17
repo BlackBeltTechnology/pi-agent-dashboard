@@ -43,7 +43,7 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
   const t = useT();
   const cwd = folder?.cwd;
   const [, navigate] = useLocation();
-  const { stats, reindex, reindexError, error } = useKbStats(cwd);
+  const { stats, reindex, reindexError, error, pending } = useKbStats(cwd);
 
   if (!cwd) return null;
 
@@ -51,8 +51,15 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
   // the failed state — but a live `indexing` walk keeps its spinner because a
   // transient poll blip never sets `error` (bounded in useKbStats). See change:
   // fix-kb-index-feedback.
+  //
+  // `pending` renders the SAME `indexing` branch optimistically the instant the
+  // action is clicked (before the server's 202 / first /stats). `error` still
+  // outranks it so a trigger reject shows Retry, not a spinner. `busy` disables
+  // the action controls for the whole pending+indexing window (no double-submit).
+  // See change: add-kb-index-optimistic-pending.
   const clientError = reindexError ?? error ?? null;
-  const state = clientError != null ? "error" : deriveKbRowState(stats);
+  const state = clientError != null ? "error" : pending ? "indexing" : deriveKbRowState(stats);
+  const busy = pending || stats?.indexing === true;
   const chunks = stats?.chunks ?? 0;
   const files = stats?.files ?? 0;
   const countTip = t("countTip", { files, chunks }, `${files} files · ${chunks} chunks`);
@@ -125,8 +132,9 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
         ) : state === "not-indexed" ? (
           <button
             onClick={doReindex}
+            disabled={busy}
             data-testid="folder-kb-index-now"
-            className="text-[10px] px-1.5 py-0.5 rounded border text-teal-300 border-teal-500/40 bg-teal-500/5 hover:border-teal-500/70"
+            className="text-[10px] px-1.5 py-0.5 rounded border text-teal-300 border-teal-500/40 bg-teal-500/5 hover:border-teal-500/70 disabled:opacity-50 disabled:cursor-not-allowed"
             title={t("titleBuildKb", undefined, "Build the KB for this folder")}
           >
             {t("indexNow", undefined, "Index now")}
@@ -134,8 +142,9 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
         ) : (
           <button
             onClick={doReindex}
+            disabled={busy}
             data-testid="folder-kb-reindex"
-            className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+            className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed"
             title={state === "stale" ? t("titleReindexStale", { count: stats?.staleCount ?? 0 }, `Reindex ${stats?.staleCount} changed files`) : t("titleReindexNow", undefined, "Reindex now")}
           >
             <Icon path={mdiRefresh} size={0.5} />
