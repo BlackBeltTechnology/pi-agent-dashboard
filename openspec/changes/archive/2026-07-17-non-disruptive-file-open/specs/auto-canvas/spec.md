@@ -1,6 +1,6 @@
 # auto-canvas — delta
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Auto-open drives the split-workspace surface without disrupting the reader
 

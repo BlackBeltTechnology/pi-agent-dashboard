@@ -41,22 +41,40 @@ it is exempt as a mode-preserving in-pane action.)
 
 ### Requirement: Peek handles SHALL restore a collapsed pane
 
-When a pane is collapsed the workspace SHALL render a peek/restore affordance on the
-collapsed pane's edge so the pane is re-openable without the header. In `closed` mode
-a right-edge "Editor" affordance SHALL re-open to `split`. In `full` mode a
-leading-edge "Chat" affordance SHALL restore `split`. Activating a peek SHALL NOT
-destroy the other pane's state. A content-driven opener SHALL NOT change the mode
-when the editor is already shown.
+Each pane SHALL show an always-visible caption (`CHAT` / `EDITOR`) at its top while
+open; the caption SHALL be folded into the pane's existing header row, NOT added as
+a second bar. This requirement governs the **desktop horizontal split
+(`orientation "h"`)**; the stacked mobile split (`orientation "v"`) is out of scope
+here and retains the existing edge-grabber peek behavior defined by the untouched
+"Content area SHALL host a chat + editor split" requirement, and the tablet
+`replaceChat` tier (editor replaces chat, no side-by-side) renders no caption,
+divider, or restore tab. When a pane is collapsed the workspace SHALL render an
+**always-visible, in-flow rotated tab** on the collapsed pane's edge so the pane is
+re-openable without the header (this tab is the desktop form of the affordance the
+parent requirement calls a "peek handle"). The restore tab SHALL be an in-flow
+sibling that reduces content width (push), and SHALL NOT overlay or clip the
+adjacent pane's content. In `closed` mode a right-edge `EDITOR` tab SHALL re-open to
+`split`. In `full` mode a leading-edge `CHAT` tab SHALL restore `split`. Activating a
+tab SHALL NOT destroy the other pane's state. The restore tab SHALL be a keyboard-
+focusable control with an accessible name (activated by Enter/Space); the pane
+caption SHALL be decorative (`aria-hidden`) or carry an accessible label, not a
+bare unlabeled element. A content-driven opener SHALL NOT change the mode when the
+editor is already shown.
 
-#### Scenario: Editor peek reopens the split
+#### Scenario: Editor tab reopens the split
 - **GIVEN** `closed` mode (chat only)
-- **WHEN** the user activates the right-edge "Editor" peek handle
+- **WHEN** the user activates the right-edge `EDITOR` tab
 - **THEN** the mode becomes `split` and the editor pane renders with its prior tabs
 
-#### Scenario: Chat peek restores chat
+#### Scenario: Chat tab restores chat
 - **GIVEN** `full` mode (editor only)
-- **WHEN** the user activates the leading-edge "Chat" peek handle
+- **WHEN** the user activates the leading-edge `CHAT` tab
 - **THEN** the mode becomes `split` and the conversation is visible again
+
+#### Scenario: Restore tab never overlaps a narrow pane
+- **GIVEN** `split` collapsed to a narrow chat pane, then a pane collapsed
+- **THEN** the restore tab and pane caption sit at the pane edge as in-flow elements
+- **AND** they do NOT overlay or clip the visible pane's content
 
 #### Scenario: Content opener from full stays full
 - **GIVEN** `full` mode (editor only)
@@ -66,6 +84,18 @@ when the editor is already shown.
   already shown
 - **AND** the opened content appears in the editor pane per the open-intent rules
   (foreground activates; agent-driven adds in the background)
+
+#### Scenario: Mobile stacked split keeps its existing edge grabber
+- **GIVEN** the split renders stacked (`orientation "v"`) on a mobile viewport
+- **WHEN** a pane is collapsed
+- **THEN** the existing edge-grabber peek restores the pane (unchanged)
+- **AND** the desktop rotated-tab form is NOT required in this orientation
+
+#### Scenario: Restore tab is keyboard accessible
+- **GIVEN** a collapsed pane showing its restore tab
+- **WHEN** the user focuses the tab and presses Enter or Space
+- **THEN** the pane re-opens to `split`
+- **AND** the tab exposes an accessible name to assistive tech
 
 ## ADDED Requirements
 
