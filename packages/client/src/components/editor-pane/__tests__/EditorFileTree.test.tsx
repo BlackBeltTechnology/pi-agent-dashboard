@@ -12,7 +12,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../lib/api-context.js", () => ({ getApiBase: () => "" }));
+vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 
 // Controllable shared-diff data for the changed-file-marker tests. Inert for
 // the pre-existing tests (they render EditorFileTree without a provider, so
@@ -28,7 +28,7 @@ import type {
   FileDiffEntry,
   SessionDiffResponse,
 } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
-import { SessionDiffProvider } from "../../SessionDiffContext.js";
+import { SessionDiffProvider } from "../../diff/SessionDiffContext.js";
 import { EditorFileTree } from "../EditorFileTree.js";
 
 type Entry = { name: string; isDir: boolean };

@@ -24,9 +24,9 @@ import type { ExtensionUiModule, UiAction, UiField, UiSection, UiView } from "@b
 import { mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
-import { t as i18nT } from "../../lib/i18n";
-import { resolveMdiIcon } from "../../lib/mdi-icon-lookup.js";
-import { DialogPortal } from "../DialogPortal.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { resolveMdiIcon } from "../../lib/preview/mdi-icon-lookup.js";
+import { DialogPortal } from "../primitives/DialogPortal.js";
 
 interface Props {
   module: ExtensionUiModule;

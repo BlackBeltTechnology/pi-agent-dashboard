@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createPreferencesStore } from "../preferences-store.js";
+import { createPreferencesStore } from "../persistence/preferences-store.js";
 
 // Mock resolve-path to be a no-op (no symlink resolution in tests)
 vi.mock("../resolve-path.js", () => ({

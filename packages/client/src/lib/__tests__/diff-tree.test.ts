@@ -1,6 +1,6 @@
 import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { describe, expect, it } from "vitest";
-import { buildFileTree, OUTSIDE_WORKSPACE_PATH } from "../diff-tree.js";
+import { buildFileTree, OUTSIDE_WORKSPACE_PATH } from "../git/diff-tree.js";
 
 function makeFile(path: string): FileDiffEntry {
   return { path, changes: [{ type: "write", timestamp: 1000 }] };

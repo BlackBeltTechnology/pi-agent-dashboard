@@ -5,7 +5,7 @@ import {
   getProviderHandler,
   getAllHandlers,
   type AuthCodeHandler,
-} from "../provider-auth-handlers.js";
+} from "../auth/provider-auth-handlers.js";
 
 describe("provider-auth-handlers", () => {
   describe("PKCE", () => {

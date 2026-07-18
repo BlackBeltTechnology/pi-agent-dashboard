@@ -16,7 +16,7 @@ import {
   type CanvasTypesScope,
   readCanvasTypesScopes,
   writeCanvasTypesScope,
-} from "../canvas-settings.js";
+} from "../canvas/canvas-settings.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 interface PatchBody {

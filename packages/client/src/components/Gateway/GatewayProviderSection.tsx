@@ -15,8 +15,8 @@ import {
   type GatewayProviderId,
   providerMeta,
   supportsMode,
-} from "../../lib/gateway-providers.js";
-import { useI18n } from "../../lib/i18n";
+} from "../../lib/gateway/gateway-providers.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 
 interface Props {
   provider: GatewayProviderId;

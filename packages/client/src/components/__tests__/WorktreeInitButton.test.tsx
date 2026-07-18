@@ -13,18 +13,18 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { WorktreeInitHook } from "../../lib/git-api.js";
-import { __resetInitBusForTests, dispatchInitEvent } from "../../lib/worktree-init-bus.js";
-import { initStore } from "../../lib/worktree-init-store.js";
-import { WorktreeInitButton } from "../WorktreeInitButton.js";
+import type { WorktreeInitHook } from "../../lib/git/git-api.js";
+import { __resetInitBusForTests, dispatchInitEvent } from "../../lib/git/worktree-init-bus.js";
+import { initStore } from "../../lib/git/worktree-init-store.js";
+import { WorktreeInitButton } from "../worktree/WorktreeInitButton.js";
 
 const { fetchWorktreeInitStatus, runWorktreeInit } = vi.hoisted(() => ({
   fetchWorktreeInitStatus: vi.fn(),
   runWorktreeInit: vi.fn(),
 }));
 
-vi.mock("../../lib/git-api.js", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/git-api.js")>("../../lib/git-api.js");
+vi.mock("../../lib/git/git-api.js", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/git/git-api.js")>("../../lib/git/git-api.js");
   return { ...actual, fetchWorktreeInitStatus, runWorktreeInit };
 });
 

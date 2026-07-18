@@ -14,9 +14,9 @@ import { describe, expect, it } from "vitest";
 import {
   createFolderHeadPoll,
   type FolderGroupSession,
-} from "../folder-head-poll.js";
-import { createFolderHeadWatcher } from "../folder-head-watcher.js";
-import type { HeadInfo } from "../git-operations.js";
+} from "../git-worktree/folder-head-poll.js";
+import { createFolderHeadWatcher } from "../git-worktree/folder-head-watcher.js";
+import type { HeadInfo } from "../git-worktree/git-operations.js";
 
 function active(cwd: string): FolderGroupSession {
   return { cwd, status: "active", gitWorktree: undefined } as FolderGroupSession;

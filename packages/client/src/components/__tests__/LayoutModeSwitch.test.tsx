@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadSplitState } from "../../lib/split-state.js";
-import { LayoutModeSwitch } from "../LayoutModeSwitch.js";
-import { SplitWorkspaceProvider } from "../SplitWorkspaceContext.js";
+import { loadSplitState } from "../../lib/layout/split-state.js";
+import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
+import { SplitWorkspaceProvider } from "../split/SplitWorkspaceContext.js";
 
 afterEach(() => cleanup());
 beforeEach(() => localStorage.clear());

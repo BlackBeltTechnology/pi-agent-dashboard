@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
 import { render } from "@testing-library/react";
 import React from "react";
-import { SessionSidebar } from "../SessionSidebar.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { SessionSidebar } from "../session/SessionSidebar.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 beforeAll(() => {

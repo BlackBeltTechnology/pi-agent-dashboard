@@ -5,8 +5,8 @@
  * See change: adopt-pi-071-072-073-features (C.1).
  */
 import { useCallback, useState } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { t } from "../lib/i18n";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 interface ToolFullResult {
   result?: string;

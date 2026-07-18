@@ -5,8 +5,8 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 
 // Mock the shared openspec poller. We expose three entry points now:
 //   - pollOpenSpecAsync: legacy monolithic (still used as fallback where no mtime gate applies)
@@ -23,7 +23,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (i
 });
 
 // Mock pi-resource-scanner so polling ticks don't hit the filesystem.
-vi.mock("../pi-resource-scanner.js", () => ({
+vi.mock("../pi/pi-resource-scanner.js", () => ({
   scanPiResources: vi.fn(async () => ({ local: { extensions: [], skills: [], prompts: [] }, global: { extensions: [], skills: [], prompts: [] }, packages: [] })),
 }));
 
@@ -33,12 +33,12 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/state-replay.js", () => ({
 }));
 
 // Mock session-discovery
-vi.mock("../session-discovery.js", () => ({
+vi.mock("../session/session-discovery.js", () => ({
   discoverSessionsForCwd: vi.fn(() => []),
 }));
 
 // Mock session-file-reader
-vi.mock("../session-file-reader.js", () => ({
+vi.mock("../session/session-file-reader.js", () => ({
   loadSessionEntries: vi.fn(() => []),
 }));
 
@@ -147,7 +147,7 @@ describe("DirectoryService", () => {
 
   describe("discoverSessions", () => {
     it("calls discoverSessionsForCwd and returns metadata", async () => {
-      const { discoverSessionsForCwd } = await import("../session-discovery.js");
+      const { discoverSessionsForCwd } = await import("../session/session-discovery.js");
       (discoverSessionsForCwd as any).mockReturnValueOnce([
         {
           id: "hist-1",
@@ -173,7 +173,7 @@ describe("DirectoryService", () => {
     });
 
     it("returns empty array when no sessions found", async () => {
-      const { discoverSessionsForCwd } = await import("../session-discovery.js");
+      const { discoverSessionsForCwd } = await import("../session/session-discovery.js");
       (discoverSessionsForCwd as any).mockReturnValueOnce([]);
 
       const stateStore = createMockPreferencesStore();
@@ -187,7 +187,7 @@ describe("DirectoryService", () => {
 
   describe("loadSessionEvents", () => {
     it("loads and converts session entries", async () => {
-      const { loadSessionEntries } = await import("../session-file-reader.js");
+      const { loadSessionEntries } = await import("../session/session-file-reader.js");
       const { replayEntriesAsEvents } = await import("@blackbelt-technology/pi-dashboard-shared/state-replay.js");
       
       const mockEntries = [{ type: "message", message: { role: "user", content: "hi" } }];
@@ -207,7 +207,7 @@ describe("DirectoryService", () => {
     });
 
     it("returns error on missing file", async () => {
-      const { loadSessionEntries } = await import("../session-file-reader.js");
+      const { loadSessionEntries } = await import("../session/session-file-reader.js");
       (loadSessionEntries as any).mockImplementationOnce(() => { throw Object.assign(new Error("not found"), { code: "ENOENT" }); });
 
       const stateStore = createMockPreferencesStore();
@@ -323,7 +323,7 @@ describe("DirectoryService", () => {
 
   describe("onDirectoryAdded", () => {
     it("discovers sessions and polls openspec immediately", async () => {
-      const { discoverSessionsForCwd } = await import("../session-discovery.js");
+      const { discoverSessionsForCwd } = await import("../session/session-discovery.js");
       const { pollOpenSpecAsync } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
       
       (discoverSessionsForCwd as any).mockReturnValueOnce([]);

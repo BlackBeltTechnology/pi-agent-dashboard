@@ -3,7 +3,7 @@
  * Uses fetch mocking (vi.stubGlobal) to avoid msw dependency.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import * as modelProxyApi from "../model-proxy-api.js";
+import * as modelProxyApi from "../api/model-proxy-api.js";
 
 // ── Mock fetch ────────────────────────────────────────────────────────────
 

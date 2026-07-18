@@ -3,7 +3,7 @@ import { createTwoFilesPatch } from "diff";
 import type { ToolRendererProps } from "./types.js";
 import { OpenFileButton } from "./OpenFileButton.js";
 import { useMobile } from "../../hooks/useMobile.js";
-import { RichDiff } from "../RichDiff.js";
+import { RichDiff } from "../diff/RichDiff.js";
 
 // --- Mobile-only diff renderer ---
 

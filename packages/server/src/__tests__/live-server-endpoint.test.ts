@@ -4,9 +4,9 @@
  */
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createLiveServerManager } from "../live-server-manager.js";
+import { createLiveServerManager } from "../live-server/live-server-manager.js";
 import { registerLiveServerRoutes } from "../routes/live-server-routes.js";
-import { registerLiveServerProxy } from "../live-server-proxy.js";
+import { registerLiveServerProxy } from "../live-server/live-server-proxy.js";
 
 function fakePrefs() {
   let store: any[] = [];

@@ -1,6 +1,6 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { addInteractiveRequest, applyPromptReceived, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../event-reducer.js";
+import { addInteractiveRequest, applyPromptReceived, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), createInitialState());

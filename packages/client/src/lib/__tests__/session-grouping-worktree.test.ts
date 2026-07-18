@@ -17,7 +17,7 @@ import type {
 import {
   groupSessionsByDirectory,
   resolveSessionGroupPath,
-} from "../session-grouping.js";
+} from "../session/session-grouping.js";
 
 function mk(
   id: string,

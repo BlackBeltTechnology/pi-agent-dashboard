@@ -9,14 +9,14 @@
  * See change: reattach-move-to-front.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import type { BrowserGateway } from "../browser-gateway.js";
-import { createMemorySessionManager, type SessionManager } from "../memory-session-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
+import { createMemorySessionManager, type SessionManager } from "../session/memory-session-manager.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import {
   applyReattachPolicy,
   decideReattachAction,
-} from "../reattach-placement.js";
-import { createSessionOrderManager, type SessionOrderManager } from "../session-order-manager.js";
+} from "../session/reattach-placement.js";
+import { createSessionOrderManager, type SessionOrderManager } from "../session/session-order-manager.js";
 
 function makePrefs(): PreferencesStore {
   let order: Record<string, string[]> = {};

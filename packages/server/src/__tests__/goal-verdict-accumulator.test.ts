@@ -7,8 +7,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createGoalStore, type GoalStore } from "../goal-store.js";
-import { createGoalVerdictAccumulator, type SessionGoalLookup } from "../goal-verdict-accumulator.js";
+import { createGoalStore, type GoalStore } from "../goal/goal-store.js";
+import { createGoalVerdictAccumulator, type SessionGoalLookup } from "../goal/goal-verdict-accumulator.js";
 
 /** Poll until a condition is met, with timeout. */
 async function waitFor(fn: () => Promise<boolean>, ms = 500): Promise<void> {

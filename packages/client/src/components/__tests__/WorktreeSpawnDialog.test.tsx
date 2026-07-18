@@ -19,7 +19,7 @@
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { WorktreeSpawnDialog } from "../WorktreeSpawnDialog.js";
+import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
 
 const {
   fetchGitHead,
@@ -37,8 +37,8 @@ const {
   cleanupOrphanWorktreePath: vi.fn(),
 }));
 
-vi.mock("../../lib/git-api.js", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/git-api.js")>("../../lib/git-api.js");
+vi.mock("../../lib/git/git-api.js", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/git/git-api.js")>("../../lib/git/git-api.js");
   return {
     ...actual,
     fetchGitHead,

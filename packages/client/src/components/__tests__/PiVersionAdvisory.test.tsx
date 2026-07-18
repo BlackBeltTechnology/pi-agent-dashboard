@@ -10,7 +10,7 @@ import type { PiCompatibility } from "../../hooks/usePiCompatibility.js";
 const { mockHook } = vi.hoisted(() => ({ mockHook: vi.fn<() => PiCompatibility | null>() }));
 vi.mock("../../hooks/usePiCompatibility.js", () => ({ usePiCompatibility: mockHook }));
 
-import { PiVersionAdvisory } from "../PiVersionAdvisory.js";
+import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
 
 const RANGE = { minimum: "0.78.0", recommended: "0.80.0", maximum: null } as const;
 

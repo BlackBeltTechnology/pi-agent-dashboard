@@ -8,7 +8,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
-import { ViewMessageStore } from "../view-message-store.js";
+import { ViewMessageStore } from "../session/view-message-store.js";
 
 describe("ViewMessageStore", () => {
   let dir: string;

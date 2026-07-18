@@ -8,8 +8,8 @@ import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createInitialState, type SessionState, type SubagentState } from "../../lib/event-reducer.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { createInitialState, type SessionState, type SubagentState } from "../../lib/chat/event-reducer.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { AgentToolRenderer } from "../tool-renderers/AgentToolRenderer.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 

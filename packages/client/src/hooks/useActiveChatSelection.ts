@@ -1,5 +1,5 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
-import type { SelectionRowSpan } from "../lib/chat-virtual-rows.js";
+import type { SelectionRowSpan } from "../lib/chat/chat-virtual-rows.js";
 
 /**
  * Single source of truth for "the user is actively selecting transcript text"

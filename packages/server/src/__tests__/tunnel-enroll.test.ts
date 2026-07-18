@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ENROLL_STEPS, type EnrollRunner, isEnrollStepWhitelisted, runEnrollStep } from "../tunnel-enroll.js";
+import { ENROLL_STEPS, type EnrollRunner, isEnrollStepWhitelisted, runEnrollStep } from "../tunnel/tunnel-enroll.js";
 
 const okRunner: EnrollRunner = async () => ({ ok: true, value: true });
 

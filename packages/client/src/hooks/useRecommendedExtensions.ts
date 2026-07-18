@@ -8,8 +8,8 @@
 
 import type { EnrichedRecommendedExtension } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { t } from "../lib/i18n";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 export interface UseRecommendedExtensionsResult {
   recommended: EnrichedRecommendedExtension[];

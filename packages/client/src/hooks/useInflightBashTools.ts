@@ -13,7 +13,7 @@
  * See change: redesign-process-list-activity-bar.
  */
 import { useMemo } from "react";
-import type { SessionState, ToolCallState } from "../lib/event-reducer.js";
+import type { SessionState, ToolCallState } from "../lib/chat/event-reducer.js";
 
 export interface InflightBashTool {
   toolCallId: string;

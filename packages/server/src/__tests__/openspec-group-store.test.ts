@@ -17,7 +17,7 @@ import {
   GroupNotFoundError,
   UnknownGroupIdError,
   type OpenSpecGroupStore,
-} from "../openspec-group-store.js";
+} from "../openspec/openspec-group-store.js";
 import { OPENSPEC_GROUPS_SCHEMA_VERSION } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 describe("openspec-group-store", () => {

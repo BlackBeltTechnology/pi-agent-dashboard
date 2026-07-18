@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SidebarState } from "../../hooks/useSidebarState.js";
-import { ResizableSidebar } from "../ResizableSidebar.js";
+import { ResizableSidebar } from "../shell/ResizableSidebar.js";
 
 afterEach(() => cleanup());
 

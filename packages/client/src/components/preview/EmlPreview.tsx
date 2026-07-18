@@ -14,7 +14,7 @@
  * See change: add-eml-preview.
  */
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { t as i18nT } from "../../lib/i18n";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ImagePreview } from "./ImagePreview.js";
 import { emlAttachmentUrl, emlUrl } from "./raw-url.js";
 

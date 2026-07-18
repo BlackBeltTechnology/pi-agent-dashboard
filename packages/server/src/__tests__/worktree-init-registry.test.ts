@@ -7,7 +7,7 @@
  * See change: generalize-worktree-init-hook.
  */
 import { describe, it, expect, vi } from "vitest";
-import { createWorktreeInitRegistry } from "../worktree-init-registry.js";
+import { createWorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
 
 type Listener = (...args: unknown[]) => void;
 

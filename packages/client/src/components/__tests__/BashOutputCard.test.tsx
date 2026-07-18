@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
-import { BashOutputCard } from "../BashOutputCard.js";
+import { BashOutputCard } from "../chat/BashOutputCard.js";
 
 describe("BashOutputCard footer", () => {
   afterEach(cleanup);

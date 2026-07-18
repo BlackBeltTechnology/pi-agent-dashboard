@@ -14,7 +14,7 @@ import {
   type ResourceType,
   reloadResourceSessions,
   toggleResource,
-} from "../lib/resources-api.js";
+} from "../lib/api/resources-api.js";
 
 export interface PendingReload {
   scope: ResourceScope;

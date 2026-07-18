@@ -15,7 +15,7 @@ import {
   readPiCompatibility,
   readCurrentPiVersion,
   computeCompatibility,
-} from "../pi-version-skew.js";
+} from "../pi/pi-version-skew.js";
 import type { ToolRegistry, Resolution } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 
 describe("pi-version-skew", () => {

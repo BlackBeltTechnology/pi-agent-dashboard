@@ -7,8 +7,8 @@
  * See change: render-file-previews.
  */
 import React, { useEffect, useState } from "react";
-import { withRestrictiveCsp } from "../../lib/canvas-doc-csp.js";
-import { t as i18nT } from "../../lib/i18n";
+import { withRestrictiveCsp } from "../../lib/canvas/canvas-doc-csp.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { rawUrl } from "./raw-url.js";
 
 interface Props {

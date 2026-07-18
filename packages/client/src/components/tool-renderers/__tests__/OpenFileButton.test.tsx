@@ -3,8 +3,8 @@ import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { FilePreviewHost, FilePreviewProvider } from "../../FilePreviewContext.js";
-import { ThemeProvider } from "../../ThemeProvider.js";
+import { FilePreviewHost, FilePreviewProvider } from "../../preview/FilePreviewContext.js";
+import { ThemeProvider } from "../../settings/ThemeProvider.js";
 import { OpenFileButton } from "../OpenFileButton.js";
 import type { ToolContext } from "../types.js";
 

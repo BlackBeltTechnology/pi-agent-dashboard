@@ -7,12 +7,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../lib/api-context.js", () => ({ getApiBase: () => "" }));
+vi.mock("../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 vi.mock("../../hooks/useMobile.js", () => ({ useMobile: () => false }));
 
-import { folderPaneId } from "../../lib/folder-pane-id.js";
-import { TREE_VISIBLE_KEY_PREFIX } from "../../lib/tree-visible.js";
-import { FolderEditorView } from "../FolderEditorView.js";
+import { folderPaneId } from "../../lib/layout/folder-pane-id.js";
+import { TREE_VISIBLE_KEY_PREFIX } from "../../lib/util/tree-visible.js";
+import { FolderEditorView } from "../folder/FolderEditorView.js";
 
 const originalFetch = globalThis.fetch;
 

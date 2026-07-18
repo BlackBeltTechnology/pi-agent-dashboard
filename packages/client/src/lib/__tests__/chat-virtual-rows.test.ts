@@ -8,10 +8,10 @@ import {
   isGroup,
   rangeToRowIndexSpan,
   virtualRowKey,
-} from "../chat-virtual-rows.js";
-import type { ChatMessage } from "../event-reducer.js";
-import type { BurstItem, ToolBurstGroup } from "../group-tool-bursts.js";
-import type { ToolCallGroup } from "../group-tool-calls.js";
+} from "../chat/chat-virtual-rows.js";
+import type { ChatMessage } from "../chat/event-reducer.js";
+import type { BurstItem, ToolBurstGroup } from "../chat/group-tool-bursts.js";
+import type { ToolCallGroup } from "../chat/group-tool-calls.js";
 
 function msg(partial: Partial<ChatMessage> & { id: string }): ChatMessage {
   return { role: "assistant", content: "", timestamp: 0, ...partial };

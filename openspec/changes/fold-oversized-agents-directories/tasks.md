@@ -21,27 +21,27 @@
 
 ## 4. Fold `packages/client/src/components/` (source move)
 
-- [ ] 4.1 Finalize the file→subfolder assignment from design D4: read each file's role; **absorb root-level files into the 11 existing subfolders** (`preview/`, `chat/`, `split/`, `tool-renderers/`, `Gateway/`, `DirectorySettings/`, `editor-pane/`, `extension-ui/`, `interactive-renderers/`, `tags/`) where one fits; create a new subfolder only for an un-homed domain and NEVER a name that collides with an existing subfolder. Nest a further level for any domain > `ROW_CAP`.
-- [ ] 4.2 Move files with `git mv` into the chosen subfolders; run the ts-morph codemod (D3) to rewrite every ESM import specifier (preserving the `.js`-on-`.tsx` convention). Then `git grep -nE '"packages/client/src/components/[A-Za-z0-9_-]+\.tsx?"'` and update every **string-literal path reference** (esp. `packages/shared/src/__tests__/no-*.test.ts` allowlists) in the same commit. No new barrels.
-- [ ] 4.3 `npx tsc --noEmit` (client package) green; `npm test` green (catches string-literal ref breakage `tsc` misses); `npm run build` green; `doxLint` on `components/` subtree shows `components/AGENTS.md` + each subfolder inline ≤ 40. (test-plan #X4: components fold complete · tsc+test+build+doxLint · all green + inline ≤ 40 / >40 nested-or-accepted)
-- [ ] 4.4 `kb dox init` scaffolds each new subfolder `AGENTS.md`; author/migrate one row per moved file (purpose + `See change:` preserved for existing rows; source-derived caveman purpose for any uncovered file). Moved-file rows are DELETED from `components/AGENTS.md` (each file is now owned by its subfolder `AGENTS.md`; the tree is walked, no per-subfolder pointer rows); `components/AGENTS.md` inline count drops as its rows leave.
-- [ ] 4.5 `kb dox lint`: `components/AGENTS.md` row count ≤ 40; each new subfolder `AGENTS.md` ≤ 40; no `missing`/`orphan`/`stale`.
+- [x] 4.1 Finalize the file→subfolder assignment from design D4: read each file's role; **absorb root-level files into the 11 existing subfolders** (`preview/`, `chat/`, `split/`, `tool-renderers/`, `Gateway/`, `DirectorySettings/`, `editor-pane/`, `extension-ui/`, `interactive-renderers/`, `tags/`) where one fits; create a new subfolder only for an un-homed domain and NEVER a name that collides with an existing subfolder. Nest a further level for any domain > `ROW_CAP`.
+- [x] 4.2 Move files with `git mv` into the chosen subfolders; run the ts-morph codemod (D3) to rewrite every ESM import specifier (preserving the `.js`-on-`.tsx` convention). Then `git grep -nE '"packages/client/src/components/[A-Za-z0-9_-]+\.tsx?"'` and update every **string-literal path reference** (esp. `packages/shared/src/__tests__/no-*.test.ts` allowlists) in the same commit. No new barrels.
+- [x] 4.3 `npx tsc --noEmit` (client package) green; `npm test` green (catches string-literal ref breakage `tsc` misses); `npm run build` green; `doxLint` on `components/` subtree shows `components/AGENTS.md` + each subfolder inline ≤ 40. (test-plan #X4: components fold complete · tsc+test+build+doxLint · all green + inline ≤ 40 / >40 nested-or-accepted)
+- [x] 4.4 `kb dox init` scaffolds each new subfolder `AGENTS.md`; author/migrate one row per moved file (purpose + `See change:` preserved for existing rows; source-derived caveman purpose for any uncovered file). Moved-file rows are DELETED from `components/AGENTS.md` (each file is now owned by its subfolder `AGENTS.md`; the tree is walked, no per-subfolder pointer rows); `components/AGENTS.md` inline count drops as its rows leave.
+- [x] 4.5 `kb dox lint`: `components/AGENTS.md` row count ≤ 40; each new subfolder `AGENTS.md` ≤ 40; no `missing`/`orphan`/`stale`.
 
 ## 5. Fold `packages/server/src/` (source move)
 
-- [ ] 5.1 Finalize file→subfolder assignment from design D4: absorb root files into the 7 existing subfolders (`model-proxy/`, `routes/`, `tunnel-providers/`, `browser-handlers/`, `lib/`, `rpc-keeper/`, `test-support/`) where they fit; new subfolders for un-homed domains; no name collisions; nest for any domain > `ROW_CAP`.
-- [ ] 5.2 `git mv` into subfolders + ts-morph import-specifier rewrite (server package + any cross-package importers of `packages/server/src/*`). Then `git grep -nE '"packages/server/src/[A-Za-z0-9_-]+\.ts"'` and update every string-literal path reference (the `no-*.test.ts` allowlists carry many `packages/server/src/*` strings) in the same commit.
-- [ ] 5.3 `npx tsc --noEmit` green; `npm test` green; server boots (`pi-dashboard start` health `/api/health` 200); `doxLint` shows `server/src/AGENTS.md` + subfolders inline ≤ 40. (test-plan #X5: server/src fold complete · tsc+test + start dashboard · green + /api/health 200 + inline ≤ 40; see qa/tests/02-server-start.sh)
-- [ ] 5.4 Scaffold + author subfolder `AGENTS.md` (migrate/author one row per file, no empty-purpose rows); DELETE moved-file rows from `server/src/AGENTS.md` (files owned by their subfolder `AGENTS.md`; no per-subfolder pointer rows).
-- [ ] 5.5 `kb dox lint`: `server/src/AGENTS.md` ≤ 40; subfolders ≤ 40; clean.
+- [x] 5.1 Finalize file→subfolder assignment from design D4: absorb root files into the 7 existing subfolders (`model-proxy/`, `routes/`, `tunnel-providers/`, `browser-handlers/`, `lib/`, `rpc-keeper/`, `test-support/`) where they fit; new subfolders for un-homed domains; no name collisions; nest for any domain > `ROW_CAP`.
+- [x] 5.2 `git mv` into subfolders + ts-morph import-specifier rewrite (server package + any cross-package importers of `packages/server/src/*`). Then `git grep -nE '"packages/server/src/[A-Za-z0-9_-]+\.ts"'` and update every string-literal path reference (the `no-*.test.ts` allowlists carry many `packages/server/src/*` strings) in the same commit.
+- [x] 5.3 `npx tsc --noEmit` green; `npm test` green; server boots (`pi-dashboard start` health `/api/health` 200); `doxLint` shows `server/src/AGENTS.md` + subfolders inline ≤ 40. (test-plan #X5: server/src fold complete · tsc+test + start dashboard · green + /api/health 200 + inline ≤ 40; see qa/tests/02-server-start.sh)
+- [x] 5.4 Scaffold + author subfolder `AGENTS.md` (migrate/author one row per file, no empty-purpose rows); DELETE moved-file rows from `server/src/AGENTS.md` (files owned by their subfolder `AGENTS.md`; no per-subfolder pointer rows).
+- [x] 5.5 `kb dox lint`: `server/src/AGENTS.md` ≤ 40; subfolders ≤ 40; clean.
 
 ## 6. Fold `packages/client/src/lib/` (source move)
 
-- [ ] 6.1 Finalize file→subfolder assignment from design D4 (`lib/` has only `__tests__/` — all new subfolders; no collisions; nest for any domain > `ROW_CAP`).
-- [ ] 6.2 `git mv` + ts-morph import-specifier rewrite (repo-wide importers of `lib/*`, preserving `.js` specifiers). Then `git grep -nE '"packages/client/src/lib/[A-Za-z0-9_-]+\.tsx?"'` and update every string-literal path reference in the same commit.
-- [ ] 6.3 `npx tsc --noEmit` green; `npm test` green; `npm run build` green; `doxLint` shows `lib/AGENTS.md` + subfolders inline ≤ 40; every repo-wide importer of `lib/*` resolves. (test-plan #X6: lib fold complete · tsc+test+build+doxLint · all green + inline ≤ 40)
-- [ ] 6.4 Scaffold + author subfolder `AGENTS.md` (migrate/author one row per file, no empty-purpose rows); DELETE moved-file rows from `lib/AGENTS.md` (files owned by their subfolder `AGENTS.md`; no per-subfolder pointer rows).
-- [ ] 6.5 `kb dox lint`: `lib/AGENTS.md` ≤ 40; subfolders ≤ 40; clean.
+- [x] 6.1 Finalize file→subfolder assignment from design D4 (`lib/` has only `__tests__/` — all new subfolders; no collisions; nest for any domain > `ROW_CAP`).
+- [x] 6.2 `git mv` + ts-morph import-specifier rewrite (repo-wide importers of `lib/*`, preserving `.js` specifiers). Then `git grep -nE '"packages/client/src/lib/[A-Za-z0-9_-]+\.tsx?"'` and update every string-literal path reference in the same commit.
+- [x] 6.3 `npx tsc --noEmit` green; `npm test` green; `npm run build` green; `doxLint` shows `lib/AGENTS.md` + subfolders inline ≤ 40; every repo-wide importer of `lib/*` resolves. (test-plan #X6: lib fold complete · tsc+test+build+doxLint · all green + inline ≤ 40)
+- [x] 6.4 Scaffold + author subfolder `AGENTS.md` (migrate/author one row per file, no empty-purpose rows); DELETE moved-file rows from `lib/AGENTS.md` (files owned by their subfolder `AGENTS.md`; no per-subfolder pointer rows).
+- [x] 6.5 `kb dox lint`: `lib/AGENTS.md` ≤ 40; subfolders ≤ 40; clean.
 
 ## 7. Accept marginal residue + final verification
 

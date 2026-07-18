@@ -12,7 +12,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { type MessageHandlerDeps, type MessageHandlerSetters, useMessageHandler } from "../hooks/useMessageHandler.js";
-import { createInitialState, type SessionState } from "../lib/event-reducer.js";
+import { createInitialState, type SessionState } from "../lib/chat/event-reducer.js";
 
 function makeRefs() {
   return {

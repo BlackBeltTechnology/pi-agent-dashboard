@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FOLDER_PANE_PREFIX, folderPaneId, isFolderPaneId } from "../folder-pane-id.js";
+import { FOLDER_PANE_PREFIX, folderPaneId, isFolderPaneId } from "../layout/folder-pane-id.js";
 
 describe("folderPaneId", () => {
   it("namespaces the cwd with the folder prefix", () => {

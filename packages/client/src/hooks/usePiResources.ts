@@ -1,6 +1,6 @@
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { t } from "../lib/i18n";
+import { t } from "../lib/i18n/i18n.js";
 
 const POLL_INTERVAL = 30_000;
 

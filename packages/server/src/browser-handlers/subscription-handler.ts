@@ -4,10 +4,10 @@
 
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { WebSocket } from "ws";
-import { extractStatsFromEvents } from "../event-status-extraction.js";
-import type { StoredEvent } from "../memory-event-store.js";
+import { extractStatsFromEvents } from "../session/event-status-extraction.js";
+import type { StoredEvent } from "../persistence/memory-event-store.js";
 import { pluginIntentCache } from "../plugin-intent-cache.js";
-import { truncateToolResultForReplay } from "../replay-truncate.js";
+import { truncateToolResultForReplay } from "../session/replay-truncate.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
 const REPLAY_BATCH_SIZE = 50;

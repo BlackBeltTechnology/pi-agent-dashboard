@@ -1,6 +1,6 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { truncateToolResultForReplay } from "../replay-truncate.js";
+import { truncateToolResultForReplay } from "../session/replay-truncate.js";
 
 const MARKER = "«";
 

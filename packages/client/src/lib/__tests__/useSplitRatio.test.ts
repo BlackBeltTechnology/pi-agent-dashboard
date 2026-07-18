@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { clampWidth, ratioFromPointer } from "../useSplitRatio.js";
-import { RATIO_MAX, RATIO_MIN } from "../split-state.js";
+import { clampWidth, ratioFromPointer } from "../layout/useSplitRatio.js";
+import { RATIO_MAX, RATIO_MIN } from "../layout/split-state.js";
 
 describe("ratioFromPointer", () => {
   it("computes the fraction along a horizontal container", () => {

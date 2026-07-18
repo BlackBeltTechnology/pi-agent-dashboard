@@ -52,7 +52,7 @@ import {
   removeZrokPid,
   scavengeOrphanZrokProcesses,
   writeZrokPid,
-} from "../tunnel.js";
+} from "../tunnel/tunnel.js";
 
 beforeEach(() => {
   vi.mocked(os.homedir).mockReturnValue("/home/testuser");
@@ -205,7 +205,7 @@ describe("createTunnel mutex", () => {
   it("should return the same promise when called concurrently", async () => {
     // Binary unavailable → both calls resolve null fast, same promise instance.
     _setBinaryAvailable(false);
-    const { createTunnel } = await import("../tunnel.js");
+    const { createTunnel } = await import("../tunnel/tunnel.js");
     const p1 = createTunnel(8000);
     const p2 = createTunnel(8000);
     // With binary unavailable the inner resolves synchronously-ish with null.

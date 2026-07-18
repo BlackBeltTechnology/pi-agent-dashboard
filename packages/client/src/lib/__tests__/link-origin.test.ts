@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveLinkOrigin, stripWorktreeSegment } from "../link-origin.js";
+import { resolveLinkOrigin, stripWorktreeSegment } from "../util/link-origin.js";
 
 describe("stripWorktreeSegment", () => {
   it("derives parent root from a worktree cwd", () => {

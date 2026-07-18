@@ -91,7 +91,7 @@ describe("loadPiPackageManager resolution chain", () => {
     expect(os.homedir()).toBe(tmpHome);
     vi.resetModules();
 
-    const { PackageManagerWrapper } = await import("../package-manager-wrapper.js");
+    const { PackageManagerWrapper } = await import("../package/package-manager-wrapper.js");
     const wrapper = new PackageManagerWrapper();
     const result = await wrapper.listInstalled("global");
 
@@ -126,7 +126,7 @@ describe("loadPiPackageManager resolution chain", () => {
     });
 
     vi.resetModules();
-    const { PackageManagerWrapper } = await import("../package-manager-wrapper.js");
+    const { PackageManagerWrapper } = await import("../package/package-manager-wrapper.js");
     const wrapper = new PackageManagerWrapper();
 
     await expect(wrapper.listInstalled("global")).rejects.toThrow(

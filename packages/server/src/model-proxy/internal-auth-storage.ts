@@ -13,7 +13,7 @@ import {
   type AuthData,
   type AuthCredential,
   type OAuthCredential,
-} from "../provider-auth-storage.js";
+} from "../auth/provider-auth-storage.js";
 
 /** Minimal pi-ai OAuth module surface (runtime-resolved from pi-ai/oauth). */
 export interface PiAiOAuthModule {

@@ -11,8 +11,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createGoalStatusProjector, type SessionGoalLookup } from "../goal-status-projector.js";
-import { createGoalStore, type GoalStore } from "../goal-store.js";
+import { createGoalStatusProjector, type SessionGoalLookup } from "../goal/goal-status-projector.js";
+import { createGoalStore, type GoalStore } from "../goal/goal-store.js";
 
 async function waitFor(fn: () => Promise<boolean>, ms = 500): Promise<void> {
   const start = Date.now();

@@ -18,7 +18,7 @@ const { openLiveTarget, box } = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../components/SplitWorkspaceContext.js", () => ({
+vi.mock("../../components/split/SplitWorkspaceContext.js", () => ({
   useOptionalSplitWorkspace: () => box.ctx,
 }));
 

@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   readCanvasTypesScopes,
   writeCanvasTypesScope,
-} from "../canvas-settings.js";
+} from "../canvas/canvas-settings.js";
 
 let projectCwd: string;
 

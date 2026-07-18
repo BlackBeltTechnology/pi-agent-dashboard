@@ -1,4 +1,4 @@
-import type { ContextUsageInfo } from "../components/SessionList.js";
+import type { ContextUsageInfo } from "../components/session/SessionList.js";
 
 /** Minimal shape of an event-reduced session state needed for context usage. */
 interface StateLike {

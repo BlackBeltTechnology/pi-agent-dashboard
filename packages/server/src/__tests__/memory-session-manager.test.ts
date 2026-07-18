@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createMemorySessionManager } from "../memory-session-manager.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
 describe("memory-session-manager", () => {
   it("registers a session", () => {

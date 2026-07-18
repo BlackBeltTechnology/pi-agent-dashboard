@@ -25,60 +25,60 @@ import compress from "@fastify/compress";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
-import { registerAuthPlugin, validateWsUpgrade } from "./auth-plugin.js";
-import { registerBearerAuth } from "./bearer-auth.js";
-import { type BrowserGateway, createBrowserGateway } from "./browser-gateway.js";
+import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
+import { registerBearerAuth } from "./auth/bearer-auth.js";
+import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { writeConfigPartial } from "./config-api.js";
-import { isCorsOriginAllowed } from "./cors-origin.js";
-import { registerCsp, resolveCspMode } from "./csp.js";
+import { isCorsOriginAllowed } from "./auth/cors-origin.js";
+import { registerCsp, resolveCspMode } from "./auth/csp.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
 import { wireEvents } from "./event-wiring.js";
-import { startEventLoopSampler } from "./eventloop-sampler.js";
-import { createEventLoopSpikeMetrics } from "./eventloop-spike-metrics.js";
+import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
+import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
-import { decideBudgetHalt } from "./goal-budget-guard.js";
-import { buildGoalReprime, primeGoalSession } from "./goal-session-primer.js";
-import { createGoalStatusProjector } from "./goal-status-projector.js";
-import { createGoalStore } from "./goal-store.js";
-import { createGoalSupervisor, type GoalDriverSpawnRequest, type GoalSupervisor } from "./goal-supervisor.js";
-import { createGoalVerdictAccumulator } from "./goal-verdict-accumulator.js";
-import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
-import { createHydrationMetrics } from "./hydration-metrics.js";
-import { ensureServerIdentity } from "./identity.js";
-import { createIdleTimer } from "./idle-timer.js";
-import { createLiveServerManager } from "./live-server-manager.js";
-import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server-proxy.js";
-import { ensureLocalToken, verifyLocalToken } from "./local-token.js";
-import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
-import { createMemoryEventStore, type EventStore } from "./memory-event-store.js";
-import { createMemorySessionManager, type SessionManager } from "./memory-session-manager.js";
-import { createMetaPersistence, type MetaPersistence } from "./meta-persistence.js";
-import { needsMigration, runMigration } from "./migrate-persistence.js";
+import { decideBudgetHalt } from "./goal/goal-budget-guard.js";
+import { buildGoalReprime, primeGoalSession } from "./goal/goal-session-primer.js";
+import { createGoalStatusProjector } from "./goal/goal-status-projector.js";
+import { createGoalStore } from "./goal/goal-store.js";
+import { createGoalSupervisor, type GoalDriverSpawnRequest, type GoalSupervisor } from "./goal/goal-supervisor.js";
+import { createGoalVerdictAccumulator } from "./goal/goal-verdict-accumulator.js";
+import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
+import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
+import { ensureServerIdentity } from "./auth/identity.js";
+import { createIdleTimer } from "./spawn-process/idle-timer.js";
+import { createLiveServerManager } from "./live-server/live-server-manager.js";
+import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
+import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
+import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
+import { createMemoryEventStore, type EventStore } from "./persistence/memory-event-store.js";
+import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
+import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
+import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
-import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec-group-store.js";
-import { PackageManagerWrapper } from "./package-manager-wrapper.js";
-import { PairedDeviceRegistry } from "./paired-devices.js";
-import { PairingManager } from "./pairing.js";
-import { createPendingAttachRegistry } from "./pending-attach-registry.js";
-import { createPendingAutomationRunRegistry } from "./pending-automation-run-registry.js";
-import { createPendingClientCorrelations } from "./pending-client-correlations.js";
-import { createPendingForkRegistry, type PendingForkRegistry } from "./pending-fork-registry.js";
-import { createPendingGoalLinkRegistry } from "./pending-goal-link-registry.js";
-import { createPendingInitialPromptRegistry } from "./pending-initial-prompt-registry.js";
-import { createPendingResumeIntentRegistry } from "./pending-resume-intent-registry.js";
-import { createPendingWorktreeBaseRegistry } from "./pending-worktree-base-registry.js";
-import { PiCoreChecker } from "./pi-core-checker.js";
-import { PiCoreUpdater } from "./pi-core-updater.js";
-import { createPiGateway, type PiGateway } from "./pi-gateway.js";
+import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
+import { PackageManagerWrapper } from "./package/package-manager-wrapper.js";
+import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
+import { PairingManager } from "./pairing/pairing.js";
+import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
+import { createPendingAutomationRunRegistry } from "./pending/pending-automation-run-registry.js";
+import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
+import { createPendingForkRegistry, type PendingForkRegistry } from "./pending/pending-fork-registry.js";
+import { createPendingGoalLinkRegistry } from "./pending/pending-goal-link-registry.js";
+import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
+import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
+import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
+import { PiCoreChecker } from "./pi/pi-core-checker.js";
+import { PiCoreUpdater } from "./pi/pi-core-updater.js";
+import { createPiGateway, type PiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
-import { createPreferencesStore, type PreferencesStore } from "./preferences-store.js";
-import { spawnPiSession } from "./process-manager.js";
-import { applyReattachPolicy } from "./reattach-placement.js";
-import { reconcileSessionOrder } from "./reconcile-session-order.js";
-import { resolveOrderKey } from "./resolve-order-key.js";
+import { createPreferencesStore, type PreferencesStore } from "./persistence/preferences-store.js";
+import { spawnPiSession } from "./spawn-process/process-manager.js";
+import { applyReattachPolicy } from "./session/reattach-placement.js";
+import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
+import { resolveOrderKey } from "./session/resolve-order-key.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
@@ -111,19 +111,19 @@ import { registerResourceActivationRoutes } from "./routes/resource-activation-r
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
-import { removePid, writePid } from "./server-pid.js";
-import { registerSessionApi } from "./session-api.js";
-import { discoverAndBroadcastSessions } from "./session-bootstrap.js";
-import { createSessionOrderManager, type SessionOrderManager } from "./session-order-manager.js";
-import { scanAllSessions } from "./session-scanner.js";
-import { sessionToMeta } from "./session-to-meta.js";
-import { mintSpawnToken } from "./spawn-token.js";
-import { createTerminalGateway, type TerminalGateway } from "./terminal-gateway.js";
-import { createTerminalManager, type TerminalManager } from "./terminal-manager.js";
-import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel.js";
-import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel-watchdog.js";
-import { createWorktreeInitRegistry } from "./worktree-init-registry.js";
-import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./ws-ticket.js";
+import { removePid, writePid } from "./spawn-process/server-pid.js";
+import { registerSessionApi } from "./session/session-api.js";
+import { discoverAndBroadcastSessions } from "./session/session-bootstrap.js";
+import { createSessionOrderManager, type SessionOrderManager } from "./session/session-order-manager.js";
+import { scanAllSessions } from "./session/session-scanner.js";
+import { sessionToMeta } from "./session/session-to-meta.js";
+import { mintSpawnToken } from "./auth/spawn-token.js";
+import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
+import { createTerminalManager, type TerminalManager } from "./terminal/terminal-manager.js";
+import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
+import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
+import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
+import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
 
 export interface ServerConfig {
   port: number;
@@ -1588,7 +1588,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // surviving keepers after a server restart. Same instance the spawn
       // path uses. See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
       try {
-        const { getKeeperManager } = await import("./process-manager.js");
+        const { getKeeperManager } = await import("./spawn-process/process-manager.js");
         browserGateway.headlessPidRegistry.setKeeperWriter(getKeeperManager());
         await browserGateway.headlessPidRegistry.cleanupKeeperOrphans();
       } catch (err) {
@@ -1600,7 +1600,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // git-worktree dashboard on a non-default --pi-port). See
       // setSpawnDashboardPiPort in process-manager.ts.
       {
-        const { setSpawnDashboardPiPort } = await import("./process-manager.js");
+        const { setSpawnDashboardPiPort } = await import("./spawn-process/process-manager.js");
         setSpawnDashboardPiPort(config.piPort);
       }
 
@@ -2143,7 +2143,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         try { terminalManager.kill(t.id); } catch {}
       }
       // Close any pending OAuth callback servers
-      try { const { closeAllCallbackServers } = await import("./oauth-callback-server.js"); await closeAllCallbackServers(); } catch {}
+      try { const { closeAllCallbackServers } = await import("./auth/oauth-callback-server.js"); await closeAllCallbackServers(); } catch {}
       // Close second port before main server
       if (secondFastify) {
         try { await secondFastify.close(); } catch { /* ignore */ }

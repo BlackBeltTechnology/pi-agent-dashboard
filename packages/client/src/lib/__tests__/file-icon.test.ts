@@ -5,7 +5,7 @@
 
 import { mdiLanguageCss3 } from "@mdi/js";
 import { describe, expect, it } from "vitest";
-import { fileIcon } from "../file-icon.js";
+import { fileIcon } from "../preview/file-icon.js";
 
 describe("fileIcon", () => {
   it("gives .ts/.json/.png/.mp4/.mp3/.mmd/.pdf each a distinct icon", () => {

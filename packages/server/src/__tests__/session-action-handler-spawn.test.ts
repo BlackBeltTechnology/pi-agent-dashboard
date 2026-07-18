@@ -6,21 +6,21 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import WebSocket from "ws";
 
 // Mock everything the handler depends on.
-vi.mock("../spawn-preflight.js", () => ({
+vi.mock("../spawn-process/spawn-preflight.js", () => ({
   preflightSpawn: vi.fn().mockReturnValue({ ok: true, reasons: [] }),
 }));
 
-vi.mock("../spawn-register-watchdog.js", () => ({
+vi.mock("../spawn-process/spawn-register-watchdog.js", () => ({
   getSpawnRegisterWatchdog: vi.fn().mockReturnValue({
     arm: vi.fn(),
   }),
 }));
 
-vi.mock("../spawn-failure-log.js", () => ({
+vi.mock("../spawn-process/spawn-failure-log.js", () => ({
   appendSpawnFailure: vi.fn(),
 }));
 
-vi.mock("../process-manager.js", () => ({
+vi.mock("../spawn-process/process-manager.js", () => ({
   spawnPiSession: vi.fn(),
 }));
 
@@ -41,10 +41,10 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", (
 }));
 
 import { handleSpawnSession } from "../browser-handlers/session-action-handler.js";
-import { spawnPiSession } from "../process-manager.js";
-import { preflightSpawn } from "../spawn-preflight.js";
-import { getSpawnRegisterWatchdog } from "../spawn-register-watchdog.js";
-import { appendSpawnFailure } from "../spawn-failure-log.js";
+import { spawnPiSession } from "../spawn-process/process-manager.js";
+import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
+import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
+import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 
 const mockSpawnPiSession = vi.mocked(spawnPiSession);
 const mockPreflightSpawn = vi.mocked(preflightSpawn);

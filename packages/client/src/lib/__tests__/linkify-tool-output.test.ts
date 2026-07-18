@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tokenize, MAX_LINKS, type Token } from "../linkify-tool-output.js";
+import { tokenize, MAX_LINKS, type Token } from "../chat/linkify-tool-output.js";
 
 /** Helper: collect tokens of a given kind. */
 const ofKind = (toks: Token[], kind: Token["kind"]) => toks.filter((t) => t.kind === kind);

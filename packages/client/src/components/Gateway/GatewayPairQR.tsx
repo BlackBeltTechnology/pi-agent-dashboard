@@ -31,10 +31,10 @@ import { mdiCheck, mdiContentCopy, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getGatewayEndpoints, guardPairingUrls, isPairingEligible, splitEndpoints } from "../../lib/gateway-endpoints.js";
-import { useI18n } from "../../lib/i18n";
-import { approvePairing, getPairPayload, type PairingPayload } from "../../lib/pairing-api.js";
-import { encodePairingQrUrl, encodePayloadString } from "../../lib/pairing-qr.js";
+import { getGatewayEndpoints, guardPairingUrls, isPairingEligible, splitEndpoints } from "../../lib/gateway/gateway-endpoints.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
+import { approvePairing, getPairPayload, type PairingPayload } from "../../lib/pairing/pairing-api.js";
+import { encodePairingQrUrl, encodePayloadString } from "../../lib/pairing/pairing-qr.js";
 
 /** A QR canvas for arbitrary text (pairing string or bare link URL). */
 function QrCanvas({ text, size = 132 }: { text: string; size?: number }) {

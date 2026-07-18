@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { buildDocumentTitle } from "../lib/document-title.js";
+import { buildDocumentTitle } from "../lib/nav/document-title.js";
 
 const DEFAULT_TITLE = "PI Dashboard";
 

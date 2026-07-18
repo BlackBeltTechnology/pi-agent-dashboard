@@ -8,13 +8,13 @@ import {
   EMPTY_PANE_STATE,
   editorPaneReducer,
   type OpenFile,
-} from "../editor-pane-state.js";
+} from "../layout/editor-pane-state.js";
 import {
   openTerminalIds,
   reconcileTerminalTabs,
   stripTermId,
   useTerminalPaneTabs,
-} from "../use-terminal-pane-tabs.js";
+} from "../layout/use-terminal-pane-tabs.js";
 
 const term = (path: string): OpenFile => ({ path, viewer: "terminal", addedAt: 1 });
 const file = (path: string): OpenFile => ({ path, viewer: "monaco", addedAt: 1 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessage } from "../event-reducer.js";
-import { type BurstItem, groupToolBursts, type ToolBurstGroup } from "../group-tool-bursts.js";
-import type { ChatItem, ToolCallGroup } from "../group-tool-calls.js";
+import type { ChatMessage } from "../chat/event-reducer.js";
+import { type BurstItem, groupToolBursts, type ToolBurstGroup } from "../chat/group-tool-bursts.js";
+import type { ChatItem, ToolCallGroup } from "../chat/group-tool-calls.js";
 
 let seq = 0;
 function toolMsg(overrides: Partial<ChatMessage> = {}): ChatMessage {

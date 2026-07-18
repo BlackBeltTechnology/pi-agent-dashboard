@@ -4,18 +4,18 @@ import { fileURLToPath } from "node:url";
 import { act, render, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
-import { Toast, type ToastVariant, useToast } from "../Toast.js";
+import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (rel: string) => readFileSync(resolve(here, rel), "utf8");
 
-const TOAST = src("../Toast.tsx");
+const TOAST = src("../primitives/Toast.tsx");
 const TOAST_SLOT = src("../extension-ui/ToastSlot.tsx");
-const SPAWN_HOST = src("../SpawnErrorToastHost.tsx");
-const SPAWN_BANNER = src("../SpawnErrorBanner.tsx");
+const SPAWN_HOST = src("../session/SpawnErrorToastHost.tsx");
+const SPAWN_BANNER = src("../session/SpawnErrorBanner.tsx");
 const INDEX_CSS = src("../../index.css");
 const USE_ASYNC = src("../../hooks/useAsyncAction.ts");
-const SESSION_LIST = src("../SessionList.tsx");
+const SESSION_LIST = src("../session/SessionList.tsx");
 const APP = src("../../App.tsx");
 
 // Compile-time guard (E3): the union has EXACTLY these 5 members. A missing or
@@ -91,7 +91,7 @@ describe("single canonical ToastVariant (E3)", () => {
   });
 
   it("useAsyncAction re-exports it (no 2nd declaration)", () => {
-    expect(USE_ASYNC).toMatch(/import type \{ ToastVariant \} from "\.\.\/components\/Toast\.js"/);
+    expect(USE_ASYNC).toMatch(/import type \{ ToastVariant \} from "\.\.\/components\/primitives\/Toast\.js"/);
     expect(USE_ASYNC).toMatch(/export type \{ ToastVariant \}/);
     // The stale local `export type ToastVariant = "error" | ...` is gone.
     expect(USE_ASYNC).not.toMatch(/export type ToastVariant =/);

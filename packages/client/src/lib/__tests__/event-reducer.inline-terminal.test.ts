@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createInitialState, reduceEvent } from "../event-reducer.js";
+import { createInitialState, reduceEvent } from "../chat/event-reducer.js";
 
 /**
  * Inline interactive terminal card reducer arms.

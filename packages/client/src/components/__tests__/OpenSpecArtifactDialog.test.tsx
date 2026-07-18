@@ -1,13 +1,13 @@
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { OpenSpecArtifactDialog } from "../OpenSpecArtifactDialog.js";
-import { ArtifactLetters } from "../openspec-helpers.js";
+import { OpenSpecArtifactDialog } from "../openspec/OpenSpecArtifactDialog.js";
+import { ArtifactLetters } from "../openspec/openspec-helpers.js";
 
 // Avoid full markdown rendering (ThemeProvider dependency) — assert on the raw
 // content text the reader hands MarkdownPreviewView. Same pattern as
 // MarkdownPreviewView.test.tsx.
-vi.mock("../MarkdownContent.js", () => ({
+vi.mock("../preview/MarkdownContent.js", () => ({
   MarkdownContent: ({ content }: { content: string }) => (
     <div data-testid="mock-markdown">{content}</div>
   ),

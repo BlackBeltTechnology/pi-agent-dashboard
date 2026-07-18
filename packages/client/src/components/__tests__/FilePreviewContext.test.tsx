@@ -1,8 +1,8 @@
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { FilePreviewHost, FilePreviewProvider, useFilePreview } from "../FilePreviewContext.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { FilePreviewHost, FilePreviewProvider, useFilePreview } from "../preview/FilePreviewContext.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { FileLink } from "../tool-renderers/FileLink.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 

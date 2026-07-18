@@ -12,8 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the pi-delegating write so route tests stay fast + deterministic.
 const applyResourceToggleMock = vi.fn();
-vi.mock("../resource-activation-toggle.js", async () => {
-  const actual = await vi.importActual<any>("../resource-activation-toggle.js");
+vi.mock("../pi/resource-activation-toggle.js", async () => {
+  const actual = await vi.importActual<any>("../pi/resource-activation-toggle.js");
   return {
     ...actual,
     applyResourceToggle: (...args: any[]) => applyResourceToggleMock(...args),

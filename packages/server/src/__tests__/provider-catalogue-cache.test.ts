@@ -10,7 +10,7 @@ import {
   setCatalogueForSession,
   getLatestCatalogue,
   _resetForTests,
-} from "../provider-catalogue-cache.js";
+} from "../package/provider-catalogue-cache.js";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 const A: ProviderInfo = { id: "a", displayName: "A", hasOAuth: false, configured: false };

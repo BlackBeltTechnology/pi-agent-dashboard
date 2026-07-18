@@ -17,7 +17,7 @@ import {
   type CanvasAccumulator,
   type CanvasForwardedEvent,
   createCanvasAccumulator,
-} from "../canvas-accumulator.js";
+} from "../canvas/canvas-accumulator.js";
 
 const CWD = "/proj";
 

@@ -19,7 +19,7 @@ import {
   ensureWorktreeExcludeLine,
   isOrphanWorktreePath,
   isSameWorktreePath,
-} from "../git-worktree.js";
+} from "../git-worktree/git-worktree.js";
 
 describe("localNameOf", () => {
   it("strips a remote prefix", () => {

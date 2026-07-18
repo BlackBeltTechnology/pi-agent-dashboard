@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
 import React from "react";
-import { ImageLightbox } from "../ImageLightbox.js";
+import { ImageLightbox } from "../preview/ImageLightbox.js";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {

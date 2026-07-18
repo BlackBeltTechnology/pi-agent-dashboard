@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { findRetriedErrorIds, findActiveInteractiveToolResultIds, findSurfaceSuppressedErrorIds } from "../collapse-retried-errors.js";
-import { createInitialState, reduceEvent, type ChatMessage } from "../event-reducer.js";
+import { findRetriedErrorIds, findActiveInteractiveToolResultIds, findSurfaceSuppressedErrorIds } from "../chat/collapse-retried-errors.js";
+import { createInitialState, reduceEvent, type ChatMessage } from "../chat/event-reducer.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 let _counter = 0;

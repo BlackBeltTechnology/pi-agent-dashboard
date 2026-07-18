@@ -12,12 +12,12 @@ import {
 import {
   findPidByMarker,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
-import { keeperOptsFromSpawnResult } from "../headless-pid-registry.js";
-import { spawnPiSession } from "../process-manager.js";
-import { createBranchedSessionFile } from "../session-file-reader.js";
-import { appendSpawnFailure } from "../spawn-failure-log.js";
-import { preflightSpawn } from "../spawn-preflight.js";
-import { getSpawnRegisterWatchdog } from "../spawn-register-watchdog.js";
+import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
+import { spawnPiSession } from "../spawn-process/process-manager.js";
+import { createBranchedSessionFile } from "../session/session-file-reader.js";
+import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
+import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
+import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { shouldInterceptReload } from "./session-action-helpers.js";
 

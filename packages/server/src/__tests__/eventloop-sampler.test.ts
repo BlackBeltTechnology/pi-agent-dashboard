@@ -11,7 +11,7 @@
 
 import { type IntervalHistogram, monitorEventLoopDelay } from "node:perf_hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { startEventLoopSampler } from "../eventloop-sampler.js";
+import { startEventLoopSampler } from "../metrics/eventloop-sampler.js";
 
 /** Minimal injectable histogram: only `max` (getter) + `reset` are used. */
 function fakeHistogram(maxMsSequence: number[]): { hist: IntervalHistogram; state: { resets: number } } {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveOrderKey } from "../resolve-order-key.js";
+import { resolveOrderKey } from "../session/resolve-order-key.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function session(partial: Partial<DashboardSession>): DashboardSession {

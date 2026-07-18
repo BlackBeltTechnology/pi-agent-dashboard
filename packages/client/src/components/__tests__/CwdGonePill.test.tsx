@@ -4,7 +4,7 @@
 import React from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { CwdGonePill } from "../CwdGonePill.js";
+import { CwdGonePill } from "../folder/CwdGonePill.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());

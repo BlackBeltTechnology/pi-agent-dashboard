@@ -11,8 +11,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerGitRoutes } from "../routes/git-routes.js";
-import { addWorktree } from "../git-operations.js";
-import type { SessionManager } from "../memory-session-manager.js";
+import { addWorktree } from "../git-worktree/git-operations.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function git(cmd: string, cwd: string) {

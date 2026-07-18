@@ -1,7 +1,7 @@
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ToastVariant } from "../components/Toast.js";
-import { t } from "../lib/i18n";
+import type { ToastVariant } from "../components/primitives/Toast.js";
+import { t } from "../lib/i18n/i18n.js";
 
 // Single canonical definition lives in Toast.tsx; re-exported here so existing
 // `import { ToastVariant } from "../hooks/useAsyncAction"` consumers keep working

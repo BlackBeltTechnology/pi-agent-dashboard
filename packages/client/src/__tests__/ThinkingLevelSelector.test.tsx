@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, fireEvent, cleanup } from "@testing-library/react";
-import { ThinkingLevelSelector } from "../components/ThinkingLevelSelector.js";
+import { ThinkingLevelSelector } from "../components/settings/ThinkingLevelSelector.js";
 
 afterEach(() => cleanup());
 

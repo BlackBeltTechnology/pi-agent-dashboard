@@ -4,7 +4,7 @@ import {
 	groupInstalledPackages,
 	isSourceOverride,
 	npmNameFromSource,
-} from "../package-classifier.js";
+} from "../package/package-classifier.js";
 import type { InstalledPackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 
 describe("classifySource", () => {

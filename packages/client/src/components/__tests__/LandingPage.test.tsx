@@ -3,7 +3,7 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { LandingPage } from "../LandingPage.js";
+import { LandingPage } from "../shell/LandingPage.js";
 
 function TestRouter({ children, path = "/" }: { children: React.ReactNode; path?: string }) {
   const { hook } = memoryLocation({ path, static: true });

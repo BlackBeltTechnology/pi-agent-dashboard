@@ -7,7 +7,7 @@ import {
   RENDERER_BY_EXT as SHARED_RENDERER_BY_EXT,
 } from "@blackbelt-technology/pi-dashboard-shared/renderer-by-ext.js";
 import { describe, expect, it } from "vitest";
-import { dispatchPreview, RENDERER_BY_EXT } from "../preview-dispatch.js";
+import { dispatchPreview, RENDERER_BY_EXT } from "../preview/preview-dispatch.js";
 
 const f = (path: string) => ({ kind: "file" as const, cwd: "/x", path });
 const u = (url: string) => ({ kind: "url" as const, url });

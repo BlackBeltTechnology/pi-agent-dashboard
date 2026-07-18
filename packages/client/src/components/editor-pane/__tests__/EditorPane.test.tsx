@@ -10,10 +10,10 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../lib/api-context.js", () => ({ getApiBase: () => "" }));
+vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 
-import { TREE_VISIBLE_KEY_PREFIX } from "../../../lib/tree-visible.js";
-import { SplitWorkspaceProvider, useSplitWorkspace } from "../../SplitWorkspaceContext.js";
+import { TREE_VISIBLE_KEY_PREFIX } from "../../../lib/util/tree-visible.js";
+import { SplitWorkspaceProvider, useSplitWorkspace } from "../../split/SplitWorkspaceContext.js";
 import { EditorPane } from "../EditorPane.js";
 
 const originalFetch = globalThis.fetch;

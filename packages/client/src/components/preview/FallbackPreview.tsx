@@ -6,7 +6,7 @@
 
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import React from "react";
-import { t as i18nT } from "../../lib/i18n";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { rawUrl } from "./raw-url.js";
 
 interface Props {

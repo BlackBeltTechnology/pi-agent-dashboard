@@ -6,7 +6,7 @@
  * See change: pin-and-search-sessions §8.
  */
 import { describe, it, expect } from "vitest";
-import { filterByQuery, rankActiveFirst } from "../session-grouping.js";
+import { filterByQuery, rankActiveFirst } from "../session/session-grouping.js";
 
 describe("filterByQuery", () => {
   it("returns full input on empty query", () => {

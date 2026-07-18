@@ -11,10 +11,10 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createInitialState } from "../../lib/event-reducer.js";
-import { loadSplitState } from "../../lib/split-state.js";
-import { SessionHeader } from "../SessionHeader.js";
-import { SplitWorkspaceProvider } from "../SplitWorkspaceContext.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
+import { loadSplitState } from "../../lib/layout/split-state.js";
+import { SessionHeader } from "../session/SessionHeader.js";
+import { SplitWorkspaceProvider } from "../split/SplitWorkspaceContext.js";
 
 // Force mobile layout for these tests.
 vi.mock("../../hooks/useMobile.js", () => ({ useMobile: () => true }));

@@ -10,7 +10,7 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createInitialState } from "../../lib/event-reducer.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
 
 function makeSession(overrides?: Partial<DashboardSession>): DashboardSession {
   return {
@@ -30,7 +30,7 @@ afterEach(() => {
 
 async function loadHeader(mobile: boolean) {
   vi.doMock("../../hooks/useMobile.js", () => ({ useMobile: () => mobile }));
-  const mod = await import("../SessionHeader.js");
+  const mod = await import("../session/SessionHeader.js");
   return mod.SessionHeader;
 }
 

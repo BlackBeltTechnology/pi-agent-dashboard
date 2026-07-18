@@ -5,7 +5,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", () => ({
   diffOr: vi.fn(() => ""),
   statusPorcelainOr: vi.fn(() => ""),
 }));
-vi.mock("../git-operations.js", () => ({ isGitRepo: vi.fn(() => true) }));
+vi.mock("../git-worktree/git-operations.js", () => ({ isGitRepo: vi.fn(() => true) }));
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(() => true),
   readFileSync: vi.fn(() => Buffer.from("hello\nworld")),
@@ -16,7 +16,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { isGitRepo } from "../git-operations.js";
+import { isGitRepo } from "../git-worktree/git-operations.js";
 import {
   bashOutputCandidates,
   buildSessionDiff,
@@ -26,7 +26,7 @@ import {
   gitNumstat,
   parsePorcelain,
   redactCommand,
-} from "../session-diff.js";
+} from "../session/session-diff.js";
 
 function makeEvent(eventType: string, timestamp: number, data: Record<string, unknown> = {}): DashboardEvent {
   return { eventType, timestamp, data: { type: eventType, ...data } };

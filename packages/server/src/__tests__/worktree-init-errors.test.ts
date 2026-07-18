@@ -6,7 +6,7 @@
  * See change: harden-worktree-spawn.
  */
 import { describe, it, expect } from "vitest";
-import { mapInitStderrToHint } from "../worktree-init-errors.js";
+import { mapInitStderrToHint } from "../git-worktree/worktree-init-errors.js";
 
 interface Case { name: string; stderr: string; hint: string; }
 

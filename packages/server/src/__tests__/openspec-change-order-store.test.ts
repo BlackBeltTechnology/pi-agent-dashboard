@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { createOpenSpecGroupStore, type OpenSpecGroupStore } from "../openspec-group-store.js";
+import { createOpenSpecGroupStore, type OpenSpecGroupStore } from "../openspec/openspec-group-store.js";
 import { OPENSPEC_UNGROUPED_KEY } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 describe("openspec-group-store: change order", () => {

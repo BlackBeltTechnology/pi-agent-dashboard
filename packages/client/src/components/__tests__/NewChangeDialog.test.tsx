@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-import { NewChangeDialog, formatNewChangePrompt } from "../NewChangeDialog.js";
+import { NewChangeDialog, formatNewChangePrompt } from "../openspec/NewChangeDialog.js";
 
 afterEach(() => cleanup());
 

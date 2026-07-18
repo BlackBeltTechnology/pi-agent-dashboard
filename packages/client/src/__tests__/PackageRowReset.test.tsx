@@ -13,7 +13,7 @@
 
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PackageRow } from "../components/PackageRow.js";
+import { PackageRow } from "../components/packages/PackageRow.js";
 
 afterEach(() => cleanup());
 

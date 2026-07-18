@@ -31,8 +31,8 @@ import {
 import { isAllowed } from "../lib/path-containment.js";
 import { resolveFileMention } from "../lib/resolve-file-mention.js";
 import { isWritableMdTarget } from "../lib/writable-md-target.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 // Per-target write serialization. The optimistic mtime check + atomic rename

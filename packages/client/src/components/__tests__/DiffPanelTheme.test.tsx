@@ -46,7 +46,7 @@ vi.mock("@git-diff-view/file", () => ({
 // Mock ThemeProvider so we can drive `resolved` directly without depending on
 // matchMedia / persistence. The DiffPanel only reads `resolved` and
 // `themeName` from useThemeContext().
-vi.mock("../ThemeProvider.js", async () => {
+vi.mock("../settings/ThemeProvider.js", async () => {
   const actual = await import("react");
   const ThemeContext = actual.createContext<{ resolved: "light" | "dark"; themeName: string } | null>(null);
   return {
@@ -65,8 +65,8 @@ vi.mock("../ThemeProvider.js", async () => {
   };
 });
 
-import { ThemeProvider } from "../ThemeProvider.js";
-import { DiffPanel } from "../DiffPanel.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { DiffPanel } from "../diff/DiffPanel.js";
 import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 
 const fileWithEdit: FileDiffEntry = {

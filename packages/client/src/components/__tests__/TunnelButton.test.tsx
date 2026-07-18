@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TunnelButton } from "../TunnelButton.js";
+import { TunnelButton } from "../connectivity/TunnelButton.js";
 
 const navigateFn = vi.fn();
 vi.mock("wouter", () => ({

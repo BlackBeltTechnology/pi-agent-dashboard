@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import React from "react";
-import { QrCodeDialog } from "../QrCodeDialog.js";
+import { QrCodeDialog } from "../connectivity/QrCodeDialog.js";
 
 // Mock qrcode — avoid canvas rendering in jsdom
 vi.mock("qrcode", () => ({

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
-import { createInitialState, reduceEvent } from "../lib/event-reducer.js";
+import { createInitialState, reduceEvent } from "../lib/chat/event-reducer.js";
 
 describe("replayEntriesAsEvents", () => {
   it("should convert user message entry to message_start event", () => {

@@ -41,7 +41,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/managed-node-path.js
   prependManagedNodeToPath: vi.fn().mockImplementation((env: unknown) => env),
 }));
 
-import { spawnPiSession, setResolver, resetResolver } from "../process-manager.js";
+import { spawnPiSession, setResolver, resetResolver } from "../spawn-process/process-manager.js";
 import { spawnDetached, waitForNoCrash } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 

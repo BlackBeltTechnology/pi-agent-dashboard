@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { setGlobalApiBase } from "../api-context.js";
-import { reloadResourceSessions, toggleResource } from "../resources-api.js";
+import { setGlobalApiBase } from "../api/api-context.js";
+import { reloadResourceSessions, toggleResource } from "../api/resources-api.js";
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch as any;

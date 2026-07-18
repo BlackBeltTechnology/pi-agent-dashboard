@@ -5,8 +5,8 @@
  * copy. See change: improve-content-editor (tasks §4.3).
  */
 import { useEffect, useState } from "react";
-import { getApiBase } from "../../lib/api-context.js";
-import { MermaidBlock } from "../MermaidBlock.js";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { MermaidBlock } from "../preview/MermaidBlock.js";
 import type { ViewerProps } from "./types.js";
 
 export default function MermaidViewer({ cwd, path }: ViewerProps) {

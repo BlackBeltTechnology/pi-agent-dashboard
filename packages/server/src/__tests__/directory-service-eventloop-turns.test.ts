@@ -22,9 +22,9 @@ import * as path from "node:path";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
-import { createEventLoopSpikeMetrics } from "../eventloop-spike-metrics.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import { createEventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 
 const runOpenSpecListMock = vi.fn();
 const runOpenSpecStatusMock = vi.fn();
@@ -37,13 +37,13 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (i
     runOpenSpecStatus: (...args: any[]) => runOpenSpecStatusMock(...args),
   };
 });
-vi.mock("../pi-resource-scanner.js", () => ({
+vi.mock("../pi/pi-resource-scanner.js", () => ({
   scanPiResources: vi.fn(async () => ({ local: { extensions: [], skills: [], prompts: [] }, global: { extensions: [], skills: [], prompts: [] }, packages: [] })),
 }));
 vi.mock("@blackbelt-technology/pi-dashboard-shared/state-replay.js", () => ({
   replayEntriesAsEvents: vi.fn(() => []),
 }));
-vi.mock("../session-discovery.js", () => ({
+vi.mock("../session/session-discovery.js", () => ({
   discoverSessionsForCwd: vi.fn(() => []),
 }));
 

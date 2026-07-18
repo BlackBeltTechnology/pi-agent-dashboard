@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import path from "node:path";
-import { parseSourceKind, computeIdentity } from "../package-source-helpers.js";
+import { parseSourceKind, computeIdentity } from "../package/package-source-helpers.js";
 
 describe("parseSourceKind", () => {
 	it.each([

@@ -6,7 +6,7 @@
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { FolderActionBar } from "../FolderActionBar.js";
+import { FolderActionBar } from "../folder/FolderActionBar.js";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 

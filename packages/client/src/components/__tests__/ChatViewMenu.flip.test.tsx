@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { ChatViewMenu } from "../ChatViewMenu.js";
+import { ChatViewMenu } from "../chat/ChatViewMenu.js";
 
 function setViewportHeight(h: number) {
   Object.defineProperty(window, "innerHeight", { value: h, configurable: true, writable: true });

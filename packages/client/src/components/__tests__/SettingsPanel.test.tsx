@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
-import { SettingsPanel } from "../SettingsPanel.js";
+import { SettingsPanel } from "../settings/SettingsPanel.js";
 
 // Worktree auto-init preference is fetched/persisted through git-api, not
 // /api/config. Mock those so the Sessions-tab toggle drives them.
@@ -9,8 +9,8 @@ const { fetchAutoInitWorktreePref, setAutoInitWorktreePref } = vi.hoisted(() => 
   fetchAutoInitWorktreePref: vi.fn(),
   setAutoInitWorktreePref: vi.fn(),
 }));
-vi.mock("../../lib/git-api.js", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/git-api.js")>("../../lib/git-api.js");
+vi.mock("../../lib/git/git-api.js", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/git/git-api.js")>("../../lib/git/git-api.js");
   return { ...actual, fetchAutoInitWorktreePref, setAutoInitWorktreePref };
 });
 
@@ -22,7 +22,7 @@ function setPath(path: string) {
 }
 
 // Mock model-proxy-api (called by ModelProxySection when proxy is enabled)
-vi.mock("../../lib/model-proxy-api.js", () => ({
+vi.mock("../../lib/api/model-proxy-api.js", () => ({
   listApiKeys: vi.fn().mockResolvedValue({ keys: [], revoked: [] }),
   createApiKey: vi.fn(),
   revokeApiKey: vi.fn().mockResolvedValue(undefined),

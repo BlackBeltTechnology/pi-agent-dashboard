@@ -25,10 +25,10 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/react";
 import React from "react";
-import { ChatView } from "../ChatView.js";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { createInitialState } from "../../lib/event-reducer.js";
-import type { SessionState } from "../../lib/event-reducer.js";
+import { ChatView } from "../chat/ChatView.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
+import type { SessionState } from "../../lib/chat/event-reducer.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 import { getToolRenderer } from "../tool-renderers/registry.js";
 import { ReadToolRenderer } from "../tool-renderers/ReadToolRenderer.js";

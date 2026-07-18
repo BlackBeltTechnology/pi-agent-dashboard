@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-import { ThemePicker } from "../ThemePicker.js";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { PackageRow } from "../PackageRow.js";
+import { ThemePicker } from "../settings/ThemePicker.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { PackageRow } from "../packages/PackageRow.js";
 
 function setViewportHeight(h: number) {
   Object.defineProperty(window, "innerHeight", { value: h, configurable: true, writable: true });

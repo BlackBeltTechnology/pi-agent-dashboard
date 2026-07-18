@@ -8,11 +8,11 @@ import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { preflightSpawn } from "../spawn-preflight.js";
-import { scanAllSessions } from "../session-scanner.js";
+import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
+import { scanAllSessions } from "../session/session-scanner.js";
 import { writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 
-vi.mock("../session-stats-reader.js", () => ({
+vi.mock("../session/session-stats-reader.js", () => ({
   extractSessionStats: vi.fn(() => null),
 }));
 

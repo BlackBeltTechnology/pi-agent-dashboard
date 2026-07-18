@@ -8,7 +8,7 @@ const { getPairPayload, approvePairing } = vi.hoisted(() => ({
   getPairPayload: vi.fn(),
   approvePairing: vi.fn(),
 }));
-vi.mock("../../../lib/pairing-api.js", () => ({ getPairPayload, approvePairing }));
+vi.mock("../../../lib/pairing/pairing-api.js", () => ({ getPairPayload, approvePairing }));
 
 import { GatewayPairQR } from "../GatewayPairQR.js";
 

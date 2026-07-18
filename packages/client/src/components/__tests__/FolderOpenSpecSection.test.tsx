@@ -7,7 +7,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 
-import { FolderOpenSpecSection } from "../FolderOpenSpecSection.js";
+import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());

@@ -10,10 +10,10 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanvasState } from "../../lib/canvas-gate.js";
-import { EMPTY_CANVAS_STATE } from "../../lib/canvas-gate.js";
-import { CanvasDriver } from "../CanvasDriver.js";
-import { SplitWorkspaceProvider, useSplitWorkspace } from "../SplitWorkspaceContext.js";
+import type { CanvasState } from "../../lib/canvas/canvas-gate.js";
+import { EMPTY_CANVAS_STATE } from "../../lib/canvas/canvas-gate.js";
+import { CanvasDriver } from "../canvas/CanvasDriver.js";
+import { SplitWorkspaceProvider, useSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 
 // Drive the responsive tier deterministically per-test.
 let tier: "mobile" | "tablet" | "desktop" = "desktop";

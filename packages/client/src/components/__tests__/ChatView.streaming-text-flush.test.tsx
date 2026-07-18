@@ -14,14 +14,14 @@
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import { render } from "@testing-library/react";
 import React from "react";
-import { ChatView } from "../ChatView.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { ChatView } from "../chat/ChatView.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import {
   createInitialState,
   reduceEvent,
   addInteractiveRequest,
   type SessionState,
-} from "../../lib/event-reducer.js";
+} from "../../lib/chat/event-reducer.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 

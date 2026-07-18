@@ -12,7 +12,7 @@ const { openLiveTarget, box } = vi.hoisted(() => {
     box: { ctx: { openLiveTarget } as { openLiveTarget: typeof openLiveTarget } | null },
   };
 });
-vi.mock("../../SplitWorkspaceContext.js", () => ({
+vi.mock("../../split/SplitWorkspaceContext.js", () => ({
   useOptionalSplitWorkspace: () => box.ctx,
 }));
 afterEach(() => {

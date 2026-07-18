@@ -5,7 +5,7 @@
  * See change: render-file-previews.
  */
 import React, { useEffect, useState } from "react";
-import { t as i18nT } from "../../lib/i18n";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { renderUrl } from "./raw-url.js";
 
 interface Props {

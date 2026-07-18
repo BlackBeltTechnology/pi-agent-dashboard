@@ -19,14 +19,14 @@ const api = {
   })),
 };
 
-vi.mock("../../lib/openspec-config-api.js", () => ({
+vi.mock("../../lib/openspec/openspec-config-api.js", () => ({
   saveOpenSpecConfig: (...a: any[]) => api.saveOpenSpecConfig(...a),
   runOpenSpecUpdate: (...a: any[]) => api.runOpenSpecUpdate(...a),
   fetchUpdateStatus: (...a: any[]) => api.fetchUpdateStatus(...a),
   fetchGlobalOpenSpecConfig: (...a: any[]) => api.fetchGlobalOpenSpecConfig(...a),
 }));
 
-import { OpenSpecProfileSection } from "../OpenSpecProfileSection.js";
+import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
 import { SettingsDraftProvider, type RegisteredSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 
 // Renders the section inside a draft registry and returns the live source map

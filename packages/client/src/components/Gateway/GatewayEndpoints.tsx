@@ -18,10 +18,10 @@ import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/t
 import { mdiCheck, mdiContentCopy, mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useState } from "react";
-import { getConfig, putConfig } from "../../lib/gateway-api.js";
-import { appendPublicBaseUrl, isSecureBaseUrl, type PairingConfigShape } from "../../lib/gateway-config-ops.js";
-import { getGatewayEndpoints } from "../../lib/gateway-endpoints.js";
-import { useI18n } from "../../lib/i18n";
+import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
+import { appendPublicBaseUrl, isSecureBaseUrl, type PairingConfigShape } from "../../lib/gateway/gateway-config-ops.js";
+import { getGatewayEndpoints } from "../../lib/gateway/gateway-endpoints.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 
 const KIND_CLASS: Record<string, string> = {
   public: "bg-[var(--green-soft,#132d1c)] text-[#5dd67f]",

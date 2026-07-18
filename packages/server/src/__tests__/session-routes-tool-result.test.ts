@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createMemoryEventStore, type EventStore } from "../memory-event-store.js";
+import { createMemoryEventStore, type EventStore } from "../persistence/memory-event-store.js";
 import { registerSessionRoutes } from "../routes/session-routes.js";
 
 const PASSTHRU_GUARD = async () => {};

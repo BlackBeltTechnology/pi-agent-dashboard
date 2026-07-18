@@ -9,10 +9,10 @@
  * takeover uses).
  */
 
-import { t as i18nT } from "../../lib/i18n";
-import { normalizeUnderCwd } from "../../lib/normalize-path.js";
-import { DiffPanel } from "../DiffPanel.js";
-import { useOptionalSessionDiff } from "../SessionDiffContext.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { normalizeUnderCwd } from "../../lib/util/normalize-path.js";
+import { DiffPanel } from "../diff/DiffPanel.js";
+import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
 import type { ViewerProps } from "./types.js";
 
 /** Strip the `diff:` sentinel from a virtual viewer path. */

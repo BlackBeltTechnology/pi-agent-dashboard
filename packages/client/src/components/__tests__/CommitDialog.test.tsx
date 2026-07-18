@@ -6,13 +6,13 @@ const mockFetchChangedFiles = vi.fn();
 const mockCommitFiles = vi.fn();
 const mockDraft = vi.fn();
 
-vi.mock("../../lib/git-api.js", () => ({
+vi.mock("../../lib/git/git-api.js", () => ({
   fetchChangedFiles: (...a: any[]) => mockFetchChangedFiles(...a),
   commitFiles: (...a: any[]) => mockCommitFiles(...a),
   draftCommitMessage: (...a: any[]) => mockDraft(...a),
 }));
 
-import { CommitDialog } from "../CommitDialog.js";
+import { CommitDialog } from "../worktree/CommitDialog.js";
 
 afterEach(() => cleanup());
 

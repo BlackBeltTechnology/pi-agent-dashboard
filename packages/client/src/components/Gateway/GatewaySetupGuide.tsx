@@ -9,10 +9,10 @@
 import { mdiCheck, mdiContentCopy, mdiOpenInNew } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useState } from "react";
-import { runEnrollStep } from "../../lib/gateway-api.js";
-import type { GatewayProviderId } from "../../lib/gateway-providers.js";
-import { GATEWAY_SETUP_STEPS, type SetupStep } from "../../lib/gateway-setup.js";
-import { useI18n } from "../../lib/i18n";
+import { runEnrollStep } from "../../lib/gateway/gateway-api.js";
+import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
+import { GATEWAY_SETUP_STEPS, type SetupStep } from "../../lib/gateway/gateway-setup.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 
 function InstallStep({ step }: { step: SetupStep }) {
   const { t } = useI18n();

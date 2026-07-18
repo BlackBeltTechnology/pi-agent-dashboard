@@ -24,7 +24,7 @@ describe("add-plugin-activation-ui repo-lint", () => {
     // <SettingsSectionSlot tab={page} /> so the registry filter matches.
     // See change: reorganize-settings-into-pages.
     const panel = fs.readFileSync(
-      path.join(REPO_ROOT, "packages/client/src/components/SettingsPanel.tsx"),
+      path.join(REPO_ROOT, "packages/client/src/components/settings/SettingsPanel.tsx"),
       "utf-8",
     );
     expect(panel.includes("<SettingsSectionSlot")).toBe(true);

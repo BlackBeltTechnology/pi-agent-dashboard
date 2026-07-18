@@ -11,8 +11,8 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { cleanup, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createInitialState } from "../../lib/event-reducer.js";
-import { SplitWorkspaceProvider } from "../SplitWorkspaceContext.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
+import { SplitWorkspaceProvider } from "../split/SplitWorkspaceContext.js";
 
 afterEach(() => {
   cleanup();
@@ -36,7 +36,7 @@ function makeSession(overrides?: Partial<DashboardSession>): DashboardSession {
 
 async function loadDesktopHeader() {
   vi.doMock("../../hooks/useMobile.js", () => ({ useMobile: () => false }));
-  const mod = await import("../SessionHeader.js");
+  const mod = await import("../session/SessionHeader.js");
   return mod.SessionHeader;
 }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import React, { useRef } from "react";
-import { MarkdownSearch } from "../MarkdownSearch.js";
+import { MarkdownSearch } from "../preview/MarkdownSearch.js";
 
 // Helper: render MarkdownSearch with a content container that has HTML content
 function TestHarness({ html, content }: { html: string; content?: string }) {

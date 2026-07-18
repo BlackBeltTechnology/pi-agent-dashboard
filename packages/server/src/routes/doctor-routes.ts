@@ -28,7 +28,7 @@ import {
   hasAnyProviderCredential,
   inspectedCredentialFiles,
 } from "@blackbelt-technology/pi-dashboard-shared/credential-detect.js";
-import { getTunnelWatchdogStatus } from "../tunnel-watchdog.js";
+import { getTunnelWatchdogStatus } from "../tunnel/tunnel-watchdog.js";
 
 function getManagedDir(): string {
   return process.env.MANAGED_DIR || path.join(os.homedir(), ".pi-dashboard");

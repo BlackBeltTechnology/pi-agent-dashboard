@@ -1,8 +1,8 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { createInitialState } from "../../lib/event-reducer.js";
-import { ChatView } from "../ChatView.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
+import { ChatView } from "../chat/ChatView.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 const defaultToolContext: ToolContext = {};

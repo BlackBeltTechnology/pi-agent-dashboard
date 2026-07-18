@@ -8,7 +8,7 @@ import {
   loadEditorPaneState,
   saveEditorPaneState,
   useEditorPaneState,
-} from "../editor-pane-state.js";
+} from "../layout/editor-pane-state.js";
 
 const tab = (path: string, addedAt = 1): EditorPaneState["openFiles"][number] => ({
   path,

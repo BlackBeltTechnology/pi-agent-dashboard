@@ -10,7 +10,7 @@ import {
   type SplitState,
   saveSplitState,
   useSplitState,
-} from "../split-state.js";
+} from "../layout/split-state.js";
 
 describe("clampRatio", () => {
   it("passes through values in range", () => {

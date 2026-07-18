@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createMemoryEventStore,
   exceedsSerializedSize,
-} from "../memory-event-store.js";
+} from "../persistence/memory-event-store.js";
 
 function makeEvent(type: string = "test"): DashboardEvent {
   return { eventType: type, timestamp: Date.now(), data: {} };

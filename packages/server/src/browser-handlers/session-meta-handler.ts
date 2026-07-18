@@ -3,8 +3,8 @@
  */
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { normalizeTags } from "@blackbelt-technology/pi-dashboard-shared/tags.js";
-import { attachRenameTarget, detachShouldClearName } from "../proposal-attach-naming.js";
-import { resolveOrderKey } from "../resolve-order-key.js";
+import { attachRenameTarget, detachShouldClearName } from "../openspec/proposal-attach-naming.js";
+import { resolveOrderKey } from "../session/resolve-order-key.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
 /**

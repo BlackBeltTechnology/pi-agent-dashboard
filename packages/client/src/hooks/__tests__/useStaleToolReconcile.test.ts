@@ -11,7 +11,7 @@ import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 import { act, renderHook } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createInitialState, reduceEvent, type SessionState } from "../../lib/event-reducer.js";
+import { createInitialState, reduceEvent, type SessionState } from "../../lib/chat/event-reducer.js";
 import {
   RECONCILE_POLL_MS,
   STALE_TOOL_MS,

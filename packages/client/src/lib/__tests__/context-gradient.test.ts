@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { contextGradientColor } from "../context-gradient.js";
+import { contextGradientColor } from "../theme/context-gradient.js";
 
 describe("contextGradientColor", () => {
   it("returns green at 0%", () => {

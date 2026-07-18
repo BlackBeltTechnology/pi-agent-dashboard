@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import { observeFx } from "../lib/fx-visibility.js";
+import { observeFx } from "../lib/util/fx-visibility.js";
 
 /**
  * Attach the returned ref callback to a DOM element carrying (or containing)

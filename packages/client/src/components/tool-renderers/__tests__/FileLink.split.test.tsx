@@ -1,9 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadEditorPaneState } from "../../../lib/editor-pane-state.js";
-import { loadSplitState } from "../../../lib/split-state.js";
-import { SplitWorkspaceProvider } from "../../SplitWorkspaceContext.js";
+import { loadEditorPaneState } from "../../../lib/layout/editor-pane-state.js";
+import { loadSplitState } from "../../../lib/layout/split-state.js";
+import { SplitWorkspaceProvider } from "../../split/SplitWorkspaceContext.js";
 import { FileLink } from "../FileLink.js";
 import type { ToolContext } from "../types.js";
 

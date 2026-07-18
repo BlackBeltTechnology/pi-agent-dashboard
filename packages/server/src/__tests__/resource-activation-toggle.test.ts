@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { applyResourceToggle } from "../resource-activation-toggle.js";
+import { applyResourceToggle } from "../pi/resource-activation-toggle.js";
 
 let tmpDir: string;
 let globalDir: string;

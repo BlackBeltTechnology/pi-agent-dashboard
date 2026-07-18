@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseHostInput } from "../lib/parse-host-input.js";
+import { parseHostInput } from "../lib/util/parse-host-input.js";
 
 describe("parseHostInput", () => {
   it("parses full http URL with port", () => {

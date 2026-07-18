@@ -2,7 +2,7 @@
  * Build the `/api/file/raw` URL for a file-kind ViewTarget. Used by
  * `<img>`, `<video>`, `<iframe>` previews. See change: render-file-previews.
  */
-import { getApiBase } from "../../lib/api-context.js";
+import { getApiBase } from "../../lib/api/api-context.js";
 
 export function rawUrl(target: { kind: "file"; cwd: string; path: string }): string {
   const base = getApiBase();

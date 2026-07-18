@@ -8,32 +8,32 @@ import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-te
 import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { BrowserGateway } from "./browser-gateway.js";
-import { createCanvasAccumulator } from "./canvas-accumulator.js";
-import { readEffectiveCanvasTypes } from "./canvas-settings.js";
-import { decideDashboardSource } from "./dashboard-source-decision.js";
+import type { BrowserGateway } from "./pairing/browser-gateway.js";
+import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
+import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
+import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js";
 import type { DirectoryService } from "./directory-service.js";
-import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./event-status-extraction.js";
-import { composeWorktreePayload } from "./git-worktree-compose.js";
-import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
-import type { EventStore } from "./memory-event-store.js";
-import type { SessionManager } from "./memory-session-manager.js";
-import type { PendingForkRegistry } from "./pending-fork-registry.js";
-import type { PiGateway } from "./pi-gateway.js";
-import type { PreferencesStore } from "./preferences-store.js";
-import { buildPidIndex, classifyProcesses } from "./process-classifier.js";
-import { spawnPiSession } from "./process-manager.js";
-import { attachRenameTarget, isNameAutoSetFromAttachment } from "./proposal-attach-naming.js";
-import { setCatalogueForSession } from "./provider-catalogue-cache.js";
-import { resolveOrderKey } from "./resolve-order-key.js";
+import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
+import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
+import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
+import type { EventStore } from "./persistence/memory-event-store.js";
+import type { SessionManager } from "./session/memory-session-manager.js";
+import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
+import type { PiGateway } from "./pi/pi-gateway.js";
+import type { PreferencesStore } from "./persistence/preferences-store.js";
+import { buildPidIndex, classifyProcesses } from "./spawn-process/process-classifier.js";
+import { spawnPiSession } from "./spawn-process/process-manager.js";
+import { attachRenameTarget, isNameAutoSetFromAttachment } from "./openspec/proposal-attach-naming.js";
+import { setCatalogueForSession } from "./package/provider-catalogue-cache.js";
+import { resolveOrderKey } from "./session/resolve-order-key.js";
 import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
-import type { SessionOrderManager } from "./session-order-manager.js";
+import type { SessionOrderManager } from "./session/session-order-manager.js";
 import {
   buildEmptyActionableLogLine,
   buildModelErrorLogLine,
   extractModelTurnError,
-} from "./spawned-turn-log.js";
-import type { ViewedSessionTracker } from "./viewed-session-tracker.js";
+} from "./spawn-process/spawned-turn-log.js";
+import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
 
 /**
  * `true` iff `changeName` appears in the cwd's authoritative OpenSpec poll
@@ -89,14 +89,14 @@ export interface EventWiringDeps {
    * pending intent on each `session_register` and applies the attach +
    * auto-rename. See change: add-folder-task-checker-and-spawn-attach.
    */
-  pendingAttachRegistry?: import("./pending-attach-registry.js").PendingAttachRegistry;
+  pendingAttachRegistry?: import("./pending/pending-attach-registry.js").PendingAttachRegistry;
   /**
    * Optional pending-initial-prompt registry. When provided, the wiring
    * consumes a pending prompt on each `session_register` and dispatches it as
    * the session's first `send_prompt` (e.g. `/skill:project-init` from the
    * no-hook Initialize button). See change: project-init-skill-and-profiles.
    */
-  pendingInitialPromptRegistry?: import("./pending-initial-prompt-registry.js").PendingInitialPromptRegistry;
+  pendingInitialPromptRegistry?: import("./pending/pending-initial-prompt-registry.js").PendingInitialPromptRegistry;
   /**
    * Optional pending-worktree-base registry. When provided, the wiring
    * consumes a pending base ref on each `session_register` and persists
@@ -105,7 +105,7 @@ export interface EventWiringDeps {
    * composes `gitWorktree.base` correctly.
    * See change: add-worktree-spawn-dialog.
    */
-  pendingWorktreeBaseRegistry?: import("./pending-worktree-base-registry.js").PendingWorktreeBaseRegistry;
+  pendingWorktreeBaseRegistry?: import("./pending/pending-worktree-base-registry.js").PendingWorktreeBaseRegistry;
   /**
    * Optional pending-automation-run registry. When provided, the wiring
    * consumes a pending run stamp on each `session_register` and stamps the
@@ -113,15 +113,15 @@ export interface EventWiringDeps {
    * persists both to the session's `.meta.json` sidecar.
    * See change: add-automation-plugin.
    */
-  pendingAutomationRunRegistry?: import("./pending-automation-run-registry.js").PendingAutomationRunRegistry;
+  pendingAutomationRunRegistry?: import("./pending/pending-automation-run-registry.js").PendingAutomationRunRegistry;
   /**
    * Optional pending-goal-link registry + goal store. When both provided, the
    * wiring consumes a pending goalId on each `session_register`, stamps
    * `.meta.json#goalId` + in-memory `DashboardSession.goalId`, and links the
    * new sessionId into its `GoalRecord`. See change: add-goals-folder-page.
    */
-  pendingGoalLinkRegistry?: import("./pending-goal-link-registry.js").PendingGoalLinkRegistry;
-  goalStore?: import("./goal-store.js").GoalStore;
+  pendingGoalLinkRegistry?: import("./pending/pending-goal-link-registry.js").PendingGoalLinkRegistry;
+  goalStore?: import("./goal/goal-store.js").GoalStore;
   /**
    * Optional goal-session primer. When provided, a session linked to a goal on
    * `session_register` is renamed to the objective and dispatched `/goal …` so
@@ -145,7 +145,7 @@ export interface EventWiringDeps {
    * letting the client auto-select / dismiss its placeholder by exact
    * correlation. See change: spawn-correlation-token.
    */
-  pendingClientCorrelations?: import("./pending-client-correlations.js").PendingClientCorrelations;
+  pendingClientCorrelations?: import("./pending/pending-client-correlations.js").PendingClientCorrelations;
   /**
    * Optional plugin pi-message dispatcher. When provided, every
    * `plugin_pi_message` envelope forwarded from a plugin bridge entry is
@@ -175,7 +175,7 @@ export interface EventWiringDeps {
    * eager (non-debounced) write path, so an unclean host shutdown leaves a
    * recoverable marker on disk. See change: reopen-sessions-after-shutdown.
    */
-  metaPersistence?: import("./meta-persistence.js").MetaPersistence;
+  metaPersistence?: import("./persistence/meta-persistence.js").MetaPersistence;
   liveEpoch?: number;
   /**
    * Settles pending `/api/git/commit-draft` requests when the bridge replies

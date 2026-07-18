@@ -1,15 +1,15 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React, { useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { SessionAssetsProvider } from "../../lib/SessionAssetsContext.js";
-import { extractFrontmatter, formatRelativeDate, inferType } from "../FrontmatterProperties.js";
-import { isFencedBlockComplete, MarkdownContent, tableToMarkdown, tableToTsv } from "../MarkdownContent.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { SessionAssetsProvider } from "../../lib/session/SessionAssetsContext.js";
+import { extractFrontmatter, formatRelativeDate, inferType } from "../preview/FrontmatterProperties.js";
+import { isFencedBlockComplete, MarkdownContent, tableToMarkdown, tableToTsv } from "../preview/MarkdownContent.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 
 // vi.hoisted so the mock (also hoisted) can reference the spy without a TDZ.
 const { openLiveTarget } = vi.hoisted(() => ({ openLiveTarget: vi.fn() }));
-vi.mock("../SplitWorkspaceContext.js", () => ({
+vi.mock("../split/SplitWorkspaceContext.js", () => ({
   useOptionalSplitWorkspace: () => ({ openLiveTarget }),
 }));
 

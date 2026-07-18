@@ -6,7 +6,7 @@ import {
   setCollapsedGroups,
   pruneStaleCollapsedGroups,
   removeLegacyHiddenSessions,
-} from "../session-filter-storage.js";
+} from "../session/session-filter-storage.js";
 
 // Node 25's built-in localStorage overrides jsdom's and lacks standard methods.
 // Mock window.localStorage with a simple Map-based implementation.

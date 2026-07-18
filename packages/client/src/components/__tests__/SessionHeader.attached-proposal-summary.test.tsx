@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
 import React from "react";
-import { createInitialState } from "../../lib/event-reducer.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
 import type { DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeSession(overrides?: Partial<DashboardSession>): DashboardSession {
@@ -48,7 +48,7 @@ describe("SessionHeader attached-proposal summary — desktop", () => {
 
   async function loadDesktop() {
     vi.doMock("../../hooks/useMobile.js", () => ({ useMobile: () => false }));
-    const mod = await import("../SessionHeader.js");
+    const mod = await import("../session/SessionHeader.js");
     return mod.SessionHeader;
   }
 
@@ -140,7 +140,7 @@ describe("SessionHeader attached-proposal summary — mobile", () => {
 
   async function loadMobile() {
     vi.doMock("../../hooks/useMobile.js", () => ({ useMobile: () => true }));
-    const mod = await import("../SessionHeader.js");
+    const mod = await import("../session/SessionHeader.js");
     return mod.SessionHeader;
   }
 

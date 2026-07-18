@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SplitWorkspace } from "../SplitWorkspace.js";
+import { SplitWorkspace } from "../split/SplitWorkspace.js";
 
 afterEach(() => cleanup());
 

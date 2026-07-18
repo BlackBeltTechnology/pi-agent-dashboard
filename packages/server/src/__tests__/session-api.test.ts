@@ -9,7 +9,7 @@ let piPort: number;
 let server: DashboardServer;
 
 // Mock spawnPiSession to avoid actually spawning processes
-vi.mock("../process-manager.js", async (importOriginal) => {
+vi.mock("../spawn-process/process-manager.js", async (importOriginal) => {
   const orig: any = await importOriginal();
   return {
     ...orig,

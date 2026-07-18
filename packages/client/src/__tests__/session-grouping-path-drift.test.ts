@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { groupSessionsByDirectory, inferPlatform } from "../lib/session-grouping.js";
+import { groupSessionsByDirectory, inferPlatform } from "../lib/session/session-grouping.js";
 
 function mk(id: string, cwd: string, startedAt = 1): DashboardSession {
   return {

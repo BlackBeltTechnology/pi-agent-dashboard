@@ -13,9 +13,9 @@ import { pathToFileURL } from "node:url";
 import { getDefaultRegistry, ModuleResolutionError } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { InternalRegistry, type PiAiModule, type CustomProviderEntry, type CustomModelEntry } from "./internal-registry.js";
 import { InternalAuthStorage, type PiAiOAuthModule } from "./internal-auth-storage.js";
-import { readAuthJson } from "../provider-auth-storage.js";
+import { readAuthJson } from "../auth/provider-auth-storage.js";
 import { discoverAllCustomProviders } from "./custom-provider-discovery.js";
-import { resolveProbeApiKey, readProvidersFromDisk } from "../provider-probe.js";
+import { resolveProbeApiKey, readProvidersFromDisk } from "../package/provider-probe.js";
 
 let cachedRegistry: InternalRegistry | null = null;
 let cachedPiAi: PiAiModule | null = null;

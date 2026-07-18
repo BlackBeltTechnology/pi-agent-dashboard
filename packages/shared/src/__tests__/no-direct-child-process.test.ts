@@ -35,7 +35,7 @@ const ALLOWLIST: readonly string[] = [
   // its transitive deps may be the very things that are missing. The
   // file's own header explicitly mandates: "Keep it dependency-free."
   // See change: add-startup-recovery-server (commit e606e8b0).
-  "packages/server/src/recovery-server.ts",
+  "packages/server/src/lifecycle/recovery-server.ts",
 ];
 
 /**

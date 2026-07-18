@@ -9,7 +9,7 @@
  * pptx) degrades to `FallbackPreview` (download). See change: render-pptx-preview.
  */
 import React, { lazy, Suspense, useState } from "react";
-import { t as i18nT } from "../../lib/i18n";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { FallbackPreview } from "./FallbackPreview.js";
 import { renderedPdfUrl, renderUrl } from "./raw-url.js";
 

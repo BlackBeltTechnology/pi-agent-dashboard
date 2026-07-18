@@ -3,7 +3,7 @@
  * See change: fix-windows-server-parity.
  */
 import { describe, it, expect } from "vitest";
-import { buildOrchestratorScript } from "../restart-helper.js";
+import { buildOrchestratorScript } from "../spawn-process/restart-helper.js";
 
 describe("buildOrchestratorScript", () => {
   const baseParams = {

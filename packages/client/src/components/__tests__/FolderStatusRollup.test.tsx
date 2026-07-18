@@ -1,7 +1,7 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { FolderStatusRollup } from "../FolderStatusRollup.js";
+import { FolderStatusRollup } from "../folder/FolderStatusRollup.js";
 
 function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSession {
   return {

@@ -4,8 +4,8 @@
  * turnFileDeltas attribution (running turn incl. the in-progress unstamped turn).
  */
 import { describe, it, expect } from "vitest";
-import { editDelta, toolCallDelta, turnFileDeltas, buildTurnSummaries } from "../lineDelta.js";
-import type { ChatMessage } from "../event-reducer.js";
+import { editDelta, toolCallDelta, turnFileDeltas, buildTurnSummaries } from "../util/lineDelta.js";
+import type { ChatMessage } from "../chat/event-reducer.js";
 
 function tool(
   toolName: string,

@@ -1,5 +1,5 @@
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { ChatImage, SessionState } from "../../lib/event-reducer.js";
+import type { ChatImage, SessionState } from "../../lib/chat/event-reducer.js";
 
 /** Context passed to every tool renderer */
 export interface ToolContext {

@@ -4,7 +4,7 @@ import {
   resolveProbeApiKey,
   probeProvider,
   type ProbeInput,
-} from "../provider-probe.js";
+} from "../package/provider-probe.js";
 
 describe("buildProbeRequest", () => {
   it("openai-completions: GET {baseUrl}/models with Authorization: Bearer", () => {

@@ -8,8 +8,8 @@
 import React from "react";
 import { describe, it, expect, afterEach } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
-import { I18nProvider, useI18n, registerPluginCatalog } from "../lib/i18n";
-import { resolveServerMessage } from "../lib/server-error";
+import { I18nProvider, useI18n, registerPluginCatalog } from "../lib/i18n/i18n.js";
+import { resolveServerMessage } from "../lib/api/server-error.js";
 
 afterEach(cleanup);
 

@@ -26,7 +26,7 @@ import {
   reduceEvent,
   type SessionState,
   synthesizeSupersededEnd,
-} from "../lib/event-reducer.js";
+} from "../lib/chat/event-reducer.js";
 
 /**
  * A running tool row is considered stale (candidate for reconcile) once it

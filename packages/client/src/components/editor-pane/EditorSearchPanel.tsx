@@ -16,8 +16,8 @@ import type { FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.
 import { mdiClose, mdiMagnify, mdiRegex } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { GrepMatch } from "../../lib/grep-api.js";
-import { useI18n } from "../../lib/i18n";
+import type { GrepMatch } from "../../lib/api/grep-api.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 
 interface EditorSearchPanelProps {
   cwd: string;

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
-import { SpecsBrowserView } from "../SpecsBrowserView.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { SpecsBrowserView } from "../openspec/SpecsBrowserView.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 function Wrapper({ children }: { children: React.ReactNode }) {
   return <ThemeProvider>{children}</ThemeProvider>;

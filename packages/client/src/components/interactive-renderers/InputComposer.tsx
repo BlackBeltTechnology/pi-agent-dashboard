@@ -1,7 +1,7 @@
 import React, { useRef } from "react";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useImagePaste } from "../../hooks/useImagePaste.js";
-import { ImagePreviewStrip } from "../ImagePreviewStrip.js";
+import { ImagePreviewStrip } from "../preview/ImagePreviewStrip.js";
 
 /**
  * InputComposer — shared multiline textarea + clipboard-image-paste body used

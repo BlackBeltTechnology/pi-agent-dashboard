@@ -23,7 +23,7 @@ const read = (rel: string) => fs.readFileSync(path.join(REPO_ROOT, rel), "utf8")
 
 function collectReceivers(): Set<string> {
   const recv = new Set<string>();
-  const gw = read("packages/server/src/browser-gateway.ts");
+  const gw = read("packages/server/src/pairing/browser-gateway.ts");
   const dh = read("packages/server/src/browser-handlers/directory-handler.ts");
   const srv = read("packages/server/src/server.ts");
   for (const m of `${gw}${dh}`.matchAll(/case\s+"([a-zA-Z_]+)"/g)) recv.add(m[1]);

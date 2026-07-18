@@ -4,7 +4,7 @@
  *
  * See change: add-internal-monaco-editor-pane, remove-external-editor-integration.
  */
-import { useI18n } from "../../lib/i18n";
+import { useI18n } from "../../lib/i18n/i18n.js";
 import type { ViewerProps } from "./types.js";
 
 export default function BinaryWarn({ path }: ViewerProps) {

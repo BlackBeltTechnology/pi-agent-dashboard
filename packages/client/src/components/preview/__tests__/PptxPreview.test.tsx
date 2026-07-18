@@ -10,7 +10,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../lib/api-context.js", () => ({ getApiBase: () => "" }));
+vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 // Stub the lazily-loaded PdfPreview so the test never pulls in pdfjs; it echoes
 // the srcUrl it was mounted against.
 vi.mock("../PdfPreview.js", () => ({

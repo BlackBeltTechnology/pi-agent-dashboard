@@ -10,9 +10,9 @@
  * so youtube embeds and other URL kinds render identically here.
  */
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { t as i18nT } from "../../lib/i18n";
-import { dispatchPreview } from "../../lib/preview-dispatch.js";
-import { PreviewBody } from "../PreviewCard.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { dispatchPreview } from "../../lib/preview/preview-dispatch.js";
+import { PreviewBody } from "../preview/PreviewCard.js";
 import type { ViewerProps } from "./types.js";
 
 /** Parse a `url:<url>` sentinel path into a URL ViewTarget; null when malformed. */

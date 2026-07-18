@@ -9,12 +9,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { WorktreeInitStatus } from "../../lib/git-api.js";
-import { FolderActionBar } from "../FolderActionBar.js";
+import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
+import { FolderActionBar } from "../folder/FolderActionBar.js";
 
 const { fetchWorktreeInitStatus } = vi.hoisted(() => ({ fetchWorktreeInitStatus: vi.fn() }));
-vi.mock("../../lib/git-api.js", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/git-api.js")>("../../lib/git-api.js");
+vi.mock("../../lib/git/git-api.js", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/git/git-api.js")>("../../lib/git/git-api.js");
   return { ...actual, fetchWorktreeInitStatus };
 });
 

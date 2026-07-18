@@ -8,9 +8,9 @@
  * "No changes for this file". See change: fix-session-diff-open-nongit-and-preview.
  */
 import { describe, it, expect } from "vitest";
-import type { ChatMessage } from "../event-reducer.js";
-import { buildTurnSummaries } from "../lineDelta.js";
-import { normalizeUnderCwd } from "../normalize-path.js";
+import type { ChatMessage } from "../chat/event-reducer.js";
+import { buildTurnSummaries } from "../util/lineDelta.js";
+import { normalizeUnderCwd } from "../util/normalize-path.js";
 
 const CWD = "/Users/me/proj";
 /** The relative-posix key the server's `normalizePath` would emit for this file. */

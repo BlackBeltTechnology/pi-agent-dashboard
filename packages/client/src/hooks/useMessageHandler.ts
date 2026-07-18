@@ -12,19 +12,19 @@ import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/dis
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { CommandInfo, DashboardSession, FileEntry, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback, useEffect, useRef } from "react";
-import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
-import type { ToastVariant } from "../components/Toast.js";
-import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas-gate.js";
-import { foldLiveEvents, type QueuedLiveEvent } from "../lib/coalesce-live-events.js";
-import { isVisibleCwd } from "../lib/cwd-visibility.js";
-import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/event-reducer.js";
-import { t } from "../lib/i18n";
-import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/loading-history.js";
-import { clearRecoveryOffer, setRecoveryOffer } from "../lib/recovery-offer-bus.js";
-import type { ReplayPersister } from "../lib/replay-persist.js";
-import { inferPlatform, pathKey } from "../lib/session-grouping.js";
-import { pushSpawnErrorToast } from "../lib/spawn-error-toast-bus.js";
-import { dispatchInitEvent } from "../lib/worktree-init-bus.js";
+import type { DiscoveredServerInfo } from "../components/connectivity/ServerSelector.js";
+import type { ToastVariant } from "../components/primitives/Toast.js";
+import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
+import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
+import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
+import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
+import { t } from "../lib/i18n/i18n.js";
+import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
+import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
+import type { ReplayPersister } from "../lib/replay/replay-persist.js";
+import { inferPlatform, pathKey } from "../lib/session/session-grouping.js";
+import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
+import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 
 /**
  * Rich spawn error detail stored per cwd.
@@ -99,7 +99,7 @@ export interface MessageHandlerSetters {
    * rendered chat by timestamp at the App level.
    * See change: render-file-previews.
    */
-  setViewMessagesMap: React.Dispatch<React.SetStateAction<Map<string, import("../lib/event-reducer.js").ChatMessage[]>>>;
+  setViewMessagesMap: React.Dispatch<React.SetStateAction<Map<string, import("../lib/chat/event-reducer.js").ChatMessage[]>>>;
   /**
    * Per-session "history loading" flag. Cleared on the first content batch,
    * the terminal `event_replay{isLast:true}`, or `session_updated{dataUnavailable:true}`.
@@ -111,7 +111,7 @@ export interface MessageHandlerSetters {
    * `canvas_server_chip` broadcasts. Coexists with the URL-driven preview
    * routes. See change: auto-canvas (Section 6).
    */
-  setCanvasMap: React.Dispatch<React.SetStateAction<Map<string, import("../lib/canvas-gate.js").CanvasState>>>;
+  setCanvasMap: React.Dispatch<React.SetStateAction<Map<string, import("../lib/canvas/canvas-gate.js").CanvasState>>>;
 }
 
 export interface MessageHandlerDeps {

@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
-import { BranchSwitchDialog } from "../BranchSwitchDialog.js";
+import { BranchSwitchDialog } from "../worktree/BranchSwitchDialog.js";
 
 const mockFetchBranches = vi.fn();
 const mockCheckoutBranch = vi.fn();
 const mockStashPop = vi.fn();
 
-vi.mock("../../lib/git-api.js", () => ({
+vi.mock("../../lib/git/git-api.js", () => ({
   fetchBranches: (...args: any[]) => mockFetchBranches(...args),
   checkoutBranch: (...args: any[]) => mockCheckoutBranch(...args),
   stashPop: (...args: any[]) => mockStashPop(...args),

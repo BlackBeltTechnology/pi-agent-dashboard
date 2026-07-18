@@ -11,9 +11,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
-import type { OpenSpecChangeWatcher } from "../openspec-change-watcher.js";
-import type { PreferencesStore } from "../preferences-store.js";
-import type { SessionManager } from "../memory-session-manager.js";
+import type { OpenSpecChangeWatcher } from "../openspec/openspec-change-watcher.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 // Mock the shared openspec poller — we want to count CLI spawns.
@@ -29,7 +29,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (i
   };
 });
 
-vi.mock("../pi-resource-scanner.js", () => ({
+vi.mock("../pi/pi-resource-scanner.js", () => ({
   scanPiResources: vi.fn(async () => ({ local: { extensions: [], skills: [], prompts: [] }, global: { extensions: [], skills: [], prompts: [] }, packages: [] })),
 }));
 
@@ -37,7 +37,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/state-replay.js", () => ({
   replayEntriesAsEvents: vi.fn(() => []),
 }));
 
-vi.mock("../session-discovery.js", () => ({
+vi.mock("../session/session-discovery.js", () => ({
   discoverSessionsForCwd: vi.fn(() => []),
 }));
 

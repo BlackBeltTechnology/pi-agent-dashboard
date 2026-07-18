@@ -16,11 +16,11 @@ import { join } from "node:path";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveMainPath } from "../git-operations.js";
+import { resolveMainPath } from "../git-worktree/git-operations.js";
 import { registerGitRoutes } from "../routes/git-routes.js";
-import { hookDefHash, type WorktreeInitHook } from "../worktree-init.js";
-import { createWorktreeInitRegistry } from "../worktree-init-registry.js";
-import { recordTrust } from "../worktree-init-trust.js";
+import { hookDefHash, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
+import { createWorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
+import { recordTrust } from "../git-worktree/worktree-init-trust.js";
 
 function git(cmd: string, cwd: string) {
   execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"] });

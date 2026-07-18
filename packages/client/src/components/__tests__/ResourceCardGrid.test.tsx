@@ -6,7 +6,7 @@
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ResourceCardGrid } from "../ResourceCardGrid.js";
+import { ResourceCardGrid } from "../resource/ResourceCardGrid.js";
 
 afterEach(() => cleanup());
 

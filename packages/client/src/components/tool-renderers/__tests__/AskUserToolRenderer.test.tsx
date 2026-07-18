@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, beforeAll, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
 import { AskUserToolRenderer } from "../AskUserToolRenderer.js";
-import { ThemeProvider } from "../../ThemeProvider.js";
+import { ThemeProvider } from "../../settings/ThemeProvider.js";
 import type { ToolContext } from "../types.js";
 
 afterEach(cleanup);

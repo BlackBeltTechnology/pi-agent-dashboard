@@ -2,10 +2,10 @@ import { mdiEyeOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useLocation } from "wouter";
-import { useI18n } from "../../lib/i18n";
-import { buildEditorUrl } from "../../lib/route-builders.js";
-import { FilePreviewOverlay } from "../FilePreviewOverlay.js";
-import { useOptionalSplitWorkspace } from "../SplitWorkspaceContext.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
+import { buildEditorUrl } from "../../lib/nav/route-builders.js";
+import { FilePreviewOverlay } from "../preview/FilePreviewOverlay.js";
+import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import type { ToolContext } from "./types.js";
 import { useFileOpenRouting } from "./useFileOpenRouting.js";
 

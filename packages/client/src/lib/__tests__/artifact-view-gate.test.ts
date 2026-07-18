@@ -2,7 +2,7 @@ import { cleanup, render } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MobileProvider, useMobile } from "../../hooks/useMobile.js";
-import { type ArtifactRef, openArtifactForViewport } from "../artifact-view-gate.js";
+import { type ArtifactRef, openArtifactForViewport } from "../util/artifact-view-gate.js";
 
 afterEach(() => {
   cleanup();

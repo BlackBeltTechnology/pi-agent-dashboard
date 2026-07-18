@@ -10,7 +10,7 @@ import {
   isNewerPackageVersion,
   getPiUserAgent,
   getLatestPiRelease,
-} from "../pi-dev-version-check.js";
+} from "../pi/pi-dev-version-check.js";
 
 describe("parsePackageVersion", () => {
   it("parses plain semver", () => {

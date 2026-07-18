@@ -9,7 +9,7 @@ import {
   NotFoundError,
   LineMismatchError,
   NotACheckboxError,
-} from "../openspec-tasks.js";
+} from "../openspec/openspec-tasks.js";
 
 describe("parseTasksMarkdown", () => {
   it("parses ticked + unticked mix and tracks groups", () => {

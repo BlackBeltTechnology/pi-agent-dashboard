@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { createInitialState, reduceEvent, type SessionState } from "../event-reducer.js";
+import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {

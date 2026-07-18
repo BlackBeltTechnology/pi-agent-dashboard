@@ -18,7 +18,7 @@ import type { DashboardSession, DecoratorDescriptor } from "@blackbelt-technolog
 import { mdiAlertCircle, mdiCheckCircle, mdiCloseCircle, mdiInformation } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useMemo, useState } from "react";
-import { t as i18nT } from "../../lib/i18n";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 const DISPLAY_CAP = 5;
 const DEFAULT_DURATION_MS = 5000;

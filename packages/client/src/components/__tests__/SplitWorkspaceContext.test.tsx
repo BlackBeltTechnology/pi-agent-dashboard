@@ -5,7 +5,7 @@ import {
   SplitWorkspaceProvider,
   useOptionalSplitWorkspace,
   useSplitWorkspace,
-} from "../SplitWorkspaceContext.js";
+} from "../split/SplitWorkspaceContext.js";
 
 function wrapper(sessionId = "s1", cwd = "/proj") {
   return ({ children }: { children: React.ReactNode }) => (

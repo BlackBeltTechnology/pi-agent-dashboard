@@ -3,8 +3,8 @@ import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleSubscribe, replaySessionAssets } from "../browser-handlers/subscription-handler.js";
-import { createMemoryEventStore } from "../memory-event-store.js";
-import { createMemorySessionManager } from "../memory-session-manager.js";
+import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
 function makeEvent(type: string = "test"): DashboardEvent {
   return { eventType: type, timestamp: Date.now(), data: {} };

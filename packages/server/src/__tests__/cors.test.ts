@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCorsOriginAllowed } from "../cors-origin.js";
+import { isCorsOriginAllowed } from "../auth/cors-origin.js";
 
 /**
  * Tests the REAL CORS origin decision (`cors-origin.ts`), imported directly —

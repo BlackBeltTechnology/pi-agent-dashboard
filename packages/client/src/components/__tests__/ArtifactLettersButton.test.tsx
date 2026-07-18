@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-import { ArtifactLettersButton } from "../openspec-helpers.js";
+import { ArtifactLettersButton } from "../openspec/openspec-helpers.js";
 import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());

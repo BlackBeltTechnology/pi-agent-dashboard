@@ -2,9 +2,9 @@
  * Integration tests for session ordering flows.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createPendingForkRegistry } from "../pending-fork-registry.js";
-import type { PreferencesStore } from "../preferences-store.js";
-import { createSessionOrderManager } from "../session-order-manager.js";
+import { createPendingForkRegistry } from "../pending/pending-fork-registry.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import { createSessionOrderManager } from "../session/session-order-manager.js";
 
 function createMockPreferencesStore(): PreferencesStore {
   let order: Record<string, string[]> = {};

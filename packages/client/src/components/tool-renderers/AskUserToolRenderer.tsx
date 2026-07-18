@@ -1,8 +1,8 @@
 import { mdiAlertCircle, mdiCheckboxMarkedOutline, mdiCheckCircle, mdiCommentQuestion, mdiFormatListBulleted, mdiFormTextbox, mdiRadioboxMarked, mdiViewListOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { t as i18nT } from "../../lib/i18n";
-import { MarkdownContent } from "../MarkdownContent.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import type { ToolRendererProps } from "./types.js";
 
 const methodIcons: Record<string, string> = {

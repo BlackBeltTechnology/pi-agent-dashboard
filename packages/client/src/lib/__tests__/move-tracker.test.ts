@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { moveTracker } from "../move-tracker.js";
+import { moveTracker } from "../nav/move-tracker.js";
 
 function dispatchPackageEvent(detail: any) {
 	window.dispatchEvent(new CustomEvent("pi-package-event", { detail }));

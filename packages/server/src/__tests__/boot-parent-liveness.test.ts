@@ -24,24 +24,24 @@ describe("computeBootParentAlive (Tier 1)", () => {
 
   it("returns true when isProcessAlive(bootParentPid) is true", async () => {
     isProcessAlive.mockReturnValue(true);
-    const { computeBootParentAlive } = await import("../boot-parent-liveness.js");
+    const { computeBootParentAlive } = await import("../lifecycle/boot-parent-liveness.js");
     expect(computeBootParentAlive()).toBe(true);
   });
 
   it("returns false when isProcessAlive(bootParentPid) is false", async () => {
     isProcessAlive.mockReturnValue(false);
-    const { computeBootParentAlive } = await import("../boot-parent-liveness.js");
+    const { computeBootParentAlive } = await import("../lifecycle/boot-parent-liveness.js");
     expect(computeBootParentAlive()).toBe(false);
   });
 
   it("does not throw and returns a boolean", async () => {
     isProcessAlive.mockReturnValue(true);
-    const { computeBootParentAlive } = await import("../boot-parent-liveness.js");
+    const { computeBootParentAlive } = await import("../lifecycle/boot-parent-liveness.js");
     expect(typeof computeBootParentAlive()).toBe("boolean");
   });
 
   it("bootParentPid is a number and readLivePpid returns a number", async () => {
-    const mod = await import("../boot-parent-liveness.js");
+    const mod = await import("../lifecycle/boot-parent-liveness.js");
     expect(typeof mod.bootParentPid).toBe("number");
     expect(typeof mod.readLivePpid()).toBe("number");
   });

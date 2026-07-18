@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isLoopback, isBypassedHost, matchCidr, ipToNum, createNetworkGuard, netmaskToCidrBits, networkAddress } from "../localhost-guard.js";
+import { isLoopback, isBypassedHost, matchCidr, ipToNum, createNetworkGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
 
 describe("isLoopback", () => {
   it("should match loopback addresses", () => {

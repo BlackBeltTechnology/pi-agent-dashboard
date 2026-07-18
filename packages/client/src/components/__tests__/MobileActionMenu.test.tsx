@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-import { MobileActionMenu } from "../MobileActionMenu.js";
+import { MobileActionMenu } from "../shell/MobileActionMenu.js";
 import type { DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());

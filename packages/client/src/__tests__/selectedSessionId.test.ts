@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveSelectedSessionId } from "../lib/selectedSessionId.js";
+import { deriveSelectedSessionId } from "../lib/session/selectedSessionId.js";
 
 // Regression coverage for fix-changed-files-desktop-route.
 //

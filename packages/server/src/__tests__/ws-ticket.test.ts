@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractTicket, routeScopeForUrl, WsTicketStore } from "../ws-ticket.js";
+import { extractTicket, routeScopeForUrl, WsTicketStore } from "../auth/ws-ticket.js";
 
 describe("routeScopeForUrl", () => {
   it("maps WS routes to scopes and rejects unknowns", () => {

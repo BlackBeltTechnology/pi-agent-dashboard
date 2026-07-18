@@ -5,10 +5,10 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import type { EventStore } from "../memory-event-store.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import { buildSessionDiff } from "../session-diff.js";
-import { findSessionToolCallPayload } from "../session-file-reader.js";
+import type { EventStore } from "../persistence/memory-event-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import { buildSessionDiff } from "../session/session-diff.js";
+import { findSessionToolCallPayload } from "../session/session-file-reader.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export function registerSessionRoutes(

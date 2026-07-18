@@ -19,7 +19,7 @@ import {
   reduceCanvasChip,
   reduceCanvasIntent,
   sameTarget,
-} from "../canvas-gate.js";
+} from "../canvas/canvas-gate.js";
 
 const fileA: ViewTarget = { kind: "file", cwd: "/repo", path: "report.md" };
 const fileB: ViewTarget = { kind: "file", cwd: "/repo", path: "other.md" };

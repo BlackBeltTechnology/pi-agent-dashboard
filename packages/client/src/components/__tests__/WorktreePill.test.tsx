@@ -13,7 +13,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import React from "react";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { GitInfo, SessionCard, WorktreePill } from "../SessionCard.js";
+import { GitInfo, SessionCard, WorktreePill } from "../session/SessionCard.js";
 
 vi.mock("../../hooks/useMobile.js", () => ({
   useMobile: vi.fn(() => false),

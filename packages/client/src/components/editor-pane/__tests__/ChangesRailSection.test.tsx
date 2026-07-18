@@ -13,7 +13,7 @@ vi.mock("../../../hooks/useSessionDiff.js", () => ({
   useSessionDiff: () => ({ data: h.diff, isLoading: false, error: null, refresh: () => {} }),
 }));
 
-import { SessionDiffProvider } from "../../SessionDiffContext.js";
+import { SessionDiffProvider } from "../../diff/SessionDiffContext.js";
 import { ChangesRailSection } from "../ChangesRailSection.js";
 
 afterEach(cleanup);

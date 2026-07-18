@@ -4,7 +4,7 @@ import {
 	AlreadyAtDestinationError,
 	InvalidMoveRequestError,
 	UnsupportedSourceForDestinationError,
-} from "../package-manager-wrapper.js";
+} from "../package/package-manager-wrapper.js";
 import {
 	ToolRegistry,
 	OverridesStore,

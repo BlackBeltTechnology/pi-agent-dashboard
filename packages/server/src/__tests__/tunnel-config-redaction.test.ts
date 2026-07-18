@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
-import { PairedDeviceRegistry } from "../paired-devices.js";
-import { PairingManager } from "../pairing.js";
-import { collectEndpoints, toReachableUrlStrings } from "../tunnel-endpoints.js";
+import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { PairingManager } from "../pairing/pairing.js";
+import { collectEndpoints, toReachableUrlStrings } from "../tunnel/tunnel-endpoints.js";
 
 function configFile(): string {
   return path.join(os.homedir(), ".pi", "dashboard", "config.json");

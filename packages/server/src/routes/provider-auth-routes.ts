@@ -10,7 +10,7 @@ import {
   type AuthCodeHandler,
   type DeviceCodeHandler,
   type PKCEPair,
-} from "../provider-auth-handlers.js";
+} from "../auth/provider-auth-handlers.js";
 import {
   writeCredential,
   removeCredential,
@@ -18,11 +18,11 @@ import {
   getOAuthProvidersMeta,
   resolveAuthJsonKey,
   type ApiKeyCredential,
-} from "../provider-auth-storage.js";
-import { getLatestCatalogue } from "../provider-catalogue-cache.js";
-import { startCallbackServer } from "../oauth-callback-server.js";
-import type { PiGateway } from "../pi-gateway.js";
-import type { BrowserGateway } from "../browser-gateway.js";
+} from "../auth/provider-auth-storage.js";
+import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
+import { startCallbackServer } from "../auth/oauth-callback-server.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
 
 // ── In-memory flow store (short-lived PKCE + device code state) ──────────────

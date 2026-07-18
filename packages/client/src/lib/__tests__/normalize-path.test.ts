@@ -4,7 +4,7 @@
  * Pins the abs↔rel rule agreement with the server's `normalizePath`.
  */
 import { describe, expect, it } from "vitest";
-import { isOutOfCwd, normalizeUnderCwd } from "../normalize-path.js";
+import { isOutOfCwd, normalizeUnderCwd } from "../util/normalize-path.js";
 
 describe("normalizeUnderCwd", () => {
   const cwd = "/Users/me/proj";

@@ -8,9 +8,9 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import React from "react";
-import { ChatView } from "../ChatView.js";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { createInitialState, type ChatMessage } from "../../lib/event-reducer.js";
+import { ChatView } from "../chat/ChatView.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { createInitialState, type ChatMessage } from "../../lib/chat/event-reducer.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 afterEach(() => cleanup());

@@ -1,5 +1,5 @@
 import { useCallback, useContext, useState } from "react";
-import { FilePreviewContext, type FilePreviewTarget } from "../FilePreviewContext.js";
+import { FilePreviewContext, type FilePreviewTarget } from "../preview/FilePreviewContext.js";
 import type { ToolContext } from "./types.js";
 
 export interface FileOpenRouting {

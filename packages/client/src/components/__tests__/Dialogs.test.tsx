@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
-import { ExploreDialog } from "../ExploreDialog.js";
+import { ExploreDialog } from "../openspec/ExploreDialog.js";
 
 afterEach(() => cleanup());
 

@@ -4,8 +4,8 @@ import { DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { ToolCallStep } from "../ToolCallStep.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { ToolCallStep } from "../chat/ToolCallStep.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 const defaultContext: ToolContext = {};
@@ -20,7 +20,7 @@ vi.mock("../../hooks/useMobile.js", () => ({
 }));
 
 // Mock RichDiff with a stable testid so the lazy-mount tests can query it.
-vi.mock("../RichDiff.js", () => ({
+vi.mock("../diff/RichDiff.js", () => ({
   RichDiff: () => <div data-testid="rich-diff" />,
 }));
 

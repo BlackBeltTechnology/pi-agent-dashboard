@@ -5,8 +5,8 @@
  */
 import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { WhatsNewDialog, type WhatsNewDialogProps } from "../WhatsNewDialog.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { WhatsNewDialog, type WhatsNewDialogProps } from "../packages/WhatsNewDialog.js";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {

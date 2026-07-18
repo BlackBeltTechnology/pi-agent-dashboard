@@ -5,8 +5,8 @@
 import { mdiLanguageTypescript } from "@mdi/js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TurnSummary } from "../../lib/lineDelta.js";
-import { ChangeSummaryBlock } from "../ChangeSummaryBlock.js";
+import type { TurnSummary } from "../../lib/util/lineDelta.js";
+import { ChangeSummaryBlock } from "../diff/ChangeSummaryBlock.js";
 
 afterEach(cleanup);
 

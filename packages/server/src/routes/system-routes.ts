@@ -20,32 +20,32 @@ import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/
 import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import { bootParentPid, computeBootParentAlive, readLivePpid } from "../boot-parent-liveness.js";
+import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
 import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
-import type { EventLoopSpikeMetrics } from "../eventloop-spike-metrics.js";
-import type { HydrationMetrics } from "../hydration-metrics.js";
-import { computeEffectiveLaunchSource } from "../launch-source-effective.js";
-import { localhostGuard, netmaskToCidrBits, networkAddress } from "../localhost-guard.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { MetaPersistence } from "../meta-persistence.js";
+import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
+import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
+import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
+import { localhostGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { MetaPersistence } from "../persistence/meta-persistence.js";
 import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
-import type { PiGateway } from "../pi-gateway.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
 import {
   type BootstrapCompatibility,
   computeCompatibility,
   readCurrentPiVersion,
   readPiCompatibility,
-} from "../pi-version-skew.js";
-import type { PreferencesStore } from "../preferences-store.js";
-import { spawnRestart } from "../restart-helper.js";
+} from "../pi/pi-version-skew.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import { spawnRestart } from "../spawn-process/restart-helper.js";
 import type { ServerConfig } from "../server.js";
-import { readSpawnFailures } from "../spawn-failure-log.js";
-import { createTunnel, deleteTunnel, getTunnelStatus, getTunnelUrl } from "../tunnel.js";
-import { blockEvents } from "../tunnel-block-events.js";
-import { collectEndpoints } from "../tunnel-endpoints.js";
-import { runEnrollStep } from "../tunnel-enroll.js";
-import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel-watchdog.js";
+import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
+import { createTunnel, deleteTunnel, getTunnelStatus, getTunnelUrl } from "../tunnel/tunnel.js";
+import { blockEvents } from "../tunnel/tunnel-block-events.js";
+import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
+import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
+import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /**

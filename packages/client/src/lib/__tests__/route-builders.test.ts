@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeFolderPath, encodeFolderPath } from "../folder-encoding.js";
+import { decodeFolderPath, encodeFolderPath } from "../util/folder-encoding.js";
 import {
   buildEditorUrl,
   buildFolderSettingsUrl,
@@ -9,7 +9,7 @@ import {
   buildPiResourceFileUrl,
   buildPiResourcesUrl,
   buildSessionDiffUrl,
-} from "../route-builders.js";
+} from "../nav/route-builders.js";
 
 describe("route-builders", () => {
   describe("buildOpenSpecPreviewUrl", () => {

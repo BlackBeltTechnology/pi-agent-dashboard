@@ -20,12 +20,12 @@ import {
 import {
   deriveAndSerialize,
   type PollWorkerRequest,
-} from "../openspec-poll-worker.js";
-import { createOpenSpecPollWorkerPool } from "../openspec-poll-worker-pool.js";
+} from "../openspec/openspec-poll-worker.js";
+import { createOpenSpecPollWorkerPool } from "../openspec/openspec-poll-worker-pool.js";
 import {
   effectiveMtimeOr,
   perChangeArtifactPaths,
-} from "../openspec-poll-fs-helpers.js";
+} from "../openspec/openspec-poll-fs-helpers.js";
 
 function mkFixture(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "openspec-poll-worker-"));

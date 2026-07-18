@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseFrontmatter, resolvePackages, scanGlobalResources, scanLocalResources, scanPiResources } from "../pi-resource-scanner.js";
+import { parseFrontmatter, resolvePackages, scanGlobalResources, scanLocalResources, scanPiResources } from "../pi/pi-resource-scanner.js";
 
 let tmpDir: string;
 

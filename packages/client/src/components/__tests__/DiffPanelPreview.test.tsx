@@ -43,7 +43,7 @@ vi.mock("@git-diff-view/lowlight", () => ({ highlighter: {} }));
 
 // RichDiff renders the change-derived (Path A/C) diff; probe it so we can tell
 // "diff view" apart from "file view".
-vi.mock("../RichDiff.js", () => ({
+vi.mock("../diff/RichDiff.js", () => ({
   // Expose newText so tests can prove which content the diff rendered.
   RichDiff: (props: { newText?: string }) => (
     <div data-testid="rich-diff" data-newtext={props.newText ?? ""} />
@@ -51,7 +51,7 @@ vi.mock("../RichDiff.js", () => ({
   getLang: () => "typescript",
 }));
 
-vi.mock("../ThemeProvider.js", async () => {
+vi.mock("../settings/ThemeProvider.js", async () => {
   const actual = await import("react");
   const ThemeContext = actual.createContext<{ resolved: "light" | "dark"; themeName: string } | null>(
     null,
@@ -69,7 +69,7 @@ vi.mock("../ThemeProvider.js", async () => {
 });
 
 import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
-import { DiffPanel } from "../DiffPanel.js";
+import { DiffPanel } from "../diff/DiffPanel.js";
 
 const file: FileDiffEntry = {
   path: "src/a.ts",

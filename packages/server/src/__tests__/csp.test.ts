@@ -3,7 +3,7 @@
  */
 import Fastify from "fastify";
 import { describe, it, expect } from "vitest";
-import { buildCsp, resolveCspMode, registerCsp } from "../csp.js";
+import { buildCsp, resolveCspMode, registerCsp } from "../auth/csp.js";
 
 describe("buildCsp", () => {
   it("locks down the high-value directives", () => {

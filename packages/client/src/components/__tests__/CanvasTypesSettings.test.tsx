@@ -4,10 +4,10 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { displayedCanvasTypes } from "../../lib/canvas-types-api.js";
+import { displayedCanvasTypes } from "../../lib/canvas/canvas-types-api.js";
 import { DEFAULT_CANVAS_TYPES } from "@blackbelt-technology/pi-dashboard-shared/canvas-types.js";
 import { NON_FALLBACK_KINDS } from "@blackbelt-technology/pi-dashboard-shared/renderer-by-ext.js";
-import { CanvasTypesSettingsSection } from "../CanvasTypesSettingsSection.js";
+import { CanvasTypesSettingsSection } from "../settings/CanvasTypesSettingsSection.js";
 
 // Derive expectations from the live kind union so new preview kinds
 // (docx/spreadsheet/email …) don't break these tests.
@@ -17,7 +17,7 @@ const mockFetch = vi.fn();
 globalThis.fetch = mockFetch as unknown as typeof fetch;
 
 // The section reads getApiBase(); stub the module so it needs no window setup.
-vi.mock("../../lib/api-context.js", () => ({ getApiBase: () => "" }));
+vi.mock("../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 
 afterEach(() => {
   cleanup();

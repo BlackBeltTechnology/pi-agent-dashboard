@@ -2,8 +2,8 @@ import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/typ
 import { mdiCheckCircle, mdiFormTextbox, mdiImageMultiple } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useState } from "react";
-import { t as i18nT } from "../../lib/i18n";
-import { MarkdownContent } from "../MarkdownContent.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { InputComposer } from "./InputComposer.js";
 import type { InteractiveRendererProps } from "./types.js";

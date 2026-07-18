@@ -25,7 +25,7 @@ import {
   setResolver,
   resetResolver,
   spawnPiSession,
-} from "../process-manager.js";
+} from "../spawn-process/process-manager.js";
 import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 
 // Fake resolver returning a fixed pi argv so spawnHeadlessViaKeeper's

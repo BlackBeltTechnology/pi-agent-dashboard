@@ -9,8 +9,8 @@ import {
   RAIL_MIN,
   saveRailWidth,
   useRailWidth,
-} from "../rail-width.js";
-import { loadSplitState, saveSplitState } from "../split-state.js";
+} from "../layout/rail-width.js";
+import { loadSplitState, saveSplitState } from "../layout/split-state.js";
 
 describe("clampRailWidth", () => {
   it("passes through in range", () => {

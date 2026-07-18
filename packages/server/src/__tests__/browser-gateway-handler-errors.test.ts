@@ -9,12 +9,12 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
-import { createBrowserGateway } from "../browser-gateway.js";
-import { createMemorySessionManager } from "../memory-session-manager.js";
-import { createMemoryEventStore } from "../memory-event-store.js";
-import type { TerminalManager } from "../terminal-manager.js";
-import type { PiGateway } from "../pi-gateway.js";
-import type { SessionOrderManager } from "../session-order-manager.js";
+import { createBrowserGateway } from "../pairing/browser-gateway.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
+import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import type { TerminalManager } from "../terminal/terminal-manager.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
+import type { SessionOrderManager } from "../session/session-order-manager.js";
 
 function makeFakeWs() {
   const ws = new EventEmitter() as EventEmitter & {

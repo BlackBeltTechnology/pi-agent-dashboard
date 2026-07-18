@@ -10,7 +10,7 @@ import {
   activeSessionsUnder,
   isPathInside,
   sessionsUnder,
-} from "../active-sessions-in-cwd.js";
+} from "../session/active-sessions-in-cwd.js";
 import type { DashboardSession, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function s(id: string, cwd: string, status: SessionStatus = "active"): Pick<DashboardSession, "id" | "cwd" | "status"> {

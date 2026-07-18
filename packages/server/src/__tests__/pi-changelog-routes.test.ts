@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { registerPiChangelogRoutes } from "../routes/pi-changelog-routes.js";
-import { _resetChangelogCache } from "../changelog-parser.js";
+import { _resetChangelogCache } from "../changelog/changelog-parser.js";
 
 // We can't easily patch findChangelogPath at import-time (vitest module
 // mocks vary), so we set up a fake managed install at HOME/.pi-dashboard

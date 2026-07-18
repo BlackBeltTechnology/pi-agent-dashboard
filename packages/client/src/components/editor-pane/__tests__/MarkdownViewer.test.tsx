@@ -12,9 +12,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 
-vi.mock("../../../lib/api-context.js", () => ({ getApiBase: () => "" }));
+vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 vi.mock("../monaco-setup.js", () => ({}));
-vi.mock("../../../lib/monaco-theme.js", () => ({
+vi.mock("../../../lib/theme/monaco-theme.js", () => ({
   buildMonacoTheme: () => ({ name: "t", data: {} }),
 }));
 // Controllable Monaco editor stub → a textarea wired to onChange.
@@ -29,12 +29,12 @@ vi.mock("@monaco-editor/react", () => ({
   ),
 }));
 // Keep MarkdownContent light.
-vi.mock("../../MarkdownContent.js", () => ({
+vi.mock("../../preview/MarkdownContent.js", () => ({
   MarkdownContent: ({ content }: { content: string }) => <div data-testid="md-preview">{content}</div>,
 }));
 
 import MarkdownViewer from "../MarkdownViewer.js";
-import { ThemeProvider } from "../../ThemeProvider.js";
+import { ThemeProvider } from "../../settings/ThemeProvider.js";
 
 const originalFetch = globalThis.fetch;
 

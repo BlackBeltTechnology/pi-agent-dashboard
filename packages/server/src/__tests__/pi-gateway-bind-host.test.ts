@@ -6,8 +6,8 @@
 import os from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { createMemorySessionManager } from "../memory-session-manager.js";
-import { createPiGateway } from "../pi-gateway.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
+import { createPiGateway } from "../pi/pi-gateway.js";
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {

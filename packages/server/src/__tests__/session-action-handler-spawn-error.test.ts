@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock spawnPiSession BEFORE importing the handler.
-vi.mock("../process-manager.js", () => ({
+vi.mock("../spawn-process/process-manager.js", () => ({
   spawnPiSession: vi.fn(),
 }));
 vi.mock("../../../shared/src/config.js", () => ({
@@ -11,13 +11,13 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", () => ({
   loadConfig: () => ({ spawnStrategy: "headless" as const, spawnRegisterTimeoutMs: 30000 }),
 }));
 // Preflight always passes in these tests so spawnPiSession is always reached.
-vi.mock("../spawn-preflight.js", () => ({
+vi.mock("../spawn-process/spawn-preflight.js", () => ({
   preflightSpawn: vi.fn().mockReturnValue({ ok: true, reasons: [] }),
 }));
-vi.mock("../spawn-register-watchdog.js", () => ({
+vi.mock("../spawn-process/spawn-register-watchdog.js", () => ({
   getSpawnRegisterWatchdog: vi.fn().mockReturnValue({ arm: vi.fn() }),
 }));
-vi.mock("../spawn-failure-log.js", () => ({
+vi.mock("../spawn-process/spawn-failure-log.js", () => ({
   appendSpawnFailure: vi.fn(),
 }));
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", () => ({
@@ -27,7 +27,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", (
 }));
 
 import { handleSpawnSession } from "../browser-handlers/session-action-handler.js";
-import { spawnPiSession } from "../process-manager.js";
+import { spawnPiSession } from "../spawn-process/process-manager.js";
 
 type SentMessage = { type: string; [k: string]: unknown };
 

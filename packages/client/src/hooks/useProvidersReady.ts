@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getApiBase } from "../lib/api-context.js";
+import { getApiBase } from "../lib/api/api-context.js";
 
 export interface ProvidersReadyState {
   /** True when loading has finished at least once. */

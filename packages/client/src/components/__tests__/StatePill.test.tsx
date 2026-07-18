@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
-import { StatePill, STATE_PILL_CLASS, stateToLabel } from "../StatePill.js";
+import { StatePill, STATE_PILL_CLASS, stateToLabel } from "../session/StatePill.js";
 import { ChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());

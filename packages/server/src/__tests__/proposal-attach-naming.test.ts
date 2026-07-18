@@ -7,7 +7,7 @@ import {
   attachRenameTarget,
   detachShouldClearName,
   isNameAutoSetFromAttachment,
-} from "../proposal-attach-naming.js";
+} from "../openspec/proposal-attach-naming.js";
 
 type S = { name?: string | null; attachedProposal?: string | null };
 

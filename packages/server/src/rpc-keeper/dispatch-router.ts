@@ -20,7 +20,7 @@
  * See change: add-rpc-stdin-dispatch-with-keeper-sidecar (Phase 8).
  */
 import type { DispatchExtensionCommandMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
-import type { HeadlessPidRegistry } from "../headless-pid-registry.js";
+import type { HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
 
 export interface DispatchRouterContext {
   headlessPidRegistry: HeadlessPidRegistry;

@@ -16,11 +16,11 @@ import { fileKind, type ViewerKind } from "@blackbelt-technology/pi-dashboard-sh
 import { mdiCheck, mdiChevronDown, mdiChevronRight, mdiContentCopy, mdiFolderOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useRef, useState } from "react";
-import { getApiBase } from "../../lib/api-context.js";
-import { fileIcon } from "../../lib/file-icon.js";
-import { t as i18nT, useI18n } from "../../lib/i18n";
-import { CountBadges } from "../CountBadges.js";
-import { useOptionalSessionDiff } from "../SessionDiffContext.js";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { fileIcon } from "../../lib/preview/file-icon.js";
+import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
+import { CountBadges } from "../session/CountBadges.js";
+import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
 
 interface EditorFileTreeProps {
   cwd: string;

@@ -14,11 +14,11 @@
 
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import type { ServerIdentity } from "../identity.js";
-import { signNonce } from "../identity.js";
-import type { PairedDeviceRegistry, PairedDeviceView } from "../paired-devices.js";
-import type { PairingManager } from "../pairing.js";
-import { SUPPORTED_PAIRING_VERSIONS } from "../pairing.js";
+import type { ServerIdentity } from "../auth/identity.js";
+import { signNonce } from "../auth/identity.js";
+import type { PairedDeviceRegistry, PairedDeviceView } from "../pairing/paired-devices.js";
+import type { PairingManager } from "../pairing/pairing.js";
+import { SUPPORTED_PAIRING_VERSIONS } from "../pairing/pairing.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** URL prefixes of the PUBLIC device-facing pairing routes (auth-exempt). */

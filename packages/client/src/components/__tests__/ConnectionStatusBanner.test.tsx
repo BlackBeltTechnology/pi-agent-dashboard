@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, cleanup } from "@testing-library/react";
-import { ConnectionStatusBanner } from "../ConnectionStatusBanner.js";
+import { ConnectionStatusBanner } from "../connectivity/ConnectionStatusBanner.js";
 
 describe("ConnectionStatusBanner", () => {
   beforeEach(() => {

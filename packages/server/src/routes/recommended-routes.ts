@@ -34,8 +34,8 @@ import {
 	fetchGithubPackageJson,
 	deriveSkillIds,
 	type PackageMeta,
-} from "../npm-search-proxy.js";
-import type { PackageManagerWrapper } from "../package-manager-wrapper.js";
+} from "../package/npm-search-proxy.js";
+import type { PackageManagerWrapper } from "../package/package-manager-wrapper.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import {
 	runRequirementProbesFor,

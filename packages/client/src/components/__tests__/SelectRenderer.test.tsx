@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 import { SelectRenderer } from "../interactive-renderers/SelectRenderer.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 afterEach(cleanup);
 

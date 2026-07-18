@@ -13,7 +13,7 @@
  *
  * See change: add-agent-role-model-tools (Approach C).
  */
-import { listProviderModelIds, type ProbeApi, readProvidersFromDisk, resolveProbeApiKey } from "../provider-probe.js";
+import { listProviderModelIds, type ProbeApi, readProvidersFromDisk, resolveProbeApiKey } from "../package/provider-probe.js";
 import type { CustomModelEntry, CustomProviderEntry } from "./internal-registry.js";
 
 const KNOWN_PROBE_APIS: ReadonlySet<string> = new Set<ProbeApi>([

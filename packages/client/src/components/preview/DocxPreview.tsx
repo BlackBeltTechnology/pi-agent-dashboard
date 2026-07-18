@@ -8,7 +8,7 @@
  * See change: render-office-previews.
  */
 import React, { lazy, Suspense, useEffect, useState } from "react";
-import { t as i18nT } from "../../lib/i18n";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { FallbackPreview } from "./FallbackPreview.js";
 import { rawUrl, renderedPdfUrl, renderUrl } from "./raw-url.js";
 import { TruncationBanner } from "./TruncationBanner.js";

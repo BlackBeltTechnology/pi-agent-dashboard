@@ -11,7 +11,7 @@ import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { DirectoryHomeView } from "../DirectoryHomeView.js";
+import { DirectoryHomeView } from "../folder/DirectoryHomeView.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });

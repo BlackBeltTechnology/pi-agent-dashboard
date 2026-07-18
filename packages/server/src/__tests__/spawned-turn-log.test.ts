@@ -4,7 +4,7 @@ import {
   buildModelErrorLogLine,
   extractModelTurnError,
   redactSecrets,
-} from "../spawned-turn-log.js";
+} from "../spawn-process/spawned-turn-log.js";
 
 describe("redactSecrets", () => {
   it("redacts a bearer token", () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
-import { SessionSubcard } from "../SessionSubcard.js";
+import { SessionSubcard } from "../session/SessionSubcard.js";
 
 afterEach(() => cleanup());
 

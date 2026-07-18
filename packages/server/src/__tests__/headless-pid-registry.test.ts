@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createHeadlessPidRegistry } from "../headless-pid-registry.js";
+import { createHeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";

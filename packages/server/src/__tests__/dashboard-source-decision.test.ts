@@ -13,7 +13,7 @@
  *             (persistMeta + strictCorrelation).
  */
 import { describe, it, expect } from "vitest";
-import { decideDashboardSource } from "../dashboard-source-decision.js";
+import { decideDashboardSource } from "../lifecycle/dashboard-source-decision.js";
 
 describe("decideDashboardSource", () => {
   it("strong signal on first register → stamp, no counter consumed, persist", () => {

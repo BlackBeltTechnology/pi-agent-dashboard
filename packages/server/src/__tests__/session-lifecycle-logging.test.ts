@@ -2,8 +2,8 @@
  * Tests for session lifecycle logging in pi-gateway.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createPiGateway } from "../pi-gateway.js";
-import { createMemorySessionManager } from "../memory-session-manager.js";
+import { createPiGateway } from "../pi/pi-gateway.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { WebSocket } from "ws";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));

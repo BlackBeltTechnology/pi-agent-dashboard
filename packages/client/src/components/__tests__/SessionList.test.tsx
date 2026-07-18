@@ -4,9 +4,9 @@ import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, useLocation } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { encodeFolderPath } from "../../lib/folder-encoding.js";
-import { groupSessionsByDirectory, SessionList } from "../SessionList.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
+import { groupSessionsByDirectory, SessionList } from "../session/SessionList.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });

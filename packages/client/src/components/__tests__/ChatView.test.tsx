@@ -1,9 +1,9 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { type ChatMessage, createInitialState, type PendingPrompt } from "../../lib/event-reducer.js";
-import { ChatView } from "../ChatView.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { type ChatMessage, createInitialState, type PendingPrompt } from "../../lib/chat/event-reducer.js";
+import { ChatView } from "../chat/ChatView.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 const defaultToolContext: ToolContext = {};
@@ -441,7 +441,7 @@ describe("ChatView", () => {
     it("scrollToTurn disables sticky bottom so streaming does not pull the view away", async () => {
       const state = stateWithMessages([{ id: "1", role: "user", content: "Hello" }]);
       state.messages[0] = { ...state.messages[0], turnIndex: 0 };
-      const chatRef = React.createRef<import("../ChatView.js").ChatViewHandle>();
+      const chatRef = React.createRef<import("../chat/ChatView.js").ChatViewHandle>();
       const { container, rerender } = render(
         <ThemeProvider>
           <ChatView ref={chatRef} state={state} toolContext={defaultToolContext} />

@@ -13,9 +13,9 @@
  * See change: terminals-in-tabbed-panes.
  */
 
-import { openTerminalIds, stripTermId } from "../../lib/use-terminal-pane-tabs.js";
-import { useSplitWorkspace } from "../SplitWorkspaceContext.js";
-import { TerminalView } from "../TerminalView.js";
+import { openTerminalIds, stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
+import { useSplitWorkspace } from "../split/SplitWorkspaceContext.js";
+import { TerminalView } from "../terminal/TerminalView.js";
 
 export function TerminalPaneLayer() {
   const { paneState, terminal } = useSplitWorkspace();

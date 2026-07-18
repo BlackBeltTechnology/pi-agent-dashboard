@@ -3,7 +3,7 @@
  * See change: redesign-openspec-board (openspec-card-section worktree spec).
  */
 import { describe, it, expect } from "vitest";
-import { deriveWorktreeProgress } from "../openspec-board-worktree.js";
+import { deriveWorktreeProgress } from "../openspec/openspec-board-worktree.js";
 import type { DashboardSession, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function sess(over: Partial<DashboardSession> = {}): DashboardSession {

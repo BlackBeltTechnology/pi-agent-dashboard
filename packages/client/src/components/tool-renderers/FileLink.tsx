@@ -1,9 +1,9 @@
 import type React from "react";
 import { useState } from "react";
-import { resolveLinkOrigin } from "../../lib/link-origin.js";
-import { resolveFileMention } from "../../lib/resolve-mention-api.js";
-import { FilePreviewOverlay } from "../FilePreviewOverlay.js";
-import { useOptionalSplitWorkspace } from "../SplitWorkspaceContext.js";
+import { resolveLinkOrigin } from "../../lib/util/link-origin.js";
+import { resolveFileMention } from "../../lib/api/resolve-mention-api.js";
+import { FilePreviewOverlay } from "../preview/FilePreviewOverlay.js";
+import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import type { ToolContext } from "./types.js";
 import { useFileOpenRouting } from "./useFileOpenRouting.js";
 

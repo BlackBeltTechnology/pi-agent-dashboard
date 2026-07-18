@@ -29,11 +29,11 @@ vi.mock("../../hooks/useArchiveListing.js", () => ({
   ),
 }));
 
-vi.mock("../../lib/openspec-groups-api.js", () => ({
+vi.mock("../../lib/openspec/openspec-groups-api.js", () => ({
   fetchGroups: vi.fn(async () => ({ schemaVersion: 1, groups: [], assignments: {} })),
 }));
 
-import { ArchiveBrowserView } from "../ArchiveBrowserView.js";
+import { ArchiveBrowserView } from "../openspec/ArchiveBrowserView.js";
 import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());

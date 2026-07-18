@@ -8,15 +8,15 @@ import { render, screen, cleanup } from "@testing-library/react";
 // DiffViewer's job is FILE RESOLUTION from the shared diff context; DiffPanel's
 // rendering is covered by DiffPanelTheme.test. Mock DiffPanel to a probe that
 // reports which file (and how many changes) it received.
-vi.mock("../../DiffPanel.js", () => ({
+vi.mock("../../diff/DiffPanel.js", () => ({
   DiffPanel: ({ file }: { file: { path: string; changes: unknown[] } }) => (
     <div data-testid="diff-panel" data-path={file.path} data-changes={file.changes.length} />
   ),
 }));
 
 import DiffViewer, { stripDiffPrefix } from "../DiffViewer.js";
-import { SessionDiffContext } from "../../SessionDiffContext.js";
-import type { SessionDiffContextValue } from "../../SessionDiffContext.js";
+import { SessionDiffContext } from "../../diff/SessionDiffContext.js";
+import type { SessionDiffContextValue } from "../../diff/SessionDiffContext.js";
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import type { SessionDiffResponse } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 

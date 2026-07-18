@@ -12,7 +12,7 @@
  * See change: fix-multiselect-auto-cancel-on-dashboard.
  */
 import { describe, it, expect } from "vitest";
-import { encodePromptAnswer } from "../lib/prompt-answer-encoder.js";
+import { encodePromptAnswer } from "../lib/chat/prompt-answer-encoder.js";
 
 describe("encodePromptAnswer", () => {
   // ── multiselect arm ────────────────────────────────────────────────

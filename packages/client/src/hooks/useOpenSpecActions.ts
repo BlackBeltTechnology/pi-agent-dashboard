@@ -8,7 +8,7 @@
  */
 import { useCallback } from "react";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { buildOpenSpecPreviewUrl } from "../lib/route-builders.js";
+import { buildOpenSpecPreviewUrl } from "../lib/nav/route-builders.js";
 
 export interface OpenSpecActionDeps {
   send: (msg: any) => void;

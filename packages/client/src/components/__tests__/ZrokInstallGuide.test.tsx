@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ZrokInstallGuide } from "../ZrokInstallGuide.js";
+import { ZrokInstallGuide } from "../packages/ZrokInstallGuide.js";
 
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({

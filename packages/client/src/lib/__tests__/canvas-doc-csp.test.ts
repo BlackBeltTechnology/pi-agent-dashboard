@@ -4,7 +4,7 @@
  * subresources and is placed so an `iframe srcDoc` render enforces it.
  */
 import { describe, expect, it } from "vitest";
-import { AUTO_OPEN_DOC_CSP, withRestrictiveCsp } from "../canvas-doc-csp.js";
+import { AUTO_OPEN_DOC_CSP, withRestrictiveCsp } from "../canvas/canvas-doc-csp.js";
 
 describe("AUTO_OPEN_DOC_CSP policy", () => {
   it("blocks external network subresources (S34 beacon defense)", () => {

@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBranchedSessionFile } from "../session-file-reader.js";
+import { createBranchedSessionFile } from "../session/session-file-reader.js";
 
 const FIXTURE = join(__dirname, "fixtures", "fork-jsonl-roundtrip.jsonl");
 

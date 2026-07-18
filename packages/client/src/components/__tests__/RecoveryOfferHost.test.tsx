@@ -7,12 +7,12 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, act, fireEvent, cleanup } from "@testing-library/react";
-import { RecoveryOfferHost } from "../RecoveryOfferHost.js";
+import { RecoveryOfferHost } from "../session/RecoveryOfferHost.js";
 import {
   setRecoveryOffer,
   clearRecoveryOffer,
   __resetRecoveryOfferBusForTests,
-} from "../../lib/recovery-offer-bus.js";
+} from "../../lib/state/recovery-offer-bus.js";
 
 describe("RecoveryOfferHost", () => {
   beforeEach(() => {

@@ -21,7 +21,7 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { providerSupportsMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { readZrokEnvironment, type ZrokEnvData } from "@blackbelt-technology/pi-dashboard-shared/zrok-env.js";
-import { type ChildProviderSpec, ChildTunnelRuntime } from "../tunnel-core.js";
+import { type ChildProviderSpec, ChildTunnelRuntime } from "../tunnel/tunnel-core.js";
 
 export type ZrokEnv = ZrokEnvData;
 

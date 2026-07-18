@@ -1,7 +1,7 @@
 import type { ArchiveEntry } from "@blackbelt-technology/pi-dashboard-shared/archive-types.js";
 import { useEffect, useState } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { t } from "../lib/i18n";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 export type { ArchiveEntry };
 

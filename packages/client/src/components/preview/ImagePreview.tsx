@@ -8,7 +8,7 @@
  */
 import { useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
-import { useI18n } from "../../lib/i18n";
+import { useI18n } from "../../lib/i18n/i18n.js";
 import { rawUrl } from "./raw-url.js";
 
 interface Props {
