@@ -1,23 +1,23 @@
 ## 1. Lint fixes: inline-row count + severity split (prerequisite)
 
-- [ ] 1.1 In `packages/kb/src/dox.ts`, add a **sibling** `countInlineRows(af): number` (do NOT change `parseRowPaths` — it is a public export consumed by `packages/kb-extension/src/reindex.ts` as a `string[]`; changing its shape breaks kb-extension and the missing/orphan/staleness checks). `countInlineRows` counts rows under the `# DOX` heading whose purpose does NOT match `/→ see `[^`]+\.AGENTS\.md`/` (the sidecar-pointer marker `scripts/split-large-agents.mjs` writes on promotion).
-- [ ] 1.2 Change the over-threshold row check from `parseRowPaths(af).length > ROW_CAP` to the **inline** count > `ROW_CAP`. Keep the byte check on total file bytes unchanged. `ROW_CAP`/`AGENTS_BYTE_CAP` numeric values unchanged.
-- [ ] 1.3 Split the `over-threshold` emission into two arms: a byte arm (`bytes > AGENTS_BYTE_CAP`) tagged actionable and a row arm (inline count > `ROW_CAP`) tagged informational. Add a discriminator field (e.g. `arm: "bytes" | "rows"`) to the `DoxIssue` for `over-threshold`. Update the `detail` strings so row-only reads "informational (advisory; no per-turn injection cost)" and reports the inline count.
+- [x] 1.1 In `packages/kb/src/dox.ts`, add a **sibling** `countInlineRows(af): number` (do NOT change `parseRowPaths` — it is a public export consumed by `packages/kb-extension/src/reindex.ts` as a `string[]`; changing its shape breaks kb-extension and the missing/orphan/staleness checks). `countInlineRows` counts rows under the `# DOX` heading whose purpose does NOT match `/→ see `[^`]+\.AGENTS\.md`/` (the sidecar-pointer marker `scripts/split-large-agents.mjs` writes on promotion).
+- [x] 1.2 Change the over-threshold row check from `parseRowPaths(af).length > ROW_CAP` to the **inline** count > `ROW_CAP`. Keep the byte check on total file bytes unchanged. `ROW_CAP`/`AGENTS_BYTE_CAP` numeric values unchanged.
+- [x] 1.3 Split the `over-threshold` emission into two arms: a byte arm (`bytes > AGENTS_BYTE_CAP`) tagged actionable and a row arm (inline count > `ROW_CAP`) tagged informational. Add a discriminator field (e.g. `arm: "bytes" | "rows"`) to the `DoxIssue` for `over-threshold`. Update the `detail` strings so row-only reads "informational (advisory; no per-turn injection cost)" and reports the inline count.
   (Lint-behavior tests are folded as scenarios E1–E10, X1–X2 in §8.)
-- [ ] 1.4 `cd packages/kb && npm run build` to refresh `dist/cli.js`; run `packages/kb-extension` tests to confirm `parseRowPaths` consumers (`acknowledgeRows`/`decideNudge`) are unaffected. Run `node_modules/.bin/kb dox lint --json` and confirm each current row-over flag is re-evaluated on the inline count and carries the informational arm, and 0 carry the byte arm.
-- [ ] 1.5 Update `packages/kb/src/AGENTS.md` `dox.ts` row purpose to record the inline-count fix + severity split (caveman style, add `See change: fold-oversized-agents-directories`).
+- [x] 1.4 `cd packages/kb && npm run build` to refresh `dist/cli.js`; run `packages/kb-extension` tests to confirm `parseRowPaths` consumers (`acknowledgeRows`/`decideNudge`) are unaffected. Run `node_modules/.bin/kb dox lint --json` and confirm each current row-over flag is re-evaluated on the inline count and carries the informational arm, and 0 carry the byte arm.
+- [x] 1.5 Update `packages/kb/src/AGENTS.md` `dox.ts` row purpose to record the inline-count fix + severity split (caveman style, add `See change: fold-oversized-agents-directories`).
 
 ## 2. Rollup directory decomposition — `qa/` (doc-only)
 
-- [ ] 2.1 Create `qa/packer/AGENTS.md`, `qa/tests/AGENTS.md`, `qa/fixtures/AGENTS.md`, `qa/scripts/AGENTS.md` with a `# DOX — qa/<sub>` heading each.
-- [ ] 2.2 Move every `qa/AGENTS.md` row whose path is under a subdir into the owning subdir `AGENTS.md`, path rewritten relative to that file, purpose + `See change:` preserved verbatim. Leave only the 3 root-level `qa/` files in `qa/AGENTS.md`.
-- [ ] 2.3 Run `node_modules/.bin/kb dox lint` and confirm `qa/AGENTS.md` no longer over-threshold and no new `missing`/`orphan` for the moved rows.
+- [x] 2.1 Create `qa/packer/AGENTS.md`, `qa/tests/AGENTS.md`, `qa/fixtures/AGENTS.md`, `qa/scripts/AGENTS.md` with a `# DOX — qa/<sub>` heading each.
+- [x] 2.2 Move every `qa/AGENTS.md` row whose path is under a subdir into the owning subdir `AGENTS.md`, path rewritten relative to that file, purpose + `See change:` preserved verbatim. Leave only the 3 root-level `qa/` files in `qa/AGENTS.md`.
+- [x] 2.3 Run `node_modules/.bin/kb dox lint` and confirm `qa/AGENTS.md` no longer over-threshold and no new `missing`/`orphan` for the moved rows.
 
 ## 3. Rollup directory decomposition — `docker/` (doc-only)
 
-- [ ] 3.1 Create `docker/fixtures/AGENTS.md` (+ `docker/scripts/AGENTS.md` if its single row is not already owned) with proper `# DOX —` headings.
-- [ ] 3.2 Move the 30 `fixtures/*` rows (and the `scripts/*` row) out of `docker/AGENTS.md` into the owning subdir files, paths rewritten relative, purposes preserved.
-- [ ] 3.3 `kb dox lint` confirms `docker/AGENTS.md` cleared; no new `missing`/`orphan`.
+- [x] 3.1 Create `docker/fixtures/AGENTS.md` (+ `docker/scripts/AGENTS.md` if its single row is not already owned) with proper `# DOX —` headings.
+- [x] 3.2 Move the 30 `fixtures/*` rows (and the `scripts/*` row) out of `docker/AGENTS.md` into the owning subdir files, paths rewritten relative, purposes preserved.
+- [x] 3.3 `kb dox lint` confirms `docker/AGENTS.md` cleared; no new `missing`/`orphan`.
 
 ## 4. Fold `packages/client/src/components/` (source move)
 
