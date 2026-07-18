@@ -8,6 +8,11 @@ lifecycle (PID files, spawn timeout/retry, health watchdog, orphan scavenge, and
 name resolution, spawn args, URL parsing/normalization, enrollment check, teardown) SHALL
 live in each implementation.
 
+#### Scenario: zrok behind the seam is behaviour-identical
+- **WHEN** the server creates a zrok tunnel through the `TunnelProvider` implementation
+- **THEN** `/api/tunnel-status` SHALL return an active tunnel URL through the same status contract
+- **AND** the core SHALL own the zrok child PID-file and orphan-scavenge paths as before (provider-specific v2 share verbs are covered by the "zrok v2 behind the seam" scenario)
+
 #### Scenario: zrok v2 behind the seam
 - **WHEN** the server creates a zrok tunnel through the `TunnelProvider` implementation on a v2 install
 - **THEN** `/api/tunnel-status` SHALL return an active `*.shares.zrok.io` URL
@@ -34,6 +39,16 @@ SHALL NOT be promoted to `reservedName`.
 #### Scenario: mode must be set explicitly
 - **WHEN** `tunnel.enabled` is true and `tunnel.mode` is unset
 - **THEN** the server SHALL NOT start a tunnel AND SHALL report a configuration error
+
+#### Scenario: unsupported mode rejected
+- **WHEN** `tunnel.provider` is `ngrok` or `zrok` and `tunnel.mode` is `private`
+- **THEN** the server SHALL reject the configuration (public-only providers)
+- **WHEN** `tunnel.provider` is `zerotier` and `tunnel.mode` is `public`
+- **THEN** the server SHALL reject the configuration (private-only provider)
+
+#### Scenario: legacy config back-compat
+- **WHEN** an existing `config.json` has a bare `tunnel.reservedToken` and no `tunnel.provider`
+- **THEN** the resolver SHALL treat it as `{ provider: "zrok", mode: "public", zrok: { reservedToken } }`
 
 #### Scenario: legacy v1 reserved token is inert under v2
 - **WHEN** an existing `config.json` has `tunnel.reservedToken` (or `tunnel.zrok.reservedToken`) and no `tunnel.zrok.reservedName`

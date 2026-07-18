@@ -157,6 +157,19 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
         >
           {t("gateway.disconnect", undefined, "Disconnect")}
         </button>
+        {/* v2 (support-zrok-v2): release a reserved name (stable URL) + clear it. */}
+        <button
+          type="button"
+          data-testid="gateway-forget-reserved"
+          onClick={() =>
+            void disconnectTunnel({ forget: true }).catch((e) =>
+              setError(e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed")),
+            )
+          }
+          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
+        >
+          {t("gateway.forgetReserved", undefined, "Forget reserved URL")}
+        </button>
         {dirty ? (
           <button
             type="button"

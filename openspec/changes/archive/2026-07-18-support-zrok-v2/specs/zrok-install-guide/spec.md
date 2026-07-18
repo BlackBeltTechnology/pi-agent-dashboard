@@ -33,3 +33,7 @@ SHALL include a link to the official zrok documentation.
 #### Scenario: Enroll step is non-interactive-safe
 - **WHEN** the guide shows the enroll command
 - **THEN** it SHALL present `zrok enable <token>` and note the dashboard runs it headless server-side (no TUI/TTY required)
+
+#### Scenario: Back navigation
+- **WHEN** the user clicks the back button on the guide
+- **THEN** the app SHALL navigate back to the previous view

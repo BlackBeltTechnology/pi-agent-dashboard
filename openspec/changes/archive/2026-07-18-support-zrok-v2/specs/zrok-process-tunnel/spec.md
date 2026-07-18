@@ -11,6 +11,10 @@ reserved name is configured.
 - **WHEN** `createTunnel(port)` is called and zrok is enrolled and a binary is available
 - **THEN** the module SHALL spawn `zrok2 share public --headless localhost:{port}` (inserting `-n public:{name}` before the target when a reserved name is set) and parse the public host from output
 
+#### Scenario: URL parsing from stdout
+- **WHEN** the zrok subprocess outputs its share URL to stdout
+- **THEN** the module SHALL extract the URL and resolve the createTunnel promise with it
+
 #### Scenario: URL parsing from bare host output
 - **WHEN** the zrok v2 subprocess outputs a bare share host (no scheme) such as `abc.shares.zrok.io`
 - **THEN** the module SHALL normalize it to `https://abc.shares.zrok.io` and resolve the createTunnel promise with the normalized URL

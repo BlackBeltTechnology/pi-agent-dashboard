@@ -63,3 +63,43 @@ describe("enroll executor — security boundary (6.2/6.3)", () => {
     expect(isEnrollStepWhitelisted("ngrok", "auth-token")).toBe(true);
   });
 });
+
+// ── support-zrok-v2: headless enroll + v2 token length (3.1/3.2, E6/E7/E8) ──
+describe("zrok v2 headless enrollment", () => {
+  it("3.1: enable recipe appends --headless, token stays argv-only", async () => {
+    const seen: { binary: string; args: string[] } = { binary: "", args: [] };
+    const run: EnrollRunner = async (binary, args) => {
+      seen.binary = binary;
+      seen.args = args;
+      return { ok: true, value: true };
+    };
+    const tok = "RX1EuRvs9H8s";
+    const r = await runEnrollStep("zrok", "auth-token", tok, run);
+    expect(r.ok).toBe(true);
+    expect(seen.args).toEqual(["enable", tok, "--headless"]);
+    // token is exactly one argv element (never interpolated)
+    expect(seen.args.filter((a) => a === tok)).toHaveLength(1);
+    // binary resolves to a zrok/zrok2 name
+    expect(seen.binary).toMatch(/zrok2?$/);
+  });
+
+  it("E6: accepts a real 12-char v2 token", async () => {
+    const run = vi.fn(okRunner);
+    expect((await runEnrollStep("zrok", "auth-token", "RX1EuRvs9H8s", run)).ok).toBe(true);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("E7: rejects a 7-char token (below the new min 8) WITHOUT spawning", async () => {
+    const run = vi.fn(okRunner);
+    const r = await runEnrollStep("zrok", "auth-token", "abc1234", run);
+    expect(r).toMatchObject({ ok: false, reason: "invalid-param" });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("E8: rejects an over-200-char token AND a `&`-bearing token", async () => {
+    const run = vi.fn(okRunner);
+    expect((await runEnrollStep("zrok", "auth-token", "a".repeat(201), run)).ok).toBe(false);
+    expect((await runEnrollStep("zrok", "auth-token", "abc & calc.exe", run)).ok).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+  });
+});

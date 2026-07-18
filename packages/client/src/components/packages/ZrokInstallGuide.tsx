@@ -79,9 +79,11 @@ function WindowsGuide() {
     <>
       <Section title={i18nT("tunnel.1InstallZrok", undefined, "1. Install zrok")}>
         <p className="text-sm text-[var(--text-secondary)] mb-2">
-          {i18nT("packages.installViaChocolatey", undefined, "Install via Chocolatey:")}
+          {i18nT("packages.downloadTheZrokV2WindowsRelease", undefined, "Download the zrok v2 Windows release and add zrok2 to your PATH:")}
         </p>
-        <CodeBlock>{`choco install zrok`}</CodeBlock>
+        <CodeBlock>{`# Download zrok_2.0.4_windows_amd64.tar.gz from the release page,
+# extract zrok2.exe, and add its folder to PATH.
+zrok2 version`}</CodeBlock>
         <p className="text-sm text-[var(--text-tertiary)] mt-2">
           {i18nT("packages.orViaScoop", undefined, "Or via Scoop:")}
         </p>
@@ -105,6 +107,9 @@ function EnrollAndVerify() {
           {i18nT("gateway.toGetYourInviteTokenThen", undefined, "to get your invite token, then enroll:")}
         </p>
         <CodeBlock>{`zrok enable <your-token>`}</CodeBlock>
+        <p className="text-sm text-[var(--text-tertiary)] mt-2">
+          {i18nT("tunnel.zrokV2EnableHeadless", undefined, "zrok v2 enrolls headless — this runs server-side without a TTY.")}
+        </p>
         <p className="text-sm text-[var(--text-tertiary)] mt-2">
           {i18nT("common.thisStoresYourApiTokenIn", undefined, "This stores your API token in zrok's own config directory\n          (")}<code className="text-xs bg-[var(--bg-surface)] px-1 py-0.5 rounded font-mono">~/.zrok2/environment.json</code>{i18nT("common.theDashboardReadsThisFileTo", undefined, ").\n          The dashboard reads this file to detect enrollment — no keys are\n          copied into the dashboard config.")}
         </p>

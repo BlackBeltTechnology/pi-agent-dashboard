@@ -42,7 +42,7 @@ import type { PreferencesStore } from "../persistence/preferences-store.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import type { ServerConfig } from "../server.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
-import { createTunnel, deleteTunnel, getTunnelStatus, getTunnelUrl } from "../tunnel/tunnel.js";
+import { createTunnel, deleteTunnel, ensureReservedName, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
 import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
@@ -272,6 +272,9 @@ export function registerSystemRoutes(
       // numeric tweaks. Cheap operation: stop + start with new config.
       if (partial.tunnel !== undefined) {
         config.tunnelWatchdog = reloaded.tunnel.watchdog;
+        // Re-source the v2 reserved-name / persistence from the reloaded config.
+        config.tunnelReservedName = reloaded.tunnel.zrok?.reservedName;
+        config.tunnelPersistent = reloaded.tunnel.zrok?.persistent;
         if (getTunnelUrl()) {
           stopTunnelWatchdog();
           const wd = reloaded.tunnel.watchdog;
@@ -281,7 +284,7 @@ export function registerSystemRoutes(
                 getUrl: getTunnelUrl,
                 recycle: async () => {
                   await deleteTunnel(config.port);
-                  return await createTunnel(config.port, config.tunnelReservedToken);
+                  return await createTunnel(config.port, config.tunnelReservedName);
                 },
               },
               wd,
@@ -303,7 +306,14 @@ export function registerSystemRoutes(
     const status = getTunnelStatus();
     if (status.status === "active") return { ok: true, url: status.url };
     if (status.status === "unavailable") return { ok: false, error: "zrok not installed" };
-    const url = await createTunnel(config.port, config.tunnelReservedToken);
+    // v2: resolve the reserved NAME (stored or minted-when-persistent) and
+    // cache it so watchdog recycles reuse the SAME name (stable URL).
+    const reservedName = ensureReservedName({
+      reservedName: config.tunnelReservedName,
+      persistent: config.tunnelPersistent,
+    });
+    config.tunnelReservedName = reservedName;
+    const url = await createTunnel(config.port, reservedName);
     if (url) {
       const wd = config.tunnelWatchdog;
       if (wd?.enabled !== false) {
@@ -312,7 +322,7 @@ export function registerSystemRoutes(
             getUrl: getTunnelUrl,
             recycle: async () => {
               await deleteTunnel(config.port);
-              return await createTunnel(config.port, config.tunnelReservedToken);
+              return await createTunnel(config.port, config.tunnelReservedName);
             },
           },
           wd,
@@ -323,11 +333,22 @@ export function registerSystemRoutes(
     return { ok: false, error: "Failed to create tunnel" };
   });
 
-  fastify.post("/api/tunnel-disconnect", async () => {
+  fastify.post("/api/tunnel-disconnect", async (req) => {
     // Pass port so orphan zrok processes bound to this endpoint are also
     // swept (not just the one we tracked via pid-file).
     stopTunnelWatchdog();
     await deleteTunnel(config.port);
+    // Plain disconnect PRESERVES the reserved name (stable URL survives a
+    // disconnect/restart). `{forget:true}` is the ONLY path that releases it:
+    // `delete name` + clear config. See change: support-zrok-v2.
+    const body = (req.body ?? {}) as { forget?: boolean };
+    if (body.forget) {
+      const name = config.tunnelReservedName;
+      if (name) releaseShare(name);
+      config.tunnelReservedName = undefined;
+      config.tunnelPersistent = false;
+      writeConfigPartial({ tunnel: { zrok: { reservedName: undefined, persistent: false } } });
+    }
     return { ok: true };
   });
 

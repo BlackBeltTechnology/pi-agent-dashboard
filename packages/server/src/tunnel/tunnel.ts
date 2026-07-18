@@ -13,7 +13,9 @@ import {
   _resetBinaryCache,
   _setBinaryAvailable,
   detectZrokBinary,
+  ensureReservedName,
   loadZrokEnv,
+  mintReservedName,
   releaseShare,
   type ZrokEnv,
   zrokRuntime,
@@ -25,7 +27,9 @@ export {
   _resetBinaryCache,
   _setBinaryAvailable,
   detectZrokBinary,
+  ensureReservedName,
   loadZrokEnv,
+  mintReservedName,
   releaseShare,
 };
 

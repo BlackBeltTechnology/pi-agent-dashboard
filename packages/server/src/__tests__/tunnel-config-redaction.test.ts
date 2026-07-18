@@ -31,6 +31,19 @@ describe("tunnel provider-secret redaction (doubt-review fix, supports 6.5)", ()
     const raw = JSON.parse(fs.readFileSync(configFile(), "utf-8"));
     expect(raw.tunnel.tailscale.authKey).toBe("tskey-auth-REAL123");
   });
+
+  // support-zrok-v2 (X7): reservedName + persistent are not secrets but MUST
+  // survive a partial write that does not touch the zrok sub-config.
+  it("X7: zrok.reservedName + persistent survive a partial write toggling tunnel.enabled", () => {
+    writeConfigPartial({
+      tunnel: { enabled: true, provider: "zrok", mode: "public", zrok: { reservedName: "pi-dash-abcd1234", persistent: true } },
+    });
+    writeConfigPartial({ tunnel: { enabled: false } });
+    const raw = JSON.parse(fs.readFileSync(configFile(), "utf-8"));
+    expect(raw.tunnel.enabled).toBe(false);
+    expect(raw.tunnel.zrok.reservedName).toBe("pi-dash-abcd1234");
+    expect(raw.tunnel.zrok.persistent).toBe(true);
+  });
 });
 
 describe("manual http endpoint never enters the pairing payload (6.5)", () => {

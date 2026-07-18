@@ -20,14 +20,24 @@
  *
  * See change: add-tunnel-providers.
  */
+import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { type Result, runAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import type { TunnelProviderId } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
+
+// zrok v2 renamed the binary to `zrok2` (Homebrew still ships `zrok`). Resolve
+// the same dual name the runtime provider uses so enroll and connect never
+// disagree. See change: support-zrok-v2.
+const enrollResolver = new ToolResolver({ processExecPath: process.execPath, useLoginShell: true });
+function resolveZrokBinary(): string {
+  return enrollResolver.which("zrok2") ?? enrollResolver.which("zrok") ?? "zrok";
+}
 
 /** Steps that may run server-side (no elevation). `install` is NOT here — copy-paste only. */
 export type EnrollStep = "auth-token" | "activate";
 
 interface EnrollRecipe {
-  binary: string;
+  /** Binary name, or a lazy resolver (dual-binary providers resolve at run time). */
+  binary: string | (() => string);
   /** Build argv AFTER the binary. The param is one element, never interpolated. */
   args: (param: string) => string[];
   /** Strict allow-list validator. Must reject any cmd.exe metacharacter. */
@@ -39,7 +49,10 @@ const re = {
   ngrokToken: /^[A-Za-z0-9_]{20,60}$/,
   tailscaleAuthKey: /^tskey-auth-[A-Za-z0-9-]+$/,
   zerotierNetId: /^[0-9a-f]{16}$/,
-  zrokToken: /^[A-Za-z0-9._-]{20,200}$/,
+  // v2 account tokens are 12 chars (verified); the v1-era min-20 bound rejected
+  // them before spawn. Only the length floor moves; charset + max + the
+  // argv-only invariant are unchanged. See change: support-zrok-v2.
+  zrokToken: /^[A-Za-z0-9._-]{8,200}$/,
 } as const;
 
 /**
@@ -54,8 +67,11 @@ const RECIPES: Readonly<Record<string, EnrollRecipe>> = Object.freeze({
     timeoutMs: 30_000,
   },
   "zrok:auth-token": {
-    binary: "zrok",
-    args: (tok) => ["enable", tok],
+    // Resolve zrok2/zrok lazily at run time (dual-binary). `--headless` is a
+    // FIXED literal (not a parameter), so server-side `enable` never blocks on
+    // `/dev/tty`; the token stays argv-only. See change: support-zrok-v2.
+    binary: resolveZrokBinary,
+    args: (tok) => ["enable", tok, "--headless"],
     validate: (p) => re.zrokToken.test(p),
     timeoutMs: 30_000,
   },
@@ -111,7 +127,8 @@ export async function runEnrollStep(
     // No spawn. Do not echo the (possibly hostile) param back verbatim.
     return { ok: false, reason: "invalid-param", message: `parameter failed validation for ${provider}:${step}` };
   }
-  const result = await run(recipe.binary, recipe.args(param), recipe.timeoutMs);
+  const binary = typeof recipe.binary === "function" ? recipe.binary() : recipe.binary;
+  const result = await run(binary, recipe.args(param), recipe.timeoutMs);
   if (result.ok) return { ok: true };
   const detail =
     result.error.kind === "exit"

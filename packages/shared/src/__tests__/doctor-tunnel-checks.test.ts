@@ -12,7 +12,7 @@
  * lookups). Filesystem-backed env check uses HOME isolation via
  * `os.tmpdir()`-rooted home dir.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -189,6 +189,94 @@ describe("zrok API reachable check", () => {
     const c = find(checks, "zrok API reachable");
     expect(c.status).toBe("warning");
     expect(c.detail).toMatch(/timeout/);
+  });
+});
+
+// ─── zrok API reachable: api-v2 host + enrolled endpoint (X8/X9) ──────
+describe("zrok API reachable check (support-zrok-v2)", () => {
+  let tmpHome: string;
+  let originalHome: string | undefined;
+  beforeEach(() => {
+    tmpHome = mkdtempSync(path.join(os.tmpdir(), "zrok-api-"));
+    originalHome = process.env.HOME;
+    process.env.HOME = tmpHome;
+  });
+  afterEach(() => {
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  it("X8: probes api-v2.zrok.io and its failure text names no api-v1", async () => {
+    let probed = "";
+    const checks = await runSharedChecks(
+      baseDeps({
+        dnsLookup: async (host) => {
+          probed = host;
+          throw new Error("getaddrinfo ENOTFOUND");
+        },
+      }),
+    );
+    const c = find(checks, "zrok API reachable");
+    expect(probed).toBe("api-v2.zrok.io");
+    expect(c.status).toBe("warning");
+    expect(c.message).not.toContain("api-v1");
+  });
+
+  it("X9: probes the enrolled env api_endpoint host when present", async () => {
+    const dir = path.join(tmpHome, ".zrok2");
+    mkdirSync(dir);
+    writeFileSync(
+      path.join(dir, "environment.json"),
+      JSON.stringify({ api_endpoint: "https://ctrl.self-hosted.example:1280", ziti_identity: "abc", zrok_token: "tok" }),
+    );
+    let probed = "";
+    const checks = await runSharedChecks(baseDeps({ dnsLookup: async (host) => { probed = host; } }));
+    const c = find(checks, "zrok API reachable");
+    expect(probed).toBe("ctrl.self-hosted.example");
+    expect(c.status).toBe("ok");
+  });
+});
+
+// ─── zrok version compatible (E9–E12, E3 no-spawn) ────────────────
+describe("zrok version compatible check (support-zrok-v2)", () => {
+  const withVersion = (found: boolean, stdout: string) =>
+    baseDeps({
+      resolveZrokBinary: () => (found ? { found: true, path: "/opt/bin/zrok2" } : { found: false }),
+      runZrokVersion: () => ({ ok: true, stdout }),
+    });
+
+  it("E9: v2.0.4 → ok", async () => {
+    const c = find(await runSharedChecks(withVersion(true, "zrok v2.0.4")), "zrok version compatible");
+    expect(c.status).toBe("ok");
+  });
+
+  it("E10: v0.4.51 (v1) → warning + upgrade remedy", async () => {
+    const c = find(await runSharedChecks(withVersion(true, "zrok v0.4.51")), "zrok version compatible");
+    expect(c.status).toBe("warning");
+    expect(c.detail ?? "").toMatch(/upgrade|zrok2/i);
+  });
+
+  it("E11: 2.0.0-rc.1 (pre-release GA major) → ok", async () => {
+    const c = find(await runSharedChecks(withVersion(true, "zrok v2.0.0-rc.1")), "zrok version compatible");
+    expect(c.status).toBe("ok");
+  });
+
+  it("E12: unparseable garbage → warning (unknown), no throw", async () => {
+    const c = find(await runSharedChecks(withVersion(true, "not a version at all")), "zrok version compatible");
+    expect(c.status).toBe("warning");
+    expect(c.code).toBe("doctor.zrok_version_unknown");
+  });
+
+  it("E3: missing binary → unavailable, NEVER spawns runZrokVersion", async () => {
+    const spy = vi.fn(() => ({ ok: true, stdout: "zrok v2.0.4" }));
+    const checks = await runSharedChecks(
+      baseDeps({ resolveZrokBinary: () => ({ found: false }), runZrokVersion: spy }),
+    );
+    const c = find(checks, "zrok version compatible");
+    expect(c.code).toBe("doctor.zrok_version_unavailable");
+    expect(c.status).not.toBe("error");
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 

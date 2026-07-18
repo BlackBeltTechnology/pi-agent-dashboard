@@ -71,6 +71,15 @@ describe("CORS origin validation", () => {
       expect(allowed("https://share.zrok.io.attacker.com")).toBe(false);
       expect(allowed("https://evil.io")).toBe(false);
     });
+
+    // support-zrok-v2 (E16/E17): plural v2 host allowed; spoof denied.
+    it("E16: allows a v2 *.shares.zrok.io origin", () => {
+      expect(allowed("https://x.shares.zrok.io")).toBe(true);
+    });
+
+    it("E17: denies a spoofed *.shares.zrok.io.attacker.com origin", () => {
+      expect(allowed("https://foo.shares.zrok.io.attacker.com")).toBe(false);
+    });
   });
 
   // Trusted-network origins for LAN-to-LAN switching.

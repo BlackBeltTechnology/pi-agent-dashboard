@@ -50,8 +50,13 @@ export interface ChildProviderSpec {
   reserve?(port: number): Promise<string | null>;
   /** Release a reserved token; best-effort boolean. */
   release?(token: string): boolean;
-  /** `ps` line marker identifying our processes (e.g. "zrok share"). */
-  processMarker: string;
+  /**
+   * `ps` line marker identifying our processes. A string is substring-matched
+   * (ngrok: `"ngrok"`); a RegExp is `.test`-matched (zrok: `/\bzrok2? share\b/`,
+   * so both `zrok share` and `zrok2 share` are scavenged). See change:
+   * support-zrok-v2.
+   */
+  processMarker: string | RegExp;
   /** `ps` line marker binding a process to `port`. */
   endpointMarker(port: number): string;
   /** Map a resolved public URL to tagged endpoint(s). */
@@ -126,7 +131,9 @@ export class ChildTunnelRuntime {
     for (const line of output.split(/\r?\n/)) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      if (!trimmed.includes(this.spec.processMarker)) continue;
+      const marker = this.spec.processMarker;
+      const markerHit = typeof marker === "string" ? trimmed.includes(marker) : marker.test(trimmed);
+      if (!markerHit) continue;
       if (!trimmed.includes(endpointMarker)) continue;
       const m = trimmed.match(/^(\d+)\s+/);
       if (!m) continue;
@@ -232,11 +239,17 @@ export class ChildTunnelRuntime {
         if (!resolved) {
           resolved = true;
           clearTimeout(timeout);
-          if (token && retriesLeft > 0) {
+          if (token && callerProvidedToken && retriesLeft > 0) {
+            // Reserved name (caller-provided): retry the SAME name; NEVER
+            // release/regenerate it (a reserved name must survive to keep a
+            // stable URL). See change: support-zrok-v2.
+            console.warn(`${this.spec.id} share failed (code ${code}); retrying same reserved name...`);
+            resolve(this.createInner(port, token, retriesLeft - 1));
+          } else if (token && !callerProvidedToken && retriesLeft > 0) {
             console.warn(`Reserved share failed (code ${code}), releasing token (redacted) and creating new reservation...`);
             this.spec.release?.(token);
             resolve(this.createInner(port, undefined, retriesLeft - 1));
-          } else if (token) {
+          } else if (token && !callerProvidedToken) {
             console.warn(`Reserved share failed (code ${code}) and retry budget exhausted; releasing token (redacted)`);
             this.spec.release?.(token);
             resolve(null);

@@ -275,7 +275,14 @@ export interface DashboardConfig {
      * safety; the normalized shape also carries it under `zrok.reservedToken`.
      */
     reservedToken?: string;
-    zrok?: { reservedToken?: string };
+    /**
+     * zrok sub-config. `reservedToken` is the legacy v1 token (preserved for
+     * downgrade, ignored by the v2 provider). `reservedName` is the v2 reserved
+     * name (namespaces+names) yielding a stable `<name>.shares.zrok.io` URL;
+     * `persistent` (default false) opts in to minting/serving a reserved name.
+     * See change: support-zrok-v2.
+     */
+    zrok?: { reservedToken?: string; reservedName?: string; persistent?: boolean };
     ngrok?: { authtoken?: string; domain?: string };
     tailscale?: { authKey?: string };
     zerotier?: { networkId?: string };
@@ -434,6 +441,7 @@ const DEFAULTS: DashboardConfig = {
   spawnStrategy: "headless",
   tunnel: {
     enabled: true,
+    zrok: { persistent: false },
     watchdog: {
       enabled: true,
       intervalMs: 60000,
@@ -734,17 +742,25 @@ export function normalizeTunnelConfig(
       : undefined;
   const mode = rawMode ?? (provider === "zrok" && !rawProvider ? ("public" as TunnelMode) : undefined);
 
-  const zrok =
-    raw?.zrok?.reservedToken || legacyToken
-      ? { reservedToken: raw?.zrok?.reservedToken ?? legacyToken }
-      : undefined;
+  // v2 (support-zrok-v2): preserve the legacy reservedToken for downgrade but
+  // NEVER promote it to reservedName (a name is not a token). Surface the v2
+  // reservedName + persistent when present; persistent defaults to false.
+  const rawZrok = raw?.zrok;
+  const zrokToken = rawZrok?.reservedToken ?? legacyToken;
+  const zrokReservedName = typeof rawZrok?.reservedName === "string" ? rawZrok.reservedName : undefined;
+  const zrokPersistent = typeof rawZrok?.persistent === "boolean" ? rawZrok.persistent : false;
+  const zrok = {
+    ...(zrokToken ? { reservedToken: zrokToken } : {}),
+    ...(zrokReservedName ? { reservedName: zrokReservedName } : {}),
+    persistent: zrokPersistent,
+  };
 
   const out: DashboardConfig["tunnel"] = {
     enabled: raw?.enabled ?? defaults.enabled,
     ...(provider ? { provider } : {}),
     ...(mode ? { mode } : {}),
     ...(legacyToken ? { reservedToken: legacyToken } : {}),
-    ...(zrok ? { zrok } : {}),
+    zrok,
     ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: { ...raw.ngrok } } : {}),
     ...(raw?.tailscale && typeof raw.tailscale === "object" ? { tailscale: { ...raw.tailscale } } : {}),
     ...(raw?.zerotier && typeof raw.zerotier === "object" ? { zerotier: { ...raw.zerotier } } : {}),

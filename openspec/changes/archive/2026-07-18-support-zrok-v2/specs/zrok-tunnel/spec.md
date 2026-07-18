@@ -18,6 +18,10 @@ store the child process reference for cleanup.
 - **WHEN** a `tunnel.zrok.reservedName` `myname` is set and the process is spawned with `-n public:myname`
 - **THEN** the module SHALL return the stable URL `https://myname.shares.zrok.io`
 
+#### Scenario: Successful share creation
+- **WHEN** the `zrok share public` process starts and prints a public URL (v2 bare host, or a v1 schemed URL) to stdout
+- **THEN** the module SHALL return the public URL and store the process reference for cleanup
+
 #### Scenario: v1 URL still parsed (back-compat)
 - **WHEN** a v1 client prints `https://abc.share.zrok.io` (singular, schemed)
 - **THEN** the module SHALL parse and return it unchanged
@@ -29,6 +33,34 @@ store the child process reference for cleanup.
 #### Scenario: Subprocess crashes during operation
 - **WHEN** the `zrok share public` process exits unexpectedly after an initial URL was obtained
 - **THEN** the module SHALL log a warning and update tunnel status to inactive
+
+### Requirement: Zrok binary detection
+The tunnel module SHALL detect whether a zrok binary is available on the system PATH by
+resolving the first of `zrok2` (v2, tarball/Windows/Linux packages) then `zrok` (v1, or the
+Homebrew v2 bottle) via the login-shell tool resolver. Detection SHALL succeed if either
+name resolves.
+
+#### Scenario: Only zrok2 present (tarball/Windows/Linux package install)
+- **WHEN** `zrok2` resolves on PATH and `zrok` does not
+- **THEN** the module SHALL report zrok as available and use `zrok2` for all invocations
+
+#### Scenario: Only zrok present (Homebrew, or a v1 install)
+- **WHEN** `zrok` resolves on PATH and `zrok2` does not
+- **THEN** the module SHALL report zrok as available and use `zrok`
+
+#### Scenario: Zrok binary is available
+- **WHEN** either `zrok2` or `zrok` resolves on PATH
+- **THEN** the module SHALL report zrok as available
+
+#### Scenario: Zrok binary is not available
+- **WHEN** neither name resolves on PATH
+- **THEN** the module SHALL report zrok as unavailable
+
+#### Scenario: Neither present
+- **WHEN** neither `zrok2` nor `zrok` resolves
+- **THEN** the module SHALL report zrok as unavailable
+
+## ADDED Requirements
 
 ### Requirement: Reserved-name lifecycle
 The tunnel module SHALL manage zrok v2 reserved **names** (which replace v1 reserved
@@ -78,21 +110,3 @@ reserved name and clear the persisted name.
 #### Scenario: Transient serve failure does not recycle the name
 - **WHEN** `share public` for a reserved name fails transiently and the core retries
 - **THEN** the module SHALL retry the SAME name and SHALL NOT `delete name` + regenerate (URL stays stable)
-
-### Requirement: Zrok binary detection
-The tunnel module SHALL detect whether a zrok binary is available on the system PATH by
-resolving the first of `zrok2` (v2, tarball/Windows/Linux packages) then `zrok` (v1, or the
-Homebrew v2 bottle) via the login-shell tool resolver. Detection SHALL succeed if either
-name resolves.
-
-#### Scenario: Only zrok2 present (tarball/Windows/Linux package install)
-- **WHEN** `zrok2` resolves on PATH and `zrok` does not
-- **THEN** the module SHALL report zrok as available and use `zrok2` for all invocations
-
-#### Scenario: Only zrok present (Homebrew, or a v1 install)
-- **WHEN** `zrok` resolves on PATH and `zrok2` does not
-- **THEN** the module SHALL report zrok as available and use `zrok`
-
-#### Scenario: Neither present
-- **WHEN** neither `zrok2` nor `zrok` resolves
-- **THEN** the module SHALL report zrok as unavailable

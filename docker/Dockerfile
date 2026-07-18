@@ -13,7 +13,7 @@
 FROM node:24-bookworm-slim AS base
 
 # Pinned tool versions — override at build time with --build-arg.
-ARG ZROK_VERSION=1.0.6
+ARG ZROK_VERSION=2.0.4
 ARG GH_VERSION=2.62.0
 ARG JJ_VERSION=0.24.0
 
@@ -54,8 +54,12 @@ RUN set -eux; \
     # Verify the downloaded tarball against the published checksum (fail build on mismatch).
     # Checksum lines prefix the asset with `./`; match either a space or slash before it.
     ( cd /tmp && grep -E "[ /]${asset}\$" zrok-checksums.sha256 | sha256sum -c - ); \
-    tar -xzf "/tmp/${asset}" -C /usr/local/bin zrok; \
+    # zrok v2 ships the binary as `zrok2`; extract it and symlink `zrok` so both
+    # names resolve (belt-and-suspenders with the dual-binary runtime resolver).
+    tar -xzf "/tmp/${asset}" -C /usr/local/bin zrok2; \
+    ln -sf zrok2 /usr/local/bin/zrok; \
     rm "/tmp/${asset}" /tmp/zrok-checksums.sha256; \
+    zrok2 version; \
     zrok version
 
 # 1.3b GitHub CLI (pinned). Spawned/probed by the dashboard git panel.

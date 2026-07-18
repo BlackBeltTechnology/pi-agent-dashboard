@@ -94,7 +94,16 @@ export async function connectTunnel(): Promise<void> {
   if (!data?.ok) throw new Error(data?.error || t("err.connectTunnelFailed", undefined, "Failed to connect tunnel"));
 }
 
-export async function disconnectTunnel(): Promise<void> {
-  const res = await fetch(`${getApiBase()}/api/tunnel-disconnect`, { method: "POST" });
+/**
+ * Disconnect the tunnel. `forget: true` also releases a v2 reserved name
+ * (`delete name`) and clears it from config — the stable URL is gone. Plain
+ * disconnect PRESERVES a reserved name. See change: support-zrok-v2.
+ */
+export async function disconnectTunnel(opts?: { forget?: boolean }): Promise<void> {
+  const res = await fetch(`${getApiBase()}/api/tunnel-disconnect`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ forget: opts?.forget === true }),
+  });
   if (!res.ok) throw new Error(t("err.disconnectTunnelFailed", undefined, "Failed to disconnect tunnel"));
 }

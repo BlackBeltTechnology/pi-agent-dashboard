@@ -120,7 +120,11 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     autoShutdown: fileConfig.autoShutdown,
     shutdownIdleSeconds: fileConfig.shutdownIdleSeconds,
     tunnel: flags.tunnel ?? fileConfig.tunnel.enabled,
-    tunnelReservedToken: fileConfig.tunnel.reservedToken,
+    // v2 (support-zrok-v2): source the reserved NAME + persistence from the
+    // zrok sub-config. The legacy v1 `reservedToken` is NOT passed to the v2
+    // provider (a v1 token is meaningless to a v2 account).
+    tunnelReservedName: fileConfig.tunnel.zrok?.reservedName,
+    tunnelPersistent: fileConfig.tunnel.zrok?.persistent,
     tunnelWatchdog: fileConfig.tunnel.watchdog,
     authConfig: fileConfig.auth,
     maxEventsPerSession: fileConfig.memoryLimits.maxEventsPerSession,

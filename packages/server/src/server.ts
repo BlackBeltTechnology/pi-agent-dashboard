@@ -120,7 +120,7 @@ import { sessionToMeta } from "./session/session-to-meta.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, type TerminalManager } from "./terminal/terminal-manager.js";
-import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
+import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
 import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
@@ -139,7 +139,10 @@ export interface ServerConfig {
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
   tunnel: boolean;
-  tunnelReservedToken?: string;
+  /** v2 reserved NAME sourced from `tunnel.zrok.reservedName`. */
+  tunnelReservedName?: string;
+  /** v2 persistence opt-in sourced from `tunnel.zrok.persistent`. */
+  tunnelPersistent?: boolean;
   tunnelWatchdog?: {
     enabled: boolean;
     intervalMs: number;
@@ -1963,11 +1966,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
       if (config.tunnel) {
         if (hasZrok) {
-          const tunnelUrl = await createTunnel(config.port, config.tunnelReservedToken);
+          // v2: resolve the reserved NAME (stored or minted-when-persistent),
+          // cache it so watchdog recycles reuse the SAME name (stable URL).
+          const reservedName = ensureReservedName({
+            reservedName: config.tunnelReservedName,
+            persistent: config.tunnelPersistent,
+          });
+          config.tunnelReservedName = reservedName;
+          const tunnelUrl = await createTunnel(config.port, reservedName);
           if (tunnelUrl) {
             console.log(`🌐 Tunnel: ${tunnelUrl}`);
             // Start the watchdog so a stale zrok edge connection is detected
-            // and recycled automatically (preserves reserved token / URL).
+            // and recycled automatically (preserves reserved name / URL).
             const wd = config.tunnelWatchdog;
             if (wd?.enabled !== false) {
               startTunnelWatchdog(
@@ -1975,7 +1985,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   getUrl: getTunnelUrl,
                   recycle: async () => {
                     await deleteTunnel(config.port);
-                    return await createTunnel(config.port, config.tunnelReservedToken);
+                    return await createTunnel(config.port, config.tunnelReservedName);
                   },
                 },
                 wd,
