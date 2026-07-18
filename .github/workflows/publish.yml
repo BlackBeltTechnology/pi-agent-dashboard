@@ -316,6 +316,9 @@ jobs:
             "@blackbelt-technology/pi-dashboard-video-transcription"
             "@blackbelt-technology/pi-dashboard-session-distiller"
             "@blackbelt-technology/pi-dashboard-distill-session-knowledge"
+            "@blackbelt-technology/pi-dashboard-code-review-toolkit"
+            "@blackbelt-technology/pi-dashboard-frontend-patterns"
+            "@blackbelt-technology/pi-dashboard-openspec-workflow"
             "@blackbelt-technology/pi-agent-dashboard"
           )
           VERSION="${{ needs.resolve.outputs.version }}"
