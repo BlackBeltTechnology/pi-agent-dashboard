@@ -2,7 +2,8 @@ import type { ContextUsageInfo } from "../components/SessionList.js";
 
 /** Minimal shape of an event-reduced session state needed for context usage. */
 interface StateLike {
-  contextUsage?: ContextUsageInfo;
+  contextUsage?: { tokens: number | null; contextWindow: number };
+  compaction?: import("../components/SessionList.js").ContextUsageInfo["compaction"];
 }
 
 /** Minimal shape of a server-persisted session needed for context usage. */
@@ -23,10 +24,15 @@ export function buildContextUsageMap(
   sessions: Map<string, SessionLike>,
 ): Map<string, ContextUsageInfo> {
   const map = new Map<string, ContextUsageInfo>();
-  // First: populate from event-reduced state (live sessions).
+  // First: populate from event-reduced state (live sessions). Merge in the
+  // compaction metadata (sibling field on the reducer state) so the
+  // ContextUsageBar can render its badge. See change: adopt-pi-074-080-features.
   for (const [id, state] of sessionStates) {
     if (state.contextUsage) {
-      map.set(id, state.contextUsage);
+      map.set(id, {
+        ...state.contextUsage,
+        ...(state.compaction ? { compaction: state.compaction } : {}),
+      });
     }
   }
   // Second: fill in from server-persisted session data (covers all sessions).
