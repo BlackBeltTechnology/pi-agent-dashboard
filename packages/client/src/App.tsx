@@ -880,7 +880,14 @@ export default function App() {
       {
         const st = sessionStates.get(sid);
         if (st) {
+          // De-dup by state.id: a subagent dual-indexed under both its agentId
+          // and its agentSessionId appears twice in .values() as the SAME ref,
+          // so skip the alias to avoid a duplicate resync request (invariant N1).
+          // See change: resolve-subagent-inspector-by-session-id.
+          const seen = new Set<string>();
           for (const sub of st.subagents.values()) {
+            if (seen.has(sub.id)) continue;
+            seen.add(sub.id);
             if (sub.status === "running" && (!sub.entries || sub.entries.length === 0)) {
               send({ type: "subagent_resync_request", sessionId: sid, agentId: sub.id });
             }
