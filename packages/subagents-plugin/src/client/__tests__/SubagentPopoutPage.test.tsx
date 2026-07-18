@@ -3,13 +3,14 @@
  *
  * See change: add-subagent-inspector.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
-import React from "react";
-import { SubagentPopoutPage } from "../SubagentPopoutPage.js";
-import type { SessionStateLike } from "../SubagentDetailView.js";
-import type { SubagentState } from "../types.js";
+
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
+import { cleanup, render, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it } from "vitest";
+import type { SessionStateLike } from "../SubagentDetailView.js";
+import { SubagentPopoutPage } from "../SubagentPopoutPage.js";
+import type { SubagentState } from "../types.js";
 
 const MockMarkdown: React.FC<{ content: string }> = ({ content }) => <div data-testid="md">{content}</div>;
 

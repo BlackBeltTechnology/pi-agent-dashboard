@@ -17,6 +17,7 @@ import type { FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Loader } from "@earendil-works/pi-tui";
 import { AbortLatch } from "./abort-latch.js";
+import { nativeAgentSettledSupported, settleFollowUp } from "./agent-settled.js";
 import { isUnderArtifactRoot, resolveArtifactRoots } from "./artifact-roots.js";
 import {
   MAX_PER_MESSAGE_BYTES as ATTACH_MAX_PER_MESSAGE_BYTES,
@@ -42,12 +43,11 @@ import { FLOW_EVENT_MAP, registerFlowEventListeners, SUBAGENT_EVENT_MAP } from "
 import { runGitPollTick } from "./git-poll.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
-import { defaultReadPiVersion, resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
-import { nativeAgentSettledSupported, settleFollowUp } from "./agent-settled.js";
-import { decideProjectTrust, readEventCwd } from "./project-trust.js";
+import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, defaultReadPiVersion } from "./model-tracker.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
 import { getOwnPgid, scanChildProcesses } from "./process-scanner.js";
+import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
