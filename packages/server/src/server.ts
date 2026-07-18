@@ -1693,6 +1693,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   const result = await spawnPiSession(opts.cwd, {
                     strategy: "headless",
                     ...(opts.model ? { model: opts.model } : {}),
+                    // Flow/automation runs know an intended name — set it at
+                    // creation via `--name`. See change: adopt-pi-074-080-features.
+                    ...(opts.automationRun?.name ? { name: opts.automationRun.name } : {}),
                   });
                   if (result.process && result.pid) {
                     browserGateway.headlessPidRegistry.register(

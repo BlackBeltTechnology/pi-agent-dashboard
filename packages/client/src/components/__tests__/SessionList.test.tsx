@@ -578,6 +578,19 @@ describe("SessionList folder-home open affordance", () => {
     // stopPropagation kept the collapse toggle from firing: still expanded.
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
   });
+
+  // directory-card-clickable-select: the whole header row is clickable to open
+  // the directory home (like clicking a session card selects its session).
+  // Collapse moved solely to the chevron, so the row navigates AND stays
+  // expanded.
+  it("clicking the whole header row navigates to the folder home without collapsing", () => {
+    const { cwd } = renderPinned();
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+    fireEvent.click(screen.getByTestId(`folder-home-row-${cwd}`));
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+    // Row navigates but does not collapse: the chevron owns collapse now.
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+  });
 });
 
 // enable-workspace-folder-home-page — the open affordance now renders on

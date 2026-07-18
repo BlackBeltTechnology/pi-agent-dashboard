@@ -26,7 +26,7 @@ Files in this directory. One row per source file.
 | `CommitDialog.tsx` | Placement-agnostic commit dialog (`cwd` + `sessionId`). File picker (checkbox + `+/−`, select-all/none),… → see `CommitDialog.tsx.AGENTS.md` |
 | `ComposerSessionActions.tsx` | Composer-side session-action strip. Hosts OpenSpec artifact chips + action buttons + Git groups. → see `ComposerSessionActions.tsx.AGENTS.md` |
 | `ConnectionStatusBanner.tsx` | Disconnection banner: appears only after active WebSocket has been non-`OPEN` for &gt;3s continuously; hidden… → see `ConnectionStatusBanner.tsx.AGENTS.md` |
-| `ContextUsageBar.tsx` | Progress bar showing context-window usage. Exports `ContextUsageBar`. → see `ContextUsageBar.tsx.AGENTS.md` |
+| `ContextUsageBar.tsx` | Progress bar showing context-window usage. Exports `ContextUsageBar`; optional `compaction` prop renders a `compaction-badge` (reason label + `−<reduction>`, e.g. `auto-threshold −12.4k`) via `deriveCompactionBadge`; absent → no badge. See change: adopt-pi-074-080-features. → see `ContextUsageBar.tsx.AGENTS.md` |
 | `CopyButton.tsx` | Clipboard copy button with copied-state check icon. Exports `CopyButton`. Calls `navigator.clipboard.writeText`; resets state after 1500ms. Fails silently when Clipboard API unavailable. |
 | `CountBadges.tsx` | Shared `+adds −dels` count badges. See change: add-change-summary-table. |
 | `CwdGonePill.tsx` | Red `cwd gone` pill next to `WorktreePill` when `session.cwdMissing`. See change: add-worktree-lifecycle-actions. |

@@ -117,6 +117,12 @@ export interface SessionOptions {
    * add-automation-plugin.
    */
   model?: string;
+  /**
+   * Optional session name appended as `--name <name>` (pi 0.78.0+) so a
+   * worktree / flow spawn lands with an intended title at creation instead of
+   * relying only on post-hoc auto-naming. See change: adopt-pi-074-080-features.
+   */
+  name?: string;
 }
 
 export interface SpawnResult {

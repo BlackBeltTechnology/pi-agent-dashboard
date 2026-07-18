@@ -1,4 +1,5 @@
 import React from "react";
+import { type CompactionState, deriveCompactionBadge } from "../lib/event-reducer.js";
 
 interface Props {
   /** Tokens used, or null/undefined if unknown */
@@ -7,6 +8,13 @@ interface Props {
   contextWindow: number | undefined;
   /** Compact inline mode: fixed width, no percentage text */
   compact?: boolean;
+  /**
+   * Compaction metadata from the most recent `session_compact` (pi
+   * 0.79.8/0.79.10+). When present with a `reason`, a small badge renders
+   * next to the bar (e.g. `auto-threshold −12.4k`). Absent → no badge, bar
+   * identical to today. See change: adopt-pi-074-080-features (C.1).
+   */
+  compaction?: CompactionState;
 }
 
 function getBarColor(pct: number): string {
@@ -15,9 +23,10 @@ function getBarColor(pct: number): string {
   return "bg-green-500";
 }
 
-export function ContextUsageBar({ tokens, contextWindow, compact }: Props) {
+export function ContextUsageBar({ tokens, contextWindow, compact, compaction }: Props) {
   const hasData = tokens != null && contextWindow != null && contextWindow > 0;
   const pct = hasData ? Math.min(100, (tokens / contextWindow) * 100) : 0;
+  const badge = deriveCompactionBadge(compaction);
 
   return (
     <div className={compact ? "flex items-center w-16" : "flex items-center gap-2"} data-testid="context-usage-bar">
@@ -36,6 +45,15 @@ export function ContextUsageBar({ tokens, contextWindow, compact }: Props) {
       {hasData && !compact && (
         <span className="text-[10px] text-[var(--text-tertiary)] tabular-nums" data-testid="context-usage-pct">
           {Math.round(pct)}%
+        </span>
+      )}
+      {badge && (
+        <span
+          className="flex-shrink-0 inline-flex items-center gap-0.5 px-1 py-0 text-[10px] rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 tabular-nums whitespace-nowrap"
+          data-testid="compaction-badge"
+          title={`Context compacted (${badge.label})${badge.reductionText ? ` ${badge.reductionText} tokens` : ""}`}
+        >
+          {badge.reductionText ? `${badge.label} ${badge.reductionText}` : badge.label}
         </span>
       )}
     </div>

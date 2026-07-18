@@ -91,7 +91,7 @@ Files in this directory. One row per source file.
 | `plugin-intent-cache.ts` | Server-side cache of most recent plugin intent per `(pluginId, sessionId, slot)`. → see `plugin-intent-cache.ts.AGENTS.md` |
 | `preferences-store.ts` | Global UI preferences store — JSON-backed with debounced writes. → see `preferences-store.ts.AGENTS.md` |
 | `process-classifier.ts` | Pure process classifier. Enriches scanned `process_list` entries with `kind`, `label`, `sessionRef` by… → see `process-classifier.ts.AGENTS.md` |
-| `process-manager.ts` | Spawns/kills pi sessions. Exports `spawnPiSession`, `buildSpawnEnv`, `buildHeadlessArgs`,… → see `process-manager.ts.AGENTS.md` |
+| `process-manager.ts` | Spawns/kills pi sessions. Exports `spawnPiSession`, `buildSpawnEnv`, `buildHeadlessArgs`,… `SessionOptions.name` threads through `sessionFlagsToArgv` → `--name` at spawn (flow/automation runs pass `automationRun.name` from server.ts). See change: adopt-pi-074-080-features. → see `process-manager.ts.AGENTS.md` |
 | `proposal-attach-naming.ts` | Pure helpers for idempotent attach/detach auto-rename rule. → see `proposal-attach-naming.ts.AGENTS.md` |
 | `provider-auth-handlers.ts` | OAuth provider handlers for browser-based provider auth. Exports `AuthCodeHandler`, `DeviceCodeHandler`,… → see `provider-auth-handlers.ts.AGENTS.md` |
 | `provider-auth-storage.ts` | Reads/writes `~/.pi/agent/auth.json` for pi provider credentials via `proper-lockfile` + atomic write. → see `provider-auth-storage.ts.AGENTS.md` |

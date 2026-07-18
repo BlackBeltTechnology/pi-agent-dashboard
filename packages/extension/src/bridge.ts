@@ -26,7 +26,7 @@ import {
 import { registerAskUserTool } from "./ask-user-tool.js";
 import { type AutoNamer, createAutoNamer, type StreamSimpleFn } from "./auto-session-namer.js";
 import type { BridgeContext } from "./bridge-context.js";
-import { extractFirstAssistantReply, extractFirstMessage, filterHiddenCommands, getCurrentModelString } from "./bridge-context.js";
+import { extractFirstAssistantReply, extractFirstMessage, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { registerCanvasTool } from "./canvas-tool.js";
 import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
@@ -42,7 +42,9 @@ import { FLOW_EVENT_MAP, registerFlowEventListeners, SUBAGENT_EVENT_MAP } from "
 import { runGitPollTick } from "./git-poll.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
-import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
+import { defaultReadPiVersion, resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
+import { nativeAgentSettledSupported, settleFollowUp } from "./agent-settled.js";
+import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
 import { getOwnPgid, scanChildProcesses } from "./process-scanner.js";
@@ -283,6 +285,24 @@ function initBridge(pi: ExtensionAPI) {
     prev.dashboardSpawned = !!process.env.PI_DASHBOARD_SPAWN_TOKEN;
   }
   const dashboardSpawned = prev.dashboardSpawned;
+
+  // Capture the cwd at bridge ACTIVATION (module scope). `project_trust` fires
+  // during resource-loader reload — BEFORE `session_start` reaches extension
+  // handlers — so a cwd captured at session_start would still be undefined
+  // when the trust handler runs. For a fresh headless spawn this IS the
+  // dashboard-provided spawn cwd. See change: adopt-pi-074-080-features (A.3).
+  const activationCwd = process.cwd();
+
+  // Does the running pi emit `agent_settled` natively (≥ 0.80.4)? Read once at
+  // activation. Floor pi → the bridge synthesizes a settle after each
+  // `agent_end`. Read failure → false → synthesize (safe default: the
+  // dashboard still gets exactly one terminal settle). See change:
+  // adopt-pi-074-080-features (A.1).
+  let piEmitsNativeSettled = false;
+  try {
+    piEmitsNativeSettled = nativeAgentSettledSupported(defaultReadPiVersion());
+  } catch { /* unknown version → synthesize */ }
+
   let promptBus: PromptBus | undefined;
 
   // Provider-retry synthesis tracker. pi's ExtensionAPI does not expose
@@ -1419,6 +1439,7 @@ function initBridge(pi: ExtensionAPI) {
   const enrichedEventTypes = [
     "agent_start",
     "agent_end",
+    "agent_settled",
     "turn_start",
     "turn_end",
     "message_start",
@@ -1474,6 +1495,13 @@ function initBridge(pi: ExtensionAPI) {
         if (abortLatch.shouldAbort(sessionId)) {
           try { cachedCtx?.abort?.(); } catch { /* idempotent */ }
         }
+      }
+      if (eventType === "agent_settled") {
+        // Terminal settle (native pi ≥ 0.80.4, fires once after the run loop).
+        // Clear streaming and forward as-is; no synth. On floor pi this branch
+        // never fires from a real event (pi does not emit it) — the synth path
+        // below handles it. See change: adopt-pi-074-080-features (A.1).
+        getBridgeState().isAgentStreaming = false;
       }
       if (eventType === "agent_end") {
         getBridgeState().isAgentStreaming = false;
@@ -1817,6 +1845,16 @@ function initBridge(pi: ExtensionAPI) {
 
       const msg = mapEventToProtocol(sessionId, event);
       connection.send(msg);
+
+      // Floor-pi settle synthesis: pi < 0.80.4 never emits `agent_settled`, so
+      // synthesize one synchronously right after each forwarded `agent_end`.
+      // The dashboard then receives exactly one terminal settle on every pi.
+      // Native pi returns null here (its real settle arrives on its own).
+      // See change: adopt-pi-074-080-features (A.1).
+      const synthSettle = settleFollowUp(eventType, piEmitsNativeSettled, Date.now());
+      if (synthSettle) {
+        connection.send({ type: "event_forward", sessionId, event: synthSettle });
+      }
     }));
   }
 
@@ -1830,6 +1868,48 @@ function initBridge(pi: ExtensionAPI) {
       connection.send(msg);
     }));
   }
+
+  // Push external renames the moment they happen (pi 0.80.3+ session_info_changed)
+  // instead of waiting for the turn-end name poll. The new name is routed
+  // through the auto-namer's self-filter: the bridge's OWN auto-name echoing
+  // back is classified self (no push, no lockout); a dashboard / in-pi rename
+  // is classified external → one session_name_update{nameSource:"user"} +
+  // permanent lockout. The turn-end poll (runAutoNameOnTurnEnd) stays as a
+  // fallback for pi builds that do not emit this event. See change:
+  // adopt-pi-074-080-features (A.2).
+  try {
+    pi.on("session_info_changed" as any, safe(async (event: any) => {
+      if (!isActive() || !sessionReady) return;
+      const name = typeof event?.name === "string" ? event.name : pi.getSessionName();
+      if (typeof name === "string" && name.length > 0) {
+        getAutoNamer().onObservedName(name);
+      }
+    }));
+  } catch { /* older pi: no session_info_changed — poll fallback covers it */ }
+
+  // Auto-decide project_trust for dashboard-spawned headless sessions (pi
+  // 0.79.0+). The event fires during resource-loader reload, BEFORE
+  // session_start reaches handlers, so the gate compares the event cwd to the
+  // ACTIVATION cwd (captured at module scope above). Reads eventCwd from the
+  // per-event ctx inside try/catch (ctx.cwd throws after session replacement).
+  // Any non-match — or a throw — defers to pi's default. See change:
+  // adopt-pi-074-080-features (A.3).
+  try {
+    pi.on("project_trust" as any, safe((event: any, ctx: any) => {
+      // Return the pi trust decision. A newer bridge taking over, or any
+      // non-match, defers. `remember:false` = trust for THIS run only.
+      if (!isActive()) return { trusted: "undecided" };
+      const decision = decideProjectTrust({
+        dashboardSpawned,
+        isHeadless: isHeadlessRpcSession(),
+        eventCwd: readEventCwd(event, ctx),
+        activationCwd,
+      });
+      return decision === "trust"
+        ? { trusted: "yes", remember: false }
+        : { trusted: "undecided" };
+    }));
+  } catch { /* older pi: no project_trust event — no-op */ }
 
   // Per-turn system-prompt injector: splice dashboard session context
   // (sessionId, cwd, attached OpenSpec change) into the system prompt. Reads
