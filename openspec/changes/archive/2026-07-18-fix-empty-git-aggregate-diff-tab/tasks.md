@@ -25,5 +25,5 @@
 
 ## 6. Manual QA (verify later)
 
-- [ ] 6.1 In a worktree with a git-tracked, edited file, open a `diff:` tab from the ChatView change-list → Diff view shows the change (non-empty); File toggle still shows current content. (Reproduces the original report.)
-- [ ] 6.2 Open a `diff:` tab for a non-git file created by a bash command → Diff view shows the write/edit diff, not the empty note.
+- [x] 6.1 In a worktree with a git-tracked, edited file, open a `diff:` tab from the ChatView change-list → Diff view shows the change (non-empty); File toggle still shows current content. (Reproduces the original report.)
+- [x] 6.2 Open a `diff:` tab for a non-git file created by a bash command → Diff view shows the write/edit diff, not the empty note.
