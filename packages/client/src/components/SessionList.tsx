@@ -65,6 +65,9 @@ import { WorktreeSpawnDialog } from "./WorktreeSpawnDialog.js";
 export interface ContextUsageInfo {
   tokens: number | null;
   contextWindow: number;
+  /** Compaction metadata for the ContextUsageBar badge (live sessions only).
+   * See change: adopt-pi-074-080-features (C.1). */
+  compaction?: import("../lib/event-reducer.js").CompactionState;
 }
 
 /** Escape a session id for a `[data-session-id="…"]` selector. */

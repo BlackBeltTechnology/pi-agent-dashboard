@@ -117,6 +117,65 @@ export interface ToolCallState {
   emittedAtInferenceSeq?: number;
 }
 
+export type CompactionReason = "manual" | "threshold" | "overflow";
+
+export interface CompactionState {
+  reason?: CompactionReason;
+  willRetry?: boolean;
+  estimatedPostCompactionTokens?: number;
+  /** Snapshot of contextUsage.tokens at compaction time (for the reduction). */
+  preCompactionTokens?: number;
+}
+
+/** Map a compaction `reason` to its human badge label. Pure. */
+export function compactionReasonLabel(reason: CompactionReason): string {
+  switch (reason) {
+    case "manual":
+      return "manual";
+    case "threshold":
+      return "auto-threshold";
+    case "overflow":
+      return "overflow-retry";
+  }
+}
+
+/** Abbreviate a token count: 12400 → "12.4k", 8000 → "8k", 800 → "800". Pure. */
+export function abbreviateTokens(n: number): string {
+  if (n < 1000) return String(n);
+  const k = n / 1000;
+  return `${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}k`;
+}
+
+/** Derived compaction badge content, or null when there is nothing to show. */
+export interface CompactionBadge {
+  label: string;
+  /** e.g. "\u221212.4k"; empty string when the reduction is unknown. */
+  reductionText: string;
+}
+
+/**
+ * Derive the compaction badge from session compaction state. Returns null when
+ * there is no `reason` (nothing to annotate). The reduction is
+ * `preCompactionTokens - estimatedPostCompactionTokens`, abbreviated and
+ * prefixed with a U+2212 minus; when either token count is missing (or the
+ * reduction is non-positive) `reductionText` is empty and only the label
+ * renders. Pure — unit-testable independently of the DOM. See change:
+ * adopt-pi-074-080-features (C.1).
+ */
+export function deriveCompactionBadge(c: CompactionState | undefined): CompactionBadge | null {
+  if (!c || !c.reason) return null;
+  const label = compactionReasonLabel(c.reason);
+  let reductionText = "";
+  if (
+    typeof c.preCompactionTokens === "number" &&
+    typeof c.estimatedPostCompactionTokens === "number"
+  ) {
+    const reduction = c.preCompactionTokens - c.estimatedPostCompactionTokens;
+    if (reduction > 0) reductionText = `\u2212${abbreviateTokens(reduction)}`;
+  }
+  return { label, reductionText };
+}
+
 export interface TurnStat {
   input: number;
   output: number;
@@ -208,6 +267,14 @@ export interface SessionState {
   status: "idle" | "streaming" | "ended";
   turnStats: TurnStat[];
   contextUsage?: { tokens: number | null; contextWindow: number };
+  /**
+   * Compaction metadata captured from the most recent `session_compact` (pi
+   * 0.79.8/0.79.10+). Absent when pi carried none of the fields (legacy
+   * event). `preCompactionTokens` snapshots `contextUsage.tokens` at compact
+   * time so the badge can show the approximate reduction. Drives the
+   * ContextUsageBar compaction badge. See change: adopt-pi-074-080-features (C.1).
+   */
+  compaction?: CompactionState;
   pendingPrompt?: PendingPrompt;
   interactiveRequests: InteractiveUiRequest[];
   /** Whether any Write/Edit tool calls have been seen (for Changed Files button) */
@@ -1048,8 +1115,15 @@ export function reduceEvent(
     }
 
     case "agent_end": {
+      // agent_end fires per agent-run iteration (retries / queued follow-ups
+      // still pending). It sets the INTERMEDIATE `"ended"` state and clears
+      // streaming; only `agent_settled` (real ≥ 0.80.4, or bridge-synthesized
+      // on floor pi — see bridge agent-settled.ts) resolves `"idle"`. All the
+      // existing side-effects (last-error extraction, retry/pendingPrompt
+      // clearing) stay here; only the `status:"idle"` line moved to the settle
+      // arm. See change: adopt-pi-074-080-features (A.1).
       next.isStreaming = false;
-      next.status = "idle";
+      next.status = "ended";
       next.streamingText = "";
       next.currentTool = undefined;
       next.pendingPrompt = undefined;
@@ -1063,6 +1137,19 @@ export function reduceEvent(
         next.lastError = undefined;
       }
       next.retryState = undefined;
+      break;
+    }
+
+    case "agent_settled": {
+      // The single terminal signal that resolves `"idle"`. The bridge
+      // guarantees exactly one per run (real on pi ≥ 0.80.4, synthesized
+      // synchronously after `agent_end` on floor pi), so this arm needs no
+      // version / capability branch and no timer. Defensive on an illegal
+      // settle with no preceding `agent_end` (X2): still resolves idle and
+      // clears streaming without crashing. See change:
+      // adopt-pi-074-080-features (A.1).
+      next.isStreaming = false;
+      next.status = "idle";
       break;
     }
 
@@ -1774,6 +1861,30 @@ export function reduceEvent(
           timestamp: event.timestamp,
         },
       ];
+      // Capture compaction metadata (pi 0.79.8/0.79.10+) when present. Absent
+      // fields leave state unchanged from today (legacy event = no badge).
+      // preCompactionTokens snapshots the current usage so the badge can show
+      // the approximate reduction. See change: adopt-pi-074-080-features (C.1).
+      const rawReason = data.reason;
+      const reason =
+        rawReason === "manual" || rawReason === "threshold" || rawReason === "overflow"
+          ? (rawReason as CompactionReason)
+          : undefined;
+      const willRetry = typeof data.willRetry === "boolean" ? data.willRetry : undefined;
+      const estimatedPostCompactionTokens =
+        typeof data.estimatedPostCompactionTokens === "number"
+          ? data.estimatedPostCompactionTokens
+          : undefined;
+      if (reason !== undefined || willRetry !== undefined || estimatedPostCompactionTokens !== undefined) {
+        next.compaction = {
+          ...(reason !== undefined ? { reason } : {}),
+          ...(willRetry !== undefined ? { willRetry } : {}),
+          ...(estimatedPostCompactionTokens !== undefined ? { estimatedPostCompactionTokens } : {}),
+          ...(state.contextUsage?.tokens != null
+            ? { preCompactionTokens: state.contextUsage.tokens }
+            : {}),
+        };
+      }
       break;
     }
 

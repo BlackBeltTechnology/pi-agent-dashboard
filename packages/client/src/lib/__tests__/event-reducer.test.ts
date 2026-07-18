@@ -317,14 +317,23 @@ describe("eventReducer", () => {
     expect(state.messages[0].toolDetails).toBeUndefined();
   });
 
-  it("should set status to idle on agent_end", () => {
-    const state = applyEvents([
+  it("should set status to ended on agent_end, then idle on agent_settled", () => {
+    // agent_end is now the INTERMEDIATE terminal; agent_settled resolves idle.
+    // See change: adopt-pi-074-080-features (A.1).
+    const ended = applyEvents([
       { eventType: "agent_start", timestamp: Date.now(), data: {} },
       { eventType: "agent_end", timestamp: Date.now(), data: { messages: [] } },
     ]);
+    expect(ended.status).toBe("ended");
+    expect(ended.isStreaming).toBe(false);
 
-    expect(state.status).toBe("idle");
-    expect(state.isStreaming).toBe(false);
+    const settled = applyEvents([
+      { eventType: "agent_start", timestamp: Date.now(), data: {} },
+      { eventType: "agent_end", timestamp: Date.now(), data: { messages: [] } },
+      { eventType: "agent_settled", timestamp: Date.now(), data: {} },
+    ]);
+    expect(settled.status).toBe("idle");
+    expect(settled.isStreaming).toBe(false);
   });
 
   it("should handle a full conversation sequence", () => {
@@ -361,8 +370,9 @@ describe("eventReducer", () => {
         timestamp: now + 5,
         data: { message: { role: "assistant" } },
       },
-      // Agent ends
+      // Agent ends, then settles (bridge guarantees one terminal settle).
       { eventType: "agent_end", timestamp: now + 6, data: { messages: [] } },
+      { eventType: "agent_settled", timestamp: now + 7, data: {} },
     ]);
 
     expect(state.messages).toHaveLength(3); // user + tool (added on start, updated on end) + assistant
@@ -2415,7 +2425,9 @@ describe("lastError extraction from agent_end", () => {
       },
     ]);
     expect(state.lastError).toEqual({ message: "Rate limit exceeded", timestamp: 1000 });
-    expect(state.status).toBe("idle");
+    // agent_end sets the intermediate "ended"; lastError extraction is a
+    // preserved agent_end side-effect. See change: adopt-pi-074-080-features.
+    expect(state.status).toBe("ended");
     expect(state.isStreaming).toBe(false);
   });
 

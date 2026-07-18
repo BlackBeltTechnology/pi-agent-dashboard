@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Session idle transition resolves on agent_settled
 
@@ -20,8 +20,6 @@ Because the bridge guarantees exactly one `agent_settled` per run — real (once
 - **WHEN** `agent_end` carries a provider error / pending retry
 - **THEN** the reducer SHALL still extract last-error and clear `retryState`/`pendingPrompt` on `agent_end`
 - **AND** SHALL defer only the `status:"idle"` assignment to the `agent_settled` arm
-
-## ADDED Requirements
 
 ### Requirement: Reducer captures compaction reason, willRetry, and post-compact estimate
 

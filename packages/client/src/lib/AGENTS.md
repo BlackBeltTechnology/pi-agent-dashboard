@@ -17,7 +17,7 @@ Files in this directory. One row per source file.
 | `collapse-retried-errors.ts` | ChatView duplicate-collapse helpers. `findRetriedErrorIds` flags failed `toolResult` superseded by successful… → see `collapse-retried-errors.ts.AGENTS.md` |
 | `command-filter.ts` | Exports `filterCommands(commands, filter)` — case-insensitive substring match on `CommandInfo.name` or `description`. Returns input unchanged when filter empty. |
 | `context-gradient.ts` | Exports `contextGradientColor(percent)` — HSL interpolation green(0%)→yellow(50%)→red(100%) for context-usage bar. Clamps 0–100. |
-| `context-usage.ts` | Exports `buildContextUsageMap(sessionStates, sessions): Map<string, ContextUsageInfo>`. → see `context-usage.ts.AGENTS.md` |
+| `context-usage.ts` | Exports `buildContextUsageMap(sessionStates, sessions): Map<string, ContextUsageInfo>`; merges reducer `state.compaction` into the live-tier entry (badge). See change: adopt-pi-074-080-features. → see `context-usage.ts.AGENTS.md` |
 | `cwd-visibility.ts` | Pure `isVisibleCwd(cwd, {pinnedDirectories, workspaces, sessions, platform?})`. → see `cwd-visibility.ts.AGENTS.md` |
 | `diff-tree.ts` | Builds directory tree from flat `FileDiffEntry[]`. Exports `TreeNode`, `buildFileTree` (sorts dirs-first alpha, collapses single-child dir chains), `OUTSIDE_WORKSPACE_PATH`. Out-of-cwd entries (`previewable === false`, absolute key) are NOT split into the relative tree (would yield a blank-root node); they collect under a synthetic "outside workspace" group node (basename leaves). See change: opt-in-out-of-cwd-session-diffs. |
 | `DisplayPrefsContext.tsx` | React context exposing `{ global: DisplayPrefs|undefined, getSessionOverride(id):… → see `DisplayPrefsContext.tsx.AGENTS.md` |
@@ -25,7 +25,7 @@ Files in this directory. One row per source file.
 | `document-title.ts` | Exports `buildDocumentTitle(session, folderCwd?)` — derives `<projectDir>` from `cwd` last segment, composes `"<name> (<dir>) — PI Dashboard"` title. Falls back to folder cwd or `"PI Dashboard"`. |
 | `draft-storage.ts` | Per-session chat-input draft persistence in `localStorage` under `chat-draft:<sessionId>`. → see `draft-storage.ts.AGENTS.md` |
 | `editor-pane-state.ts` | Per-session pane state + localStorage persistence under `pi-dashboard:editor-pane:<sessionId>`. → see `editor-pane-state.ts.AGENTS.md` |
-| `event-reducer.ts` | `ChatMessage` gains `view?: ViewTarget` field. View rows produced by server-side `ViewMessageStore` are… → see `event-reducer.ts.AGENTS.md` |
+| `event-reducer.ts` | `ChatMessage` gains `view?: ViewTarget` field. View rows produced by server-side `ViewMessageStore` are… `agent_end`→`status:"ended"` (intermediate), `agent_settled`→`status:"idle"` (the single terminal signal; no version/timer branch); `session_compact` captures `reason`/`willRetry`/`estimatedPostCompactionTokens`+`preCompactionTokens` into `state.compaction`; pure `compactionReasonLabel`/`abbreviateTokens`/`deriveCompactionBadge`. See change: adopt-pi-074-080-features. → see `event-reducer.ts.AGENTS.md` |
 | `extract-urls.ts` | Pure `extractRecentUrls(messages: ChatMessage[]): string[]`. → see `extract-urls.ts.AGENTS.md` |
 | `tree-visible.ts` | `useTreeVisible(sessionId)` + load/save. Persists editor-pane rail show/hide boolean under… → see `tree-visible.ts.AGENTS.md` |
 | `live-server-api.ts` | Client helper for live-server REST. `listLiveServers()`, `startLiveServer({host,port,label})` (pre-validates… → see `live-server-api.ts.AGENTS.md` |
