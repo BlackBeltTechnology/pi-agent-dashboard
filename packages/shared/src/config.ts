@@ -746,7 +746,8 @@ export function normalizeTunnelConfig(
   // NEVER promote it to reservedName (a name is not a token). Surface the v2
   // reservedName + persistent when present; persistent defaults to false.
   const rawZrok = raw?.zrok;
-  const zrokToken = rawZrok?.reservedToken ?? legacyToken;
+  const zrokToken =
+    typeof rawZrok?.reservedToken === "string" ? rawZrok.reservedToken : legacyToken;
   const zrokReservedName = typeof rawZrok?.reservedName === "string" ? rawZrok.reservedName : undefined;
   const zrokPersistent = typeof rawZrok?.persistent === "boolean" ? rawZrok.persistent : false;
   const zrok = {

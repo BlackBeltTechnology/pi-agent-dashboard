@@ -41,9 +41,17 @@ tmux start-server 2>/dev/null || true
 #     container. Enroll only when not already enrolled (idempotent across
 #     restarts on the ~/.zrok2 volume). See change: support-zrok-v2.
 if [ -n "${ZROK_TOKEN:-}" ]; then
-  if [ -f "${HOME}/.zrok2/environment.json" ]; then
-    echo "[entrypoint] zrok already enrolled (~/.zrok2/environment.json present) — skipping enable"
+  ZROK_ENV="${HOME}/.zrok2/environment.json"
+  # Validate the SAME required fields as readZrokEnvironment() — a malformed or
+  # partial environment.json must not permanently suppress enrollment.
+  if jq -e '
+    (.api_endpoint | type == "string" and length > 0) and
+    (.ziti_identity | type == "string" and length > 0) and
+    (.zrok_token | type == "string" and length > 0)
+  ' "${ZROK_ENV}" >/dev/null 2>&1; then
+    echo "[entrypoint] zrok already enrolled (~/.zrok2/environment.json valid) — skipping enable"
   else
+    [ ! -f "${ZROK_ENV}" ] || mv "${ZROK_ENV}" "${ZROK_ENV}.invalid"
     echo "[entrypoint] enrolling zrok v2 (headless)"
     zrok2 enable "${ZROK_TOKEN}" --headless || echo "[entrypoint] zrok enable failed — tunnel will be unavailable"
   fi

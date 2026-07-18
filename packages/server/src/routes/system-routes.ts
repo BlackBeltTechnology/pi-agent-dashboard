@@ -333,7 +333,7 @@ export function registerSystemRoutes(
     return { ok: false, error: "Failed to create tunnel" };
   });
 
-  fastify.post("/api/tunnel-disconnect", async (req) => {
+  fastify.post("/api/tunnel-disconnect", async (req, reply) => {
     // Pass port so orphan zrok processes bound to this endpoint are also
     // swept (not just the one we tracked via pid-file).
     stopTunnelWatchdog();
@@ -342,12 +342,17 @@ export function registerSystemRoutes(
     // disconnect/restart). `{forget:true}` is the ONLY path that releases it:
     // `delete name` + clear config. See change: support-zrok-v2.
     const body = (req.body ?? {}) as { forget?: boolean };
-    if (body.forget) {
+    if (body.forget === true) {
       const name = config.tunnelReservedName;
       if (name) releaseShare(name);
+      const written = writeConfigPartial({ tunnel: { zrok: { reservedName: undefined, persistent: false } } });
+      if (!written.success) {
+        // The name was released remotely but disk still points at it — surface
+        // the failure instead of a misleading ok.
+        return reply.code(500).send({ ok: false, error: written.error ?? "failed to clear reserved name" });
+      }
       config.tunnelReservedName = undefined;
       config.tunnelPersistent = false;
-      writeConfigPartial({ tunnel: { zrok: { reservedName: undefined, persistent: false } } });
     }
     return { ok: true };
   });

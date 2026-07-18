@@ -1,7 +1,7 @@
 # zrok-process-tunnel Specification
 
 ## Purpose
-TBD - restored during archive of change support-zrok-v2. Update Purpose after archive.
+Spawn the zrok share subprocess, parse its public URL, own the PID file, and scavenge orphaned zrok processes.
 ## Requirements
 ### Requirement: Subprocess tunnel management
 The tunnel module SHALL manage the zrok share process lifecycle including spawning,

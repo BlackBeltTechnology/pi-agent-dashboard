@@ -1227,7 +1227,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
             name: "zrok version compatible",
             section: "tunnel",
             status: "warning",
-            message: `zrok v${out.trim()} is too old (v1) — hosted api-v2.zrok.io returns HTTP 500`,
+            message: `${out.trim()} is too old (v1) — hosted api-v2.zrok.io returns HTTP 500`,
             code: "doctor.zrok_version_too_old",
             detail: "Upgrade: `brew upgrade zrok` (macOS) or re-download zrok2 from the v2 release. v1 (0.4.x) cannot talk to the v2 API.",
           };

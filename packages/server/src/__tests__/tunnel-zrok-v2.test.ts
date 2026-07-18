@@ -141,14 +141,9 @@ describe("zrok urlRegex + normalizeUrl (E13/E14/E15)", () => {
   });
 
   it("E15: spoofed *.shares.zrok.io.attacker.com is NOT matched as a zrok host", () => {
-    const m = "foo.shares.zrok.io.attacker.com/x".match(zrokChildSpec.urlRegex);
-    // Either no match, or a match that does not end the host at the spoof domain.
-    if (m) {
-      const host = zrokChildSpec.normalizeUrl!(m[0]);
-      expect(new URL(host).hostname).not.toBe("foo.shares.zrok.io.attacker.com");
-    } else {
-      expect(m).toBeNull();
-    }
+    // The anchored host regex MUST NOT match at all — a partial match whose
+    // host is the attacker domain is exactly the regression this rejects.
+    expect("foo.shares.zrok.io.attacker.com/x".match(zrokChildSpec.urlRegex)).toBeNull();
   });
 });
 
@@ -300,15 +295,20 @@ describe("mintReservedName (X10)", () => {
 
 // ── ensureReservedName routing (X5/X6 support) ──────────────────────
 describe("ensureReservedName", () => {
-  it("returns a stored name verbatim (no mint)", () => {
+  it("serves a stored name ONLY when persistent (no mint)", () => {
     execFileSyncMock.mockReturnValue(Buffer.from(""));
-    expect(ensureReservedName({ reservedName: "stored" })).toBe("stored");
+    expect(ensureReservedName({ reservedName: "stored", persistent: true })).toBe("stored");
     expect(execFileSyncMock).not.toHaveBeenCalled();
   });
 
-  it("returns undefined (ephemeral) when not persistent and no name", () => {
+  it("stays ephemeral for a stored name when persistence is off", () => {
+    expect(ensureReservedName({ reservedName: "stored", persistent: false })).toBeUndefined();
     expect(ensureReservedName({ persistent: false })).toBeUndefined();
     expect(ensureReservedName(undefined)).toBeUndefined();
+  });
+
+  it("rejects a non-DNS-safe stored name (stays ephemeral)", () => {
+    expect(ensureReservedName({ reservedName: "-oops --flag", persistent: true })).toBeUndefined();
   });
 
   it("mints when persistent and no stored name", () => {

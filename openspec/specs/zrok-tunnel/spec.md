@@ -1,7 +1,7 @@
 # zrok-tunnel Specification
 
 ## Purpose
-TBD - restored during archive of change support-zrok-v2. Update Purpose after archive.
+Create zrok public tunnels (ephemeral + v2 reserved-name persistence) and manage the reserved-name lifecycle, binary detection, and status.
 ## Requirements
 ### Requirement: Zrok enrollment detection
 The tunnel module SHALL detect whether zrok is enrolled on the current machine by checking for the existence and validity of `~/.zrok2/environment.json` (v2) or `~/.zrok/environment.json` (v1), preferring v2. If the file exists and contains valid JSON with `api_endpoint`, `ziti_identity`, and `zrok_token` fields, zrok is considered enrolled.

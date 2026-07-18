@@ -1,7 +1,7 @@
 # zrok-v2-runtime Specification
 
 ## Purpose
-TBD - created by archiving change support-zrok-v2. Update Purpose after archive.
+Headless zrok v2 enrollment plus runtime diagnostics (dual-binary resolution, api-v2 reachability, version compatibility).
 ## Requirements
 ### Requirement: Headless server-side enrollment
 The whitelisted enroll executor SHALL run zrok enrollment with the `--headless` flag so it

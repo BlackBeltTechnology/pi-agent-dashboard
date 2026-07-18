@@ -74,17 +74,34 @@ export function loadZrokEnv(): ZrokEnv | null {
   return r.found ? r.env : null;
 }
 
-/** Persist the v2 reserved NAME under `tunnel.zrok.reservedName` (not a secret). */
-function saveReservedName(name: string): void {
+/**
+ * Persist the v2 reserved NAME under `tunnel.zrok.reservedName` (not a secret).
+ * Returns false when the write fails so the caller can avoid serving a name that
+ * would be lost on restart (and orphaned remotely).
+ */
+function saveReservedName(name: string): boolean {
   try {
     const raw = fs.existsSync(CONFIG_FILE)
       ? JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"))
       : {};
     raw.tunnel = { ...raw.tunnel, zrok: { ...raw.tunnel?.zrok, reservedName: name, persistent: true } };
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(raw, null, 2) + "\n");
+    return true;
   } catch (err: any) {
     console.warn(`Failed to save reserved name to config: ${err.message}`);
+    return false;
   }
+}
+
+/**
+ * DNS-safe reserved-name allow-list: a label of alphanumerics + interior
+ * hyphens, no leading hyphen (so an option-like value can never reach argv),
+ * ≤ 63 chars. Guards a config-sourced name before it is passed to zrok. See
+ * change: support-zrok-v2.
+ */
+const RESERVED_NAME_RE = /^[a-z0-9][a-z0-9-]{0,62}$/i;
+export function isDnsSafeReservedName(name: string): boolean {
+  return RESERVED_NAME_RE.test(name);
 }
 
 /** DNS-safe generated name for a fresh reservation (`pi-dash-<8 hex>`). */
@@ -121,19 +138,24 @@ export function releaseShare(name: string): boolean {
  */
 export function mintReservedName(existing?: string): string | null {
   const name = existing || generateReservedName();
+  if (!isDnsSafeReservedName(name)) {
+    console.warn("zrok reserved name is not DNS-safe; falling back to an ephemeral tunnel");
+    return null;
+  }
   try {
     execFileSync(getZrokBinary(), ["create", "name", "-n", "public", name], {
       timeout: 30_000,
       stdio: ["ignore", "ignore", "pipe"],
     });
-    saveReservedName(name);
+    // Persistence is the whole point of a reserved name: if the config write
+    // fails, do NOT serve it (it would be lost on restart + orphaned remotely).
+    if (!saveReservedName(name)) return null;
     return name;
   } catch (err: any) {
     const msg = String(err?.stderr ?? err?.message ?? err);
     // Already reserved by THIS account → reuse it (idempotent reconnect).
     if (/already exist/i.test(msg) && !/another|different account|owned by/i.test(msg)) {
-      saveReservedName(name);
-      return name;
+      return saveReservedName(name) ? name : null;
     }
     // Taken by another account, or any other failure → ephemeral fallback.
     console.warn("zrok create name failed; falling back to an ephemeral tunnel");
@@ -148,9 +170,14 @@ export function mintReservedName(existing?: string): string | null {
  * support-zrok-v2.
  */
 export function ensureReservedName(opts?: { reservedName?: string; persistent?: boolean }): string | undefined {
-  if (opts?.reservedName) return opts.reservedName;
-  if (opts?.persistent) return mintReservedName() ?? undefined;
-  return undefined;
+  // Persistence is opt-in: only `persistent === true` uses/mints a reserved
+  // name. A stored name with persistence off stays ephemeral (design 2a).
+  if (opts?.persistent !== true) return undefined;
+  if (opts.reservedName) {
+    // Validate a config-sourced name before it reaches zrok argv.
+    return isDnsSafeReservedName(opts.reservedName) ? opts.reservedName : undefined;
+  }
+  return mintReservedName() ?? undefined;
 }
 
 /** The zrok slice for the generic child runtime. */
