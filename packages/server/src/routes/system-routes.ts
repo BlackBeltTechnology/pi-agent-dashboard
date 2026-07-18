@@ -26,6 +26,7 @@ import type { DirectoryService } from "../directory-service.js";
 import type { EventLoopSpikeMetrics } from "../eventloop-spike-metrics.js";
 import type { HydrationMetrics } from "../hydration-metrics.js";
 import { computeEffectiveLaunchSource } from "../launch-source-effective.js";
+import { systemOpenCapability } from "../system-open-capability.js";
 import { localhostGuard, netmaskToCidrBits, networkAddress } from "../localhost-guard.js";
 import type { SessionManager } from "../memory-session-manager.js";
 import type { MetaPersistence } from "../meta-persistence.js";
@@ -382,6 +383,11 @@ export function registerSystemRoutes(
       // browser hitting a Linux dashboard must see Linux install commands.
       // See change: register-bash-and-tool-install-help.
       platform: process.platform,
+      // Server-advertised host capabilities. `systemOpen` gates the editor-pane
+      // *Open in system app* / *Reveal in file manager* tab actions: true only
+      // on a desktop-capable host, false headless/container/remote. Computed
+      // once at startup. See change: open-view-command-in-editor-pane (D9).
+      capabilities: { systemOpen: systemOpenCapability() },
       version: version ?? "unknown",
       uptime: Math.floor((Date.now() - serverStartTime) / 1000),
       // ISO timestamp of process start. Used by the Plugins tab to detect

@@ -12,13 +12,18 @@
 import {
   mdiCodeJson,
   mdiCog,
+  mdiEmailOutline,
   mdiFileCodeOutline,
+  mdiFileDelimitedOutline,
   mdiFileDocumentOutline,
+  mdiFileExcelOutline,
   mdiFileImageOutline,
   mdiFileMusicOutline,
   mdiFileOutline,
   mdiFilePdfBox,
+  mdiFilePowerpointOutline,
   mdiFileVideoOutline,
+  mdiFileWordOutline,
   mdiGraphOutline,
   mdiLanguageCss3,
   mdiLanguageGo,
@@ -95,8 +100,16 @@ const ICON_BY_EXT: Record<string, FileIcon> = {
   ".bash": { iconPath: mdiFileCodeOutline, colorClass: "text-[var(--accent-green)]" },
   ".zsh": { iconPath: mdiFileCodeOutline, colorClass: "text-[var(--accent-green)]" },
   ".txt": { iconPath: mdiFileDocumentOutline, colorClass: "" },
-  ".csv": { iconPath: mdiFileDocumentOutline, colorClass: "" },
   ".log": { iconPath: mdiFileDocumentOutline, colorClass: "" },
+  // Rich office / document / email kinds (change: open-view-command-in-editor-pane).
+  ".docx": { iconPath: mdiFileWordOutline, colorClass: "text-[var(--accent-blue)]" },
+  ".pptx": { iconPath: mdiFilePowerpointOutline, colorClass: "text-[var(--accent-orange)]" },
+  ".xlsx": { iconPath: mdiFileExcelOutline, colorClass: "text-[var(--accent-green)]" },
+  ".xls": { iconPath: mdiFileExcelOutline, colorClass: "text-[var(--accent-green)]" },
+  ".csv": { iconPath: mdiFileDelimitedOutline, colorClass: "text-[var(--accent-green)]" },
+  ".adoc": { iconPath: mdiFileDocumentOutline, colorClass: "text-[var(--accent-blue)]" },
+  ".asciidoc": { iconPath: mdiFileDocumentOutline, colorClass: "text-[var(--accent-blue)]" },
+  ".eml": { iconPath: mdiEmailOutline, colorClass: "text-[var(--accent-purple)]" },
 };
 
 const DEFAULT_ICON: FileIcon = { iconPath: mdiFileOutline, colorClass: "" };

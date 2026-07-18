@@ -33,7 +33,7 @@ function setup(
     setSessionOrderMap: vi.fn(), setPinnedDirectories: vi.fn(), setFavoriteModels: vi.fn(),
     setWorkspaces: vi.fn(), setTerminals: vi.fn(), setEditorStatuses: vi.fn(),
     setDiscoveredServers: vi.fn(), setSpawnErrors: vi.fn(), setResumeErrors: vi.fn(),
-    setDisplayPrefs: vi.fn(), setViewMessagesMap: vi.fn(), setLoadingHistory: vi.fn(),
+    setDisplayPrefs: vi.fn(), setLoadingHistory: vi.fn(),
   };
   const deps: any = {
     send: vi.fn(),

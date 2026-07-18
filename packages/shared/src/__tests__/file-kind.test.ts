@@ -124,4 +124,76 @@ describe("fileKind", () => {
   it("is pure — identical inputs give identical output", () => {
     expect(fileKind(abs("a.json"))).toEqual(fileKind(abs("a.json")));
   });
+
+  // --- Rich office / document / email kinds (change: open-view-command-in-editor-pane) ---
+
+  it("E1 classifies .docx as the docx viewer with the office MIME", () => {
+    const r = fileKind(abs("report.docx"));
+    expect(r).toMatchObject({
+      kind: "docx",
+      viewer: "docx",
+      editable: false,
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+  });
+
+  it("E2 classifies .pptx as the pptx viewer", () => {
+    expect(fileKind(abs("deck.pptx"))).toMatchObject({
+      kind: "pptx",
+      viewer: "pptx",
+      editable: false,
+    });
+  });
+
+  it("E3 classifies .xlsx as spreadsheet, NOT editable", () => {
+    expect(fileKind(abs("book.xlsx"))).toMatchObject({
+      kind: "spreadsheet",
+      viewer: "spreadsheet",
+      editable: false,
+    });
+    // .xls too
+    expect(fileKind(abs("legacy.xls"))).toMatchObject({ kind: "spreadsheet", editable: false });
+  });
+
+  it("E4 classifies .csv as spreadsheet, editable", () => {
+    expect(fileKind(abs("data.csv"))).toMatchObject({
+      kind: "spreadsheet",
+      viewer: "spreadsheet",
+      editable: true,
+    });
+  });
+
+  it("E5 classifies .adoc and .asciidoc as the asciidoc viewer", () => {
+    for (const ext of [".adoc", ".asciidoc"]) {
+      expect(fileKind(abs(`doc${ext}`)), ext).toMatchObject({
+        kind: "asciidoc",
+        viewer: "asciidoc",
+        editable: false,
+      });
+    }
+  });
+
+  it("E6 classifies .eml as the email viewer with the rfc822 MIME", () => {
+    expect(fileKind(abs("mail.eml"))).toMatchObject({
+      kind: "email",
+      viewer: "email",
+      editable: false,
+      mimeType: "message/rfc822",
+    });
+  });
+
+  it("E7 is case-insensitive on the rich extensions", () => {
+    expect(fileKind(abs("MAIL.EML"))).toEqual(fileKind(abs("mail.eml")));
+    expect(fileKind(abs("REPORT.DOCX"))).toEqual(fileKind(abs("report.docx")));
+  });
+
+  it("E8 classifies .eml by extension even when sniff has a NUL byte", () => {
+    const r = fileKind(abs("mail.eml"), Buffer.from([0x00, 0x01, 0x02]));
+    expect(r).toMatchObject({ kind: "email", viewer: "email" });
+  });
+
+  it("E9 .csv left TEXT_EXTENSIONS — spreadsheet, not monaco", () => {
+    expect(TEXT_EXTENSIONS.has(".csv")).toBe(false);
+    expect(fileKind(abs("data.csv")).viewer).toBe("spreadsheet");
+  });
 });

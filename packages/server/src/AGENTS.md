@@ -133,7 +133,6 @@ Files in this directory. One row per source file.
 | `tunnel-enroll.ts` | Whitelisted `(provider,step)` enroll executor — `runEnrollStep`, `ENROLL_STEPS`, `isEnrollStepWhitelisted`. → see `tunnel-enroll.ts.AGENTS.md` |
 | `tunnel-core.ts` | Provider-neutral child-tunnel lifecycle. Exports `ChildTunnelRuntime` (PID helpers,… → see `tunnel-core.ts.AGENTS.md` |
 | `tunnel.ts` | Tunnel ("Gateway") integration — thin delegation layer over `tunnel-core.ts` + `tunnel-providers/zrok.ts`… → see `tunnel.ts.AGENTS.md` |
-| `view-message-store.ts` | `ViewMessageStore` class. Per-session JSON store at `~/.pi/dashboard/view-messages/<sid>.json`. → see `view-message-store.ts.AGENTS.md` |
 | `ws-ticket.ts` | Single-use WS upgrade tickets (D11/F4/F6). `WsTicketStore(now?)`: `mint(scope)` high-entropy in-memory ticket… → see `ws-ticket.ts.AGENTS.md` |
 | `viewed-session-tracker.ts` | Exports `ViewedSessionTracker` interface, `createViewedSessionTracker()` — per-session set of viewing… → see `viewed-session-tracker.ts.AGENTS.md` |
 | `worktree-init-errors.ts` | Pure `mapInitStderrToHint(stderr)`. Ordered regex table. Codes: EACCES, EBADENGINE/Unsupported engine,… → see `worktree-init-errors.ts.AGENTS.md` |

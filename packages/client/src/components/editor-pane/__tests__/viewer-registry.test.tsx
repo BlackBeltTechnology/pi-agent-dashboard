@@ -12,6 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api-context.js", () => ({ getApiBase: () => "" }));
 
+import { MAX_PREVIEW_BYTES } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { CappedViewer } from "../CappedViewer.js";
 import { ThemeProvider } from "../../ThemeProvider.js";
 import { viewerRegistry } from "../viewer-registry.js";
 
@@ -49,10 +51,19 @@ function renderKind(kind: keyof typeof viewerRegistry) {
 }
 
 describe("viewerRegistry — preview/* delegation", () => {
-  it("exposes all viewer kinds incl. live-server, url, diff and terminal", () => {
+  it("exposes all viewer kinds incl. live-server, url, diff, terminal and the rich office/email kinds", () => {
     expect(Object.keys(viewerRegistry).sort()).toEqual(
-      ["audio", "binary-warn", "diff", "html", "image", "live-server", "markdown", "mermaid", "monaco", "pdf", "terminal", "url", "video"].sort(),
+      [
+        "audio", "binary-warn", "diff", "html", "image", "live-server", "markdown", "mermaid", "monaco", "pdf", "terminal", "url", "video",
+        "docx", "pptx", "spreadsheet", "asciidoc", "email",
+      ].sort(),
     );
+  });
+
+  it("registers a component for each rich office/document/email kind", () => {
+    for (const kind of ["docx", "pptx", "spreadsheet", "asciidoc", "email"] as const) {
+      expect(typeof viewerRegistry[kind], kind).toBe("function");
+    }
   });
 
   it("pdf mounts a canvas viewer, NOT an <object> plugin", () => {
@@ -88,5 +99,43 @@ describe("viewerRegistry — preview/* delegation", () => {
     const sandbox = iframe.getAttribute("sandbox") ?? "";
     expect(sandbox).toContain("allow-same-origin");
     expect(sandbox).not.toContain("allow-scripts");
+  });
+});
+
+// Large-file byte cap (D7 / test-plan P1). The `CappedViewer` gate obtains the
+// file `size` from `/api/file` metadata and mounts `TooLargePreview` above the
+// cap, the rich viewer at/below it. Boundary: 10MB−1 / 10MB / 10MB+1.
+describe("CappedViewer — large-file byte cap (D7 / P1)", () => {
+  function mockSize(size: number) {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true, data: { type: "file", size } }) }),
+    ) as unknown as typeof fetch;
+  }
+
+  function renderCapped(size: number) {
+    mockSize(size);
+    return render(
+      <ThemeProvider>
+        <CappedViewer viewer="pdf" cwd="/proj" path="big.pdf" kind="pdf" mimeType="application/pdf" size={0} />
+      </ThemeProvider>,
+    );
+  }
+
+  it("at 10MB exactly → rich viewer mounts (not TooLargePreview)", async () => {
+    const { queryByTestId, container } = renderCapped(MAX_PREVIEW_BYTES);
+    await waitFor(() => expect(container.querySelector("canvas")).toBeTruthy());
+    expect(queryByTestId("too-large-preview")).toBeNull();
+  });
+
+  it("at 10MB−1 → rich viewer mounts", async () => {
+    const { queryByTestId, container } = renderCapped(MAX_PREVIEW_BYTES - 1);
+    await waitFor(() => expect(container.querySelector("canvas")).toBeTruthy());
+    expect(queryByTestId("too-large-preview")).toBeNull();
+  });
+
+  it("at 10MB+1 → TooLargePreview mounts, rich viewer does NOT", async () => {
+    const { findByTestId, container } = renderCapped(MAX_PREVIEW_BYTES + 1);
+    expect(await findByTestId("too-large-preview")).toBeTruthy();
+    expect(container.querySelector("canvas")).toBeNull();
   });
 });

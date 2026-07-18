@@ -16,7 +16,7 @@ interface Props {
 export function FallbackPreview({ target }: Props) {
   if (target.kind === "file") {
     return (
-      <div className="p-4 text-sm text-[var(--text-secondary)]">
+      <div data-testid="preview-fallback" className="p-4 text-sm text-[var(--text-secondary)]">
         {i18nT("common.weCanTPreviewThisFile", undefined, "We can't preview this file.")}{" "}
         <a
           href={rawUrl(target)}
@@ -29,7 +29,7 @@ export function FallbackPreview({ target }: Props) {
     );
   }
   return (
-    <div className="p-4 text-sm text-[var(--text-secondary)]">
+    <div data-testid="preview-fallback" className="p-4 text-sm text-[var(--text-secondary)]">
       <a
         href={target.url}
         target="_blank"

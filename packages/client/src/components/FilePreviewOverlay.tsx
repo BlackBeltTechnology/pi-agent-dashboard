@@ -1,12 +1,17 @@
 import { mdiClose, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useEffect, useRef, useState } from "react";
+import React, { type ComponentType, useEffect, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { getApiBase } from "../lib/api-context.js";
 import { t as i18nT } from "../lib/i18n";
 import { getSyntaxTheme } from "../lib/syntax-theme.js";
 import { DialogPortal } from "./DialogPortal.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import { AsciiDocPreview } from "./preview/AsciiDocPreview.js";
+import { DocxPreview } from "./preview/DocxPreview.js";
+import { EmlPreview } from "./preview/EmlPreview.js";
+import { PptxPreview } from "./preview/PptxPreview.js";
+import { SpreadsheetPreview } from "./preview/SpreadsheetPreview.js";
 import { useThemeContext } from "./ThemeProvider.js";
 import { detectLanguage } from "./tool-renderers/lang-detect.js";
 
@@ -17,6 +22,26 @@ const BACKDROP_ID = "file-preview-backdrop";
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
 const MD_EXTS = new Set(["md", "mdx"]);
+
+/**
+ * Rich office / document / email kinds routed to their shared `preview/*`
+ * renderer instead of the raw `/api/file` `content` fetch. Reclassifying these
+ * extensions in `fileKind` stops `/api/file` from returning `content`, so a
+ * plain-text overlay would render blank; these branches route each to the
+ * renderer that fetches its own bytes. See change:
+ * open-view-command-in-editor-pane (D3, blank-overlay regression).
+ */
+type FileTargetProps = { target: { kind: "file"; cwd: string; path: string } };
+const RICH_PREVIEW_BY_EXT: Record<string, ComponentType<FileTargetProps>> = {
+  docx: DocxPreview,
+  pptx: PptxPreview,
+  xlsx: SpreadsheetPreview,
+  xls: SpreadsheetPreview,
+  csv: SpreadsheetPreview,
+  adoc: AsciiDocPreview,
+  asciidoc: AsciiDocPreview,
+  eml: EmlPreview,
+};
 
 interface Props {
   cwd: string;
@@ -74,10 +99,12 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
   const ext = getExt(path);
   const isImage = IMAGE_EXTS.has(ext);
   const isMd = MD_EXTS.has(ext);
+  const RichViewer = RICH_PREVIEW_BY_EXT[ext];
+  const isRich = RichViewer !== undefined;
   const language = detectLanguage(path);
 
   useEffect(() => {
-    if (isImage) return; // image loads via <img src>, no JSON fetch
+    if (isImage || isRich) return; // image / rich renderers fetch their own bytes
     let cancelled = false;
     (async () => {
       try {
@@ -101,7 +128,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [cwd, path, isImage]);
+  }, [cwd, path, isImage, isRich]);
 
   // Esc + backdrop click dismiss. The backdrop element is the dim layer over
   // the message area only (see render): clicking it closes; clicks inside the
@@ -196,7 +223,10 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
                 {error}
               </div>
             )}
-            {!error && isImage && (
+            {!error && isRich && RichViewer && (
+              <RichViewer target={{ kind: "file", cwd, path }} />
+            )}
+            {!error && !isRich && isImage && (
               <img
                 src={`${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`}
                 alt={path}
@@ -204,7 +234,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
                 onError={() => setError((prev) => prev ?? `Failed to load image: ${path}`)}
               />
             )}
-            {!error && !isImage && content === null && (
+            {!error && !isImage && !isRich && content === null && (
               <div className="flex items-center justify-center text-[var(--text-muted)]" data-testid="file-preview-loading">
                 <Icon path={mdiLoading} size={1.0} spin className="animate-spin" />
               </div>

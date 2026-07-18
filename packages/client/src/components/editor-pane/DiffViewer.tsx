@@ -56,6 +56,7 @@ export default function DiffViewer({ path, cwd }: ViewerProps) {
       file={file}
       selection={{ filePath: file.path, changeIndex: null }}
       sessionId={ctx.sessionId}
+      cwd={cwd}
     />
   );
 }

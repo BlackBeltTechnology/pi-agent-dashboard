@@ -14,6 +14,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { getApiBase } from "../lib/api-context.js";
 import { t as i18nT } from "../lib/i18n";
 import { getSyntaxTheme } from "../lib/syntax-theme.js";
+import { DiffFilePreview } from "./DiffFilePreview.js";
 import type { FileSelection } from "./DiffFileTree.js";
 import { getLang, RichDiff } from "./RichDiff.js";
 import { useThemeContext } from "./ThemeProvider.js";
@@ -40,9 +41,17 @@ interface DiffPanelProps {
   file: FileDiffEntry;
   selection: FileSelection;
   sessionId: string;
+  /**
+   * Absolute session cwd. Threaded from `DiffViewer` (editor-pane tab). When
+   * present + the entry is in-cwd, the type-based `Preview` mode is offered
+   * (D11). Absent (e.g. the takeover `FileDiffView`) → `Preview` is omitted.
+   */
+  cwd?: string;
 }
 
-type ViewMode = "diff" | "file" | "preview";
+// `regions` = the old changed-regions `Preview` (renamed, D11); `filePreview` =
+// the NEW type-based Preview of the current on-disk file.
+type ViewMode = "diff" | "file" | "regions" | "filePreview";
 
 /** A line rendered in Preview mode: the current file's changed regions. */
 interface PreviewLine {
@@ -81,7 +90,7 @@ function buildPreviewLines(gitDiff: string | undefined): PreviewLine[] {
   return out;
 }
 
-export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
+export function DiffPanel({ file, selection, sessionId, cwd }: DiffPanelProps) {
   const { resolved: theme, themeName } = useThemeContext();
   const syntaxStyle = useMemo(() => getSyntaxTheme(theme, themeName), [theme, themeName]);
   const [diffMode, setDiffMode] = useState<DiffModeEnum>(DiffModeEnum.Split);
@@ -140,16 +149,27 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
         : i18nT("diff.contentTruncated", undefined, "Content truncated — full version unavailable")
       : null;
 
-  // Preview (changed regions of the current file). Available only when the
-  // gitDiff yields parseable hunks (disabled for non-git / summed / binary).
-  const previewLines = useMemo(() => buildPreviewLines(file.gitDiff), [file.gitDiff]);
-  const previewAvailable = previewLines.length > 0;
+  // Regions (changed regions of the current file — the old `Preview`, renamed
+  // D11). Available only when the gitDiff yields parseable hunks (disabled for
+  // non-git / summed / binary).
+  const regionsLines = useMemo(() => buildPreviewLines(file.gitDiff), [file.gitDiff]);
+  const regionsAvailable = regionsLines.length > 0;
 
-  // If refreshed data drops Preview support while it's active, fall back to Diff
+  // New type-based Preview of the current on-disk file (D11). Available when a
+  // cwd is threaded in AND the entry is in-cwd; independent of gitDiff.
+  const filePreviewAvailable = !!cwd && file.previewable !== false;
+
+  // If refreshed data drops Regions support while it's active, fall back to Diff
   // so the toggle isn't left disabled over an empty body.
   useEffect(() => {
-    if (viewMode === "preview" && !previewAvailable) setViewMode("diff");
-  }, [viewMode, previewAvailable]);
+    if (viewMode === "regions" && !regionsAvailable) setViewMode("diff");
+  }, [viewMode, regionsAvailable]);
+
+  // If the entry flips out-of-cwd (or cwd goes away) while Preview is active,
+  // fall back to Diff.
+  useEffect(() => {
+    if (viewMode === "filePreview" && !filePreviewAvailable) setViewMode("diff");
+  }, [viewMode, filePreviewAvailable]);
 
   // If a refresh flips this entry to out-of-cwd (previewable:false) while File
   // mode is active, fall back to Diff so the File-view /api/session-file fetch
@@ -197,7 +217,7 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
   //      session change payload (last Write/Edit) and render all-additions /
   //      edit diff. NEVER blank when the file exists in `data.files`.
   const diffData = useMemo(() => {
-    if (viewMode !== "diff") return null; // file/preview modes render directly
+    if (viewMode !== "diff") return null; // file/regions/preview modes render directly
 
     // Merge the lazily-fetched full payload over a (possibly truncated) change.
     const mergeFull = (c: FileChangeEvent): FileChangeEvent => ({
@@ -264,14 +284,23 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
             </button>
           )}
           <button
-            data-testid="preview-toggle"
-            disabled={!previewAvailable}
-            className={`px-2 py-0.5 ${viewMode === "preview" ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"} ${!previewAvailable ? "cursor-not-allowed opacity-40" : ""}`}
-            onClick={() => previewAvailable && setViewMode("preview")}
-            title={previewAvailable ? undefined : i18nT("diff.previewUnavailable", undefined, "Preview needs a git diff")}
+            data-testid="regions-toggle"
+            disabled={!regionsAvailable}
+            className={`px-2 py-0.5 ${viewMode === "regions" ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"} ${!regionsAvailable ? "cursor-not-allowed opacity-40" : ""}`}
+            onClick={() => regionsAvailable && setViewMode("regions")}
+            title={regionsAvailable ? undefined : i18nT("diff.regionsUnavailable", undefined, "Regions needs a git diff")}
           >
-            <Icon path={mdiEyeOutline} size={0.45} className="inline mr-0.5" />{i18nT("diff.preview", undefined, "Preview")}
+            <Icon path={mdiViewSequential} size={0.45} className="inline mr-0.5" />{i18nT("diff.regions", undefined, "Regions")}
           </button>
+          {filePreviewAvailable && (
+            <button
+              data-testid="file-preview-toggle"
+              className={`px-2 py-0.5 ${viewMode === "filePreview" ? "bg-[var(--bg-tertiary)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)]"}`}
+              onClick={() => setViewMode("filePreview")}
+            >
+              <Icon path={mdiEyeOutline} size={0.45} className="inline mr-0.5" />{i18nT("diff.preview", undefined, "Preview")}
+            </button>
+          )}
         </div>
 
         {/* Diff mode toggle (only in diff view) */}
@@ -347,9 +376,9 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
             {i18nT("diff.noDiffDataAvailable", undefined, "No diff data available")}
           </div>
         )}
-        {viewMode === "preview" && (
-          <div data-testid="preview-body" className="font-mono text-[13px] leading-relaxed">
-            {previewLines.map((l, i) => (
+        {viewMode === "regions" && (
+          <div data-testid="regions-body" className="font-mono text-[13px] leading-relaxed">
+            {regionsLines.map((l, i) => (
               <div
                 key={i}
                 data-preview-line={l.n}
@@ -361,6 +390,7 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
             ))}
           </div>
         )}
+        {viewMode === "filePreview" && cwd && <DiffFilePreview cwd={cwd} path={file.path} />}
       </div>
     </div>
   );

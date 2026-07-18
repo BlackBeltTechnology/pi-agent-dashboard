@@ -71,7 +71,6 @@ import { handleSubscribe } from "./browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "./browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "./pending-resume-registry.js";
 import type { TerminalManager } from "./terminal-manager.js";
-import { ViewMessageStore } from "./view-message-store.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "./viewed-session-tracker.js";
 
 
@@ -194,7 +193,6 @@ export function createBrowserGateway(
   pendingClientCorrelations?: import("./pending-client-correlations.js").PendingClientCorrelations,
   pendingWorktreeBaseRegistry?: import("./pending-worktree-base-registry.js").PendingWorktreeBaseRegistry,
   metaPersistence?: import("./meta-persistence.js").MetaPersistence,
-  viewMessageStore: ViewMessageStore = new ViewMessageStore(),
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -488,7 +486,6 @@ export function createBrowserGateway(
           pendingWorktreeBaseRegistry,
           sendTo, broadcast, getSubscribers, replayPendingUiRequests,
           broadcastEvent: gateway.broadcastEvent,
-          viewMessageStore,
           trackUiRequest: trackUiRequest,
           markReplaying(targetWs, sessionId) {
             let set = replayingSessions.get(targetWs);
@@ -669,22 +666,6 @@ export function createBrowserGateway(
           case "openspec_bulk_archive":
             handleOpenSpecBulkArchive(msg, ctx);
             break;
-          case "inject_view_message": {
-            // Append a new `/view` row and broadcast the full snapshot to
-            // every subscriber of this session. The bridge never sees this
-            // message — view rows live in a separate store, not pi's
-            // events.jsonl. See change: render-file-previews.
-            viewMessageStore.append(msg.sessionId, msg.target);
-            const snapshot = viewMessageStore.get(msg.sessionId);
-            for (const sub of getSubscribers(msg.sessionId)) {
-              sendTo(sub, {
-                type: "view_messages_update",
-                sessionId: msg.sessionId,
-                viewMessages: snapshot,
-              });
-            }
-            break;
-          }
           case "recovery_dismiss": {
             // Durable dismissal of a cold-start recovery offer. Consume the
             // on-disk liveness marker for each offered session so it is never

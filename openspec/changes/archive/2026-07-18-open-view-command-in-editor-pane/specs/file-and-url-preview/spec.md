@@ -1,5 +1,10 @@
 # file-and-url-preview — delta
 
+## RENAMED Requirements
+
+- FROM: `### Requirement: Inline + overlay surfaces share renderers`
+- TO: `### Requirement: Overlay and editor-pane surfaces share renderers`
+
 ## MODIFIED Requirements
 
 ### Requirement: ViewTarget discriminated union

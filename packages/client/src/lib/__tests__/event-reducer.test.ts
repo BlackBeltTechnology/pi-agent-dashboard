@@ -7,6 +7,31 @@ function applyEvents(events: DashboardEvent[]): SessionState {
 }
 
 describe("eventReducer", () => {
+  // D8 / test-plan X6: the retired `ChatMessage.view` field is gone. An OLD
+  // serialized session whose messages still carry `view` must replay inertly —
+  // the reducer never reads it, nothing throws, other fields stay intact, and
+  // no inline card is produced. See change: open-view-command-in-editor-pane.
+  it("X6 ignores a legacy `view` field on a message during replay (no throw, fields intact)", () => {
+    const legacy = createInitialState();
+    // A message persisted while `view` existed, cast past the (now narrower) type.
+    legacy.messages.push({
+      id: "m1",
+      role: "user",
+      content: "hello",
+      timestamp: 1,
+      view: { kind: "file", cwd: "/p", path: "a.ts" },
+    } as unknown as ChatMessage);
+    // A subsequent event re-reduces the state; must not throw on the stray field.
+    const next = reduceEvent(legacy, {
+      eventType: "message_start",
+      timestamp: 2,
+      data: { message: { role: "user", content: [{ type: "text", text: "again" }] } },
+    } as DashboardEvent);
+    expect(next.messages).toHaveLength(2);
+    // Original message's real fields intact; the `view` field is inert.
+    expect(next.messages[0]).toMatchObject({ id: "m1", role: "user", content: "hello" });
+  });
+
   it("should start with empty state", () => {
     const state = createInitialState();
     expect(state.messages).toHaveLength(0);

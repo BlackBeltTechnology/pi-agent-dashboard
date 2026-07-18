@@ -28,7 +28,9 @@ import { EditorFileTree } from "./EditorFileTree.js";
 import { EditorSearchPanel } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
 import { TerminalPaneLayer } from "./TerminalPaneLayer.js";
-import { viewerRegistry } from "./viewer-registry.js";
+import { useServerCapabilities } from "../../hooks/useServerCapabilities.js";
+import { CappedViewer } from "./CappedViewer.js";
+import { TabActions, type TabActionTarget } from "./TabActions.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
@@ -111,6 +113,18 @@ export function EditorPane() {
   const activeTab = state.activeIndex >= 0 ? state.openFiles[state.activeIndex] : null;
   const activePath = activeTab?.path ?? null;
 
+  // System-open tab actions (D9). Gated on the server capability; only a real
+  // file or a url tab exposes an action (virtual live-server/diff/terminal do
+  // not). See change: open-view-command-in-editor-pane.
+  const caps = useServerCapabilities();
+  const tabActionTarget: TabActionTarget | null = !activeTab
+    ? null
+    : activeTab.viewer === "url"
+      ? { kind: "url", url: activeTab.path.replace(/^url:/, "") }
+      : activeTab.viewer === "live-server" || activeTab.viewer === "diff" || activeTab.viewer === "terminal"
+        ? null
+        : { kind: "file", cwd, path: activeTab.path };
+
   // Honour a pending scroll for the active tab exactly once, then clear it.
   useEffect(() => {
     if (pendingScroll && pendingScroll.path === activePath) {
@@ -130,11 +144,11 @@ export function EditorPane() {
     );
   } else {
     const classification = fileKind(absOf(cwd, activeTab.path));
-    const Viewer = viewerRegistry[activeTab.viewer];
     body = (
       <Suspense fallback={<div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>}>
-        <Viewer
+        <CappedViewer
           key={`${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}`}
+          viewer={activeTab.viewer}
           cwd={cwd}
           path={activeTab.path}
           kind={classification.kind}
@@ -200,6 +214,7 @@ export function EditorPane() {
         >
           <Icon path={mdiMagnify} size={0.7} />
         </button>
+        {tabActionTarget && <TabActions target={tabActionTarget} systemOpen={caps.systemOpen} />}
         {activeTab && (
           <button
             type="button"

@@ -10,7 +10,7 @@
 // state; useMessageHandler.ts mirrors every msg.event into the
 // per-session-events store the plugin runtime owns.
 import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
-import type { DashboardEvent, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 export interface ChatImage {
   data: string;
@@ -66,13 +66,10 @@ export interface ChatMessage {
    * See change: unify-status-banner-and-terminal-limit-stop.
    */
   retriedFrom?: string;
-  /**
-   * Dashboard-local `/view` preview target. When set, ChatView renders the
-   * message as a `PreviewCard` instead of the default bubble. Bridge filters
-   * `view`-bearing messages out of the pi-bound stream so the agent never
-   * observes them. See change: render-file-previews.
-   */
-  view?: ViewTarget;
+  // The retired `view?: ViewTarget` field is gone (change:
+  // open-view-command-in-editor-pane, D8): `/view` opens the editor pane, no
+  // inline PreviewCard row. An old serialized message still carrying `view`
+  // deserializes inertly — the reducer never reads it, nothing throws.
   /**
    * How pi delivered this user message when it arrived mid-stream (pi 0.77+
    * `InputEvent.streamingBehavior`). `"steer"` = interrupted + steered the

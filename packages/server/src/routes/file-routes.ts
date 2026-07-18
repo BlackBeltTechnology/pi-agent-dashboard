@@ -33,6 +33,13 @@ import { resolveFileMention } from "../lib/resolve-file-mention.js";
 import { isWritableMdTarget } from "../lib/writable-md-target.js";
 import type { SessionManager } from "../memory-session-manager.js";
 import type { PreferencesStore } from "../preferences-store.js";
+import {
+  buildOpenCommand,
+  buildRevealCommand,
+  type OpenerCommand,
+  runOpener,
+  systemOpenCapability,
+} from "../system-open-capability.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 // Per-target write serialization. The optimistic mtime check + atomic rename
@@ -200,9 +207,19 @@ export function registerFileRoutes(
     docxPdfEngine?: DocxPdfEngine;
     officeCaps?: OfficeCaps;
     docxRenderMode?: DocxRenderMode;
+    // System-open seam (change: open-view-command-in-editor-pane, D9/D10).
+    // Injectable so tests assert argv without spawning a real opener.
+    systemOpen?: {
+      capable?: () => boolean;
+      run?: (cmd: string, args: string[]) => void;
+      platform?: NodeJS.Platform;
+    };
   },
 ) {
   const { sessionManager, preferencesStore, networkGuard } = deps;
+  const systemOpenCapable = deps.systemOpen?.capable ?? systemOpenCapability;
+  const systemOpenRun = deps.systemOpen?.run ?? runOpener;
+  const systemOpenPlatform = deps.systemOpen?.platform ?? process.platform;
   const officeCaps = deps.officeCaps ?? OFFICE_CAPS;
   const docxRenderMode = deps.docxRenderMode ?? "auto";
   const docxPdfEngine = deps.docxPdfEngine ?? createDefaultDocxPdfEngine();
@@ -342,9 +359,13 @@ export function registerFileRoutes(
         }
         // Classify by extension + a bounded sniff (first 1024 bytes) so binary
         // files are not slurped whole just to discriminate. Content is returned
-        // only for text-renderable kinds (monaco / markdown viewers); image /
-        // pdf / binary tabs fetch raw bytes via `/api/file/raw`.
-        // See change: add-internal-monaco-editor-pane.
+        // for text-renderable kinds (monaco / markdown viewers) AND any
+        // `editable` kind (currently `.csv`, so Monaco Edit can load the raw
+        // text); image / pdf / binary / office tabs fetch their own bytes.
+        // Binary spreadsheets (`.xlsx`/`.xls`) stay `editable:false` → no
+        // `content` (no binary-bytes-in-JSON leak).
+        // See change: add-internal-monaco-editor-pane,
+        //             open-view-command-in-editor-pane (D4).
         const fh = await fs.open(resolved, "r");
         let kindResult;
         let content: string | undefined;
@@ -353,7 +374,11 @@ export function registerFileRoutes(
           const sniff = Buffer.alloc(sniffLen);
           if (sniffLen > 0) await fh.read(sniff, 0, sniffLen, 0);
           kindResult = fileKind(resolved, sniff);
-          if (kindResult.viewer === "monaco" || kindResult.viewer === "markdown") {
+          if (
+            kindResult.viewer === "monaco" ||
+            kindResult.viewer === "markdown" ||
+            kindResult.editable === true
+          ) {
             content = await fh.readFile("utf-8");
           }
         } finally {
@@ -377,6 +402,63 @@ export function registerFileRoutes(
         return { success: false, error: "not found" } satisfies ApiResponse;
       }
     },
+  );
+
+  // System-open endpoints (change: open-view-command-in-editor-pane, D9/D10).
+  // Spawn the OS opener on the SERVER host for the active tab's file. All of:
+  //   - refuse when `capabilities.systemOpen` is false (headless/container),
+  //   - reject a non-loopback OR absent request Origin (absent = don't-know =
+  //     deny; the legit same-origin client sends Origin on a POST),
+  //   - reuse the `/api/file` containment gate (path must sit under a known
+  //     session cwd),
+  //   - spawn via `execFile` with an argv ARRAY (no shell — a path with a
+  //     comma/space/quote cannot inject).
+  // They never read file content.
+  const isLoopbackOrigin = (origin: string | undefined): boolean => {
+    if (!origin) return false; // absent → treat as non-loopback (deny)
+    try {
+      const host = new URL(origin).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+      return host === "localhost" || host === "127.0.0.1" || host === "::1";
+    } catch {
+      return false;
+    }
+  };
+
+  const handleSystemOpen = async (
+    request: import("fastify").FastifyRequest<{ Body: { cwd?: unknown; path?: unknown } }>,
+    reply: import("fastify").FastifyReply,
+    build: (platform: NodeJS.Platform, resolved: string) => OpenerCommand,
+  ): Promise<ApiResponse> => {
+    if (!systemOpenCapable()) {
+      reply.code(403);
+      return { success: false, error: "system open not available on this host" };
+    }
+    if (!isLoopbackOrigin(request.headers.origin as string | undefined)) {
+      reply.code(403);
+      return { success: false, error: "forbidden origin" };
+    }
+    const cwd = typeof request.body?.cwd === "string" ? request.body.cwd : undefined;
+    const rawPath = typeof request.body?.path === "string" ? request.body.path : undefined;
+    const gate = await gateFilePath(cwd, rawPath, sessionManager);
+    if ("code" in gate) {
+      reply.code(gate.code);
+      return { success: false, error: gate.error };
+    }
+    const { cmd, args } = build(systemOpenPlatform, gate.resolved);
+    systemOpenRun(cmd, args);
+    return { success: true, data: { spawned: true } };
+  };
+
+  fastify.post<{ Body: { cwd?: unknown; path?: unknown } }>(
+    "/api/open-in-system",
+    { preHandler: networkGuard },
+    (request, reply) => handleSystemOpen(request, reply, buildOpenCommand),
+  );
+
+  fastify.post<{ Body: { cwd?: unknown; path?: unknown } }>(
+    "/api/reveal-in-file-manager",
+    { preHandler: networkGuard },
+    (request, reply) => handleSystemOpen(request, reply, buildRevealCommand),
   );
 
   // Tree-listing endpoint — single source of truth for the editor-pane file

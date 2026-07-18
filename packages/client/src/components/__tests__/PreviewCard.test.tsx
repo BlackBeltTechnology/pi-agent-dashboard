@@ -9,7 +9,6 @@ import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { createInitialState } from "../../lib/event-reducer.js";
 import { ChatView } from "../ChatView.js";
 import { PreviewCard } from "../PreviewCard.js";
 import { ThemeProvider } from "../ThemeProvider.js";
@@ -149,26 +148,7 @@ describe("PreviewCard", () => {
   });
 });
 
-describe("ChatView — view-bearing messages", () => {
-  it("renders a PreviewCard for a view-bearing user message instead of the default bubble", () => {
-    const state = createInitialState();
-    state.messages.push({
-      id: "v-1",
-      role: "user",
-      content: "",
-      timestamp: Date.now(),
-      view: { kind: "file", cwd: "/x", path: "README.md" },
-    });
-    const { hook } = memoryLocation({ path: "/", record: true });
-    const { getByTestId, container } = render(
-      <ThemeProvider>
-        <Router hook={hook}>
-          <ChatView state={state} toolContext={defaultToolContext} />
-        </Router>
-      </ThemeProvider>,
-    );
-    expect(getByTestId("preview-card")).toBeTruthy();
-    // The default user blue bubble class is `bg-blue-500/10` — must NOT appear.
-    expect(container.querySelector(".bg-blue-500\\/10")).toBeNull();
-  });
-});
+// The "ChatView — view-bearing messages" suite is removed: the inline `/view`
+// PreviewCard surface is retired (change: open-view-command-in-editor-pane).
+// `/view` opens the editor pane; `PreviewBody`/overlay renderers stay covered
+// by the suites above.

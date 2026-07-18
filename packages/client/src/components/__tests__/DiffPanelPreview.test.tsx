@@ -41,6 +41,14 @@ vi.mock("@git-diff-view/react", () => ({
 }));
 vi.mock("@git-diff-view/lowlight", () => ({ highlighter: {} }));
 
+// The new type-based Preview mounts the shared CappedViewer; stub it so the test
+// stays off Monaco / the real registry and can assert which viewer + file it got.
+vi.mock("../editor-pane/CappedViewer.js", () => ({
+  CappedViewer: (p: { viewer: string; path: string }) => (
+    <div data-testid="capped-viewer" data-viewer={p.viewer} data-path={p.path} />
+  ),
+}));
+
 // RichDiff renders the change-derived (Path A/C) diff; probe it so we can tell
 // "diff view" apart from "file view".
 vi.mock("../RichDiff.js", () => ({
@@ -125,11 +133,13 @@ describe("DiffPanel file preview", () => {
   });
 });
 
-describe("DiffPanel Preview mode (collapse-diff-file-tree)", () => {
-  it("(E1) Preview shows changed regions, removed lines omitted, new-file order", () => {
+// Regions = the OLD Preview, renamed (D11). Function unchanged: changed regions
+// from gitDiff, disabled without a parseable gitDiff, auto-fallback to Diff.
+describe("DiffPanel Regions mode (F12 — renamed old Preview)", () => {
+  it("(E1/F12) Regions shows changed regions, removed lines omitted, new-file order", () => {
     render1(fileWithDiff);
-    fireEvent.click(screen.getByTestId("preview-toggle"));
-    const body = screen.getByTestId("preview-body");
+    fireEvent.click(screen.getByTestId("regions-toggle"));
+    const body = screen.getByTestId("regions-body");
     // Added line present; a removed line's text absent.
     expect(body.textContent).toContain("return freeze(next);");
     expect(body.textContent).not.toContain("next.nodes = delta.nodes;");
@@ -141,35 +151,86 @@ describe("DiffPanel Preview mode (collapse-diff-file-tree)", () => {
     expect(nums).toEqual(["18", "19", "20", "21", "22", "23", "24"]);
   });
 
-  it("(E2) Preview disabled without a parseable gitDiff", () => {
+  it("(E2/F12) Regions disabled without a parseable gitDiff", () => {
     // No gitDiff at all.
     const { unmount } = render1(file);
-    expect((screen.getByTestId("preview-toggle") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("regions-toggle") as HTMLButtonElement).disabled).toBe(true);
     unmount();
     // Binary marker → zero hunks → still disabled.
     render1({ ...file, gitDiff: "Binary files a/x.png and b/x.png differ" });
-    expect((screen.getByTestId("preview-toggle") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("regions-toggle") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("(#4) exits Preview when refreshed data loses a parseable gitDiff", () => {
+  it("(#4) exits Regions when refreshed data loses a parseable gitDiff", () => {
     const sel = { filePath: fileWithDiff.path, changeIndex: null };
     const { rerender } = render(<DiffPanel file={fileWithDiff} selection={sel} sessionId="s1" />);
-    fireEvent.click(screen.getByTestId("preview-toggle"));
-    expect(screen.getByTestId("preview-body")).toBeTruthy();
-    // Same tab, refreshed data no longer supports Preview.
+    fireEvent.click(screen.getByTestId("regions-toggle"));
+    expect(screen.getByTestId("regions-body")).toBeTruthy();
+    // Same tab, refreshed data no longer supports Regions.
     rerender(<DiffPanel file={{ ...fileWithDiff, gitDiff: undefined }} selection={sel} sessionId="s1" />);
-    expect(screen.queryByTestId("preview-body")).toBeNull();
-    expect((screen.getByTestId("preview-toggle") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("regions-body")).toBeNull();
+    expect((screen.getByTestId("regions-toggle") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("(F5) Diff default; File + Preview coexist", () => {
+  it("(F5) Diff default; File + Regions coexist", () => {
     render1(fileWithDiff);
     // Default = Diff (git aggregate → DiffView).
     expect(screen.getByTestId("diff-view")).toBeTruthy();
-    expect(screen.queryByTestId("preview-body")).toBeNull();
+    expect(screen.queryByTestId("regions-body")).toBeNull();
     expect(screen.getByText("File")).toBeTruthy();
-    expect(screen.getByText("Preview")).toBeTruthy();
-    expect((screen.getByTestId("preview-toggle") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText("Regions")).toBeTruthy();
+    expect((screen.getByTestId("regions-toggle") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+// New type-based Preview of the CURRENT on-disk file (D11). Threaded `cwd`
+// enables it; independent of gitDiff; 404 metadata → not-found (no crash).
+describe("DiffPanel new Preview mode (D11 — F13/F14/F15/F16)", () => {
+  const renderWithCwd = (f: FileDiffEntry) =>
+    render(
+      <DiffPanel file={f} selection={{ filePath: f.path, changeIndex: null }} sessionId="s1" cwd="/proj" />,
+    );
+
+  it("(F15) toolbar lists Diff·File·Regions·Preview, active Diff by default", () => {
+    renderWithCwd(fileWithDiff);
+    expect(screen.getByText("Diff")).toBeTruthy();
+    expect(screen.getByText("File")).toBeTruthy();
+    expect(screen.getByText("Regions")).toBeTruthy();
+    expect(screen.getByTestId("file-preview-toggle")).toBeTruthy();
+    // Default = Diff.
+    expect(screen.getByTestId("diff-view")).toBeTruthy();
+    expect(screen.queryByTestId("diff-preview-body")).toBeNull();
+  });
+
+  it("(F13) selecting Preview mounts the type-based viewer for the CURRENT file", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      json: async () => ({ success: true, data: { type: "file", kind: "markdown", mimeType: "text/markdown", size: 12 } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    // Markdown file → viewer "markdown", regardless of gitDiff.
+    const md: FileDiffEntry = { path: "README.md", changes: [{ type: "write", timestamp: 0, content: "# hi\n" }] };
+    renderWithCwd(md);
+    fireEvent.click(screen.getByTestId("file-preview-toggle"));
+    const viewer = await screen.findByTestId("capped-viewer");
+    expect(viewer.getAttribute("data-viewer")).toBe("markdown");
+    expect(viewer.getAttribute("data-path")).toBe("README.md");
+    // The metadata came from /api/file (not /api/session-file).
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/api/file?"))).toBe(true);
+  });
+
+  it("(F14) new Preview omitted for an out-of-cwd entry (previewable:false)", () => {
+    renderWithCwd({ ...fileWithDiff, previewable: false });
+    expect(screen.queryByTestId("file-preview-toggle")).toBeNull();
+  });
+
+  it("(F16) a deleted file (404 metadata) → not-found state, panel does not crash", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ json: async () => ({ success: false, error: "not found" }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const tool: FileDiffEntry = { path: "gone.md", changes: [{ type: "write", timestamp: 0, content: "x" }] };
+    renderWithCwd(tool);
+    fireEvent.click(screen.getByTestId("file-preview-toggle"));
+    expect(await screen.findByTestId("diff-preview-not-found")).toBeTruthy();
+    expect(screen.queryByTestId("capped-viewer")).toBeNull();
   });
 });
 

@@ -10,6 +10,7 @@
  * See change: split-editor-workspace.
  */
 
+import { isLoopbackUrl } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import { useEffect } from "react";
 import { useCanvasTier } from "../hooks/useCanvasTier.js";
 import { EditorPane } from "./editor-pane/EditorPane.js";
@@ -40,21 +41,37 @@ interface SplitRouteSyncProps {
   active: boolean;
   file?: string | null;
   line?: number | null;
+  /**
+   * `?url=` target for a `/view <url>`. Opened via `openUrlTarget` (or
+   * `openLiveTarget` for a loopback URL, mirroring `CanvasDriver`). `file` wins
+   * over `url` when both are present (D6). See change:
+   * open-view-command-in-editor-pane (D1/D6).
+   */
+  url?: string | null;
 }
 
 /**
  * Opens the split from the deep-link route. Rendered under the provider so it
- * can reach `openInSplit`. No-op when the route is inactive or has no file.
+ * can reach the openers. No-op when the route is inactive or carries no target.
  */
-export function SplitRouteSync({ active, file, line }: SplitRouteSyncProps) {
-  const { openInSplit, ensureRevealed } = useSplitWorkspace();
+export function SplitRouteSync({ active, file, line, url }: SplitRouteSyncProps) {
+  const { openInSplit, ensureRevealed, openUrlTarget, openLiveTarget } = useSplitWorkspace();
   useEffect(() => {
     if (!active) return;
     // A param-less `/session/:id/editor` deep-link is a 6th mode-changer outside
     // the openers; route it through the same reveal guard so a deep-link opened
     // from `full` does not yank to `split`. See change: non-disruptive-file-open.
-    if (file) openInSplit(file, line ?? undefined);
-    else ensureRevealed();
-  }, [active, file, line, openInSplit, ensureRevealed]);
+    if (file) {
+      // `file` is authoritative when both params are present (D6).
+      openInSplit(file, line ?? undefined);
+    } else if (url) {
+      // Loopback URLs land in the SSRF-gated LiveServerViewer, everything else
+      // in UrlViewer — the same split CanvasDriver applies.
+      if (isLoopbackUrl(url)) openLiveTarget(url);
+      else openUrlTarget(url);
+    } else {
+      ensureRevealed();
+    }
+  }, [active, file, line, url, openInSplit, openUrlTarget, openLiveTarget, ensureRevealed]);
   return null;
 }

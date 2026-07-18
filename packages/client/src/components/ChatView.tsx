@@ -35,7 +35,6 @@ import { ImageLightbox } from "./ImageLightbox.js";
 import { InlineTerminalCard } from "./InlineTerminalCard.js";
 import { getInteractiveRenderer } from "./interactive-renderers/registry.js";
 import { MarkdownContent } from "./MarkdownContent.js";
-import { PreviewCard } from "./PreviewCard.js";
 import { RawEventCard } from "./RawEventCard.js";
 import { RetriedErrorBadge } from "./RetriedErrorBadge.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
@@ -395,7 +394,6 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     (item: BurstItem): boolean => {
       if (isBurst(item) || isGroup(item)) return true;
       const msg = item as import("../lib/event-reducer.js").ChatMessage;
-      if (msg.view) return true;
       switch (msg.role) {
         case "turnSeparator":
           return prefs.turnMetadata;
@@ -812,18 +810,8 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
 
         const msg = item as import("../lib/event-reducer.js").ChatMessage;
 
-        // `/view` preview rows render as a `PreviewCard` regardless of role.
-        // Filtered out of the pi-bound message stream by the bridge so the
-        // agent never observes them. See change: render-file-previews.
-        if (msg.view) {
-          return (
-            <div key={msg.id} className="mt-4 mb-4 flex justify-end" {...(msg.turnIndex != null ? { "data-turn": msg.turnIndex } : {})}>
-              <div className={bubbleMax}>
-                <PreviewCard target={msg.view} />
-              </div>
-            </div>
-          );
-        }
+        // (The retired `/view` inline PreviewCard row is gone — `/view` now
+        // opens the editor pane. See change: open-view-command-in-editor-pane.)
 
         if (msg.role === "turnSeparator") {
           if (!prefs.turnMetadata) return null;
