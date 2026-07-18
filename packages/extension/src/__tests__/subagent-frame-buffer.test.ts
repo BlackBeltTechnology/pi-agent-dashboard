@@ -208,8 +208,12 @@ describe("D3 — resync resolves by either id (agentId or derived agentSessionId
   });
 
   // P1: snapshots at the 64 cap, resync by a non-matching agentSessionId
-  // (worst case: full scan, miss) → single call < 1 ms.
-  it("derived scan is cheap on a full buffer (worst-case miss < 1 ms)", () => {
+  // (worst case: full scan, miss) → single call is cheap. The design intent is
+  // sub-millisecond; the assertion uses a generous upper bound (25 ms) so a
+  // 64-element scan (microseconds in practice) never false-fails under CI CPU
+  // jitter / tick resolution, while still catching a pathological regression
+  // (e.g. an accidental O(n²) or per-call allocation blow-up). CodeRabbit nit.
+  it("derived scan is cheap on a full buffer (worst-case full-scan miss)", () => {
     const buf = new SubagentFrameBuffer(64);
     for (let i = 0; i < 64; i++) {
       buf.markForwarded("subagents:started", frameWithSession(`a${i}`, `s${i}`, [1]));
@@ -218,7 +222,7 @@ describe("D3 — resync resolves by either id (agentId or derived agentSessionId
     const snap = buf.resync("non-matching-session-id");
     const dt = performance.now() - t0;
     expect(snap).toBeUndefined();
-    expect(dt).toBeLessThan(1);
+    expect(dt).toBeLessThan(25);
   });
 });
 
