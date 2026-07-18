@@ -45,26 +45,26 @@
 
 ## 7. Accept marginal residue + final verification
 
-- [ ] 7.1 Confirm the marginal dirs (`hooks/`, `extension/src/`, `shared/src/`, `tests/e2e/`) report the informational row-over arm only (no byte-over); leave them un-foldered per design non-goals. Resolve OQ1/OQ2 explicitly (fold-if-free vs defer).
-- [ ] 7.2 Full `npm test` + `npm run build` green on the final tree.
-- [ ] 7.3 `node_modules/.bin/kb dox lint --json`: 0 byte-over, 0 `stale`/`missing`/`orphan`/`missing-companion`; only accepted informational row-over remains.
-- [ ] 7.4 `openspec validate fold-oversized-agents-directories` passes.
+- [x] 7.1 Confirm the marginal dirs (`hooks/`, `extension/src/`, `shared/src/`, `tests/e2e/`) report the informational row-over arm only (no byte-over); leave them un-foldered per design non-goals. Resolve OQ1/OQ2 explicitly (fold-if-free vs defer).
+- [x] 7.2 Full `npm test` + `npm run build` green on the final tree.
+- [x] 7.3 `node_modules/.bin/kb dox lint --json`: 0 byte-over, 0 `stale`/`missing`/`orphan`/`missing-companion`; only accepted informational row-over remains.
+- [x] 7.4 `openspec validate fold-oversized-agents-directories` passes.
 
 ## 8. Automated test scenarios (folded from test-plan.md)
 
 All L1 rows extend `packages/kb/src/__tests__/kb.test.ts` (existing `kb dox lint` cases) unless noted. Each carries its Triple (input · trigger · observable) and a `(test-plan #id)` back-reference.
 
-- [ ] 8.1 E1 — L1: fixture `AGENTS.md`, exactly 40 inline rows, <30000 bytes · run `doxLint` · NO `over-threshold` (40 == cap, not `>`). (test-plan #E1; see packages/kb/src/__tests__/kb.test.ts)
-- [ ] 8.2 E2 — L1: fixture 41 inline rows, <30000 bytes · `doxLint` · one `over-threshold` `arm:"rows"`, count 41. (test-plan #E2)
-- [ ] 8.3 E3 — L1: fixture 45 rows, 6 carry `→ see \`X.AGENTS.md\`` (39 inline), <30000 bytes · `doxLint` · NO row-arm `over-threshold` (pointers excluded). (test-plan #E3)
-- [ ] 8.4 E4 — L1: fixture row A `… → see \`Foo.AGENTS.md\`` + row B prose `documents the Foo.AGENTS.md sidecar` · `countInlineRows` · A excluded, B counted (regex `/→ see \`[^\`]+\.AGENTS\.md\`/` only, no prose false-positive). (test-plan #E4)
-- [ ] 8.5 E5 — L1: fixture inline ≤40 AND bytes <30000 · `doxLint` · no `over-threshold` at all. (test-plan #E5)
-- [ ] 8.6 E6 — L1: fixture bytes >30000 AND inline ≤40 · `doxLint` · one `over-threshold` `arm:"bytes"` (actionable, sidecar-split remedy). (test-plan #E6)
-- [ ] 8.7 E7 — L1: fixture inline >40 AND bytes <30000 · `doxLint` · one `over-threshold` `arm:"rows"` (informational). (test-plan #E7)
-- [ ] 8.8 E8 — L1: fixture inline >40 AND bytes >30000 · `doxLint` · two issues for the file: `arm:"bytes"` + `arm:"rows"`. (test-plan #E8)
-- [ ] 8.9 E9 — L1: fixture where `Foo.tsx`'s ONLY row is a sidecar-pointer row and `Foo.tsx` exists · `doxLint` + `parseRowPaths` · NO `missing` for `Foo.tsx`; `parseRowPaths` still returns its path (exclusion is count-only). (test-plan #E9)
-- [ ] 8.10 E10 — L1: real `hooks/`,`extension/src/`,`shared/src/`,`tests/e2e/` `AGENTS.md` post-fold, each <30000 bytes · `doxLint` on repo · each `arm:"rows"` informational OR no `over-threshold`; NONE `arm:"bytes"`; no source moved. (test-plan #E10)
-- [ ] 8.11 X1 — L1: fixture rollup tree (parent rows for `sub/*`, `sub/` has no `AGENTS.md`) · scaffold `sub/AGENTS.md` + move rows down + re-`doxLint` · no `missing`/`orphan`/`broken-pointer`; parent inline == root-only count; moved rows keep purpose + `See change:`. (test-plan #X1; see migrate-file-index.test.ts)
-- [ ] 8.12 X2 — L1: post-fold tree (`SessionCard.tsx` moved to `session/`, documented there, removed from parent) · run `kb dox init` · ZERO new rows for `SessionCard.tsx` (no re-home to parent; `ensure()` keys on path). (test-plan #X2)
-- [ ] 8.13 X3 — L1: move a source file named as a string in a `no-*.test.ts` allowlist WITHOUT updating the string · `npm test` (shared) · the allowlist test FAILS on the missing path (proves string refs load-bearing). (test-plan #X3; see packages/shared/src/__tests__/no-managed-dir-reference.test.ts)
+- [x] 8.1 E1 — L1: fixture `AGENTS.md`, exactly 40 inline rows, <30000 bytes · run `doxLint` · NO `over-threshold` (40 == cap, not `>`). (test-plan #E1; see packages/kb/src/__tests__/kb.test.ts)
+- [x] 8.2 E2 — L1: fixture 41 inline rows, <30000 bytes · `doxLint` · one `over-threshold` `arm:"rows"`, count 41. (test-plan #E2)
+- [x] 8.3 E3 — L1: fixture 45 rows, 6 carry `→ see \`X.AGENTS.md\`` (39 inline), <30000 bytes · `doxLint` · NO row-arm `over-threshold` (pointers excluded). (test-plan #E3)
+- [x] 8.4 E4 — L1: fixture row A `… → see \`Foo.AGENTS.md\`` + row B prose `documents the Foo.AGENTS.md sidecar` · `countInlineRows` · A excluded, B counted (regex `/→ see \`[^\`]+\.AGENTS\.md\`/` only, no prose false-positive). (test-plan #E4)
+- [x] 8.5 E5 — L1: fixture inline ≤40 AND bytes <30000 · `doxLint` · no `over-threshold` at all. (test-plan #E5)
+- [x] 8.6 E6 — L1: fixture bytes >30000 AND inline ≤40 · `doxLint` · one `over-threshold` `arm:"bytes"` (actionable, sidecar-split remedy). (test-plan #E6)
+- [x] 8.7 E7 — L1: fixture inline >40 AND bytes <30000 · `doxLint` · one `over-threshold` `arm:"rows"` (informational). (test-plan #E7)
+- [x] 8.8 E8 — L1: fixture inline >40 AND bytes >30000 · `doxLint` · two issues for the file: `arm:"bytes"` + `arm:"rows"`. (test-plan #E8)
+- [x] 8.9 E9 — L1: fixture where `Foo.tsx`'s ONLY row is a sidecar-pointer row and `Foo.tsx` exists · `doxLint` + `parseRowPaths` · NO `missing` for `Foo.tsx`; `parseRowPaths` still returns its path (exclusion is count-only). (test-plan #E9)
+- [x] 8.10 E10 — L1: real `hooks/`,`extension/src/`,`shared/src/`,`tests/e2e/` `AGENTS.md` post-fold, each <30000 bytes · `doxLint` on repo · each `arm:"rows"` informational OR no `over-threshold`; NONE `arm:"bytes"`; no source moved. (test-plan #E10)
+- [x] 8.11 X1 — L1: fixture rollup tree (parent rows for `sub/*`, `sub/` has no `AGENTS.md`) · scaffold `sub/AGENTS.md` + move rows down + re-`doxLint` · no `missing`/`orphan`/`broken-pointer`; parent inline == root-only count; moved rows keep purpose + `See change:`. (test-plan #X1; see migrate-file-index.test.ts)
+- [x] 8.12 X2 — L1: post-fold tree (`SessionCard.tsx` moved to `session/`, documented there, removed from parent) · run `kb dox init` · ZERO new rows for `SessionCard.tsx` (no re-home to parent; `ensure()` keys on path). (test-plan #X2)
+- [x] 8.13 X3 — L1: move a source file named as a string in a `no-*.test.ts` allowlist WITHOUT updating the string · `npm test` (shared) · the allowlist test FAILS on the missing path (proves string refs load-bearing). (test-plan #X3; see packages/shared/src/__tests__/no-managed-dir-reference.test.ts)
 - [ ] 8.14 M1 — manual: reviewer confirms each new subfolder is a cohesive domain, not an arbitrary ≤40 bucket. (test-plan: manual-only)

@@ -699,3 +699,30 @@ describe("dox: over-threshold severity split (fold-oversized-agents-directories)
     expect(reHomed.length).toBe(0); // owned by session/AGENTS.md, not re-homed to parent
   });
 });
+
+// E10 (test-plan): several marginal-shaped dirs (inline >40 but < byte cap)
+// lint as rows-arm informational; NONE bytes-arm. Mirrors the real repo residue
+// (hooks/, extension/src/, shared/src/, docs/) without coupling to repo state.
+describe("dox: marginal dirs report rows-arm only, never bytes-arm (E10)", () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "kb-e10-")); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("E10: marginal dirs (inline >40, <30000 bytes) → rows-arm; a small dir → no over-threshold; zero bytes-arm", () => {
+    const mkDir = (name: string, inline: number) => {
+      mkdirSync(join(dir, name), { recursive: true });
+      const lines = [`# DOX \u2014 ${name}`, ""];
+      for (let i = 0; i < inline; i++) lines.push(`| \`${name}-f${i}.ts\` | short purpose ${i} |`);
+      writeFileSync(join(dir, name, "AGENTS.md"), lines.join("\n") + "\n");
+    };
+    mkDir("hooks", 47);
+    mkDir("extension", 47);
+    mkDir("shared", 44);
+    mkDir("small", 12); // within cap → no over-threshold
+    const over = doxLint({ cwd: dir }).issues.filter((i) => i.kind === "over-threshold");
+    expect(over.every((i) => i.arm === "rows")).toBe(true);        // none actionable byte-arm
+    expect(over.filter((i) => i.arm === "bytes").length).toBe(0);
+    expect(over.filter((i) => i.arm === "rows").length).toBe(3);   // hooks, extension, shared
+    expect(over.some((i) => i.agentsFile.includes("small"))).toBe(false);
+  });
+});
