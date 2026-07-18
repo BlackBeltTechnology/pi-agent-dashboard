@@ -148,6 +148,33 @@ describe("AgentToolRenderer — expand + popout", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  // X4 (change: resolve-subagent-inspector-by-session-id): the variant-A
+  // populated-timeline guard is preserved on the popout path too — opening the
+  // detail dialog for a subagent with non-empty entries[] sends no resync.
+  it("X4: popout does NOT resync when the timeline already has entries", async () => {
+    const send = vi.fn();
+    const session = sessionWithAgent("abc123", {
+      status: "running",
+      entries: [{ kind: "text", text: "hi", ts: 0 }],
+    });
+    render(wrapInProviders(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={{ subagent_type: "Explore", prompt: "do work" }}
+        status="running"
+        context={makeContext(session, "sess_42", send)}
+        toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
+      />
+    ));
+    fireEvent.click(screen.getByTitle(/Open subagent detail/i));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "subagent_resync_request" }),
+    );
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   // These three tests OPEN the ui:dialog, whose body mounts the full
   // SubagentDetailView subtree via a portal. They are `async` and use
   // `findByRole`/`waitFor` (both act-wrapped) so React's concurrent scheduler

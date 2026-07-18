@@ -925,14 +925,20 @@ function initBridge(pi: ExtensionAPI) {
       // for an unknown/finished agent (durable completed-case backfill covers
       // those). See change: fix-subagent-live-detail-reliability.
       if (msg.type === "subagent_resync_request") {
-        const agentId = (msg as { agentId?: unknown }).agentId;
-        if (typeof agentId === "string" && agentId.length > 0 && sessionReady && isActive()) {
-          const snap = subagentFrameBuffer.resync(agentId);
+        // The incoming id may be EITHER a v4 agentId or a v7 runner
+        // agentSessionId (from a deep-link route); resync() resolves both.
+        // See change: resolve-subagent-inspector-by-session-id (D3/D4).
+        const requestedId = (msg as { agentId?: unknown }).agentId;
+        if (typeof requestedId === "string" && requestedId.length > 0 && sessionReady && isActive()) {
+          const snap = subagentFrameBuffer.resync(requestedId);
           if (snap) {
+            const resolvedAgentId = SubagentFrameBuffer.agentIdOf(snap.data) ?? requestedId;
             sendEventForward("subagents:started", snap.data);
-            console.log(`[dashboard] served subagent resync for agentId=${agentId}`);
+            console.log(
+              `[dashboard] served subagent resync for id=${requestedId} (resolved agentId=${resolvedAgentId})`,
+            );
           } else {
-            console.log(`[dashboard] subagent resync no-op (unknown/finished) agentId=${agentId}`);
+            console.log(`[dashboard] subagent resync no-op (unknown/finished) id=${requestedId}`);
           }
         }
         return;

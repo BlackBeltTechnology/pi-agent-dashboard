@@ -20,6 +20,13 @@ export type SubagentTimelineEntry =
 /** Per-subagent state held in SessionState.subagents. */
 export interface SubagentState {
   id: string;
+  /**
+   * Runner session id (v7) minted by the producer for the in-memory subagent
+   * session, distinct from the v4 `id` (agentId). Optional: absent with an
+   * older producer (< 0.2.3). When present, the reducer dual-indexes the state
+   * under both this id and `id`. See change: resolve-subagent-inspector-by-session-id.
+   */
+  agentSessionId?: string;
   type: string;
   description: string;
   status: "created" | "running" | "completed" | "failed";

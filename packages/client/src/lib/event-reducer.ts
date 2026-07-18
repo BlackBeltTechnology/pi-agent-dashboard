@@ -297,7 +297,27 @@ function readSubagentDetails(
   if (typeof details.toolUses === "number") out.toolUses = details.toolUses;
   if (typeof details.durationMs === "number") out.durationMs = details.durationMs;
   if (typeof details.agentMdPath === "string") out.agentMdPath = details.agentMdPath;
+  // Runner session id (v7): when the producer supplies it, persist it so the
+  // reducer can dual-index the state under both the agentId and this id.
+  // Absent with an older producer (< 0.2.3) → single-key, as today.
+  // See change: resolve-subagent-inspector-by-session-id (D1/D2).
+  if (typeof details.agentSessionId === "string") out.agentSessionId = details.agentSessionId;
   return out;
+}
+
+/**
+ * Dual-index a subagent state into the `subagents` map. Always sets the
+ * canonical `state.id` (v4 agentId) key; when `state.agentSessionId` (v7) is
+ * present, ALSO sets that key to the SAME reference so a lookup by either id
+ * resolves the run. Both keys are a PAIR pointing at one object — any future
+ * change deleting one on completion MUST delete the other (paired-key
+ * invariant, design N1). Do NOT enumerate this map with `.values()/.entries()`
+ * without de-duping by `state.id`: a dual-indexed agent appears under two keys.
+ * See change: resolve-subagent-inspector-by-session-id (D2).
+ */
+function setSubagentState(map: Map<string, SubagentState>, state: SubagentState): void {
+  map.set(state.id, state);
+  if (state.agentSessionId) map.set(state.agentSessionId, state);
 }
 
 export function createInitialState(): SessionState {
@@ -1704,7 +1724,7 @@ export function reduceEvent(
               Object.entries(patch).filter(([, v]) => v !== undefined),
             ),
           } as SubagentState;
-          next.subagents.set(agentId, merged);
+          setSubagentState(next.subagents, merged);
         }
       }
       break;
@@ -1911,7 +1931,7 @@ export function reduceEvent(
       const id = data.id as string;
       const details = (data.details as Record<string, unknown> | undefined) ?? undefined;
       next.subagents = new Map(next.subagents);
-      next.subagents.set(id, {
+      setSubagentState(next.subagents, {
         id,
         type: data.type as string ?? "unknown",
         description: data.description as string ?? "",
@@ -1926,7 +1946,7 @@ export function reduceEvent(
       const details = (data.details as Record<string, unknown> | undefined) ?? undefined;
       next.subagents = new Map(next.subagents);
       const existing = next.subagents.get(id);
-      next.subagents.set(id, {
+      setSubagentState(next.subagents, {
         ...(existing ?? { id, type: data.type as string ?? "unknown", description: data.description as string ?? "" }),
         status: "running",
         startedAt: existing?.startedAt ?? (typeof event.timestamp === "number" ? event.timestamp : Date.now()),
@@ -1941,7 +1961,7 @@ export function reduceEvent(
       const details = (data.details as Record<string, unknown> | undefined) ?? undefined;
       next.subagents = new Map(next.subagents);
       const existing = next.subagents.get(id);
-      next.subagents.set(id, {
+      setSubagentState(next.subagents, {
         ...(existing ?? { id, type: data.type as string ?? "unknown", description: data.description as string ?? "" }),
         status: event.eventType === "subagent_completed" ? "completed" : "failed",
         result: data.result as string | undefined,

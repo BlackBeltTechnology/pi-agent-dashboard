@@ -55,6 +55,10 @@ export interface SubagentFrameStats {
   resyncRequests: number;
   /** Resync requests answered with a snapshot. */
   resyncServed: number;
+  /** Resync requests served via the fast `agentId` key. */
+  resyncByAgentId: number;
+  /** Resync requests served via the derived `agentSessionId` values-scan. */
+  resyncByAgentSessionId: number;
   /** Resync requests for an unknown/finished agent (no-op). */
   resyncNoop: number;
 }
@@ -73,6 +77,8 @@ export class SubagentFrameBuffer {
     overflowEvicted: 0,
     resyncRequests: 0,
     resyncServed: 0,
+    resyncByAgentId: 0,
+    resyncByAgentSessionId: 0,
     resyncNoop: 0,
   };
 
@@ -85,6 +91,16 @@ export class SubagentFrameBuffer {
 
   static agentIdOf(data: Record<string, unknown> | undefined): string | undefined {
     return data && typeof data.id === "string" ? data.id : undefined;
+  }
+
+  /**
+   * The runner session id (v7) a frame carries on its `details`, if any. The
+   * producer (>= 0.2.3) sets `agentSessionId` on `AgentDetails` = the frame
+   * `data.details` payload. Absent → undefined (older producer).
+   */
+  static agentSessionIdOf(data: Record<string, unknown> | undefined): string | undefined {
+    const details = data?.details as Record<string, unknown> | undefined;
+    return details && typeof details.agentSessionId === "string" ? details.agentSessionId : undefined;
   }
 
   /**
@@ -163,13 +179,32 @@ export class SubagentFrameBuffer {
   /**
    * Resync (D2): the latest retained snapshot for a running subagent, or
    * undefined for an unknown/finished agent (caller replies with nothing).
+   *
+   * The incoming `id` may be EITHER the v4 `agentId` (fast-path key lookup) or
+   * the v7 runner `agentSessionId` carried on a frame's `details` (derived
+   * values-scan fallback). The mapping is a pure function of the already-bounded
+   * (≤ maxAgents) `snapshots` map — no separate alias index, no `finished` set —
+   * so it cannot leak or diverge. The scan is O(≤ maxAgents) on a rare,
+   * user-initiated cold path. Terminal/evicted runs retain no snapshot, so both
+   * ids resolve to nothing. See change: resolve-subagent-inspector-by-session-id (D3).
    */
-  resync(agentId: string): SubagentFrame | undefined {
+  resync(id: string): SubagentFrame | undefined {
     this.stats.resyncRequests += 1;
-    const snap = this.snapshots.get(agentId);
-    if (snap) this.stats.resyncServed += 1;
-    else this.stats.resyncNoop += 1;
-    return snap;
+    const byAgentId = this.snapshots.get(id);
+    if (byAgentId) {
+      this.stats.resyncServed += 1;
+      this.stats.resyncByAgentId += 1;
+      return byAgentId;
+    }
+    for (const snap of this.snapshots.values()) {
+      if (SubagentFrameBuffer.agentSessionIdOf(snap.data) === id) {
+        this.stats.resyncServed += 1;
+        this.stats.resyncByAgentSessionId += 1;
+        return snap;
+      }
+    }
+    this.stats.resyncNoop += 1;
+    return undefined;
   }
 
   /** Drop all retained state (session change / shutdown). */

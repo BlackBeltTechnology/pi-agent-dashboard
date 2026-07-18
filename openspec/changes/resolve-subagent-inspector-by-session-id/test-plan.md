@@ -24,9 +24,21 @@ gap → no clarification gate.
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
-| F1 | Inspector resolves a run by runner session id (running) | state-convergence | L3 | automated | a running faux subagent whose frames carry `agentSessionId=S`; parent session `P` | open `/session/P/subagent/S` (v7 in the `:agentId` slot) | inspector body converges to the live timeline; the string "Subagent not found in this session." is NOT shown |
-| F2 | Deep-link by runner id after refresh (backfill — PRIMARY case) | state-transition | L3 | automated | a COMPLETED faux subagent whose end details carried `agentSessionId=S`; page reloaded (state-replay emits no `subagent_*` frames) | open `/session/P/subagent/S` | rehydrated timeline renders (not the placeholder) |
-| F3 | Genuinely-unknown id still shows placeholder (regression) | state-transition | L3 | automated | parent session `P` with a known subagent | open `/session/P/subagent/<random-unknown-id>` | "Subagent not found in this session." IS shown (no false resolve) |
+| F1 | Route resolves a run by runner session id (running) | state-convergence | L2 | automated | a session whose `subagents` map dual-indexes a RUNNING run under both `A` and `S` (same ref, non-empty `entries`) | render `SubagentPopoutPage` with `agentId=S`, `subscriptionResolved` | the live timeline body renders (entries visible); the not-found placeholder is NOT shown |
+| F2 | Route resolves a backfilled run by runner session id (PRIMARY case) | state-transition | L2 | automated | a session whose `subagents` map dual-indexes a COMPLETED (backfilled) run under both `A` and `S` (same ref) | render `SubagentPopoutPage` with `agentId=S`, `subscriptionResolved` | the rehydrated body renders (not the placeholder) |
+| F3 | Genuinely-unknown id still shows placeholder (regression) | state-transition | L2 | automated | a session with a known subagent but NOT id `U` | render `SubagentPopoutPage` with `agentId=U`, `subscriptionResolved` | the ACTUAL route placeholder "Subagent not found — it may have been cleared from the parent session's history." IS shown (no false resolve) |
+
+> **F1/F2/F3 disposition note (post-block re-spec).** Originally drafted as L3
+> e2e against the faux `subagent-spawn` scenario. Implementation revealed two
+> problems: (1) the faux subagent spawns a REAL producer subagent, so a
+> deterministic runner session id `S` is not reachable in the harness, and the
+> faux run does not reliably resolve even an `agentId`; (2) the deep-link ROUTE
+> mounts `SubagentPopoutPage`, which renders "Subagent not found — it may have
+> been cleared…", NOT the inline `SubagentDetailView` string. Converted to
+> deterministic L2 component render tests against `SubagentPopoutPage` (the exact
+> route surface), which prove v7-id resolution + the correct placeholder without
+> a producer/harness dependency. The existing L3 smoke
+> (`tests/e2e/subagent-inspector.spec.ts`) is unchanged.
 
 ### Error-handling
 
@@ -49,9 +61,9 @@ gap → no clarification gate.
 
 - Requirements covered: 3/3 (details-carry-runner-id · inspector-resolves-by-runner-id · resync MODIFIED)
 - Scenarios by class: edge 6 · perf 1 · frontend 3 · error 4
-- Scenarios by level: L1 11 · L2 0 · L3 3
+- Scenarios by level: L1 11 · L2 3 · L3 0
 - Scenarios by disposition: automated 14 · manual-only 0
 
 ## New infra needed
 
-- none (L1 exemplars: `packages/extension/src/__tests__/subagent-frame-buffer.test.ts`, `packages/client/src/lib/__tests__/event-reducer.test.ts`; L3 exemplar: `tests/e2e/subagent-inspector.spec.ts`).
+- none (L1 exemplars: `packages/extension/src/__tests__/subagent-frame-buffer.test.ts`, `packages/client/src/lib/__tests__/event-reducer.test.ts`; L2 exemplar: `packages/subagents-plugin/src/client/__tests__/SubagentPopoutPage.test.tsx`).

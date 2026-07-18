@@ -2220,6 +2220,136 @@ describe("command_feedback events", () => {
       expect(state.subagents.get("sub_abc")?.displayName).toBe("explorer");
     });
   });
+
+  // Change: resolve-subagent-inspector-by-session-id — dual-index the reduced
+  // SubagentState under both the v4 agentId and the v7 runner agentSessionId so
+  // the inspector resolves a deep-link by either id.
+  describe("agentSessionId dual-index", () => {
+    it("E1: dual-indexes a started frame under both ids (same ref; id stays canonical)", () => {
+      const state = applyEvents([
+        {
+          eventType: "subagent_started",
+          timestamp: 1000,
+          data: { id: "A", type: "Explore", description: "d", details: { agentSessionId: "S" } },
+        },
+      ]);
+      const byAgentId = state.subagents.get("A");
+      const bySession = state.subagents.get("S");
+      expect(byAgentId).toBeDefined();
+      expect(bySession).toBe(byAgentId); // SAME reference
+      expect(byAgentId!.id).toBe("A"); // canonical v4 id, even via the v7 key
+      expect(byAgentId!.agentSessionId).toBe("S");
+    });
+
+    it("E1b: a later update via one key is visible via the other (paired ref)", () => {
+      const state = applyEvents([
+        {
+          eventType: "subagent_created",
+          timestamp: 1000,
+          data: { id: "A", type: "Explore", description: "d", details: { agentSessionId: "S" } },
+        },
+        {
+          eventType: "subagent_completed",
+          timestamp: 2000,
+          data: { id: "A", result: "ok", details: { agentSessionId: "S" } },
+        },
+      ]);
+      expect(state.subagents.get("A")!.status).toBe("completed");
+      expect(state.subagents.get("S")!.status).toBe("completed");
+      expect(state.subagents.get("S")).toBe(state.subagents.get("A"));
+    });
+
+    it("E2: single-key when the frame carries no agentSessionId (no alias)", () => {
+      const state = applyEvents([
+        {
+          eventType: "subagent_started",
+          timestamp: 1000,
+          data: { id: "A", type: "Explore", description: "d" },
+        },
+      ]);
+      expect(state.subagents.get("A")).toBeDefined();
+      expect(state.subagents.get("A")!.agentSessionId).toBeUndefined();
+      expect(state.subagents.size).toBe(1); // exactly one key for the run
+    });
+
+    it("E3: backfill dual-indexes a completed Agent run under both ids", () => {
+      const state = applyEvents([
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1000,
+          data: { toolCallId: "tc1", toolName: "Agent", args: {} },
+        },
+        {
+          eventType: "tool_execution_end",
+          timestamp: 2000,
+          data: {
+            toolCallId: "tc1",
+            toolName: "Agent",
+            isError: false,
+            result: "done",
+            details: { agentId: "A", agentSessionId: "S" },
+          },
+        },
+      ]);
+      const byAgentId = state.subagents.get("A");
+      const bySession = state.subagents.get("S");
+      expect(byAgentId).toBeDefined();
+      expect(bySession).toBe(byAgentId);
+      expect(byAgentId!.id).toBe("A");
+      expect(byAgentId!.agentSessionId).toBe("S");
+    });
+
+    it("E4: backfill single-key when the end details carry no agentSessionId", () => {
+      const state = applyEvents([
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1000,
+          data: { toolCallId: "tc1", toolName: "Agent", args: {} },
+        },
+        {
+          eventType: "tool_execution_end",
+          timestamp: 2000,
+          data: {
+            toolCallId: "tc1",
+            toolName: "Agent",
+            isError: false,
+            result: "done",
+            details: { agentId: "A" },
+          },
+        },
+      ]);
+      expect(state.subagents.get("A")).toBeDefined();
+      expect(state.subagents.size).toBe(1);
+    });
+
+    it("E6: an unknown id (neither agentId nor agentSessionId) resolves to undefined", () => {
+      const state = applyEvents([
+        {
+          eventType: "subagent_started",
+          timestamp: 1000,
+          data: { id: "A", type: "Explore", description: "d", details: { agentSessionId: "S" } },
+        },
+      ]);
+      expect(state.subagents.get("unknown-id")).toBeUndefined();
+    });
+
+    it("X1: graceful degrade — no agentSessionId anywhere → reducer creates no alias key", () => {
+      const state = applyEvents([
+        {
+          eventType: "subagent_started",
+          timestamp: 1000,
+          data: { id: "A", type: "Explore", description: "d" },
+        },
+        {
+          eventType: "subagent_completed",
+          timestamp: 2000,
+          data: { id: "A", result: "ok" },
+        },
+      ]);
+      expect(state.subagents.get("A")).toBeDefined();
+      expect(state.subagents.size).toBe(1); // no S alias
+    });
+  });
 });
 
 describe("turnIndex tracking", () => {
