@@ -10,7 +10,7 @@
 // state; useMessageHandler.ts mirrors every msg.event into the
 // per-session-events store the plugin runtime owns.
 import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
-import type { DashboardEvent, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 export interface ChatImage {
   data: string;
@@ -66,13 +66,10 @@ export interface ChatMessage {
    * See change: unify-status-banner-and-terminal-limit-stop.
    */
   retriedFrom?: string;
-  /**
-   * Dashboard-local `/view` preview target. When set, ChatView renders the
-   * message as a `PreviewCard` instead of the default bubble. Bridge filters
-   * `view`-bearing messages out of the pi-bound stream so the agent never
-   * observes them. See change: render-file-previews.
-   */
-  view?: ViewTarget;
+  // The retired `view?: ViewTarget` field is gone (change:
+  // open-view-command-in-editor-pane, D8): `/view` opens the editor pane, no
+  // inline PreviewCard row. An old serialized message still carrying `view`
+  // deserializes inertly — the reducer never reads it, nothing throws.
   /**
    * How pi delivered this user message when it arrived mid-stream (pi 0.77+
    * `InputEvent.streamingBehavior`). `"steer"` = interrupted + steered the
@@ -115,6 +112,65 @@ export interface ToolCallState {
    * fix-stuck-tool-card-superseded-heal.
    */
   emittedAtInferenceSeq?: number;
+}
+
+export type CompactionReason = "manual" | "threshold" | "overflow";
+
+export interface CompactionState {
+  reason?: CompactionReason;
+  willRetry?: boolean;
+  estimatedPostCompactionTokens?: number;
+  /** Snapshot of contextUsage.tokens at compaction time (for the reduction). */
+  preCompactionTokens?: number;
+}
+
+/** Map a compaction `reason` to its human badge label. Pure. */
+export function compactionReasonLabel(reason: CompactionReason): string {
+  switch (reason) {
+    case "manual":
+      return "manual";
+    case "threshold":
+      return "auto-threshold";
+    case "overflow":
+      return "overflow-retry";
+  }
+}
+
+/** Abbreviate a token count: 12400 → "12.4k", 8000 → "8k", 800 → "800". Pure. */
+export function abbreviateTokens(n: number): string {
+  if (n < 1000) return String(n);
+  const k = n / 1000;
+  return `${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}k`;
+}
+
+/** Derived compaction badge content, or null when there is nothing to show. */
+export interface CompactionBadge {
+  label: string;
+  /** e.g. "\u221212.4k"; empty string when the reduction is unknown. */
+  reductionText: string;
+}
+
+/**
+ * Derive the compaction badge from session compaction state. Returns null when
+ * there is no `reason` (nothing to annotate). The reduction is
+ * `preCompactionTokens - estimatedPostCompactionTokens`, abbreviated and
+ * prefixed with a U+2212 minus; when either token count is missing (or the
+ * reduction is non-positive) `reductionText` is empty and only the label
+ * renders. Pure — unit-testable independently of the DOM. See change:
+ * adopt-pi-074-080-features (C.1).
+ */
+export function deriveCompactionBadge(c: CompactionState | undefined): CompactionBadge | null {
+  if (!c || !c.reason) return null;
+  const label = compactionReasonLabel(c.reason);
+  let reductionText = "";
+  if (
+    typeof c.preCompactionTokens === "number" &&
+    typeof c.estimatedPostCompactionTokens === "number"
+  ) {
+    const reduction = c.preCompactionTokens - c.estimatedPostCompactionTokens;
+    if (reduction > 0) reductionText = `\u2212${abbreviateTokens(reduction)}`;
+  }
+  return { label, reductionText };
 }
 
 export interface TurnStat {
@@ -208,6 +264,14 @@ export interface SessionState {
   status: "idle" | "streaming" | "ended";
   turnStats: TurnStat[];
   contextUsage?: { tokens: number | null; contextWindow: number };
+  /**
+   * Compaction metadata captured from the most recent `session_compact` (pi
+   * 0.79.8/0.79.10+). Absent when pi carried none of the fields (legacy
+   * event). `preCompactionTokens` snapshots `contextUsage.tokens` at compact
+   * time so the badge can show the approximate reduction. Drives the
+   * ContextUsageBar compaction badge. See change: adopt-pi-074-080-features (C.1).
+   */
+  compaction?: CompactionState;
   pendingPrompt?: PendingPrompt;
   interactiveRequests: InteractiveUiRequest[];
   /** Whether any Write/Edit tool calls have been seen (for Changed Files button) */
@@ -297,7 +361,27 @@ function readSubagentDetails(
   if (typeof details.toolUses === "number") out.toolUses = details.toolUses;
   if (typeof details.durationMs === "number") out.durationMs = details.durationMs;
   if (typeof details.agentMdPath === "string") out.agentMdPath = details.agentMdPath;
+  // Runner session id (v7): when the producer supplies it, persist it so the
+  // reducer can dual-index the state under both the agentId and this id.
+  // Absent with an older producer (< 0.2.3) → single-key, as today.
+  // See change: resolve-subagent-inspector-by-session-id (D1/D2).
+  if (typeof details.agentSessionId === "string") out.agentSessionId = details.agentSessionId;
   return out;
+}
+
+/**
+ * Dual-index a subagent state into the `subagents` map. Always sets the
+ * canonical `state.id` (v4 agentId) key; when `state.agentSessionId` (v7) is
+ * present, ALSO sets that key to the SAME reference so a lookup by either id
+ * resolves the run. Both keys are a PAIR pointing at one object — any future
+ * change deleting one on completion MUST delete the other (paired-key
+ * invariant, design N1). Do NOT enumerate this map with `.values()/.entries()`
+ * without de-duping by `state.id`: a dual-indexed agent appears under two keys.
+ * See change: resolve-subagent-inspector-by-session-id (D2).
+ */
+function setSubagentState(map: Map<string, SubagentState>, state: SubagentState): void {
+  map.set(state.id, state);
+  if (state.agentSessionId) map.set(state.agentSessionId, state);
 }
 
 export function createInitialState(): SessionState {
@@ -1048,8 +1132,15 @@ export function reduceEvent(
     }
 
     case "agent_end": {
+      // agent_end fires per agent-run iteration (retries / queued follow-ups
+      // still pending). It sets the INTERMEDIATE `"ended"` state and clears
+      // streaming; only `agent_settled` (real ≥ 0.80.4, or bridge-synthesized
+      // on floor pi — see bridge agent-settled.ts) resolves `"idle"`. All the
+      // existing side-effects (last-error extraction, retry/pendingPrompt
+      // clearing) stay here; only the `status:"idle"` line moved to the settle
+      // arm. See change: adopt-pi-074-080-features (A.1).
       next.isStreaming = false;
-      next.status = "idle";
+      next.status = "ended";
       next.streamingText = "";
       next.currentTool = undefined;
       next.pendingPrompt = undefined;
@@ -1063,6 +1154,19 @@ export function reduceEvent(
         next.lastError = undefined;
       }
       next.retryState = undefined;
+      break;
+    }
+
+    case "agent_settled": {
+      // The single terminal signal that resolves `"idle"`. The bridge
+      // guarantees exactly one per run (real on pi ≥ 0.80.4, synthesized
+      // synchronously after `agent_end` on floor pi), so this arm needs no
+      // version / capability branch and no timer. Defensive on an illegal
+      // settle with no preceding `agent_end` (X2): still resolves idle and
+      // clears streaming without crashing. See change:
+      // adopt-pi-074-080-features (A.1).
+      next.isStreaming = false;
+      next.status = "idle";
       break;
     }
 
@@ -1704,7 +1808,7 @@ export function reduceEvent(
               Object.entries(patch).filter(([, v]) => v !== undefined),
             ),
           } as SubagentState;
-          next.subagents.set(agentId, merged);
+          setSubagentState(next.subagents, merged);
         }
       }
       break;
@@ -1774,6 +1878,30 @@ export function reduceEvent(
           timestamp: event.timestamp,
         },
       ];
+      // Capture compaction metadata (pi 0.79.8/0.79.10+) when present. Absent
+      // fields leave state unchanged from today (legacy event = no badge).
+      // preCompactionTokens snapshots the current usage so the badge can show
+      // the approximate reduction. See change: adopt-pi-074-080-features (C.1).
+      const rawReason = data.reason;
+      const reason =
+        rawReason === "manual" || rawReason === "threshold" || rawReason === "overflow"
+          ? (rawReason as CompactionReason)
+          : undefined;
+      const willRetry = typeof data.willRetry === "boolean" ? data.willRetry : undefined;
+      const estimatedPostCompactionTokens =
+        typeof data.estimatedPostCompactionTokens === "number"
+          ? data.estimatedPostCompactionTokens
+          : undefined;
+      if (reason !== undefined || willRetry !== undefined || estimatedPostCompactionTokens !== undefined) {
+        next.compaction = {
+          ...(reason !== undefined ? { reason } : {}),
+          ...(willRetry !== undefined ? { willRetry } : {}),
+          ...(estimatedPostCompactionTokens !== undefined ? { estimatedPostCompactionTokens } : {}),
+          ...(state.contextUsage?.tokens != null
+            ? { preCompactionTokens: state.contextUsage.tokens }
+            : {}),
+        };
+      }
       break;
     }
 
@@ -1911,7 +2039,7 @@ export function reduceEvent(
       const id = data.id as string;
       const details = (data.details as Record<string, unknown> | undefined) ?? undefined;
       next.subagents = new Map(next.subagents);
-      next.subagents.set(id, {
+      setSubagentState(next.subagents, {
         id,
         type: data.type as string ?? "unknown",
         description: data.description as string ?? "",
@@ -1926,7 +2054,7 @@ export function reduceEvent(
       const details = (data.details as Record<string, unknown> | undefined) ?? undefined;
       next.subagents = new Map(next.subagents);
       const existing = next.subagents.get(id);
-      next.subagents.set(id, {
+      setSubagentState(next.subagents, {
         ...(existing ?? { id, type: data.type as string ?? "unknown", description: data.description as string ?? "" }),
         status: "running",
         startedAt: existing?.startedAt ?? (typeof event.timestamp === "number" ? event.timestamp : Date.now()),
@@ -1941,7 +2069,7 @@ export function reduceEvent(
       const details = (data.details as Record<string, unknown> | undefined) ?? undefined;
       next.subagents = new Map(next.subagents);
       const existing = next.subagents.get(id);
-      next.subagents.set(id, {
+      setSubagentState(next.subagents, {
         ...(existing ?? { id, type: data.type as string ?? "unknown", description: data.description as string ?? "" }),
         status: event.eventType === "subagent_completed" ? "completed" : "failed",
         result: data.result as string | undefined,

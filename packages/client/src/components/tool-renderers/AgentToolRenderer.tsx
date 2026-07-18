@@ -46,6 +46,12 @@ interface AgentDetails {
   modelName?: string;
   tags?: string[];
   agentId?: string;
+  /**
+   * Runner session id (v7) from the producer (>= 0.2.3). Client mirror of the
+   * producer's AgentDetails field; the reducer dual-indexes on it so a v7
+   * deep-link resolves. See change: resolve-subagent-inspector-by-session-id.
+   */
+  agentSessionId?: string;
   error?: string;
 }
 

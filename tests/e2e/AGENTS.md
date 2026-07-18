@@ -41,6 +41,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux round-trip tests. → see `optimistic-prompt.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change: make-pairing-qr-camera-scannable). → see `pairing-qr.spec.ts.AGENTS.md` |
 | `project-init-button.spec.ts` | Playwright E2E for the polymorphic Initialize button (Level 1). → see `project-init-button.spec.ts.AGENTS.md` |
+| `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4, change: adopt-pi-074-080-features). Dashboard-spawned headless session in an untrusted `.pi/` cwd reaches idle (bridge auto-trust, no stall). Opt-in via `PI_TRUST_SEED_CWD` (untrusted-`.pi/` container trust-seed = flagged follow-up); default skips. Decision logic covered by project_trust L1 (E5/X1/X3). |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx playwright install chromium`. Run via `npm run test:e2e`. → see `README.md.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collapse-timer. Two tests. → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
 | `reconcile-heal.spec.ts` | Playwright spec (task 5.1, change: fix-stuck-tool-card-on-dropped-event). → see `reconcile-heal.spec.ts.AGENTS.md` |

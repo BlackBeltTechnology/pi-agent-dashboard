@@ -1,45 +1,59 @@
 import { expect, type Page, test } from "@playwright/test";
 import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
 
-// Browser E2E — EML (email) preview (change: add-eml-preview).
+// Browser E2E — EML (email) preview in the editor pane.
 //
-// Drives the real `/view @<file.eml>` composer command against the Docker
-// harness. `/view` creates a dashboard-local view-bearing message → an inline
-// `PreviewCard` whose body dispatches (`dispatchPreview` → "email") to
-// `EmlPreview`. Fixtures live in docker/fixtures/sample-git/ (rich.eml, lazy.eml),
-// copied to /fixtures/sample-git (the session cwd) at container start.
+// `/view @<file.eml>` now opens the target in the SPLIT EDITOR PANE (change:
+// open-view-command-in-editor-pane) — NOT the retired inline `PreviewCard`.
+// `fileKind` classifies `.eml` → `email` → `viewerRegistry.email` → the same
+// shared `EmlPreview` component. Fixtures live in docker/fixtures/sample-git/
+// (rich.eml, lazy.eml), copied to /fixtures/sample-git (the session cwd) at
+// container start.
 //
-// Security asserts (opaque-origin sandbox, escaped headers, remote-block, cid→blob)
-// mirror the D2/D3 design decisions; attachment asserts mirror D4.
+// Security asserts (opaque-origin sandbox, escaped headers, remote-block,
+// cid→blob, lazy attachments) mirror the reused EmlPreview posture (test-plan
+// X4) and are unchanged by the surface move.
 
-/** Send `/view @<file>` and wait for the inline EmlPreview to mount. */
+/** Dismiss the harness's recurring "Pi session spawned" toasts (they sit at
+ * `fixed top-4 right-4` and intercept the send button). */
+async function dismissToasts(page: Page): Promise<void> {
+  for (const btn of await page.getByRole("button", { name: "Dismiss" }).all()) {
+    await btn.click().catch(() => {});
+  }
+}
+
+/** `/view @<file>` → wait for the editor-pane EmlPreview to mount. */
 async function openEml(page: Page, file: string) {
   const composer = page.getByPlaceholder(/message/i).first();
   await composer.waitFor({ state: "visible", timeout: 30_000 });
   await composer.fill(`/view @${file}`);
-  await byTestId(page, "sendButton").click();
-  // `/view` appends a card; scope to the newest one so repeated calls don't
-  // match earlier email cards still in the transcript.
-  const card = page.getByTestId("preview-card").filter({ has: page.getByTestId("eml-preview") }).last();
-  await expect(card).toBeVisible({ timeout: 30_000 });
-  return card;
+  // Close any slash-command dropdown, then click send past overlapping toasts.
+  await page.keyboard.press("Escape");
+  await composer.fill(`/view @${file}`);
+  await expect(async () => {
+    await dismissToasts(page);
+    await byTestId(page, "sendButton").click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  // Routes to the editor pane deep-link; the active tab mounts EmlPreview.
+  await expect(page).toHaveURL(new RegExp(`/session/[^/]+/editor\\?file=${file.replace(".", "\\.")}`), {
+    timeout: 20_000,
+  });
+  const preview = page.getByTestId("eml-preview");
+  await expect(preview).toBeVisible({ timeout: 30_000 });
+  return preview;
 }
 
-test.describe("EML preview", () => {
-  test("body isolation, escaped headers, expand, attachments, remote-block, cid (test-plan #22–32)", async ({
+test.describe("EML preview in the editor pane", () => {
+  test("no inline card; body isolation, escaped headers, remote-block, cid, lazy attachments (X4)", async ({
     page,
   }) => {
-    // Route .eml previews to the overlay/inline renderer, never an editor.
-    await page.route("**/api/open-editor", (route) =>
-      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ success: false }) }),
-    );
-    // #30 — the tracking pixel host must never be hit. Count + block it.
+    // The tracking-pixel host must never be hit. Count + block it.
     let trackerHits = 0;
     await page.route("**tracker.example**", (route) => {
       trackerHits++;
       return route.abort();
     });
-    // #22/#23 — any sandbox escape would raise a dialog; fail if one fires.
+    // Any sandbox escape would raise a dialog; fail if one fires.
     let dialogFired = false;
     page.on("dialog", (d) => {
       dialogFired = true;
@@ -50,16 +64,20 @@ test.describe("EML preview", () => {
 
     // ── rich.eml: the everything fixture ──────────────────────────────────
     const rich = await openEml(page, "rich.eml");
+
+    // The retired inline surface must NOT appear in the transcript.
+    await expect(page.getByTestId("preview-card")).toHaveCount(0);
+
     const frame = rich.getByTestId("eml-body-frame");
 
-    // #22 — body iframe sandbox is EXACTLY "" (opaque origin, no allow-same-origin).
+    // X4 — body iframe sandbox is EXACTLY "" (opaque origin, no allow-same-origin).
     await expect(frame).toHaveAttribute("sandbox", "");
 
-    // #23 — the XSS subject is shown as literal escaped text (no element, no alert).
-    await expect(rich.getByTestId("eml-preview")).toContainText("onerror=alert(1)");
+    // Escaped headers — the XSS subject is literal escaped text (no element, no alert).
+    await expect(rich).toContainText("onerror=alert(1)");
     expect(dialogFired).toBe(false);
 
-    // #24 — header starts collapsed; clicking it reveals from/to/date/subject.
+    // Header starts collapsed; clicking it reveals from/to/date/subject.
     await expect(rich.getByTestId("eml-header-full")).toHaveCount(0);
     await rich.getByTestId("eml-header-toggle").click();
     const full = rich.getByTestId("eml-header-full");
@@ -67,21 +85,20 @@ test.describe("EML preview", () => {
     await expect(full).toContainText("alice@example.com");
     await expect(full).toContainText("bob@example.com");
 
-    // #32 — cid: refs (src AND CSS url()) resolve to blob: URLs before srcDoc build.
+    // cid: refs resolve to blob: URLs before srcDoc build.
     await expect
       .poll(async () => (await frame.getAttribute("srcdoc")) ?? "", { timeout: 15_000 })
       .toContain("blob:");
     const srcdoc = (await frame.getAttribute("srcdoc")) ?? "";
     expect(srcdoc).not.toContain("cid:logo");
 
-    // #30 — remote tracker image blocked on render; "Load remote content" shown.
+    // X4 — remote tracker image blocked on render; "Load remote content" shown.
     expect(trackerHits).toBe(0);
     const banner = rich.getByTestId("eml-load-remote");
     await expect(banner).toBeVisible();
 
-    // #31 — activating the banner re-requests the body with ?allowRemote=1
-    // (browser fetches remote content; the server never does). Arm the request
-    // wait BEFORE the click to avoid a capture race.
+    // Activating the banner re-requests the body with ?allowRemote=1 (the
+    // browser fetches remote content; the server never does).
     const remoteReq = page.waitForRequest(
       (r) => r.url().includes("/api/file/eml?") && r.url().includes("allowRemote=1"),
       { timeout: 30_000 },
@@ -96,25 +113,19 @@ test.describe("EML preview", () => {
     const jpgRow = rich.getByTestId("eml-attachment").filter({ hasText: "photo.jpg" });
     const docxRow = rich.getByTestId("eml-attachment").filter({ hasText: "notes.docx" });
 
-    // #28 — the .docx row offers download only (no expand affordance).
+    // The .docx row offers download only (no expand affordance).
     await expect(docxRow.getByTestId("eml-attachment-download")).toBeVisible();
     await expect(docxRow.getByTestId("eml-attachment-expand")).toHaveCount(0);
 
-    // #26 — expanding the PDF row renders PdfPreview inline from a blob: URL
-    // (the PdfPreview canvas mounts; the top-level URL does not navigate).
+    // Expanding the PDF row renders PdfPreview inline from a blob: URL.
     const urlBefore = page.url();
     await pdfRow.getByTestId("eml-attachment-expand").click();
     await expect(pdfRow.locator("canvas")).toBeVisible({ timeout: 30_000 });
     expect(page.url()).toBe(urlBefore);
 
-    // #27 — expanding the image row renders ImagePreview inline via a blob: URL.
+    // Expanding the image row renders ImagePreview inline via a blob: URL.
     await jpgRow.getByTestId("eml-attachment-expand").click();
     await expect(jpgRow.locator('img[src^="blob:"]')).toBeVisible({ timeout: 20_000 });
-
-    // #25 — inline card ⤢ expand mounts the SAME EmlPreview in the /view overlay.
-    await rich.getByTestId("preview-expand").click();
-    await expect(page).toHaveURL(/\/folder\/[^/]+\/view\?path=rich\.eml/, { timeout: 15_000 });
-    await expect(page.getByTestId("eml-preview")).toBeVisible({ timeout: 20_000 });
 
     // ── lazy.eml: attachment bytes fetched only on expand ─────────────────
     let attachmentReqs = 0;
@@ -122,10 +133,9 @@ test.describe("EML preview", () => {
       if (route.request().url().includes("lazy.eml")) attachmentReqs++;
       return route.continue();
     });
-    await page.goBack();
     const lazy = await openEml(page, "lazy.eml");
-    // #29 — no attachment request has fired before any row is expanded.
-    await expect(lazy.getByTestId("eml-preview")).toBeVisible();
+    // No attachment request has fired before any row is expanded.
+    await expect(lazy).toBeVisible();
     expect(attachmentReqs).toBe(0);
     await lazy.getByTestId("eml-attachment-expand").first().click();
     await expect.poll(() => attachmentReqs, { timeout: 20_000 }).toBeGreaterThan(0);

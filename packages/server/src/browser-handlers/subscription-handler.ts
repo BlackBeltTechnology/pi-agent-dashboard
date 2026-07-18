@@ -167,19 +167,8 @@ export function handleSubscribe(
   subs: Set<string>,
   ctx: BrowserHandlerContext,
 ): void {
-  const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, markReplaying, clearReplaying, viewMessageStore } = ctx;
+  const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, markReplaying, clearReplaying } = ctx;
   subs.add(msg.sessionId);
-
-  // Send the current view-messages snapshot before any event replay so the
-  // client can merge view rows into the rendered chat.
-  // See change: render-file-previews.
-  if (viewMessageStore) {
-    sendTo(ws, {
-      type: "view_messages_update",
-      sessionId: msg.sessionId,
-      viewMessages: viewMessageStore.get(msg.sessionId),
-    });
-  }
 
   // Request metadata from the extension so commands/flows/models/roles arrive
   // while the browser is actually subscribed (responses use sendToSubscribers).

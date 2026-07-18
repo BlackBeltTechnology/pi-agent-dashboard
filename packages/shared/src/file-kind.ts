@@ -19,6 +19,14 @@ export type ViewerKind =
   | "mermaid"
   | "video"
   | "audio"
+  // Rich office / document / email viewers, each delegating to a shared
+  // `preview/*` renderer via the editor-pane viewer registry. Classified by
+  // extension only. See change: open-view-command-in-editor-pane (D3).
+  | "docx"
+  | "pptx"
+  | "spreadsheet"
+  | "asciidoc"
+  | "email"
   | "live-server"
   // Opened explicitly (never returned by `fileKind()`), like `live-server`.
   // `url:<url>` renders a `canvas()` url/youtube declare in the split pane.
@@ -44,6 +52,11 @@ export type FileKind =
   | "mermaid"
   | "video"
   | "audio"
+  | "docx"
+  | "pptx"
+  | "spreadsheet"
+  | "asciidoc"
+  | "email"
   | "binary"
   | "unknown";
 
@@ -60,6 +73,16 @@ export interface FileKindResult {
    */
   editable: boolean;
 }
+
+/**
+ * Shared preview byte cap. A rich viewer whose file exceeds this size mounts a
+ * `TooLargePreview` fallback (notice + Open raw) instead of the renderer, so a
+ * huge file never opens uncapped in the pane. Byte-level (not row-level) so it
+ * is uniform across every rich kind and cannot be gamed by a pathological
+ * single-huge-cell file. Monaco text tabs keep their own large-file handling.
+ * See change: open-view-command-in-editor-pane (D7).
+ */
+export const MAX_PREVIEW_BYTES = 10 * 1024 * 1024;
 
 /** Markdown extensions render via `MarkdownViewer`, overriding the text/code path. */
 const MARKDOWN_EXTENSIONS = new Set([".md", ".mdx", ".markdown"]);
@@ -84,7 +107,7 @@ export const TEXT_EXTENSIONS = new Set([
   ".css", ".scss", ".less",
   ".sql",
   ".sh", ".bash", ".zsh",
-  ".txt", ".xml", ".toml", ".ini", ".conf", ".log", ".csv",
+  ".txt", ".xml", ".toml", ".ini", ".conf", ".log",
   ".c", ".cc", ".cpp", ".h", ".hpp",
   ".java", ".rb", ".php", ".lua",
   ".vue", ".svelte", ".graphql", ".proto",
@@ -106,6 +129,26 @@ export const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".ogg", ".m4a", ".flac"
 
 /** Video → `<video controls>` viewer. Aligns with `file-and-url-preview`. */
 export const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov"]);
+
+/** Word documents → `DocxPreview` (rendered, not source). */
+export const DOCX_EXTENSIONS = new Set([".docx"]);
+
+/** PowerPoint decks → `PptxPreview`. */
+export const PPTX_EXTENSIONS = new Set([".pptx"]);
+
+/**
+ * Spreadsheets → `SpreadsheetPreview` grid. `.csv` is text-backed + editable
+ * (Preview/Edit toggle, `/api/file` content); `.xlsx`/`.xls` are binary +
+ * read-only (spreadsheet parse endpoint). See change:
+ * open-view-command-in-editor-pane (D4).
+ */
+export const SPREADSHEET_EXTENSIONS = new Set([".xlsx", ".xls", ".csv"]);
+
+/** AsciiDoc → `AsciiDocPreview` (rendered). */
+export const ASCIIDOC_EXTENSIONS = new Set([".adoc", ".asciidoc"]);
+
+/** RFC822 email → `EmlPreview` (sandboxed body, remote assets blocked). */
+export const EMAIL_EXTENSIONS = new Set([".eml"]);
 
 /** Specific MIME overrides; everything else derives from `kind`. */
 const MIME_BY_EXT: Record<string, string> = {
@@ -151,6 +194,13 @@ const MIME_BY_EXT: Record<string, string> = {
   ".flac": "audio/flac",
   ".mmd": "text/vnd.mermaid",
   ".mermaid": "text/vnd.mermaid",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".xls": "application/vnd.ms-excel",
+  ".adoc": "text/asciidoc",
+  ".asciidoc": "text/asciidoc",
+  ".eml": "message/rfc822",
   ".md": "text/markdown",
   ".mdx": "text/markdown",
   ".markdown": "text/markdown",
@@ -188,6 +238,47 @@ function looksBinary(sniff: Buffer | string): boolean {
  * @param sniff   optional first bytes; server-only NUL sniff promotes unknown
  *                extensions to `binary`. Absent ⇒ extension-only classification.
  */
+/**
+ * Rich office / document / email classification (extension-only). Extracted so
+ * `fileKind` stays under the cognitive-complexity budget. Returns `null` for a
+ * non-rich extension. See change: open-view-command-in-editor-pane.
+ */
+function richKind(ext: string, mimeOf: (fallback: string) => string): FileKindResult | null {
+  if (DOCX_EXTENSIONS.has(ext)) {
+    return {
+      kind: "docx",
+      mimeType: mimeOf("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+      viewer: "docx",
+      editable: false,
+    };
+  }
+  if (PPTX_EXTENSIONS.has(ext)) {
+    return {
+      kind: "pptx",
+      mimeType: mimeOf("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+      viewer: "pptx",
+      editable: false,
+    };
+  }
+  if (SPREADSHEET_EXTENSIONS.has(ext)) {
+    // `.csv` is text-backed → editable (Monaco Edit over raw CSV); binary
+    // spreadsheets stay read-only (grid via the parse endpoint).
+    return {
+      kind: "spreadsheet",
+      mimeType: mimeOf("application/octet-stream"),
+      viewer: "spreadsheet",
+      editable: ext === ".csv",
+    };
+  }
+  if (ASCIIDOC_EXTENSIONS.has(ext)) {
+    return { kind: "asciidoc", mimeType: mimeOf("text/asciidoc"), viewer: "asciidoc", editable: false };
+  }
+  if (EMAIL_EXTENSIONS.has(ext)) {
+    return { kind: "email", mimeType: mimeOf("message/rfc822"), viewer: "email", editable: false };
+  }
+  return null;
+}
+
 export function fileKind(absPath: string, sniff?: Buffer | string): FileKindResult {
   if (!isAbsolutePath(absPath)) {
     throw new Error(`fileKind requires an absolute path, got: ${absPath}`);
@@ -222,6 +313,11 @@ export function fileKind(absPath: string, sniff?: Buffer | string): FileKindResu
   if (IMAGE_EXTENSIONS.has(ext)) {
     return { kind: "image", mimeType: mimeOf("application/octet-stream"), viewer: "image", editable: false };
   }
+  // Rich office / document / email kinds — extension-only, before the
+  // text/sniff tail so a corrupt file routes to its rich renderer (inline
+  // parse-error), not Monaco raw. See change: open-view-command-in-editor-pane.
+  const rich = richKind(ext, mimeOf);
+  if (rich) return rich;
   if (TEXT_EXTENSIONS.has(ext)) {
     return { kind: "text", mimeType: mimeOf("text/plain"), viewer: "monaco", editable: false };
   }

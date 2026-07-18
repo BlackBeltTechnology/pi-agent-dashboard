@@ -58,7 +58,6 @@ function makeHarness(initialState: Map<string, SessionState>) {
     setSpawnErrors: noop,
     setResumeErrors: noop,
     setDisplayPrefs: noop,
-    setViewMessagesMap: noop,
     setLoadingHistory: noop,
     setCanvasMap: noop,
   };

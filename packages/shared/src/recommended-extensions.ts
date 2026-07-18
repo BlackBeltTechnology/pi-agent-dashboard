@@ -175,6 +175,12 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		autowired: true,
 		// Companion dashboard plugin id. See change: add-subagent-inspector.
 		dashboardPlugin: "subagents",
+		// Version floor >= 0.2.3: emits `agentSessionId` on AgentDetails so the
+		// subagent inspector resolves a run by its v7 runner session id (not just
+		// the v4 agentId). Source is unversioned (installs latest) so fresh installs
+		// satisfy the floor. Graceful degrade: an older producer omits the field and
+		// the inspector keeps today's single-key behaviour (no regression).
+		// See change: resolve-subagent-inspector-by-session-id.
 	},
 	{
 		id: "pi-flows",

@@ -86,6 +86,7 @@ import {
   resetNavStack,
 } from "./lib/nav/nav-tracker.js";
 import { useOpenSpecConfig } from "./lib/openspec/openspec-config-api.js";
+import { viewTargetToEditorPath } from "./lib/nav/view-route.js";
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
@@ -426,6 +427,9 @@ export default function App() {
   const diffSessionId = diffMatch && diffParams ? diffParams.id : null;
   const editorSessionId = editorMatch && editorParams ? editorParams.id : null;
   const editorFile = editorMatch ? fileViewSearch.get("file") : null;
+  // `/view <url>` deep-link param (mutually exclusive with `file`; `file` wins).
+  // See change: open-view-command-in-editor-pane (D1/D6).
+  const editorUrl = editorMatch ? fileViewSearch.get("url") : null;
   const editorLineRaw = editorMatch ? fileViewSearch.get("line") : null;
   const editorLineParsed = editorLineRaw ? Number.parseInt(editorLineRaw, 10) : Number.NaN;
   const editorLine = Number.isInteger(editorLineParsed) && editorLineParsed > 0 ? editorLineParsed : null;
@@ -480,7 +484,7 @@ export default function App() {
   // event-reducer state so the reducer never sees them. Merged with
   // `state.messages` by timestamp when passing to ChatView.
   // See change: render-file-previews.
-  const [viewMessagesMap, setViewMessagesMap] = useState<Map<string, import("./lib/chat/event-reducer.js").ChatMessage[]>>(new Map());
+
   // Per-session chat-input drafts. Hydrated once from localStorage on mount,
   // then persisted (debounced) whenever the map changes.
   const [drafts, setDrafts] = useState<Map<string, string>>(() => readAllDrafts());
@@ -735,7 +739,7 @@ export default function App() {
   }, []);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setWorkspacesLoaded, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory, setCanvasMap },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setWorkspacesLoaded, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setCanvasMap },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current, showToast },
   );
 
@@ -880,7 +884,14 @@ export default function App() {
       {
         const st = sessionStates.get(sid);
         if (st) {
+          // De-dup by state.id: a subagent dual-indexed under both its agentId
+          // and its agentSessionId appears twice in .values() as the SAME ref,
+          // so skip the alias to avoid a duplicate resync request (invariant N1).
+          // See change: resolve-subagent-inspector-by-session-id.
+          const seen = new Set<string>();
           for (const sub of st.subagents.values()) {
+            if (seen.has(sub.id)) continue;
+            seen.add(sub.id);
             if (sub.status === "running" && (!sub.entries || sub.entries.length === 0)) {
               send({ type: "subagent_resync_request", sessionId: sid, agentId: sub.id });
             }
@@ -938,19 +949,11 @@ export default function App() {
   // subscribes on mount via `usePluginSend({ type: "subscribe", ... })`.
   // See change: add-flow-agent-popout.
 
-  const rawSelectedState = selectedId
+  // `/view` now opens the editor pane (change: open-view-command-in-editor-pane);
+  // the retired inline-row merge is gone — rendered chat = raw reducer messages.
+  const selectedState = selectedId
     ? sessionStates.get(selectedId) ?? createInitialState()
     : createInitialState();
-  // Merge dashboard-local `/view` rows into the rendered chat by timestamp.
-  // View rows are stored separately so the event reducer never sees them.
-  // See change: render-file-previews.
-  const selectedState = useMemo(() => {
-    if (!selectedId) return rawSelectedState;
-    const views = viewMessagesMap.get(selectedId);
-    if (!views || views.length === 0) return rawSelectedState;
-    const merged = [...rawSelectedState.messages, ...views].sort((a, b) => a.timestamp - b.timestamp);
-    return { ...rawSelectedState, messages: merged };
-  }, [rawSelectedState, viewMessagesMap, selectedId]);
 
   // Per-session draft text + history recall for CommandInput.
   const selectedDraft = selectedId ? (drafts.get(selectedId) ?? "") : "";
@@ -1785,7 +1788,11 @@ export default function App() {
             currentCwd={selectedSession?.cwd}
             onViewLocal={(target) => {
               if (!selectedId) return;
-              send({ type: "inject_view_message", sessionId: selectedId, target });
+              // `/view` now opens its target in the editor pane via the deep-link
+              // route (SplitRouteSync bridges `?file=`/`?url=` into the split),
+              // replacing the retired inline PreviewCard surface. See change:
+              // open-view-command-in-editor-pane (D1/D2).
+              navigate(viewTargetToEditorPath(selectedId, target));
             }}
             onOpenInlineTerminal={selectedId && selectedCwd ? () => handleOpenInlineTerminal(selectedId, selectedCwd) : undefined}
             sessionMessages={selectedState.messages}
@@ -2025,7 +2032,7 @@ export default function App() {
               });
             }}
           >
-            <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} />
+            <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} />
             <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}

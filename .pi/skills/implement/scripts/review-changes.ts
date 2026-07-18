@@ -18,7 +18,7 @@
  * on missing CLI, auth failure, or usage limit it defers to a later cycle.
  */
 import { spawnSync } from 'node:child_process';
-import { parseFindings, splitFindings } from './parse-findings';
+import { parseFindings, splitFindings } from './parse-findings.js';
 
 // Opt-in gate: skip unless explicitly requested. Dev inner loop → `review-code`.
 const optedIn = process.env.RUN_CR_REVIEW === '1' || process.argv.includes('--ship');

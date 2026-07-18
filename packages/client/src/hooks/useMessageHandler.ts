@@ -99,7 +99,7 @@ export interface MessageHandlerSetters {
    * rendered chat by timestamp at the App level.
    * See change: render-file-previews.
    */
-  setViewMessagesMap: React.Dispatch<React.SetStateAction<Map<string, import("../lib/chat/event-reducer.js").ChatMessage[]>>>;
+
   /**
    * Per-session "history loading" flag. Cleared on the first content batch,
    * the terminal `event_replay{isLast:true}`, or `session_updated{dataUnavailable:true}`.
@@ -171,7 +171,7 @@ export function useMessageHandler(
     setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
     setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setWorkspacesLoaded, setTerminals,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
-    setDisplayPrefs, setViewMessagesMap, setLoadingHistory, setCanvasMap,
+    setDisplayPrefs, setLoadingHistory, setCanvasMap,
   } = setters;
   const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayPersister, showToast } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
@@ -901,17 +901,6 @@ export function useMessageHandler(
           const updated = addInteractiveRequest(current, msg.requestId, msg.method, msg.params);
           if (updated === current) return prev;
           next.set(msg.sessionId, updated);
-          return next;
-        });
-        break;
-
-      case "view_messages_update":
-        // Full snapshot of `/view` preview rows for a session. Replace,
-        // not append. Merged into the rendered chat at the App level.
-        // See change: render-file-previews.
-        setViewMessagesMap((prev) => {
-          const next = new Map(prev);
-          next.set(msg.sessionId, msg.viewMessages.slice());
           return next;
         });
         break;

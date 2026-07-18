@@ -619,6 +619,7 @@ export function SessionCard({
             <ContextUsageBar
               tokens={contextUsage?.tokens ?? null}
               contextWindow={contextUsage?.contextWindow}
+              compaction={contextUsage?.compaction}
               compact
             />
           )}
@@ -884,6 +885,7 @@ export function SessionCard({
           <ContextUsageBar
             tokens={contextUsage?.tokens ?? null}
             contextWindow={contextUsage?.contextWindow}
+            compaction={contextUsage?.compaction}
             compact
           />
         )}

@@ -50,6 +50,42 @@ and SHALL NOT initiate a drag-reorder.
 - **WHEN** the user activates its open affordance
 - **THEN** the folder SHALL remain expanded (the collapse state is unchanged)
 
+### Requirement: Whole-row open affordance
+
+The folder header name-row (folder icon, path, session count, status rollups)
+SHALL itself be a click target that navigates to `/folder/:encodedCwd` for that
+directory, mirroring how clicking a session card selects its session. This
+whole-row affordance SHALL apply to EVERY folder row regardless of pinned or
+workspace membership. Collapse/expand SHALL be exposed SOLELY via the chevron
+toggle in the folder's drag gutter; the name-row click SHALL NOT toggle the
+collapsed state. Child controls within the row (needs-you pill, urgency-sort,
+open affordance, pin toggle) SHALL stop propagation so activating them does NOT
+trigger the whole-row navigation. The dedicated icon open affordance (previous
+requirement) SHALL remain as a redundant explicit control.
+
+#### Scenario: Clicking the header row navigates to the home page
+
+- **WHEN** the user clicks the folder header name-row (outside any child control)
+- **THEN** the client SHALL navigate to `/folder/<encodedCwd>` for that directory
+
+#### Scenario: Whole-row navigation does not collapse the folder
+
+- **GIVEN** a folder is expanded
+- **WHEN** the user clicks its header name-row
+- **THEN** the folder SHALL remain expanded (collapse is owned by the chevron toggle only)
+
+#### Scenario: Whole-row affordance applies to unpinned non-workspace folders
+
+- **GIVEN** a folder that is neither pinned nor a workspace member
+- **WHEN** the user clicks its header name-row
+- **THEN** the client SHALL navigate to `/folder/<encodedCwd>` (which renders the eligibility notice with a pin call-to-action)
+
+#### Scenario: Child controls do not trigger whole-row navigation
+
+- **GIVEN** a folder header row with its child controls (pin toggle, urgency-sort, needs-you pill, icon open affordance)
+- **WHEN** the user activates one of those child controls
+- **THEN** that control's own action SHALL run and the whole-row navigation SHALL NOT fire
+
 ### Requirement: Centered prompt spawns a session
 
 The directory home page SHALL present a vertically-centered prompt (built on

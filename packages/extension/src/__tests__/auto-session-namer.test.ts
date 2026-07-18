@@ -18,6 +18,7 @@ import {
   isEligible,
   type NamerRegistry,
   parseTitle,
+  sanitizeSessionName,
   type StreamSimpleFn,
   shouldSkipByPrefilter,
 } from "../auto-session-namer.js";
@@ -108,6 +109,25 @@ describe("classifyNameChange", () => {
   it("external when different or never self-applied", () => {
     expect(classifyNameChange("Hand Typed", "Auth Refactor")).toBe("external");
     expect(classifyNameChange("Hand Typed", undefined)).toBe("external");
+  });
+  // F5: a self-applied title with an internal newline still matches the
+  // newline-collapsed name pi carries in session_info_changed.
+  it("F5: self when a newline-bearing self-title matches the sanitized event name", () => {
+    expect(classifyNameChange("Foo Bar", "Foo\nBar")).toBe("self");
+    expect(classifyNameChange("Foo Bar", "Foo\r\nBar")).toBe("self");
+    expect(classifyNameChange("  Foo Bar  ", "Foo\nBar")).toBe("self");
+  });
+  // F4: a genuine external rename is still external.
+  it("F4: external for a hand-typed rename that is not the self title", () => {
+    expect(classifyNameChange("Bar", "Foo")).toBe("external");
+  });
+});
+
+describe("sanitizeSessionName", () => {
+  it("collapses internal newlines to single spaces and trims", () => {
+    expect(sanitizeSessionName("Foo\nBar")).toBe("Foo Bar");
+    expect(sanitizeSessionName("Foo\r\n\nBar")).toBe("Foo Bar");
+    expect(sanitizeSessionName("  Foo Bar  ")).toBe("Foo Bar");
   });
 });
 
@@ -289,6 +309,24 @@ describe("createAutoNamer", () => {
     namer.onObservedName("Hand Typed Name");
     expect(hooks.reportUserRename).toHaveBeenCalledWith("Hand Typed Name");
     expect(namer._state()).toMatchObject({ nameSource: "user", hardStopped: true });
+  });
+
+  it("F5: a newline-bearing self-name echoing back (sanitized) does NOT lock out", async () => {
+    // The bridge self-applies "Foo\nBar"; pi sanitizes + broadcasts "Foo Bar"
+    // via session_info_changed. The self-filter must classify it self.
+    const hooks = makeHooks({
+      loadStreamSimple: async () =>
+        fakeStream([{ type: "text_delta", delta: "Foo\nBar" }, { type: "done", message: { content: [] } }]),
+    });
+    const namer = createAutoNamer(hooks);
+    await namer.maybeName();
+    expect(hooks.applyName).toHaveBeenCalledWith("Foo\nBar");
+    expect(namer._state().nameSource).toBe("auto");
+
+    // The sanitized echo comes back through session_info_changed → self, no push.
+    namer.onObservedName("Foo Bar");
+    expect(hooks.reportUserRename).not.toHaveBeenCalled();
+    expect(namer._state()).toMatchObject({ nameSource: "auto", hardStopped: false });
   });
 
   it("seeds a user lockout restored from meta", async () => {

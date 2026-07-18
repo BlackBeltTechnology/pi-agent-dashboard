@@ -95,15 +95,32 @@ export function isEligible(state: {
 }
 
 /**
+ * Normalize a name with pi's own session-name sanitization: collapse internal
+ * newlines to single spaces and trim. pi applies this before it stores /
+ * broadcasts a name, so `session_info_changed` carries the sanitized form. The
+ * bridge records the raw title it self-applied, so both sides MUST be
+ * normalized before comparison or a newline-bearing self-title would look
+ * external. See change: adopt-pi-074-080-features (A.2).
+ */
+export function sanitizeSessionName(name: string): string {
+  return name.replace(/[\r\n]+/g, " ").trim();
+}
+
+/**
  * Classify an observed session-name value as self-applied (the bridge's own
  * auto-name) or external (a dashboard / in-pi rename). The bridge records the
  * exact title it self-applied; anything else is external → provenance `"user"`.
+ * Both sides are sanitized (newline-collapsed + trimmed) so a self-applied
+ * title containing internal newlines still matches the sanitized name pi
+ * carries in `session_info_changed`. See change: adopt-pi-074-080-features (A.2).
  */
 export function classifyNameChange(
   observed: string,
   lastSelfApplied: string | undefined,
 ): "self" | "external" {
-  if (lastSelfApplied !== undefined && observed === lastSelfApplied) return "self";
+  if (lastSelfApplied !== undefined && sanitizeSessionName(observed) === sanitizeSessionName(lastSelfApplied)) {
+    return "self";
+  }
   return "external";
 }
 

@@ -4,7 +4,7 @@ import type { ToastVariant } from "../components/primitives/Toast.js";
 import { t } from "../lib/i18n/i18n.js";
 
 // Single canonical definition lives in Toast.tsx; re-exported here so existing
-// `import { ToastVariant } from "../hooks/useAsyncAction"` consumers keep working
+// `import { ToastVariant } from "./useAsyncAction.js"` consumers keep working
 // without a second, drift-prone declaration. See change:
 // unify-message-severity-colors (D7).
 export type { ToastVariant };

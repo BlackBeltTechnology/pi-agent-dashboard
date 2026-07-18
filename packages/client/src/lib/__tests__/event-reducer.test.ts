@@ -7,6 +7,31 @@ function applyEvents(events: DashboardEvent[]): SessionState {
 }
 
 describe("eventReducer", () => {
+  // D8 / test-plan X6: the retired `ChatMessage.view` field is gone. An OLD
+  // serialized session whose messages still carry `view` must replay inertly —
+  // the reducer never reads it, nothing throws, other fields stay intact, and
+  // no inline card is produced. See change: open-view-command-in-editor-pane.
+  it("X6 ignores a legacy `view` field on a message during replay (no throw, fields intact)", () => {
+    const legacy = createInitialState();
+    // A message persisted while `view` existed, cast past the (now narrower) type.
+    legacy.messages.push({
+      id: "m1",
+      role: "user",
+      content: "hello",
+      timestamp: 1,
+      view: { kind: "file", cwd: "/p", path: "a.ts" },
+    } as unknown as ChatMessage);
+    // A subsequent event re-reduces the state; must not throw on the stray field.
+    const next = reduceEvent(legacy, {
+      eventType: "message_start",
+      timestamp: 2,
+      data: { message: { role: "user", content: [{ type: "text", text: "again" }] } },
+    } as DashboardEvent);
+    expect(next.messages).toHaveLength(2);
+    // Original message's real fields intact; the `view` field is inert.
+    expect(next.messages[0]).toMatchObject({ id: "m1", role: "user", content: "hello" });
+  });
+
   it("should start with empty state", () => {
     const state = createInitialState();
     expect(state.messages).toHaveLength(0);
@@ -317,14 +342,23 @@ describe("eventReducer", () => {
     expect(state.messages[0].toolDetails).toBeUndefined();
   });
 
-  it("should set status to idle on agent_end", () => {
-    const state = applyEvents([
+  it("should set status to ended on agent_end, then idle on agent_settled", () => {
+    // agent_end is now the INTERMEDIATE terminal; agent_settled resolves idle.
+    // See change: adopt-pi-074-080-features (A.1).
+    const ended = applyEvents([
       { eventType: "agent_start", timestamp: Date.now(), data: {} },
       { eventType: "agent_end", timestamp: Date.now(), data: { messages: [] } },
     ]);
+    expect(ended.status).toBe("ended");
+    expect(ended.isStreaming).toBe(false);
 
-    expect(state.status).toBe("idle");
-    expect(state.isStreaming).toBe(false);
+    const settled = applyEvents([
+      { eventType: "agent_start", timestamp: Date.now(), data: {} },
+      { eventType: "agent_end", timestamp: Date.now(), data: { messages: [] } },
+      { eventType: "agent_settled", timestamp: Date.now(), data: {} },
+    ]);
+    expect(settled.status).toBe("idle");
+    expect(settled.isStreaming).toBe(false);
   });
 
   it("should handle a full conversation sequence", () => {
@@ -361,8 +395,9 @@ describe("eventReducer", () => {
         timestamp: now + 5,
         data: { message: { role: "assistant" } },
       },
-      // Agent ends
+      // Agent ends, then settles (bridge guarantees one terminal settle).
       { eventType: "agent_end", timestamp: now + 6, data: { messages: [] } },
+      { eventType: "agent_settled", timestamp: now + 7, data: {} },
     ]);
 
     expect(state.messages).toHaveLength(3); // user + tool (added on start, updated on end) + assistant
@@ -2220,6 +2255,136 @@ describe("command_feedback events", () => {
       expect(state.subagents.get("sub_abc")?.displayName).toBe("explorer");
     });
   });
+
+  // Change: resolve-subagent-inspector-by-session-id — dual-index the reduced
+  // SubagentState under both the v4 agentId and the v7 runner agentSessionId so
+  // the inspector resolves a deep-link by either id.
+  describe("agentSessionId dual-index", () => {
+    it("E1: dual-indexes a started frame under both ids (same ref; id stays canonical)", () => {
+      const state = applyEvents([
+        {
+          eventType: "subagent_started",
+          timestamp: 1000,
+          data: { id: "A", type: "Explore", description: "d", details: { agentSessionId: "S" } },
+        },
+      ]);
+      const byAgentId = state.subagents.get("A");
+      const bySession = state.subagents.get("S");
+      expect(byAgentId).toBeDefined();
+      expect(bySession).toBe(byAgentId); // SAME reference
+      expect(byAgentId!.id).toBe("A"); // canonical v4 id, even via the v7 key
+      expect(byAgentId!.agentSessionId).toBe("S");
+    });
+
+    it("E1b: a later update via one key is visible via the other (paired ref)", () => {
+      const state = applyEvents([
+        {
+          eventType: "subagent_created",
+          timestamp: 1000,
+          data: { id: "A", type: "Explore", description: "d", details: { agentSessionId: "S" } },
+        },
+        {
+          eventType: "subagent_completed",
+          timestamp: 2000,
+          data: { id: "A", result: "ok", details: { agentSessionId: "S" } },
+        },
+      ]);
+      expect(state.subagents.get("A")!.status).toBe("completed");
+      expect(state.subagents.get("S")!.status).toBe("completed");
+      expect(state.subagents.get("S")).toBe(state.subagents.get("A"));
+    });
+
+    it("E2: single-key when the frame carries no agentSessionId (no alias)", () => {
+      const state = applyEvents([
+        {
+          eventType: "subagent_started",
+          timestamp: 1000,
+          data: { id: "A", type: "Explore", description: "d" },
+        },
+      ]);
+      expect(state.subagents.get("A")).toBeDefined();
+      expect(state.subagents.get("A")!.agentSessionId).toBeUndefined();
+      expect(state.subagents.size).toBe(1); // exactly one key for the run
+    });
+
+    it("E3: backfill dual-indexes a completed Agent run under both ids", () => {
+      const state = applyEvents([
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1000,
+          data: { toolCallId: "tc1", toolName: "Agent", args: {} },
+        },
+        {
+          eventType: "tool_execution_end",
+          timestamp: 2000,
+          data: {
+            toolCallId: "tc1",
+            toolName: "Agent",
+            isError: false,
+            result: "done",
+            details: { agentId: "A", agentSessionId: "S" },
+          },
+        },
+      ]);
+      const byAgentId = state.subagents.get("A");
+      const bySession = state.subagents.get("S");
+      expect(byAgentId).toBeDefined();
+      expect(bySession).toBe(byAgentId);
+      expect(byAgentId!.id).toBe("A");
+      expect(byAgentId!.agentSessionId).toBe("S");
+    });
+
+    it("E4: backfill single-key when the end details carry no agentSessionId", () => {
+      const state = applyEvents([
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1000,
+          data: { toolCallId: "tc1", toolName: "Agent", args: {} },
+        },
+        {
+          eventType: "tool_execution_end",
+          timestamp: 2000,
+          data: {
+            toolCallId: "tc1",
+            toolName: "Agent",
+            isError: false,
+            result: "done",
+            details: { agentId: "A" },
+          },
+        },
+      ]);
+      expect(state.subagents.get("A")).toBeDefined();
+      expect(state.subagents.size).toBe(1);
+    });
+
+    it("E6: an unknown id (neither agentId nor agentSessionId) resolves to undefined", () => {
+      const state = applyEvents([
+        {
+          eventType: "subagent_started",
+          timestamp: 1000,
+          data: { id: "A", type: "Explore", description: "d", details: { agentSessionId: "S" } },
+        },
+      ]);
+      expect(state.subagents.get("unknown-id")).toBeUndefined();
+    });
+
+    it("X1: graceful degrade — no agentSessionId anywhere → reducer creates no alias key", () => {
+      const state = applyEvents([
+        {
+          eventType: "subagent_started",
+          timestamp: 1000,
+          data: { id: "A", type: "Explore", description: "d" },
+        },
+        {
+          eventType: "subagent_completed",
+          timestamp: 2000,
+          data: { id: "A", result: "ok" },
+        },
+      ]);
+      expect(state.subagents.get("A")).toBeDefined();
+      expect(state.subagents.size).toBe(1); // no S alias
+    });
+  });
 });
 
 describe("turnIndex tracking", () => {
@@ -2415,7 +2580,9 @@ describe("lastError extraction from agent_end", () => {
       },
     ]);
     expect(state.lastError).toEqual({ message: "Rate limit exceeded", timestamp: 1000 });
-    expect(state.status).toBe("idle");
+    // agent_end sets the intermediate "ended"; lastError extraction is a
+    // preserved agent_end side-effect. See change: adopt-pi-074-080-features.
+    expect(state.status).toBe("ended");
     expect(state.isStreaming).toBe(false);
   });
 

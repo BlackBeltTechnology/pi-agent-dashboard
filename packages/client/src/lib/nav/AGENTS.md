@@ -10,3 +10,4 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `move-tracker.ts` | In-flight package-move state tracker, keyed by `moveId`. Exports `MovePhase`, `MoveState`, `moveTracker`… → see `move-tracker.ts.AGENTS.md` |
 | `nav-tracker.ts` | In-app depth-tagged nav stack. `Array<{url, depth}>` via `routeDepth`. → see `nav-tracker.ts.AGENTS.md` |
 | `route-builders.ts` | URL builders for shell overlay routes: `buildOpenSpecPreviewUrl`, `buildOpenSpecArchiveUrl`,… → see `route-builders.ts.AGENTS.md` |
+| `view-route.ts` | `/view` route helpers: `viewTargetToEditorPath(ViewTarget)` maps a view target to an editor-pane path. See change: open-view-command-in-editor-pane, fold-oversized-agents-directories. |

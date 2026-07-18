@@ -1,0 +1,3 @@
+# git-poll.ts — index
+
+Exports `runGitPollTick(deps)` + `GitPollDeps` interface. Pure git + name/model poll-tick body. Shared by bridge.ts session-start timer + session-change timer so they cannot drift. Inactive tick → no-op. cwd present → `sendGitInfoIfChanged` + `sendCwdMissingIfChanged`. cwd absent → skip git/cwd, still run `sendSessionNameIfChanged` + `sendModelUpdateIfChanged` every active tick. Dependency-injected `cachedCwd` thunk so each tick reads current cached cwd after session swap. See change: fix-stale-ctx-cwd-crash. `GitPollDeps.sendPiVersionIfChanged`; `runGitPollTick` invokes it each tick. See change: restore-pi-version-skew-surface.

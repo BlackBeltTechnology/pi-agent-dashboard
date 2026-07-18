@@ -47,7 +47,6 @@ function setup(pending: Map<string, { cwd: string; kind: "spawn" | "resume"; pla
     setSpawnErrors: vi.fn(),
     setResumeErrors: vi.fn(),
     setDisplayPrefs: vi.fn(),
-    setViewMessagesMap: vi.fn(),
   };
   const deps: any = {
     send: vi.fn(),

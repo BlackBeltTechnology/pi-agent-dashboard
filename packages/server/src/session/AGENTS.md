@@ -22,5 +22,4 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `session-scanner.ts` | Cold-start session scanner. Exports `ScanResult`, `scanAllSessions(sessionsDir)` — scans… → see `session-scanner.ts.AGENTS.md` |
 | `session-stats-reader.ts` | Exports `SessionStats`, `extractSessionStats(filePath)` — reads session JSONL once, accumulates tokensIn/Out,… → see `session-stats-reader.ts.AGENTS.md` |
 | `session-to-meta.ts` | Exports `sessionToMeta(session)` — the EXPLICIT `.meta.json` field enumeration extracted from `server.ts`… → see `session-to-meta.ts.AGENTS.md` |
-| `view-message-store.ts` | `ViewMessageStore` class. Per-session JSON store at `~/.pi/dashboard/view-messages/<sid>.json`. → see `view-message-store.ts.AGENTS.md` |
 | `viewed-session-tracker.ts` | Exports `ViewedSessionTracker` interface, `createViewedSessionTracker()` — per-session set of viewing… → see `viewed-session-tracker.ts.AGENTS.md` |

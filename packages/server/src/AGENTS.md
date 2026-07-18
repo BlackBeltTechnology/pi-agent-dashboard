@@ -17,3 +17,4 @@ Files in this directory. One row per source file.
 | `resolve-path.ts` | Exports `safeRealpathSync(p)` — `fs.realpathSync` with original-path fallback on error. |
 | `ripgrep-detection.ts` | One-time `rg` detection via ToolResolver. `detectRipgrep`/`resetRipgrepCache`. See change: split-editor-workspace. |
 | `server.ts` | Dashboard HTTP + WebSocket server. Exports `ServerConfig`, `DashboardServer`, `createServer(config)`. → see `server.ts.AGENTS.md` |
+| `system-open-capability.ts` | System file-open capability: `systemOpenCapability`, `buildOpenCommand`/`buildRevealCommand`/`runOpener` (`OpenerCommand`) — platform reveal/open shell-out for the `/view` system-open path. See change: open-view-command-in-editor-pane. |
