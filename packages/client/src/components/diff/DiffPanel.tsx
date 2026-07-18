@@ -103,11 +103,15 @@ export function DiffPanel({ file, selection, sessionId, cwd }: DiffPanelProps) {
     ? file.changes[selection.changeIndex] ?? null
     : null;
 
-  // The change actually rendered (selected, else the file's last change). When
-  // its payload was trimmed in memory (`truncated`), lazily upgrade to the FULL
-  // payload from the session JSONL via the session-addressed endpoint (never a
-  // path). See change: opt-in-out-of-cwd-session-diffs.
-  const activeChange = change ?? file.changes[file.changes.length - 1] ?? null;
+  // The change actually rendered by Path A/C: the selected change, else the
+  // newest change that carries renderable texts OR is truncated (so a truncated
+  // newest change still drives the lazy upgrade). Keying off the SAME change
+  // Path C renders keeps the truncation upgrade correct. See change:
+  // fix-empty-git-aggregate-diff-tab. When its payload was trimmed in memory
+  // (`truncated`), lazily upgrade to the FULL payload from the session JSONL via
+  // the session-addressed endpoint (never a path). See change:
+  // opt-in-out-of-cwd-session-diffs.
+  const activeChange = change ?? pickFallbackChange(file);
   const [fullPayload, setFullPayload] = useState<{ content?: string; edits?: EditOperation[] } | null>(null);
   const [fullFetchError, setFullFetchError] = useState(false);
 
@@ -232,25 +236,33 @@ export function DiffPanel({ file, selection, sessionId, cwd }: DiffPanelProps) {
       return texts ? { richDiff: { ...texts, filePath: file.path } } : null;
     }
 
-    // Path B: git aggregate diff (raw hunks)
+    // Path B: git aggregate diff — pass the WHOLE header-bearing diff so
+    // @git-diff-view can reconstruct lines from empty file content. A
+    // header-stripped bare-hunk payload (extractHunks output) yields zero lines
+    // → an empty panel. The extractHunks(...).length > 0 check stays as the
+    // "has parseable hunks" gate (non-git / binary / summed → skip). See change:
+    // fix-empty-git-aggregate-diff-tab.
     if (file.gitDiff) {
       const lang = getLang(file.path);
-      const hunks = extractHunks(file.gitDiff);
-      if (hunks.length > 0) {
+      if (extractHunks(file.gitDiff).length > 0) {
         return {
           data: {
             oldFile: { fileName: file.path, fileLang: lang, content: "" },
             newFile: { fileName: file.path, fileLang: lang, content: "" },
-            hunks,
+            hunks: [file.gitDiff],
           },
         };
       }
     }
 
-    // Path C: non-git / no gitDiff — derive from the file's own last change.
-    const lastChange = file.changes[file.changes.length - 1];
-    if (lastChange) {
-      const texts = buildChangeDiffTexts(file.path, mergeFull(lastChange));
+    // Path C: non-git / no gitDiff — render the newest change carrying
+    // renderable texts (skips detected-on-disk-only type:"tool" events that
+    // yield null), merging any lazily-fetched full payload. Only when none
+    // qualifies fall through to the "No diff data available" note. See change:
+    // fix-empty-git-aggregate-diff-tab.
+    const fallback = pickFallbackChange(file);
+    if (fallback) {
+      const texts = buildChangeDiffTexts(file.path, mergeFull(fallback));
       return texts ? { richDiff: { ...texts, filePath: file.path } } : null;
     }
 
@@ -394,6 +406,22 @@ export function DiffPanel({ file, selection, sessionId, cwd }: DiffPanelProps) {
       </div>
     </div>
   );
+}
+
+/**
+ * The file's newest change that Path C should render: the most recent change
+ * carrying renderable texts (an `edit` with `edits[]` or a `write` with
+ * `content`), or a `truncated` change (which becomes renderable after the lazy
+ * full-payload upgrade). Skips detected-on-disk-only (`type:"tool"`) events.
+ * Returns null when no change qualifies. See change:
+ * fix-empty-git-aggregate-diff-tab.
+ */
+function pickFallbackChange(file: FileDiffEntry): FileChangeEvent | null {
+  for (let i = file.changes.length - 1; i >= 0; i--) {
+    const c = file.changes[i];
+    if (c.truncated || buildChangeDiffTexts(file.path, c)) return c;
+  }
+  return null;
 }
 
 /** Extract { oldText, newText } from a single change event (Edit or Write) for RichDiff. */
