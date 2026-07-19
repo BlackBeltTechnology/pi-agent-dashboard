@@ -9,6 +9,8 @@ export type {
   KbStore,
   SearchOpts,
 } from "./types.js";
+export { renderHits } from "./render.js";
+export type { RenderOpts } from "./render.js";
 export { chunkMarkdown } from "./chunker.js";
 export type { ChunkInput, ParseResult } from "./chunker.js";
 export { SqliteFtsStore } from "./sqlite-store.js";

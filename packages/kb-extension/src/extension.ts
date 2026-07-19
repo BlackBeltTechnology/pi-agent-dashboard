@@ -20,6 +20,7 @@ type Ctx = { cwd?: string };
 import { Type } from "typebox";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
 import { agentsChain } from "@blackbelt-technology/pi-dashboard-kb";
+import { renderHits } from "@blackbelt-technology/pi-dashboard-kb";
 import { readFileSync } from "node:fs";
 import {
   createReindexState, getKb, scheduleReindex, acknowledgeRows,
@@ -53,21 +54,31 @@ export default function kbExtension(pi: ExtensionAPI): void {
     name: "kb_search",
     label: "KB Search",
     description:
-      "Search the local markdown knowledge base (FTS5 + BM25) for ranked sections before answering from memory. Returns {path, headingPath, score, snippet, akaPaths, parent}.",
+      "Search the local markdown knowledge base (FTS5 + BM25) for ranked sections before answering from memory. " +
+      "Default output is condensed text, one block per hit: `<rank>  <path>  ::  <headingPath>`, an optional `(+N dup)` " +
+      "duplicate-copy marker, an optional `⤷ <parentHeading>` continuation, then a one-line snippet. FTS match markers `[ ]` " +
+      "in the snippet flag the terms that matched. `rank` is a 1-based ordinal over the returned hits (not a global score). " +
+      "Pass `format:\"json\"` for compact machine-readable JSON that also retains the raw BM25 `score`. Prefer 2\u20135 keyword / identifier terms.",
     promptSnippet: "Search the local markdown KB for ranked sections",
     promptGuidelines: [
       "Call kb_search FIRST for any project-specific factual / 'where is X' / 'how does Y work' question — before ctx_search, memory_search, grep, or reading source.",
       "kb_search indexes repo markdown (docs/, openspec/, packages/, .pi/). ctx_search/memory_search index session memory, not docs — different corpus. Fall through to grep/source only when kb_search returns nothing relevant.",
     ],
     parameters: Type.Object({
-      query: Type.String({ description: "Entities / terms / error strings to search" }),
+      query: Type.String({ description: "2\u20135 keyword / identifier / error-string terms to search" }),
       limit: Type.Optional(Type.Number({ default: 10 })),
       doc_type: Type.Optional(Type.Union([Type.Literal("doc"), Type.Literal("agents"), Type.Literal("source-md")])),
+      // Free string, NOT a strict Literal union: an unknown/malformed value must
+      // fall back to condensed in-body, never hard-reject before execute() runs.
+      format: Type.Optional(Type.String({ default: "condensed", description: "Output format: 'condensed' (default) or 'json' (compact, retains raw score)." })),
     }),
-    async execute(_id: string, params: { query: string; limit?: number; doc_type?: "doc" | "agents" | "source-md" }, _signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
+    async execute(_id: string, params: { query: string; limit?: number; doc_type?: "doc" | "agents" | "source-md"; format?: string }, _signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
       const cwd = ctx?.cwd ?? process.cwd();
+      // In-body allowlist: only exact lowercase "json" selects JSON; all else → condensed.
+      const fmt = params.format === "json" ? "json" : "condensed";
       const query = typeof params.query === "string" ? params.query : "";
-      if (!query.trim()) return { content: [{ type: "text", text: "[]" }], details: { hits: 0 } };
+      // Empty-query guard AFTER the format parse so it emits a format-appropriate marker.
+      if (!query.trim()) return { content: [{ type: "text", text: fmt === "json" ? "[]" : "(no query)" }], details: { hits: 0 } };
       const limit = Number.isFinite(Number(params.limit)) ? Math.min(100, Math.max(1, Math.trunc(Number(params.limit)))) : 10;
       const docType = ["doc", "agents", "source-md"].includes(params.doc_type as string) ? params.doc_type : undefined;
       // Freshness reindex (awaited so search sees fresh data). Guarded: a failed
@@ -88,7 +99,10 @@ export default function kbExtension(pi: ExtensionAPI): void {
         expandParent: cfg.expand.parent,
         rootPriority: Object.fromEntries(cfg.resolvedSources.map((s: { id: string; priority: number }) => [s.id, s.priority])),
       });
-      return { content: [{ type: "text", text: JSON.stringify(hits, null, 2) }], details: { hits: hits.length } };
+      const text = fmt === "json"
+        ? JSON.stringify(hits.map((h, i) => ({ ...h, rank: i + 1 })))
+        : renderHits(hits, { leading: "rank", parentGlyph: "\u2937 ", multiline: true });
+      return { content: [{ type: "text", text }], details: { hits: hits.length } };
     },
   });
 

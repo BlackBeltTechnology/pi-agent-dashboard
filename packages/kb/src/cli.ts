@@ -10,6 +10,7 @@ import { evaluate, type GoldenItem } from "./eval.js";
 import { runIndexAtomic } from "./index-run.js";
 import { indexSource } from "./indexer.js";
 import { kbInit } from "./init.js";
+import { renderHits } from "./render.js";
 import { classifyRef, type ResolvedSource as RResolvedSource, resolveAll } from "./sources.js";
 import { SqliteFtsStore } from "./sqlite-store.js";
 import { defaultPromptTrust } from "./trust.js";
@@ -218,7 +219,7 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
       };
       const hits = store.search(q, so);
       if (flags.json) console.log(JSON.stringify(hits, null, 2));
-      else for (const h of hits) console.log(`${h.score.toFixed(2)}  ${h.path}  ::  ${h.headingPath}${h.akaPaths ? `  (+${h.akaPaths.length} dup)` : ""}${h.parent ? `  [parent: ${h.parent.headingPath}]` : ""}\n      ${h.snippet.replace(/\s+/g, " ").slice(0, 160)}`);
+      else if (hits.length) console.log(renderHits(hits, { leading: "score", parentGlyph: "[parent: ", multiline: false }));
     } else if (cmd === "neighbors") {
       const depth = posInt(flags.depth, "--depth") ?? 2;
       const rel = enumFlag(flags.rel, ["child_of", "links_to", "references", "has_tag"], "--rel");
