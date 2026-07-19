@@ -766,6 +766,21 @@ describe("enrichWithGitDiff — batched single-spawn (6.1)", () => {
     // Every file got its content diff from that single spawn.
     expect(enrichedFiles.every((f) => f.gitDiff?.includes("+y"))).toBe(true);
   });
+
+  it("buildSessionDiff runs the batched git diff ONCE across owned + other", async () => {
+    // owned.ts (Write event) → files; stray.ts (untracked, no evidence,
+    // mtime out of any window) → otherChanges. Both non-empty exercises the
+    // shared-context path: the batched diff + numstat must run once, not twice.
+    vi.mocked(git.statusPorcelainOrAsync).mockResolvedValue(" M owned.ts\n?? stray.ts\n");
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 9_999_999 } as never);
+    vi.mocked(existsSync).mockReset().mockReturnValue(true);
+    const events = [makeToolStart("Write", { path: "owned.ts", content: "x" }, 1000)];
+    const { files, otherChanges } = await buildSessionDiff(events, "/project");
+    expect(files.some((f) => f.path === "owned.ts")).toBe(true);
+    expect(otherChanges.some((f) => f.path === "stray.ts")).toBe(true);
+    expect(vi.mocked(git.diffAllOr)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(git.numstatOrAsync)).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("enrichWithGitDiff — tracked-file size + binary cap (6.2)", () => {

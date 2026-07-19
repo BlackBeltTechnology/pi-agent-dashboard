@@ -501,21 +501,32 @@ export function isRenderableTrackedDiff(chunk: string): boolean {
  * Returns gracefully on any git errors. See change:
  * fix-session-diff-eventloop-block.
  */
-export async function enrichWithGitDiff(
-  cwd: string,
-  files: FileDiffEntry[],
-  opts?: { untracked?: Set<string> },
-): Promise<{
-  enrichedFiles: FileDiffEntry[];
+/**
+ * Shared git enrichment context: the result of the (async) git spawns run ONCE
+ * for a request — the whole-worktree numstat map, the ONE batched content-diff
+ * map, and the untracked set. `buildSessionDiff` builds this once and enriches
+ * BOTH owned + other file lists from it, so the batched `git diff` / numstat run
+ * once per request, not once per list. See change: fix-session-diff-eventloop-block.
+ */
+interface GitEnrichmentContext {
   isGitRepo: boolean;
-  totalAdditions?: number;
-  totalDeletions?: number;
-}> {
-  const gitAvailable = await git.isGitRepoOrAsync({ cwd });
-  if (!gitAvailable) {
-    return { enrichedFiles: files, isGitRepo: false };
-  }
+  numstatMap: Map<string, { additions: number; deletions: number }>;
+  diffMap: Map<string, string>;
+  untracked: Set<string>;
+}
 
+/** Run the async git spawns ONCE, producing a reusable `GitEnrichmentContext`. */
+export async function buildGitEnrichmentContext(
+  cwd: string,
+  opts?: { untracked?: Set<string> },
+): Promise<GitEnrichmentContext> {
+  const empty: GitEnrichmentContext = {
+    isGitRepo: false,
+    numstatMap: new Map(),
+    diffMap: new Map(),
+    untracked: new Set(),
+  };
+  if (!(await git.isGitRepoOrAsync({ cwd }))) return empty;
   const numstatMap = await gitNumstat(cwd);
   // ONE batched content diff for the whole worktree (was O(files) spawns).
   const diffMap = splitBatchedDiff(await git.diffAllOr({ cwd }));
@@ -523,6 +534,20 @@ export async function enrichWithGitDiff(
   // porcelain probe (never a per-file sync `git status`).
   const untracked =
     opts?.untracked ?? parsePorcelain(await git.statusPorcelainOrAsync({ cwd }), cwd).untracked;
+  return { isGitRepo: true, numstatMap, diffMap, untracked };
+}
+
+/**
+ * Enrich a file list from a pre-built `GitEnrichmentContext` (pure/sync — no git
+ * spawns). Totals are computed over THIS list only (owned totals stay owned).
+ */
+export function enrichFilesWithContext(
+  cwd: string,
+  files: FileDiffEntry[],
+  ctx: GitEnrichmentContext,
+): { enrichedFiles: FileDiffEntry[]; totalAdditions?: number; totalDeletions?: number } {
+  if (!ctx.isGitRepo) return { enrichedFiles: files };
+  const { numstatMap, diffMap, untracked } = ctx;
   let totalAdditions = 0;
   let totalDeletions = 0;
   let anyCounts = false;
@@ -586,10 +611,24 @@ export async function enrichWithGitDiff(
 
   return {
     enrichedFiles: enriched,
-    isGitRepo: true,
     totalAdditions: anyCounts ? totalAdditions : undefined,
     totalDeletions: anyCounts ? totalDeletions : undefined,
   };
+}
+
+export async function enrichWithGitDiff(
+  cwd: string,
+  files: FileDiffEntry[],
+  opts?: { untracked?: Set<string> },
+): Promise<{
+  enrichedFiles: FileDiffEntry[];
+  isGitRepo: boolean;
+  totalAdditions?: number;
+  totalDeletions?: number;
+}> {
+  const ctx = await buildGitEnrichmentContext(cwd, opts);
+  const { enrichedFiles, totalAdditions, totalDeletions } = enrichFilesWithContext(cwd, files, ctx);
+  return { enrichedFiles, isGitRepo: ctx.isGitRepo, totalAdditions, totalDeletions };
 }
 
 // ── Unified dispatcher ──────────────────────────────────────────────────
@@ -750,8 +789,11 @@ export async function buildSessionDiff(
   cappedOwned.sort((a, b) => a.path.localeCompare(b.path));
 
   // ─ Enrich (binary-safe; threaded untracked set) — in-cwd ONLY ─
-  const enrichedOwned = await enrichWithGitDiff(cwd, cappedOwned, { untracked });
-  const enrichedOther = await enrichWithGitDiff(cwd, other, { untracked });
+  // ONE git context (numstat + batched diff) shared across owned + other, so
+  // the batched `git diff` / numstat run once per request, not once per list.
+  const gitCtx = await buildGitEnrichmentContext(cwd, { untracked });
+  const enrichedOwned = enrichFilesWithContext(cwd, cappedOwned, gitCtx);
+  const enrichedOther = enrichFilesWithContext(cwd, other, gitCtx);
 
   // ─ Out-of-cwd (payload-only; never enriched, never read/statted) ─
   const outOfCwdEntries: FileDiffEntry[] = outOfCwd.map((f) => {
@@ -769,10 +811,10 @@ export async function buildSessionDiff(
   return {
     files: [...enrichedOwned.enrichedFiles, ...outOfCwdEntries],
     otherChanges: enrichedOther.enrichedFiles,
-    isGitRepo: enrichedOwned.isGitRepo,
-    vcsKind: enrichedOwned.isGitRepo ? "git" : undefined,
-    diffBase: enrichedOwned.isGitRepo ? "HEAD" : undefined,
-    baseLabel: enrichedOwned.isGitRepo ? "HEAD" : undefined,
+    isGitRepo: gitCtx.isGitRepo,
+    vcsKind: gitCtx.isGitRepo ? "git" : undefined,
+    diffBase: gitCtx.isGitRepo ? "HEAD" : undefined,
+    baseLabel: gitCtx.isGitRepo ? "HEAD" : undefined,
     totalAdditions: enrichedOwned.totalAdditions,
     totalDeletions: enrichedOwned.totalDeletions,
   };

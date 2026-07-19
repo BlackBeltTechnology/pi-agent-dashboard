@@ -10,7 +10,7 @@ The fix infrastructure already exists in-repo: `runAsync()` in `packages/shared/
 
 ## What Changes
 
-- **Batch, don't per-file spawn.** Replace the O(files) `git diff HEAD -- <path>` loop with a **single** `git diff HEAD` (using `-z` for robust NUL-delimited splitting) whose output is split per file. `enrichWithGitDiff` already runs one `git diff --numstat HEAD` for all files — content diff gets the same one-spawn treatment. Per-file synthetic diffs (untracked/new files) stay as-is but are computed from batched detection, not re-spawned.
+- **Batch, don't per-file spawn.** Replace the O(files) `git diff HEAD -- <path>` loop with a **single** `git diff --relative HEAD` whose output is split per file on `diff --git ` header boundaries. `enrichWithGitDiff` already runs one `git diff --numstat HEAD` for all files — content diff gets the same one-spawn treatment. Per-file synthetic diffs (untracked/new files) stay as-is but are computed from batched detection, not re-spawned.
 - **Cap large / binary tracked files.** Introduce `TRACKED_DIFF_MAX_BYTES` (default 5 MB) analogous to the existing `SYNTHETIC_DIFF_MAX_BYTES`. A tracked file whose blob/diff exceeds the cap is listed with its numstat counts but **no** text `gitDiff` (the client already renders a no-diff/binary state). A multi-hundred-MB blob is never fed to `git diff` for rendering.
 - **Get it off the event loop.** Make `buildSessionDiff` / `enrichWithGitDiff` async, using `runAsync` (non-blocking spawn) for the git invocations. The route handler at `session-routes.ts` is already `async`, so it awaits the result. No `spawnSync` git call remains on the session-diff request path.
 - **Cache + debounce diff results.** Add a short-TTL, per-session in-memory cache keyed by `(sessionId, HEAD sha, dirty-signature)` so repeated UI polls of the same unchanged session return the cached diff instead of recomputing. Concurrent requests for the same session coalesce onto one in-flight computation (single-flight).
@@ -29,8 +29,8 @@ The fix infrastructure already exists in-repo: `runAsync()` in `packages/shared/
 
 ## Impact
 
-- `packages/server/src/session/session-diff.ts` — `enrichWithGitDiff` and `buildSessionDiff` become `async`; per-file `diffOr` loop → one batched `git diff -z HEAD`; new `TRACKED_DIFF_MAX_BYTES` guard; per-file split helper.
-- `packages/shared/src/platform/git.ts` — add an async `diffAllOr` (batched `git diff -z HEAD`, no path arg) built on `runAsync`; existing sync `diffOr` retained for other callers.
+- `packages/server/src/session/session-diff.ts` — `enrichWithGitDiff` and `buildSessionDiff` become `async`; per-file `diffOr` loop → one batched `git diff --relative HEAD`; new `TRACKED_DIFF_MAX_BYTES` guard; per-file split helper (`splitBatchedDiff`).
+- `packages/shared/src/platform/git.ts` — add an async `diffAllOr` (batched `git diff --relative HEAD`, no path arg) built on `runAsync`; existing sync `diffOr` retained for other callers.
 - `packages/server/src/routes/session-routes.ts` — `await buildSessionDiff(...)` (handler already async).
 - `packages/server/src/session/` — new small `session-diff-cache.ts` (TTL + single-flight map), owned/disposed alongside the diff route.
 - `packages/server/src/session/session-diff.ts.AGENTS.md` + sibling tree rows — update per Documentation Update Protocol.
