@@ -8,7 +8,7 @@
 ## 2. Batched single-spawn content diff
 
 - [x] 2.1 Add `diffAll` / `diffAllOr` to `packages/shared/src/platform/git.ts`: one `git diff --relative HEAD` (no per-path arg) over the whole worktree, built on `runAsync` (async, non-blocking). Retain the existing sync `diffOr` for other callers.
-- [x] 2.2 Add a splitter (`splitBatchedDiff`) that parses the unified-diff stream into a `Map<path, diffText>` by splitting on `diff --git ` header boundaries, mirroring `gitNumstat`'s per-file keying. Handle rename/copy headers to the NEW path (consistent with `parsePorcelain`).
+- [x] 2.2 Add a splitter (`splitBatchedDiff`) that parses the unified-diff stream into a `Map<path, diffText>` by splitting on `diff --git` header boundaries, mirroring `gitNumstat`'s per-file keying. Handle rename/copy headers to the NEW path (consistent with `parsePorcelain`).
 - [x] 2.3 In `enrichWithGitDiff`, replace the per-file `git.diffOr({ cwd, path })` call inside `files.map(...)` with a single up-front `diffAllOr({ cwd })` + map lookup. Untracked/synthetic new-file diffs keep their existing `readFileSync` path (already batched detection, no git spawn).
 
 ## 3. Tracked-file size + binary cap
