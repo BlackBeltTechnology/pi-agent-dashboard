@@ -7,13 +7,20 @@ import { extname, isAbsolute, sep as pathSep, relative, resolve } from "node:pat
 import type { EditOperation, FileChangeEvent, FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { isGitRepo } from "../git-worktree/git-operations.js";
+import { djb2, type SessionDiffCache } from "./session-diff-cache.js";
 
-const GIT_TIMEOUT = 15_000;
 const MAX_MESSAGE_LENGTH = 120;
 
 /** Byte cap above which a tool-detected new file gets no synthetic text diff. */
 export const SYNTHETIC_DIFF_MAX_BYTES = 256 * 1024;
+/**
+ * Byte cap on a tracked file's batched content diff. A tracked change whose
+ * unified-diff chunk exceeds this is listed with numstat counts but no text
+ * `gitDiff` (analogous to `SYNTHETIC_DIFF_MAX_BYTES` for new files). Guards
+ * against feeding a multi-hundred-MB blob's diff to the client. See change:
+ * fix-session-diff-eventloop-block.
+ */
+export const TRACKED_DIFF_MAX_BYTES = 5 * 1024 * 1024;
 /** Hard cap on the produced changed-file list (Write/Edit entries take precedence). */
 export const MAX_FILES = 200;
 /** Slack (ms) absorbing fs/event clock jitter when matching mtime to a Bash window. */
@@ -407,11 +414,13 @@ export function isBinaryFile(absPath: string): boolean {
  * NEW parser distinct from `parseShortstat` (which parses `--shortstat`
  * summary lines, a different format). See change: add-change-summary-table.
  */
-export function gitNumstat(cwd: string): Map<string, { additions: number; deletions: number }> {
+export async function gitNumstat(
+  cwd: string,
+): Promise<Map<string, { additions: number; deletions: number }>> {
   const map = new Map<string, { additions: number; deletions: number }>();
   let raw: string;
   try {
-    raw = git.numstatOr({ cwd });
+    raw = await git.numstatOrAsync({ cwd });
   } catch {
     return map;
   }
@@ -433,34 +442,87 @@ export function gitNumstat(cwd: string): Map<string, { additions: number; deleti
 }
 
 /**
- * Enrich file entries with git diff output.
- * Runs `git diff HEAD -- <path>` for each file when in a git repo, plus one
- * `git diff --numstat --relative HEAD` for per-file / aggregate line counts.
- * Returns gracefully on any git errors.
+ * Split a batched `git diff --relative HEAD` patch into a `Map<path, chunk>`.
+ * Chunks split on the `diff --git ` header boundary (only ever a header at
+ * column 0 — content lines are prefixed by ` `/`+`/`-`). Each chunk's NEW path
+ * is derived from `+++ b/<path>` (preferred), else `rename to <path>`, else the
+ * header's `b/<path>` token — mirroring the cwd-relative posix keys used by
+ * `gitNumstat` and `parsePorcelain` (rename → NEW path). See change:
+ * fix-session-diff-eventloop-block.
  */
-export function enrichWithGitDiff(
+export function splitBatchedDiff(raw: string): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!raw) return map;
+  for (const chunk of raw.split(/(?=^diff --git )/m)) {
+    if (!chunk.startsWith("diff --git ")) continue;
+    const path = batchedDiffNewPath(chunk);
+    if (path) map.set(path, chunk.replace(/\n+$/, ""));
+  }
+  return map;
+}
+
+/** Derive the NEW path a batched-diff chunk describes (see `splitBatchedDiff`). */
+function batchedDiffNewPath(chunk: string): string | undefined {
+  const lines = chunk.split("\n");
+  let renameTo: string | undefined;
+  for (const line of lines) {
+    if (line.startsWith("+++ b/")) return line.slice(6).replace(/\t.*$/, "") || undefined;
+    if (line.startsWith("rename to ")) renameTo = line.slice(10).trim();
+  }
+  if (renameTo) return renameTo;
+  const m = lines[0]?.match(/^diff --git a\/(.+) b\/(.+)$/);
+  return m ? m[2] : undefined;
+}
+
+/** A batched-diff chunk git rendered as "Binary files … differ" (no text hunk). */
+function isBinaryDiffChunk(chunk: string): boolean {
+  return /^Binary files .* differ$/m.test(chunk);
+}
+
+/**
+ * True when a tracked file's batched-diff chunk is safe to render as text:
+ * non-empty, under the size cap, and not a binary marker. Over-cap / binary
+ * chunks are surfaced with numstat counts only (no `gitDiff`). See change:
+ * fix-session-diff-eventloop-block.
+ */
+export function isRenderableTrackedDiff(chunk: string): boolean {
+  if (chunk.length > TRACKED_DIFF_MAX_BYTES) return false;
+  if (isBinaryDiffChunk(chunk)) return false;
+  return chunk.trim().length > 0;
+}
+
+/**
+ * Enrich file entries with git diff output (async, event-loop-safe).
+ * Runs ONE batched `git diff --relative HEAD` over the worktree (split per
+ * file), plus one `git diff --numstat --relative HEAD` for per-file / aggregate
+ * line counts — both via `runAsync` (no `spawnSync` on the request path).
+ * Tracked chunks over `TRACKED_DIFF_MAX_BYTES` or binary are listed with counts
+ * but no `gitDiff`. Untracked new files keep the synthetic `readFileSync` path.
+ * Returns gracefully on any git errors. See change:
+ * fix-session-diff-eventloop-block.
+ */
+export async function enrichWithGitDiff(
   cwd: string,
   files: FileDiffEntry[],
   opts?: { untracked?: Set<string> },
-): {
+): Promise<{
   enrichedFiles: FileDiffEntry[];
   isGitRepo: boolean;
   totalAdditions?: number;
   totalDeletions?: number;
-} {
-  const untracked = opts?.untracked;
-  let gitAvailable = false;
-  try {
-    gitAvailable = isGitRepo(cwd);
-  } catch {
-    return { enrichedFiles: files, isGitRepo: false };
-  }
-
+}> {
+  const gitAvailable = await git.isGitRepoOrAsync({ cwd });
   if (!gitAvailable) {
     return { enrichedFiles: files, isGitRepo: false };
   }
 
-  const numstatMap = gitNumstat(cwd);
+  const numstatMap = await gitNumstat(cwd);
+  // ONE batched content diff for the whole worktree (was O(files) spawns).
+  const diffMap = splitBatchedDiff(await git.diffAllOr({ cwd }));
+  // Untracked set: threaded from bulk porcelain when provided, else one async
+  // porcelain probe (never a per-file sync `git status`).
+  const untracked =
+    opts?.untracked ?? parsePorcelain(await git.statusPorcelainOrAsync({ cwd }), cwd).untracked;
   let totalAdditions = 0;
   let totalDeletions = 0;
   let anyCounts = false;
@@ -476,24 +538,15 @@ export function enrichWithGitDiff(
       ? { ...file, additions: counts.additions, deletions: counts.deletions }
       : file;
     try {
-      // Delegate to the shared git tool module. The runner handles
-      // windowsHide, timeout, argv-array escaping (no shell), and the
-      // "no diff" exit-1 tolerance. See change: platform-command-executor.
-      const diff = git.diffOr({ cwd, path: file.path }).trim();
-
-      if (diff) {
-        return { ...withCounts, gitDiff: diff };
+      // Tracked change → look up its section of the ONE batched diff.
+      const chunk = diffMap.get(file.path);
+      if (chunk !== undefined) {
+        return isRenderableTrackedDiff(chunk) ? { ...withCounts, gitDiff: chunk.trim() } : withCounts;
       }
 
-      // No diff from HEAD — try untracked (new file). Thread the bulk-porcelain
-      // untracked set when provided (Decision 6) so we do NOT re-spawn a
-      // per-file `git status` probe for the same paths.
-      const isUntracked = untracked
-        ? untracked.has(file.path)
-        : (() => {
-            const status = git.statusPorcelainOr({ cwd, path: file.path }).trim();
-            return status.startsWith("??") || status.startsWith("A");
-          })();
+      // Not in the batched diff → untracked (new) file. `git diff HEAD` never
+      // lists untracked files, so keep the synthetic `readFileSync` path.
+      const isUntracked = untracked.has(file.path);
 
       if (isUntracked) {
         // Untracked or newly added — generate synthetic diff.
@@ -556,11 +609,11 @@ export interface VcsEnrichmentResult {
  * annotates the response with `vcsKind`/`diffBase`/`baseLabel` (optional
  * fields older clients ignore).
  */
-export function enrichWithVcsDiff(
+export async function enrichWithVcsDiff(
   cwd: string,
   files: FileDiffEntry[],
-): VcsEnrichmentResult {
-  const result = enrichWithGitDiff(cwd, files);
+): Promise<VcsEnrichmentResult> {
+  const result = await enrichWithGitDiff(cwd, files);
   return {
     ...result,
     vcsKind: result.isGitRepo ? "git" : undefined,
@@ -582,9 +635,9 @@ export interface SessionDiffResult {
   totalDeletions?: number;
 }
 
-function safeIsGitRepo(cwd: string): boolean {
+async function safeIsGitRepo(cwd: string): Promise<boolean> {
   try {
-    return isGitRepo(cwd);
+    return await git.isGitRepoOrAsync({ cwd });
   } catch {
     return false;
   }
@@ -599,9 +652,18 @@ function safeIsGitRepo(cwd: string): boolean {
  *   4. Compose with precedence — mixed when both, no synthetic ghost event.
  *   5. Session-ownership gate — owned → `files`, else → `otherChanges`.
  *   6. Cap at MAX_FILES (Write/Edit precedence), then enrich (binary-safe).
+ *
+ * Async + event-loop-safe: every git spawn on this path is non-blocking
+ * (`runAsync`). `opts` lets a caller thread already-fetched `gitRepo` /
+ * `porcelainRaw` (e.g. from the cache-key computation) so they are not
+ * re-spawned. See change: fix-session-diff-eventloop-block.
  */
-export function buildSessionDiff(events: DashboardEvent[], cwd: string): SessionDiffResult {
-  const gitRepo = safeIsGitRepo(cwd);
+export async function buildSessionDiff(
+  events: DashboardEvent[],
+  cwd: string,
+  opts?: { gitRepo?: boolean; porcelainRaw?: string },
+): Promise<SessionDiffResult> {
+  const gitRepo = opts?.gitRepo ?? (await safeIsGitRepo(cwd));
   const allWriteEdit = extractFileChanges(events, cwd);
   // SECURITY (E3): out-of-cwd Write/Edit entries are keyed by absolute path and
   // carried PAYLOAD-ONLY. They are split out BEFORE enrichment so an out-of-cwd
@@ -620,7 +682,8 @@ export function buildSessionDiff(events: DashboardEvent[], cwd: string): Session
   let untracked: Set<string> | undefined;
   let detectedVia: "git-status" | "bash-artifact";
   if (gitRepo) {
-    const porcelain = parsePorcelain(git.statusPorcelainOr({ cwd }), cwd);
+    const porcelainRaw = opts?.porcelainRaw ?? (await git.statusPorcelainOrAsync({ cwd }));
+    const porcelain = parsePorcelain(porcelainRaw, cwd);
     detected = porcelain.paths;
     untracked = porcelain.untracked;
     detectedVia = "git-status";
@@ -687,8 +750,8 @@ export function buildSessionDiff(events: DashboardEvent[], cwd: string): Session
   cappedOwned.sort((a, b) => a.path.localeCompare(b.path));
 
   // ─ Enrich (binary-safe; threaded untracked set) — in-cwd ONLY ─
-  const enrichedOwned = enrichWithGitDiff(cwd, cappedOwned, { untracked });
-  const enrichedOther = enrichWithGitDiff(cwd, other, { untracked });
+  const enrichedOwned = await enrichWithGitDiff(cwd, cappedOwned, { untracked });
+  const enrichedOther = await enrichWithGitDiff(cwd, other, { untracked });
 
   // ─ Out-of-cwd (payload-only; never enriched, never read/statted) ─
   const outOfCwdEntries: FileDiffEntry[] = outOfCwd.map((f) => {
@@ -713,4 +776,28 @@ export function buildSessionDiff(events: DashboardEvent[], cwd: string): Session
     totalAdditions: enrichedOwned.totalAdditions,
     totalDeletions: enrichedOwned.totalDeletions,
   };
+}
+
+/**
+ * Cache + single-flight wrapper over `buildSessionDiff` for the request path.
+ *
+ * Computes a cheap cache key up front — `sessionId : HEAD-sha : djb2(porcelain)`
+ * — via two non-blocking git spawns, then defers to the `cache`: a fresh
+ * entry within TTL returns immediately; concurrent identical requests coalesce
+ * onto one in-flight computation. A HEAD sha or dirty-signature change yields a
+ * new key → recompute (never serves a stale diff). The fetched `gitRepo` /
+ * `porcelainRaw` are threaded into `buildSessionDiff` so detection does not
+ * re-spawn them. See change: fix-session-diff-eventloop-block.
+ */
+export async function buildSessionDiffCached(
+  sessionId: string,
+  events: DashboardEvent[],
+  cwd: string,
+  cache: SessionDiffCache<SessionDiffResult>,
+): Promise<SessionDiffResult> {
+  const gitRepo = await safeIsGitRepo(cwd);
+  const headSha = gitRepo ? await git.headShaOrAsync({ cwd }) : undefined;
+  const porcelainRaw = gitRepo ? await git.statusPorcelainOrAsync({ cwd }) : "";
+  const key = `${sessionId}:${headSha ?? "nogit"}:${djb2(porcelainRaw)}`;
+  return cache.run(key, () => buildSessionDiff(events, cwd, { gitRepo, porcelainRaw }));
 }
