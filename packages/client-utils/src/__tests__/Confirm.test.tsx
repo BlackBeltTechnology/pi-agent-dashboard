@@ -98,7 +98,7 @@ describe("Confirm", () => {
     fireEvent.click(baseElement.querySelector("[data-testid='c-cancel']")!);
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(2);
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });

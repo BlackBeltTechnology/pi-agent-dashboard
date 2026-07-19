@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { useEscapeDismiss } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 
@@ -14,21 +15,21 @@ export function ImageLightbox({ src, alt, onClose }: Props) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  // Close on Escape + backdrop click (document listeners for portal compat)
+  // Escape dismissal routes through the shared escape-stack so an Escape closes
+  // only the lightbox, not a dialog/overlay stacked beneath it.
+  // See change: fix-stacked-escape-closes-layers.
+  useEscapeDismiss(true, onClose);
+
+  // Backdrop click still dismisses (document listener for portal compat).
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCloseRef.current();
-    };
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target?.dataset?.testid === BACKDROP_ID) {
         onCloseRef.current();
       }
     };
-    document.addEventListener("keydown", handleKey);
     document.addEventListener("click", handleClick);
     return () => {
-      document.removeEventListener("keydown", handleKey);
       document.removeEventListener("click", handleClick);
     };
   }, []);

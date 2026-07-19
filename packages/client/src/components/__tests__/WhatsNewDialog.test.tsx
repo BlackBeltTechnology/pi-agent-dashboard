@@ -156,7 +156,7 @@ describe("WhatsNewDialog", () => {
   it("Esc key invokes onClose", () => {
     const onClose = vi.fn();
     renderDialog({ onClose });
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
   });
 });

@@ -1,5 +1,8 @@
-## ADDED Requirements
+# modal-escape-dismiss Specification
 
+## Purpose
+TBD - created by archiving change fix-stacked-escape-closes-layers. Update Purpose after archive.
+## Requirements
 ### Requirement: Topmost-only Escape dismissal
 
 The application SHALL arbitrate global Escape-key dismissal through a **single shared listener** so that pressing Escape dismisses only the **topmost** registered dismissible layer, never more than one registered layer per keypress. Because all participating layers share one listener, topmost-only dismissal is enforced by the stack itself and does not depend on out-competing other DOM listeners. A stack-eligible layer (a portaled, focus-trapping or viewport-covering surface — e.g. dialog, image lightbox, file-preview overlay) SHALL register itself with the stack while open and SHALL unregister when it closes.
@@ -34,11 +37,13 @@ A layer SHALL unregister from the stack by its own identity, not by stack positi
 - **THEN** B's dismiss handler is invoked
 - **AND** no stale entry for A remains
 
-#### Scenario: No listener leak when the stack empties
+#### Scenario: The shared listener attaches once and is never duplicated
 
-- **WHEN** the last registered layer unregisters
-- **THEN** no global keydown listener for Escape dismissal remains attached
-- **AND** registering a new layer re-attaches exactly one listener
+- **WHEN** layers register, all of them unregister, and a new layer then registers again
+- **THEN** exactly one global keydown listener for Escape dismissal stays attached for the session
+- **AND** it is attached once on the first registration, is NOT detached when the stack empties, and is never duplicated across the register→empty→register cycle
+
+> Rationale: the listener stays attached (early-returns on an empty stack) rather than detaching on empty. Detaching would let another `document` listener slip ahead in registration order during an idle window and permanently sit in front of the stack. "No leak" here means exactly one listener that never accumulates — not zero.
 
 #### Scenario: Latest handler is used without re-registration
 
@@ -79,3 +84,4 @@ The stack SHALL NOT dismiss a layer when the Escape event is already handled by 
 - **WHEN** two layers are stacked and the user holds Escape so the browser emits auto-repeat keydown events
 - **THEN** only the first (non-repeat) keydown dismisses the topmost layer
 - **AND** auto-repeat events do not dismiss further layers
+

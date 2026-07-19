@@ -3,9 +3,7 @@
 ## Purpose
 
 Provide a portal-mounted modal dialog primitive that renders above all page content with an overlay, contains keyboard focus, exposes correct modal ARIA semantics, and supports size and intent variants. Two presets build on it: a Confirm dialog for title/message/confirm-cancel decisions and a SearchableSelect dialog for filtering and picking from an option list.
-
 ## Requirements
-
 ### Requirement: Portal Mounting and Body Scroll Lock
 
 The dialog SHALL render into a portal attached to the document body and prevent background page scrolling while open.
@@ -29,7 +27,7 @@ The dialog SHALL render into a portal attached to the document body and prevent 
 
 ### Requirement: Dismissal
 
-The dialog SHALL invoke its `onClose` callback when the user clicks the overlay or presses Escape, and SHALL leave final dismissal to the controlling parent.
+The dialog SHALL invoke its `onClose` callback when the user clicks the overlay or presses Escape, and SHALL leave final dismissal to the controlling parent. Escape dismissal SHALL be routed through the shared escape-dismiss stack: the dialog's `onClose` SHALL fire on Escape **only when the dialog is the topmost registered dismissible layer**, so an overlay opened above the dialog consumes the Escape first and the dialog stays open.
 
 #### Scenario: Overlay click dismisses
 
@@ -38,8 +36,15 @@ The dialog SHALL invoke its `onClose` callback when the user clicks the overlay 
 
 #### Scenario: Escape key dismisses
 
-- **WHEN** the dialog is open and the user presses the `Escape` key
+- **WHEN** the dialog is open, is the topmost dismissible layer, and the user presses the `Escape` key
 - **THEN** `onClose` is called
+
+#### Scenario: Escape over a stacked overlay does not close the dialog
+
+- **WHEN** the dialog is open and a full-screen overlay (image lightbox, file preview, focused diagram) is open above it
+- **AND** the user presses `Escape`
+- **THEN** only the overlay is dismissed
+- **AND** the dialog's `onClose` is NOT called
 
 #### Scenario: Open state is controlled by the parent
 
@@ -217,3 +222,4 @@ The SearchableSelect dialog SHALL let the user filter a list of options by text 
 
 - **WHEN** the user dismisses the dialog via overlay click or Escape
 - **THEN** `onCancel` is called
+

@@ -99,6 +99,8 @@ React-based responsive web UI that:
 
 **Unified dialog system** (`packages/client-utils/`): `Dialog` primitive + `Confirm` preset + `useFocusTrap` hook. `Dialog` owns portal/overlay (`bg-black/60`)/Esc/click-outside/focus-trap/ARIA/`z-[60]`/size variants (sm/md/lg)/header+footer slots (`Dialog.Footer`/`Dialog.Cancel`/`Dialog.Action`). `Confirm` wraps `Dialog` (size sm) for confirm flows. `ui:dialog` registry key exposes shell to plugins; `ui:confirm-dialog` re-skinned as adapter over `Confirm`. ~20 dialogs migrated. Legacy `ConfirmDialog` removed. See change: unify-dialog-system.
 
+**Global Escape dismissal** (`packages/client-utils/src/escape-stack.ts`): single module-stable `document`-bubble `keydown` listener + LIFO stack arbitrates Escape. On Escape dismisses only topmost registered layer, then `preventDefault`+`stopImmediatePropagation`; guards `e.repeat`/`e.defaultPrevented`; attaches once, never detaches. Portaled dismissible surfaces register via `useEscapeDismiss(active, onEscape)` — stacked surfaces peel one layer per press instead of all closing. Adopted v1 in `Dialog`, `ImageLightbox`, `FilePreviewOverlay`; `MermaidBlock` deferred (inline, not portaled). New dismissible portaled overlays SHOULD use `useEscapeDismiss`, not a self-managed global `keydown` listener. See change: fix-stacked-escape-closes-layers.
+
 ### 4. Shared Types (`src/shared/`)
 TypeScript type definitions shared across all components:
 

@@ -1,6 +1,7 @@
 import { mdiClose, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ComponentType, useEffect, useRef, useState } from "react";
+import { useEscapeDismiss } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -130,22 +131,22 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
     };
   }, [cwd, path, isImage, isRich]);
 
-  // Esc + backdrop click dismiss. The backdrop element is the dim layer over
-  // the message area only (see render): clicking it closes; clicks inside the
-  // panel or down in the composer cutout never match its testid, so they are
+  // Escape dismissal routes through the shared escape-stack so an Escape opened
+  // above another dismissible surface peels only this overlay.
+  // See change: fix-stacked-escape-closes-layers.
+  useEscapeDismiss(true, onClose);
+
+  // Backdrop click dismiss. The backdrop element is the dim layer over the
+  // message area only (see render): clicking it closes; clicks inside the panel
+  // or down in the composer cutout never match its testid, so they are
   // click-isolated.
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCloseRef.current();
-    };
     const handleClick = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null;
       if (t?.dataset?.testid === BACKDROP_ID) onCloseRef.current();
     };
-    document.addEventListener("keydown", handleKey);
     document.addEventListener("click", handleClick);
     return () => {
-      document.removeEventListener("keydown", handleKey);
       document.removeEventListener("click", handleClick);
     };
   }, []);
@@ -191,8 +192,10 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
   return (
     <DialogPortal>
       {/* Outer wrapper spans the viewport but is click-through, so the composer
-          cutout at the bottom stays interactive. */}
-      <div className="fixed inset-0 z-50 pointer-events-none">
+          cutout at the bottom stays interactive. z-index sits ABOVE the Dialog
+          layer (`z-[60]`) so a preview opened from a dialog renders in front of
+          it, not behind. See change: fix-stacked-escape-closes-layers. */}
+      <div className="fixed inset-0 z-[70] pointer-events-none">
         {/* Dim + dismiss layer: covers the message area only, stopping above the
             composer (bottom = measured composer height). */}
         <div

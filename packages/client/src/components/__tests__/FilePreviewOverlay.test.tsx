@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, cleanup, waitFor } from "@testing-library/react";
+import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { FilePreviewOverlay } from "../preview/FilePreviewOverlay.js";
+import { __resetEscapeStack } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 function renderOverlay(ui: React.ReactElement) {
@@ -34,6 +35,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  __resetEscapeStack();
 });
 
 describe("FilePreviewOverlay — syntax highlighting", () => {
@@ -214,6 +216,34 @@ function mockFileError(error: string, status = 404) {
     }) as any,
   );
 }
+
+// F5 z-order + single-layer Escape parity. See change:
+// fix-stacked-escape-closes-layers.
+describe("FilePreviewOverlay — escape-stack migration", () => {
+  it("F5 z-order: outer wrapper sits above the Dialog layer (z >= 60)", async () => {
+    mockFileFetch("x\n");
+    renderOverlay(<FilePreviewOverlay cwd="/repo" path="notes.txt" onClose={() => {}} />);
+    const backdrop = await waitFor(
+      () => document.querySelector('[data-testid="file-preview-backdrop"]') as HTMLElement,
+    );
+    const wrapper = backdrop.parentElement as HTMLElement;
+    // Extract the numeric z-index token (`z-[70]` or `z-50`) from the wrapper.
+    const m = wrapper.className.match(/z-\[(\d+)\]|z-(\d+)/);
+    const z = Number(m?.[1] ?? m?.[2]);
+    expect(z).toBeGreaterThanOrEqual(60);
+  });
+
+  it("single layer: one Escape dismisses the preview (parity)", async () => {
+    mockFileFetch("x\n");
+    const onClose = vi.fn();
+    renderOverlay(<FilePreviewOverlay cwd="/repo" path="notes.txt" onClose={onClose} />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="file-preview-overlay"]')).toBeTruthy(),
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("FilePreviewOverlay — stale link errors", () => {
   it("maps 'not found' to a file-no-longer-exists message", () => {

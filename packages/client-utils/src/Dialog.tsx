@@ -1,5 +1,4 @@
 import React, {
-  useEffect,
   useId,
   useRef,
   type ReactNode,
@@ -7,6 +6,7 @@ import React, {
 import { mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { DialogPortal } from "./DialogPortal.js";
+import { useEscapeDismiss } from "./escape-stack.js";
 import { useFocusTrap } from "./useFocusTrap.js";
 
 export type DialogSize = "sm" | "md" | "lg" | "full";
@@ -63,14 +63,10 @@ export function Dialog({
 
   useFocusTrap(containerRef, open);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  // Escape dismissal routes through the shared escape-stack: onClose fires only
+  // when this dialog is the topmost registered layer, so an overlay opened above
+  // it consumes the Escape first. See change: fix-stacked-escape-closes-layers.
+  useEscapeDismiss(open, onClose);
 
   if (!open) return null;
 

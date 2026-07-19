@@ -33,7 +33,7 @@ describe("QrCodeDialog", () => {
   it("calls onClose on Escape key", () => {
     const onClose = vi.fn();
     render(<QrCodeDialog url={url} connected={true} onClose={onClose} />);
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
   });
 

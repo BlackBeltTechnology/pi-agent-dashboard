@@ -171,7 +171,7 @@ describe("AgentToolRenderer — expand + popout", () => {
     expect(send).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "subagent_resync_request" }),
     );
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
@@ -204,7 +204,7 @@ describe("AgentToolRenderer — expand + popout", () => {
     expect(open).not.toHaveBeenCalled();
     open.mockRestore();
     // Tear the portal down within the test (flush the scheduler).
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
@@ -220,7 +220,7 @@ describe("AgentToolRenderer — expand + popout", () => {
     ));
     fireEvent.click(screen.getByTitle(/Open subagent detail/i));
     expect(await screen.findByRole("dialog")).toBeTruthy();
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 

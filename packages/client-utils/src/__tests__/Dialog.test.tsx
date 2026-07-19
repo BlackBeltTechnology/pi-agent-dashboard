@@ -35,7 +35,8 @@ describe("Dialog", () => {
         <p>x</p>
       </Dialog>,
     );
-    fireEvent.keyDown(window, { key: "Escape" });
+    // Escape now routes through the shared escape-stack (document-bubble listener).
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

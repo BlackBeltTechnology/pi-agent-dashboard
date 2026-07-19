@@ -25,6 +25,10 @@
       "types": "./src/DialogPortal.tsx",
       "default": "./src/DialogPortal.tsx"
     },
+    "./escape-stack": {
+      "types": "./src/escape-stack.ts",
+      "default": "./src/escape-stack.ts"
+    },
     "./Popover": {
       "types": "./src/Popover.tsx",
       "default": "./src/Popover.tsx"

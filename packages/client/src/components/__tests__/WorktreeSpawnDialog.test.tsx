@@ -950,7 +950,7 @@ describe("WorktreeSpawnDialog — dismissal", () => {
     const onCancel = vi.fn();
     render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={onCancel} />);
     await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });
