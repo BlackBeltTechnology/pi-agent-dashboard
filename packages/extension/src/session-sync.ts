@@ -2,25 +2,50 @@
  * Session sync: register, replay, and handle session changes.
  * Extracted from bridge.ts for clarity.
  */
-import type { BridgeContext } from "./bridge-context.js";
-import { getCurrentModelString, extractFirstMessage, filterHiddenCommands } from "./bridge-context.js";
-import { detectSessionSource } from "./source-detector.js";
-import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
-import { gatherGitInfo, detectIsGitRepo } from "./vcs-info.js";
-import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
-import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
+import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
+import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import * as minimatchNS from "minimatch";
+import type { BridgeContext } from "./bridge-context.js";
+import { extractFirstMessage, filterHiddenCommands, getCurrentModelString } from "./bridge-context.js";
+import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
+import { detectSessionSource } from "./source-detector.js";
+import { detectIsGitRepo, gatherGitInfo } from "./vcs-info.js";
+
+// minimatch's entry shape varies by version/runtime (v10 exposes a named
+// `minimatch`; v3/CJS-interop exposes it as the default). A namespace import
+// normalises across both.
+type MinimatchFn = (target: string, pattern: string, opts?: { nocase?: boolean }) => boolean;
+const minimatch: MinimatchFn =
+  (minimatchNS as { minimatch?: MinimatchFn }).minimatch ??
+  (minimatchNS as unknown as { default?: MinimatchFn }).default ??
+  (minimatchNS as unknown as MinimatchFn);
+
+// Mirror pi core (core/model-resolver.ts): a trailing `:<thinkingLevel>` on a
+// pattern selects a thinking level and is not part of the model match.
+const VALID_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+function stripThinkingLevel(pattern: string): string {
+  const colonIdx = pattern.lastIndexOf(":");
+  if (colonIdx !== -1 && VALID_THINKING_LEVELS.has(pattern.slice(colonIdx + 1))) {
+    return pattern.slice(0, colonIdx);
+  }
+  return pattern;
+}
 
 /**
  * Filter a models array to only include models matching the `enabledModels`
- * glob patterns from `~/.pi/agent/settings.json`. When `enabledModels` is
- * absent or empty the full list is returned unchanged.
+ * patterns from `~/.pi/agent/settings.json`. When `enabledModels` is absent or
+ * empty the full list is returned unchanged.
  *
- * Supports two pattern forms:
- *   - Exact: `"provider/model-id"`
- *   - Provider wildcard: `"provider/*"`
+ * Matching mirrors pi core's `resolveModelScope`: each pattern is tested with
+ * minimatch (case-insensitive) against both the canonical `provider/id` and the
+ * bare `id`, so exact refs (`anthropic/claude-sonnet-4-6`), provider wildcards
+ * (`anthropic/*`), and bare globs (`*sonnet*`) all work. A trailing
+ * `:<thinkingLevel>` suffix is stripped before matching.
  */
 export function filterByEnabledModels<T extends { provider: string; id: string }>(models: T[]): T[] {
   try {
@@ -34,7 +59,7 @@ export function filterByEnabledModels<T extends { provider: string; id: string }
     for (let i = 0; i < rawPatterns.length; i++) {
       const entry = rawPatterns[i];
       if (typeof entry === "string") {
-        patterns.push(entry);
+        patterns.push(stripThinkingLevel(entry));
       } else {
         console.warn(
           `[pi-dashboard] enabledModels[${i}]: expected string, got ${typeof entry}. Skipping.`,
@@ -44,12 +69,10 @@ export function filterByEnabledModels<T extends { provider: string; id: string }
     if (patterns.length === 0) return models;
 
     return models.filter((m) => {
-      const key = `${m.provider}/${m.id}`;
-      return patterns.some((p) => {
-        if (p === key) return true;
-        if (p.endsWith("/*")) return m.provider === p.slice(0, -2);
-        return false;
-      });
+      const fullId = `${m.provider}/${m.id}`;
+      return patterns.some(
+        (p) => minimatch(fullId, p, { nocase: true }) || minimatch(m.id, p, { nocase: true }),
+      );
     });
   } catch {
     return models; // fall back to full list on any error
