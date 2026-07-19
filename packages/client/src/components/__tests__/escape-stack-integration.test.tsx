@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import React, { useState } from "react";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";

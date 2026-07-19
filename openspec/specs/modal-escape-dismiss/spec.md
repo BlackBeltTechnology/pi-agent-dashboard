@@ -1,7 +1,9 @@
 # modal-escape-dismiss Specification
 
 ## Purpose
-TBD - created by archiving change fix-stacked-escape-closes-layers. Update Purpose after archive.
+
+Shared global Escape-key dismissal contract for stacked, portaled overlay surfaces (dialogs, image lightbox, file preview). A single module-stable listener routes Escape to a LIFO stack so one press dismisses only the topmost registered layer, never more than one — preventing stacked surfaces from closing together. Layers register while open and unregister by identity when they close.
+
 ## Requirements
 ### Requirement: Topmost-only Escape dismissal
 
