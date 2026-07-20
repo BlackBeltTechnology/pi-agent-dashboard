@@ -1,7 +1,7 @@
 ## 1. Verdaccio config + publish script
 
 - [ ] 1.1 Create `.github/verdaccio/config.yml`: `uplinks.npmjs` → `https://registry.npmjs.org/`; `packages['@blackbelt-technology/*']` = `access $all` + `publish $all` + **no `proxy`**; `packages['**']` = `access $all` + `proxy npmjs`; `listen: 0.0.0.0:4873` bound only via CI loopback usage.
-- [ ] 1.2 Create `scripts/nightly-verdaccio-publish.mjs`: (a) bump every workspace + root to `<base>-nightly.<YYYYMMDD>.<sha7>` via `npm pkg set version`; (b) run `scripts/sync-versions.js`; (c) `npm install --package-lock-only`; (d) `node scripts/verify-lockfile-versions.mjs`; (e) publish all 31 non-private workspaces to `--registry $REGISTRY` in the same order as `publish.yml` (sub-packages first, root last).
+- [ ] 1.2 Create `scripts/nightly-verdaccio-publish.mjs`: (a) bump every workspace + root to `<base>-nightly.<YYYYMMDD>.<sha7>` (where `<base>` = the **next patch** of the current `package.json` version, e.g. `0.6.1` → `0.6.2`) via `npm pkg set version`; (b) run `scripts/sync-versions.js`; (c) `npm install --package-lock-only`; (d) `node scripts/verify-lockfile-versions.mjs`; (e) publish all 31 non-private workspaces to `--registry $REGISTRY` in the same order as `publish.yml` (sub-packages first, root last).
 - [ ] 1.3 Reuse the publish allowlist: import/derive the package list the same way `publish-allowlist-complete.test.ts` enforces, so a new workspace can't be silently omitted.
 - [ ] 1.4 Unit test `scripts/__tests__/nightly-verdaccio-publish.test.mjs`: version-slug format `X.Y.Z-nightly.<8digits>.<7hex>`; publish set equals the non-private workspace set; ordering invariant (every pkg appears after its `@blackbelt-technology/*` deps; root last).
 
@@ -26,7 +26,7 @@
 ## 4. Nightly workflow
 
 - [ ] 4.1 Create `.github/workflows/nightly.yml`: `on: { schedule: [{cron: '0 7 * * *'}], workflow_dispatch: {} }`.
-- [ ] 4.2 `resolve` job: compute `<base>-nightly.<YYYYMMDD>.<sha7>` from `package.json` version + `github.sha`.
+- [ ] 4.2 `resolve` job: compute `<base>-nightly.<YYYYMMDD>.<sha7>` where `<base>` = **next patch** of the `package.json` version (increment the patch component; e.g. `0.6.1` → `0.6.2`), suffixed with `<YYYYMMDD>` + `github.sha` (`sha7`). Next-patch (not the version verbatim) so the nightly sorts ABOVE the last release instead of below it — a `X.Y.Z-nightly.*` prerelease sorts below `X.Y.Z`. Patch is the minimal forward step: it never over-claims a feature/breaking bump the way next-minor would.
 - [ ] 4.3 `verify-publish` job: `npm publish --dry-run` for all 31 workspaces (pack + validation, no network write) as a cheap pre-gate.
 - [ ] 4.4 `electron` job: `uses: ./.github/workflows/_electron-build.yml` with `version`, `ref: github.sha`, `legs: all`, `source_only_bundle: false`, `registry_url: http://localhost:4873`, `artifact_retention_days: 7`.
 - [ ] 4.5 `report` job (`if: failure()`): open or update a single GitHub issue labelled `nightly` with the failing leg + run URL.
