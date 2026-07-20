@@ -36,6 +36,7 @@ import { ConnectionManager } from "./connection.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
 import { runDevBuild } from "./dev-build.js";
+import { provisionOpenspecCli } from "./openspec-cli-shim.js";
 import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { mapEventToProtocol } from "./event-forwarder.js";
@@ -2024,6 +2025,32 @@ function initBridge(pi: ExtensionAPI) {
     cachedHasUI = ctx.hasUI;
     cachedCtx = ctx;
     sessionId = newSessionId;
+
+    // Provision the openspec CLI: drop a shim on process.env.PATH so the
+    // generated openspec-* skills' bare `openspec` resolves in-session. Runs on
+    // init AND /reload (re-points the shim on extension upgrade); the PATH
+    // prepend is idempotent. Fail-soft: on hard failure, surface a
+    // dashboard-visible missing-tool signal. See change:
+    // provision-openspec-cli-in-sessions.
+    provisionOpenspecCli({
+      onMissingTool: (reason) => {
+        connection.send({
+          type: "event_forward",
+          sessionId,
+          event: {
+            eventType: "bash_output",
+            timestamp: Date.now(),
+            data: {
+              command: "openspec (session provisioning)",
+              output: reason,
+              exitCode: 127,
+              excludeFromContext: true,
+              missingTool: { kind: "missing-tool", toolName: "openspec" },
+            },
+          },
+        });
+      },
+    });
 
     // Wrap sessionManager.appendMessage so that future message_end events can
     // recover the just-generated entry id, even when their setTimeout(0)

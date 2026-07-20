@@ -18,6 +18,7 @@ TESTS=(
   "08-electron-real-launch.sh"  # skips when AppImage absent. See change: expand-electron-qa-coverage.
   "09-image-fit-extension.sh"   # @blackbelt-technology/pi-image-fit install + dep-tree sanity. See change: pi-image-fit-extension.
   "10-faux-model.sh"            # faux prompt round-trip; skips (SKIP: + exit 0) when pi absent. See change: add-faux-model-integration-tests.
+  "13-openspec-offline-regen.sh" # offline `npx --no-install openspec init` regen stamps generatedBy 1.6.0. See change: provision-openspec-cli-in-sessions.
 )
 
 PASSED=0

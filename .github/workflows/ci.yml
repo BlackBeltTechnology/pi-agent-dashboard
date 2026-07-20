@@ -29,6 +29,10 @@ jobs:
       # install that re-resolves the full optional tree for this platform.
       - name: Install dependencies
         run: npm ci || (echo "npm ci failed (likely npm/cli#4828 optional-deps); retrying clean install" && rm -rf node_modules package-lock.json && npm install)
+      # Single-source openspec-version gate: fail on server↔extension floor drift
+      # on develop, not only at release. See change: provision-openspec-cli-in-sessions.
+      - name: Verify release dependency shape
+        run: node scripts/verify-release-deps.mjs
       - run: npm run lint
       # Hard-gates Tier A (error-severity) regressions; Tier B/C (warn) only annotate.
       - name: Biome static analysis (Tier A gate, warn-tier annotate)

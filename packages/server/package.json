@@ -45,7 +45,7 @@
     "@fastify/reply-from": "^12.6.1",
     "@fastify/static": "^8.0.0",
     "@fastify/websocket": "^11.0.0",
-    "@fission-ai/openspec": "^1.3.0",
+    "@fission-ai/openspec": "^1.6.0",
     "asciidoctor": "^3.0.4",
     "bonjour-service": "^1.3.0",
     "diff": "^8.0.3",
