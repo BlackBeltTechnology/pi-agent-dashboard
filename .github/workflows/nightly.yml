@@ -1,0 +1,173 @@
+name: Nightly Verdaccio build
+
+# Scheduled full-fidelity build that answers "would tonight's develop produce a
+# correct release?" WITHOUT any public npm write. Each Electron leg stands up an
+# ephemeral loopback Verdaccio, publishes every non-private workspace to it, and
+# runs the REAL bundle `npm install @blackbelt-technology/*` against that
+# throwaway registry — the exact code path that breaks releases (ETARGET race,
+# stale-registry drift) but never gets exercised source-only.
+#
+# HARD safety contract (locked by
+# packages/shared/src/__tests__/nightly-workflow-contract.test.ts):
+#   - NO public `npm publish` (the only `npm publish` here is `--dry-run`;
+#     the real publishes go to http://localhost:4873 from
+#     scripts/nightly-verdaccio-publish.mjs)
+#   - NO GitHub Release (softprops/action-gh-release)
+#   - NO tag push, NO version-bump commit
+#
+# See change: add-nightly-verdaccio-build.
+
+on:
+  # Land dark: workflow_dispatch first. After ONE clean manual run (task 6.4),
+  # uncomment the schedule below to enable the nightly cron (07:00 UTC).
+  # schedule:
+  #   - cron: '0 7 * * *'
+  workflow_dispatch: {}
+
+# One nightly at a time; a newer dispatch supersedes an in-flight one.
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── resolve: compute the throwaway nightly version slug ────────────────────
+  # <base>-nightly.<YYYYMMDD>.<sha7> where <base> = NEXT PATCH of the current
+  # package.json version (0.6.1 → 0.6.2). Next-patch (not verbatim) so the
+  # nightly sorts ABOVE the last release: a X.Y.Z-nightly.* prerelease sorts
+  # BELOW X.Y.Z. Patch is the minimal forward step; the base is a Verdaccio-only
+  # label never consumed publicly. See design Decision 3.
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.slug.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Compute nightly version slug
+        id: slug
+        shell: bash
+        run: |
+          set -euo pipefail
+          current=$(node -p "require('./package.json').version")
+          # next patch of the X.Y.Z core (ignore any prerelease suffix)
+          base=$(node -e "const m=/^(\d+)\.(\d+)\.(\d+)/.exec(process.argv[1]); if(!m)process.exit(1); console.log(\`\${m[1]}.\${m[2]}.\${Number(m[3])+1}\`)" "$current")
+          stamp=$(date -u +%Y%m%d)
+          sha7=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          version="${base}-nightly.${stamp}.${sha7}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9a-f]{7}$ ]]; then
+            echo "::error::computed version '$version' is not a nightly slug"
+            exit 1
+          fi
+          echo "Nightly version: $version (base $base, from $current)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # ── verify-publish: cheap pack+validate pre-gate (NO network write) ─────────
+  # `npm publish --dry-run` packs every workspace and runs publish validation
+  # locally. Catches manifest/pack errors before any leg spins up Verdaccio.
+  # This is the ONLY `npm publish` in this workflow and it is --dry-run (writes
+  # nothing) — see the safety-contract test.
+  verify-publish:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Set nightly version
+        run: npm pkg set "version=${{ needs.resolve.outputs.version }}" --workspaces --include-workspace-root
+
+      - name: Sync inter-package dep specifiers
+        run: node scripts/sync-versions.js
+
+      - run: npm run build
+
+      - name: Dry-run publish all workspaces (pack + validate, no network write)
+        run: npm publish --workspaces --include-workspace-root --dry-run
+
+  # ── electron: full matrix against a per-leg Verdaccio ──────────────────────
+  # Delegates to the shared build. registry_url triggers the Verdaccio
+  # round-trip inside _electron-build.yml. NO publish/github-release/tag jobs
+  # anywhere in this workflow (task 4.6).
+  electron:
+    needs: [resolve, verify-publish]
+    uses: ./.github/workflows/_electron-build.yml
+    with:
+      version:                 ${{ needs.resolve.outputs.version }}
+      ref:                     ${{ github.sha }}
+      legs:                    all
+      source_only_bundle:      false
+      registry_url:            http://localhost:4873
+      artifact_retention_days: 7
+
+  # ── report: open/update a single tracking issue on failure ─────────────────
+  report:
+    needs: [resolve, verify-publish, electron]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the nightly tracking issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            // Enumerate the failed leg(s)/job(s) of THIS run.
+            const jobs = await github.paginate(
+              github.rest.actions.listJobsForWorkflowRun,
+              { owner: context.repo.owner, repo: context.repo.repo, run_id: context.runId, per_page: 100 },
+            );
+            const failed = jobs
+              .filter((j) => j.conclusion === 'failure')
+              .map((j) => `- \`${j.name}\``);
+            const legList = failed.length ? failed.join('\n') : '- (see run for details)';
+            const title = 'Nightly Verdaccio build failing';
+            const body = [
+              `The nightly Verdaccio build failed.`,
+              ``,
+              `**Run:** ${runUrl}`,
+              `**Commit:** \`${context.sha}\``,
+              ``,
+              `**Failed leg(s)/job(s):**`,
+              legList,
+              ``,
+              `_Auto-filed by \`.github/workflows/nightly.yml\` (label \`nightly\`)._`,
+            ].join('\n');
+
+            // Reuse a single open issue labelled `nightly` rather than spamming.
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'nightly', per_page: 100,
+            });
+            if (existing.length > 0) {
+              const num = existing[0].number;
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: num, body,
+              });
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: num,
+                body: `Still failing — ${runUrl}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['nightly'],
+              });
+            }
