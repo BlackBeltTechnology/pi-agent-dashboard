@@ -1,0 +1,128 @@
+/**
+ * pnpm-migration-contract.test.ts — static contracts for change
+ * adopt-pnpm-for-dev-ci. Folds the statically-verifiable automated scenarios
+ * from test-plan.md (X3, X5, X6, X7, E8) into repo-lint assertions.
+ *
+ * NOT covered here (require CI / VM / docker harness, or gate on the §9
+ * lockfile swap): E1/E2/E3/X1 (L2 qa smoke), E5/E6/E7 (electron — verified
+ * locally via bundle-server + electron-forge package), E4 (single-lockfile —
+ * gated on §9 package-lock.json deletion), X2/X8 (real publish/smoke runs),
+ * X4 (full ci-electron.yml installer matrix — human-dispatched gate).
+ */
+import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import url from "node:url";
+
+const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
+const WF = path.join(REPO_ROOT, ".github", "workflows");
+const read = (p: string) => fs.readFileSync(path.join(REPO_ROOT, p), "utf8");
+const readWf = (name: string) => fs.readFileSync(path.join(WF, name), "utf8");
+
+// ── X3: runtime installs stay npm (Column C guard) ────────────────────────
+// The shipped server / electron app installs pi-core on END-USER machines via
+// `npm install` (npm ships in Node). These MUST NOT be rewritten to pnpm.
+// `"pnpm".includes("npm")` is true, so npm-presence uses a word boundary.
+describe("X3 — runtime pi-core installs stay npm (never pnpm)", () => {
+  const columnC = [
+    "packages/server/src/pi/pi-core-updater.ts",
+    "packages/server/src/pi/pi-core-checker.ts",
+    "packages/server/src/lifecycle/recovery-server.ts",
+    "packages/electron/src/lib/update-checker.ts",
+  ];
+  for (const file of columnC) {
+    it(`${file} invokes npm and is not rewritten to pnpm`, () => {
+      const src = read(file);
+      expect(/\bnpm\b/.test(src), `${file} must reference npm (Column C runtime)`).toBe(true);
+      if (/\bpnpm\b/.test(src)) {
+        throw new Error(
+          `${file} references pnpm — Column C runtime installs MUST stay npm ` +
+            "(they run on end-user machines against the public registry, where " +
+            "pnpm is not present). See change: adopt-pnpm-for-dev-ci (§1.2 / X3).",
+        );
+      }
+    });
+  }
+});
+
+// ── X5: CI cache flip — dev/CI workflows use pnpm, not `npm ci` ────────────
+describe("X5 — root/workspace workflows install with pnpm", () => {
+  const migrated = [
+    "ci.yml",
+    "publish.yml",
+    "_electron-build.yml",
+    "_smoke.yml",
+    "ci-e2e-electron.yml",
+  ];
+  for (const wf of migrated) {
+    it(`${wf} uses pnpm/action-setup + cache: pnpm and no \`npm ci\``, () => {
+      const y = readWf(wf);
+      expect(y, `${wf} missing pnpm/action-setup`).toContain("pnpm/action-setup");
+      expect(y, `${wf} missing \`cache: pnpm\``).toMatch(/cache:\s*pnpm/);
+      expect(y, `${wf} still installs with pnpm`).toMatch(/pnpm install/);
+      if (/\bnpm ci\b/.test(y)) {
+        throw new Error(
+          `${wf} still runs \`npm ci\` — every root/workspace install must be ` +
+            "`pnpm install --frozen-lockfile`. See change: adopt-pnpm-for-dev-ci (§6.2).",
+        );
+      }
+    });
+  }
+
+  it("publish.yml drops the npm@11.12.1 EALLOWGIT pin (§8.3)", () => {
+    expect(readWf("publish.yml")).not.toContain("npm@11.12.1");
+  });
+});
+
+// ── X6: deploy-site is dual-install — site/ stays npm, root uses pnpm ──────
+describe("X6 — deploy-site.yml dual-install regression", () => {
+  const y = readWf("deploy-site.yml");
+  it("site/ job keeps its own npm lockfile + npm ci (unmigrated)", () => {
+    expect(y).toContain("cache-dependency-path: site/package-lock.json");
+    expect(y, "site/ install must stay `npm ci`").toMatch(/\bnpm ci\b/);
+  });
+  it("root shell install uses pnpm", () => {
+    expect(y).toContain("pnpm/action-setup");
+    expect(y).toMatch(/pnpm install --frozen-lockfile/);
+  });
+});
+
+// ── X7: the npm/cli#4828 `rm -f package-lock.json` hack is gone ────────────
+describe("X7 — #4828 lockfile-nuke workaround removed from all workflows", () => {
+  const files = fs.readdirSync(WF).filter((f) => f.endsWith(".yml"));
+  for (const f of files) {
+    it(`${f} has no package-lock.json clean-install hack`, () => {
+      const y = readWf(f);
+      const patterns = [
+        /rm -rf node_modules package-lock\.json/,
+        /rm -f package-lock\.json/,
+        /Remove-Item[^\n]*package-lock\.json/,
+      ];
+      for (const re of patterns) {
+        if (re.test(y)) {
+          throw new Error(
+            `${f} still contains the npm/cli#4828 lockfile-nuke hack (${re}). ` +
+              "pnpm re-resolves the platform optional-dep tree from " +
+              "pnpm-lock.yaml, so the workaround must be removed. See change: " +
+              "adopt-pnpm-for-dev-ci (§6.5 / X7).",
+          );
+        }
+      }
+    });
+  }
+});
+
+// ── E8: bundle-server cpSync filter is Windows-safe (split, not path.sep) ──
+describe("E8 — bundle-server.mjs node_modules filter is Windows-safe", () => {
+  const src = read("packages/electron/scripts/bundle-server.mjs");
+  it("excludes node_modules via a `/[\\\\/]/` split (both separators)", () => {
+    expect(src).toMatch(/split\(\/\[\\\\\/\]\/\)/);
+    expect(src).toContain('includes("node_modules")');
+  });
+  it("does not gate the filter on path.sep (breaks the win32 node-pty leg)", () => {
+    // A path.sep-based split misses `/` on win32 (or `\` on POSIX), copying
+    // broken pnpm store-symlinks into the bundle → empty node-pty prebuilds.
+    expect(src).not.toMatch(/split\(path\.sep\)/);
+  });
+});
