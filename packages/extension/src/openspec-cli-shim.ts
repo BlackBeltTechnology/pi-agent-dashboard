@@ -94,7 +94,11 @@ export function ensureShimDir(dir: string): void {
  */
 export function writeShim(shimDir: string, binPath: string, execPath: string): string {
   const shimPath = path.join(shimDir, "openspec");
-  const script = `#!/bin/sh\nexec "${execPath}" "${binPath}" "$@"\n`;
+  // Single-quote both paths so a path containing `$`, a backtick, whitespace, or
+  // a quote cannot expand or break the `exec` line (defense-in-depth: the paths
+  // are trusted — require.resolve'd bin + process.execPath — but shell-safe by
+  // construction). POSIX single-quote escaping: close, emit \', reopen.
+  const script = `#!/bin/sh\nexec ${shSingleQuote(execPath)} ${shSingleQuote(binPath)} "$@"\n`;
   const tmp = path.join(shimDir, `.openspec.${process.pid}.${Date.now()}.tmp`);
   fs.writeFileSync(tmp, script, { mode: 0o755 });
   fs.chmodSync(tmp, 0o755); // writeFileSync mode is umask-masked; enforce explicitly.
@@ -114,6 +118,11 @@ export function prependDirToPath(dir: string, env: NodeJS.ProcessEnv): boolean {
   if (already) return false;
   env.PATH = current.length > 0 ? `${canonical}${path.delimiter}${current}` : canonical;
   return true;
+}
+
+/** POSIX single-quote a string for safe embedding in a `/bin/sh` script. */
+function shSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 function canonicalize(p: string): string {
