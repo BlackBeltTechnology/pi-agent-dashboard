@@ -98,11 +98,16 @@ Ordered, reversible phases (design.md §D6). Each phase ends green before the ne
 
 ## 7. Docker migration
 
-- [ ] 7.1 `docker/Dockerfile`: `corepack enable`; `COPY pnpm-lock.yaml pnpm-workspace.yaml`;
-      `pnpm install --frozen-lockfile && pnpm run build`; drop the web-client
-      `rm -f package-lock.json && npm install` hack.
-- [ ] 7.2 Keep global tool installs (`npm install -g @earendil-works/pi-coding-agent …`)
-      as npm — those are Column C-style user installs.
+- [x] 7.1 `docker/Dockerfile`: `corepack enable`; `COPY pnpm-lock.yaml pnpm-workspace.yaml`;
+      `pnpm install --frozen-lockfile && pnpm run build`; dropped the web-client
+      `rm -f package-lock.json && npm install` hack. ALSO migrated
+      `packages/electron/scripts/Dockerfile.build` (electron-builder image:
+      corepack + `pnpm install --frozen-lockfile --ignore-scripts` +
+      `pnpm rebuild node-pty` + `pnpm run build`). NOTE: full image build not run
+      locally — commands are the locally-proven §5 install/build; Docker CI +
+      X4 validate the built images.
+- [x] 7.2 Keep global tool installs (`npm install -g @earendil-works/pi-coding-agent …`,
+      pi-flows, pi-anthropic-messages) as npm — those are Column C-style user installs. UNCHANGED.
 
 ## 8. Publish job (design.md §D1) — pnpm install, npm publish
 

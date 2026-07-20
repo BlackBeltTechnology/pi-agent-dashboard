@@ -27,15 +27,18 @@ WORKDIR /build
 # Copy only what's needed (not the full project with all deps)
 COPY . .
 
+# Pin pnpm via the root packageManager field. See change: adopt-pnpm-for-dev-ci.
+RUN corepack enable
+
 # Install ALL dependencies (including devDependencies for electron-forge)
 # --ignore-scripts: skip phantomjs-prebuilt install (no arm64 binary, not needed for build)
 # Then rebuild only the native modules we actually need (node-pty).
-RUN npm install --ignore-scripts || (cat /root/.npm/_logs/*debug*.log | tail -50 && exit 1)
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # Run postinstall for packages that actually need it (electron binary download, node-pty native build).
 # Resolve electron via the tool-registry shell wrapper so hoisted vs.
 # nested layouts both work. See change: register-build-time-tools.
-RUN npm rebuild node-pty 2>&1 | tail -10
+RUN pnpm rebuild node-pty 2>&1 | tail -10
 RUN ELECTRON_DIR=$(node packages/shared/bin/pi-dashboard-resolve-tool.cjs electron) \
     && cd "$ELECTRON_DIR" && node install.js 2>&1 | tail -5
 
@@ -43,7 +46,7 @@ RUN ELECTRON_DIR=$(node packages/shared/bin/pi-dashboard-resolve-tool.cjs electr
 RUN ls node_modules/@electron-forge/cli/package.json && echo "forge: OK" || echo "forge: MISSING"
 
 # Build web client
-RUN npm run build 2>&1 | tail -5
+RUN pnpm run build 2>&1 | tail -5
 
 # Entry point: receives platform args
 ENTRYPOINT ["bash", "packages/electron/scripts/docker-make.sh"]
