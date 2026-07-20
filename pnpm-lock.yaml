@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  bonjour-service: 1.4.2
+
 importers:
 
   .:
@@ -703,8 +706,8 @@ importers:
         specifier: ^3.0.4
         version: 3.0.4
       bonjour-service:
-        specifier: ^1.3.0
-        version: 1.4.3
+        specifier: 1.4.2
+        version: 1.4.2
       chardet:
         specifier: ^2.1.0
         version: 2.2.0
@@ -773,8 +776,8 @@ importers:
   packages/shared:
     dependencies:
       bonjour-service:
-        specifier: ^1.3.0
-        version: 1.4.3
+        specifier: 1.4.2
+        version: 1.4.2
     devDependencies:
       memfs:
         specifier: ^4.57.2
@@ -4186,8 +4189,8 @@ packages:
   bmp-ts@1.0.9:
     resolution: {integrity: sha512-cTEHk2jLrPyi+12M3dhpEbnnPOsaZuq7C45ylbbQIiWgDFZq4UVYPEY5mlqjvsj/6gJv9qX5sa+ebDzLXT28Vw==}
 
-  bonjour-service@1.4.3:
-    resolution: {integrity: sha512-2Kd5UYlFUVgAKMTyuBLl6w49wqfOnbxHqmuH0oCl/n7TfAikR0zoowNOP5BU4dfXmm+Vr9JyEN370auSMx+CNg==}
+  bonjour-service@1.4.2:
+    resolution: {integrity: sha512-lMskhnsW70yWHr4PhPeh2rvaIkLSaDpp+nmtbXBZaNKTXwxL73QOkW6HhbzqTImXjevn9TreGT4GACGBCGP9nQ==}
 
   boolean@3.2.0:
     resolution: {integrity: sha512-d0II/GO9uf9lfUHH2BQsjxzRJZBdsjgsBiW4BvhWk/3qoKwQFjIDVN19PfX8F2D/r9PCMTtLWjYVCFrpeYUzsw==}
@@ -12941,7 +12944,7 @@ snapshots:
 
   bmp-ts@1.0.9: {}
 
-  bonjour-service@1.4.3:
+  bonjour-service@1.4.2:
     dependencies:
       fast-deep-equal: 3.1.3
       multicast-dns: 7.2.5

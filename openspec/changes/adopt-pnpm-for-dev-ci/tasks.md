@@ -18,6 +18,19 @@ Ordered, reversible phases (design.md §D6). Each phase ends green before the ne
 
 ## 2. pnpm-workspace.yaml config (design.md §D2)
 
+<!-- HARDENING (found during apply):
+     (a) `onlyBuiltDependencies` did NOT suppress ERR_PNPM_IGNORED_BUILDS (design
+         §D5 confirmed) AND pnpm 11 makes that error FATAL (exit 1) → every CI
+         `pnpm install --frozen-lockfile` would red. Fix: `strictDepBuilds: false`
+         (+ `ignoredBuiltDependencies` to quiet the warning). Natives rebuilt on
+         the paths that need them (_electron-build `pnpm rebuild node-pty` +
+         electron install.js; bundle-server's own npm install).
+     (b) build/override config lives in pnpm-workspace.yaml, NOT package.json
+         `pnpm.*` (the latter is ignored when pnpm-workspace.yaml exists).
+     (c) fresh `pnpm install` bumped bonjour-service 1.4.2→1.4.3 (a bad patch that
+         broke `import { type Service }` types); pinned back to 1.4.2 (develop's
+         version) via `overrides`. NOTE for §9: consider `pnpm import` from
+         package-lock.json for full version parity if further drift surfaces. -->
 - [x] 2.1 Write `pnpm-workspace.yaml`: `packages:['packages/*']`, `nodeLinker: hoisted`,
       `verifyDepsBeforeRun: false`, `blockExoticSubdeps: false`,
       `linkWorkspacePackages: true`, `preferWorkspacePackages: true`,
