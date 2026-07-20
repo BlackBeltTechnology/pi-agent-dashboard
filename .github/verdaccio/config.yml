@@ -39,8 +39,10 @@ packages:
     proxy: npmjs
 
 # Loopback only — the nightly reaches this via http://localhost:4873.
-# Never bind a public interface (security-hardening: unauthenticated registry).
-listen: 0.0.0.0:4873
+# Bind 127.0.0.1 (NOT 0.0.0.0): the registry is unauthenticated, so it MUST NOT
+# be reachable on any external interface (security-hardening discipline: "assert
+# it never binds a public interface").
+listen: 127.0.0.1:4873
 
 # No auth: throwaway registry on a private CI runner, loopback-scoped.
 # htpasswd file lives in-memory; no token is ever provisioned.

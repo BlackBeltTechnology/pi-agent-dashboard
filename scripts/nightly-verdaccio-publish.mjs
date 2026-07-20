@@ -124,7 +124,9 @@ export function orderPublishSet(workspaces) {
 function main() {
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
   const registry = process.env.REGISTRY || "http://localhost:4873";
-  if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(registry)) {
+  // Anchor the loopback check so `http://localhost.evil.com` cannot slip
+  // through (host must be followed by an optional port then `/` or end).
+  if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(registry)) {
     throw new Error(
       `Refusing to publish: REGISTRY='${registry}' is not a loopback registry. ` +
         "The nightly MUST NOT reach public npm.",
@@ -172,10 +174,17 @@ function main() {
 
   // (e) publish every non-private workspace to the private registry.
   // npm refuses to publish without an auth token (ENEEDAUTH) even when the
-  // registry allows anonymous publish ($all in verdaccio config). Set a dummy
-  // per-registry token so the CLI proceeds; Verdaccio accepts it under $all.
+  // registry allows anonymous publish ($all in verdaccio config). Provide a
+  // dummy per-registry token via the environment (NOT `npm config set`, which
+  // would mutate the user's global ~/.npmrc) so it is scoped to these publish
+  // subprocesses only; Verdaccio accepts it under $all.
   const regHost = new URL(registry).host;
-  run("npm", ["config", "set", `//${regHost}/:_authToken`, "nightly-verdaccio"]);
+  const publishEnv = {
+    ...process.env,
+    [`npm_config_//${regHost}/:_authToken`]: "nightly-verdaccio",
+  };
+  const publish = (args) =>
+    execFileSync("npm", args, { cwd: repoRoot, stdio: "inherit", env: publishEnv });
 
   const order = orderPublishSet(discoverWorkspaces(repoRoot));
   console.log(`Publishing ${order.length} workspace(s) to ${registry}`);
@@ -185,7 +194,7 @@ function main() {
         ? ["publish", "--registry", registry, "--no-provenance"]
         : ["publish", "--workspace", name, "--registry", registry, "--no-provenance"];
     console.log(`::group::npm ${args.join(" ")}`);
-    run("npm", args);
+    publish(args);
     console.log("::endgroup::");
   }
   console.log(`✓ Published ${order.length} workspace(s) to ${registry}`);
