@@ -66,10 +66,13 @@ describe("viewerRegistry — preview/* delegation", () => {
     }
   });
 
-  it("pdf mounts a canvas viewer, NOT an <object> plugin", () => {
+  it("pdf mounts a canvas viewer, NOT an <object> plugin", async () => {
     const { container } = renderKind("pdf");
+    // PdfPreview is lazy here (Option B, change: fix-vite-build-warnings) — wait
+    // for the <Suspense> boundary to resolve past its "Loading PDF viewer…"
+    // fallback before asserting the canvas mounted.
+    await waitFor(() => expect(container.querySelector("canvas")).toBeTruthy());
     expect(container.querySelector("object")).toBeNull();
-    expect(container.querySelector("canvas")).toBeTruthy();
   });
 
   it("video mounts a <video controls>", () => {

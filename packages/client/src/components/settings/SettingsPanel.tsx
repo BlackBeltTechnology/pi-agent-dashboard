@@ -14,6 +14,7 @@ import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
+import { listKnownServers } from "../../lib/api/known-servers-api.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
 import { suggestTrustEntries } from "../../lib/gateway/gateway-config-ops.js";
@@ -1919,7 +1920,6 @@ function ServersTab() {
 
   const reload = useCallback(async () => {
     try {
-      const { listKnownServers } = await import("../../lib/api/known-servers-api.js");
       const data = await listKnownServers();
       setKnownServers(data);
     } catch { /* ignore */ }

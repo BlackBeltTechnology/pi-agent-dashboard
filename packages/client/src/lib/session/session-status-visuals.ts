@@ -115,7 +115,7 @@ export function deriveDotColorWithFlags(
  * the dotColor was actually the ended palette (`bg-[var(--bg-surface)]`).
  * If resuming / hasError / isRetrying overrode the dotColor (yellow / red /
  * amber), honor the override so the icon matches the dot. Also defends
- * against arbitrary `bg-[var(...)]` tokens by only replacing leading
+ * against arbitrary `bg-` var() color tokens by only replacing leading
  * `bg-<palette>` forms.
  */
 export function deriveIconStatusColor(
@@ -125,8 +125,8 @@ export function deriveIconStatusColor(
   if (status === "ended" && dotColor.startsWith("bg-[var(--bg-surface)]")) {
     return "text-[var(--text-muted)]";
   }
-  // Convert the LEADING `bg-` → `text-`, including arbitrary `bg-[var(...)]`
-  // tokens. Anchored to the start so a `bg-` substring inside a token name
+  // Convert the LEADING `bg-` → `text-`, including arbitrary `bg-` var()
+  // color tokens. Anchored to the start so a `bg-` substring inside a token name
   // (e.g. `--bg-surface`) is not rewritten. The ended muted case is handled by
   // the early return above.
   return dotColor.replace(/^bg-/, "text-");
