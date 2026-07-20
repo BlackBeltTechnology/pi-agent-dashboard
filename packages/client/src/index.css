@@ -36,6 +36,7 @@
   --bg-hover: rgba(255, 255, 255, 0.06);
   --bg-selected: #1e1e1e;
   --bg-code: #1a1a1a;          /* code blocks, tool output */
+  --bg-canvas: #141414;        /* PDF viewer gutter (pdf-preview-continuous-scroll) */
   --bg-overlay: rgba(0, 0, 0, 0.6);
   --table-stripe: rgba(255, 255, 255, 0.045); /* markdown table zebra overlay */
 
@@ -133,6 +134,7 @@
   --bg-hover: rgba(0, 0, 0, 0.04);
   --bg-selected: #e8e8e8;
   --bg-code: #f5f5f5;
+  --bg-canvas: #e9e9ec;        /* PDF viewer gutter (pdf-preview-continuous-scroll) */
   --bg-overlay: rgba(0, 0, 0, 0.3);
   --table-stripe: rgba(0, 0, 0, 0.035); /* markdown table zebra overlay */
 
@@ -784,3 +786,8 @@ mark.markdown-search-highlight-active {
   0%   { transform: translateX(-120%); }
   100% { transform: translateX(320%); }
 }
+
+/* ── PDF viewer gutter — theme the surrounding gutter of the pdfjs component
+   viewer while pages keep their authored (light) colour. Overrides pdf_viewer.css's
+   default light gutter. See change: pdf-preview-continuous-scroll. */
+.pdfViewerContainer { background: var(--bg-canvas); }

@@ -43,4 +43,21 @@ describe("EML deps stay out of the client main bundle", () => {
     expect(pdfChunks.length).toBeGreaterThan(0);
     expect(pdfChunks.map((f) => path.join(assetsDir, f))).not.toContain(entry);
   });
+
+  // The pdfjs component viewer's stylesheet (`pdf_viewer.css`) is imported from
+  // within the lazy PdfPreview, so its rules must ride the lazy chunk — NOT leak
+  // into the main CSS bundle. See change: pdf-preview-continuous-scroll (§5).
+  it("keeps pdf_viewer.css rules out of the main CSS bundle", () => {
+    if (!existsSync(assetsDir)) return;
+    const mainCss = readdirSync(assetsDir).filter(
+      (f) => /^index-.*\.css$/.test(f) && f.endsWith(".css"),
+    );
+    if (mainCss.length === 0) return; // no build output — CI builds first
+    for (const file of mainCss) {
+      const css = readFileSync(path.join(assetsDir, file), "utf8");
+      // Signature selectors from pdf_viewer.css.
+      expect(css).not.toContain(".textLayer");
+      expect(css).not.toMatch(/\.pdfViewer\b/);
+    }
+  });
 });

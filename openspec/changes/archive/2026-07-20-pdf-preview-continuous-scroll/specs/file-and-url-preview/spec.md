@@ -18,6 +18,8 @@ The `PdfPreview` component SHALL be imported via dynamic `import()` (`React.lazy
 - **THEN** the main CSS chunk (`assets/index-*.css`) does NOT contain the `pdf_viewer.css` viewer rules (e.g. the `.pdfViewer` / `.textLayer` selectors)
 - **AND** those rules appear only in a lazily-loaded asset
 
+## ADDED Requirements
+
 ### Requirement: PDF preview renders as a continuous-scroll viewer
 
 `PdfPreview` SHALL render the document via the pdfjs component viewer (`PDFViewer` from `pdfjs-dist/web/pdf_viewer.mjs`) in continuous-scroll mode: all pages stacked vertically in a single scroll container, with page rendering virtualized (only near-viewport pages painted). The component SHALL enable the text layer so text is selectable and in-document find works. It SHALL NOT render a Prev/Next paging toolbar; navigation is native scroll. The public component contract (`Props { target, srcUrl? }`) is unchanged, so `DocxPreview`, `PptxPreview`, and `EmlPreview` reuse it unmodified via `srcUrl`.
