@@ -110,12 +110,20 @@ Ordered, reversible phases (design.md §D6). Each phase ends green before the ne
       is pnpm-only and does NOTHING for a surviving `npm ci`. Dropping it early
       reds the `ci-checks` release gate. Sequence: §6.2 → then §8.3.
 
-## 9. Lockfile swap (point of no easy return — GATED on §5 AND X4/make)
+## 9. Lockfile swap (point of no easy return — GATED on §5 AND a green ci-electron run)
 
-- [ ] 9.1 **Gate:** do NOT proceed until `electron-forge make` (test-plan #X4) is
-      green, not just `package`. The DMG/deb/appimage layer + `github-release`'s
-      "update metadata present per installer" assertion depend on `make`; crossing
-      the irreversible swap with a broken installer pipeline is the failure mode.
+- [ ] 9.1 **Gate:** do NOT delete `package-lock.json` until a full `ci-electron.yml`
+      run of the swap branch is GREEN (test-plan #X4). Rationale: the release graph
+      is `publish → electron → github-release`; `publish` runs `npm publish
+      --provenance` (IRREVERSIBLE — unpublish blocked >72h) and the installer build
+      runs AFTER it. A swap that breaks the installer layer strands every release
+      (npm out, no installers, no GitHub Release) — and can't be caught by a real
+      release because publish already happened. `ci-electron.yml`/`ci-smoke.yml`
+      delegate to the SAME `_electron-build.yml` (6-tuple matrix, native runners)
+      with NO npm publish, so an on-demand green run proves the release path safely.
+      A local `electron-forge package` (spike-proven) is necessary-not-sufficient:
+      the release also runs `.deb` (forge make), DMG/AppImage/NSIS (electron-builder),
+      and the `latest*.yml` update-metadata that `github-release` hard-asserts.
 - [ ] 9.2 `git rm package-lock.json`; commit `pnpm-lock.yaml`.
 - [ ] 9.3 Ensure `bundle-server.mjs`'s internal `npm install` uses
       `--no-package-lock` so it does not write a stray `package-lock.json` into
@@ -160,7 +168,7 @@ Ordered, reversible phases (design.md §D6). Each phase ends green before the ne
 - [ ] X1 (test-plan #X1) L2 qa smoke — pnpm run build no crash. input: pnpm-workspace.yaml verifyDepsBeforeRun:false · trigger: pnpm -r build · observable: exit 0, no runDepsStatusCheck/execaCoreSync crash. Exemplar: `qa/tests/02-server-start.sh`.
 - [ ] X2 (test-plan #X2) ci — publish preserves OIDC. input: prerelease rc tag, no NPM_TOKEN · trigger: publish workflow (pnpm install → npm publish --provenance) · observable: OIDC exchange succeeds, provenance attestation present, exit 0. Exemplar: `publish-workflow-contract.test.ts` (workflow shape) + a prerelease dry-run.
 - [ ] X3 (test-plan #X3) L1 vitest — runtime-stays-npm guard. input: Column C files (server/src/pi/pi-core-updater.ts, pi/pi-core-checker.ts, lifecycle/recovery-server.ts, electron/src/lib/update-checker.ts) · trigger: guard greps package-manager token · observable: each invokes npm; FAILS if any rewritten to pnpm. Exemplar: `packages/shared/src/__tests__/no-bash-on-windows.test.ts` (source-grep contract).
-- [ ] X4 (test-plan #X4, GATES §9) electron — electron-forge make (installers). input: after pnpm rebuild macos-alias fs-xattr · trigger: electron-forge make · observable: DMG/deb/appimage emitted + github-release per-installer update-metadata assertion passes. Exemplar: `ci-electron.yml` + `packages/electron/scripts/test-deb-install.sh`. **§9 swap MUST NOT precede this.**
+- [ ] X4 (test-plan #X4, GATES §9) electron/ci — FULL installer matrix under pnpm via a real ci-electron.yml run. input: swap branch (pnpm config + `pnpm rebuild macos-alias fs-xattr`) · trigger: dispatch `ci-electron.yml` (→ `_electron-build.yml`, 6-tuple matrix, native runners, NO npm publish) · observable: every leg green — Linux .deb (forge make) + macOS DMG + Linux AppImage + Windows NSIS (electron-builder) all emitted, AND each `latest*.yml` update-metadata present so `github-release`'s per-installer assertion (publish.yml:545) would pass. Exemplar: `.github/workflows/ci-electron.yml` (delegates to `_electron-build.yml` = the release path). **§9 lockfile swap MUST NOT precede this going green** (publish is irreversible + runs before electron).
 - [ ] X5 (test-plan #X5) ci — cache flip, no missing-lockfile error. input: package-lock.json deleted, setup-node cache:pnpm + pnpm/action-setup · trigger: migrated workflow run · observable: no "could not find package-lock.json"; install succeeds. Exemplar: `no-bash-on-windows.test.ts` (workflow shape) + CI dry-run.
 - [ ] X6 (test-plan #X6) ci — deploy-site dual-install regression. input: deploy-site.yml post-migration · trigger: release:published · observable: site/ job runs npm ci vs site/package-lock.json (untouched), docs redeploys; root job pnpm. Exemplar: `publish-workflow-contract.test.ts` (assert site-job stays npm).
 - [ ] X7 (test-plan #X7) ci — #4828 optionaldeps. input: pnpm install on linux CI · trigger: build · observable: no "Cannot find module @rollup/rollup-linux-x64-gnu" / lightningcss; rm -f package-lock hack gone. Exemplar: `.github/workflows/ci.yml` (linux build job).

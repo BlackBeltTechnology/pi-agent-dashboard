@@ -68,20 +68,38 @@ the npm-path bundle must be re-verified after the change, not assumed unchanged.
 ## D5 — Native-maker builds need `pnpm rebuild`, not the allow-list
 
 `onlyBuiltDependencies` proved UNRELIABLE on pnpm 11.0.8 AND 11.15.1 (build
-scripts stay ignored). node-pty is unaffected (prebuilt). But `electron-forge
-make` (DMG/deb/appimage) needs `macos-alias` + `fs-xattr` compiled → run
-`pnpm rebuild macos-alias fs-xattr` explicitly in the electron build step.
-`electron-forge package` (the `.app`) needs no makers and is fully spike-proven;
-`make` is verified-pending.
+scripts stay ignored). node-pty is unaffected (prebuilt). But the INSTALLER layer
+needs `macos-alias` + `fs-xattr` compiled → run `pnpm rebuild macos-alias fs-xattr`
+explicitly in the electron build step.
+
+**The unverified surface is the whole installer matrix, not just `make`.** The
+spike only ran `electron-forge package` (the `.app`) on darwin. The RELEASE path
+(`_electron-build.yml`) is wider and all of it is pnpm-unverified: Linux `.deb`
+(`electron-forge make`, L384), macOS `.dmg` (`electron-forge package` +
+electron-builder, L355), Windows NSIS (`out/make/nsis`), Linux AppImage
+(electron-builder), and the `latest*.yml` update-metadata that `github-release`
+HARD-ASSERTS per platform (L545; a missing one bricks that platform's
+auto-update). Treat `package`-green as necessary-not-sufficient.
 
 ## D6 — Rollout order (reversible checkpoints)
 
 Config + phantom decls + cpSync filter first (local `pnpm install` +
-`electron-forge package` green), THEN CI, THEN Docker, THEN — **gated on
-`electron-forge make` (T5) being green, not just `package`** — delete
-`package-lock.json` + flip publish. Each phase independently revertible until the
-lockfile swap; the swap is the point of no easy return, so it MUST NOT precede a
-proven installer build. `pnpm` pinned via `packageManager` field + `corepack`.
+`electron-forge package` green), THEN CI, THEN Docker, THEN — **gated on a green
+`ci-electron.yml` run of the swap branch** — delete `package-lock.json` + flip
+publish.
+
+**Why the gate is a full `ci-electron.yml` run, not a local `make`:** the release
+graph is `… → publish → electron → github-release` (`publish.yml` L410/L438;
+pinned by `publish-workflow-contract.test.ts`). `publish` runs `npm publish
+--provenance` (IRREVERSIBLE — npm unpublish blocked >72h) and the electron
+installer build runs AFTER it, in the same run. So a swap that breaks the
+installer layer strands every release: npm packages out, no installers, no
+GitHub Release. The swap can therefore NOT be validated by a real release (that
+would already have published). `ci-electron.yml`/`ci-smoke.yml` delegate to the
+SAME `_electron-build.yml` (full 6-tuple matrix, native runners) with no npm
+publish — so a green on-demand run on the swap branch proves the release path
+BEFORE the irreversible swap merges. Each earlier phase is git-revertible; the
+swap is the point of no easy return. `pnpm` pinned via `packageManager` + `corepack`.
 
 Coverage note (doubt-review): the npm→pnpm surface is wider than the four skills
 first listed — it also includes the `release-cut` skill (primary release trigger),
