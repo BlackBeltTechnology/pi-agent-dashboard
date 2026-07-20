@@ -5,9 +5,9 @@ Ordered, reversible phases (design.md §D6). Each phase ends green before the ne
 
 ## 1. Preflight + guardrails
 
-- [ ] 1.1 Pin the toolchain: add `"packageManager": "pnpm@11.15.1"` to root
+- [x] 1.1 Pin the toolchain: add `"packageManager": "pnpm@11.15.1"` to root
       `package.json`; document `corepack enable` as the dev prereq (README).
-- [ ] 1.2 Inventory the npm-survivor call sites that MUST stay npm and add a guard
+- [x] 1.2 Inventory the npm-survivor call sites that MUST stay npm and add a guard
       test/comment so the migration can't rewrite them (EXACT paths — verified):
       `packages/server/src/pi/pi-core-updater.ts`,
       `packages/server/src/pi/pi-core-checker.ts`,
@@ -18,25 +18,25 @@ Ordered, reversible phases (design.md §D6). Each phase ends green before the ne
 
 ## 2. pnpm-workspace.yaml config (design.md §D2)
 
-- [ ] 2.1 Write `pnpm-workspace.yaml`: `packages:['packages/*']`, `nodeLinker: hoisted`,
+- [x] 2.1 Write `pnpm-workspace.yaml`: `packages:['packages/*']`, `nodeLinker: hoisted`,
       `verifyDepsBeforeRun: false`, `blockExoticSubdeps: false`,
       `linkWorkspacePackages: true`, `preferWorkspacePackages: true`,
       `confirmModulesPurge: false`,
       `onlyBuiltDependencies:[node-pty,esbuild,sharp,electron]`.
-- [ ] 2.2 Keep root `.npmrc` `engine-strict=true`; confirm pnpm honors `engines.node`.
+- [x] 2.2 Keep root `.npmrc` `engine-strict=true`; confirm pnpm honors `engines.node`.
 
 ## 3. Workspace phantom-dep declarations (design.md §D3) — all `^0.6.0`
 
-- [ ] 3.1 `packages/client-utils/package.json` `dependencies` += `@blackbelt-technology/dashboard-plugin-runtime`
-- [ ] 3.2 `packages/demo-plugin/package.json` `dependencies` += `@blackbelt-technology/dashboard-plugin-runtime`
-- [ ] 3.3 `packages/flows-anthropic-bridge-plugin/package.json` `dependencies` += `@blackbelt-technology/dashboard-plugin-runtime`
-- [ ] 3.4 `packages/dashboard-plugin-skill/package.json` `devDependencies` += `@blackbelt-technology/dashboard-plugin-runtime` (type-only import)
-- [ ] 3.5 `packages/client/package.json` `dependencies` += `pi-dashboard-automation-plugin`, `pi-dashboard-flows-anthropic-bridge-plugin`, `pi-dashboard-kb-plugin`, `pi-dashboard-roles-plugin`
-- [ ] 3.6 `packages/client/package.json` `devDependencies` += `@blackbelt-technology/demo-plugin` (test-only import)
+- [x] 3.1 `packages/client-utils/package.json` `dependencies` += `@blackbelt-technology/dashboard-plugin-runtime`
+- [x] 3.2 `packages/demo-plugin/package.json` `dependencies` += `@blackbelt-technology/dashboard-plugin-runtime`
+- [x] 3.3 `packages/flows-anthropic-bridge-plugin/package.json` `dependencies` += `@blackbelt-technology/dashboard-plugin-runtime`
+- [x] 3.4 `packages/dashboard-plugin-skill/package.json` `devDependencies` += `@blackbelt-technology/dashboard-plugin-runtime` (type-only import)
+- [x] 3.5 `packages/client/package.json` `dependencies` += `pi-dashboard-automation-plugin`, `pi-dashboard-flows-anthropic-bridge-plugin`, `pi-dashboard-kb-plugin`, `pi-dashboard-roles-plugin`
+- [x] 3.6 `packages/client/package.json` `devDependencies` += `@blackbelt-technology/demo-plugin` (test-only import)
 
 ## 4. bundle-server.mjs fix (design.md §D4)
 
-- [ ] 4.1 Add a `node_modules`-excluding filter to EVERY `cpSync` that copies a
+- [x] 4.1 Add a `node_modules`-excluding filter to EVERY `cpSync` that copies a
       workspace/plugin package tree in `packages/electron/scripts/bundle-server.mjs`
       — verified: the workspace loop (~L89), the first-party plugin loop (~L134),
       the web-pkg materialization (~L515), AND the symlink-materialization copy
@@ -47,18 +47,21 @@ Ordered, reversible phases (design.md §D6). Each phase ends green before the ne
       a no-op under npm (`packages/server/node_modules`≈288K,
       `packages/extension/node_modules`≈808K) — it forces a clean re-resolve
       (intended); re-verify the npm-path bundle still builds.
-- [ ] 4.2 Add the native-maker rebuild to the electron build path:
-      `pnpm rebuild macos-alias fs-xattr` before `electron-forge make` (design.md §D5).
+- [x] 4.2 OBSOLETE (skipped): `pnpm rebuild macos-alias fs-xattr` no longer applies.
+      The DMG is now built by electron-builder (`electron-builder.yml` `target: dmg`
+      → hdiutil), not appdmg; forge keeps only `@electron-forge/maker-deb`
+      (`forge.config.ts`); `doctor-core.ts:570` records the macos-alias removal.
+      macos-alias/fs-xattr are dead deps — no rebuild step added. (design.md §D5 stale.)
 
 ## 5. Local verification (must be green before CI)
 
-- [ ] 5.1 `corepack enable && pnpm install` completes; root `node_modules` flat.
-- [ ] 5.2 `pnpm -r --filter '!@blackbelt-technology/pi-dashboard-web' run build` exit 0.
-- [ ] 5.3 `pnpm --filter @blackbelt-technology/pi-dashboard-web run build` → 5264+
+- [x] 5.1 `corepack enable && pnpm install` completes; root `node_modules` flat.
+- [x] 5.2 `pnpm -r --filter '!@blackbelt-technology/pi-dashboard-web' run build` exit 0.
+- [x] 5.3 `pnpm --filter @blackbelt-technology/pi-dashboard-web run build` → 5264+
       modules, fresh `packages/client/dist/index.html`, no `Rollup failed to resolve`.
-- [ ] 5.4 `node packages/electron/scripts/bundle-server.mjs` exit 0 with all 6
+- [x] 5.4 `node packages/electron/scripts/bundle-server.mjs` exit 0 with all 6
       node-pty prebuild triples present.
-- [ ] 5.5 `pnpm --filter @blackbelt-technology/pi-dashboard-electron exec electron-forge package`
+- [x] 5.5 `pnpm --filter @blackbelt-technology/pi-dashboard-electron exec electron-forge package`
       → `out/**/PI-Dashboard.app` containing `Contents/Resources/server` + node-pty prebuilds.
 
 ## 6. CI migration (`.github/workflows/`) — ALL 6 workflows

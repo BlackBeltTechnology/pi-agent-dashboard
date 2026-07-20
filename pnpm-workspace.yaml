@@ -1,0 +1,47 @@
+# pnpm workspace configuration (change: adopt-pnpm-for-dev-ci).
+# nodeLinker:hoisted is MANDATORY — electron-forge hard-fails otherwise
+# ("When using pnpm, node-linker must be set to 'hoisted'"). Hoisted also
+# flattens node_modules so third-party phantom deps resolve npm-like; the
+# 8 workspace phantom-dep edges are still declared explicitly in package.json.
+packages:
+  - 'packages/*'
+
+# Flat node_modules (npm-like). Required by electron-forge preflight.
+nodeLinker: hoisted
+
+# Do not gate `pnpm run` on a deps-status check — avoids the
+# runDepsStatusCheck/execaCoreSync crash under this monorepo layout.
+verifyDepsBeforeRun: false
+
+# Allow transitive git/exotic subdeps (e.g. @electron/node-gyp via HTTPS
+# codeload). Replaces the fragile npm@11.12.1 EALLOWGIT pin. Active key —
+# removing it makes `pnpm install` fail with ERR_PNPM_EXOTIC_SUBDEP.
+blockExoticSubdeps: false
+
+# Prefer/link local workspace packages over the registry even when the
+# local version is ahead of the published one.
+linkWorkspacePackages: true
+preferWorkspacePackages: true
+
+# Non-interactive: never prompt to purge node_modules on linker change.
+confirmModulesPurge: false
+
+# Explicit build allow-list (node-pty is prebuilt; the others may compile).
+onlyBuiltDependencies:
+  - node-pty
+  - esbuild
+  - sharp
+  - electron
+
+allowBuilds:
+  '@fission-ai/openspec': set this to true or false
+  '@google/genai': set this to true or false
+  electron: set this to true or false
+  esbuild: set this to true or false
+  fs-xattr: set this to true or false
+  koffi: set this to true or false
+  macos-alias: set this to true or false
+  node-pty: set this to true or false
+  phantomjs-prebuilt: set this to true or false
+  protobufjs: set this to true or false
+  sharp: set this to true or false

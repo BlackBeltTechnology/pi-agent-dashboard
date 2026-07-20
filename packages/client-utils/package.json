@@ -118,6 +118,7 @@
     "react-dom": ">=18.0.0"
   },
   "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.6.1",
     "@blackbelt-technology/pi-dashboard-shared": "^0.6.1",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1"
