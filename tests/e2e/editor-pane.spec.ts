@@ -57,10 +57,15 @@ test.describe("internal Monaco editor pane", () => {
     const img = page.locator('img[src*="/api/file/raw"][src*="logo.png"]');
     await expect(img).toBeVisible({ timeout: 20_000 });
 
-    // Open doc.pdf from the tree → PdfViewer mounts an <object> over /api/file/raw.
+    // Open doc.pdf from the tree → the now-lazy PdfPreview (Option B, change:
+    // fix-vite-build-warnings) resolves past its "Loading PDF viewer…"
+    // <Suspense> fallback and renders the pdfjs canvas (test-plan #S6).
     await page.getByText("doc.pdf", { exact: true }).first().click();
-    const pdf = page.locator('object[type="application/pdf"][data*="doc.pdf"]');
-    await expect(pdf).toBeAttached({ timeout: 20_000 });
+    const pdfCanvas = page.locator("canvas.max-w-full");
+    await expect(pdfCanvas).toBeAttached({ timeout: 20_000 });
+    // The Suspense fallback resolved (not a perpetual loader) and no error boundary surfaced.
+    await expect(page.getByText("Loading PDF viewer…")).toHaveCount(0);
+    await expect(page.getByText("failed to load PDF")).toHaveCount(0);
 
     // Four tabs open (README.md, hello.txt, logo.png, doc.pdf).
     await expect(page.getByRole("tab")).toHaveCount(4);
