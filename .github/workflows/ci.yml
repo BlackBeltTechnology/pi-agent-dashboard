@@ -34,4 +34,22 @@ jobs:
       - name: Biome static analysis (Tier A gate, warn-tier annotate)
         run: npx biome lint . --reporter=github
       - run: npm test
-      - run: npm run build
+      # Build and fail on the mechanical warnings removed by
+      # `fix-vite-build-warnings`. The @mdi/js dynamic-import warning and the
+      # oversized-chunk (>700 kB) warning are intentionally OUT of scope here
+      # (owned by `shrink-client-index-chunk`) and must NOT fail this gate.
+      - name: Build (fail on regressed warnings)
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee /tmp/build.log
+          fail=0
+          if grep -q "Unexpected token" /tmp/build.log; then
+            echo "::error::CSS parse error (Unexpected token) re-appeared in the build log"; fail=1
+          fi
+          if grep -q "Circular chunk" /tmp/build.log; then
+            echo "::error::Circular chunk warning re-appeared in the build log"; fail=1
+          fi
+          if grep -qE "(PdfPreview\.tsx|known-servers-api\.ts) is dynamically imported" /tmp/build.log; then
+            echo "::error::PdfPreview / known-servers-api dynamic-import warning re-appeared"; fail=1
+          fi
+          exit $fail
