@@ -1,6 +1,6 @@
 import React from "react";
 import type { InteractiveRendererProps } from "./types.js";
-import { MarkdownContent } from "../MarkdownContent.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 
 const levelColors: Record<string, string> = {
   info: "text-blue-400",

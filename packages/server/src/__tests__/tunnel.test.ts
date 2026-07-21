@@ -52,7 +52,7 @@ import {
   removeZrokPid,
   scavengeOrphanZrokProcesses,
   writeZrokPid,
-} from "../tunnel.js";
+} from "../tunnel/tunnel.js";
 
 beforeEach(() => {
   vi.mocked(os.homedir).mockReturnValue("/home/testuser");
@@ -205,7 +205,7 @@ describe("createTunnel mutex", () => {
   it("should return the same promise when called concurrently", async () => {
     // Binary unavailable → both calls resolve null fast, same promise instance.
     _setBinaryAvailable(false);
-    const { createTunnel } = await import("../tunnel.js");
+    const { createTunnel } = await import("../tunnel/tunnel.js");
     const p1 = createTunnel(8000);
     const p2 = createTunnel(8000);
     // With binary unavailable the inner resolves synchronously-ish with null.
@@ -216,7 +216,7 @@ describe("createTunnel mutex", () => {
 });
 
 describe("releaseShare", () => {
-  it("should call `zrok release <token>` and return true on success", () => {
+  it("should call `zrok delete name <name>` and return true on success", () => {
     // Short-circuit detection so `getZrokBinary()` returns the bare-name
     // fallback ("zrok") instead of probing the host's PATH. Without this
     // the test is environment-dependent: on a dev box with zrok installed
@@ -230,11 +230,11 @@ describe("releaseShare", () => {
     const ok = releaseShare("abc123");
     expect(ok).toBe(true);
     expect(childProcess.execFileSync).toHaveBeenCalledTimes(1);
-    // argv form (D3): binary + ["release", token] as an array, never a shell
-    // string. The token sits in its own argv slot, so no interpolation.
+    // v2 (support-zrok-v2): release a reserved NAME via `delete name <name>`.
+    // argv form (D3): the name sits in its own argv slot, never interpolated.
     const [bin, args] = vi.mocked(childProcess.execFileSync).mock.calls[0];
     expect(bin).toMatch(/zrok/);
-    expect(args).toEqual(["release", "abc123"]);
+    expect(args).toEqual(["delete", "name", "abc123"]);
   });
 
   it("should return false when zrok release fails (best-effort, non-throwing)", () => {

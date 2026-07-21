@@ -11,8 +11,9 @@ import path from "node:path";
 import { promisify } from "node:util";
 import Fastify, { type FastifyInstance } from "fastify";
 import iconv from "iconv-lite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
+import { clearEmlCache } from "../lib/eml.js";
 import { extToContentType } from "../lib/mime-types.js";
 import type { DocxPdfEngine, OfficeCaps } from "../lib/office-preview.js";
 import { OFFICE_CAPS } from "../lib/office-preview.js";
@@ -351,6 +352,262 @@ describe("GET /api/file/render (AsciiDoc)", () => {
   });
 });
 
+// ── EML preview endpoints (change: add-eml-preview) ────────────────────────
+
+/** Build a raw multipart/mixed .eml with an HTML body + optional attachments. */
+function buildEml(opts: {
+  subject?: string;
+  html?: string;
+  attachments?: { mime: string; filename: string; bytes: Buffer; inline?: boolean; cid?: string }[];
+}): string {
+  const boundary = "BOUND42";
+  const parts: string[] = [];
+  parts.push(`Content-Type: text/html; charset=utf-8\r\n\r\n${opts.html ?? "<p>hi</p>"}`);
+  for (const a of opts.attachments ?? []) {
+    const disp = a.inline ? "inline" : "attachment";
+    const cidHeader = a.cid ? `Content-ID: <${a.cid}>\r\n` : "";
+    parts.push(
+      `Content-Type: ${a.mime}; name="${a.filename}"\r\n` +
+        `Content-Disposition: ${disp}; filename="${a.filename}"\r\n` +
+        cidHeader +
+        `Content-Transfer-Encoding: base64\r\n\r\n${a.bytes.toString("base64")}`,
+    );
+  }
+  const body = `${parts.map((p) => `--${boundary}\r\n${p}`).join("\r\n")}\r\n--${boundary}--\r\n`;
+  return (
+    `From: Alice <alice@example.com>\r\n` +
+    `To: Bob <bob@example.com>\r\n` +
+    `Subject: ${opts.subject ?? "Hello"}\r\n` +
+    `Date: Wed, 01 Jan 2025 00:00:00 +0000\r\n` +
+    `MIME-Version: 1.0\r\n` +
+    `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n` +
+    body
+  );
+}
+
+const PDF_BYTES = Buffer.from("%PDF-1.4\nfake pdf\n", "utf8");
+
+describe("GET /api/file/eml", () => {
+  let app: FastifyInstance;
+  let tmp: string;
+
+  beforeEach(async () => {
+    clearEmlCache();
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "eml-"));
+    app = makeApp([tmp]);
+    await app.ready();
+  });
+  afterEach(async () => {
+    await app.close();
+    await fsp.rm(tmp, { recursive: true, force: true });
+  });
+
+  async function writeEml(name: string, raw: string): Promise<void> {
+    await fsp.writeFile(path.join(tmp, name), raw);
+  }
+  const get = (qs: string) => app.inject({ method: "GET", url: `/api/file/eml?${qs}` });
+  const cwd = () => encodeURIComponent(tmp);
+
+  it("parses headers, sanitized body, attachment metadata (test-plan #5)", async () => {
+    await writeEml(
+      "mail.eml",
+      buildEml({ html: "<p>Hello</p>", attachments: [{ mime: "application/pdf", filename: "doc.pdf", bytes: PDF_BYTES }] }),
+    );
+    const res = await get(`cwd=${cwd()}&path=mail.eml`);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body.data.headers.subject).toBe("Hello");
+    expect(body.data.attachments).toHaveLength(1);
+    expect(body.data.attachments[0].mimeType).toBe("application/pdf");
+    expect(body.data.attachments[0].filename).toBe("doc.pdf");
+    // No base64 bytes leaked into the payload.
+    expect(JSON.stringify(body.data)).not.toContain(PDF_BYTES.toString("base64"));
+  });
+
+  it("sanitizes <script> + onclick out of the body (test-plan #6)", async () => {
+    await writeEml(
+      "x.eml",
+      buildEml({ html: `<p onclick="steal()">hi</p><script>alert(1)</script>` }),
+    );
+    const res = await get(`cwd=${cwd()}&path=x.eml`);
+    expect(res.statusCode).toBe(200);
+    const html = (res.json() as any).data.html as string;
+    expect(html).not.toContain("<script");
+    expect(html.toLowerCase()).not.toContain("onclick");
+  });
+
+  it("400s a non-.eml extension (test-plan #7)", async () => {
+    await fsp.writeFile(path.join(tmp, "doc.pdf"), PDF_BYTES);
+    const res = await get(`cwd=${cwd()}&path=doc.pdf`);
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as any).error).toBe("renderer not supported for extension");
+  });
+
+  it("matches .EML case-insensitively (test-plan #2 server)", async () => {
+    await writeEml("Mail.EML", buildEml({ subject: "Upper" }));
+    const res = await get(`cwd=${cwd()}&path=Mail.EML`);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as any).data.headers.subject).toBe("Upper");
+  });
+
+  it("parses just under the size cap (test-plan #8)", async () => {
+    // A small valid eml is well under the 25 MB cap → 200.
+    await writeEml("small.eml", buildEml({ subject: "under" }));
+    const res = await get(`cwd=${cwd()}&path=small.eml`);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("413s an oversized file before reading it (test-plan #9)", async () => {
+    // Sparse 26 MB file — never read into memory because stat.size > cap.
+    const fh = await fsp.open(path.join(tmp, "big.eml"), "w");
+    await fh.truncate(26 * 1024 * 1024);
+    await fh.close();
+    const res = await get(`cwd=${cwd()}&path=big.eml`);
+    expect(res.statusCode).toBe(413);
+  });
+
+  it("403s an unknown cwd (test-plan #10)", async () => {
+    const res = await get(`cwd=${encodeURIComponent("/nope")}&path=mail.eml`);
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("403s path traversal via the shared gate (test-plan #11)", async () => {
+    const res = await get(`cwd=${cwd()}&path=${encodeURIComponent("../../../etc/passwd")}`);
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("400s corrupt/truncated MIME without crashing (test-plan #12)", async () => {
+    // Truncated multipart: declares a boundary that never closes + no body.
+    await writeEml("bad.eml", "Content-Type: multipart/mixed; boundary=X\r\n\r\n--X\r\nContent-Type: text/html");
+    const res = await get(`cwd=${cwd()}&path=bad.eml`);
+    // mailparser is lenient; either it parses (200) or fails (400) — never 500/crash.
+    expect([200, 400]).toContain(res.statusCode);
+  });
+
+  it("blocks remote refs by default; server makes no outbound request (test-plan #17)", async () => {
+    // `fetch` is the only outbound surface reachable from parse/sanitize; spy on
+    // it to prove no SSRF (node:http/https are non-configurable under ESM).
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await writeEml(
+      "remote.eml",
+      buildEml({ html: `<img src="http://localhost:8000/api/file/raw?x=1">` }),
+    );
+    const allow = await get(`cwd=${cwd()}&path=remote.eml&allowRemote=1`);
+    expect(allow.statusCode).toBe(200);
+    // Even with allowRemote=1 the SERVER never fetches the URL.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // Default (no allowRemote): the remote src is neutralized.
+    const blocked = await get(`cwd=${cwd()}&path=remote.eml`);
+    const html = (blocked.json() as any).data.html as string;
+    expect(html).not.toMatch(/<img[^>]*\ssrc="http/);
+    expect(html).toContain("data-blocked-src");
+    fetchSpy.mockRestore();
+  });
+
+  it("neutralizes remote refs in srcset + CSS @import (hardening)", async () => {
+    await writeEml(
+      "multi.eml",
+      buildEml({
+        html:
+          `<img srcset="cid:logo@x 1x, https://tracker.example/pixel.gif 2x">` +
+          `<style>@import "https://tracker.example/track.css"; .a{background:url(https://tracker.example/bg.png)}</style>`,
+      }),
+    );
+    const html = ((await get(`cwd=${cwd()}&path=multi.eml`)).json() as any).data.html as string;
+    // Comma-separated srcset with a trailing remote URL is blocked (moved to data-blocked-srcset).
+    expect(html).not.toMatch(/<img[^>]*\ssrcset="[^"]*https:/);
+    // @import (no url() wrapper) and url() remote both neutralized to about:blank.
+    expect(html).not.toContain("tracker.example/track.css");
+    expect(html).not.toContain("tracker.example/bg.png");
+    // allowRemote=1 preserves them for the browser to fetch.
+    const allowed = ((await get(`cwd=${cwd()}&path=multi.eml&allowRemote=1`)).json() as any).data
+      .html as string;
+    expect(allowed).toContain("tracker.example/track.css");
+  });
+
+  it("parses a 15 MB .eml within the p95 budget (test-plan #18)", async () => {
+    const big = Buffer.alloc(15 * 1024 * 1024, 0x41);
+    await writeEml(
+      "large.eml",
+      buildEml({ attachments: [{ mime: "application/pdf", filename: "big.pdf", bytes: big }] }),
+    );
+    const times: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      clearEmlCache();
+      const t0 = performance.now();
+      const res = await get(`cwd=${cwd()}&path=large.eml`);
+      times.push(performance.now() - t0);
+      expect(res.statusCode).toBe(200);
+    }
+    const p95 = times.sort((a, b) => a - b)[times.length - 1];
+    expect(p95).toBeLessThan(2000);
+  });
+});
+
+describe("GET /api/file/eml-attachment", () => {
+  let app: FastifyInstance;
+  let tmp: string;
+
+  beforeEach(async () => {
+    clearEmlCache();
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "eml-att-"));
+    app = makeApp([tmp]);
+    await app.ready();
+  });
+  afterEach(async () => {
+    await app.close();
+    await fsp.rm(tmp, { recursive: true, force: true });
+  });
+  const cwd = () => encodeURIComponent(tmp);
+  const get = (qs: string) => app.inject({ method: "GET", url: `/api/file/eml-attachment?${qs}` });
+
+  it("streams a PDF part with safe headers (test-plan #13)", async () => {
+    await fsp.writeFile(
+      path.join(tmp, "mail.eml"),
+      buildEml({ attachments: [{ mime: "application/pdf", filename: "doc.pdf", bytes: PDF_BYTES }] }),
+    );
+    const res = await get(`cwd=${cwd()}&path=mail.eml&index=0`);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/pdf");
+    expect(res.headers["content-disposition"]).toContain("attachment");
+    expect(res.headers["content-disposition"]).toContain("doc.pdf");
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.rawPayload.equals(PDF_BYTES)).toBe(true);
+  });
+
+  it("serves an HTML-typed part as attachment+nosniff (test-plan #14)", async () => {
+    await fsp.writeFile(
+      path.join(tmp, "h.eml"),
+      buildEml({ attachments: [{ mime: "text/html", filename: "evil.html", bytes: Buffer.from("<script>1</script>") }] }),
+    );
+    const res = await get(`cwd=${cwd()}&path=h.eml&index=0`);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-disposition"]).toContain("attachment");
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("400s a non-integer/negative index (test-plan #15)", async () => {
+    await fsp.writeFile(path.join(tmp, "m.eml"), buildEml({ attachments: [{ mime: "application/pdf", filename: "d.pdf", bytes: PDF_BYTES }] }));
+    expect((await get(`cwd=${cwd()}&path=m.eml&index=abc`)).statusCode).toBe(400);
+    expect((await get(`cwd=${cwd()}&path=m.eml&index=-1`)).statusCode).toBe(400);
+  });
+
+  it("404s an out-of-range index (test-plan #16)", async () => {
+    await fsp.writeFile(
+      path.join(tmp, "two.eml"),
+      buildEml({
+        attachments: [
+          { mime: "application/pdf", filename: "a.pdf", bytes: PDF_BYTES },
+          { mime: "application/pdf", filename: "b.pdf", bytes: PDF_BYTES },
+        ],
+      }),
+    );
+    const res = await get(`cwd=${cwd()}&path=two.eml&index=5`);
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 describe("GET /api/file/render (docx, two-tier — design D8)", () => {
   let app: FastifyInstance;
   let tmp: string;
@@ -478,6 +735,101 @@ describe("GET /api/file/render (docx, two-tier — design D8)", () => {
   it("traversal → 403 on render AND rendered-pdf (test-plan #15)", async () => {
     await setup({ docxPdfEngine: stubEngine(true) });
     const trav = encodeURIComponent("../../../etc/passwd.docx");
+    const r1 = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=${trav}`,
+    });
+    expect(r1.statusCode).toBe(403);
+    const r2 = await app.inject({
+      method: "GET",
+      url: `/api/file/rendered-pdf?cwd=${encodeURIComponent(tmp)}&path=${trav}`,
+    });
+    expect(r2.statusCode).toBe(403);
+  });
+});
+
+describe("GET /api/file/render (pptx, engine-only PDF — design P1/P4)", () => {
+  let app: FastifyInstance;
+  let tmp: string;
+
+  afterEach(async () => {
+    if (app) await app.close();
+    if (tmp) await fsp.rm(tmp, { recursive: true, force: true });
+  });
+
+  async function setup(office?: Parameters<typeof makeApp>[1]) {
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "pptx-render-"));
+    app = makeApp([tmp], office);
+    await app.ready();
+  }
+
+  // The engine is stubbed, so any bytes named `.pptx` suffice (LibreOffice
+  // never runs in the unit suite).
+  const PPTX_BYTES = Buffer.from("PK\x03\x04 fake pptx zip");
+
+  it("engine available → mode:'pdf'; /api/file/rendered-pdf streams application/pdf (test-plan #6.5)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true) });
+    await fsp.writeFile(path.join(tmp, "deck.pptx"), PPTX_BYTES);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=deck.pptx`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ success: true, data: { mode: "pdf" } });
+    const pdf = await app.inject({
+      method: "GET",
+      url: `/api/file/rendered-pdf?cwd=${encodeURIComponent(tmp)}&path=deck.pptx`,
+    });
+    expect(pdf.statusCode).toBe(200);
+    expect(pdf.headers["content-type"]).toBe("application/pdf");
+    expect(pdf.rawPayload.subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("engine unavailable → {success:false}, no in-process render, no crash (test-plan #6.6)", async () => {
+    await setup({ docxPdfEngine: stubEngine(false) });
+    await fsp.writeFile(path.join(tmp, "deck.pptx"), PPTX_BYTES);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=deck.pptx`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().success).toBe(false);
+  });
+
+  it("engine throws DOCKER_UNAVAILABLE → {success:false}, no crash (test-plan #6.6)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true, { throwOnAvailable: true }) });
+    await fsp.writeFile(path.join(tmp, "deck.pptx"), PPTX_BYTES);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=deck.pptx`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().success).toBe(false);
+  });
+
+  it("ext .key → HTTP 400 (test-plan #6.7)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true) });
+    await fsp.writeFile(path.join(tmp, "deck.key"), PPTX_BYTES);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=deck.key`,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("size > cap → HTTP 413 before convert (BVA, test-plan #6.8)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true), officeCaps: { pptxSizeCap: 100_000 } });
+    await fsp.writeFile(path.join(tmp, "big.pptx"), Buffer.alloc(200_000, 1));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=big.pptx`,
+    });
+    expect(res.statusCode).toBe(413);
+  });
+
+  it("traversal → 403 on render AND rendered-pdf (test-plan #6.9)", async () => {
+    await setup({ docxPdfEngine: stubEngine(true) });
+    const trav = encodeURIComponent("../../../etc/passwd.pptx");
     const r1 = await app.inject({
       method: "GET",
       url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=${trav}`,

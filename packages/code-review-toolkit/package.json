@@ -1,0 +1,33 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-code-review-toolkit",
+  "version": "0.6.1",
+  "description": "Code-review workflow skills for pi sessions — code-review (AI-powered review with severity labels via the CodeRabbit CLI) and autofix (safely review and apply CodeRabbit PR review-thread feedback with per-change approval). Pure-skill package, no extension.ts. Works in any git + CodeRabbit project.",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/code-review-toolkit"
+  },
+  "pi": {
+    "skills": [
+      ".pi/skills/code-review",
+      ".pi/skills/autofix"
+    ]
+  },
+  "files": [
+    ".pi/skills/",
+    "README.md"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "code-review",
+    "coderabbit",
+    "pull-request",
+    "review"
+  ]
+}

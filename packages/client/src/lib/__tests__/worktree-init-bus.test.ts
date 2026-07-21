@@ -14,7 +14,7 @@ import {
   setInitSender,
   subscribeInitByCwd,
   __resetInitBusForTests,
-} from "../worktree-init-bus.js";
+} from "../git/worktree-init-bus.js";
 
 afterEach(() => { __resetInitBusForTests(); });
 

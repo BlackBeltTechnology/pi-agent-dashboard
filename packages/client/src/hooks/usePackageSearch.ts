@@ -1,7 +1,7 @@
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { t } from "../lib/i18n";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 const DEBOUNCE_MS = 400;
 

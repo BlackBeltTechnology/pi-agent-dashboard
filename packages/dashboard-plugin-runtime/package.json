@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/dashboard-plugin-runtime",
-  "version": "0.5.4",
+  "version": "0.6.1",
   "description": "Plugin loader, slot registry, slot consumers, and context API for pi-dashboard",
   "type": "module",
   "repository": {
@@ -45,7 +45,7 @@
     "wouter": "^3.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.6.1"
   },
   "devDependencies": {
     "react": "^19.0.0",

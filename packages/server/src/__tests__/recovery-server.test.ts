@@ -7,7 +7,7 @@ import {
   suggestedReinstallCommand,
   buildRecoveryHtml,
   startRecoveryServer,
-} from "../recovery-server.js";
+} from "../lifecycle/recovery-server.js";
 
 describe("parseModuleNotFoundError", () => {
   it("extracts a bare-module name from ERR_MODULE_NOT_FOUND", () => {

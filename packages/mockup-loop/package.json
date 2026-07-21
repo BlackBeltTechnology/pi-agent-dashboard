@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/frontend-mockup-loop",
-  "version": "0.5.4",
+  "version": "0.6.1",
   "description": "Pi extension + skill for a ground→contract→mockup→test→fix→learn frontend design loop. Ships a live mockup server tool, a Playwright breakpoint-screenshot tool, and a design-contract scaffolder. Works in any React/Tailwind/shadcn project.",
   "type": "module",
   "repository": {

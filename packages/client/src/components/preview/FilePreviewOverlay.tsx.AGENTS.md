@@ -1,0 +1,3 @@
+# FilePreviewOverlay.tsx — index
+
+Modal overlay. Reads file via `/api/file?cwd&path`. Routes by ext: `.md`/`.mdx` → `MarkdownContent`; image → `<img src=/api/file/raw>`; else code branch syntax-highlighted via `react-syntax-highlighter` + `detectLanguage` + `getSyntaxTheme`; line-number gutter + scroll-to-`line` preserved; undetected language falls back to flat `<pre>`. Escape via shared escape-stack (`useEscapeDismiss` — peels only this overlay when stacked); backdrop click dismiss via document listener. Outer wrapper `z-[70]` (above `Dialog` `z-[60]`) so a dialog-launched preview renders in front. Read-only. See change: linkify-tool-output, unify-file-link-openability, fix-stacked-escape-closes-layers.

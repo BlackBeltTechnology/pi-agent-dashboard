@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getSyntaxTheme } from "../syntax-theme.js";
+import { getSyntaxTheme } from "../theme/syntax-theme.js";
 
 const DARK_THEMES = ["base", "dracula", "nord", "github", "catppuccin", "tokyo-night", "rose-pine", "solarized", "gruvbox"] as const;
 const LIGHT_THEMES = ["base", "dracula", "nord", "github", "catppuccin", "tokyo-night", "rose-pine", "solarized", "gruvbox"] as const;

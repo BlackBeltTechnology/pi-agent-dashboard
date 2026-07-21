@@ -6,13 +6,13 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 
-vi.mock("../../lib/openspec-tasks-api.js", () => ({
+vi.mock("../../lib/openspec/openspec-tasks-api.js", () => ({
   fetchTasks: vi.fn(async () => ({ tasks: [], header: "" })),
   toggleTask: vi.fn(),
   LineMismatchError: class LineMismatchError extends Error {},
 }));
 
-import { SessionOpenSpecActions } from "../SessionOpenSpecActions.js";
+import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
 import type { DashboardSession, OpenSpecChange, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());

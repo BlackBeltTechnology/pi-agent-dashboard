@@ -16,8 +16,8 @@ import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { SessionList } from "../SessionList.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { SessionList } from "../session/SessionList.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });

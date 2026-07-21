@@ -24,11 +24,11 @@ import { mdiChevronDown, mdiChevronUp, mdiOpenInNew } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useState } from "react";
-import { t as i18nT } from "../../lib/i18n";
-import { AgentCardShell } from "../AgentCardShell.js";
-import { formatDuration } from "../agent-card-utils.js";
-import { ElapsedBadge } from "../ElapsedBadge.js";
-import { MarkdownContent } from "../MarkdownContent.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { AgentCardShell } from "../session/AgentCardShell.js";
+import { formatDuration } from "../session/agent-card-utils.js";
+import { ElapsedBadge } from "../session/ElapsedBadge.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import type { ToolRendererProps } from "./types.js";
 
 /** Shape of AgentDetails sent by pi-dashboard-subagents via partialResult.details */
@@ -46,6 +46,12 @@ interface AgentDetails {
   modelName?: string;
   tags?: string[];
   agentId?: string;
+  /**
+   * Runner session id (v7) from the producer (>= 0.2.3). Client mirror of the
+   * producer's AgentDetails field; the reducer dual-indexes on it so a v7
+   * deep-link resolves. See change: resolve-subagent-inspector-by-session-id.
+   */
+  agentSessionId?: string;
   error?: string;
 }
 

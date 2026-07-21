@@ -1,6 +1,6 @@
 # On-demand skill to export a LoRA training dataset from pi session logs
 
-> Research basis: `research/lora-dataset-from-pi-logs.md` Parts 1–6 (pipeline), 4.6
+> Research basis: `docs/research/lora-dataset-from-pi-logs.md` Parts 1–6 (pipeline), 4.6
 > (success detector), and Part 9 (this is the **on-demand** downstream, deliberately
 > NOT automatic). Depends on `add-automatic-session-kb-index` for the shared scrub.
 

@@ -27,44 +27,64 @@ routes.
 - **WHEN** the user triggers back
 - **THEN** navigation SHALL pop to the surface the user came from (not treat the home page as depth-0)
 
-### Requirement: Pinned-directory guard
-
-The directory home page SHALL render only for cwds present in `pinnedDirectories`.
-A non-pinned cwd reached by direct URL SHALL render a "not pinned" notice with a
-pin call-to-action instead of the prompt surface. The guard SHALL wait for the
-pinned-directory list to load before deciding, showing a loading state until then,
-so a cold load or refresh never flashes the not-pinned notice for a pinned cwd.
-
-#### Scenario: Non-pinned cwd shows the not-pinned notice
-
-- **GIVEN** `<cwd>` is not in the loaded `pinnedDirectories`
-- **WHEN** the user opens `/folder/<encodedCwd>`
-- **THEN** a "not pinned" notice with a pin CTA SHALL render and no prompt SHALL be shown
-
-#### Scenario: Cold load does not flash the not-pinned notice
-
-- **GIVEN** `pinnedDirectories` has not yet loaded (empty on first WS connect)
-- **AND** `<cwd>` is in fact a pinned directory
-- **WHEN** the user opens `/folder/<encodedCwd>` directly
-- **THEN** a loading state SHALL render until the pinned list arrives
-- **AND** once loaded the prompt surface SHALL render (the not-pinned notice SHALL NOT flash)
-
 ### Requirement: Sidebar open affordance
 
-Each pinned-directory sidebar row SHALL expose an "open" affordance distinct from the
-collapse toggle that navigates to `/folder/:encodedCwd`. Activating it SHALL NOT
-toggle the folder's collapsed state and SHALL NOT initiate a drag-reorder.
+Each directory sidebar row — whether pinned OR a workspace-owned folder — SHALL
+expose an "open" affordance distinct from the collapse toggle that navigates to
+`/folder/:encodedCwd`. Activating it SHALL NOT toggle the folder's collapsed state
+and SHALL NOT initiate a drag-reorder.
+
+#### Scenario: Open affordance appears on an UNPINNED workspace-folder row
+
+- **GIVEN** a folder rendered inside a workspace container that is NOT pinned (its `DirectoryGroup.pinned` is `false`)
+- **THEN** its row SHALL expose the "open" affordance (the render condition SHALL treat workspace membership, not only pinned state, as sufficient)
 
 #### Scenario: Open affordance navigates to the home page
 
-- **WHEN** the user activates the open affordance on a pinned-directory row
+- **WHEN** the user activates the open affordance on any directory row (pinned or workspace)
 - **THEN** the client SHALL navigate to `/folder/<encodedCwd>` for that directory
 
 #### Scenario: Open affordance does not toggle collapse
 
-- **GIVEN** a pinned folder is expanded
+- **GIVEN** a folder is expanded
 - **WHEN** the user activates its open affordance
 - **THEN** the folder SHALL remain expanded (the collapse state is unchanged)
+
+### Requirement: Whole-row open affordance
+
+The folder header name-row (folder icon, path, session count, status rollups)
+SHALL itself be a click target that navigates to `/folder/:encodedCwd` for that
+directory, mirroring how clicking a session card selects its session. This
+whole-row affordance SHALL apply to EVERY folder row regardless of pinned or
+workspace membership. Collapse/expand SHALL be exposed SOLELY via the chevron
+toggle in the folder's drag gutter; the name-row click SHALL NOT toggle the
+collapsed state. Child controls within the row (needs-you pill, urgency-sort,
+open affordance, pin toggle) SHALL stop propagation so activating them does NOT
+trigger the whole-row navigation. The dedicated icon open affordance (previous
+requirement) SHALL remain as a redundant explicit control.
+
+#### Scenario: Clicking the header row navigates to the home page
+
+- **WHEN** the user clicks the folder header name-row (outside any child control)
+- **THEN** the client SHALL navigate to `/folder/<encodedCwd>` for that directory
+
+#### Scenario: Whole-row navigation does not collapse the folder
+
+- **GIVEN** a folder is expanded
+- **WHEN** the user clicks its header name-row
+- **THEN** the folder SHALL remain expanded (collapse is owned by the chevron toggle only)
+
+#### Scenario: Whole-row affordance applies to unpinned non-workspace folders
+
+- **GIVEN** a folder that is neither pinned nor a workspace member
+- **WHEN** the user clicks its header name-row
+- **THEN** the client SHALL navigate to `/folder/<encodedCwd>` (which renders the eligibility notice with a pin call-to-action)
+
+#### Scenario: Child controls do not trigger whole-row navigation
+
+- **GIVEN** a folder header row with its child controls (pin toggle, urgency-sort, needs-you pill, icon open affordance)
+- **WHEN** the user activates one of those child controls
+- **THEN** that control's own action SHALL run and the whole-row navigation SHALL NOT fire
 
 ### Requirement: Centered prompt spawns a session
 
@@ -123,4 +143,36 @@ sessions, without presenting a second onboarding surface that conflicts with the
 - **GIVEN** the pinned directory has no sessions
 - **WHEN** the directory home page renders
 - **THEN** the centered prompt SHALL be the focal point and the session list SHALL be empty
+
+### Requirement: Directory-eligibility guard
+
+The directory home page SHALL render for cwds that are EITHER present in
+`pinnedDirectories` OR are a member folder of a workspace (i.e. present in the
+union of `workspaces[].folders`). A cwd that is neither, reached by direct URL,
+SHALL render a "not available" notice with a pin call-to-action instead of the
+prompt surface. The pinned list and the workspace list arrive in SEPARATE messages
+(`pinned_dirs_updated`, then `workspaces_updated`), so the guard SHALL wait for BOTH
+to have loaded before deciding — gating on a pinned-loaded flag alone is insufficient
+and SHALL NOT be used. It SHALL show a loading state until both arrive, so a cold
+load or refresh never flashes the notice for an eligible cwd.
+
+#### Scenario: Unpinned workspace-folder cwd renders the home page
+
+- **GIVEN** `<cwd>` is a member of `workspaces[].folders` AND is NOT in `pinnedDirectories`
+- **WHEN** the user opens `/folder/<encodedCwd>`
+- **THEN** the directory home page prompt surface SHALL render (not the not-available notice)
+
+#### Scenario: Neither-pinned-nor-workspace cwd shows the notice
+
+- **GIVEN** `<cwd>` is not in the loaded `pinnedDirectories` and not in any `workspaces[].folders`
+- **WHEN** the user opens `/folder/<encodedCwd>`
+- **THEN** a "not available" notice with a pin CTA SHALL render and no prompt SHALL be shown
+
+#### Scenario: Cold load does not flash the notice between the two messages
+
+- **GIVEN** `<cwd>` is a workspace folder that is NOT pinned
+- **AND** `pinned_dirs_updated` has arrived but `workspaces_updated` has NOT yet arrived
+- **WHEN** the user opens `/folder/<encodedCwd>` directly
+- **THEN** a loading state SHALL render (the notice SHALL NOT flash in the window before workspaces load)
+- **AND** once `workspaces_updated` arrives the prompt surface SHALL render
 

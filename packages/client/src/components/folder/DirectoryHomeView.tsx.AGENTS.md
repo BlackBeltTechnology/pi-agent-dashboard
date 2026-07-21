@@ -1,0 +1,3 @@
+# DirectoryHomeView.tsx — index
+
+Directory home page for the bare `/folder/:encodedCwd` route. Centered spawn prompt → `onSpawnSession(cwd, undefined, {initialPrompt})`. Eligibility guard: renders when cwd in `pinnedDirectories` OR in `workspaceFolders: Set<string>`; cold-load loading gate on `pinnedDirectoriesLoaded && workspacesLoaded` (both flags, separate WS messages); else neutral miss notice + pin CTA (`directory-home-not-pinned`). Exports `DirectoryHomeView`, `DirectoryHomeViewProps`. See change: add-directory-home-page, enable-workspace-folder-home-page (workspace-folder eligibility + `workspacesLoaded` gate + de-pinned notice copy).

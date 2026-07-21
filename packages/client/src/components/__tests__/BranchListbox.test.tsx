@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, renderHook, act } from "@testing-library/react";
 import React, { useState } from "react";
-import { BranchListbox, useBranchListboxKeyboard } from "../BranchListbox.js";
+import { BranchListbox, useBranchListboxKeyboard } from "../worktree/BranchListbox.js";
 import type { GitBranchEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 
 afterEach(() => cleanup());

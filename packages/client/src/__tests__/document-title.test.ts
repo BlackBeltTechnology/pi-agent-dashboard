@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildDocumentTitle } from "../lib/document-title.js";
+import { buildDocumentTitle } from "../lib/nav/document-title.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSession {

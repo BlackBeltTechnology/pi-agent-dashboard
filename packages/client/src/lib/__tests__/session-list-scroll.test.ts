@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { selectedCardScrollFingerprint } from "../session-list-scroll.js";
+import { selectedCardScrollFingerprint } from "../session/session-list-scroll.js";
 
 function session(overrides: Partial<DashboardSession> = {}): DashboardSession {
   return {

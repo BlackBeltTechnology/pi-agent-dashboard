@@ -4,7 +4,7 @@ import React from "react";
 import { BashToolRenderer } from "../BashToolRenderer.js";
 import type { ToolContext } from "../index.js";
 
-const ctx: ToolContext = { cwd: "/r", editors: [] };
+const ctx: ToolContext = { cwd: "/r" };
 
 describe("BashToolRenderer", () => {
   it("linkifies a file reference inside the result block", () => {

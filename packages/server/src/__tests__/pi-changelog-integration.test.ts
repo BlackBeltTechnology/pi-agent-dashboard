@@ -14,7 +14,7 @@ import { registerPiChangelogRoutes } from "../routes/pi-changelog-routes.js";
 import {
   invalidateChangelogCache,
   _resetChangelogCache,
-} from "../changelog-parser.js";
+} from "../changelog/changelog-parser.js";
 
 const FIXTURE_PKG = "@earendil-works/pi-coding-agent";
 

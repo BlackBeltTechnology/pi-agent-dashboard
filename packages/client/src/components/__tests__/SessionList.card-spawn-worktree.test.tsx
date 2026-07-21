@@ -21,11 +21,11 @@ const { fetchGitHead, fetchWorktrees, fetchBranches, createWorktree } = vi.hoist
   fetchBranches: vi.fn(),
   createWorktree: vi.fn(),
 }));
-vi.mock("../../lib/git-api.js", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/git-api.js")>("../../lib/git-api.js");
+vi.mock("../../lib/git/git-api.js", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/git/git-api.js")>("../../lib/git/git-api.js");
   return { ...actual, fetchGitHead, fetchWorktrees, fetchBranches, createWorktree };
 });
-vi.mock("../../lib/openspec-groups-api.js", () => ({
+vi.mock("../../lib/openspec/openspec-groups-api.js", () => ({
   fetchGroups: vi.fn(async () => ({ schemaVersion: 1, groups: [], assignments: {} })),
   createGroup: vi.fn(),
   updateGroup: vi.fn(),
@@ -33,8 +33,8 @@ vi.mock("../../lib/openspec-groups-api.js", () => ({
   setAssignment: vi.fn(),
 }));
 
-import { SessionList } from "../SessionList.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { SessionList } from "../session/SessionList.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {

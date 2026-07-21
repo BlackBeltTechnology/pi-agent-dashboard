@@ -9,7 +9,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
-import { createMetaPersistence } from "../../meta-persistence.js";
+import { createMetaPersistence } from "../../persistence/meta-persistence.js";
 import { handleShutdown, handleForceKill } from "../session-action-handler.js";
 import type { BrowserHandlerContext } from "../handler-context.js";
 

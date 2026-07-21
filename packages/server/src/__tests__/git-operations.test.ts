@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as gitOps from "../git-operations.js";
+import * as gitOps from "../git-worktree/git-operations.js";
 import {
   checkoutBranch,
   getDirtyFiles,
@@ -13,7 +13,7 @@ import {
   resolveConfigRoot,
   resolveMainPath,
   stashPop,
-} from "../git-operations.js";
+} from "../git-worktree/git-operations.js";
 
 function git(cmd: string, cwd: string) {
   execSync(`git ${cmd}`, { cwd, stdio: "pipe" });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { errKeyForCode, resolveServerMessage } from "../lib/server-error";
+import { errKeyForCode, resolveServerMessage } from "../lib/api/server-error.js";
 
 type Vars = Record<string, string | number>;
 // A fake language-aware translator matching the i18n runtime contract.

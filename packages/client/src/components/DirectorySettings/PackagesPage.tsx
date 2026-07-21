@@ -13,9 +13,9 @@ import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared
 import { useState } from "react";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
-import { PackageBrowser } from "../PackageBrowser.js";
-import { PackageInstallConfirmDialog } from "../PackageInstallConfirmDialog.js";
-import { PackageReadmeDialog } from "../PackageReadmeDialog.js";
+import { PackageBrowser } from "../packages/PackageBrowser.js";
+import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDialog.js";
+import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
 
 interface Props {
   cwd: string;

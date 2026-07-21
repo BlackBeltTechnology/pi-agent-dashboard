@@ -15,9 +15,9 @@ import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js
 import { mdiContentSave, mdiEyeOutline, mdiPencilOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { getApiBase } from "../../lib/api-context.js";
-import { useI18n } from "../../lib/i18n";
-import { MarkdownContent } from "../MarkdownContent.js";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import type { ViewerProps } from "./types.js";
 

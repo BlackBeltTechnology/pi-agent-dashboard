@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeAll } from "vitest";
 import http from "node:http";
 import net from "node:net";
-import { startCallbackServer, closeAllCallbackServers } from "../oauth-callback-server.js";
+import { startCallbackServer, closeAllCallbackServers } from "../auth/oauth-callback-server.js";
 
 /** Probe an OS-assigned free port so parallel forks never collide. */
 function freePort(): Promise<number> {

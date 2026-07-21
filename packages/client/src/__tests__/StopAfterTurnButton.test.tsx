@@ -6,8 +6,8 @@
  * See change: adopt-pi-071-072-073-features (B.2).
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
-import { CommandInput } from "../components/CommandInput.js";
+import { render, fireEvent, cleanup } from "@testing-library/react";
+import { CommandInput } from "../components/chat/CommandInput.js";
 
 afterEach(() => cleanup());
 

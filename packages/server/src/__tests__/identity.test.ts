@@ -8,7 +8,7 @@ import {
   ensureServerIdentity,
   signNonce,
   verifyNonceSignature,
-} from "../identity.js";
+} from "../auth/identity.js";
 
 let tmpDir: string;
 let keyPath: string;

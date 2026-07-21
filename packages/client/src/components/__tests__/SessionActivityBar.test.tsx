@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, fireEvent } from "@testing-library/react";
 import React from "react";
-import { SessionActivityBar, MAX_VISIBLE, STOP_TOOLTIP } from "../SessionActivityBar.js";
+import { SessionActivityBar, MAX_VISIBLE, STOP_TOOLTIP } from "../session/SessionActivityBar.js";
 import type { InflightBashTool } from "../../hooks/useInflightBashTools.js";
 
 function mk(id: string, command = `cmd-${id}`, startedAt = 0): InflightBashTool {

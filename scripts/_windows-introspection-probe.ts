@@ -1,8 +1,8 @@
 /**
  * Probe child for the Windows introspection smoke (see
- * windows-introspection-smoke.ts). Invokes the REAL code paths
- * (`isVirtualMachine`, `defaultGetCmdline`) against live PowerShell
- * Get-CimInstance — no stubs — and prints `RESULT=<json>` to stdout.
+ * windows-introspection-smoke.ts). Invokes the REAL code path
+ * (`isVirtualMachine`) against live PowerShell Get-CimInstance — no
+ * stubs — and prints `RESULT=<json>` to stdout.
  *
  * Run as a subprocess so the driver can capture this process's stderr: a
  * regression back to `execSync` with default stdio would inherit the
@@ -11,9 +11,7 @@
  * See change: replace-wmic-with-powershell.
  */
 import { isVirtualMachine } from "../packages/shared/src/platform/commands.js";
-import { defaultGetCmdline } from "../packages/server/src/editor-pid-registry.js";
 
 const vm = isVirtualMachine();
-const cmdline = defaultGetCmdline(process.pid);
 
-process.stdout.write(`RESULT=${JSON.stringify({ platform: process.platform, vm, cmdline })}\n`);
+process.stdout.write(`RESULT=${JSON.stringify({ platform: process.platform, vm })}\n`);

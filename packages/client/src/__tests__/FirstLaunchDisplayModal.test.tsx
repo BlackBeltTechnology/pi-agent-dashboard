@@ -5,7 +5,7 @@
 import React from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
-import { FirstLaunchDisplayModal } from "../components/FirstLaunchDisplayModal.js";
+import { FirstLaunchDisplayModal } from "../components/settings/FirstLaunchDisplayModal.js";
 import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 
 describe("FirstLaunchDisplayModal", () => {

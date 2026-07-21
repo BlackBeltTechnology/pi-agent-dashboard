@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
-import { PackageRow } from "../PackageRow.js";
+import { PackageRow } from "../packages/PackageRow.js";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {

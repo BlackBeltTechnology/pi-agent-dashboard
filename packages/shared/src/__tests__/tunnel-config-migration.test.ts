@@ -45,6 +45,32 @@ describe("normalizeTunnelConfig — legacy back-compat", () => {
     );
     expect(out.tailscale?.authKey).toBe("tskey-auth-x");
   });
+
+  // support-zrok-v2 (E19/E20): v1 token preserved but NOT promoted; v2 fields.
+  it("E19: legacy reservedToken preserved, NOT promoted to reservedName, idempotent", () => {
+    const out = normalizeTunnelConfig({ tunnel: { reservedToken: "v1tok" } }.tunnel, defaults);
+    expect(out.provider).toBe("zrok");
+    expect(out.mode).toBe("public");
+    expect(out.zrok?.reservedToken).toBe("v1tok");
+    expect(out.zrok?.reservedName).toBeUndefined();
+    // running again yields the same shape
+    expect(normalizeTunnelConfig(out, defaults)).toEqual(out);
+  });
+
+  it("E20: fresh config → zrok.persistent defaults false, reservedName unset", () => {
+    const out = normalizeTunnelConfig({ enabled: true }, defaults);
+    expect(out.zrok?.persistent).toBe(false);
+    expect(out.zrok?.reservedName).toBeUndefined();
+  });
+
+  it("surfaces an explicit v2 reservedName + persistent when present", () => {
+    const out = normalizeTunnelConfig(
+      { enabled: true, provider: "zrok", mode: "public", zrok: { reservedName: "pi-dash-abcd1234", persistent: true } },
+      defaults,
+    );
+    expect(out.zrok?.reservedName).toBe("pi-dash-abcd1234");
+    expect(out.zrok?.persistent).toBe(true);
+  });
 });
 
 describe("validateTunnelForConnect — mode gating", () => {

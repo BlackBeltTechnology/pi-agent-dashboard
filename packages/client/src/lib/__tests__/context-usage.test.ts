@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildContextUsageMap } from "../context-usage.js";
-import type { ContextUsageInfo } from "../../components/SessionList.js";
+import type { ContextUsageInfo } from "../../components/session/SessionList.js";
 
 describe("buildContextUsageMap", () => {
   it("uses the live event-reducer value when present", () => {

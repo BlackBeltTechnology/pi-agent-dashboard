@@ -1,0 +1,3 @@
+# project-trust.ts — index
+
+`project_trust` auto-decision (pure gate + defensive cwd read). `decideProjectTrust({dashboardSpawned,isHeadless,eventCwd,activationCwd})` → `"trust"` ONLY when all hold (dashboard-spawned AND headless AND `eventCwd===activationCwd`); every other case (incl. `eventCwd` undefined) → `"defer"` (deny-by-default). `readEventCwd(event,ctx)` reads `event.cwd` then `ctx.cwd` inside try/catch (stale/replaced ctx throw → undefined → defer); never a cached ctx. Bridge registers a `project_trust` handler at activation returning `{trusted:"yes",remember:false}` (per-run) / `{trusted:"undecided"}`; captures `activationCwd` at module scope (event fires pre-`session_start`, during resource-loader reload). See change: adopt-pi-074-080-features.

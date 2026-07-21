@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	InvalidResetRequestError,
 	PackageManagerWrapper,
-} from "../package-manager-wrapper.js";
+} from "../package/package-manager-wrapper.js";
 
 interface FakeState {
 	globalPackages: any[];

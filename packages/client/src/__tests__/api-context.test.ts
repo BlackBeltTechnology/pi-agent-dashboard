@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { deriveApiBase, setGlobalApiBase, getApiBase } from "../lib/api-context.js";
+import { deriveApiBase, setGlobalApiBase, getApiBase } from "../lib/api/api-context.js";
 
 describe("deriveApiBase", () => {
   it("returns empty string for same-origin ws URL", () => {

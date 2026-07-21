@@ -1,6 +1,6 @@
 # Automatically index distilled session knowledge into the searchable KB
 
-> Research basis: `research/lora-dataset-from-pi-logs.md` Parts 7–9. This change
+> Research basis: `docs/research/lora-dataset-from-pi-logs.md` Parts 7–9. This change
 > implements the **automatic** downstream (KB index); the on-demand LoRA export is a
 > separate change (`add-lora-dataset-export-skill`).
 

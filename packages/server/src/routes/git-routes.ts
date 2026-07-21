@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import { activeSessionsUnder, sessionsUnder } from "../active-sessions-in-cwd.js";
-import type { BrowserGateway } from "../browser-gateway.js";
+import { activeSessionsUnder, sessionsUnder } from "../session/active-sessions-in-cwd.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import {
   addWorktree,
   addWorktreeFromPr,
@@ -31,13 +31,13 @@ import {
   resolveConfigRoot,
   stashPop,
   worktreeDiffStat,
-} from "../git-operations.js";
-import type { SessionManager } from "../memory-session-manager.js";
+} from "../git-worktree/git-operations.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import { safeRealpathSync } from "../resolve-path.js";
-import { evaluateGate, type GateResult, hookDefHash, type InitProgress, readInitHook, runInitHook, type WorktreeInitHook } from "../worktree-init.js";
-import { mapInitStderrToHint } from "../worktree-init-errors.js";
-import type { WorktreeInitRegistry } from "../worktree-init-registry.js";
-import { isTrusted, recordTrust } from "../worktree-init-trust.js";
+import { evaluateGate, type GateResult, hookDefHash, type InitProgress, readInitHook, runInitHook, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
+import { mapInitStderrToHint } from "../git-worktree/worktree-init-errors.js";
+import type { WorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
+import { isTrusted, recordTrust } from "../git-worktree/worktree-init-trust.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export interface GitRoutesDeps {

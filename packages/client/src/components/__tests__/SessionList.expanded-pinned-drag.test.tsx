@@ -4,8 +4,8 @@ import React from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import type { DragEndEvent } from "@dnd-kit/core";
-import { SessionList } from "../SessionList.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { SessionList } from "../session/SessionList.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 // Capture the live `onDragEnd` the real component hands to <DndContext> so

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BlockEventBuffer } from "../tunnel-block-events.js";
-import { collectEndpoints, localEndpoints, manualEndpoints } from "../tunnel-endpoints.js";
+import { BlockEventBuffer } from "../tunnel/tunnel-block-events.js";
+import { collectEndpoints, localEndpoints, manualEndpoints } from "../tunnel/tunnel-endpoints.js";
 
 describe("block-event buffer — anti-poisoning (7.1)", () => {
   it("records a refused IP and surfaces it", () => {

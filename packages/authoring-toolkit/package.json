@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-authoring-toolkit",
-  "version": "0.5.4",
-  "description": "General-purpose authoring skills for pi sessions — skill-creator (author/update skills) and session-to-guideline (turn a pi session JSONL transcript into a how-we-did-it Markdown playbook). Pure-skill package, no extension.ts. skill-creator adapted from Anthropic's skill-creator (MIT).",
+  "version": "0.6.1",
+  "description": "General-purpose authoring skills for pi sessions — skill-creator (author/update skills), skill-to-subagent (wrap a skill as a subagent), session-to-guideline (turn a pi session JSONL transcript into a how-we-did-it Markdown playbook), and faq-mine (mine docs + memory stores into a FAQ). Pure-skill package, no extension.ts. skill-creator adapted from Anthropic's skill-creator (MIT).",
   "type": "module",
   "license": "MIT",
   "publishConfig": {
@@ -15,7 +15,9 @@
   "pi": {
     "skills": [
       ".pi/skills/skill-creator",
-      ".pi/skills/session-to-guideline"
+      ".pi/skills/skill-to-subagent",
+      ".pi/skills/session-to-guideline",
+      ".pi/skills/faq-mine"
     ]
   },
   "files": [

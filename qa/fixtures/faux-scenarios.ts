@@ -395,6 +395,22 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "src/ghost.ts" },
   },
 
+  // Assistant text referencing a `~/.pi/…` home config file. Exercises the
+  // Phase-1 tilde-home mention path end-to-end: the client tokenizer emits ONE
+  // `~/…` FileLink, and on click the server resolve endpoint expands `~/` and
+  // authorizes it via the fixed `~/.pi` anchor — so the preview opens the
+  // resolved home file (`$HOME/.pi/agent/settings.json`, seeded by
+  // test-entrypoint under PI_E2E_SEED), NOT a `/`-rooted 404 from the old
+  // tilde-split bug. See change: server-side-file-mention-resolution.
+  "text-tildelink": {
+    script: [
+      fauxAssistantMessage([
+        fauxText("see ~/.pi/agent/settings.json for the config"),
+      ]),
+    ],
+    expect: { text: "settings.json" },
+  },
+
   // Assistant text referencing a REAL fixture file. The explicit `./` prefix
   // gives the tokenizer the separator it needs to linkify (a bare `hello.txt`
   // has no separator and stays prose); the link resolves against the session
@@ -502,6 +518,21 @@ export const SCENARIOS: Record<string, Scenario> = {
   "tool-write": toolScenario("write", {
     path: "src/new-file.ts",
     content: "export const x = 1;\n",
+  }),
+  // opt-in-out-of-cwd-session-diffs: a Write OUTSIDE the session cwd. pi really
+  // creates the file (writable /tmp in the harness); the server carries it into
+  // data.files keyed by absolute path (payload-only, previewable:false). Drives
+  // tests/e2e/out-of-cwd-session-diffs.spec.ts (F1/F2/F4/F5, X1).
+  "tool-write-out-of-cwd": toolScenario("write", {
+    path: "/tmp/e2e-out-of-cwd/index.html",
+    content: "<!doctype html>\n<h1>out of cwd mockup</h1>\n",
+  }),
+  // A >4 KB out-of-cwd Write: the in-memory event store truncates `content`
+  // (`…[truncated]`) while the session JSONL keeps it whole → the client lazy-
+  // fetches full fidelity (F3). 6000 chars comfortably exceeds the 4 KB cap.
+  "tool-write-out-of-cwd-large": toolScenario("write", {
+    path: "/tmp/e2e-out-of-cwd/big.html",
+    content: `<!doctype html>\n<!-- ${"A".repeat(6000)} -->\n<h1>big out of cwd</h1>\n`,
   }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
   // Strategy B (reduce-session-replay-traffic): a bash result with > 200 LINES.
@@ -845,6 +876,93 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText("subagent spawn complete")]),
     ],
     expect: { text: "subagent spawn complete" },
+  },
+
+  // ── auto-canvas driver scenarios (change: auto-canvas, Sections 6–8) ────
+  // A `write` of a renderable markdown deliverable. The server-side detect
+  // (write/edit only, gated by RENDERER_BY_EXT + canvasTypes) pushes a DOC
+  // candidate and broadcasts `canvas_intent{phase:"eager"}` immediately, then
+  // `settle` at agent_end. pi executes the REAL write tool, so `report.md`
+  // lands in the session cwd and `/api/file` can serve it. Two-step so the
+  // agent terminates after the write. Drives S23–S28 (client canvas surface).
+  "canvas-write-md": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("write", {
+            path: "report.md",
+            content: "# Auto-canvas report\n\nThe deliverable the canvas opens.\n",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("report written")]),
+    ],
+    expect: { toolName: "write" },
+  },
+
+  // A `write` of an HTML deliverable carrying an external-image beacon. The
+  // auto-open path renders it under a restrictive CSP so the beacon subresource
+  // is blocked (S34). Two-step terminate.
+  "canvas-write-html-beacon": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("write", {
+            path: "beacon.html",
+            content:
+              '<!doctype html><html><head><title>b</title></head><body>' +
+              '<img data-testid="beacon-img" src="http://attacker.example/beacon.gif">' +
+              "canvas beacon doc</body></html>\n",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("beacon html written")]),
+    ],
+    expect: { toolName: "write" },
+  },
+
+  // A `canvas({ target:{ kind:"server", port } })` declare. The server
+  // normalizes it to a ServerChip and broadcasts `canvas_server_chip` with NO
+  // pre-tap fetch (S29). Drives the server-chip UI (S29–S32). Two-step
+  // terminate. `canvas` is the real bridge-registered declare tool.
+  "canvas-declare-server": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "server", port: 5173 }, title: "dev server" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("server declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // A `canvas({ target:{ kind:"server", port } })` declare for a port nothing
+  // listens on. On chip tap the loopback probe is refused → "server not
+  // running" immediately, no iframe (S30). Two-step terminate.
+  "canvas-declare-server-dead": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "server", port: 59321 }, title: "dead server" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("dead server declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // A `canvas({ target:{ kind:"url", url } })` declare (youtube). Renders the
+  // live URL normally with NO document CSP (S35). Two-step terminate.
+  "canvas-declare-url": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "url", url: "https://youtu.be/dQw4w9WgXcQ" } })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("url declared")]),
+    ],
+    expect: { toolName: "canvas" },
   },
 
   // ── Client interactive-renderer matrix (one per ask_user method) ────────

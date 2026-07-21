@@ -1,0 +1,3 @@
+# server-launcher.ts — index
+
+Spawns dashboard server as detached process via shared `launchDashboardServer`. Exports `LaunchResult`, `resolveServerCliPath`, `buildSpawnEnv`, `buildSpawnArgs`, `launchServer`, `DEFAULT_SERVER_MAX_OLD_SPACE_MB`. Resolves CLI path (monorepo-dev vs installed), stamps `DASHBOARD_STARTER=Bridge`, logs to `getDashboardServerLogPath()`, 10s health timeout. `buildSpawnEnv` adds `--max-old-space-size=8192` to `NODE_OPTIONS` (heap headroom) unless the user already pinned a limit. See change: bound-subagent-event-serialization. Classifies `JitiNotFoundError`/`PortConflictError`/`EarlyExitError` → `logOwned` flag.

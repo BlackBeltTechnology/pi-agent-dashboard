@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useMessageHandler } from "../useMessageHandler.js";
-import { type SessionState } from "../../lib/event-reducer.js";
+import { type SessionState } from "../../lib/chat/event-reducer.js";
 import { getSessionEvents, clearSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { reduceFlowsSessionState } from "@blackbelt-technology/pi-dashboard-flows-plugin/client";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";

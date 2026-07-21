@@ -24,7 +24,7 @@ import {
   bootParentPid,
   computeBootParentAlive,
   readLivePpid,
-} from "../packages/server/src/boot-parent-liveness.js";
+} from "../packages/server/src/lifecycle/boot-parent-liveness.js";
 
 function fail(msg: string): never {
   console.error(`[win-liveness-smoke] FAIL: ${msg}`);

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createPendingResumeRegistry } from "../pending-resume-registry.js";
-import type { SessionManager } from "../memory-session-manager.js";
+import { createPendingResumeRegistry } from "../pending/pending-resume-registry.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 /**

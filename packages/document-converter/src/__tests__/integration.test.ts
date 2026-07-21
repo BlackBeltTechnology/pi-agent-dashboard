@@ -8,6 +8,7 @@
  *   DOC_ENGINE_IMAGE=pi-doc-engine:0.1.0   built + loadable image tag
  *   DOC_ENGINE_PDF=/abs/sample.pdf         a digital PDF fixture (ingest case)
  *   DOC_ENGINE_TEMPLATES=/abs/templates    dir with <template>/template.docx (produce case)
+ *   DOC_ENGINE_PPTX=/abs/deck.pptx         a real .pptx deck (pptx→PDF case)
  * Never runs in the default `npm test`.
  *
  *   DOC_ENGINE_IMAGE=pi-doc-engine:0.1.0 DOC_ENGINE_PDF=… DOC_ENGINE_TEMPLATES=… \
@@ -97,5 +98,25 @@ describe.skipIf(!ENABLED)("pi-doc-engine integration", () => {
     expect(res.output).toBe(out);
     const bytes = await readFile(out);
     expect(bytes.byteLength).toBeGreaterThan(1000); // non-trivial DOCX
+  }, 180_000);
+
+  it("produce: PPTX -> PDF via renderPdf (fidelity path; change: render-pptx-preview)", async () => {
+    // Verifies the engine input-type widening: renderPdf accepts .pptx and the
+    // LibreOffice Impress export filter produces a valid PDF. Point DOC_ENGINE_PPTX
+    // at a real deck.
+    const pptx = process.env.DOC_ENGINE_PPTX;
+    expect(pptx, "set DOC_ENGINE_PPTX to a sample .pptx deck").toBeTruthy();
+
+    const dc = createDocumentConverter({
+      image: IMAGE!,
+      stagingDir: join(work, "staging"),
+      mounts: [join(pptx!, "..")],
+    });
+    const out = join(work, "deck.pdf");
+    const res = await dc.renderPdf(pptx!, { output: out });
+    expect(res.output).toBe(out);
+    const bytes = await readFile(out);
+    expect(bytes.subarray(0, 5).toString()).toBe("%PDF-"); // valid PDF header
+    expect(bytes.byteLength).toBeGreaterThan(1000);
   }, 180_000);
 });

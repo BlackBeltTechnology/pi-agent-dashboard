@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { computeVisibleRows, KILL_TOOLTIP, type ProcessEntry, ProcessList } from "../ProcessList.js";
+import { computeVisibleRows, KILL_TOOLTIP, type ProcessEntry, ProcessList } from "../terminal/ProcessList.js";
 
 function mkProc(pid: number, elapsedMs: number, command = `node script-${pid}.js`): ProcessEntry {
   return { pid, pgid: pid, command, elapsedMs };

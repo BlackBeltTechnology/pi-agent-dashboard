@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerGrepRoutes } from "../grep-routes.js";
 import { detectRipgrep, resetRipgrepCache } from "../../ripgrep-detection.js";
-import type { SessionManager } from "../../memory-session-manager.js";
+import type { SessionManager } from "../../session/memory-session-manager.js";
 
 const cleanup: string[] = [];
 afterAll(() => {

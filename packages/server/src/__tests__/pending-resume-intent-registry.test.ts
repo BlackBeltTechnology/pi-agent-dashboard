@@ -12,7 +12,7 @@ import { describe, it, expect } from "vitest";
 import {
   createPendingResumeIntentRegistry,
   PENDING_RESUME_INTENT_TTL_MS,
-} from "../pending-resume-intent-registry.js";
+} from "../pending/pending-resume-intent-registry.js";
 
 function makeClock(start = 1_000_000) {
   let t = start;

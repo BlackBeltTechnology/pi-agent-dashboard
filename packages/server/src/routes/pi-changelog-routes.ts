@@ -12,24 +12,24 @@ import type { FastifyInstance } from "fastify";
 import type {
   ChangelogResponse,
 } from "@blackbelt-technology/pi-dashboard-shared/changelog-types.js";
-import { isValidNpmPackageName } from "../changelog-fs.js";
-import { parseVersion, compareVersions } from "../pi-version-skew.js";
+import { isValidNpmPackageName } from "../changelog/changelog-fs.js";
+import { parseVersion, compareVersions } from "../pi/pi-version-skew.js";
 import {
   findChangelogPath,
   readPackageJson,
   deriveChangelogUrl,
-} from "../changelog-fs.js";
+} from "../changelog/changelog-fs.js";
 import {
   parseChangelog,
   readAndParseChangelog,
   getCachedRemoteChangelog,
   setRemoteChangelog,
   refreshRemoteChangelogTtl,
-} from "../changelog-parser.js";
+} from "../changelog/changelog-parser.js";
 import {
   deriveChangelogRawUrl,
   fetchRemoteChangelog,
-} from "../changelog-remote.js";
+} from "../changelog/changelog-remote.js";
 import type { ChangelogRelease } from "@blackbelt-technology/pi-dashboard-shared/changelog-types.js";
 
 export interface PiChangelogRouteDeps {

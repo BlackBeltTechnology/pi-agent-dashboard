@@ -11,8 +11,8 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi, beforeAll } from "vitest";
 import { render, waitFor, cleanup, act } from "@testing-library/react";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { UnifiedPackagesSection } from "../UnifiedPackagesSection.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {

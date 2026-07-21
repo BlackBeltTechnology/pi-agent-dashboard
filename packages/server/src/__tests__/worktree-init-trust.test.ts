@@ -6,8 +6,8 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { hookDefHash, type WorktreeInitHook } from "../worktree-init.js";
-import { __resetSessionTrust, isTrusted, recordTrust } from "../worktree-init-trust.js";
+import { hookDefHash, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
+import { __resetSessionTrust, isTrusted, recordTrust } from "../git-worktree/worktree-init-trust.js";
 
 const storeFile = () => join(getDashboardConfigDir(), "worktree-init-trust.json");
 /** Raw persisted map, or `{}` when the store file is absent. */

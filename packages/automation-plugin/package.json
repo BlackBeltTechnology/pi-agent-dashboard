@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-automation-plugin",
-  "version": "0.5.4",
+  "version": "0.6.1",
   "description": "Automation plugin for pi-dashboard — schedule-triggered background agent runs with a triage inbox (Codex-Automations-style), built on the dashboard shell slots.",
   "license": "MIT",
   "publishConfig": {
@@ -74,9 +74,9 @@
     "react-dom": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.5.4",
-    "@blackbelt-technology/pi-dashboard-client-utils": "^0.5.4",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.6.1",
+    "@blackbelt-technology/pi-dashboard-client-utils": "^0.6.1",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.6.1",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

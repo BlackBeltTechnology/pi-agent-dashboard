@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAsyncAction } from "../useAsyncAction.js";
 
 describe("useAsyncAction — http mode", () => {
@@ -108,7 +108,7 @@ describe("useAsyncAction — ws mode", () => {
     expect(handlers.length).toBe(0); // unregistered
   });
 
-  it("timeout fallback clears pending and emits a still-working info toast", async () => {
+  it("timeout fallback clears pending and emits a still-working neutral toast", async () => {
     const handlers: ((msg: ServerToBrowserMessage) => void)[] = [];
     const onMessage = (h: (msg: ServerToBrowserMessage) => void) => {
       handlers.push(h);
@@ -133,7 +133,9 @@ describe("useAsyncAction — ws mode", () => {
 
     act(() => { vi.advanceTimersByTime(1000); });
     expect(result.current.pending).toBe(false);
-    expect(showToast).toHaveBeenCalledWith("Still working in the background…", "info");
+    // Passive background hint reclassed info → neutral. See change:
+    // unify-message-severity-colors (D5).
+    expect(showToast).toHaveBeenCalledWith("Still working in the background…", "neutral");
     expect(handlers.length).toBe(0);
   });
 });

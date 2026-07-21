@@ -25,7 +25,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/process.js", () => (
 }));
 
 // eslint-disable-next-line import/first
-import { createHeadlessPidRegistry } from "../headless-pid-registry.js";
+import { createHeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
 
 function mockProcess(): ChildProcess {
   return new EventEmitter() as any;

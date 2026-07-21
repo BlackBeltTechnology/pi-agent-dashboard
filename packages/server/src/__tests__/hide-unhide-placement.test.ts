@@ -5,9 +5,9 @@
  *   - Both broadcast `sessions_reordered` keyed by the resolved group path.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createSessionOrderManager } from "../session-order-manager.js";
+import { createSessionOrderManager } from "../session/session-order-manager.js";
 import { handleHideSession, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function mockPrefs(order: Record<string, string[]> = {}, pinned: string[] = []): PreferencesStore {

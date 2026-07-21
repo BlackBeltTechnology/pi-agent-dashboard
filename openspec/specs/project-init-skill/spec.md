@@ -39,3 +39,24 @@ On confirmation, the skill SHALL write, from the chosen profile: `<dir>/AGENTS.m
 - **WHEN** the target directory already contains `AGENTS.md` or `.pi/settings.json`
 - **THEN** the skill SHALL ask before overwriting
 
+### Requirement: Project-init MAY initialize OpenSpec for coding profiles
+
+When the selected profile is `coding` (an OpenSpec-enabled profile), the skill SHALL offer an opt-in to initialize OpenSpec by running `openspec init --tools pi`. The offer SHALL be a separate `ask_user` (confirm) and SHALL be skipped entirely when an `openspec/` directory already exists in the target (idempotent). The command SHALL be run non-interactively (always passing `--tools pi`) so it never hijacks the session's conversation. A non-zero exit (or a missing `openspec` binary) SHALL warn the user without failing the scaffold. Non-coding / OpenSpec-off profiles SHALL NOT offer this step.
+
+#### Scenario: Coding profile offers OpenSpec init
+
+- **GIVEN** the user selected the `coding` profile and no `openspec/` directory exists
+- **WHEN** the skill runs
+- **THEN** it SHALL ask whether to run `openspec init --tools pi`
+- **AND** on confirmation SHALL run it non-interactively and verify success
+
+#### Scenario: OpenSpec init skipped when already initialized
+
+- **WHEN** an `openspec/` directory already exists in the target
+- **THEN** the skill SHALL NOT prompt for or run OpenSpec init
+
+#### Scenario: Non-coding profile never offers OpenSpec init
+
+- **WHEN** a `docs` (or any OpenSpec-off) profile is selected
+- **THEN** the skill SHALL NOT offer to run `openspec init`
+

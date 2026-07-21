@@ -19,10 +19,10 @@ import { useMemo } from "react";
 import { useLocation } from "wouter";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
-import { t as i18nT } from "../../lib/i18n";
-import { buildFolderSettingsUrl } from "../../lib/route-builders.js";
-import { countResources, type ResourceType } from "../ResourceCardGrid.js";
-import { ResourceGridPanel } from "../ResourceGridPanel.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { buildFolderSettingsUrl } from "../../lib/nav/route-builders.js";
+import { countResources, type ResourceType } from "../resource/ResourceCardGrid.js";
+import { ResourceGridPanel } from "../resource/ResourceGridPanel.js";
 import { InstructionsPage } from "./InstructionsPage.js";
 import { PackagesPage } from "./PackagesPage.js";
 

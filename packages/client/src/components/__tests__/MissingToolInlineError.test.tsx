@@ -15,7 +15,7 @@ vi.mock("wouter", () => ({
 }));
 
 const requestToolInstall = vi.fn();
-vi.mock("../../lib/tool-install-deeplink.js", () => ({
+vi.mock("../../lib/package/tool-install-deeplink.js", () => ({
   requestToolInstall: (...a: unknown[]) => requestToolInstall(...a),
 }));
 

@@ -14,7 +14,7 @@ import { useCallback } from "react";
 import {
   buildFolderSettingsUrl,
   buildPiResourceFileUrl,
-} from "../lib/route-builders.js";
+} from "../lib/nav/route-builders.js";
 
 export interface UseContentViewsOptions {
   /** wouter navigate — push the overlay URL onto history. */

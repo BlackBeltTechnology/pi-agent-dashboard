@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-kb-plugin",
-  "version": "0.5.4",
+  "version": "0.6.1",
   "description": "Dashboard plugin surfacing the per-folder markdown knowledge base: a sidebar KB row (chunk count + reindex, five-state) and a per-folder KB settings page (manage indexed sources/globs). Server-owned reindex + config write so session-less worktrees are indexable.",
   "license": "MIT",
   "publishConfig": {
@@ -58,9 +58,9 @@
     "wouter": ">=3.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.5.4",
-    "@blackbelt-technology/pi-dashboard-kb": "^0.5.4",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.6.1",
+    "@blackbelt-technology/pi-dashboard-kb": "^0.6.1",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.6.1",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1"
   },

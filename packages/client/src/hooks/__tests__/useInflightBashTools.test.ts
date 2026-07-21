@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { selectInflightBashTools } from "../useInflightBashTools.js";
-import { createInitialState, type SessionState, type ToolCallState } from "../../lib/event-reducer.js";
+import { createInitialState, type SessionState, type ToolCallState } from "../../lib/chat/event-reducer.js";
 
 function withToolCalls(...entries: ToolCallState[]): SessionState {
   const s = createInitialState();

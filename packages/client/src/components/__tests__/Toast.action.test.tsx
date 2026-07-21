@@ -9,7 +9,7 @@
 
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Toast } from "../Toast.js";
+import { Toast } from "../primitives/Toast.js";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => {

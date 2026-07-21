@@ -9,6 +9,44 @@ BASE="http://localhost:$PORT"
 
 ---
 
+## Typed bus scripting
+
+For COMMAND-verb orchestration, prefer the typed WebSocket bus client over curl.
+Write an ordinary type-checked `.ts` script importing `{ connect }` from
+`@blackbelt-technology/pi-dashboard-bus-client` — it discovers the port itself,
+spawn/resume replies are exact-correlated, and other waits are structural
+(session-id + status). Run it with `npx tsx <script>.ts`.
+
+```ts
+import { connect } from "@blackbelt-technology/pi-dashboard-bus-client";
+
+const bus = await connect();
+try {
+  // Spawn a session (reply is exact-correlated to this spawn).
+  const { sessionId } = await bus.spawn({ cwd: "/path/to/project" });
+
+  // Drive it: prompt → wait until idle → read result.
+  await bus.prompt(sessionId, "Run the test suite and fix any failures");
+  await bus.until(sessionId, "idle");
+
+  const sessions = await bus.read.sessions();
+  const me = sessions.find((s) => s.id === sessionId);
+  console.log("status:", me?.status);
+
+  // Follow-up step, then set a goal via the goal plugin.
+  await bus.prompt(sessionId, "Now commit the fix");
+  await bus.until(sessionId, "idle");
+  await bus.plugin("goal", { action: "set", sessionId, text: "green tests" });
+} finally {
+  await bus.close();
+}
+```
+
+For one-shot verbs the [`scripts/dashboard-bus.ts`](../scripts/dashboard-bus.ts)
+CLI covers the same bus without writing a script (see SKILL.md).
+
+---
+
 ## Recipe 1: Spawn a Session, Send a Prompt, Monitor Completion
 
 Spawn a new pi session, wait for it to register, send a task, and poll until it finishes.

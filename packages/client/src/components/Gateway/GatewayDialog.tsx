@@ -13,9 +13,9 @@ import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { disconnectTunnel, getConfig, putConfig } from "../../lib/gateway-api.js";
-import type { GatewayProviderId } from "../../lib/gateway-providers.js";
-import { useI18n } from "../../lib/i18n";
+import { disconnectTunnel, getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
+import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 import { GatewayEndpoints } from "./GatewayEndpoints.js";
 import { GatewayPairQR } from "./GatewayPairQR.js";
 import { GatewayProviderSection } from "./GatewayProviderSection.js";
@@ -156,6 +156,19 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
           className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
         >
           {t("gateway.disconnect", undefined, "Disconnect")}
+        </button>
+        {/* v2 (support-zrok-v2): release a reserved name (stable URL) + clear it. */}
+        <button
+          type="button"
+          data-testid="gateway-forget-reserved"
+          onClick={() =>
+            void disconnectTunnel({ forget: true }).catch((e) =>
+              setError(e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed")),
+            )
+          }
+          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
+        >
+          {t("gateway.forgetReserved", undefined, "Forget reserved URL")}
         </button>
         {dirty ? (
           <button

@@ -1,15 +1,74 @@
+# pnpm workspace configuration (change: adopt-pnpm-for-dev-ci).
+# nodeLinker:hoisted is MANDATORY — electron-forge hard-fails otherwise
+# ("When using pnpm, node-linker must be set to 'hoisted'"). Hoisted also
+# flattens node_modules so third-party phantom deps resolve npm-like; the
+# 8 workspace phantom-dep edges are still declared explicitly in package.json.
+packages:
+  - 'packages/*'
+
+# Flat node_modules (npm-like). Required by electron-forge preflight.
+nodeLinker: hoisted
+
+# Do not gate `pnpm run` on a deps-status check — avoids the
+# runDepsStatusCheck/execaCoreSync crash under this monorepo layout.
+verifyDepsBeforeRun: false
+
+# Allow transitive git/exotic subdeps (e.g. @electron/node-gyp via HTTPS
+# codeload). Replaces the fragile npm@11.12.1 EALLOWGIT pin. Active key —
+# removing it makes `pnpm install` fail with ERR_PNPM_EXOTIC_SUBDEP.
+blockExoticSubdeps: false
+
+# Prefer/link local workspace packages over the registry even when the
+# local version is ahead of the published one.
+linkWorkspacePackages: true
+preferWorkspacePackages: true
+
+# Non-interactive: never prompt to purge node_modules on linker change.
+confirmModulesPurge: false
+
+# Pin bonjour-service to 1.4.2 (the version develop's package-lock.json
+# resolved). 1.4.3 is a bad patch that re-exports Service/Browser as namespace
+# consts (values) instead of types, breaking `import { type Service }` in
+# packages/shared/src/mdns-discovery.ts. See change: adopt-pnpm-for-dev-ci.
+overrides:
+  bonjour-service: 1.4.2
+
+# pnpm 11 treats un-approved dependency build scripts as a FATAL error
+# (ERR_PNPM_IGNORED_BUILDS, non-zero exit) — which would red every CI
+# `pnpm install --frozen-lockfile`. `onlyBuiltDependencies` proved unreliable
+# here (design §D5: allow-listed scripts stay ignored anyway), so instead we
+# demote the ignored-builds gate to a non-fatal warning and rebuild the
+# natives we actually need on the paths that need them: `_electron-build.yml`
+# runs `pnpm rebuild node-pty` + electron `node install.js`; `bundle-server.mjs`
+# runs its own npm install for the bundle's node_modules. node-pty/esbuild/sharp
+# ship prebuilt binaries (or platform optionalDependencies), so the dev/CI tree
+# works without their install scripts.
+strictDepBuilds: false
+
+# Acknowledge the known build-script deps so the warning stays quiet. A NEW
+# build-script dep still surfaces (as a warning, non-fatal) — a review nudge.
+ignoredBuiltDependencies:
+  - '@fission-ai/openspec'
+  - '@google/genai'
+  - electron
+  - esbuild
+  - fs-xattr
+  - koffi
+  - macos-alias
+  - node-pty
+  - phantomjs-prebuilt
+  - protobufjs
+  - sharp
+
 allowBuilds:
-  '@blackbelt-technology/pi-dashboard-server': set this to true or false
   '@fission-ai/openspec': set this to true or false
   '@google/genai': set this to true or false
+  electron: set this to true or false
   esbuild: set this to true or false
   fs-xattr: set this to true or false
   koffi: set this to true or false
   macos-alias: set this to true or false
   node-pty: set this to true or false
+  phantomjs-prebuilt: set this to true or false
   protobufjs: set this to true or false
-minimumReleaseAgeExclude:
-  - '@earendil-works/pi-agent-core@0.80.2'
-  - '@earendil-works/pi-ai@0.80.2'
-  - '@earendil-works/pi-coding-agent@0.80.2'
-  - '@earendil-works/pi-tui@0.80.2'
+  sharp: set this to true or false

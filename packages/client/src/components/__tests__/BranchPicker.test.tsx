@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
-import { BranchPicker } from "../BranchPicker.js";
+import { BranchPicker } from "../worktree/BranchPicker.js";
 
 const mockFetchBranches = vi.fn();
 
-vi.mock("../../lib/git-api.js", () => ({
+vi.mock("../../lib/git/git-api.js", () => ({
   fetchBranches: (...args: any[]) => mockFetchBranches(...args),
 }));
 

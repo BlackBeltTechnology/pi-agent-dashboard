@@ -15,7 +15,7 @@
 
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { createInitialState, reduceEvent } from "../event-reducer.js";
+import { createInitialState, reduceEvent } from "../chat/event-reducer.js";
 
 function startEvt(data: Record<string, unknown>, ts = 1000): DashboardEvent {
   return { eventType: "tool_execution_start", timestamp: ts, data } as DashboardEvent;

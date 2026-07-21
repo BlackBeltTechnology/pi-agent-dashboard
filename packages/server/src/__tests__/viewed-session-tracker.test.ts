@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { WebSocket } from "ws";
-import { createViewedSessionTracker } from "../viewed-session-tracker.js";
+import { createViewedSessionTracker } from "../session/viewed-session-tracker.js";
 
 /**
  * Server-side viewed-session tracker. Mirrors mail/Slack global read state.

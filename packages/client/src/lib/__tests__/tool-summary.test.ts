@@ -1,6 +1,6 @@
 import { mdiFileDocumentOutline, mdiMagnify, mdiWrenchOutline } from "@mdi/js";
 import { describe, expect, it } from "vitest";
-import { getSummary, getToolIcon } from "../tool-summary.js";
+import { getSummary, getToolIcon } from "../chat/tool-summary.js";
 
 describe("getSummary", () => {
   it("renders a known tool summary", () => {

@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-extension",
-  "version": "0.5.4",
+  "version": "0.6.1",
   "description": "Pi bridge extension for pi-dashboard",
   "type": "module",
   "repository": {
@@ -30,7 +30,10 @@
     ".pi/skills/doctor/"
   ],
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",
+    "@blackbelt-technology/pi-dashboard-bus-client": "^0.6.1",
+    "@fission-ai/openspec": "^1.6.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.6.1",
+    "minimatch": "^10.0.0",
     "ws": "^8.18.0"
   },
   "peerDependencies": {

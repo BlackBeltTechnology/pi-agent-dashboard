@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
-import { PairedDeviceRegistry } from "../paired-devices.js";
-import { PairingManager } from "../pairing.js";
-import { collectEndpoints, toReachableUrlStrings } from "../tunnel-endpoints.js";
+import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { PairingManager } from "../pairing/pairing.js";
+import { collectEndpoints, toReachableUrlStrings } from "../tunnel/tunnel-endpoints.js";
 
 function configFile(): string {
   return path.join(os.homedir(), ".pi", "dashboard", "config.json");
@@ -30,6 +30,19 @@ describe("tunnel provider-secret redaction (doubt-review fix, supports 6.5)", ()
     writeConfigPartial({ tunnel: { enabled: true, provider: "tailscale", mode: "private", tailscale: { authKey: "***" } } });
     const raw = JSON.parse(fs.readFileSync(configFile(), "utf-8"));
     expect(raw.tunnel.tailscale.authKey).toBe("tskey-auth-REAL123");
+  });
+
+  // support-zrok-v2 (X7): reservedName + persistent are not secrets but MUST
+  // survive a partial write that does not touch the zrok sub-config.
+  it("X7: zrok.reservedName + persistent survive a partial write toggling tunnel.enabled", () => {
+    writeConfigPartial({
+      tunnel: { enabled: true, provider: "zrok", mode: "public", zrok: { reservedName: "pi-dash-abcd1234", persistent: true } },
+    });
+    writeConfigPartial({ tunnel: { enabled: false } });
+    const raw = JSON.parse(fs.readFileSync(configFile(), "utf-8"));
+    expect(raw.tunnel.enabled).toBe(false);
+    expect(raw.tunnel.zrok.reservedName).toBe("pi-dash-abcd1234");
+    expect(raw.tunnel.zrok.persistent).toBe(true);
   });
 });
 

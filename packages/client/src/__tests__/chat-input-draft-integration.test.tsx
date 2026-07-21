@@ -15,13 +15,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, act, cleanup } from "@testing-library/react";
-import { CommandInput } from "../components/CommandInput.js";
+import { CommandInput } from "../components/chat/CommandInput.js";
 import {
   readAllDrafts,
   writeDraft,
   deleteDraft,
   DRAFT_KEY_PREFIX,
-} from "../lib/draft-storage.js";
+} from "../lib/state/draft-storage.js";
 
 /**
  * Minimal App-like harness. Mirrors the patch applied to packages/client/src/App.tsx:

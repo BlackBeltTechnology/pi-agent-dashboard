@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { groupConsecutiveToolCalls, type ChatItem, type ToolCallGroup } from "../group-tool-calls.js";
-import type { ChatMessage } from "../event-reducer.js";
+import { groupConsecutiveToolCalls, type ChatItem, type ToolCallGroup } from "../chat/group-tool-calls.js";
+import type { ChatMessage } from "../chat/event-reducer.js";
 
 function toolMsg(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {

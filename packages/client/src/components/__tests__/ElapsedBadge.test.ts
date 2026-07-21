@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatElapsed } from "../ElapsedBadge.js";
+import { formatElapsed } from "../session/ElapsedBadge.js";
 
 describe("formatElapsed", () => {
   it("shows <1s for sub-second durations", () => {

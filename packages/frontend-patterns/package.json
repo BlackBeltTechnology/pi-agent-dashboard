@@ -1,0 +1,40 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-frontend-patterns",
+  "version": "0.6.1",
+  "description": "Frontend implementation-pattern skills for pi sessions — accessibility-a11y (WCAG, keyboard nav, focus, ARIA), component-architecture (reusable card/section/form/layout patterns), responsive-mobile-first (sticky headers, drawers, floating CTAs, touch), tailwind-shadcn (Tailwind utilities + shadcn/ui + theming), typescript-strict (strict-mode types/guards/generics), zod-react-hook-form (Zod + React Hook Form validation). Pure-skill package, no extension.ts. Works in any React/Tailwind/shadcn project.",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/frontend-patterns"
+  },
+  "pi": {
+    "skills": [
+      ".pi/skills/accessibility-a11y",
+      ".pi/skills/component-architecture",
+      ".pi/skills/responsive-mobile-first",
+      ".pi/skills/tailwind-shadcn",
+      ".pi/skills/typescript-strict",
+      ".pi/skills/zod-react-hook-form"
+    ]
+  },
+  "files": [
+    ".pi/skills/",
+    "README.md"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "frontend",
+    "react",
+    "tailwind",
+    "shadcn",
+    "accessibility",
+    "typescript",
+    "forms"
+  ]
+}

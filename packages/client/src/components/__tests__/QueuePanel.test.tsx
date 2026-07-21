@@ -19,7 +19,7 @@
 
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { cleanup, render, fireEvent } from "@testing-library/react";
-import { QueuePanel } from "../QueuePanel";
+import { QueuePanel } from "../session/QueuePanel.js";
 
 afterEach(() => cleanup());
 

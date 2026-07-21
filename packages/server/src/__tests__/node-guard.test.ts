@@ -5,7 +5,7 @@ import {
   buildNodeUpgradeMessage,
   isAffectedNode,
   isOutOfEnginesRange,
-} from "../node-guard.js";
+} from "../auth/node-guard.js";
 
 describe("node-guard re-exports the shared canonical predicates", () => {
   it("isAffectedNode is the same reference as the shared source", () => {

@@ -13,7 +13,7 @@
 
 import { buildSpawnEnvForArgv } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import { describe, expect, it } from "vitest";
-import { buildSpawnEnv } from "../process-manager.js";
+import { buildSpawnEnv } from "../spawn-process/process-manager.js";
 
 const ELECTRON = "/Apps/Pi.app/Contents/MacOS/Pi";
 const REAL_NODE = "/opt/node/bin/node";

@@ -2,13 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { validateWsUpgrade } from "../auth-plugin.js";
-import { ensureLocalToken, LOCAL_TOKEN_HEADER, verifyLocalToken } from "../local-token.js";
+import { validateWsUpgrade } from "../auth/auth-plugin.js";
+import { ensureLocalToken, LOCAL_TOKEN_HEADER, verifyLocalToken } from "../auth/local-token.js";
 import {
   hasProxyForwardingHeaders,
   isGenuinelyLocal,
   isLoopback,
-} from "../localhost-guard.js";
+} from "../auth/localhost-guard.js";
 
 const SECRET = "test-secret";
 

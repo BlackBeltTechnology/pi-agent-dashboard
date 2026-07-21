@@ -17,7 +17,7 @@
 import { isLoopbackUrl } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import type React from "react";
 import { useCallback } from "react";
-import { useOptionalSplitWorkspace } from "../components/SplitWorkspaceContext.js";
+import { useOptionalSplitWorkspace } from "../components/split/SplitWorkspaceContext.js";
 
 export function useLoopbackLinkOpen(): (e: React.MouseEvent, href: string) => void {
   const ctx = useOptionalSplitWorkspace();

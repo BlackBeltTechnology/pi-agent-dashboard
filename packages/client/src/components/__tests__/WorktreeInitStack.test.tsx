@@ -9,9 +9,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React, { act } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { __resetInitBusForTests } from "../../lib/worktree-init-bus.js";
-import { initStore } from "../../lib/worktree-init-store.js";
-import { WorktreeInitStack } from "../WorktreeInitStack.js";
+import { __resetInitBusForTests } from "../../lib/git/worktree-init-bus.js";
+import { initStore } from "../../lib/git/worktree-init-store.js";
+import { WorktreeInitStack } from "../worktree/WorktreeInitStack.js";
 
 beforeEach(() => { initStore.__resetForTests(); __resetInitBusForTests(); });
 afterEach(() => { cleanup(); initStore.__resetForTests(); __resetInitBusForTests(); });

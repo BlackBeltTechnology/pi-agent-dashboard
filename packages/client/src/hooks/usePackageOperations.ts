@@ -21,22 +21,22 @@
  */
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { type MoveState, moveTracker } from "../lib/move-tracker.js";
+import { type MoveState, moveTracker } from "../lib/nav/move-tracker.js";
 import {
   type PackageOperationStatus,
   type PackageScope,
   packageQueue,
   type RunningOp,
-} from "../lib/package-queue.js";
+} from "../lib/package/package-queue.js";
 import {
   type MoveResponse,
   movePackage,
   type PackageEntry,
   type ResetResponse,
   resetToNpm as resetToNpmApi,
-} from "../lib/packages-api.js";
+} from "../lib/package/packages-api.js";
 
-export type { PackageOperationStatus } from "../lib/package-queue.js";
+export type { PackageOperationStatus } from "../lib/package/package-queue.js";
 
 export interface OperationState {
   operationId: string | null;

@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
-import { createInitialState, reduceEvent } from "../lib/event-reducer.js";
+import { createInitialState, reduceEvent } from "../lib/chat/event-reducer.js";
 
 function replayAndReduce(entries: any[]) {
   const events = replayEntriesAsEvents("sess-1", entries);

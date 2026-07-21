@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, screen, act } from "@testing-library/react";
 import React from "react";
-import { ThemeProvider, useThemeContext } from "../../ThemeProvider.js";
+import { ThemeProvider, useThemeContext } from "../../settings/ThemeProvider.js";
 
 // Shared fake Monaco captured across a test; reset per test.
 const defineTheme = vi.fn();
@@ -52,13 +52,13 @@ vi.mock("@monaco-editor/react", () => ({
 // Side-effect worker wiring — stub out in jsdom.
 vi.mock("../monaco-setup.js", () => ({}));
 // Deterministic theme build.
-vi.mock("../../../lib/monaco-theme.js", () => ({
+vi.mock("../../../lib/theme/monaco-theme.js", () => ({
   buildMonacoTheme: (themeName: string, resolved: string) => ({
     name: `pi-monaco-${themeName}-${resolved}`,
     data: { base: "vs-dark", inherit: true, rules: [], colors: {} },
   }),
 }));
-vi.mock("../../../lib/api-context.js", () => ({ getApiBase: () => "" }));
+vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 
 import MonacoBuffer from "../MonacoBuffer.js";
 import { MarkdownEditor } from "../MarkdownEditor.js";

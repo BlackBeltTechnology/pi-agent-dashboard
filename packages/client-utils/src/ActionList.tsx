@@ -7,8 +7,8 @@
  *
  * See change: adopt-server-driven-intent-rendering.
  */
-import React from "react";
 import Icon from "@mdi/react";
+import * as mdi from "@mdi/js";
 // We accept icon as a string key (MDI), look up via resolveMdiIcon at render time.
 import type { UiActionListProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { sendPluginAction } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -75,23 +75,11 @@ export function ActionList({ actions }: UiActionListProps) {
  * lookup.
  */
 function IconByKey({ iconKey }: { iconKey: string }) {
-  // We don't want to pull in @mdi/js at module load time (size); use a
-  // dynamic property lookup via a registered importer pattern instead.
-  // For v1, lazy-load @mdi/js at the renderer level and cache.
-  const [path, setPath] = React.useState<string | null>(null);
-  React.useEffect(() => {
-    let cancelled = false;
-    import("@mdi/js")
-      .then((mdi) => {
-        if (cancelled) return;
-        const candidate = (mdi as Record<string, unknown>)[iconKey];
-        setPath(typeof candidate === "string" ? candidate : null);
-      })
-      .catch(() => setPath(null));
-    return () => {
-      cancelled = true;
-    };
-  }, [iconKey]);
+  // @mdi/js is already eager (statically imported across the shell), so this
+  // is a synchronous flat property lookup — no dynamic import, no loading
+  // state. See change: shrink-client-index-chunk.
+  const candidate = (mdi as Record<string, unknown>)[iconKey];
+  const path = typeof candidate === "string" ? candidate : null;
   if (!path) return null;
   return <Icon path={path} size={0.6} />;
 }

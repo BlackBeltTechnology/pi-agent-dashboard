@@ -1,377 +1,140 @@
-
 # PI Dashboard
 
-## Project Overview
+Web dashboard to monitor + control pi agent sessions remotely. Three components: bridge extension + Node server + React client. Full architecture: [docs/architecture.md](docs/architecture.md).
 
-Web-based dashboard for monitoring and interacting with pi agent sessions remotely. Three-component architecture: bridge extension + Node.js server + React web client.
+## Docs-First Gate — kb before grep (per-turn doctrine)
 
-## STOP — Docs-First Gate
+`kb_*` tools return a one-line purpose + key exports per file instead of raw bytes. **This gate fires on the ACTION, not the intent** — before you `grep`/`rg` a symbol, `cat`/Read a file to learn its purpose, or chase an import, the kb call goes first. It fires **even mid-task when you already know the file**. When your reflex is the left column, run the right instead:
 
-**For any project-specific factual / "where is X" / "how does Y work" question: call `kb_search` FIRST — before `ctx_search`, `memory_search`, `grep`, or any source read.** `kb_search` indexes the repo markdown (`docs/`, `openspec/`, `packages/`, `.pi/`). It is the fastest correct map of this codebase. Fall through to grep/source only when `kb_search` returns nothing relevant. (`ctx_search` = session capture, not repo docs; different corpus.)
+| You're about to… | Do this FIRST instead |
+|---|---|
+| `grep -rn "SymbolName"` — find where a fn/type/const lives | `kb_search --doc-type agents "SymbolName"` |
+| `grep -rn "topic" src/` — how does X work / where's X handled | `kb_search "feature topic"` |
+| `cat`/`Read` a file to learn its purpose before editing | `kb agents <path>` — purpose + exports + `See change:` |
+| chase imports / callers across files | `kb_neighbors <path\|heading>` |
+| read one doc section in full | `kb_get <path> <section>` |
+| build / run / install / setup / release / "how do I X" | `grep -i <kw> docs/faq.md README.md docs/` — then quote |
 
-> **"What files relate to X" / per-file lookups:**
-> - Any file that lives in a directory → the per-directory `AGENTS.md` tree is the per-file record. Covers `packages/**` source AND non-source areas (`docker/`, `scripts/`, `.pi/skills/`, `public/`, `qa/`, `tests/`, `.github/`). `kb agents <path>` returns the root→nearest chain (pull, on demand); `kb_search --doc-type agents` ranks tree rows by symbol/topic; or read the file's own directory `AGENTS.md` (small) for its siblings.
-> - `docs/` topic docs + the 3 root-level config files (`biome.json`, `playwright.config.ts`, `.pi-test-harness.json`) have no owner under `packages/` — they live in `docs/AGENTS.md` (same tree; `kb agents docs/<file>` / `kb_search --doc-type agents`). The `docs/file-index*.md` splits are RETIRED — the per-directory `AGENTS.md` tree is the sole per-file record. See change: migrate-file-index-to-agents-tree.
+`kb_search` indexes repo markdown (`docs/ openspec/ packages/ .pi/`). `ctx_search`/`memory_search` index session memory, NOT repo docs — different corpus.
 
-**Before any build / run / install / setup / release / "how do I X" question: `grep -i <keyword> docs/faq.md README.md docs/` FIRST. No source reads until that returns nothing.**
+**Per-file record = directory `AGENTS.md` tree.** Every file (incl. `docker/ scripts/ .pi/skills/ public/ qa/ tests/ .github/`) has a row in its directory's `AGENTS.md`. `docs/` topic docs + root config (`biome.json`, `playwright.config.ts`, `.pi-test-harness.json`) → `docs/AGENTS.md`. `kb agents <path>` returns the root→nearest chain; `kb_search --doc-type agents` ranks rows by symbol/topic. Tree files are tiny — no subagent needed. The `docs/file-index*.md` splits are RETIRED.
 
-If you read a script, config, or source file before grepping docs on a how-to, what-is question, you violated the protocol. Re-grep, then answer.
+**Fall-through:** if the kb call returns nothing relevant, `rg`/source read is allowed — then add the missing directory-`AGENTS.md` row per the Documentation Update Protocol. kb does NOT replace grep; it goes first. For "how do I X"/build/run/setup, grep `README.md` + `docs/` (incl. `docs/faq.md`) before reading source.
 
-- ❌ User: "how do I ..." → read `<src files>` → guess answer
-- ✅ User: "how do I ..." → `grep -ni '<words>' docs/faq.md` → quote the FAQ entry
+## Code Instructions (per-turn doctrine)
 
-- ❌ User: "what is ..." → read `scripts/build-installer.sh`, `forge.config.ts` → guess answer
-- ✅ User: "what is ..." → `grep -ni '<words>' docs/index-*.md` → quote the entry
+Behavioral guidelines to reduce common LLM mistakes. Bias toward caution over speed. Trivial tasks → judgment.
 
-Full protocol (index-first for code questions, directory `AGENTS.md` tree, etc.) is in [Investigation Protocol — Index First](#investigation-protocol--index-first) below.
+1. **Think before coding.** State assumptions; if uncertain, ask via `ask_user`. Present multiple interpretations, don't pick silently. Push back when a simpler approach exists. **Never speculate about code you haven't opened** — consult the doc tree (`kb agents`/`kb_search`), then read the file. Confirm the plan before any major change.
+2. **Simplicity first.** Minimum code that solves the problem. No speculative features/abstractions/flexibility/error-handling for impossible cases. DRY: extract a shared helper when a pattern repeats (not for a single call site). "Would a senior engineer call this overcomplicated?" If yes, simplify.
+3. **Surgical changes.** Touch only what you must. Don't improve/refactor/reformat adjacent code. Match existing style. Mention unrelated dead code, don't delete it. Remove only orphans YOUR change created. Every changed line traces to the request.
+4. **Goal-driven (TDD).** Turn tasks into verifiable goals. Write/update tests first, verify they fail, then minimal implementation to pass. State a brief plan for multi-step tasks (step → verify).
+5. **Communication.** High-level summary of what changed each step. Use `ask_user` (not plain text) for clarification/choices.
 
-## Code Instructions
+## Investigation Protocol — Index First
 
-Behavioral guidelines to reduce common LLM coding mistakes. Bias toward caution over speed. For trivial tasks, use judgment.
-
-### 1. Think Before Coding
-
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
-
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask via `ask_user`.
-- If multiple interpretations exist, present them — don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-- **Never speculate about code you have not opened.** If the user references a specific file, read it before answering. No claims about the codebase without investigation — grounded, hallucination-free answers only.
-- Before any major change, check in with the user and confirm the plan.
-
-### 2. Simplicity First
-
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-- **DRY:** if the same pattern appears in multiple places, extract a shared helper/class/component. Don't pre-extract for a single call site.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-### 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it — don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: every changed line should trace directly to the user's request.
-
-### 4. Goal-Driven Execution (TDD)
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For implementation, use **TDD**: write or update tests first to define expected behaviour, verify they fail, then write the minimal implementation to make them pass.
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
-### 5. Communication
-
-- At every step, give a high-level explanation of what changed — don't dump diffs without summary.
-- Use `ask_user` (not plain-text questions) when you need clarification, confirmation, or a choice.
-
----
-
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+Before reading source, consult the per-file record (directory `AGENTS.md` tree, above). Workflow for "where is X"/"how does Y work": (1) `kb_search` first (FTS5+BM25 over repo markdown); (2) `kb agents <path>` for the root→nearest chain of a known file; (3) receive ≤~10 candidates, then open source; (4) if the tree misses, fall back to `rg`/`Explore`, then add the missing row. Do NOT grep source before the kb call; do NOT recreate `docs/file-index*.md`.
 
 ## Documentation Update Protocol
 
-**Default assumption: your update does NOT belong in AGENTS.md.** AGENTS.md loads into every agent's context on every turn — every byte costs tokens. Route by kind:
+**Default: your update does NOT belong in AGENTS.md** — it loads every turn, every byte costs tokens. Route by kind:
 
 | Kind of update | Goes in |
 |---|---|
-| New file in ANY directory (`packages/**` source AND `docker/`, `scripts/`, `.pi/skills/`, `public/`, `qa/`, `tests/`, `.github/`), or its per-file detail / change-history / contract / "See change: …" | Nearest directory `AGENTS.md` (the tree). Add a `| \`<basename>\` | <purpose> |` row, path-alphabetical. New dir → scaffold via `kb dox init`. |
-| New root-level config file (`biome.json`, `playwright.config.ts`) or `docs/` file — no owner under `packages/` | `docs/AGENTS.md` (the docs tree node). Add a `| \`<basename>\` | <purpose> |` row, path-alphabetical. |
-| New top-level source area / new directory | Scaffold its `AGENTS.md` via `kb dox init`. Pointer in AGENTS.md only if architectural backbone. |
+| New file in ANY directory, or its per-file detail / change-history / `See change:` | Nearest directory `AGENTS.md`. Row `| \`<basename>\` | <purpose> |`, path-alphabetical. New dir → `kb dox init`. |
+| New root config file or `docs/` file | `docs/AGENTS.md`, same row schema. |
+| New top-level source area / directory | Scaffold its `AGENTS.md` via `kb dox init`. |
 | Data flow, persistence, reconnection, protocol, config reference | `docs/architecture.md` |
-| End-user / developer setup, prerequisites, CI badges, project structure | `README.md` |
-| Cross-cutting rule EVERY agent needs on EVERY turn (rare) | AGENTS.md, ≤ 200 chars per row, no inline change history |
-| Source-of-truth change the doctor skill derives (peer rename, pi floor bump, new install platform, new bridge/plugin slot) | Run `doctor --regenerate <module>`: peer rename→`peers`; pi floor→`pi-resolution`; new platform→`install-topology`; new bridge slot→`plugins-bridges`. Doctor self-derives facts from live sources — never hand-maintain version/name tables in the module MDs. |
+| End-user/dev setup, prerequisites, CI, project structure | `README.md` |
+| Cross-cutting rule EVERY agent needs EVERY turn (rare) | AGENTS.md, ≤200 chars/row, no inline change history |
+| Source-of-truth change the doctor skill derives | `doctor --regenerate <module>` — never hand-maintain version/name tables |
 
-Rules:
-
-0. **The ROOT AGENTS.md MUST NOT contain a per-file index.** No `Key Files` table, no per-file rows, no path → purpose lists in THIS file. Per-file records live in the per-directory `AGENTS.md` tree (any directory, including `docs/AGENTS.md` for `docs/` topic docs + root-level config). New files → a row there, never in this root file. (Directory `AGENTS.md` files ARE per-file indexes — that is the tree, not this file.)
-
-1. **Per-file record = directory `AGENTS.md` tree.** Every file lives in a directory; its record is that directory's `AGENTS.md` (`docs/` topic docs + root-level config → `docs/AGENTS.md`). Schema `| \`<basename>\` | <purpose> |`, path relative to that `AGENTS.md`. One row per file, path-alphabetical.
-   - Purpose carries everything per-file: one-line summary, key exported symbols, contracts/invariants, `See change: <change-id>` history.
-   - Find the file's row first; if present, update its purpose in place; else add in alphabetical order.
-   - Caveman style (Rule 6 below) applies to row purposes too.
-
-2. **AGENTS.md content beyond per-file rows** — anything that DOES belong here (architecture pointers, build commands, rules every agent needs) stays ≤ 200 chars per line where possible; never enumerate files inline.
-
-3. **Tree files stay small; large `AGENTS.md` not supported.** One dir = one `AGENTS.md`, ~1 row/file. pi auto-injects a dir `AGENTS.md` every turn when cwd sits at/below it, so a flat dir with many files (e.g. `components/`, 154 files) bloats it past `AGENTS_BYTE_CAP` (30 KB, `packages/kb/src/dox.ts`) → **split file-based**: rows > 200 chars promote to a per-file `<File>.AGENTS.md` sidecar (full detail + every `See change:`; pull-only — name ≠ `AGENTS.md` so no auto-inject; `agents` doc_type, `kb search`-able); the dir row keeps a one-line summary + `→ see \`<File>.AGENTS.md\``. Rows ≤ 200 chars stay verbatim (lossless). Run `node scripts/split-large-agents.mjs <path/to/AGENTS.md> --write`. `kb dox lint` flags `over-threshold` (row count > 40 OR bytes > cap).
-
-4. **Long-form docs** (architecture decisions, rationale, protocol details) belong in `docs/architecture.md` or `docs/<topic>.md`. Reference from AGENTS.md with a one-line pointer, never inline.
-
-5. **When you create a new long-form `docs/<topic>.md`**, add a one-line pointer in AGENTS.md + a row in `docs/AGENTS.md` so future agents find it.
-
-6. **Every write under `docs/` MUST be delegated to a general-purpose subagent with the caveman-style rule passed verbatim in its prompt.** Main agent orchestrates, never edits `docs/` directly.
-
-   **Caveman style** (all `docs/` prose AND directory `AGENTS.md` tree rows — tree rows, architecture notes, topic docs). Note: source-tree rows live under `packages/` + non-source areas, so the main agent edits them directly; any write under `docs/` (prose AND `docs/AGENTS.md`) goes through Rule 6 delegation:
-   - Short declarative fragments. Drop articles (a/an/the) and most copulas (is/are/was) when meaning survives.
-   - Subject → verb → object, present tense. No hedging, no marketing voice, no "we", no "you".
-   - One fact per line/row. No restating context the file already establishes.
-   - Prefer concrete tokens (paths, function names, env vars, ports, exit codes) over prose.
-   - Keep symbols/identifiers verbatim; only connective tissue compresses.
-   - Example — verbose: "This module is responsible for parsing the user's input and then dispatching it to the correct handler based on the command prefix." Caveman: "Parses user input. Dispatches to handler by command prefix."
-
-Why this exists: AGENTS.md ballooned to 107 KB (~27k tokens) by accreting per-change annotations on every row over months. Per-file detail now lives in the per-directory `AGENTS.md` tree; this root file holds only doctrine.
+Rules (full rationale + caveman-style spec: [docs/architecture.md](docs/architecture.md)):
+- **The ROOT AGENTS.md MUST NOT contain a per-file index** — no Key Files table, no per-file rows. Per-file records live in the directory `AGENTS.md` tree.
+- **Purpose row** carries everything per-file: one-line summary, key exports, contracts, `See change:`. Update in place if present, else insert alphabetically.
+- **Tree files stay small** (~1 row/file, cap 30 KB `AGENTS_BYTE_CAP`). Flat dirs with many files split file-based: rows >200 chars promote to a pull-only `<File>.AGENTS.md` sidecar; dir row keeps a summary + `→ see`. Run `node scripts/split-large-agents.mjs <path> --write`. `kb dox lint` flags `over-threshold`.
+- **Every write under `docs/`** (prose AND `docs/AGENTS.md`) is delegated to a general-purpose subagent (DocScribe) with the **caveman-style** rule passed verbatim — short declarative fragments, drop articles/copulas, subject→verb→object, one fact per line, concrete tokens (paths/fns/env/ports) over prose, symbols verbatim. Main agent orchestrates, never edits `docs/` directly. Source-tree rows under `packages/`+non-source areas: main agent edits directly.
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for full details.
-- See [docs/electron-bootstrap-flow.md](docs/electron-bootstrap-flow.md) for the Electron app→server bootstrap state machine and end states.
-- See [docs/doctor-skill.md](docs/doctor-skill.md) for the modular doctor diagnostic skill (router + 7 capability modules, shell-first derive-on-run checks, two-tier self-update).
+Full details: [docs/architecture.md](docs/architecture.md). Electron bootstrap: [docs/electron-bootstrap-flow.md](docs/electron-bootstrap-flow.md). Doctor skill: [docs/doctor-skill.md](docs/doctor-skill.md).
 
-- **Bridge Extension** (`src/extension/`) — Runs in every pi session, forwards events via WebSocket
-- **Dashboard Server** (`src/server/`) — Aggregates events, in-memory + JSON persistence, dual WebSocket servers
+- **Bridge Extension** (`src/extension/`) — runs in every pi session, forwards events via WebSocket
+- **Dashboard Server** (`src/server/`) — aggregates events, in-memory + JSON persistence, dual WebSocket servers
 - **Web Client** (`src/client/`) — React + Tailwind responsive UI
-- **Shared Types** (`src/shared/`) — Protocol definitions shared across components
+- **Shared Types** (`src/shared/`) — protocol definitions
 
 ## Commands
 
 ```bash
-npm install          # Install dependencies
-npm test             # Run all tests (vitest)
-npm run test:watch   # Watch mode
-npm run build        # Build web client (Vite)
-npm run dev          # Start Vite dev server
-npm run reload       # Reload all connected pi sessions
-npm run reload:check # Type-check + reload all pi sessions
-pi-dashboard         # Start dashboard server
-pi-dashboard --dev   # Start with Vite proxy
+npm install          # deps
+npm test             # all tests (vitest)
+npm run build        # build web client (Vite)
+npm run dev          # Vite dev server
+npm run reload       # reload all connected pi sessions
+pi-dashboard         # start server   (--dev = Vite proxy)
 ```
 
-### Docker
-
-Self-contained all-in-one image (server + pi agent + code-server + zrok + tmux). Files live in `docker/`. Electron gains a wizard "remote" mode (attach to a Docker-hosted URL). Full guide: [`docker/README.md`](docker/README.md). Per-file map: [`docker/AGENTS.md`](docker/AGENTS.md).
-
+**Docker** (self-contained all-in-one: server + pi + code-server + zrok + tmux). Full guide: [`docker/README.md`](docker/README.md); per-file map: [`docker/AGENTS.md`](docker/AGENTS.md).
 ```bash
-cd docker && cp .env.example .env && docker compose up -d --build   # build + run
-PI_WORKSPACES="/abs/a:/abs/b" ./up.sh                                # path-identical mounts, auto-pinned
-docker compose -f compose.yml -f compose.dev.yml up                 # dev overlay (Vite HMR)
+cd docker && cp .env.example .env && docker compose up -d --build
+PI_WORKSPACES="/abs/a:/abs/b" ./up.sh
 ```
 
 ## Running Tests
 
-Pipe test output to a tmp file, then grep — avoids re-running to inspect errors:
-
+Pipe once to a tmp file, then grep — never rerun to inspect errors:
 ```bash
-npm test 2>&1 | tee /tmp/pi-test.log        # run once, capture all output
-grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log   # find failures
-grep -n -A 20 'FAIL ' /tmp/pi-test.log        # failure + context
+npm test 2>&1 | tee /tmp/pi-test.log
+grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log
 ```
-
-Always grep the file — never rerun `npm test` just to see errors.
-
-## Cross-Platform QA Testing
-
-Two QA layers, additive — neither replaces the other:
-- **VM smoke (`qa/`)** — clean-install + process runtime across OSes (below).
-- **Browser E2E (`tests/e2e/`)** — Playwright rendered-UI behaviour (see next section).
-
-VM-based QA testing for verifying clean-state installation and runtime across platforms.
-
-```bash
-cd qa
-make build-linux-x86    # Build Ubuntu x86 base image (Packer + VMware)
-make test-linux-x86     # Clone → boot → run tests → destroy
-make manual-linux-x86   # Clone with GUI for manual testing
-make clean              # Destroy all cloned VMs
-```
-
-| File | Purpose |
-|------|---------|
-| `qa/Makefile` | Build/test/manual/clean targets for all platforms |
-| `qa/packer/*.pkr.hcl` | Packer templates per platform (Ubuntu, Windows, macOS) |
-| `qa/packer/scripts/` | Provisioning scripts (common, linux, macos, windows) |
-| `qa/packer/vars/` | OS-version-specific variables (ISO URL, checksum, VM specs) |
-| `qa/packer/http/` | Auto-install configs (cloud-init, autounattend.xml) |
-| `qa/scripts/` | VM lifecycle (clone, wait-ssh, destroy, run-test) |
-| `qa/tests/` | Test suite (install, server, websocket, terminal, git) |
-| `qa/README.md` | Full setup and usage documentation |
-
-### Playwright Browser E2E (`tests/e2e/`)
-
-**Convention: new browser-level QA scenarios are authored as Playwright specs in `tests/e2e/`, run against the Docker test container.** Do NOT add browser-rendered assertions to `qa/tests/*.sh,*.ps1` (those stay CLI/process smoke).
-
-- Target: `http://localhost:18000` (the disposable `docker/` test harness).
-- Lifecycle: Playwright `globalSetup` runs `docker/test-up.sh` and waits for `/api/health` → 200; `globalTeardown` runs `docker/test-down.sh` (discards all state).
-- Fast path: `PW_E2E_USE_RUNNING=1 npm run test:e2e` attaches to an already-running container and skips teardown.
-- E2E is opt-in (`npm run test:e2e`), separate from the vitest unit run (`npm test`). Requires Docker + `npx playwright install chromium`.
-- Spec/tasks: `openspec/changes/add-playwright-e2e/` (harness lands first; scenarios tracked as follow-up tasks).
-
-## Investigation Protocol — Index First
-
-**Before reading source, consult the per-file record.** Every file's record is its directory's `AGENTS.md` — `kb agents <path>` returns the root→nearest chain (`docs/` topic docs + root config → `docs/AGENTS.md`). The record is the cheapest map — one-line purpose + key exports + `See change:` history per file. Reading source blind wastes tokens and risks hallucination.
-
-**For "how do I X" / build / run / setup questions: grep `README.md` + `docs/` first.** These already document every supported workflow (build, install, release, QA, troubleshooting). Reading source before checking docs wastes tokens and produces wrong answers (e.g. claiming a feature is missing when it ships). Check `docs/faq.md` for recurring questions.
-
-**Search order: `kb_search` first** (indexes `docs/ openspec/ packages/ .pi/` — FTS5+BM25 over repo markdown), then the steps below if it misses. Prefer `kb_search` over `ctx_search`/`memory_search` for repo-fact lookups; those index session memory, not documents.
-
-Workflow for any non-trivial "where is X" / "how does Y work" question:
-
-1. **Any file/dir in the tree** (`packages/**` + `docker/`, `scripts/`, `.pi/skills/`, `public/`, `qa/`, `tests/`, `.github/`)**:** run `kb agents <path>` for the root→nearest `AGENTS.md` chain, or read the file's own directory `AGENTS.md` (small). `kb_search --doc-type agents` finds a row by symbol/topic. No subagent needed — tree files are tiny.
-2. **Root-level config + `docs/` files:** read `docs/AGENTS.md` (the docs tree node) or `kb agents docs/<file>`. Small — no subagent needed.
-3. **Receive a short list** of candidate files (≤ ~10). Only then open source for the ones that matter.
-4. If the tree does not cover it, fall back to `rg` / `Explore`, then add the missing row per the Documentation Update Protocol.
-
-Do **not**:
-- Grep source before checking the per-file record.
-- Recreate any `docs/file-index*.md` — retired; the per-directory `AGENTS.md` tree is the sole per-file record.
-- Trust the AGENTS.md "Key Files" backbone as exhaustive; it is a subset.
-
-## Subagent Routing
-
-Delegate specialist work to the matching subagent instead of doing it inline. Subagents run in isolated context — keeps main-agent budget free.
-
-| Subagent | Use for |
-|---|---|
-| `Explore` | Read-only codebase search, "where is X" questions when the tree misses. Default for investigation. (Per-file lookups use `kb agents <path>` / the directory `AGENTS.md` directly — no subagent.) |
-| `react-expert` | React component refactors, hooks, state-management, render perf in `src/client/` and `packages/web/`. |
-| `typescript-expert` | Type-system work, generics, strict-mode fixes, async/Promise typing, `.d.ts` authoring. |
-| `nodejs-expert` | Server-side async, streams, perf, Node API usage in `src/server/`, `packages/server/`, Electron main process. |
-| `tailwind-expert` | Utility-class refactors, responsive breakpoints, design-token audits, dark-mode plumbing. |
-
-Rules:
-- One specialist per task. Don't chain react-expert → typescript-expert if a single pass covers it.
-- Skip for trivial edits (one-line fix, rename, import tweak). Delegation overhead > benefit.
-- Skills (`.pi/skills/`) auto-load by NL trigger — no manual invocation needed. Subagents (`.pi/agents/`) require explicit `Agent` tool call with `subagent_type`.
-
-Context inheritance (this repo ships `pi-dashboard-subagents` producer, NOT pi's stock subagent):
-- Default `inheritContext: true` → child receives a **compressed snapshot** of the parent conversation (last N turns + bounded tool output, capped by `maxChars`). Configurable at Settings → general → "Fork parent context into every subagent" or `~/.pi/agent/extensions/pi-dashboard-subagents/config.json`.
-- Still pass exact file paths + question in the `task:` string. Compression can drop the specific snippets a specialist needs (`maxChars` cap), and the toggle may be off.
-- If file locations are unknown, use `Explore` first — don't rely on the child to re-discover them from compressed history.
-
-## Key Files
-
-The **architectural backbone** lived inline here; that 270-row table was an index, not an instruction. Per-file detail now lives in the per-directory `AGENTS.md` tree (every file in a directory; `docs/` topic docs + root-level config → `docs/AGENTS.md`). The `docs/file-index*.md` splits are retired.
-
-- **Per-file record**: the directory `AGENTS.md` tree. Retrieve via `kb agents <path>` (root→nearest chain) or `kb_search --doc-type agents`. See change: migrate-file-index-to-agents-tree.
-- **Docs tree node**: [`docs/AGENTS.md`](docs/AGENTS.md) — `docs/` topic docs + root-level config.
-- **Investigation protocol**: see "Investigation Protocol — Index First" above.
-- **Adding a file**: per "Documentation Update Protocol" — any file → nearest directory `AGENTS.md` (`docs/` + root config → `docs/AGENTS.md`). Never add per-file rows to this root file.
 
 ## Build & Restart Workflow
 
-The dashboard has three components that need rebuilding depending on what changed:
+**Rebuild/restart procedure — extension→reload, server→restart, client→build+restart, openspec-apply→full rebuild — plus the code discipline for landing a change: the `implement` skill** (auto-loads on "rebuild", "after edit", "implement X", "how do I land this"). Two-tier code review (`review-code` inline + opt-in CodeRabbit ship gate), Biome quality ratchet (`code-quality` skill, `npm run quality:changed`), and the discipline-skill checkpoint table also live there. Full quality ref: [`docs/code-quality.md`](docs/code-quality.md).
 
-### After bridge extension changes (`src/extension/`)
-Reload all connected pi sessions to pick up the new bridge code:
+Quick reference:
 ```bash
-npm run reload          # Reload all pi sessions
-npm run reload:check    # Type-check first, then reload
+npm run reload                              # after src/extension/ changes
+curl -X POST http://localhost:8000/api/restart   # after src/server|src/shared changes (jiti — no build)
+npm run build && curl -X POST .../api/restart    # after src/client changes (production)
+curl -s http://localhost:8000/api/health | jq .mode   # dev | production
 ```
+`/api/restart` is the single restart source of truth (CLI `restart` delegates to it when the dashboard is up). `--dev` proxies to Vite with automatic production fallback. `full-rebuild.ts` = deploy checked-out dev to the local instance; NOT a feature step.
 
-### After server changes (`src/server/`, `src/shared/`)
-Restart the dashboard server. The server runs TypeScript directly via jiti (pi's TypeScript loader), so no separate build step is needed — just restart:
-```bash
-# Graceful restart via API (preserves current dev/prod mode)
-curl -X POST http://localhost:8000/api/restart
+## Cross-Platform QA
 
-# Or via CLI
-pi-dashboard restart              # production mode
-pi-dashboard restart --dev        # dev mode
+Two additive layers: **VM smoke** (`qa/`, clean-install + runtime per OS) and **Playwright browser E2E** (`tests/e2e/`, rendered-UI behaviour vs the docker harness). New browser scenarios → Playwright specs, NOT `qa/tests/*.sh`. Full setup: [`qa/README.md`](qa/README.md). E2E is opt-in (`npm run test:e2e`); harness lifecycle via `docker/test-up.sh`/`test-down.sh`.
 
-# Manual stop + start
-pi-dashboard stop && pi-dashboard start
-pi-dashboard stop && pi-dashboard start --dev
-```
+## Subagent Routing
 
-### After client changes (`src/client/`)
-- **Dev mode**: Vite hot-reloads automatically, no action needed. Start with `npm run dev`.
-- **Production mode**: Rebuild the client and restart the server:
-  ```bash
-  npm run build
-  curl -X POST http://localhost:8000/api/restart
-  ```
+Delegate specialist work to the matching subagent (isolated context). Explicit `Agent` call with `subagent_type` required (skills auto-load by NL; subagents don't). One specialist per task; skip for trivial edits.
 
-### After OpenSpec apply finishes (full rebuild)
-When an openspec-apply-change skill completes implementation, do a full rebuild and restart:
-```bash
-npm run build
-curl -X POST http://localhost:8000/api/restart
-npm run reload
-```
-`full-rebuild.ts` = **deploy** the checked-out dev version to the local running instance. NOT a feature-implementation step; worktree / Docker-isolated work does not run it.
-
-### Code-review gate (implementation phase)
-At implementation completion, before commit, run the advisory CodeRabbit gate on the diff. **Server-independent + worktree-safe** (no build, no restart) — works in a git worktree and alongside the Docker-isolated instance:
-```bash
-npx tsx .pi/skills/implement/scripts/review-changes.ts          # uncommitted diff (default)
-npx tsx .pi/skills/implement/scripts/review-changes.ts -t committed --base main
-SKIP_CR_REVIEW=1 npx tsx .pi/skills/implement/scripts/review-changes.ts   # skip
-```
-Warn-and-continue, never blocks: CodeRabbit is cloud rate-limited (no local model); on limit / missing CLI / auth failure it defers to a later cycle and exits 0. Fix Critical/Warning, then commit. Triage + fix loop: `code-review` skill.
-
-### Code-quality gate (Biome ratchet)
-Static analysis via Biome. `npm run quality:changed` = oracle (biome `--changed` + `tsc --noEmit` + `npm test`, single exit code; goal-loop drivable). Tier A `error` (hard-gates CI), Tier B/C `warn`. Procedure: `code-quality` skill. Full ref: [`docs/code-quality.md`](docs/code-quality.md).
-
-### Discipline-skill checkpoints (implementation phase)
-During implementation, invoke the matching `eng-disciplines` skill when a task signal appears. Skills auto-trigger on NL, but the implement loop may never utter the phrase — this table makes the mapping explicit and mechanical (signals are observable in the diff / `tasks.md`, not vague intent):
-
-| Task signal (in diff / tasks.md) | Skill |
+| Subagent | Use for |
 |---|---|
-| touches auth, untrusted input, secrets, webhooks, PII | `security-hardening` |
-| spec has a latency/throughput budget, or a large-data / high-traffic path | `performance-optimization` |
-| new endpoint, job, external call, or "can't tell what happened in prod" | `observability-instrumentation` |
-| non-trivial/irreversible step (migration, public API, cross-boundary) BEFORE it stands | `doubt-driven-review` |
-| a bug surfaces mid-implementation | `systematic-debugging` |
-| runtime state opaque, `console.log` insufficient (jiti server, PTY workers, WS closures) | `node-inspect-debugger` |
-| feature works + tests pass but the implementation feels heavy | `code-simplification` |
+| `Explore` | Read-only search / "where is X" when the tree misses (per-file lookups use `kb agents` directly). |
+| `react-expert` | React refactors/hooks/state/render-perf in `src/client/`, `packages/web/`. |
+| `typescript-expert` | Type-system, generics, strict-mode, async typing, `.d.ts`. |
+| `nodejs-expert` | Server async/streams/perf in `src/server/`, `packages/server/`, Electron main. |
+| `tailwind-expert` | Utility-class refactors, breakpoints, tokens, dark-mode. |
+| `Audit` | Deep security+perf pass on a diff (read-only findings; parent fixes). |
+| `DocScribe` | Write `docs/` prose in caveman style (Rule-6 target). Returns tree rows for parent to apply. |
+| `SessionGuideline` | Turn a session into a how-we-did-it playbook. |
 
-The end gates (`code-review`, `code-quality`) remain unchanged and run at completion before commit.
+**Apply-loop spawn checkpoints** (signal in diff/tasks.md → spawn): touches auth/secrets/PII/untrusted-input/webhooks or a latency budget → `Audit`; contextFiles list large → `Explore`; a change landed + `docs/` needs prose → `DocScribe`.
 
-### Check current mode
-```bash
-curl -s http://localhost:8000/api/health | jq .mode
-# Returns "dev" or "production"
-```
+**Discipline-skill checkpoints** (invoke the `eng-disciplines` skill when the signal appears): auth/untrusted-input/secrets/PII → `security-hardening`; latency/throughput budget or large-data path → `performance-optimization`; new endpoint/job/external-call → `observability-instrumentation`; irreversible step (migration/public-API) before it stands → `doubt-driven-review`; bug mid-implementation → `systematic-debugging`; opaque runtime state (jiti/PTY/WS) → `node-inspect-debugger`; non-trivial change + tests pass before commit → `review-code`; works but feels heavy → `code-simplification`.
 
-### Dev mode with production fallback
-In `--dev` mode, the server proxies to Vite for HMR. If Vite is not running, it **automatically falls back** to serving the production build from `dist/client/`. This means `pi-dashboard start --dev` always works — no 502 errors.
-
-### Fault-tolerant restart
-- `POST /api/restart` waits for the old server to exit, starts a new one, and verifies health
-- `POST /api/restart` with body `{"dev": true}` or `{"dev": false}` switches modes
-- `pi-dashboard stop` kills stale processes holding the ports (via `lsof`), not just the PID file
-- **Single restart path** (change: fix-restart-bridge-auto-start-race): `/api/restart` is the single source of truth. `pi-dashboard restart` (CLI) probes `isDashboardRunning(port)` and **delegates to `/api/restart`** when the dashboard is up; only when no dashboard is running does it fall back to local `cmdStop` + `cmdStart`. The `restart-helper.ts` orchestrator runs detached, kills the previous PID explicitly (SIGTERM → SIGKILL), then spawns the replacement. Before exit, the server broadcasts `server_restarting { reason, quiesceMs }` to every connected pi bridge so bridges suppress their auto-start spawn step for the quiesce window (5 s for restart, 60 s for shutdown) and don't race the orchestrator. Discovery + reconnection still run during the window so bridges pick up the new server as soon as it advertises.
+Context inheritance: this repo ships `pi-dashboard-subagents` (default `inheritContext: true` → child gets a compressed parent snapshot, capped by `maxChars`). Still pass exact file paths + the question in `task:`; use `Explore` first if locations are unknown.
 
 ## OpenSpec Conventions
 
-In a git worktree, use the worktree parent's `.pi/skills` (opsx/OpenSpec skills) — resolve OpenSpec skills from the main repo root, not the worktree checkout.
+In a worktree, resolve OpenSpec skills from the main repo root, not the checkout. Place change artifacts at `openspec/changes/<name>/` (never under `active/`/`archive/`); prefer `openspec change new <name>`. In `proposal.md`, add a `## Discipline Skills` line naming the `eng-disciplines` skills its tasks trigger (per the checkpoint tables above); omit only when none apply. Use `ask_user` (batch for multi-question) for any needed input.
 
-When creating OpenSpec change artifacts, always place them at `openspec/changes/<name>/` — never nest under subdirectories like `active/` or `archive/`. Prefer using `openspec change new <name>` CLI to scaffold the directory structure correctly.
+## Key Files
 
-When authoring a proposal, add a `## Discipline Skills` line to `proposal.md` naming the `eng-disciplines` skills its tasks will trigger (mapped via the checkpoint table under Build & Restart Workflow); omit only when none apply. This needs no edit to any `openspec-*` or `implement` skill — the implement loop reads the proposal artifact unchanged, so the named skills enter its context and get invoked.
+The architectural backbone is NOT indexed here. Per-file record = the directory `AGENTS.md` tree, via `kb agents <path>` (root→nearest chain) or `kb_search --doc-type agents`. Docs tree node: [`docs/AGENTS.md`](docs/AGENTS.md). Adding a file → nearest directory `AGENTS.md` (never this root file).
 
 ## Diagram Style
 
-When creating diagrams, use Mermaid syntax (```mermaid blocks) instead of ASCII box drawings. This applies to explore mode, design documents, and all other artifacts.
-
-
+Use Mermaid (```mermaid blocks), not ASCII box drawings — explore mode, design docs, all artifacts.

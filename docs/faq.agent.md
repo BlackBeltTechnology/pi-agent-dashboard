@@ -139,3 +139,15 @@ Pull-only condensed map. Source: docs/faq.md. Question → key answer.
 - Auto-initialize worktrees on spawn — Settings→Sessions "Initialize on worktree" (default off). Trusted `worktreeInit` hook.
 - Local macOS DMG old `macos-alias`/`volume.node` error gone — obsolete since `fix-local-electron-dmg-build`; built by electron-builder dmg.
 - Feedback during worktree init — status chip `⚙ Initializing… · {elapsed}` + progress bar (`friendlier-worktree-init`).
+
+## Runtime problems & quirks
+- `openspec change new` fails "unknown command" — order is `openspec new change <name>`, then `openspec validate`.
+- Automation run stuck "running", no result.md — correlate run→session by `automationRun.runId` stamp, not cwd-FIFO.
+- Unrelated files leak into commit (shared worktree) — `git reset && git add <files> && git commit` atomically in ONE Bash call.
+- `npx vitest run` aborts "[test-isolation] HOME equals real user home" — run `HOME=$(mktemp -d) npx vitest run`.
+- `npx playwright install chromium` times out — pin @playwright/test to version whose chromium+headless_shell revision already cached.
+- Folder routes break on Unicode cwd — btoa/atob throw; use TextEncoder/TextDecoder in folder-encoding.ts (+ mirrored automation-plugin copy).
+- openspec-* skills missing in worktree, apply stalls — init gated on `test ! -d node_modules`; fix `npx openspec init --tools pi --force`.
+- agent-browser MCP `eval` echoes JS source — use agent-browser CLI directly, dump output to file, read it.
+- jsdom can't render mermaid (CSSStyleSheet not defined) — use real browser (agent-browser mockup server) harness.
+- pi session "stuck in thinking" / only "memory savings" — not dashboard bug; set flushOnCompact/flushOnShutdown/reviewEnabled:false in `~/.pi/agent/hermes-memory-config.json`.

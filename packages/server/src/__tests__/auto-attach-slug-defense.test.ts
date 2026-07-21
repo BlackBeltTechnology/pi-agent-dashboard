@@ -61,7 +61,6 @@ describe("Auto-attach defense-in-depth: rename site rejects non-slug changeName"
       autoShutdown: false,
       shutdownIdleSeconds: 999,
       tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
     browserPort = server.httpPort()!;

@@ -10,8 +10,8 @@
  *   - depth 0 → no-op.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { goBack } from "../history-back.js";
-import type { NavEntry } from "../nav-tracker.js";
+import { goBack } from "../nav/history-back.js";
+import type { NavEntry } from "../nav/nav-tracker.js";
 
 function makeTracker(pred: NavEntry | undefined) {
   return {

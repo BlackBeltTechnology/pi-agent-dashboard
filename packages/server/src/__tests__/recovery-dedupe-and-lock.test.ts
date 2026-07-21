@@ -5,7 +5,7 @@
  * See change: reopen-sessions-after-shutdown.
  */
 import { describe, it, expect } from "vitest";
-import { createPendingResumeIntentRegistry } from "../pending-resume-intent-registry.js";
+import { createPendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
 import { isRecoveryCandidate } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 
 describe("reopen dedupe (pendingResumeIntents)", () => {

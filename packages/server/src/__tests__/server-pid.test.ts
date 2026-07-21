@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { writePid, readPid, removePid, isProcessAlive } from "../server-pid.js";
+import { writePid, readPid, removePid, isProcessAlive } from "../spawn-process/server-pid.js";
 
 describe("server-pid", () => {
   const tmpDir = path.join(os.tmpdir(), "pi-dashboard-test-pid-" + process.pid);

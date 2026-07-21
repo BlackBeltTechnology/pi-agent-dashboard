@@ -20,7 +20,7 @@ import React, { useState } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, fireEvent, cleanup, act } from "@testing-library/react";
 import { GenericExtensionDialog } from "../components/extension-ui/GenericExtensionDialog.js";
-import { resolveMdiIcon } from "../lib/mdi-icon-lookup.js";
+import { resolveMdiIcon } from "../lib/preview/mdi-icon-lookup.js";
 import type { ExtensionUiModule } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());

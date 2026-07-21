@@ -27,6 +27,31 @@ describe("project-init dox doctrine seeding", () => {
     expect(manual).not.toContain("kb agents");
   });
 
+  it("kb-wired READ discipline carries the kb substitution table", () => {
+    // Spec: kb-read-discipline → "New projects inherit the substitution table"
+    // (Scenario: kb-wired seed carries the table).
+    const kb = buildDoctrineBlock({ kbWired: true });
+    expect(kb).toContain("You're about to"); // the table exists
+    expect(kb).toContain("kb_search --doc-type agents"); // symbol-lookup row, named case
+    expect(kb).toContain("kb_neighbors"); // chase imports / callers chain-through
+    expect(kb).toContain("kb_get"); // read one doc section chain-through
+    // Fall-through stays explicit — the table must not read as "kb replaces grep".
+    expect(kb).toContain("Fall-through (explicit)");
+    expect(kb).toContain("does NOT replace grep");
+  });
+
+  it("manual READ discipline carries a degraded same-shape table (no kb tools)", () => {
+    // Spec: kb-read-discipline (Scenario: Manual seed carries a degraded table).
+    const manual = buildDoctrineBlock({ kbWired: false });
+    expect(manual).toContain("You're about to"); // same-shape table exists
+    expect(manual).toContain("nearest directory"); // lookup rows walk the AGENTS.md chain
+    expect(manual).toContain("Fall-through (explicit)"); // fall-through still explicit
+    // Degraded variant references no kb tooling at all.
+    expect(manual).not.toContain("kb_neighbors");
+    expect(manual).not.toContain("kb_get");
+    expect(manual).not.toContain("--doc-type agents");
+  });
+
   it("both variants carry the WRITE size-split rule", () => {
     for (const kbWired of [true, false]) {
       const block = buildDoctrineBlock({ kbWired });

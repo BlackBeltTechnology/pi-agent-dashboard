@@ -12,11 +12,11 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
-import type { PreferencesStore } from "../preferences-store.js";
-import type { SessionManager } from "../memory-session-manager.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-vi.mock("../pi-resource-scanner.js", () => ({
+vi.mock("../pi/pi-resource-scanner.js", () => ({
   scanPiResources: vi.fn(async () => ({
     local: { extensions: [], skills: [], prompts: [] },
     global: { extensions: [], skills: [], prompts: [] },
@@ -24,7 +24,7 @@ vi.mock("../pi-resource-scanner.js", () => ({
   })),
 }));
 
-vi.mock("../session-discovery.js", () => ({
+vi.mock("../session/session-discovery.js", () => ({
   discoverSessionsForCwd: vi.fn(() => []),
 }));
 

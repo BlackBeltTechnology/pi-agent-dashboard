@@ -46,7 +46,7 @@ vi.mock("@git-diff-view/file", () => ({
 vi.mock("@git-diff-view/react/styles/diff-view.css", () => ({}));
 
 // Mock ThemeProvider with light as default for these tests.
-vi.mock("../ThemeProvider.js", async () => {
+vi.mock("../settings/ThemeProvider.js", async () => {
   const actual = await import("react");
   const ThemeContext = actual.createContext<{ resolved: "light" | "dark"; themeName: string } | null>(null);
   return {
@@ -65,7 +65,7 @@ vi.mock("../ThemeProvider.js", async () => {
   };
 });
 
-import { RichDiff } from "../RichDiff.js";
+import { RichDiff } from "../diff/RichDiff.js";
 
 afterEach(() => cleanup());
 

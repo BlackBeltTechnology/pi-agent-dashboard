@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { truncatePathMiddle } from "../truncate-path.js";
+import { truncatePathMiddle } from "../util/truncate-path.js";
 
 describe("truncatePathMiddle", () => {
   it("returns path unchanged when within limit", () => {

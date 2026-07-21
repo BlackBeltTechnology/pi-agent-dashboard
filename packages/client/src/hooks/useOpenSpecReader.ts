@@ -1,8 +1,8 @@
 import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PreviewTab } from "../components/MarkdownPreviewView.js";
-import { getApiBase } from "../lib/api-context.js";
-import { t } from "../lib/i18n";
+import type { PreviewTab } from "../components/preview/MarkdownPreviewView.js";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 const LETTER_MAP: Record<string, string> = {
   proposal: "P",

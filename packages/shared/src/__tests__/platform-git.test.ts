@@ -10,28 +10,30 @@
  *
  * See change: platform-command-executor.
  */
-import { describe, it, expect } from "vitest";
+
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 import {
+  currentBranch,
+  currentBranchOr,
+  diff,
+  GH_PR_NUMBER,
+  GIT_CURRENT_BRANCH,
   GIT_DIFF,
+  GIT_DIFF_ALL,
+  GIT_HEAD_SHA,
+  GIT_IS_REPO,
+  GIT_RECIPES,
+  GIT_REMOTE_URL,
   GIT_STATUS_PORCELAIN,
   GIT_STATUS_V2,
-  parseGitStatusV2,
-  GIT_IS_REPO,
-  GIT_CURRENT_BRANCH,
-  GIT_HEAD_SHA,
-  GIT_REMOTE_URL,
-  GH_PR_NUMBER,
-  GIT_RECIPES,
-  isGitRepo,
-  currentBranch,
   headSha,
-  remoteUrl,
-  diff,
-  statusPorcelain,
+  isGitRepo,
   isGitRepoOr,
-  currentBranchOr,
+  parseGitStatusV2,
+  remoteUrl,
+  statusPorcelain,
 } from "../platform/git.js";
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
@@ -62,6 +64,21 @@ describe("GIT_DIFF.argv", () => {
 
   it("tolerates exit code 1 (no-diff or empty repo)", () => {
     expect(GIT_DIFF.tolerate).toContain(1);
+  });
+});
+
+describe("GIT_DIFF_ALL.argv", () => {
+  it("produces a whole-worktree `git diff --relative HEAD` (no path arg)", () => {
+    expect(GIT_DIFF_ALL.argv({ cwd: "/tmp" })).toEqual([
+      "git", "diff", "--relative", "HEAD",
+    ]);
+  });
+
+  it("respects an explicit ref and tolerates exit code 1", () => {
+    expect(GIT_DIFF_ALL.argv({ cwd: "/tmp", ref: "main" })).toEqual([
+      "git", "diff", "--relative", "main",
+    ]);
+    expect(GIT_DIFF_ALL.tolerate).toContain(1);
   });
 });
 
@@ -122,6 +139,7 @@ describe("GIT_RECIPES registry", () => {
       "GIT_COMMON_DIR",
       "GIT_CURRENT_BRANCH",
       "GIT_DIFF",
+      "GIT_DIFF_ALL",
       "GIT_HEAD_SHA",
       "GIT_IS_REPO",
       "GIT_NUMSTAT",

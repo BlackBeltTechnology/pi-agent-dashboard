@@ -5,7 +5,7 @@ import {
   isSecureBaseUrl,
   removeTrustedNetwork,
   suggestTrustEntries,
-} from "../gateway-config-ops.js";
+} from "../gateway/gateway-config-ops.js";
 
 describe("isSecureBaseUrl", () => {
   it("accepts https and wss only", () => {

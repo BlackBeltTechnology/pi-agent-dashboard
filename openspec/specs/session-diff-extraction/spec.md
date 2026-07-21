@@ -44,26 +44,42 @@ The server SHALL scan session events from the event store to extract individual 
 - **THEN** the server SHALL include a `message` field with a truncated excerpt (max 120 chars) from the most recent assistant `message_end` event preceding the tool call, if available
 
 ### Requirement: Filter files outside cwd
-The server SHALL exclude file paths that resolve to locations outside the session's cwd.
+The server SHALL exclude file paths that resolve to locations outside the session's cwd, and SHALL rewrite every retained path to be relative to the session cwd using posix separators. The absolute-under-cwd → relative-posix rule SHALL be the canonical path-normalization contract that clients mirror when materializing changed-file paths from raw tool-call `args.path`.
 
 #### Scenario: Absolute path outside cwd
 - **WHEN** a Write/Edit event references an absolute path outside the session cwd (e.g., `/tmp/scratch.ts` when cwd is `/home/user/project`)
 - **THEN** that file SHALL NOT be included in the response
+
+#### Scenario: Absolute path inside cwd
+- **WHEN** a Write/Edit event references an absolute path inside the session cwd (e.g., `/home/user/project/src/foo.ts` when cwd is `/home/user/project`)
+- **THEN** the path SHALL be included and rewritten to relative-posix (`src/foo.ts`)
+- **AND** the response key for that file SHALL be the relative-posix form (never the absolute form)
 
 #### Scenario: Relative path inside cwd
 - **WHEN** a Write/Edit event references a relative path (e.g., `src/foo.ts`)
 - **THEN** the path SHALL be included and kept relative to cwd
 
 ### Requirement: Optional git diff enrichment
-When the session cwd is a git repository, the server SHALL optionally include aggregate `git diff HEAD` output per file AND optional per-file and aggregate line-change counts derived from `git diff --numstat HEAD`.
+
+When the session cwd is a git repository, the server SHALL optionally include aggregate `git diff HEAD` output per file AND optional per-file and aggregate line-change counts derived from `git diff --numstat HEAD`. Git-diff enrichment for the session-diff request path SHALL be computed **without blocking the Node event loop**: no synchronous git subprocess (`spawnSync`) SHALL run on the `GET /api/session-diff` request path. Per-file content diffs SHALL be produced from a **single** batched `git diff` invocation over the worktree (not one subprocess per changed file), split per file. A tracked file whose diff or on-disk blob exceeds `TRACKED_DIFF_MAX_BYTES` SHALL be listed with its numstat `additions`/`deletions` but no text `gitDiff`.
 
 #### Scenario: Git repo with uncommitted changes
 - **WHEN** the session cwd is a git repository
 - **AND** a file has uncommitted changes vs HEAD
-- **THEN** the file entry SHALL include `gitDiff` with the unified diff output from `git diff HEAD -- <path>`
+- **THEN** the file entry SHALL include `gitDiff` with the unified diff output for that file
 - **AND** the file entry SHALL include `additions` and `deletions` (non-negative integers) from `git diff --numstat HEAD`
 - **AND** the response SHALL include `totalAdditions` and `totalDeletions` summing all files
 - **AND** `isGitRepo` SHALL be `true`
+
+#### Scenario: Content diffs come from one batched spawn
+- **WHEN** the session has N (N > 1) changed tracked files
+- **THEN** the server SHALL compute all per-file content diffs from a single `git diff` subprocess over the worktree
+- **AND** it SHALL NOT spawn one `git diff -- <path>` subprocess per changed file
+
+#### Scenario: No synchronous git spawn on the request path
+- **WHEN** `GET /api/session-diff` computes enrichment for a git repo
+- **THEN** every git subprocess it runs SHALL be asynchronous (non-blocking)
+- **AND** no `spawnSync` git call SHALL be reachable from the session-diff request handler
 
 #### Scenario: Non-git repository
 - **WHEN** the session cwd is not a git repository
@@ -81,6 +97,7 @@ When the session cwd is a git repository, the server SHALL optionally include ag
 - **WHEN** `git diff --numstat` reports `-` for additions/deletions (binary file)
 - **THEN** the file entry SHALL omit `additions`/`deletions` rather than emit a non-numeric value
 - **AND** that file SHALL NOT contribute to `totalAdditions`/`totalDeletions`
+- **AND** that file SHALL omit `gitDiff`
 
 ### Requirement: Session file read endpoint
 The server SHALL expose `GET /api/session-file?sessionId=<id>&path=<relativePath>` (localhost-only) that reads a file from the session's cwd.
@@ -223,4 +240,127 @@ Because `git status` reflects the cwd's shared working tree (not the session), t
 #### Scenario: Worktree-isolated session has empty otherChanges
 - **WHEN** the session's cwd is a dedicated worktree with no other session sharing it and every dirty file is attributable to this session
 - **THEN** `data.otherChanges` SHALL be empty (or absent)
+
+### Requirement: Out-of-cwd session-authored files are carried without filesystem reads
+
+The session-diff builder SHALL carry Write/Edit-authored files whose resolved path is outside
+the session cwd, rather than dropping them via `normalizePath` returning `null`. Such an entry
+SHALL be keyed by its **absolute path**, SHALL retain its `changes[]` payload, and SHALL have
+**all filesystem and git enrichment skipped** — no synthetic-diff `readFileSync`, no
+`git diff`/`numstat` invoked with the out-of-cwd path. The server SHALL NOT read the
+out-of-cwd file from disk at any point. In-cwd entries SHALL keep the existing relative-posix
+key and full git/synthetic enrichment unchanged.
+
+#### Scenario: out-of-cwd Write appears without a disk read
+
+- **GIVEN** the session emitted a Write to `/tmp/mockup/index.html` (outside cwd)
+- **WHEN** `GET /api/session-diff` is built for that session
+- **THEN** `data.files` SHALL contain an entry keyed by the absolute path with its `changes[]` payload
+- **AND** the entry SHALL carry NO `gitDiff` and the builder SHALL perform no `readFileSync`/`git` call for that path
+
+#### Scenario: enrichment never receives an out-of-cwd entry (guard placement)
+
+- **GIVEN** the session wrote `/repo/.env` while cwd is `/repo/packages/server` (outside cwd, under the repo, untracked)
+- **WHEN** `buildSessionDiff` runs
+- **THEN** the out-of-cwd entry SHALL be filtered out BEFORE `enrichWithGitDiff` is called
+- **AND** no `readFileSync(resolve(cwd, path))` SHALL execute for that path (verified by test)
+
+#### Scenario: in-cwd behavior unchanged
+
+- **WHEN** the session wrote an in-cwd file
+- **THEN** its entry SHALL keep the relative-posix key and existing git/synthetic enrichment
+
+### Requirement: On-demand full payload is served by session identifier, never by path
+
+The server SHALL expose a localhost-only endpoint that returns the **full untruncated**
+Write/Edit payload for a change, addressed by `(sessionId, toolCallId)`. It SHALL resolve the
+session JSONL file via `sessionManager.get(sessionId).sessionFile` (a path fixed at session
+creation) and SHALL NOT construct any path from the `sessionId` string. It SHALL locate the
+tool call by scanning assistant-message `content[]` blocks for `{ type: "toolCall", id ===
+toolCallId }` (the id is nested at `message.content[].id`, not the entry top level) and return
+that call's `args.content` / `args.edits`. The endpoint SHALL accept **only** session-scoped
+identifiers — no filesystem-path parameter, no `fs.realpath`, no read outside the resolved
+session transcript — and SHALL NOT fall back to any path-based read on a miss. It shares the
+safety class (session-addressed) of `/api/sessions/:sessionId/tool-result/:toolCallId` but
+reads the on-disk JSONL rather than the in-memory store.
+
+#### Scenario: full payload fetched by toolCallId
+
+- **GIVEN** a Write of a > 4 KB file whose in-memory event payload is truncated
+- **WHEN** the client requests the full payload by `(sessionId, toolCallId)`
+- **THEN** the response SHALL return the untruncated `content` read from the session JSONL
+
+#### Scenario: no path input accepted, no path fallback
+
+- **WHEN** a caller attempts to pass a filesystem path, or supplies an unknown `toolCallId`
+- **THEN** the endpoint SHALL address content solely by `(sessionId, toolCallId)` via `sessionFile`, and on any miss SHALL return not-found WITHOUT reading any path
+
+#### Scenario: entry evicted and JSONL missing
+
+- **GIVEN** the in-memory event was trimmed AND the session JSONL entry cannot be located
+- **THEN** the endpoint SHALL return a not-found result and the client SHALL render "diff unavailable"
+
+### Requirement: Out-of-cwd diff display is opt-in
+
+The client SHALL suppress out-of-cwd session-authored change rows (and SHALL NOT open their
+diff tabs) unless the `showOutOfCwdSessionDiffs` preference is enabled. The default SHALL be
+off. The preference gates display only; no server file-read surface exists for it to affect.
+
+#### Scenario: preference off suppresses the row
+
+- **GIVEN** `showOutOfCwdSessionDiffs` is off (default)
+- **WHEN** the session wrote an out-of-cwd file
+- **THEN** no change row for that file SHALL be shown and no diff tab can open for it
+
+#### Scenario: preference on renders the payload diff
+
+- **GIVEN** `showOutOfCwdSessionDiffs` is on
+- **WHEN** the user clicks the out-of-cwd row
+- **THEN** a diff tab SHALL open and render from the captured `change.content`/`change.edits` payload
+
+### Requirement: Event-loop responsiveness under heavy session diffs
+
+Computing `GET /api/session-diff` for a session with many changed files and/or a very large tracked file SHALL NOT starve other HTTP requests. While a heavy diff is computed, unrelated endpoints (`/api/health`, static `GET /`, settings, prompt submission) SHALL remain responsive.
+
+#### Scenario: Health stays responsive while a heavy diff computes
+- **WHEN** a session cwd has hundreds of changed files and/or a tracked file larger than 100 MB
+- **AND** `GET /api/session-diff` is computing that session's diff
+- **THEN** a concurrent `GET /api/health` SHALL respond within a small latency budget (e.g. < 100 ms)
+- **AND** the server SHALL NOT be wedged after the diff completes
+
+#### Scenario: Repeated polls do not snowball
+- **WHEN** multiple browser tabs / reconnects poll the same heavy session's diff concurrently
+- **THEN** the server SHALL NOT accumulate one git spawn per poll per file
+- **AND** HTTP request handling SHALL NOT stall into an unrecoverable spawn storm
+
+### Requirement: Tracked-file diff size cap
+
+The server SHALL enforce a byte cap `TRACKED_DIFF_MAX_BYTES` on tracked-file content diffs, analogous to the existing `SYNTHETIC_DIFF_MAX_BYTES` cap for synthetic new-file diffs. A tracked file whose diff (or on-disk blob) exceeds the cap SHALL be surfaced without a text `gitDiff`, and SHALL NOT be read as utf-8 or fed to `git diff` for text rendering.
+
+#### Scenario: Oversized tracked file is not rendered as a text diff
+- **WHEN** a tracked changed file's diff or blob exceeds `TRACKED_DIFF_MAX_BYTES` (e.g. a 992 MB `.tar`)
+- **THEN** its entry SHALL be listed with any available `additions`/`deletions` from numstat
+- **AND** its entry SHALL omit `gitDiff`
+- **AND** the server SHALL NOT read the file as utf-8 nor run a per-file `git diff` to render it
+
+#### Scenario: Normal-sized tracked file still shows a diff
+- **WHEN** a tracked changed file's diff is below `TRACKED_DIFF_MAX_BYTES`
+- **THEN** its entry SHALL include the unified `gitDiff` text as before
+
+### Requirement: Session-diff result cache and single-flight
+
+The server SHALL cache session-diff results per session for a short TTL, keyed by a signature that changes when the diff would change (e.g. HEAD sha + dirty-file signature). Concurrent requests for the same key SHALL coalesce onto one in-flight computation (single-flight) rather than each launching its own diff.
+
+#### Scenario: Cache hit within TTL avoids recompute
+- **WHEN** two `GET /api/session-diff` requests for the same session arrive within the cache TTL
+- **AND** the session's HEAD and dirty state are unchanged between them
+- **THEN** the second request SHALL return the cached result without recomputing the diff
+
+#### Scenario: Concurrent identical requests coalesce
+- **WHEN** two identical session-diff requests are in flight simultaneously for the same key
+- **THEN** the server SHALL compute the diff once and serve both from that single computation
+
+#### Scenario: State change busts the cache
+- **WHEN** the session's HEAD sha or dirty-file signature changes
+- **THEN** the next request SHALL recompute the diff rather than serve a stale cached entry
 

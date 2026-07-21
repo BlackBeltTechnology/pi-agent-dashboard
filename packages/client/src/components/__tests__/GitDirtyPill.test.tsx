@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-import { GitDirtyPill } from "../GitDirtyPill.js";
+import { GitDirtyPill } from "../worktree/GitDirtyPill.js";
 import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());

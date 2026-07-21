@@ -12,8 +12,8 @@
  * See change: add-auto-session-naming.
  */
 import type { FastifyInstance } from "fastify";
-import type { PiGateway } from "../pi-gateway.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export function registerPreferencesAutoNameRoutes(

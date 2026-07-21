@@ -17,16 +17,16 @@ import {
 import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { type DirectoryService, hasOpenSpecRoot } from "../directory-service.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import { scanOpenSpecArchive } from "../openspec-archive.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import { scanOpenSpecArchive } from "../openspec/openspec-archive.js";
 import {
   LineMismatchError,
   NotACheckboxError,
   NotFoundError,
   readTasks,
   toggleTask,
-} from "../openspec-tasks.js";
-import type { PreferencesStore } from "../preferences-store.js";
+} from "../openspec/openspec-tasks.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Callback to broadcast an openspec_update after a successful toggle. */

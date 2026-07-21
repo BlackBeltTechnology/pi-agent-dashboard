@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CSS_VAR_KEYS, getTheme, THEMES } from "../themes.js";
+import { CSS_VAR_KEYS, getTheme, THEMES } from "../theme/themes.js";
 
 // index.css lives two dirs up from this __tests__ folder (src/lib/__tests__ -> src).
 const css = readFileSync(join(import.meta.dirname, "..", "..", "index.css"), "utf8");

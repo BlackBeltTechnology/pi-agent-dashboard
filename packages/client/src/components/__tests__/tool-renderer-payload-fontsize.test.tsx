@@ -32,7 +32,7 @@ vi.mock("../../hooks/useMobile.js", () => ({
   MobileProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-vi.mock("../RichDiff.js", () => ({
+vi.mock("../diff/RichDiff.js", () => ({
   RichDiff: (props: Record<string, unknown>) => (
     <div data-testid="rich-diff" data-file={String(props.filePath)} />
   ),
@@ -40,7 +40,7 @@ vi.mock("../RichDiff.js", () => ({
 
 vi.mock("@git-diff-view/react/styles/diff-view.css", () => ({}));
 
-vi.mock("../ThemeProvider.js", () => ({
+vi.mock("../settings/ThemeProvider.js", () => ({
   useThemeContext: () => ({ resolved: "dark", themeName: "base" }),
   ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -56,7 +56,7 @@ import { BashToolRenderer } from "../tool-renderers/BashToolRenderer.js";
 import { GenericToolRenderer } from "../tool-renderers/GenericToolRenderer.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 
-const ctx: ToolContext = { editors: [] };
+const ctx: ToolContext = {};
 
 afterEach(() => cleanup());
 

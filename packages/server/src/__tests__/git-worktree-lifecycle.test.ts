@@ -13,7 +13,7 @@ import {
   mapPrStderr,
   parsePrUrl,
   parseShortstat,
-} from "../git-worktree-lifecycle.js";
+} from "../git-worktree/git-worktree-lifecycle.js";
 
 describe("mapRemoveStderr", () => {
   it("dirty_worktree on 'contains modified or untracked files'", () => {

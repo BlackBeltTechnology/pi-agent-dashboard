@@ -13,7 +13,7 @@ import {
   handleDispatchExtensionCommand,
   type DispatchRouterContext,
 } from "../rpc-keeper/dispatch-router.js";
-import type { HeadlessPidRegistry } from "../headless-pid-registry.js";
+import type { HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 

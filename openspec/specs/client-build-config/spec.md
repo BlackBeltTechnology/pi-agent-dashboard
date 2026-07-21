@@ -70,3 +70,75 @@ line so that plugin's Tailwind utilities are emitted.
   for that package
 - **AND** `goal-plugin` and `automation-plugin` SHALL each have such a directive
 
+### Requirement: Production build is free of mechanical warnings
+
+The production client build (`npm run build`, Vite + Rollup + Lightning CSS via `packages/client/vite.config.ts`) SHALL NOT emit the following warnings:
+
+- **Lightning CSS parse errors.** Documentation prose (code comments, `AGENTS.md`
+  sidecars) SHALL NOT contain literal Tailwind-shaped placeholder tokens such as
+  `bg-[var(...)]` or `text-[var(...)]`, because Tailwind v4's automatic content
+  scanner extracts them as real utilities that Lightning CSS cannot parse.
+- **Circular manual chunk.** The `manualChunks` map SHALL NOT place two libraries that
+  reference each other into separate chunks. `react-syntax-highlighter` SHALL share a
+  chunk with `react-markdown` rather than occupying a separate `syntax` chunk.
+- **Defeated dynamic imports for `PdfPreview` and `known-servers-api`.** Each of these
+  modules SHALL be imported with a single strategy across the codebase so Rollup does
+  not report `dynamic import will not move module into another chunk` for it.
+
+This requirement does NOT cover the `@mdi/js` dynamic-import warning nor the
+oversized-chunk (>700 kB) warning; those are owned by the `shrink-client-index-chunk`
+change.
+
+#### Scenario: No CSS parse, circular-chunk, or targeted dynamic-import warnings
+
+- **WHEN** the production build runs (`npm run build`)
+- **THEN** stderr/stdout SHALL NOT contain `Unexpected token`
+- **AND** SHALL NOT contain `Circular chunk`
+- **AND** SHALL NOT contain a `dynamic import will not move module into another chunk`
+  line naming `PdfPreview.tsx` or `known-servers-api.ts`
+
+#### Scenario: No placeholder utility tokens in scanned source
+
+- **WHEN** `packages/client/src/lib/session/session-status-visuals.ts` and its
+  `.AGENTS.md` sidecar are inspected
+- **THEN** neither SHALL contain the literal token `bg-[var(...)]` or `text-[var(...)]`
+
+### Requirement: @mdi/js is isolated from the eager entry chunk
+
+The `@mdi/js` icon set SHALL NOT be inlined into the client `index` entry chunk, and
+the build SHALL NOT report a `dynamic import will not move module into another chunk`
+warning for `@mdi/js`.
+
+- `@mdi/js` SHALL be assigned its own `manualChunks` entry in
+  `packages/client/vite.config.ts`, so the icon set is emitted as a dedicated `mdi`
+  chunk rather than inlined into `index`.
+- The two dynamic `import("@mdi/js")` sites (`ActionList.tsx`, `StatusPill.tsx`) SHALL be
+  converted to static imports so no module is imported both dynamically and statically —
+  a `manualChunks` entry alone does NOT silence that warning.
+- The icon-by-key resolver SHALL keep resolving arbitrary extension-supplied keys (the
+  full namespace is retained; no tree-shaking).
+
+This requirement does NOT cover the oversized-chunk (>700 kB) aggregate warning;
+`chunkSizeWarningLimit` remains at 700 and that warning is an accepted, documented notice
+(`monaco` is intentionally large and lazy).
+
+#### Scenario: @mdi/js is a dedicated chunk, out of the entry chunk
+
+- **WHEN** the production build runs (`npm run build`)
+- **THEN** a `mdi-*.js` chunk is emitted in `dist/assets`
+- **AND** the main entry chunk (resolved from `index.html`) does NOT contain `@mdi/js`
+  icon export markers (e.g. `mdiZodiacAquarius`)
+- **AND** the gzipped `index` chunk is ≤ 900 KB (baseline ~1388 KB before this change)
+
+#### Scenario: No @mdi/js dynamic-import warning
+
+- **WHEN** the production build runs
+- **THEN** the build log contains no `dynamic import will not move module into another
+  chunk` line naming `@mdi/js`
+
+#### Scenario: Icon-by-key still resolves arbitrary keys
+
+- **WHEN** an `ActionList` / `StatusPill` renders with a valid MDI key (e.g. `mdiRefresh`)
+- **THEN** the corresponding icon path renders
+- **AND** an unknown key renders nothing without throwing
+

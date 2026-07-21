@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import React from "react";
-import { createInitialState } from "../../lib/event-reducer.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeSession(overrides?: Partial<DashboardSession>): DashboardSession {
@@ -32,7 +32,7 @@ describe("SessionHeader Resume / Fork pills — desktop", () => {
 
   async function loadDesktop() {
     vi.doMock("../../hooks/useMobile.js", () => ({ useMobile: () => false }));
-    const mod = await import("../SessionHeader.js");
+    const mod = await import("../session/SessionHeader.js");
     return mod.SessionHeader;
   }
 
@@ -167,7 +167,7 @@ describe("SessionHeader Resume / Fork pills — mobile path unaffected", () => {
 
   async function loadMobile() {
     vi.doMock("../../hooks/useMobile.js", () => ({ useMobile: () => true }));
-    const mod = await import("../SessionHeader.js");
+    const mod = await import("../session/SessionHeader.js");
     return mod.SessionHeader;
   }
 

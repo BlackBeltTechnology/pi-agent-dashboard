@@ -12,8 +12,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
-import { _resetForTests, getLatestCatalogue } from "../provider-catalogue-cache.js";
-import { getAuthStatus } from "../provider-auth-storage.js";
+import { _resetForTests, getLatestCatalogue } from "../package/provider-catalogue-cache.js";
+import { getAuthStatus } from "../auth/provider-auth-storage.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -49,7 +49,6 @@ describe("providers_list — server wiring", () => {
       autoShutdown: false,
       shutdownIdleSeconds: 999,
       tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
     browserPort = server.httpPort()!;

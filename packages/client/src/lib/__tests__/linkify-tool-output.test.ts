@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tokenize, MAX_LINKS, type Token } from "../linkify-tool-output.js";
+import { tokenize, MAX_LINKS, type Token } from "../chat/linkify-tool-output.js";
 
 /** Helper: collect tokens of a given kind. */
 const ofKind = (toks: Token[], kind: Token["kind"]) => toks.filter((t) => t.kind === kind);
@@ -410,5 +410,38 @@ describe("tokenize — git-diff a/ b/ prefix stripping", () => {
     const toks = tokenize("the file b/util.ts changed");
     const f = fileTok(toks);
     expect(f[0].path).toBe("b/util.ts");
+  });
+});
+
+describe("tokenize — tilde-home paths", () => {
+  const fileTok = (toks: Token[]) => ofKind(toks, "file") as Extract<Token, { kind: "file" }>[];
+
+  it("tokenizes a `~/.pi/...` path as ONE file token, `~/` retained, no orphan (S11)", () => {
+    const input = "config at ~/.pi/dashboard/trusted-paths.json now";
+    const toks = tokenize(input);
+    const files = fileTok(toks);
+    expect(files).toHaveLength(1);
+    expect(files[0].path).toBe("~/.pi/dashboard/trusted-paths.json");
+    expect(files[0].absolute).toBe(true);
+    // No orphan `~` text token.
+    expect(toks.some((t) => t.kind === "text" && t.text.includes("~"))).toBe(false);
+    // Join-coverage holds verbatim.
+    expect(concat(toks)).toBe(input);
+  });
+
+  it("parses a trailing :line:col on a tilde path", () => {
+    const toks = tokenize("~/.pi/agent/settings.json:12:3");
+    const f = fileTok(toks)[0];
+    expect(f.path).toBe("~/.pi/agent/settings.json");
+    expect(f.line).toBe(12);
+    expect(f.col).toBe(3);
+  });
+
+  it("does not add a false-positive file token from prose (S12)", () => {
+    for (const neg of ["Node.js", "math.PI", "and/or"]) {
+      const toks = tokenize(neg);
+      expect(ofKind(toks, "file")).toHaveLength(0);
+      expect(concat(toks)).toBe(neg);
+    }
   });
 });

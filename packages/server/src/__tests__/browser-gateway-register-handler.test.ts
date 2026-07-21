@@ -5,7 +5,7 @@
  * See change: adopt-server-driven-intent-rendering.
  */
 import { describe, it, expect, vi } from "vitest";
-import { createBrowserGateway } from "../browser-gateway.js";
+import { createBrowserGateway } from "../pairing/browser-gateway.js";
 
 function makeMockDeps() {
   // Minimal mock dependencies for createBrowserGateway. We only need the

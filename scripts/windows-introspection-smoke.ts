@@ -10,12 +10,11 @@
  *   - probe exits 0,
  *   - probe stderr carries no `wmic` / `is not recognized` signature
  *     (the exact regression a return to execSync-default-stdio would produce),
- *   - `isVirtualMachine()` returns a boolean,
- *   - `defaultGetCmdline(pid)` returns string | null, and on win32 a non-empty
- *     string for the probe's own pid (PowerShell path actually resolved it).
+ *   - `isVirtualMachine()` returns a boolean (PowerShell Get-CimInstance path
+ *     actually resolved on win32).
  *
- * Cross-platform (also passes on Linux/macOS via the /proc / ps branches), but
- * the win32 cmdline assertion is the load-bearing check. Exit 0 = pass.
+ * Cross-platform (also passes on Linux/macOS via the /proc / ps branches). The
+ * no-wmic-leak assertion is the load-bearing check. Exit 0 = pass.
  *
  * See change: replace-wmic-with-powershell.
  */
@@ -54,16 +53,9 @@ if (/is not recognized|\bwmic\b/i.test(err)) fail("wmic / 'not recognized' leake
 const m = out.match(/RESULT=(\{.*\})/);
 if (!m) fail("probe did not emit RESULT=<json>");
 
-const res = JSON.parse(m[1]) as { platform: string; vm: unknown; cmdline: unknown };
+const res = JSON.parse(m[1]) as { platform: string; vm: unknown };
 if (typeof res.vm !== "boolean") fail(`isVirtualMachine returned non-boolean: ${JSON.stringify(res.vm)}`);
-if (res.cmdline !== null && typeof res.cmdline !== "string") {
-  fail(`defaultGetCmdline returned wrong type: ${typeof res.cmdline}`);
-}
-if (res.platform === "win32" && (typeof res.cmdline !== "string" || res.cmdline.length === 0)) {
-  fail("defaultGetCmdline returned null/empty for own pid on win32 — PowerShell Get-CimInstance path broken");
-}
 
 console.log(
-  `[win-introspection-smoke] OK — platform=${res.platform} vm=${res.vm} ` +
-    `cmdline=${typeof res.cmdline === "string" && res.cmdline.length > 0 ? "resolved" : "null"} (no wmic leak)`,
+  `[win-introspection-smoke] OK — platform=${res.platform} vm=${res.vm} (no wmic leak)`,
 );

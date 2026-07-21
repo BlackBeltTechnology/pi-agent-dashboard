@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { t } from "../lib/i18n";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 async function fetchDir(cwd: string, dirPath: string): Promise<string[]> {
   const res = await fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(dirPath)}`);

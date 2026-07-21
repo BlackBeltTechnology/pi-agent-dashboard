@@ -99,6 +99,8 @@ React-based responsive web UI that:
 
 **Unified dialog system** (`packages/client-utils/`): `Dialog` primitive + `Confirm` preset + `useFocusTrap` hook. `Dialog` owns portal/overlay (`bg-black/60`)/Esc/click-outside/focus-trap/ARIA/`z-[60]`/size variants (sm/md/lg)/header+footer slots (`Dialog.Footer`/`Dialog.Cancel`/`Dialog.Action`). `Confirm` wraps `Dialog` (size sm) for confirm flows. `ui:dialog` registry key exposes shell to plugins; `ui:confirm-dialog` re-skinned as adapter over `Confirm`. ~20 dialogs migrated. Legacy `ConfirmDialog` removed. See change: unify-dialog-system.
 
+**Global Escape dismissal** (`packages/client-utils/src/escape-stack.ts`): single module-stable `document` `keydown` listener arbitrates Escape dismissal for portaled dismissible surfaces via LIFO stack. On Escape, only TOPMOST registered layer's `onEscape` fires (`preventDefault` + `stopImmediatePropagation`). Guarded against `e.repeat` + `e.defaultPrevented`. Listener attaches once on first registration; never detaches. New dismissible portaled overlays SHOULD use `useEscapeDismiss(active, onEscape)` hook; stacked surfaces peel one layer per Escape instead of collapsing multiple layers at once. Adopted by `Dialog`, `ImageLightbox`, `FilePreviewOverlay`; `MermaidBlock` deferred (inline, not portaled). See change: fix-stacked-escape-closes-layers.
+
 ### 4. Shared Types (`src/shared/`)
 TypeScript type definitions shared across all components:
 
@@ -519,7 +521,7 @@ See change: eliminate-electron-runtime-install.
 The Stop button supports two-click escalation for stuck sessions:
 1. **Click 1 (Abort)**: Sends `abort` → bridge → `ctx.abort()`. Button transitions to orange pulsing "Force Stop".
 2. **Click 2 (Force Kill)**: Sends `force_kill` → server delegates termination to the **platform layer** (`packages/shared/src/platform/process.ts::killProcess(pid, { timeoutMs: 2000 })`), which:
-   - on **Windows** runs `taskkill /F /T /PID <pid>` (genuine tree kill — descendant `node.exe`, pi children, tmux panes, `wt` tabs, code-server subtrees all die together),
+   - on **Windows** runs `taskkill /F /T /PID <pid>` (genuine tree kill — descendant `node.exe`, pi children, tmux panes, `wt` tabs all die together),
    - on **POSIX** sends `SIGTERM`, polls liveness every 200ms for up to 2s, then escalates to `SIGKILL` if the process is still alive.
 
    Session marked "ended" (not removed), resumable via fork/continue.
@@ -535,7 +537,7 @@ All process termination across the codebase goes through `packages/shared/src/pl
 | `killProcess(pid, {timeoutMs})` | SIGTERM → wait → SIGKILL (tree via pgroup) | `taskkill /F /T /PID <pid>` |
 | `killPidWithGroup(pid, sig)` | `kill(-pid, sig)` (process group) | `kill(pid, sig)` (leaf) |
 
-Sites routed through these helpers: `session-action-handler.ts::handleForceKill`, `process-scanner.ts::killProcessByPgid`, `tunnel.ts::cleanupStaleZrok` + `deleteTunnel`, `editor-manager.ts::stop`, `headless-pid-registry.ts`, `server-pid.ts`. See specs: [`command-executor`](../openspec/specs/command-executor/spec.md), [`force-kill-handler`](../openspec/specs/force-kill-handler/spec.md).
+Sites routed through these helpers: `session-action-handler.ts::handleForceKill`, `process-scanner.ts::killProcessByPgid`, `tunnel.ts::cleanupStaleZrok` + `deleteTunnel`, `headless-pid-registry.ts`, `server-pid.ts`. See specs: [`command-executor`](../openspec/specs/command-executor/spec.md), [`force-kill-handler`](../openspec/specs/force-kill-handler/spec.md).
 
 `taskkill` is invoked via the platform's `execSync` wrapper (`platform/exec.ts`) so it inherits `windowsHide: true` — no console flash — and stays consistent with the `no-direct-child_process-import` invariant.
 
@@ -606,7 +608,7 @@ The shared `<RichDiff>` component is also consumed by `DiffPanel` (Path A / chan
 - `flow-tui.ts`: `autonomousMode` included in `flow:flow-started` event data
 
 ### `/reload` Flow (two code paths)
-Reload from the dashboard (via `npm run reload`, the reload button, or `/reload` typed into the chat composer) follows one of two paths depending on how the pi session was spawned. The server transparently selects the right path:
+Reload from the dashboard (via `pnpm run reload`, the reload button, or `/reload` typed into the chat composer) follows one of two paths depending on how the pi session was spawned. The server transparently selects the right path:
 
 ```mermaid
 flowchart TD
@@ -953,9 +955,13 @@ The dashboard provides a GitHub-style file diff viewer for sessions. It shows wh
 
 **Numstat counts**: session-diff payload carries optional per-file `additions`/`deletions` + top-level `totalAdditions`/`totalDeletions` from `git diff --numstat --relative HEAD`. Absent for non-git or binary files. `DiffFileTree` shows per-file `+adds −dels` + aggregate `summed` header. See change: add-change-summary-table.
 
+**Event-loop-safe git enrichment**: `/api/session-diff` computes git enrichment without blocking Node event loop — all git spawns async via `runAsync` (no `spawnSync`). Per-file content diffs sourced from ONE batched `git diff --relative HEAD` (`git.diffAllOr`), split per file by `splitBatchedDiff` on `diff --git` boundaries; replaces old O(files) per-file spawn loop. Diff chunk exceeding `TRACKED_DIFF_MAX_BYTES` (5 MB) or binary file → listed with numstat `additions`/`deletions` but no text `gitDiff`. `buildSessionDiff` (replaces `enrichWithVcsDiff`) async. `buildSessionDiffCached(sessionId, events, cwd, cache)` wraps with per-session short-TTL result cache + single-flight (`SessionDiffCache`, `packages/server/src/session/session-diff-cache.ts`), key `sessionId:HEAD-sha:djb2(porcelain)`. Repeated UI polls coalesce onto one computation; HEAD/dirty change busts key. See change: fix-session-diff-eventloop-block.
+
 **Per-turn change-summary block**: deterministic (no LLM). `ChangeSummaryBlock` renders in chat stream per turn, client-derived from Edit/Write events via `buildTurnSummaries` (`lib/lineDelta.ts`, jsdiff `structuredPatch`). Default expanded; collapses to `N files · +X −Y`. Gated on `displayPrefs.changeSummaryTable` (simple off; standard/everything on). See change: add-change-summary-table.
 
 **Changes rail + diff tab**: Changed Files integrate as a Changes section atop the editor-pane rail (`ChangesRailSection`). Per-file diff opens as a `diff` viewer tab (`DiffViewer`, virtual `diff:<relPath>` path). `SessionDiffProvider` shares one fetch across rail, diff-tab, and takeover. See change: add-change-summary-table.
+
+**Client/server path agreement**: client and server MUST agree on `data.files` key format. Server `session-diff.ts::normalizePath` keys `data.files` by relative-posix: absolute-under-cwd → relative; absolute-outside-cwd → dropped; already-relative → kept. Pre-fix bug: tool calls could record absolute `args.path`; change-summary row + `openDiffTab` then carried absolute path; absolute path never string-equaled relative key → diff blanked ("No changes for this file"). Now: `lib/normalize-path.ts::normalizeUnderCwd(rawPath, cwd)` mirrors server rule — absolute-under-cwd → relative-posix; else unchanged. `ChatView` applies it to both displayed row path + `openDiffTab` argument at source. `DiffViewer` retries with cwd-normalized path on exact-match miss. Non-git contract: git repo → render `gitDiff`; non-git or no `gitDiff` → `DiffPanel` derives all-additions/edit diff from file's own session change payload (last Write/Edit), never blanks. See change: fix-session-diff-open-nongit-and-preview.
 
 **Entry point**: SessionHeader `ChangedFilesChip` calls `openChanges()` (Changes rail); only visible when Write/Edit tool events exist. `/session/:id/diff` takeover retained as fallback. Works for both active and ended sessions.
 
@@ -1006,9 +1012,9 @@ Viewer registry: monaco (lazy), image, pdf, markdown, binary-warn.
 
 Monaco lazy chunk loads on first text-file open. ts.worker omitted (no LSP). Theme derives from active dashboard theme via `buildMonacoTheme`. Recolors live on theme/mode change.
 
-`OpenFileButton` now split button: default → internal pane; dropdown → native editors.
+`OpenFileButton` plain button. Click → internal Monaco pane.
 
-Three file-open paths coexist; nothing removed. This pane = quick read-only glance. editor-view (code-server iframe) = full IDE. open-in-editor (native) = external.
+File-open surfaces: internal Monaco pane and preview overlay only.
 
 v2–v4 follow-on (pin-to-split, create-file, edit-with-conflicts) deferred to separate proposals.
 
@@ -1127,7 +1133,7 @@ Approval mints long-lived opaque bearer token. Registry `~/.pi/dashboard/paired-
 
 #### WS single-use ticket — D11/F4/F6
 
-Durable bearer never rides WS. Client mints short-lived ~15s single-use ticket via `POST /api/ws-ticket {scope}` (authenticated). Opens `wss://host/ws?ticket=`. Ticket deleted on first upgrade attempt. Bound to route scope (browser/terminal/editor/live). Mismatched-scope refused. Module `ws-ticket.ts`.
+Durable bearer never rides WS. Client mints short-lived ~15s single-use ticket via `POST /api/ws-ticket {scope}` (authenticated). Opens `wss://host/ws?ticket=`. Ticket deleted on first upgrade attempt. Bound to route scope (browser/terminal/live). Mismatched-scope refused. Module `ws-ticket.ts`.
 
 #### Genuine-local trust — D10, narrowed
 
@@ -1167,7 +1173,7 @@ The web client includes a Settings panel (gear icon in sidebar header → `/sett
 3. Browser's event reducer processes replay, rebuilding state
 
 ### Bridge Reconnection (State Reset)
-When a bridge extension reconnects (e.g., after `npm run reload` or network recovery):
+When a bridge extension reconnects (e.g., after `pnpm run reload` or network recovery):
 1. Bridge sends `session_register` with `eventCount` to re-register the session
 2. Server checks `canSkipWipe`: if the bridge's `eventCount` matches the server's `lastEntryCount` and events exist in the store, the wipe is skipped (fast reconnect path)
 3. **Full replay path** (`canSkipWipe = false`): Server clears the in-memory event store, broadcasts `session_state_reset` to browsers, stores replayed events, and sends them as `event_replay` batch after `replay_complete`
@@ -1320,6 +1326,14 @@ To disable: set `tunnel.enabled` to `false` in `~/.pi/dashboard/config.json` or 
 
 The client can query `GET /api/tunnel-status` which returns `{ status: "active"|"inactive"|"unavailable", url?, serverOs }`.
 The client can connect/disconnect the tunnel via `POST /api/tunnel-connect` and `POST /api/tunnel-disconnect`.
+
+**Zrok v2 support.** Runtime resolves `zrok2` binary first, then falls back to `zrok` (Homebrew ships `zrok`; tarball/Windows/Linux ship `zrok2`). Env config dir `~/.zrok2` (v1 `~/.zrok` still read at load time). API host `api-v2.zrok.io` (v1 deprecated to HTTP 500). Headless enrollment: `zrok2 enable <token> --headless` (bare `enable` fails without TTY in server context). Token validator min length 8 (v2 tokens 12 chars).
+
+**Reserved/persistent URLs (v2 namespaces+names).** Config keys `tunnel.zrok.reservedName` + `tunnel.zrok.persistent` (default false). Mint name: `zrok2 create name -n public <name>` (reuse-on-exists for same account; taken-by-other → warn + ephemeral). Share: `zrok2 share public --headless -n public:<name> localhost:<port>` → stable `<name>.shares.zrok.io`. Release: `zrok2 delete name <name>` invoked only by explicit forget (see below). Reserved name SURVIVES disconnect/restart; released ONLY by `POST /api/tunnel-disconnect {forget:true}`. Ephemeral (no name, default persistent=false) yields rotating `*.shares.zrok.io` URL. Legacy v1 `tunnel.reservedToken` preserved on read (downgrade) but IGNORED by v2 provider — never promoted to reservedName.
+
+**URL format + CORS.** v2 emits bare `<t>.shares.zrok.io` (plural, no scheme); provider prepends `https://`. urlRegex anchored so `*.shares.zrok.io.attacker.com` NOT matched as zrok host. CORS allows `*.shares.zrok.io`.
+
+**Doctor + version check.** "zrok API reachable" probes `api-v2.zrok.io` (or enrolled env `api_endpoint`). NEW check "zrok version compatible" warns when major < 2 (v1 = 0.4.x) — real root-cause detector for field 500s.
 
 ### Tunnel watchdog
 
@@ -1738,7 +1752,7 @@ This is separate from the main JSON dashboard WebSocket (`/ws`).
 1. Browser sends `create_terminal` on main WS → server spawns PTY via `node-pty`
 2. Server broadcasts `terminal_added` to all browsers
 3. Browser opens binary WS to `/ws/terminal/:id`, attaches `xterm.js`
-4. Shell exit → PTY `onExit` → server broadcasts `terminal_removed` → card removed
+4. Shell exit → PTY `onExit` → server broadcasts `terminal_removed` → `term:<id>` tab reconciled away (dropped from the pane).
 
 **Native binary permissions.** `node-pty`'s prebuilt `spawn-helper` (and `pty.node`) must be executable for `pty.spawn` to succeed on macOS/Linux. Three layers of defense ensure this:
 
@@ -1809,88 +1823,23 @@ Each terminal maintains a 256KB ring buffer of raw PTY output. When a new WebSoc
 
 Terminal xterm.js instances stay mounted in the DOM (CSS hidden/shown) for instant switching without replay flicker. The binary WebSocket stays open while mounted.
 
-### Folder-Scoped View
+### Terminals as Editor-Pane Tabs
 
-Terminals are displayed in a tabbed `TerminalsView` per folder, accessed via the folder action bar's `Terminals(N)` button. Terminal cards no longer appear in the sidebar — the sidebar shows only pi session cards. The tab bar supports switching, closing, renaming, and creating new terminals.
+Terminals host as virtual `term:<id>` tabs (`ViewerKind` `terminal`) inside the editor pane, not a standalone view. Open via `dispatch(openFile, path:"term:<id>", viewer:"terminal")`, mirrors `live:`/`diff:` idiom.
 
-## Embedded Editor (code-server)
+Two hosts. Session split (`/session/:id/editor`): terminal cwd = session cwd, terminals open opt-in on user action. Folder-scoped pane (`/folder/:cwd/editor`): terminal cwd = folder cwd, auto-surfaces every non-ephemeral cwd terminal via `autoSurfaceTerminals`.
 
-The dashboard supports embedding VS Code in the browser via code-server.
+Real xterm mount = keep-alive `TerminalPaneLayer` (single `TerminalView` per id, visibility-toggled) inside `EditorPane`. `viewer-registry` `terminal` entry = no-op placeholder.
 
-### Architecture
+Terminal-tab slice = `SplitWorkspaceContext` hook `useTerminalPaneTabs` (open/create/kill/rename/onTitle, D5 reconcile stale `term:` tabs, D3 auto-surface, D4 close-tab-kills-PTY). `closeByPath` reducer drops a `term:` tab by path.
 
-```
-Browser                     Dashboard Server              code-server
-┌──────────────┐         ┌─────────────────┐         ┌──────────────┐
-│  EditorView  │         │  EditorManager  │         │  VS Code     │
-│  (iframe)    │◄─HTTP──►│  EditorProxy    │◄─HTTP──►│  :10001      │
-│              │  same   │  /editor/:id/*  │  local  │  (per folder)│
-└──────────────┘  origin └─────────────────┘         └──────────────┘
-```
+Persisted `term:` tabs survive reload (`VALID_VIEWERS` includes `terminal`); reconciled against live terminals at that cwd on load, stale dropped.
 
-### Lifecycle
+Sidebar `[Terminals(N)]` retargets to `/folder/:cwd/editor`; badge count unchanged (non-ephemeral terminals at cwd). Standalone `TerminalsView` + route `/folder/:cwd/terminals` REMOVED.
 
-1. User clicks `Editor` button in folder action bar → navigates to `/folder/:encodedCwd/editor`
-2. `EditorView` sends `POST /api/editor/start` with `{ cwd }`
-3. `EditorManager` spawns code-server on a free port with `--auth none --bind-addr 127.0.0.1:<port>`
-4. Waits for TCP ready probe → returns `{ id, proxyPath }` → iframe loads
-5. Browser sends heartbeat every 30s → resets idle timer
-6. No heartbeat for 10 min → instance killed via SIGTERM
+Inline `!!` ephemeral cards (`InlineTerminalCard`) unchanged, excluded from tabs. Server PTY / WS protocol / `terminal-manager` unchanged.
 
-### Reverse Proxy
-
-All code-server traffic is proxied through `/editor/:id/*` on the dashboard server. This provides same-origin access (no CORS/iframe issues) and works transparently through zrok tunnels.
-
-### Orphan Cleanup
-
-`EditorManager` state is purely in-memory. On graceful shutdown, `editorManager.stopAll()` SIGTERMs every child. On non-graceful shutdown (SIGKILL, crash, OOM, force-quit), spawned code-server processes get reparented to init/launchd and continue holding their port and `--user-data-dir` lockfile.
-
-To recover, every spawn is recorded in `~/.pi/dashboard/editor-pids.json` (`editor-pid-registry.ts`). On the next server boot, `editorPidRegistry.cleanupOrphans()` runs at the top of `server.start()` (before `fastify.listen`) and:
-
-1. Reads the persisted PIDs.
-2. For each entry whose PID is alive AND whose OS-reported command line contains `--user-data-dir <~/.pi/dashboard/editors/...>`, sends `SIGTERM`.
-3. After a 1 second grace period, sends `SIGKILL` to any survivor.
-4. Rewrites the file empty.
-
-The cmdline ownership check prevents killing unrelated `code-server` instances the user may run themselves. Cleanup completes before any `POST /api/editor/start` request can be served, so a new spawn for the same folder cannot race with a surviving orphan on the same `--user-data-dir` lockfile.
-
-### Editor keeper sidecar
-
-Supersedes the orphan-kill model above. code-server now survives dashboard restart; `/editor/<id>/` URL stays stable across restarts.
-
-Per-editor keeper (`packages/server/src/editor-keeper/keeper.cjs`) spawns detached, CJS-pure. Owns the code-server child, the UDS / named pipe, and the PID sidecar. Outlives the dashboard.
-
-Identity: `editorId = sha256(cwd).slice(0,12)`. Same cwd → same id across restarts. Same id → same `/editor/<id>/` URL.
-
-Files under `~/.pi/dashboard/editors/`:
-- POSIX: socket `<id>.sock`, PID sidecar `<id>.sock.pid`, log `keeper-<id>.log`.
-- Windows: pipe `\\.\pipe\pi-editor-<id>`, PID sidecar `pi-editor-<id>.pid`, log `keeper-<id>.log`.
-
-PID sidecar payload: `{editorId, keeperPid, childPid, port, cwd, dataDir, binary, spawnedAt}`.
-
-Protocol: JSON lines over the socket / pipe. Cmds: `heartbeat`, `getStatus`, `stop`. Events: `ack`, `status`, `child_exit`.
-
-Boot order in `server.start()`: `editorPidRegistry.adoptOrphans()` reattaches every live keeper via `editorManager.adopt(...)`; `editorPidRegistry.cleanupOrphans()` then sweeps pre-keeper installs (cmdline match on `--user-data-dir <~/.pi/dashboard/editors/...>` with no sidecar).
-
-`editorManager.start(cwd)` 3-way: in-memory hit → `keeperManager.probe(editorId)` adopt → `keeperManager.spawnKeeperFor(cwd)`.
-
-Shutdown: `stopAll()` gated by `editor.stopOnDashboardExit` (default `false`). Default → local map cleanup only; keepers + code-server children + browser tabs all survive. `true` → broadcasts `{cmd:"stop"}` to every keeper.
-
-Spec: [`openspec/changes/add-editor-keeper-sidecar/specs/editor-keeper-sidecar/spec.md`](../openspec/changes/add-editor-keeper-sidecar/specs/editor-keeper-sidecar/spec.md).
-
-### Configuration
-
-```json
-{
-  "editor": {
-    "binary": "/usr/local/bin/code-server",
-    "idleTimeoutMinutes": 10,
-    "maxInstances": 3
-  }
-}
-```
-
-Binary auto-detection order: config override → `code-server` on PATH → `openvscode-server` on PATH.
+See change: terminals-in-tabbed-panes.
 
 ### Known Servers Configuration
 
@@ -2018,7 +1967,7 @@ Settings → General → **Tools** renders one row per registered tool: status b
 
 ### Migration path
 
-`ToolResolver` remains the low-level PATH search primitive. The registry calls `ToolResolver.which()` from its `where` strategy. Unregistered binary names (e.g., ad-hoc `code-server` detection) still flow through `ToolResolver` directly. This keeps `ToolResolver` useful for one-off lookups and lets the registry focus on tools the dashboard formally depends on.
+`ToolResolver` remains the low-level PATH search primitive. The registry calls `ToolResolver.which()` from its `where` strategy. Unregistered binary names (e.g., ad-hoc `ripgrep` detection) still flow through `ToolResolver` directly. This keeps `ToolResolver` useful for one-off lookups and lets the registry focus on tools the dashboard formally depends on.
 
 See change: `consolidate-tool-resolution`.
 
@@ -2370,6 +2319,43 @@ row also honors the flag — when set, the row shows an amber "skipped" pill
 instead of a red blocker and Continue is enabled.
 
 See change: require-git-on-boot.
+
+## Package manager (pnpm)
+
+Package manager: **pnpm**, pinned to `pnpm@11.15.1` via root `package.json` `packageManager` field + `corepack enable`.
+
+Scope: pnpm drives ALL dev, CI, Docker, and build work. `npm` survives ONLY in locations listed below.
+
+Lockfile: Single committed lockfile = `pnpm-lock.yaml`. Old `package-lock.json` removed.
+
+Configuration lives in `pnpm-workspace.yaml` (NOT `package.json` `pnpm.*` — yaml file takes precedence when present). Config keys:
+
+- `packages: ['packages/*']` — workspace scope.
+- `nodeLinker: hoisted` — **MANDATORY**. electron-forge preflight hard-fails with `"When using pnpm, node-linker must be set to 'hoisted'"`. Flattens `node_modules` npm-like. Third-party phantom deps auto-resolve.
+- `blockExoticSubdeps: false` — Allows transitive git subdep `@electron/node-gyp` (HTTPS codeload). Replaces old fragile `npm@11.12.1` EALLOWGIT pin.
+- `verifyDepsBeforeRun: false` — Avoids `runDepsStatusCheck`/`execaCoreSync` crash on `pnpm run`.
+- `linkWorkspacePackages: true` + `preferWorkspacePackages: true` — Local `@blackbelt-technology/*` linked from workspace even when local version > registry.
+- `confirmModulesPurge: false` — Non-interactive.
+- `strictDepBuilds: false` — Demotes `ERR_PNPM_IGNORED_BUILDS` from FATAL (pnpm 11 exit 1) to warning. Without it, every CI `pnpm install --frozen-lockfile` reds. (Note: `onlyBuiltDependencies` proved unreliable — allow-listed scripts stay ignored; permit all instead.)
+- `ignoredBuiltDependencies` — Names known build-script deps to quiet warning.
+- `overrides: { bonjour-service: 1.4.2 }` — Pins away bad 1.4.3 patch (re-exports `Service`/`Browser` as values, breaks `import { type Service }` in `packages/shared/src/mdns-discovery.ts`).
+
+**Workspace phantom deps.** `nodeLinker: hoisted` auto-resolves THIRD-PARTY phantom deps. Eight WORKSPACE (`@blackbelt-technology/*`) phantom-dep edges declared explicitly in consuming `package.json` files (plain semver `^` ranges — `sync-versions.js` forbids `workspace:*`).
+
+**Native builds.** NOT run at `pnpm install`. Rebuilt explicitly where needed:
+- `_electron-build.yml` runs `pnpm rebuild node-pty` + electron `node install.js`.
+- `bundle-server.mjs` runs its own `npm install` for electron bundle's `node_modules`.
+
+**CI install.** Command: `pnpm install --frozen-lockfile`. Cache via `pnpm/action-setup` + `actions/setup-node` `cache: pnpm`.
+
+**npm survivors (SHALL remain npm).**
+
+1. `npm publish --provenance` in `publish.yml` — OIDC Trusted Publishing. Needs no npm-installed tree. `publish` job upgrades to `npm@latest` only for OIDC ≥11.5.1 floor.
+2. Column C runtime `npm install` on END-USER machines: `pi-core-updater.ts`, `pi-core-checker.ts`, `recovery-server.ts`, electron `update-checker.ts`.
+3. `bundle-server.mjs` internal `npm install --omit=dev` for electron bundle.
+4. `deploy-site.yml` `site/` job (separate `site/package-lock.json`; `site/` NOT a pnpm workspace member).
+
+See change: adopt-pnpm-for-dev-ci.
 
 ## Doctor Diagnostics
 

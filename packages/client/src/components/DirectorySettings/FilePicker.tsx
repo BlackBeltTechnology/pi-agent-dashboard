@@ -22,8 +22,8 @@ import type { MdCandidate, MdCandidatesResponse } from "@blackbelt-technology/pi
 import { mdiChevronDown, mdiChevronRight } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getApiBase } from "../../lib/api-context.js";
-import { t as i18nT } from "../../lib/i18n";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { buildTree, type FileLeaf, subtreeMatches, type TreeNode } from "./file-tree.js";
 
 const COLLAPSED_KEY = "dashboard:dirset-collapsed";

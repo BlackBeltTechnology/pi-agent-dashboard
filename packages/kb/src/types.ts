@@ -40,7 +40,7 @@ export interface KbHit {
   score: number; // lower = more relevant (BM25 convention)
   snippet: string;
   akaPaths?: string[]; // duplicate copies collapsed by dedup
-  parent?: KbHit | null; // small-to-big: parent section/file context (expand.parent)
+  parent?: { headingPath: string } | null; // small-to-big parent context (expand.parent); display-only, NOT a refetch key; non-recursive
 }
 
 /** A pluggable reranker: rescoring BM25 top-k. Default = none (no-op). */

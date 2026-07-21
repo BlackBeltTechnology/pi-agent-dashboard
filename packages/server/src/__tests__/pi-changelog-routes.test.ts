@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { registerPiChangelogRoutes } from "../routes/pi-changelog-routes.js";
-import { _resetChangelogCache } from "../changelog-parser.js";
+import { _resetChangelogCache } from "../changelog/changelog-parser.js";
 
 // We can't easily patch findChangelogPath at import-time (vitest module
 // mocks vary), so we set up a fake managed install at HOME/.pi-dashboard
@@ -152,10 +152,17 @@ describe("pi-changelog-routes", () => {
   });
 
   it("returns 200 with empty releases when CHANGELOG missing", async () => {
-    // Whitelisted package but nothing on disk.
+    // Real-looking scoped package that is NOT installed anywhere on disk.
+    // Must NOT be a transitive dependency: findChangelogPath Strategy 3 walks
+    // up node_modules from the module location, so any hoisted dep (e.g.
+    // @mariozechner/pi-coding-agent, pulled in transitively by the extension
+    // packages) would be found there — under pnpm's fully-hoisted linker every
+    // transitive dep lands at repo-root node_modules. Use a name that resolves
+    // nowhere so the empty-response path is layout-independent.
+    // See change: adopt-pnpm-for-dev-ci.
     const res = await app.inject({
       method: "GET",
-      url: "/api/pi-core/changelog?pkg=@mariozechner/pi-coding-agent&from=0.68.0&to=0.70.0",
+      url: "/api/pi-core/changelog?pkg=@blackbelt-technology/pi-not-installed-fixture&from=0.68.0&to=0.70.0",
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();

@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/anti-slop-frontend",
-  "version": "0.5.4",
+  "version": "0.6.1",
   "description": "Pi skill — a mechanical, countable anti-slop checklist for AI-generated frontend. Catches the specific tells an undirected model defaults to (AI-purple, Inter-everywhere, em-dashes, div-based fake screenshots, eyebrow-per-section, Jane Doe / Acme data). Advisory; pairs with frontend-mockup-loop. Works in any React/Tailwind/HTML project.",
   "type": "module",
   "repository": {

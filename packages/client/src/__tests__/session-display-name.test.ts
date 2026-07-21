@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getSessionDisplayName } from "../lib/session-display-name.js";
+import { getSessionDisplayName } from "../lib/session/session-display-name.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSession {

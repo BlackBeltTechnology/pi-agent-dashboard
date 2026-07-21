@@ -15,7 +15,7 @@ import {
   DISPLAY_PRESETS,
   mergeDisplayPrefs,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
+import { useDisplayPrefsContext } from "../lib/state/DisplayPrefsContext.js";
 
 export function useDisplayPrefs(sessionId?: string): DisplayPrefs {
   const { global, getSessionOverride } = useDisplayPrefsContext();

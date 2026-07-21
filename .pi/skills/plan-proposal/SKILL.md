@@ -79,12 +79,20 @@ invoke `doubt-driven-review` on the changed artifact:
 Do not fold scenarios until the doubt cycle reaches a stop condition (trivial
 findings, 3 cycles, or explicit "ship it").
 
-### 3. scenario-design → category-routed fold into tasks.md
+### 3. scenario-design → category-routed fold into tasks.md (MANDATORY — never skip)
+
+**`scenario-design` is a required step, not an option.** A change never reaches
+the worktree boundary without a `test-plan.md` manifest and its automated rows
+folded into `tasks.md`. Do **not** hand-author test tasks, infer scenarios from
+the proposal, or skip straight to the commit — always drive the tasks from the
+`scenario-design` output. Smoke-test-only `tasks.md` is a planning failure.
 
 Run `scenario-design` for the change (proposal/design stage → HARD gate; it may
 `ask_user` and STOP on a spec gap — that is expected, answer and continue). It
 writes `openspec/changes/<change>/test-plan.md` — the **manifest**, carrying a
-`level` + `disposition` (`automated` | `manual-only`) per scenario row.
+`level` + `disposition` (`automated` | `manual-only`) per scenario row. If
+`test-plan.md` does not exist after this step, `scenario-design` did not run —
+re-invoke it before folding.
 
 Then **fold** each row into `tasks.md`:
 
@@ -112,6 +120,13 @@ Then **fold** each row into `tasks.md`:
   **no test is folded**. `ship-change` defers these post-merge (its manifest-aware
   defer rule).
 
+**Fold-completeness gate (before Step 4):** every `automated` row in
+`test-plan.md` MUST map to exactly one folded test task in `tasks.md`, and every
+`manual-only` row MUST map to one tagged manual task. Verify the count matches
+the manifest — if any scenario row has no corresponding task, the fold is
+incomplete; finish it before committing. Do not proceed to the boundary with an
+unfolded manifest.
+
 **Parser-safety (load-bearing):** `tasks.md` MUST stay vanilla checkbox format.
 No custom token, no bracketed tag, no non-standard syntax on a task line — only
 `- [ ] <text>` where the manifest reference is ordinary prose. `openspec status
@@ -120,6 +135,10 @@ break them. Verify `openspec status --change <change> --json` reports the same
 task counts after folding as the plain checkboxes imply.
 
 ### 4. Commit planning artifacts + stop at the worktree boundary
+
+**Precondition:** `test-plan.md` exists and the fold-completeness gate passed.
+Never commit without the manifest — a missing `test-plan.md` means Step 3 was
+skipped; go back and run `scenario-design`.
 
 Commit `proposal.md`, `design.md`, `specs/**`, `tasks.md`, and `test-plan.md` to
 `develop`. The worktree is spawned from that commit via the existing worktree
@@ -140,6 +159,11 @@ Then **STOP**. `plan-proposal` does not enter the implementation phase. Report:
 - **Never fold before reconciling** actionable doubt-review findings.
 - **`tasks.md` stays vanilla** — the manifest (`test-plan.md`), not a task tag,
   is the automated-vs-manual source of truth.
+- **`scenario-design` is mandatory** — no `test-plan.md`, no commit. Never
+  hand-author test tasks or skip scenario design; the manifest is the sole
+  source of the folded test tasks.
+- **Fold every manifest row** — the boundary is blocked until every `automated`
+  and `manual-only` row maps to a task.
 - **Never author test/app code here** — folding writes *tasks*; `ship-it` authors
   the tests. This skill plans; it does not implement.
 - **Stop at the boundary** — do not continue into implementation.

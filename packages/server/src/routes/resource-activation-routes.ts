@@ -14,14 +14,14 @@
 
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { PiGateway } from "../pi-gateway.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
 import {
   applyResourceToggle,
   settingsPathForScope,
   type ToggleScope,
   type ToggleType,
-} from "../resource-activation-toggle.js";
+} from "../pi/resource-activation-toggle.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 // Per-settings-file write serialization (see file-routes.ts for the rationale).

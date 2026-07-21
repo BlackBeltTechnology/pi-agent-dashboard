@@ -9,7 +9,7 @@ import type { MdCandidate } from "@blackbelt-technology/pi-dashboard-shared/rest
 import { mdiAlertCircleOutline, mdiArrowLeft, mdiCheckCircleOutline, mdiContentSave } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, Suspense } from "react";
-import { t as i18nT } from "../../lib/i18n";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 // Lazy boundary for the heavy Monaco chunk (worker imports + monaco-editor),
 // mirroring `MonacoBuffer`'s lazy mount in the viewer-registry. Keeps Monaco

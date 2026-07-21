@@ -3,11 +3,11 @@ import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { SessionList } from "../SessionList.js";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { SortableWorkspace } from "../SortableWorkspace.js";
-import { SortableWorkspaceFolder } from "../SortableWorkspaceFolder.js";
-import { SortableSessionCard } from "../SortableSessionCard.js";
+import { SessionList } from "../session/SessionList.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
+import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
+import { SortableSessionCard } from "../session/SortableSessionCard.js";
 import { DndContext } from "@dnd-kit/core";
 import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 

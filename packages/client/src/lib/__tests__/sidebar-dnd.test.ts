@@ -11,7 +11,7 @@ import {
   dropIndicatorProps,
   resolveWorkspaceReorder,
   resolveWorkspaceFolderReorder,
-} from "../sidebar-dnd.js";
+} from "../layout/sidebar-dnd.js";
 
 describe("resolveWorkspaceReorder", () => {
   it("moves the dragged workspace to the drop slot", () => {

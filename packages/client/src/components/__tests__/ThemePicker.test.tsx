@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import React from "react";
-import { ThemePicker } from "../ThemePicker.js";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { THEMES } from "../../lib/themes.js";
+import { ThemePicker } from "../settings/ThemePicker.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { THEMES } from "../../lib/theme/themes.js";
 
 beforeEach(() => {
   localStorage.clear();

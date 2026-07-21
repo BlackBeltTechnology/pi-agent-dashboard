@@ -9,13 +9,12 @@ import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { createInitialState } from "../../lib/event-reducer.js";
-import { ChatView } from "../ChatView.js";
-import { PreviewCard } from "../PreviewCard.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { ChatView } from "../chat/ChatView.js";
+import { PreviewCard } from "../preview/PreviewCard.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
-const defaultToolContext: ToolContext = { editors: [] };
+const defaultToolContext: ToolContext = {};
 
 afterEach(() => cleanup());
 
@@ -79,6 +78,16 @@ describe("PreviewCard", () => {
     expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("fallback");
   });
 
+  // test-plan #3 — a URL target ending `.eml` dispatches to "email", but
+  // PreviewBody guards `kind !== "file"` → FallbackPreview (no crash).
+  it("URL ending .eml falls back to FallbackPreview without crashing (test-plan #3)", () => {
+    const target: ViewTarget = { kind: "url", url: "https://example.com/mail.eml" };
+    const { getByTestId, getByText } = wrap(<PreviewCard target={target} />);
+    expect(getByTestId("preview-card").getAttribute("data-kind")).toBe("email");
+    // FallbackPreview for a URL target renders an "Open in new tab" link.
+    expect(getByText("Open in new tab")).toBeTruthy();
+  });
+
   it("dispatches docx renderer for .docx files", () => {
     const target: ViewTarget = { kind: "file", cwd: "/x", path: "spec.docx" };
     const { getByTestId } = wrap(<PreviewCard target={target} />);
@@ -139,26 +148,7 @@ describe("PreviewCard", () => {
   });
 });
 
-describe("ChatView — view-bearing messages", () => {
-  it("renders a PreviewCard for a view-bearing user message instead of the default bubble", () => {
-    const state = createInitialState();
-    state.messages.push({
-      id: "v-1",
-      role: "user",
-      content: "",
-      timestamp: Date.now(),
-      view: { kind: "file", cwd: "/x", path: "README.md" },
-    });
-    const { hook } = memoryLocation({ path: "/", record: true });
-    const { getByTestId, container } = render(
-      <ThemeProvider>
-        <Router hook={hook}>
-          <ChatView state={state} toolContext={defaultToolContext} />
-        </Router>
-      </ThemeProvider>,
-    );
-    expect(getByTestId("preview-card")).toBeTruthy();
-    // The default user blue bubble class is `bg-blue-500/10` — must NOT appear.
-    expect(container.querySelector(".bg-blue-500\\/10")).toBeNull();
-  });
-});
+// The "ChatView — view-bearing messages" suite is removed: the inline `/view`
+// PreviewCard surface is retired (change: open-view-command-in-editor-pane).
+// `/view` opens the editor pane; `PreviewBody`/overlay renderers stay covered
+// by the suites above.

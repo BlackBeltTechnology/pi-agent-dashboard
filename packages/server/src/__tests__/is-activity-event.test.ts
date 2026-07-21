@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isActivityEvent } from "../event-status-extraction.js";
+import { isActivityEvent } from "../session/event-status-extraction.js";
 
 /**
  * Activity-event allowlist for `session.lastActivityAt` stamping.

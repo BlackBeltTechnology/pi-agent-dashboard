@@ -1,0 +1,3 @@
+# abort-latch.ts — index
+
+Pure class `AbortLatch`. Keeps user abort latched so provider backoff (5–60s) outliving 2s persistent-abort scheduler still stops pi retry. `request(sessionId)` latches on abort; `shouldAbort(sessionId)` true while latched (call on resumption); `clear(sessionId)` on settle or new prompt; `isActive(sessionId)` probe. Abort-on-sight scoped to aborted turn. Bridge re-calls `cachedCtx.abort()` on resumed agent_start / assistant message_start while latched. Clears on new user prompt (command-handler `noteUserPrompt` pre-send + bridge user message_start) OR terminal agent_end. "No intervening user prompt" = discriminator; needs no retry signal from pi. See change: unify-error-retry-lifecycle.

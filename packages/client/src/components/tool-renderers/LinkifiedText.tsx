@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
-import { tokenize } from "../../lib/linkify-tool-output.js";
-import { ErrorBoundary } from "../ErrorBoundary.js";
+import { tokenize } from "../../lib/chat/linkify-tool-output.js";
+import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { UrlLink } from "./UrlLink.js";
 import { FileLink } from "./FileLink.js";
 import type { ToolContext } from "./types.js";

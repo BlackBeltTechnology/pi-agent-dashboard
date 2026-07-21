@@ -17,9 +17,9 @@
 
 import type { ApiResponse, GoalBudget, GoalCriterion, GoalJudge, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { GoalNotFoundError, type GoalStore } from "../goal-store.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import { GoalNotFoundError, type GoalStore } from "../goal/goal-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export interface GoalRoutesDeps {

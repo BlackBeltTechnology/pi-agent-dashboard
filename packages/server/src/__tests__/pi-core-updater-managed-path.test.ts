@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { defaultRunNpmUpdate } from "../pi-core-updater.js";
+import { defaultRunNpmUpdate } from "../pi/pi-core-updater.js";
 import type { PiCorePackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 
 function makePkg(overrides: Partial<PiCorePackage> = {}): PiCorePackage {

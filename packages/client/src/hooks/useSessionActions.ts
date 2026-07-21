@@ -6,8 +6,11 @@
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback } from "react";
-import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
-import { encodePromptAnswer } from "../lib/prompt-answer-encoder.js";
+import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/chat/event-reducer.js";
+import { encodePromptAnswer } from "../lib/chat/prompt-answer-encoder.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 export interface SessionActionDeps {
   selectedId: string | undefined;

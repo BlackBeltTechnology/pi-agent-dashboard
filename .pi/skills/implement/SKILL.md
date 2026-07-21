@@ -53,19 +53,35 @@ npx tsx ./scripts/full-rebuild.ts
 
 Full matrix with edge cases (dev-mode fallback, fault-tolerant restart, single-restart-path rule) lives in [`references/rebuild-matrix.md`](references/rebuild-matrix.md).
 
-## Review gate — before commit (server-independent)
+## Review — two tiers (inner loop vs ship gate)
 
-At implementation completion, before committing, run the advisory CodeRabbit gate on the diff. **Worktree-safe and server-independent** — no build, no restart; reviews the current working tree, so it works in a git worktree and alongside the Docker-isolated instance:
+Review is split by moment. The inner loop runs on an **unlimited** engine every non-trivial change; the rate-limited cloud gate is **reserved for the PR**.
+
+**Inner loop (during dev, before commit) — `review-code` discipline.** After writing a non-trivial change, review the diff with the **`review-code`** skill (eng-disciplines): engine-agnostic — inspect design→correctness→complexity→tests→naming→security, emit labelled findings, fix `issue(blocking)` surgically, re-review until no blocking finding remains, then commit. Runs on a model engine — no cloud quota spent, so run it freely per change.
+
+**Ship gate (opt-in, PR-time) — CodeRabbit.** Reserved for the pull request so its quota is unspent during dev. **Worktree-safe and server-independent** — no build, no restart:
 
 ```bash
-npx tsx ./scripts/review-changes.ts                    # uncommitted diff (default)
-npx tsx ./scripts/review-changes.ts -t committed --base main   # vs base branch
-SKIP_CR_REVIEW=1 npx tsx ./scripts/review-changes.ts   # skip
+RUN_CR_REVIEW=1 npx tsx ./scripts/review-changes.ts             # opt in (uncommitted)
+npx tsx ./scripts/review-changes.ts --ship -t committed --base main
+npx tsx ./scripts/review-changes.ts                            # default: skips → use review-code
 ```
 
-**Warn-and-continue, never blocks**: CodeRabbit is cloud rate-limited; on limit / missing CLI / auth failure it prints "deferred to a later cycle" and exits 0. Fix Critical/Warning findings, then commit. See the **`code-review`** skill for severity triage + the fix loop.
+**Warn-and-continue, never blocks**: CodeRabbit is cloud rate-limited; on limit / missing CLI / auth failure it prints "deferred to a later cycle" and exits 0. Fix Critical/Warning findings, then commit. See the **`code-review`** skill for the CodeRabbit severity triage + fix loop.
 
-> openspec-apply: run this after the last task completes (before suggesting archive/commit). It runs in the worktree without touching the main server.
+> openspec-apply: the `review-code` inner-loop pass runs after each task's code is written; the CodeRabbit gate is opt-in at ship (ship-change owns the PR-time review). Both run in the worktree without touching the main server.
+
+## Subagent checkpoints (apply loop) — offload read/write-light work, keep the builder inline
+
+The builder (this loop) owns all decisions and code writes — coherence stays in one context. Spawn a subagent (explicit `Agent` call) only at these signals, to keep the main context sharp:
+
+| Signal in the task / diff | Spawn | Why isolated |
+|---|---|---|
+| touches auth, secrets, PII, untrusted input, webhooks, or a latency/throughput budget | `Audit` | deep read-only risk pass → findings; fix inline |
+| contextFiles list is large (many files / big) | `Explore` | distill the spec; else read directly for coherence |
+| a change landed and `docs/` prose needs updating | `DocScribe` | Rule-6 docs-delegation; caveman-style writes |
+
+Review stays a **skill** (`review-code`), not a subagent — review+fix is coherence-critical and wants full context. Tests: run+capture inline (tee→grep); root-cause via `systematic-debugging` inline. Full rationale: `docs/skills-as-subagents.md`.
 
 ## The discipline — write less code, write the right code
 
@@ -73,6 +89,7 @@ The full code-discipline reference lives in [`references/code-discipline.md`](re
 
 | Rule | One-liner |
 |------|-----------|
+| 0. kb-first, even as an executor | Before you `grep`/`rg` for a symbol, Read a file to learn its purpose, or chase an import, run `kb_search` / `kb agents <path>` / `kb_neighbors` FIRST. Fires on the ACTION, not the intent — knowing which file the task names does not exempt you. |
 | 1. Think before coding | State assumptions. Ask via `ask_user` when unclear. Never speculate about unread files. Confirm major plans. |
 | 2. Simplicity first | Minimum code that solves the problem. No speculative abstractions. "Would a senior engineer say this is overcomplicated?" |
 | 3. Surgical changes | Touch only what you must. Don't "improve" adjacent code. Match existing style. Every changed line traces to the request. |
@@ -104,7 +121,8 @@ If your change went red in CI after `git push`, switch to the **`ci-troubleshoot
 - `openspec-new-change` — capture a non-trivial change as an OpenSpec proposal first
 - `openspec-apply-change` — implement tasks from an OpenSpec change with the artifact workflow
 - `openspec-verify-change` — validate implementation matches artifacts before archiving
-- `code-review` — review the diff before committing
+- `review-code` — inner-loop diff review discipline (unlimited engine), before commit
+- `code-review` — the opt-in CodeRabbit ship gate (PR-time)
 - `debug-dashboard` — diagnose a misbehaving running system
 - `ci-troubleshoot` — diagnose failed CI runs after push
 - `release-cut` — when the change is ready to ship as a versioned release

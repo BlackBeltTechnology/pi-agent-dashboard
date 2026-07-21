@@ -19,7 +19,7 @@ import {
   sourceLabels,
   statusColors,
   statusShapeIcon,
-} from "../session-status-visuals.js";
+} from "../session/session-status-visuals.js";
 
 // Tokenized status colors. See change: improve-dashboard-attention-routing.
 const NEEDS_YOU = "bg-[var(--status-needs-you)]";

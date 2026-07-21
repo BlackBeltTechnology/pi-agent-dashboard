@@ -5,7 +5,7 @@
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { FolderSpawnButtons } from "../FolderSpawnButtons.js";
+import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
 
 afterEach(() => {
   cleanup();

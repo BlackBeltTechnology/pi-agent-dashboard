@@ -12,7 +12,7 @@
 import type { RecommendedExtension } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 import type { InstalledPackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { describe, expect, it } from "vitest";
-import { resolvePublishedVariant } from "../installed-package-enricher.js";
+import { resolvePublishedVariant } from "../package/installed-package-enricher.js";
 
 const MANIFEST: readonly RecommendedExtension[] = [
 	{

@@ -11,7 +11,7 @@
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { createInitialState, reduceEvent } from "../event-reducer.js";
+import { createInitialState, reduceEvent } from "../chat/event-reducer.js";
 
 describe("stuck-tool baseline: withheld tool_execution_end leaves row running", () => {
   it("tool row stays running when its end event never arrives", () => {

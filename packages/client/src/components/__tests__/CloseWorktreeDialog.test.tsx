@@ -4,11 +4,11 @@
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CloseWorktreeDialog } from "../CloseWorktreeDialog.js";
+import { CloseWorktreeDialog } from "../worktree/CloseWorktreeDialog.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 const removeWorktreeMock = vi.fn();
-vi.mock("../../lib/git-api.js", () => ({
+vi.mock("../../lib/git/git-api.js", () => ({
   removeWorktree: (args: any) => removeWorktreeMock(args),
 }));
 

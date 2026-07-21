@@ -21,7 +21,7 @@
 
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { createInitialState, reduceEvent, type SessionState } from "../event-reducer.js";
+import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
 
 const LIVE = { isLive: true } as const;
 

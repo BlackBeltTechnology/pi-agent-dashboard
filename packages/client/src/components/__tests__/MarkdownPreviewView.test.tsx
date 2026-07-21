@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-import { MarkdownPreviewView } from "../MarkdownPreviewView.js";
+import { MarkdownPreviewView } from "../preview/MarkdownPreviewView.js";
 
 // Mock MarkdownContent to avoid full markdown rendering in tests
-vi.mock("../MarkdownContent.js", () => ({
+vi.mock("../preview/MarkdownContent.js", () => ({
   MarkdownContent: ({ content }: { content: string }) => (
     <div data-testid="mock-markdown">{content}</div>
   ),

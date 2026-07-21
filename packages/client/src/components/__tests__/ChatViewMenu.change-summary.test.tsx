@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { ChatViewMenu } from "../ChatViewMenu.js";
+import { ChatViewMenu } from "../chat/ChatViewMenu.js";
 
 afterEach(cleanup);
 

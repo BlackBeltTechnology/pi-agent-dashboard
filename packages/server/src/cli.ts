@@ -24,7 +24,7 @@ import {
   startRecoveryServer,
   isModuleNotFoundError,
   parseModuleNotFoundError,
-} from "./recovery-server.js";
+} from "./lifecycle/recovery-server.js";
 import { loadConfig, ensureConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import {
   launchDashboardServer,
@@ -35,7 +35,7 @@ import {
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
-import { readPid, removePid, isServerRunning } from "./server-pid.js";
+import { readPid, removePid, isServerRunning } from "./spawn-process/server-pid.js";
 import {
   findPortHolders as platformFindPortHolders,
   isProcessAlive as platformIsProcessAlive,
@@ -54,7 +54,7 @@ export function findPortHolders(
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 
-import { assertNodeVersionSupported } from "./node-guard.js";
+import { assertNodeVersionSupported } from "./auth/node-guard.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import {
   findBundledExtension,
@@ -120,13 +120,16 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     autoShutdown: fileConfig.autoShutdown,
     shutdownIdleSeconds: fileConfig.shutdownIdleSeconds,
     tunnel: flags.tunnel ?? fileConfig.tunnel.enabled,
-    tunnelReservedToken: fileConfig.tunnel.reservedToken,
+    // v2 (support-zrok-v2): source the reserved NAME + persistence from the
+    // zrok sub-config. The legacy v1 `reservedToken` is NOT passed to the v2
+    // provider (a v1 token is meaningless to a v2 account).
+    tunnelReservedName: fileConfig.tunnel.zrok?.reservedName,
+    tunnelPersistent: fileConfig.tunnel.zrok?.persistent,
     tunnelWatchdog: fileConfig.tunnel.watchdog,
     authConfig: fileConfig.auth,
     maxEventsPerSession: fileConfig.memoryLimits.maxEventsPerSession,
     maxStringFieldSize: fileConfig.memoryLimits.maxStringFieldSize,
     maxWsBufferBytes: fileConfig.memoryLimits.maxWsBufferBytes,
-    editor: fileConfig.editor,
     openspec: fileConfig.openspec,
     sessions: fileConfig.sessions,
     reattachPlacement: fileConfig.reattachPlacement,

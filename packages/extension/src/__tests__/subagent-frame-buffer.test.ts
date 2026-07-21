@@ -9,6 +9,11 @@ function frame(id: string, entries: unknown[] = []) {
   return { id, type: "Explore", description: "", details: { entries } };
 }
 
+/** A frame whose details carry the producer's v7 runner `agentSessionId`. */
+function frameWithSession(id: string, agentSessionId: string, entries: unknown[] = []) {
+  return { id, type: "Explore", description: "", details: { entries, agentSessionId } };
+}
+
 describe("SubagentFrameBuffer — channel classification", () => {
   it("recognizes subagent channels only", () => {
     expect(SubagentFrameBuffer.isSubagentChannel("subagents:started")).toBe(true);
@@ -133,6 +138,91 @@ describe("D2 — resync responder", () => {
     expect(buf.resync("a")).toBeUndefined(); // oldest evicted
     expect(buf.resync("b")).toBeDefined();
     expect(buf.resync("c")).toBeDefined();
+  });
+});
+
+describe("D3 — resync resolves by either id (agentId or derived agentSessionId)", () => {
+  it("agentSessionIdOf reads details.agentSessionId (undefined when absent)", () => {
+    expect(SubagentFrameBuffer.agentSessionIdOf({ details: { agentSessionId: "S" } })).toBe("S");
+    expect(SubagentFrameBuffer.agentSessionIdOf({ details: {} })).toBeUndefined();
+    expect(SubagentFrameBuffer.agentSessionIdOf({})).toBeUndefined();
+    expect(SubagentFrameBuffer.agentSessionIdOf(undefined)).toBeUndefined();
+  });
+
+  // X2: retained running snapshot for A with details.agentSessionId=S →
+  // resync(S) returns it via the values-scan; resync(A) via the fast path.
+  it("resolves a retained running snapshot by its derived agentSessionId (values-scan)", () => {
+    const buf = new SubagentFrameBuffer();
+    buf.markForwarded("subagents:started", frameWithSession("A", "S", [1, 2]));
+    const byId = buf.resync("A");
+    expect(byId).toBeDefined();
+    expect(buf.stats.resyncByAgentId).toBe(1);
+    const bySession = buf.resync("S");
+    expect(bySession).toBeDefined();
+    // state.id stays canonical (the agentId), even when resolved via the v7 id.
+    expect(bySession!.data.id).toBe("A");
+    expect(buf.stats.resyncByAgentSessionId).toBe(1);
+    expect(buf.stats.resyncServed).toBe(2);
+  });
+
+  // X3: terminal frame removes A's snapshot → resync(A) and resync(S) both no-op.
+  it("terminated run resolves to nothing by either id", () => {
+    const buf = new SubagentFrameBuffer();
+    buf.markForwarded("subagents:started", frameWithSession("A", "S", [1]));
+    buf.markForwarded("subagents:completed", frameWithSession("A", "S", [1, 2]));
+    expect(buf.resync("A")).toBeUndefined();
+    expect(buf.resync("S")).toBeUndefined();
+    expect(buf.stats.resyncNoop).toBe(2);
+  });
+
+  // X1 (bridge/frame-buffer half of graceful degrade): frames never carry
+  // agentSessionId → no session-id resolution, no throw, agentId path intact.
+  it("graceful degrade: frames without agentSessionId → resync(sessionId) no-ops, no throw", () => {
+    const buf = new SubagentFrameBuffer();
+    buf.markForwarded("subagents:started", frame("A", [1]));
+    expect(buf.resync("A")).toBeDefined();
+    expect(buf.resync("S")).toBeUndefined();
+    expect(buf.stats.resyncByAgentSessionId).toBe(0);
+  });
+
+  // E5: 65 distinct running subagents (each with its own S), then complete →
+  // the evicted first agentId and its S both no-op; retained ≤ 64; no separate
+  // index retains completed runs by session id.
+  it("adds no independent bound (BVA on 64) — session-id resolution inherits the snapshot bound", () => {
+    const buf = new SubagentFrameBuffer(64);
+    for (let i = 0; i < 65; i++) {
+      buf.markForwarded("subagents:started", frameWithSession(`a${i}`, `s${i}`, [1]));
+    }
+    // The 65th insert evicted the oldest (a0/s0): retained running snapshots ≤ 64.
+    expect(buf.resync("a0")).toBeUndefined();
+    expect(buf.resync("s0")).toBeUndefined();
+    expect(buf.resync("a64")).toBeDefined();
+    expect(buf.resync("s64")).toBeDefined();
+    expect(buf.stats.overflowEvicted).toBeGreaterThanOrEqual(1);
+    // Complete every still-tracked run → no snapshot retained by either id.
+    for (let i = 1; i < 65; i++) {
+      buf.markForwarded("subagents:completed", frameWithSession(`a${i}`, `s${i}`, [1]));
+    }
+    expect(buf.resync("a64")).toBeUndefined();
+    expect(buf.resync("s64")).toBeUndefined();
+  });
+
+  // P1: snapshots at the 64 cap, resync by a non-matching agentSessionId
+  // (worst case: full scan, miss) → single call is cheap. The design intent is
+  // sub-millisecond; the assertion uses a generous upper bound (25 ms) so a
+  // 64-element scan (microseconds in practice) never false-fails under CI CPU
+  // jitter / tick resolution, while still catching a pathological regression
+  // (e.g. an accidental O(n²) or per-call allocation blow-up). CodeRabbit nit.
+  it("derived scan is cheap on a full buffer (worst-case full-scan miss)", () => {
+    const buf = new SubagentFrameBuffer(64);
+    for (let i = 0; i < 64; i++) {
+      buf.markForwarded("subagents:started", frameWithSession(`a${i}`, `s${i}`, [1]));
+    }
+    const t0 = performance.now();
+    const snap = buf.resync("non-matching-session-id");
+    const dt = performance.now() - t0;
+    expect(snap).toBeUndefined();
+    expect(dt).toBeLessThan(25);
   });
 });
 

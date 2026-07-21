@@ -10,7 +10,7 @@
  * See change: overlay-url-routing.
  */
 import { useEffect, useState } from "react";
-import { getApiBase } from "../lib/api-context.js";
+import { getApiBase } from "../lib/api/api-context.js";
 
 const SOURCE_LANG_MAP: Record<string, string> = {
   ".ts": "typescript", ".tsx": "typescript", ".js": "javascript", ".jsx": "javascript",

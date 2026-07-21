@@ -7,7 +7,7 @@
 
 import { normalizeTags } from "@blackbelt-technology/pi-dashboard-shared/tags.js";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useI18n } from "../../lib/i18n";
+import { useI18n } from "../../lib/i18n/i18n.js";
 import { TagChip } from "./TagChip.js";
 
 interface TagEditorProps {

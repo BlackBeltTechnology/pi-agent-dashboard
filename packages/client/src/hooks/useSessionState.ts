@@ -25,7 +25,7 @@
  */
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useRef, useState } from "react";
-import { foldLiveEvents } from "../lib/coalesce-live-events.js";
+import { foldLiveEvents } from "../lib/chat/coalesce-live-events.js";
 import {
   addInteractiveRequest,
   applyPromptReceived,
@@ -34,7 +34,7 @@ import {
   foldReplayBuffer,
   reduceEvent,
   type SessionState,
-} from "../lib/event-reducer.js";
+} from "../lib/chat/event-reducer.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 /**

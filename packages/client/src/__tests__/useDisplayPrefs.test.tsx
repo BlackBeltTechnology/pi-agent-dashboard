@@ -5,7 +5,7 @@
 import React from "react";
 import { describe, it, expect } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { DisplayPrefsProvider } from "../lib/DisplayPrefsContext.js";
+import { DisplayPrefsProvider } from "../lib/state/DisplayPrefsContext.js";
 import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 

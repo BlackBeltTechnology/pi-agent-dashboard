@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-distill-session-knowledge",
-  "version": "0.5.4",
+  "version": "0.6.1",
   "description": "Pi skill: offline-mine pi session JSONL logs into reusable, verified knowledge (skills, memory, docs)",
   "type": "module",
   "license": "MIT",
@@ -31,6 +31,6 @@
     "NOTICE"
   ],
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-session-distiller": "^0.5.4"
+    "@blackbelt-technology/pi-dashboard-session-distiller": "^0.6.1"
   }
 }

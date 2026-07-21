@@ -26,8 +26,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "wouter";
 import { useMediaQuery } from "../../hooks/useMediaQuery.js";
 import { useTreeColumnWidth } from "../../hooks/useTreeColumnWidth.js";
-import { getApiBase } from "../../lib/api-context.js";
-import { t as i18nT } from "../../lib/i18n";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { FilePicker } from "./FilePicker.js";
 // The lazy Monaco mount + mtime formatting live in InstructionsEditorPane.
 import { InstructionsEditorPane } from "./InstructionsEditorPane.js";

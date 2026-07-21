@@ -5,10 +5,10 @@
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { WebSocket } from "ws";
 import type { DirectoryService } from "../directory-service.js";
-import { extractStatsFromEvents } from "../event-status-extraction.js";
-import type { StoredEvent } from "../memory-event-store.js";
+import { extractStatsFromEvents } from "../session/event-status-extraction.js";
+import type { StoredEvent } from "../persistence/memory-event-store.js";
 import { pluginIntentCache } from "../plugin-intent-cache.js";
-import { truncateToolResultForReplay } from "../replay-truncate.js";
+import { truncateToolResultForReplay } from "../session/replay-truncate.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { selectWindow, TAIL_WINDOW_EVENTS } from "./select-window.js";
 
@@ -183,19 +183,8 @@ export function handleSubscribe(
   subs: Set<string>,
   ctx: BrowserHandlerContext,
 ): void {
-  const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, markReplaying, clearReplaying, viewMessageStore } = ctx;
+  const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, markReplaying, clearReplaying } = ctx;
   subs.add(msg.sessionId);
-
-  // Send the current view-messages snapshot before any event replay so the
-  // client can merge view rows into the rendered chat.
-  // See change: render-file-previews.
-  if (viewMessageStore) {
-    sendTo(ws, {
-      type: "view_messages_update",
-      sessionId: msg.sessionId,
-      viewMessages: viewMessageStore.get(msg.sessionId),
-    });
-  }
 
   // Request metadata from the extension so commands/flows/models/roles arrive
   // while the browser is actually subscribed (responses use sendToSubscribers).

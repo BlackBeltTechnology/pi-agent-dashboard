@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { createMetaPersistence } from "../meta-persistence.js";
+import { createMetaPersistence } from "../persistence/meta-persistence.js";
 import { metaPath, readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 
 describe("meta-persistence", () => {

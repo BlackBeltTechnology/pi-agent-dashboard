@@ -4,23 +4,22 @@
  */
 import type { WebSocket } from "ws";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { EventStore } from "../memory-event-store.js";
-import type { PiGateway } from "../pi-gateway.js";
-import type { PendingForkRegistry } from "../pending-fork-registry.js";
-import type { SessionOrderManager } from "../session-order-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { EventStore } from "../persistence/memory-event-store.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
+import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
+import type { SessionOrderManager } from "../session/session-order-manager.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { DirectoryService } from "../directory-service.js";
-import type { TerminalManager } from "../terminal-manager.js";
-import type { HeadlessPidRegistry } from "../headless-pid-registry.js";
-import type { MetaPersistence } from "../meta-persistence.js";
-import type { PendingResumeRegistry } from "../pending-resume-registry.js";
-import type { PendingAttachRegistry } from "../pending-attach-registry.js";
-import type { PendingInitialPromptRegistry } from "../pending-initial-prompt-registry.js";
-import type { PendingWorktreeBaseRegistry } from "../pending-worktree-base-registry.js";
-import type { PendingResumeIntentRegistry } from "../pending-resume-intent-registry.js";
-import type { PendingClientCorrelations } from "../pending-client-correlations.js";
-import type { ViewMessageStore } from "../view-message-store.js";
+import type { TerminalManager } from "../terminal/terminal-manager.js";
+import type { HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
+import type { MetaPersistence } from "../persistence/meta-persistence.js";
+import type { PendingResumeRegistry } from "../pending/pending-resume-registry.js";
+import type { PendingAttachRegistry } from "../pending/pending-attach-registry.js";
+import type { PendingInitialPromptRegistry } from "../pending/pending-initial-prompt-registry.js";
+import type { PendingWorktreeBaseRegistry } from "../pending/pending-worktree-base-registry.js";
+import type { PendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
+import type { PendingClientCorrelations } from "../pending/pending-client-correlations.js";
 
 export interface BrowserHandlerContext {
   ws: WebSocket;
@@ -98,10 +97,4 @@ export interface BrowserHandlerContext {
   markReplaying(ws: WebSocket, sessionId: string): void;
   /** Clear replay flag and send catch-up events */
   clearReplaying(ws: WebSocket, sessionId: string, lastReplayedSeq: number): void;
-  /**
-   * Per-session store for dashboard-local `/view` preview rows. Separate
-   * from pi's events.jsonl so the agent never observes them.
-   * See change: render-file-previews.
-   */
-  viewMessageStore?: ViewMessageStore;
 }

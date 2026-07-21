@@ -2,9 +2,9 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { Router } from "wouter";
 import App from "./App.js";
-import { ThemeProvider } from "./components/ThemeProvider.js";
+import { ThemeProvider } from "./components/settings/ThemeProvider.js";
 import { MobileProvider } from "./hooks/useMobile.js";
-import { I18nProvider } from "./lib/i18n.js";
+import { I18nProvider } from "./lib/i18n/i18n.js";
 import "./index.css";
 // KaTeX styles for LaTeX math rendering in MarkdownContent.
 // See change: chat-markdown-local-images-and-math.
@@ -38,12 +38,12 @@ import type {
 // plugin slot contributions look them up via `useUiPrimitive(key)`. Adding
 // a key in shared/ui-primitives.ts requires adding a registration here.
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { MarkdownContent } from "./components/MarkdownContent.js";
-import { ModelSelector } from "./components/ModelSelector.js";
-import { PairLanding } from "./components/PairLanding.js";
-import { ThinkingBlock } from "./components/ThinkingBlock.js";
-import { ToolCallStep } from "./components/ToolCallStep.js";
-import { installDeviceAuthFetch } from "./lib/device-auth.js";
+import { MarkdownContent } from "./components/preview/MarkdownContent.js";
+import { ModelSelector } from "./components/settings/ModelSelector.js";
+import { PairLanding } from "./components/connectivity/PairLanding.js";
+import { ThinkingBlock } from "./components/chat/ThinkingBlock.js";
+import { ToolCallStep } from "./components/chat/ToolCallStep.js";
+import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
 
 const primitiveRegistry = createUiPrimitiveRegistry();
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.agentCard, AgentCardShell);
@@ -107,7 +107,7 @@ const ToolCallStepPrimitive: React.FC<UiToolCallStepProps> = (props) => (
     toolDetails={props.toolDetails}
     startedAt={props.startedAt}
     duration={props.duration}
-    context={{ editors: [], sessionId: props.sessionId }}
+    context={{ sessionId: props.sessionId }}
   />
 );
 registerUiPrimitive(

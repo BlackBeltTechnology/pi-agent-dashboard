@@ -6,7 +6,7 @@
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { FolderActionBar } from "../FolderActionBar.js";
+import { FolderActionBar } from "../folder/FolderActionBar.js";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -14,10 +14,8 @@ function renderBar(over: Partial<React.ComponentProps<typeof FolderActionBar>> =
   const props: React.ComponentProps<typeof FolderActionBar> = {
     cwd: "/repo",
     terminalCount: 0,
-    nativeEditors: [],
     onOpenTerminals: () => {},
     onOpenEditor: () => {},
-    onOpenNativeEditor: () => {},
     onOpenPiResources: () => {},
     ...over,
   };

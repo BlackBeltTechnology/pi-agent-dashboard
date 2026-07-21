@@ -11,7 +11,7 @@
  * See change: configurable-chat-display.
  */
 import type { FastifyInstance } from "fastify";
-import type { PreferencesStore } from "../preferences-store.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { NetworkGuard } from "./route-deps.js";
 import type {
   ServerToBrowserMessage,

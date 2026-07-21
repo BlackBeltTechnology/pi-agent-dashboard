@@ -16,7 +16,7 @@ import path from "node:path";
 import {
   createOpenSpecGroupStore,
   type OpenSpecGroupStore,
-} from "../openspec-group-store.js";
+} from "../openspec/openspec-group-store.js";
 
 describe("openspec-group-store — broadcast + cache instrumentation", () => {
   let tmpDir: string;

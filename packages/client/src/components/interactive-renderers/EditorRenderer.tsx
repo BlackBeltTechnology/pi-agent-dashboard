@@ -1,7 +1,7 @@
 import { mdiCheckCircle, mdiTextBoxEdit } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useState } from "react";
-import { t as i18nT } from "../../lib/i18n";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { InteractiveRendererProps } from "./types.js";
 
 export function EditorRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {

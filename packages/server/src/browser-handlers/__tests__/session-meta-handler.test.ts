@@ -3,7 +3,7 @@
  * See change: fix-mobile-attach-proposal-display.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { createMemorySessionManager, type SessionManager } from "../../memory-session-manager.js";
+import { createMemorySessionManager, type SessionManager } from "../../session/memory-session-manager.js";
 import type { BrowserHandlerContext } from "../handler-context.js";
 import { handleAttachProposal, handleDetachProposal, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
 

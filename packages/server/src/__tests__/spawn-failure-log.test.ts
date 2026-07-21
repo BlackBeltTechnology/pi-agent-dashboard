@@ -7,8 +7,8 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, statSync, existsSync } f
 import path from "node:path";
 import os from "node:os";
 
-import { appendSpawnFailure, readSpawnFailures, _setLogDirForTests } from "../spawn-failure-log.js";
-import type { SpawnFailureEntry } from "../spawn-failure-log.js";
+import { appendSpawnFailure, readSpawnFailures, _setLogDirForTests } from "../spawn-process/spawn-failure-log.js";
+import type { SpawnFailureEntry } from "../spawn-process/spawn-failure-log.js";
 
 function makeEntry(overrides: Partial<SpawnFailureEntry> = {}): SpawnFailureEntry {
   return {

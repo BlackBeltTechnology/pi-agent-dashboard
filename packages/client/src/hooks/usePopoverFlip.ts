@@ -18,10 +18,20 @@
  * flip logic previously duplicated across ModelSelector / ThinkingLevelSelector
  * / CommandInput, and restoring the specced auto-flip on ChatViewMenu.
  *
+ * When a `boundaryRef` is supplied, space is measured against that clipping
+ * pane's rect (BOTH axes) instead of the viewport, so a popover nested in an
+ * offset `overflow` pane no longer clips against the pane edge; it also
+ * re-measures on the boundary's own `scroll` / `ResizeObserver` (an
+ * internally-scrolling pane or a dragged split-divider fires neither window
+ * event). `preferredAnchor` lets a `left-0` consumer opt into the horizontal
+ * axis without silently flipping to `right-0`, and `minContentWidth` flips
+ * instead of squishing a dense dropdown below readability.
+ *
  * See change: fix-popover-viewport-flip.
  * See change: fix-popover-horizontal-flip.
+ * See change: fix-popover-container-clip.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 
 export interface PopoverFlipOptions {
   /** Whether the popover is open. No measurement / listeners while false. */
@@ -42,6 +52,23 @@ export interface PopoverFlipOptions {
    * horizontal anchor, preserving the consumer's existing right-anchor).
    */
   estimatedWidth?: number;
+  /**
+   * Clipping boundary. When set, space is measured against its rect (BOTH
+   * axes) instead of the viewport, and the hook re-measures on the boundary's
+   * own `scroll` + `ResizeObserver`. Default: viewport (backward-compatible).
+   */
+  boundaryRef?: React.RefObject<HTMLElement | null>;
+  /**
+   * Anchor the consumer prefers to keep. Default `"right"` (current behavior).
+   * A `"left"` consumer stays `left-0` unless it genuinely must flip.
+   */
+  preferredAnchor?: "left" | "right";
+  /**
+   * Below this content width, FLIP to the other side instead of clamping
+   * `maxWidth` (so a dense dropdown is never squished below readability); only
+   * when neither side fits does it clamp. Default 0 (no minimum).
+   */
+  minContentWidth?: number;
 }
 
 export interface PopoverFlipState {
@@ -83,6 +110,9 @@ export function usePopoverFlip(
     gap = DEFAULT_GAP,
     threshold = DEFAULT_THRESHOLD,
     estimatedWidth = Infinity,
+    boundaryRef,
+    preferredAnchor = "right",
+    minContentWidth = 0,
   } = options;
   const [state, setState] = useState<PopoverFlipState>(CLOSED_STATE);
 
@@ -91,40 +121,89 @@ export function usePopoverFlip(
     const el = triggerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom - gap;
-    const spaceAbove = rect.top - gap;
+    // Clipping boundary: measure against the supplied pane's rect (both axes)
+    // when present, else the viewport. Absent boundary → 0..innerWidth /
+    // 0..innerHeight, byte-for-byte the previous viewport behavior.
+    const boundary = boundaryRef?.current ?? null;
+    // Dev-only self-boundary guard: the boundary must be an ancestor PANE of
+    // the trigger, never the popover's own `overflow-y-auto` wrapper (a sibling
+    // of the trigger). A boundary that does not contain the trigger would clamp
+    // the popover against itself.
+    if (
+      import.meta.env.DEV &&
+      boundary &&
+      typeof boundary.contains === "function" &&
+      !boundary.contains(el)
+    ) {
+      console.warn(
+        "usePopoverFlip: boundaryRef does not contain the trigger — it must be " +
+          "the clipping pane, not the popover's own overflow wrapper.",
+      );
+    }
+    const b = boundary?.getBoundingClientRect();
+    const leftEdge = b ? b.left : 0;
+    const rightEdge = b ? b.right : window.innerWidth;
+    const topEdge = b ? b.top : 0;
+    const bottomEdge = b ? b.bottom : window.innerHeight;
+
+    const spaceBelow = bottomEdge - rect.bottom - gap;
+    const spaceAbove = rect.top - topEdge - gap;
     const flipUp = spaceBelow < Math.min(estimatedHeight, threshold) && spaceAbove > spaceBelow;
     const maxHeight = Math.max(MIN_POPOVER_HEIGHT, flipUp ? spaceAbove : spaceBelow);
-    // Horizontal axis. Right-anchored (`right-0`) popovers extend leftward from
-    // the trigger's right edge → available room is `rect.right`. Left-anchored
-    // (`left-0`) popovers extend rightward from the trigger's left edge →
-    // available room is `innerWidth - rect.left`. Preserve the right-anchor by
-    // default; only flip when a finite estimated width does not fit the
-    // right-anchor side AND the left-anchor side has more room.
-    const spaceRightAnchor = rect.right - gap;
-    const spaceLeftAnchor = window.innerWidth - rect.left - gap;
-    const flipHorizontal =
-      Number.isFinite(estimatedWidth) &&
-      spaceRightAnchor < estimatedWidth &&
-      spaceLeftAnchor > spaceRightAnchor;
-    const anchorRight = !flipHorizontal;
-    const maxWidth = Math.max(
-      MIN_POPOVER_WIDTH,
-      anchorRight ? spaceRightAnchor : spaceLeftAnchor,
-    );
-    setState({ flipUp, maxHeight, anchorRight, maxWidth });
-  }, [triggerRef, estimatedHeight, gap, threshold, estimatedWidth]);
 
-  useEffect(() => {
+    // Horizontal axis. Right-anchored (`right-0`) popovers extend leftward from
+    // the trigger's right edge → room is `rect.right - leftEdge`. Left-anchored
+    // (`left-0`) popovers extend rightward from the trigger's left edge → room
+    // is `rightEdge - rect.left`. The preferred side stays unless it cannot fit
+    // `estimatedWidth`/`minContentWidth` AND the other side has more room.
+    const spaceRightAnchor = rect.right - gap - leftEdge;
+    const spaceLeftAnchor = rightEdge - rect.left - gap;
+    const preferLeft = preferredAnchor === "left";
+    const preferredSpace = preferLeft ? spaceLeftAnchor : spaceRightAnchor;
+    const otherSpace = preferLeft ? spaceRightAnchor : spaceLeftAnchor;
+    const fitThreshold = Math.max(
+      Number.isFinite(estimatedWidth) ? estimatedWidth : 0,
+      minContentWidth,
+    );
+    const flipHorizontal =
+      fitThreshold > 0 && preferredSpace < fitThreshold && otherSpace > preferredSpace;
+    const anchorRight = preferLeft ? flipHorizontal : !flipHorizontal;
+    const chosenSpace = flipHorizontal ? otherSpace : preferredSpace;
+    const maxWidth = Math.max(MIN_POPOVER_WIDTH, chosenSpace);
+    setState({ flipUp, maxHeight, anchorRight, maxWidth });
+  }, [triggerRef, boundaryRef, estimatedHeight, gap, threshold, estimatedWidth, preferredAnchor, minContentWidth]);
+
+  // Measure BEFORE paint (layout effect): a plain effect paints one frame at the
+  // initial CLOSED_STATE (right-0, 160px floor) before the corrected anchor/size
+  // lands, which both flickers for users and lets a rect read observe the wrong
+  // position. See change: fix-popover-container-clip.
+  useLayoutEffect(() => {
     if (!open || typeof window === "undefined") return;
     measure();
     window.addEventListener("resize", measure, { passive: true });
     window.addEventListener("scroll", measure, { passive: true, capture: true });
+    // Boundary staleness: an internally-scrolling pane or a split-divider drag
+    // fires neither window `resize` nor `scroll`, so also watch the boundary
+    // itself. `ResizeObserver` on the single supplied element is scoped, not the
+    // rejected ancestor-walk.
+    const boundary = boundaryRef?.current ?? null;
+    let ro: ResizeObserver | undefined;
+    if (boundary) {
+      boundary.addEventListener("scroll", measure, { passive: true });
+      if (typeof ResizeObserver !== "undefined") {
+        ro = new ResizeObserver(() => measure());
+        ro.observe(boundary);
+      }
+    }
     return () => {
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, { capture: true } as EventListenerOptions);
+      if (boundary) {
+        boundary.removeEventListener("scroll", measure);
+        ro?.disconnect();
+      }
     };
-  }, [open, measure]);
+  }, [open, measure, boundaryRef]);
 
   return open ? state : CLOSED_STATE;
 }

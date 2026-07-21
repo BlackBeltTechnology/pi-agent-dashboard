@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-shell",
-  "version": "0.5.4",
+  "version": "0.6.1",
   "description": "Neutral static PWA shell — pairs with dashboard servers and holds a keyring. Published to GitHub Pages (pi-dashboard.dev), never served by a dashboard server.",
   "private": true,
   "type": "module",

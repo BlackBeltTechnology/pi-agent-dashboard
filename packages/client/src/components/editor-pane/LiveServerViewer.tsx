@@ -14,9 +14,9 @@ import { isLoopbackUrl, type LiveServerTarget } from "@blackbelt-technology/pi-d
 import { mdiOpenInNew, mdiPlay } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
-import { getApiBase } from "../../lib/api-context.js";
-import { useI18n } from "../../lib/i18n";
-import { listLiveServers, startLiveServer } from "../../lib/live-server-api.js";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
+import { listLiveServers, startLiveServer } from "../../lib/api/live-server-api.js";
 import type { ViewerProps } from "./types.js";
 
 /**

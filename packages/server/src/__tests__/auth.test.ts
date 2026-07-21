@@ -10,7 +10,7 @@ import {
   COOKIE_NAME,
   type AuthUser,
   type ResolvedProvider,
-} from "../auth.js";
+} from "../auth/auth.js";
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import fs from "node:fs";
 import path from "node:path";

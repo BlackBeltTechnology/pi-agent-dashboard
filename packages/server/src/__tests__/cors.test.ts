@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCorsOriginAllowed } from "../cors-origin.js";
+import { isCorsOriginAllowed } from "../auth/cors-origin.js";
 
 /**
  * Tests the REAL CORS origin decision (`cors-origin.ts`), imported directly —
@@ -70,6 +70,15 @@ describe("CORS origin validation", () => {
     it("does not allow non-zrok sibling hosts", () => {
       expect(allowed("https://share.zrok.io.attacker.com")).toBe(false);
       expect(allowed("https://evil.io")).toBe(false);
+    });
+
+    // support-zrok-v2 (E16/E17): plural v2 host allowed; spoof denied.
+    it("E16: allows a v2 *.shares.zrok.io origin", () => {
+      expect(allowed("https://x.shares.zrok.io")).toBe(true);
+    });
+
+    it("E17: denies a spoofed *.shares.zrok.io.attacker.com origin", () => {
+      expect(allowed("https://foo.shares.zrok.io.attacker.com")).toBe(false);
     });
   });
 

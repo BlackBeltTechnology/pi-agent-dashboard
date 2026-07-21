@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { extractUserPromptHistory } from "../message-history.js";
-import type { ChatMessage } from "../event-reducer.js";
+import { extractUserPromptHistory } from "../replay/message-history.js";
+import type { ChatMessage } from "../chat/event-reducer.js";
 
 function userMsg(id: string, content: string, timestamp = 0): ChatMessage {
   return { id, role: "user", content, timestamp };

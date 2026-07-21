@@ -6,7 +6,7 @@ import { describe, it, expect } from "vitest";
 import {
   createPendingInitialPromptRegistry,
   PENDING_INITIAL_PROMPT_QUEUE_CAP,
-} from "../pending-initial-prompt-registry.js";
+} from "../pending/pending-initial-prompt-registry.js";
 
 const idNorm = (cwd: string) => cwd;
 

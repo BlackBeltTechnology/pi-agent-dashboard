@@ -12,9 +12,9 @@
 
 import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
 import { useEffect, useRef, useState } from "react";
-import { getApiBase } from "../../lib/api-context.js";
-import { buildMonacoTheme } from "../../lib/monaco-theme.js";
-import { useThemeContext } from "../ThemeProvider.js";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { buildMonacoTheme } from "../../lib/theme/monaco-theme.js";
+import { useThemeContext } from "../settings/ThemeProvider.js";
 // Side-effect import: worker wiring + loader.config (shared with MarkdownEditor).
 import "./monaco-setup.js";
 import type { ViewerProps } from "./types.js";

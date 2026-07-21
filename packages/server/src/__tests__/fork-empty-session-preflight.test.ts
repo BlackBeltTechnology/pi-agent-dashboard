@@ -20,7 +20,7 @@ vi.mock("node:fs", async () => {
   };
 });
 
-vi.mock("../process-manager.js", () => ({
+vi.mock("../spawn-process/process-manager.js", () => ({
   spawnPiSession: vi.fn(),
 }));
 
@@ -29,7 +29,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", () => ({
 }));
 
 import { handleResumeSession } from "../browser-handlers/session-action-handler.js";
-import { spawnPiSession } from "../process-manager.js";
+import { spawnPiSession } from "../spawn-process/process-manager.js";
 
 function makeMockWs(): { ws: WebSocket; messages: any[] } {
   const messages: any[] = [];

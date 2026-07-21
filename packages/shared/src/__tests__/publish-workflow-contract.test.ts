@@ -351,7 +351,9 @@ describe("publish.yml — tag-and-push job lockfile-regen contract", () => {
   it("tag-and-push job regenerates lockfile after version bump (fix-release-lockfile-drift)", () => {
     const syncIdx = tagAndPushSteps.findIndex((s) => /sync-versions\.js/.test(s.run || ""));
     const regenIdx = tagAndPushSteps.findIndex((s) =>
-      /npm install --package-lock-only/.test(s.run || ""),
+      // change adopt-pnpm-for-dev-ci (§6.3): npm install --package-lock-only
+      // → pnpm install --lockfile-only (pnpm-lock.yaml is the single lockfile).
+      /pnpm install --lockfile-only/.test(s.run || ""),
     );
     const commitIdx = tagAndPushSteps.findIndex((s) =>
       /git commit -m "chore\(release\)/.test(s.run || ""),
@@ -508,11 +510,12 @@ describe("publish.yml — release-gate contract (gate-publish-on-smoke-and-tests
           "See change: gate-publish-on-smoke-and-tests (clause 2).",
       );
     }
-    for (const cmd of ["npm run lint", "npm test", "npm run build"]) {
+    // change adopt-pnpm-for-dev-ci (§6.4): npm run … → pnpm run … .
+    for (const cmd of ["pnpm run lint", "pnpm test", "pnpm run build"]) {
       if (!ciChecksBlock.includes(cmd)) {
         throw new Error(
           "ci-checks job MUST run `" + cmd + "`. See change:\n" +
-            "gate-publish-on-smoke-and-tests (clause 2). Job block:\n" +
+            "gate-publish-on-smoke-and-tests (clause 2); adopt-pnpm-for-dev-ci (§6.4). Job block:\n" +
             ciChecksBlock,
         );
       }

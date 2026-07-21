@@ -11,7 +11,7 @@ import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { DirectoryHomeView } from "../DirectoryHomeView.js";
+import { DirectoryHomeView } from "../folder/DirectoryHomeView.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });
@@ -53,6 +53,8 @@ function renderView(
     cwd: "/a",
     pinnedDirectories: ["/a"],
     pinnedDirectoriesLoaded: true,
+    workspaceFolders: new Set<string>(),
+    workspacesLoaded: true,
     sessions: [],
     onSpawnSession,
     onSelectSession,
@@ -124,6 +126,8 @@ describe("DirectoryHomeView pinned guard", () => {
           cwd="/a"
           pinnedDirectories={[]}
           pinnedDirectoriesLoaded={false}
+          workspaceFolders={new Set()}
+          workspacesLoaded={true}
           sessions={[]}
           onSpawnSession={vi.fn()}
           onSelectSession={vi.fn()}
@@ -140,6 +144,106 @@ describe("DirectoryHomeView pinned guard", () => {
           cwd="/a"
           pinnedDirectories={["/a"]}
           pinnedDirectoriesLoaded={true}
+          workspaceFolders={new Set()}
+          workspacesLoaded={true}
+          sessions={[]}
+          onSpawnSession={vi.fn()}
+          onSelectSession={vi.fn()}
+        />
+      </TestRouter>,
+    );
+    expect(screen.queryByTestId("directory-home-loading")).toBeNull();
+    expect(screen.queryByTestId("directory-home-not-pinned")).toBeNull();
+    expect(screen.getByTestId("directory-home-prompt")).toBeTruthy();
+  });
+});
+
+// enable-workspace-folder-home-page — the eligibility guard now accepts a cwd
+// that is EITHER pinned OR a workspace-folder member, gated on BOTH loaded
+// flags. Scenario ids per that change's test-plan.md.
+describe("DirectoryHomeView workspace eligibility (enable-workspace-folder-home-page)", () => {
+  it("E1: a workspace-only cwd (not pinned) renders the prompt surface, no notice", () => {
+    renderView({
+      cwd: "/ws/folder",
+      pinnedDirectories: [],
+      workspaceFolders: new Set(["/ws/folder"]),
+      pinnedDirectoriesLoaded: true,
+      workspacesLoaded: true,
+    });
+    expect(screen.getByTestId("directory-home-prompt")).toBeTruthy();
+    expect(screen.queryByTestId("directory-home-not-pinned")).toBeNull();
+  });
+
+  it("E2: a pinned non-workspace cwd renders the prompt (existing pinned behavior unchanged)", () => {
+    renderView({
+      cwd: "/pinned",
+      pinnedDirectories: ["/pinned"],
+      workspaceFolders: new Set(),
+      pinnedDirectoriesLoaded: true,
+      workspacesLoaded: true,
+    });
+    expect(screen.getByTestId("directory-home-prompt")).toBeTruthy();
+    expect(screen.queryByTestId("directory-home-not-pinned")).toBeNull();
+  });
+
+  it("E3: a cwd neither pinned nor a workspace member shows the miss notice + pin CTA, no prompt", () => {
+    const { onPinDirectory } = renderView({
+      cwd: "/orphan",
+      pinnedDirectories: ["/other"],
+      workspaceFolders: new Set(["/ws/folder"]),
+      pinnedDirectoriesLoaded: true,
+      workspacesLoaded: true,
+    });
+    expect(screen.getByTestId("directory-home-not-pinned")).toBeTruthy();
+    expect(screen.queryByTestId("directory-home-prompt")).toBeNull();
+    fireEvent.click(screen.getByTestId("directory-home-pin-cta"));
+    expect(onPinDirectory).toHaveBeenCalledWith("/orphan");
+  });
+
+  it("E4: a cwd both pinned AND a workspace member renders the prompt (either-set membership suffices)", () => {
+    renderView({
+      cwd: "/both",
+      pinnedDirectories: ["/both"],
+      workspaceFolders: new Set(["/both"]),
+      pinnedDirectoriesLoaded: true,
+      workspacesLoaded: true,
+    });
+    expect(screen.getByTestId("directory-home-prompt")).toBeTruthy();
+    expect(screen.queryByTestId("directory-home-not-pinned")).toBeNull();
+  });
+
+  it("F1+F2: cold load (pinned loaded, workspaces not) shows loading, never flashes the notice, then converges to prompt", () => {
+    // F1: between-messages window — pinnedDirectoriesLoaded=true but
+    // workspacesLoaded=false. A workspace-only cwd must NOT show the miss
+    // notice; the guard holds on the loading state.
+    const { rerender } = render(
+      <TestRouter>
+        <DirectoryHomeView
+          cwd="/ws/folder"
+          pinnedDirectories={[]}
+          pinnedDirectoriesLoaded={true}
+          workspaceFolders={new Set()}
+          workspacesLoaded={false}
+          sessions={[]}
+          onSpawnSession={vi.fn()}
+          onSelectSession={vi.fn()}
+        />
+      </TestRouter>,
+    );
+    expect(screen.getByTestId("directory-home-loading")).toBeTruthy();
+    expect(screen.queryByTestId("directory-home-not-pinned")).toBeNull();
+    expect(screen.queryByTestId("directory-home-prompt")).toBeNull();
+
+    // F2: workspaces arrive with this cwd as a member → converges to prompt,
+    // notice never appeared.
+    rerender(
+      <TestRouter>
+        <DirectoryHomeView
+          cwd="/ws/folder"
+          pinnedDirectories={[]}
+          pinnedDirectoriesLoaded={true}
+          workspaceFolders={new Set(["/ws/folder"])}
+          workspacesLoaded={true}
           sessions={[]}
           onSpawnSession={vi.fn()}
           onSelectSession={vi.fn()}

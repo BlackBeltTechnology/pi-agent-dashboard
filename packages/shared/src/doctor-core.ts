@@ -409,6 +409,7 @@ export const SECTION_OF: Record<string, DoctorSection> = {
   "zrok binary": "tunnel",
   "zrok environment": "tunnel",
   "zrok API reachable": "tunnel",
+  "zrok version compatible": "tunnel",
   "tunnel runtime": "tunnel",
   // diagnostics
   "Legacy install directory": "diagnostics",
@@ -538,7 +539,7 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
   "zrok binary": (status) =>
     status === "ok"
       ? undefined
-      : `\`zrok\` not found on this machine. Install it: on macOS \`brew install zrok\`; on Linux/Windows see [zrok.io/docs/getting-started](https://docs.zrok.io/docs/getting-started/). Restart the dashboard after install so the binary is picked up.`,
+      : `\`zrok\` (or \`zrok2\`) not found on this machine. Install v2: on macOS \`brew install zrok\`; on Linux/Windows download the \`zrok2\` binary — see [docs.zrok.io](https://docs.zrok.io/docs/getting-started/). Restart the dashboard after install so the binary is picked up.`,
   "zrok environment": (status) =>
     status === "ok"
       ? undefined
@@ -546,7 +547,11 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
   "zrok API reachable": (status) =>
     status === "ok"
       ? undefined
-      : "DNS lookup of `api-v1.zrok.io` failed. Check your network connection, DNS resolver, and any VPN or corporate proxy. The tunnel cannot start until this host resolves.",
+      : "DNS lookup of `api-v2.zrok.io` (or the enrolled `api_endpoint`) failed. Check your network connection, DNS resolver, and any VPN or corporate proxy. The tunnel cannot start until this host resolves.",
+  "zrok version compatible": (status) =>
+    status === "ok"
+      ? undefined
+      : "Your zrok client is too old (v1, `0.4.x`) for the hosted `api-v2.zrok.io`, which returns HTTP 500 on enable/share. Upgrade to v2: `brew upgrade zrok` (macOS) or re-download the `zrok2` binary.",
   "tunnel runtime": (status) =>
     status === "ok"
       ? undefined
@@ -590,6 +595,20 @@ export async function defaultDnsLookup(host: string, timeoutMs: number): Promise
         reject(err);
       });
   });
+}
+
+/**
+ * Parse the major version from `zrok version` stdout. Accepts an optional
+ * leading `v` and any surrounding text (e.g. `zrok v2.0.4`, `v0.4.51`,
+ * `2.0.0-rc.1`). Returns the integer major, or `null` when no semver-shaped
+ * token is present (garbage → caller warns "unknown"). See change:
+ * support-zrok-v2.
+ */
+export function parseZrokMajor(out: string): number | null {
+  const m = out.match(/\bv?(\d+)\.(\d+)\.(\d+)(?:[-.][0-9A-Za-z.-]+)?\b/);
+  if (!m) return null;
+  const major = parseInt(m[1], 10);
+  return Number.isFinite(major) ? major : null;
 }
 
 // ─── Attached-server version skew (Electron arm only) ────────────
@@ -687,6 +706,13 @@ export interface SharedChecksDeps {
    * which binary will be invoked.
    */
   resolveZrokBinary?: () => { found: boolean; path?: string };
+  /**
+   * Test seam for the `zrok version compatible` check. Given the resolved
+   * binary path, returns the raw `zrok version` stdout. Defaults to
+   * `safeExec("<path>" version)`. Only invoked when `resolveZrokBinary`
+   * reports a found binary — the check NEVER spawns on a missing binary.
+   */
+  runZrokVersion?: (binPath: string) => { ok: boolean; stdout: string };
   /**
    * Test seam for the `zrok API reachable` check. Defaults to
    * `dns.promises.lookup` with a 3000 ms hard cap. Should resolve on
@@ -1120,20 +1146,28 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
     }),
   );
 
-  // zrok API reachable — DNS probe of api-v1.zrok.io with 3s cap.
-  // This is the check that catches transient DNS failures during
-  // `zrok reserve` that are otherwise invisible to the user (the only
-  // signal is a spinning Tunnel button and a buried server.log line).
+  // zrok API reachable — DNS probe of the v2 host (api-v2.zrok.io) with 3s cap,
+  // or the enrolled env's api_endpoint host when present (self-hosted / pinned
+  // controllers). This is a coarse DNS gate; it CANNOT detect the HTTP-500
+  // out-of-date failure mode — the version-compat check below is the actual
+  // root-cause detector. See change: support-zrok-v2.
   checks.push(
     await safeCheck("zrok API reachable", "tunnel", async () => {
       const lookup = deps.dnsLookup ?? defaultDnsLookup;
+      let host = "api-v2.zrok.io";
       try {
-        await lookup("api-v1.zrok.io", 3000);
+        const env = readZrokEnvironment();
+        if (env.found && env.env?.apiEndpoint) {
+          host = new URL(env.env.apiEndpoint).hostname || host;
+        }
+      } catch { /* fall back to the hosted v2 host */ }
+      try {
+        await lookup(host, 3000);
         return {
           name: "zrok API reachable",
           section: "tunnel",
           status: "ok",
-          message: "DNS lookup of api-v1.zrok.io succeeded",
+          message: `DNS lookup of ${host} succeeded`,
           code: "doctor.zrok_dns_ok",
         };
       } catch (err: any) {
@@ -1142,13 +1176,72 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           name: "zrok API reachable",
           section: "tunnel",
           status: "warning",
-          message: "DNS lookup of api-v1.zrok.io failed",
+          message: `DNS lookup of ${host} failed`,
           code: "doctor.zrok_dns_failed",
           detail: reason,
         };
       }
     }),
   );
+
+  // zrok version compatible — the REAL root-cause detector for the field 500s.
+  // A too-old (major < 2) client hits `api-v2.zrok.io` and gets HTTP 500 on
+  // enable/share. Short-circuits to `unavailable` when no binary resolves
+  // (never spawns ENOENT). See change: support-zrok-v2.
+  if (deps.resolveZrokBinary) {
+    const runZrokVersion = deps.runZrokVersion;
+    const detectZrok = deps.resolveZrokBinary;
+    checks.push(
+      await safeCheck("zrok version compatible", "tunnel", () => {
+        const bin = detectZrok();
+        if (!bin.found || !bin.path) {
+          // Unavailable: no binary resolves, so NEVER spawn (ENOENT). Report a
+          // non-failing informational row that defers to the 'zrok binary' row
+          // (which already warns) rather than double-counting the warning.
+          return {
+            name: "zrok version compatible",
+            section: "tunnel",
+            status: "ok",
+            message: "zrok not installed — version not checked",
+            code: "doctor.zrok_version_unavailable",
+            detail: "Install zrok (see the 'zrok binary' row) — version cannot be checked until it resolves",
+          };
+        }
+        const raw = runZrokVersion
+          ? runZrokVersion(bin.path)
+          : safeExec(`"${bin.path}" version`, { timeoutMs: 5000 });
+        const out = raw.ok ? raw.stdout : "";
+        const parsed = parseZrokMajor(out);
+        if (parsed === null) {
+          return {
+            name: "zrok version compatible",
+            section: "tunnel",
+            status: "warning",
+            message: "Could not parse zrok version",
+            code: "doctor.zrok_version_unknown",
+            detail: out.trim() ? `Unparseable output: ${out.trim().slice(0, 120)}` : "No version output",
+          };
+        }
+        if (parsed < 2) {
+          return {
+            name: "zrok version compatible",
+            section: "tunnel",
+            status: "warning",
+            message: `${out.trim()} is too old (v1) — hosted api-v2.zrok.io returns HTTP 500`,
+            code: "doctor.zrok_version_too_old",
+            detail: "Upgrade: `brew upgrade zrok` (macOS) or re-download zrok2 from the v2 release. v1 (0.4.x) cannot talk to the v2 API.",
+          };
+        }
+        return {
+          name: "zrok version compatible",
+          section: "tunnel",
+          status: "ok",
+          message: `zrok major v${parsed} (\u2265 2) is compatible`,
+          code: "doctor.zrok_version_ok",
+        };
+      }),
+    );
+  }
 
   // tunnel runtime — consumes the watchdog status when available
   checks.push(

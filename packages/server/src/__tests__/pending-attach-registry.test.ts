@@ -7,7 +7,7 @@ import {
   createPendingAttachRegistry,
   PENDING_ATTACH_QUEUE_CAP,
   PENDING_ATTACH_TTL_MS,
-} from "../pending-attach-registry.js";
+} from "../pending/pending-attach-registry.js";
 
 function fakeNow() {
   let t = 1_000_000;

@@ -9,8 +9,8 @@
  * See change: add-openspec-change-grouping (tasks 3.1–3.13).
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { NetworkGuard } from "./route-deps.js";
 import type {
   ApiResponse,
@@ -22,7 +22,7 @@ import {
   UnknownGroupIdError,
   UnsupportedSchemaVersionError,
   type OpenSpecGroupStore,
-} from "../openspec-group-store.js";
+} from "../openspec/openspec-group-store.js";
 
 export interface OpenSpecGroupRoutesDeps {
   sessionManager: SessionManager;

@@ -71,7 +71,6 @@ describe("recovery end-to-end", () => {
     serverA = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await serverA.start();
     const piPortA = serverA.piPort();
@@ -103,7 +102,6 @@ describe("recovery end-to-end", () => {
     serverB = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await serverB.start();
     const browserPortB = serverB.httpPort();
@@ -148,7 +146,6 @@ describe("recovery end-to-end", () => {
     serverB = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await serverB.start();
     const portB = serverB.httpPort();
@@ -175,7 +172,6 @@ describe("recovery end-to-end", () => {
     serverA = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await serverA.start();
     const portC = serverA.httpPort();

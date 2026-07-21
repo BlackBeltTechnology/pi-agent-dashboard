@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tokenize } from "../linkify-tool-output.js";
+import { tokenize } from "../chat/linkify-tool-output.js";
 
 /**
  * Perf smoke test. Design budget is < 50 ms locally for ~2 MB of grep-style

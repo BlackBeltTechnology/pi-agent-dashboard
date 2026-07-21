@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { scanOpenSpecArchive } from "../openspec-archive.js";
+import { scanOpenSpecArchive } from "../openspec/openspec-archive.js";
 
 describe("scanOpenSpecArchive", () => {
   let tmpDir: string;

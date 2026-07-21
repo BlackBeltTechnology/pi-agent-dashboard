@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { createReplayCache, type CachedEvent } from "../replay-cache.js";
-import { createReplayPersister } from "../replay-persist.js";
+import { createReplayCache, type CachedEvent } from "../replay/replay-cache.js";
+import { createReplayPersister } from "../replay/replay-persist.js";
 
 function evt(seq: number): CachedEvent {
   return {

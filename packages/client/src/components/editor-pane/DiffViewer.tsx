@@ -9,11 +9,10 @@
  * takeover uses).
  */
 
-import type { FileDiffEntry, SessionDiffResponse } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
-import { t as i18nT } from "../../lib/i18n";
-import { normalizeUnderCwd } from "../../lib/session-rel-path.js";
-import { DiffPanel } from "../DiffPanel.js";
-import { useOptionalSessionDiff } from "../SessionDiffContext.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { normalizeUnderCwd } from "../../lib/util/normalize-path.js";
+import { DiffPanel } from "../diff/DiffPanel.js";
+import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
 import type { ViewerProps } from "./types.js";
 
 /** Strip the `diff:` sentinel from a virtual viewer path. */
@@ -21,31 +20,8 @@ export function stripDiffPrefix(path: string): string {
   return path.startsWith("diff:") ? path.slice("diff:".length) : path;
 }
 
-/**
- * Resolve a file entry from session-diff data. Exact path match first; on miss
- * retry with cwd-normalized relative key (absolute tool paths). Also scans
- * `otherChanges`. See change: fix-session-diff-open-nongit-and-preview.
- */
-export function findDiffFile(
-  data: SessionDiffResponse | null | undefined,
-  rawRelPath: string,
-  cwd?: string | null,
-): FileDiffEntry | undefined {
-  if (!data) return undefined;
-  const all: FileDiffEntry[] = data.otherChanges?.length
-    ? [...data.files, ...data.otherChanges]
-    : data.files;
-  const exact = all.find((f) => f.path === rawRelPath);
-  if (exact) return exact;
-  const normalized = normalizeUnderCwd(rawRelPath, cwd);
-  if (normalized !== rawRelPath) {
-    return all.find((f) => f.path === normalized);
-  }
-  return undefined;
-}
-
 export default function DiffViewer({ path, cwd }: ViewerProps) {
-  const rawRel = stripDiffPrefix(path);
+  const relPath = stripDiffPrefix(path);
   const ctx = useOptionalSessionDiff();
 
   if (!ctx) {
@@ -57,8 +33,13 @@ export default function DiffViewer({ path, cwd }: ViewerProps) {
   }
 
   const { data, isLoading } = ctx;
-  const file = findDiffFile(data, rawRel, cwd);
-  const filePath = file?.path ?? normalizeUnderCwd(rawRel, cwd);
+  // Exact match first; on a miss retry with the cwd-normalized path
+  // (belt-and-suspenders for any caller that opened an absolute `diff:` path).
+  // See change: fix-session-diff-open-nongit-and-preview.
+  const normPath = normalizeUnderCwd(relPath, cwd);
+  const file =
+    data?.files.find((f) => f.path === relPath) ??
+    (normPath !== relPath ? data?.files.find((f) => f.path === normPath) : undefined);
 
   if (!file) {
     return (
@@ -73,8 +54,9 @@ export default function DiffViewer({ path, cwd }: ViewerProps) {
   return (
     <DiffPanel
       file={file}
-      selection={{ filePath, changeIndex: null }}
+      selection={{ filePath: file.path, changeIndex: null }}
       sessionId={ctx.sessionId}
+      cwd={cwd}
     />
   );
 }

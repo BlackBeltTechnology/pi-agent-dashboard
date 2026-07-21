@@ -8,17 +8,17 @@ import {
   attachPublishedVariants,
   enrichInstalledRows,
   resolvePublishedVariant,
-} from "../installed-package-enricher.js";
-import { fetchPackageMeta, fetchReadme, PackageNotFoundError, searchPackages } from "../npm-search-proxy.js";
-import type { PackageEntry, PackageManagerWrapper } from "../package-manager-wrapper.js";
+} from "../package/installed-package-enricher.js";
+import { fetchPackageMeta, fetchReadme, PackageNotFoundError, searchPackages } from "../package/npm-search-proxy.js";
+import type { PackageEntry, PackageManagerWrapper } from "../package/package-manager-wrapper.js";
 import {
   AlreadyAtDestinationError,
   InvalidMoveRequestError,
   InvalidResetRequestError,
   PackageOperationBusyError,
   UnsupportedSourceForDestinationError,
-} from "../package-manager-wrapper.js";
-import { parseSourceKind } from "../package-source-helpers.js";
+} from "../package/package-manager-wrapper.js";
+import { parseSourceKind } from "../package/package-source-helpers.js";
 
 /** npm-name lookup used for published-variant resolution. Cached in npm-search-proxy. */
 const lookupNpm = (name: string) => fetchPackageMeta(name);

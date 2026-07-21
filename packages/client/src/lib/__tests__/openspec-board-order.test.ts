@@ -3,7 +3,7 @@
  * (openspec-change-order spec).
  */
 import { describe, it, expect } from "vitest";
-import { defaultChangeSort, orderChangesForGroup, computeReorder } from "../openspec-board-order.js";
+import { defaultChangeSort, orderChangesForGroup, computeReorder } from "../openspec/openspec-board-order.js";
 import type { OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function ch(name: string, status: OpenSpecChange["status"]): OpenSpecChange {

@@ -8,7 +8,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { encodeFolderPath } from "../../lib/folder-encoding.js";
+import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { useContentViews } from "../useContentViews.js";
 
 describe("useContentViews", () => {

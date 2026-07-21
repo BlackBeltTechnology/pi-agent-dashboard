@@ -1,13 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
-import { indexSource } from "@blackbelt-technology/pi-dashboard-kb";
-import { existsSync } from "node:fs";
-import {
-  createReindexState, reindexNow, decideNudge, nudgeText, acknowledgeRows, getKb, closeKb,
-  closeKbForCwd,
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {acknowledgeRows, closeKb,
+  closeKbForCwd, 
+  createReindexState, decideNudge, ensurePopulated,getKb, nudgeText, reindexNow, 
 } from "../reindex.js";
 
 // Build a temp project with a KB config so reindex logic can open a real store.
@@ -128,6 +125,48 @@ describe("cwd removal: kb store does not resurrect the directory (husk regressio
     closeKb(state);
     rmSync(a, { recursive: true, force: true });
     rmSync(b, { recursive: true, force: true });
+  });
+});
+
+describe("cold-start populate: ensurePopulated (kb_neighbors / kb_get)", () => {
+  // A never-indexed cwd must self-populate on first neighbors/get, mirroring
+  // kb_search's freshness reindex; a warm index must NOT be re-walked.
+  // See change: fix-kb-neighbors-get-cold-start.
+
+  it("populates an empty index on first call (cold start)", async () => {
+    const dir = setupProject();
+    const state = createReindexState();
+    await ensurePopulated(state, dir); // cold KB — never indexed before
+    const { store } = getKb(state, dir);
+    expect(store.counts().chunks).toBeGreaterThan(0);
+    // proves neighbors/get would now see real data instead of empty
+    expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
+    closeKb(state);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("does NOT re-walk a warm index (empty-guard skips reindex)", async () => {
+    const dir = setupProject();
+    const state = createReindexState();
+    await ensurePopulated(state, dir); // build once
+    // Edit the source WITHOUT triggering a reindex.
+    writeFileSync(join(dir, "docs", "guide.md"), "# Guide\nwarmskip token quokkas roam distant islands quietly here.\n");
+    await ensurePopulated(state, dir); // chunks>0 → must skip the walk
+    const { store } = getKb(state, dir);
+    // The new content is NOT searchable — proves no walk ran on the warm path.
+    expect(store.search("warmskip token quokkas", { limit: 3 }).length).toBe(0);
+    expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
+    closeKb(state);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("is a safe no-op on a removed cwd (degrade, never throws)", async () => {
+    const dir = setupProject();
+    rmSync(dir, { recursive: true, force: true });
+    const state = createReindexState();
+    await expect(ensurePopulated(state, dir)).resolves.toBeUndefined();
+    expect(existsSync(dir)).toBe(false); // did not recreate the husk
+    closeKb(state);
   });
 });
 

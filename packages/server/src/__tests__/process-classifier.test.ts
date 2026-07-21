@@ -4,7 +4,7 @@ import {
   buildPidIndex,
   type RawProcessEntry,
   type PidIndex,
-} from "../process-classifier.js";
+} from "../spawn-process/process-classifier.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function raw(partial: Partial<RawProcessEntry> & { pid: number; command: string }): RawProcessEntry {

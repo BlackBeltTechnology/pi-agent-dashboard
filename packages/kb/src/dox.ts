@@ -13,10 +13,12 @@ import type { KbStore } from "./types.js";
 // tracked md; the walk is fs-based so they surface as bogus missing/companion
 // rows without this. `server` is scoped to `electron/resources/server` so real
 // `server` source dirs (packages/server, kb-plugin/src/server) stay indexed.
-// Also skip scratch/output dirs (`mockups`, `research`, `site`, `.github`) and
-// self-evident top-level docs (`CHANGELOG.md`, `CLAUDE.md`, repo-root `README.md`)
-// with no per-file DOX value; `README` anchored to root so package READMEs stay documented.
-const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|\.github|dist|build|out|\.next|coverage|\.kb|\.pi|\.worktrees|openspec|doc-example|bundled-extensions|mockups|research|site)(\/|$)|(^|\/)electron\/resources\/server(\/|$)|(^|\/)(CHANGELOG|CLAUDE)\.md$|^README\.md$/;
+// Also skip scratch/output + narrative dirs (`mockups`, `research`, `site`,
+// `.github`, `Prompt stories` — session-to-guideline playbooks: prose, not
+// navigable source) and self-evident top-level docs (`CHANGELOG.md`, `CLAUDE.md`,
+// repo-root `README.md`) with no per-file DOX value; `README` anchored to root so
+// package READMEs stay documented.
+const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|\.github|dist|build|out|\.next|coverage|\.kb|\.pi|\.worktrees|openspec|doc-example|bundled-extensions|mockups|research|site|Prompt stories)(\/|$)|(^|\/)electron\/resources\/server(\/|$)|(^|\/)(CHANGELOG|CLAUDE)\.md$|^README\.md$/;
 const AGENTS_FILES = ["AGENTS.md"];
 // delta ①: dox init now maps SOURCE, not docs. Source globs, minus type decls and tests.
 const SOURCE_EXT = /\.(ts|tsx|js|jsx)$/;
@@ -153,6 +155,33 @@ export function resolveRowPath(agentsDir: string, cwd: string, rp: string): stri
   return existsSync(rootRel) ? rootRel : dirRel;
 }
 
+// Sidecar-pointer marker written by scripts/split-large-agents.mjs when it
+// promotes a heavy (>INLINE_CAP) row to its pull-only `<File>.AGENTS.md`. A row
+// carrying it holds no inline detail, so it is excluded from the ROW_CAP count.
+const SIDECAR_POINTER = /→ see `[^`]+\.AGENTS\.md`/;
+
+/** Count INLINE DOX rows for the ROW_CAP over-threshold check. Excludes
+ *  sidecar-pointer rows (pull-only, no per-turn injection detail). Sibling to
+ *  parseRowPaths — never a replacement: parseRowPaths stays a COMPLETE path
+ *  string[] (consumed cross-package by kb-extension acknowledgeRows/decideNudge
+ *  + the missing/orphan/staleness checks); the exclusion is count-only. */
+export function countInlineRows(agentsFile: string): number {
+  if (!existsSync(agentsFile)) return 0;
+  const text = readFileSync(agentsFile, "utf8");
+  let inDox = false;
+  let count = 0;
+  for (const line of text.split("\n")) {
+    const h = line.match(/^#{1,6}\s+(.*)$/);
+    if (h) { inDox = /^DOX\b/.test(h[1].trim()); continue; }
+    if (!inDox) continue;
+    const m = line.match(/^\|\s*`([^`]+)`\s*\|/);
+    if (!m) continue;
+    if (SIDECAR_POINTER.test(line)) continue; // sidecar-pointer row, pull-only
+    count++;
+  }
+  return count;
+}
+
 /** Parse existing row paths from an AGENTS.md file. */
 export function parseRowPaths(agentsFile: string): string[] {
   if (!existsSync(agentsFile)) return [];
@@ -234,6 +263,9 @@ export interface DoxIssue {
   agentsFile: string;
   path?: string;
   detail: string;
+  // over-threshold discriminator: "bytes" = actionable (auto-injected per turn,
+  // remedy = sidecar split); "rows" = informational (advisory, no injection cost).
+  arm?: "bytes" | "rows";
 }
 export interface DoxLintOptions {
   json?: boolean;
@@ -260,11 +292,14 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
 
   // find all AGENTS.md
   const agentsFiles: string[] = [];
+  // Test the path RELATIVE to cwd (mirrors walkFiles) so an ancestor dir named
+  // like an excluded token (e.g. running inside .worktrees) does not nuke the
+  // whole walk and yield 0 issues.
   const walkAgents = (dir: string) => {
     if (!existsSync(dir)) return;
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const abs = join(dir, e.name);
-      if (DEFAULT_EXCLUDE.test(abs)) continue;
+      if (DEFAULT_EXCLUDE.test(relative(cwd, abs))) continue;
       if (e.isDirectory()) walkAgents(abs);
       else if (e.name === "AGENTS.md") agentsFiles.push(abs);
     }
@@ -280,13 +315,18 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
   const rowPaths = new Set<string>();
 
   for (const af of agentsFiles) {
-    const rows = parseRowPaths(af);
     const afRel = relative(cwd, af);
-    // over-threshold: row count OR byte size. Fix = split file-based (promote
-    // heaviest rows to `<File>.AGENTS.md` sidecars + cap remaining rows).
-    if (rows.length > ROW_CAP) issues.push({ kind: "over-threshold", agentsFile: afRel, detail: `${rows.length} rows > cap ${ROW_CAP}; promote heaviest rows to <File>.AGENTS.md sidecars` });
+    // over-threshold splits into two arms with distinct severity:
+    //  - byte arm (actionable): file auto-injected per turn past the byte cap;
+    //    remedy = file-based sidecar split (promote heaviest rows).
+    //  - row arm (informational): more than ROW_CAP INLINE rows but within the
+    //    byte cap — no per-turn injection cost; optional directory foldering.
+    // Row arm counts INLINE rows only (sidecar-pointer rows excluded) so a
+    // split reduces both the byte total AND the counted-row total.
     const afBytes = statSync(af).size;
-    if (afBytes > AGENTS_BYTE_CAP) issues.push({ kind: "over-threshold", agentsFile: afRel, detail: `${afBytes} bytes > cap ${AGENTS_BYTE_CAP}; auto-injected per turn — promote heaviest rows to <File>.AGENTS.md sidecars` });
+    if (afBytes > AGENTS_BYTE_CAP) issues.push({ kind: "over-threshold", agentsFile: afRel, arm: "bytes", detail: `${afBytes} bytes > cap ${AGENTS_BYTE_CAP}; auto-injected per turn — actionable: promote heaviest rows to <File>.AGENTS.md sidecars` });
+    const inlineCount = countInlineRows(af);
+    if (inlineCount > ROW_CAP) issues.push({ kind: "over-threshold", agentsFile: afRel, arm: "rows", detail: `${inlineCount} inline rows > cap ${ROW_CAP}; informational (advisory; no per-turn injection cost) — optional: folder into cohesive subdirectories` });
     const survivingRows: string[] = [];
     const text = readFileSync(af, "utf8").split("\n");
     const afDir = dirname(af);

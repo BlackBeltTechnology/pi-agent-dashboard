@@ -6,11 +6,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import WebSocket from "ws";
 
 // Silence appendSpawnFailure in unit tests.
-vi.mock("../spawn-failure-log.js", () => ({
+vi.mock("../spawn-process/spawn-failure-log.js", () => ({
   appendSpawnFailure: vi.fn(),
 }));
 
-import { SpawnRegisterWatchdog } from "../spawn-register-watchdog.js";
+import { SpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 
 function makeMockWs(readyState: number = WebSocket.OPEN): { ws: WebSocket; messages: string[] } {
   const messages: string[] = [];

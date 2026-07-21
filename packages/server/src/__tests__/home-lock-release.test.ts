@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import { installReleaseHandlers } from "../home-lock-release.js";
+import { installReleaseHandlers } from "../lifecycle/home-lock-release.js";
 
 function fakeProcess() {
   const ee = new EventEmitter() as unknown as NodeJS.Process;

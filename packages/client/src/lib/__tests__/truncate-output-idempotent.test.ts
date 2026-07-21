@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TRUNCATION_MARKER_PREFIX, truncateOutputForDisplay } from "../event-reducer.js";
+import { TRUNCATION_MARKER_PREFIX, truncateOutputForDisplay } from "../chat/event-reducer.js";
 
 // Strategy B (reduce-session-replay-traffic): the server pre-truncates heavy
 // tool results to the display form on replay. The client reducer applies

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatTokens, formatRelativeTime, formatMessageTime } from "../format.js";
+import { formatTokens, formatRelativeTime, formatMessageTime } from "../util/format.js";
 
 describe("formatTokens", () => {
   it("should return '0' for zero", () => {

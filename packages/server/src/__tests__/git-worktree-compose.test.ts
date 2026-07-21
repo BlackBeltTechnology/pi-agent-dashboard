@@ -12,7 +12,7 @@
  *     to a session whose `gitWorktree` stays `undefined`.
  */
 import { describe, it, expect } from "vitest";
-import { composeWorktreePayload } from "../git-worktree-compose.js";
+import { composeWorktreePayload } from "../git-worktree/git-worktree-compose.js";
 
 describe("composeWorktreePayload", () => {
   it("returns undefined when bridge omits gitWorktree (older bridge)", () => {

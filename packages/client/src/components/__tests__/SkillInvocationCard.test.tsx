@@ -4,8 +4,8 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
 import React from "react";
-import { SkillInvocationCard } from "../SkillInvocationCard.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { SkillInvocationCard } from "../chat/SkillInvocationCard.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 
 beforeAll(() => {

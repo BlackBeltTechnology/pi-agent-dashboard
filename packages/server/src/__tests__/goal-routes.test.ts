@@ -13,7 +13,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { registerGoalRoutes } from "../routes/goal-routes.js";
-import { createGoalStore, type GoalStore } from "../goal-store.js";
+import { createGoalStore, type GoalStore } from "../goal/goal-store.js";
 
 const PASSTHRU_GUARD = async () => {};
 

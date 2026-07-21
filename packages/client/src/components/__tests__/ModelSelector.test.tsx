@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
-import { ModelSelector } from "../ModelSelector.js";
+import { ModelSelector } from "../settings/ModelSelector.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 const models: ModelInfo[] = [

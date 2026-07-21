@@ -1,5 +1,5 @@
 /**
- * System REST API routes: config, health, shutdown, tunnel, editors.
+ * System REST API routes: config, health, shutdown, tunnel.
  */
 
 import fs from "node:fs";
@@ -15,42 +15,38 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import { bootParentPid, computeBootParentAlive, readLivePpid } from "../boot-parent-liveness.js";
+import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
 import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
-import { detectCodeServerBinary, resetDetectionCache } from "../editor-detection.js";
-import { detectEditors, EDITORS } from "../editor-registry.js";
-import type { EventLoopSpikeMetrics } from "../eventloop-spike-metrics.js";
-import type { HydrationMetrics } from "../hydration-metrics.js";
-import { computeEffectiveLaunchSource } from "../launch-source-effective.js";
-import { decodeFileUri } from "../lib/decode-file-uri.js";
-import { isAllowed } from "../lib/path-containment.js";
-import { localhostGuard, netmaskToCidrBits, networkAddress } from "../localhost-guard.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { MetaPersistence } from "../meta-persistence.js";
+import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
+import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
+import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
+import { systemOpenCapability } from "../system-open-capability.js";
+import { localhostGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { MetaPersistence } from "../persistence/meta-persistence.js";
 import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
-import type { PiGateway } from "../pi-gateway.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
 import {
   type BootstrapCompatibility,
   computeCompatibility,
   readCurrentPiVersion,
   readPiCompatibility,
-} from "../pi-version-skew.js";
-import type { PreferencesStore } from "../preferences-store.js";
-import { spawnRestart } from "../restart-helper.js";
+} from "../pi/pi-version-skew.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import { spawnRestart } from "../spawn-process/restart-helper.js";
 import type { ServerConfig } from "../server.js";
-import { readSpawnFailures } from "../spawn-failure-log.js";
-import { createTunnel, deleteTunnel, getTunnelStatus, getTunnelUrl } from "../tunnel.js";
-import { blockEvents } from "../tunnel-block-events.js";
-import { collectEndpoints } from "../tunnel-endpoints.js";
-import { runEnrollStep } from "../tunnel-enroll.js";
-import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel-watchdog.js";
+import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
+import { createTunnel, deleteTunnel, ensureReservedName, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
+import { blockEvents } from "../tunnel/tunnel-block-events.js";
+import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
+import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
+import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /**
@@ -174,75 +170,6 @@ export function registerSystemRoutes(
     return value;
   };
 
-  // Editor detection endpoint
-  fastify.get<{ Querystring: { path?: string } }>(
-    "/api/editors",
-    { preHandler: networkGuard },
-    async (request) => {
-      const cwd = request.query.path;
-      if (!cwd) {
-        return { success: false, error: "path parameter required" } satisfies ApiResponse;
-      }
-      const editors = detectEditors(cwd);
-      return { success: true, data: editors } satisfies ApiResponse;
-    },
-  );
-
-  // code-server binary detection endpoint
-  fastify.get(
-    "/api/editor/detect",
-    { preHandler: networkGuard },
-    async () => {
-      resetDetectionCache();
-      const result = detectCodeServerBinary(config.editor);
-      return { success: true, data: result } satisfies ApiResponse;
-    },
-  );
-
-  // Open editor endpoint
-  fastify.post<{ Body: { path?: string; editor?: string; file?: string; line?: number } }>(
-    "/api/open-editor",
-    { preHandler: networkGuard },
-    async (request) => {
-      const { path: cwd, editor: editorId, file: rawFile, line } = request.body ?? {};
-      const file = rawFile ? decodeFileUri(rawFile) : rawFile;
-      if (!cwd || !editorId) {
-        return { success: false, error: "path and editor required" } satisfies ApiResponse;
-      }
-
-      const allSessions = sessionManager.listAll();
-      if (!allSessions.some((s) => s.cwd === cwd)) {
-        return { success: false, error: "unknown session path" } satisfies ApiResponse;
-      }
-
-      const editorEntry = EDITORS.find((e) => e.id === editorId);
-      if (!editorEntry) {
-        return { success: false, error: "unknown editor" } satisfies ApiResponse;
-      }
-
-      const target = file ? path.resolve(cwd, file) : cwd;
-      // Containment gate (mirrors /api/file): the resolved target MUST stay
-      // under the known session cwd or its git common root. Rejects `../..`
-      // traversal and absolute paths (`/etc/...`, decoded `file://...`) outside
-      // the workspace.
-      if (!(await isAllowed(target, { anchors: [cwd] }))) {
-        return { success: false, error: "path outside working directory" } satisfies ApiResponse;
-      }
-      const args = line && file ? [`${target}:${line}`] : [target];
-
-      try {
-        const child = spawn(editorEntry.cli, args, {
-          detached: true,
-          stdio: "ignore",
-        });
-        child.unref();
-        return { success: true } satisfies ApiResponse;
-      } catch (err: any) {
-        return { success: false, error: `failed to open editor: ${err.message}` } satisfies ApiResponse;
-      }
-    },
-  );
-
   // Config endpoints
   fastify.get(
     "/api/config",
@@ -345,6 +272,9 @@ export function registerSystemRoutes(
       // numeric tweaks. Cheap operation: stop + start with new config.
       if (partial.tunnel !== undefined) {
         config.tunnelWatchdog = reloaded.tunnel.watchdog;
+        // Re-source the v2 reserved-name / persistence from the reloaded config.
+        config.tunnelReservedName = reloaded.tunnel.zrok?.reservedName;
+        config.tunnelPersistent = reloaded.tunnel.zrok?.persistent;
         if (getTunnelUrl()) {
           stopTunnelWatchdog();
           const wd = reloaded.tunnel.watchdog;
@@ -354,7 +284,7 @@ export function registerSystemRoutes(
                 getUrl: getTunnelUrl,
                 recycle: async () => {
                   await deleteTunnel(config.port);
-                  return await createTunnel(config.port, config.tunnelReservedToken);
+                  return await createTunnel(config.port, config.tunnelReservedName);
                 },
               },
               wd,
@@ -376,7 +306,14 @@ export function registerSystemRoutes(
     const status = getTunnelStatus();
     if (status.status === "active") return { ok: true, url: status.url };
     if (status.status === "unavailable") return { ok: false, error: "zrok not installed" };
-    const url = await createTunnel(config.port, config.tunnelReservedToken);
+    // v2: resolve the reserved NAME (stored or minted-when-persistent) and
+    // cache it so watchdog recycles reuse the SAME name (stable URL).
+    const reservedName = ensureReservedName({
+      reservedName: config.tunnelReservedName,
+      persistent: config.tunnelPersistent,
+    });
+    config.tunnelReservedName = reservedName;
+    const url = await createTunnel(config.port, reservedName);
     if (url) {
       const wd = config.tunnelWatchdog;
       if (wd?.enabled !== false) {
@@ -385,7 +322,7 @@ export function registerSystemRoutes(
             getUrl: getTunnelUrl,
             recycle: async () => {
               await deleteTunnel(config.port);
-              return await createTunnel(config.port, config.tunnelReservedToken);
+              return await createTunnel(config.port, config.tunnelReservedName);
             },
           },
           wd,
@@ -396,11 +333,27 @@ export function registerSystemRoutes(
     return { ok: false, error: "Failed to create tunnel" };
   });
 
-  fastify.post("/api/tunnel-disconnect", async () => {
+  fastify.post("/api/tunnel-disconnect", async (req, reply) => {
     // Pass port so orphan zrok processes bound to this endpoint are also
     // swept (not just the one we tracked via pid-file).
     stopTunnelWatchdog();
     await deleteTunnel(config.port);
+    // Plain disconnect PRESERVES the reserved name (stable URL survives a
+    // disconnect/restart). `{forget:true}` is the ONLY path that releases it:
+    // `delete name` + clear config. See change: support-zrok-v2.
+    const body = (req.body ?? {}) as { forget?: boolean };
+    if (body.forget === true) {
+      const name = config.tunnelReservedName;
+      if (name) releaseShare(name);
+      const written = writeConfigPartial({ tunnel: { zrok: { reservedName: undefined, persistent: false } } });
+      if (!written.success) {
+        // The name was released remotely but disk still points at it — surface
+        // the failure instead of a misleading ok.
+        return reply.code(500).send({ ok: false, error: written.error ?? "failed to clear reserved name" });
+      }
+      config.tunnelReservedName = undefined;
+      config.tunnelPersistent = false;
+    }
     return { ok: true };
   });
 
@@ -456,6 +409,11 @@ export function registerSystemRoutes(
       // browser hitting a Linux dashboard must see Linux install commands.
       // See change: register-bash-and-tool-install-help.
       platform: process.platform,
+      // Server-advertised host capabilities. `systemOpen` gates the editor-pane
+      // *Open in system app* / *Reveal in file manager* tab actions: true only
+      // on a desktop-capable host, false headless/container/remote. Computed
+      // once at startup. See change: open-view-command-in-editor-pane (D9).
+      capabilities: { systemOpen: systemOpenCapability() },
       version: version ?? "unknown",
       uptime: Math.floor((Date.now() - serverStartTime) / 1000),
       // ISO timestamp of process start. Used by the Plugins tab to detect

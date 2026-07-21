@@ -59,14 +59,14 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // Comment-only ref (Windows-path example).
   "packages/shared/src/platform/node-spawn.ts",
   // pi-core update path (standalone arm only; client UI hidden on Electron).
-  "packages/server/src/pi-core-updater.ts",
-  "packages/server/src/pi-core-checker.ts",
-  "packages/server/src/changelog-fs.ts",
+  "packages/server/src/pi/pi-core-updater.ts",
+  "packages/server/src/pi/pi-core-checker.ts",
+  "packages/server/src/changelog/changelog-fs.ts",
   // Server CLI: advisory log line wired to legacy-managed-dir detector.
   "packages/server/src/cli.ts",
   // Node-version guard: advisory help-text only (suggests bundled PATH);
   // no read/write. See change: openspec-worktree-spawn-button.
-  "packages/server/src/node-guard.ts",
+  "packages/server/src/auth/node-guard.ts",
   // Doctor route: shared-doctor MANAGED_DIR forwarder.
   "packages/server/src/routes/doctor-routes.ts",
   // Electron Doctor: advisory row text + MANAGED_DIR consumer for shared checks.

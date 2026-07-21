@@ -1,0 +1,3 @@
+# cors-origin.ts — index
+
+Pure CORS origin allow-decision extracted from the `@fastify/cors` callback in `server.ts` so it is unit-tested against real code (not a hand-mirrored copy). `isCorsOriginAllowed(origin, {configuredOrigins, trustedNetworks, getTunnelUrl})`: no-Origin→allow, `null`→DENY (preserved, opaque-iframe refusal), loopback→allow, active zrok URL→allow, `*.share.zrok.io` (v1) + `*.shares.zrok.io` (v2)→allow, `pi-dashboard.dev`→allow, configured→allow, host in `trustedNetworks` (via `isBypassedHost`, CIDR/wildcard/exact)→allow (LAN-to-LAN switching), else deny. CORS=read-authority, distinct from auth. See change: fix-remote-connect-cors-gates.

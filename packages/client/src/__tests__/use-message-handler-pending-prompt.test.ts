@@ -12,7 +12,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { type MessageHandlerDeps, type MessageHandlerSetters, useMessageHandler } from "../hooks/useMessageHandler.js";
-import { createInitialState, type SessionState } from "../lib/event-reducer.js";
+import { createInitialState, type SessionState } from "../lib/chat/event-reducer.js";
 
 function makeRefs() {
   return {
@@ -52,16 +52,15 @@ function makeHarness(initialState: Map<string, SessionState>) {
     setSpawnResult: noop,
     setSessionOrderMap: noop,
     setPinnedDirectories: noop, setPinnedDirsLoaded: noop, setFavoriteModels: noop,
-    setWorkspaces: noop,
+    setWorkspaces: noop, setWorkspacesLoaded: noop,
     setTerminals: noop,
-    setEditorStatuses: noop,
     setDiscoveredServers: noop,
     setSpawnErrors: noop,
     setResumeErrors: noop,
     setDisplayPrefs: noop,
-    setViewMessagesMap: noop,
     setLoadingHistory: noop,
     setForceKillResetSignals: noop,
+    setCanvasMap: noop,
   };
 
   const deps: MessageHandlerDeps = {

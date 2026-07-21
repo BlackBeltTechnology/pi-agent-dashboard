@@ -1,5 +1,5 @@
 import React from "react";
-import { t as i18nT } from "../../lib/i18n";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { LinkifiedText } from "./LinkifiedText.js";
 import { ToolResultImages } from "./ToolResultImages.js";
 import type { ToolRendererProps } from "./types.js";

@@ -13,7 +13,7 @@ import React from "react";
 import { useLocation } from "wouter";
 import { Icon } from "@mdi/react";
 import { mdiAlertCircleOutline, mdiArrowRight } from "@mdi/js";
-import { requestToolInstall } from "../../lib/tool-install-deeplink.js";
+import { requestToolInstall } from "../../lib/package/tool-install-deeplink.js";
 
 export function MissingToolInlineError({ toolName }: { toolName: string }) {
   const [, navigate] = useLocation();

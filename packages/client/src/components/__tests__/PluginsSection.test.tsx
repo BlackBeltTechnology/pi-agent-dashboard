@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
-import { PluginsSection } from "../PluginsSection.js";
+import { PluginsSection } from "../packages/PluginsSection.js";
 
 vi.mock("../../hooks/usePackageOperations.js", () => ({
   usePackageOperations: () => ({
@@ -16,14 +16,14 @@ vi.mock("../../hooks/usePackageOperations.js", () => ({
   }),
 }));
 
-vi.mock("../../lib/api-context.js", () => ({
+vi.mock("../../lib/api/api-context.js", () => ({
   getApiBase: () => "",
 }));
 
 // PluginSettingsHost renders the plugin's settings-section claims via the
 // slot registry. We don't need a real registry for these tests — just check
 // the host element is mounted on expand.
-vi.mock("../PluginSettingsHost.js", () => ({
+vi.mock("../packages/PluginSettingsHost.js", () => ({
   PluginSettingsHost: ({ pluginId }: { pluginId: string }) => (
     <div data-testid={`plugin-settings-host-${pluginId}`}>settings for {pluginId}</div>
   ),

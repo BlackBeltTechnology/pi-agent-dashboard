@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-import { SessionOpenSpecActions } from "../SessionOpenSpecActions.js";
-import { formatProposePrompt } from "../ProposeDialog.js";
+import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
+import { formatProposePrompt } from "../openspec/ProposeDialog.js";
 import type { DashboardSession, OpenSpecChange, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { CORE_WORKFLOWS, EXPANDED_WORKFLOWS } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 

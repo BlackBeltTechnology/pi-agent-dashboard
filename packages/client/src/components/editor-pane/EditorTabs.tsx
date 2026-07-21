@@ -7,12 +7,13 @@
  * See change: improve-content-editor (per-kind tab icon #2).
  */
 
-import { mdiClose } from "@mdi/js";
+import { mdiClose, mdiConsoleLine } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useRef, useState } from "react";
-import type { OpenFile } from "../../lib/editor-pane-state.js";
-import { fileIcon } from "../../lib/file-icon.js";
-import { useI18n } from "../../lib/i18n";
+import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
+import { fileIcon } from "../../lib/preview/file-icon.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
+import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
 
 interface EditorTabsProps {
   openFiles: OpenFile[];
@@ -20,6 +21,8 @@ interface EditorTabsProps {
   onActivate: (index: number) => void;
   onClose: (index: number) => void;
   onReorder: (from: number, to: number) => void;
+  /** Resolve a terminal id to its display title (for `term:<id>` tabs). */
+  terminalTitle?: (id: string) => string | undefined;
 }
 
 function basename(p: string): string {
@@ -27,7 +30,58 @@ function basename(p: string): string {
   return i >= 0 ? p.slice(i + 1) : p;
 }
 
-export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReorder }: EditorTabsProps) {
+/** True while the OS requests reduced motion (WCAG 2.2.2). Reactive. */
+function usePrefersReducedMotion(): boolean {
+  const [reduce, setReduce] = useState(
+    () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+  );
+  useEffect(() => {
+    const mq = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!mq) return;
+    const onChange = () => setReduce(mq.matches);
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+  return reduce;
+}
+
+/**
+ * Unread indicator for a background-added tab (change: non-disruptive-file-open).
+ * The dot persists while `file.unread`; a one-time pulse plays each time this
+ * tab's OpenFile object identity changes (a fresh background add OR a re-signal
+ * — the reducer always mints a new object via setUnreadAt), so a repeat agent
+ * write re-pulses. Pulse is transient (local state, not persisted) and gated
+ * behind reduced-motion: the dot still shows, the animation does not run.
+ */
+function UnreadDot({ file }: { file: OpenFile }) {
+  const reduce = usePrefersReducedMotion();
+  const [pulse, setPulse] = useState(true);
+  // Re-runs on mount and whenever `file` changes reference. The reducer mints a
+  // NEW OpenFile object on every background add / re-signal (setUnreadAt) but
+  // preserves identity for untouched tabs — so this re-pulses on a repeat agent
+  // write without firing on unrelated re-renders. The `file` dep is the trigger
+  // itself, not a value read inside the effect.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `file` identity is the intended re-pulse trigger
+  useEffect(() => {
+    setPulse(true);
+    const id = setTimeout(() => setPulse(false), 700);
+    return () => clearTimeout(id);
+  }, [file]);
+  const animate = pulse && !reduce;
+  return (
+    <span
+      data-testid="unread-dot"
+      data-pulse={animate ? "true" : "false"}
+      aria-hidden="true"
+      className={[
+        "ml-0.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-blue)]",
+        animate ? "animate-ping" : "",
+      ].join(" ")}
+    />
+  );
+}
+
+export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReorder, terminalTitle }: EditorTabsProps) {
   const { t } = useI18n();
   const dragFrom = useRef<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -110,8 +164,17 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
             dragOver === i ? "border-l-2 border-l-[var(--accent-blue)]" : "",
           ].join(" ")}
         >
-          <Icon path={fileIcon(file.path).iconPath} size={0.5} className={fileIcon(file.path).colorClass} />
-          <span className="truncate">{basename(file.path)}</span>
+          {file.viewer === "terminal" ? (
+            <Icon path={mdiConsoleLine} size={0.5} className="text-cyan-500" />
+          ) : (
+            <Icon path={fileIcon(file.path).iconPath} size={0.5} className={fileIcon(file.path).colorClass} />
+          )}
+          <span className="truncate">
+            {file.viewer === "terminal"
+              ? (terminalTitle?.(stripTermId(file.path) ?? "") ?? t("terminal.terminal", undefined, "terminal"))
+              : basename(file.path)}
+          </span>
+          {file.unread && i !== activeIndex && <UnreadDot file={file} />}
           {file.viewer === "diff" && (
             <span className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[9px] uppercase tracking-wide text-[var(--text-tertiary)]">
               diff

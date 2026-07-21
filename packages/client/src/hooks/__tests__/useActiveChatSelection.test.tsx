@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SelectionRowSpan } from "../../lib/chat-virtual-rows.js";
+import type { SelectionRowSpan } from "../../lib/chat/chat-virtual-rows.js";
 import { useActiveChatSelection } from "../useActiveChatSelection.js";
 
 // A container with an inner text-bearing child (the "transcript") plus an

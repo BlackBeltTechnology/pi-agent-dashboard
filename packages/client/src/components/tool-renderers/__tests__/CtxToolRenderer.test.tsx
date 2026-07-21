@@ -4,9 +4,9 @@ import React from "react";
 import { CtxToolRenderer } from "../CtxToolRenderer.js";
 import type { ToolContext } from "../index.js";
 import { ctxFixtures as fx } from "../parse-ctx-result.fixtures.js";
-import { ThemeProvider } from "../../ThemeProvider.js";
+import { ThemeProvider } from "../../settings/ThemeProvider.js";
 
-const ctx: ToolContext = { cwd: "/r", editors: [] };
+const ctx: ToolContext = { cwd: "/r" };
 
 // jsdom has no matchMedia; ThemeProvider's useTheme reads it for system theme.
 beforeAll(() => {

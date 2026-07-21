@@ -1,8 +1,8 @@
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { FilePreviewHost, FilePreviewProvider, useFilePreview } from "../FilePreviewContext.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { FilePreviewHost, FilePreviewProvider, useFilePreview } from "../preview/FilePreviewContext.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { FileLink } from "../tool-renderers/FileLink.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 
@@ -17,7 +17,7 @@ function restoreHost() {
   Object.defineProperty(window, "location", { value: originalLocation, writable: true });
 }
 
-const remoteCtx: ToolContext = { cwd: "/repo", editors: [] };
+const remoteCtx: ToolContext = { cwd: "/repo" };
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -32,12 +32,23 @@ beforeAll(() => {
 });
 
 function okFileFetch() {
-  return vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    new Response(JSON.stringify({ success: true, data: { type: "file", content: "" } }), {
+  // Route the lazy resolve endpoint (echo the mention back as the resolved
+  // path) so the click's resolve round-trip opens the overlay; every other
+  // call (the overlay's `/api/file` GET) returns empty file content.
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any, init?: any) => {
+    const url = String(input);
+    if (url.includes("/api/file/resolve-mention")) {
+      const mention = init?.body ? JSON.parse(init.body).mention : "";
+      return new Response(
+        JSON.stringify({ success: true, data: { resolved: mention, kind: "relative" } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ) as any;
+    }
+    return new Response(JSON.stringify({ success: true, data: { type: "file", content: "" } }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
-    }) as any,
-  );
+    }) as any;
+  });
 }
 
 /**
@@ -115,9 +126,12 @@ describe("FilePreviewProvider — overlay survives message churn", () => {
     fireEvent.click(getByText("a.ts"));
     await findByTestId("file-preview-overlay");
     fireEvent.click(getByText("b.ts"));
-    const overlays = getAllByTestId("file-preview-overlay");
-    expect(overlays.length).toBe(1);
-    expect(overlays[0].textContent).toContain("b.ts");
+    // The B open is an async resolve round-trip; wait for the overlay to switch.
+    await waitFor(() => {
+      const overlays = getAllByTestId("file-preview-overlay");
+      expect(overlays.length).toBe(1);
+      expect(overlays[0].textContent).toContain("b.ts");
+    });
   });
 
   it("Esc dismisses the hoisted overlay", async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isUnreadTrigger } from "../event-status-extraction.js";
+import { isUnreadTrigger } from "../session/event-status-extraction.js";
 
 /**
  * Unread-trigger classifier for `session.unread` flipping to true.

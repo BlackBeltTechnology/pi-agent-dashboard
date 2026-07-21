@@ -7,7 +7,7 @@ import type { PiResource } from "@blackbelt-technology/pi-dashboard-shared/rest-
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ResourceActivationController } from "../../hooks/useResourceActivation.js";
-import { ResourceCard } from "../ResourceCard.js";
+import { ResourceCard } from "../resource/ResourceCard.js";
 
 afterEach(() => cleanup());
 

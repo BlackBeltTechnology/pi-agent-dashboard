@@ -8,7 +8,7 @@ vi.mock("@blackbelt-technology/dashboard-plugin-runtime", () => ({
 }));
 
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { FolderNeedsYouPill } from "../FolderNeedsYouPill.js";
+import { FolderNeedsYouPill } from "../folder/FolderNeedsYouPill.js";
 
 function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSession {
   return {

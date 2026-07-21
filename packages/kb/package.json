@@ -1,7 +1,14 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-kb",
-  "version": "0.5.4",
-  "publishConfig": { "access": "public" },
+  "version": "0.6.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/kb"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Directory-based SQLite/FTS5 knowledge base over markdown, queryable by LLM agents. Structural heading chunking, Tier-1 graph, content-hash incremental indexing, near-duplicate dedup, BM25F ranking. Zero runtime deps (node:sqlite).",
   "type": "module",
   "license": "MIT",
@@ -20,6 +27,18 @@
     "verify": "NODE_OPTIONS=--experimental-sqlite tsx verify.ts",
     "test": "NODE_OPTIONS=--experimental-sqlite vitest run"
   },
-  "files": ["dist", "src", "!src/__tests__"],
-  "keywords": ["knowledge-base", "fts5", "sqlite", "markdown", "bm25", "rag", "pi"]
+  "files": [
+    "dist",
+    "src",
+    "!src/__tests__"
+  ],
+  "keywords": [
+    "knowledge-base",
+    "fts5",
+    "sqlite",
+    "markdown",
+    "bm25",
+    "rag",
+    "pi"
+  ]
 }

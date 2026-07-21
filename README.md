@@ -139,8 +139,9 @@ C++ build tools are typically **not** required — `node-pty` ships a Windows x6
 ```bash
 git clone https://github.com/BlackBeltTechnology/pi-agent-dashboard.git
 cd pi-agent-dashboard
-npm install
-npm run build                              # one-time client build
+corepack enable                            # activates the pinned pnpm (packageManager field)
+pnpm install
+pnpm run build                             # one-time client build
 pi install /path/to/pi-agent-dashboard     # global
 # or: pi install -l /path/to/pi-agent-dashboard   # project-local only
 ```
@@ -150,12 +151,12 @@ pi install /path/to/pi-agent-dashboard     # global
 By default, `pi-dashboard` on your PATH refers to whatever copy was installed globally (via `npm i -g` or the Electron bundle). To make it point at your working tree instead — so every edit is live and bridge auto-start uses your changes — link the workspace:
 
 ```bash
-npm run link:local      # symlinks `pi-dashboard` on PATH to packages/server/bin/pi-dashboard.mjs
+pnpm run link:local     # symlinks `pi-dashboard` on PATH to packages/server/bin/pi-dashboard.mjs
 pi-dashboard status
-npm run unlink:local    # restore (removes the global symlink)
+pnpm run unlink:local   # restore (removes the global symlink)
 ```
 
-The link survives across shells. Every invocation — including `pi`'s bridge auto-spawn — runs `packages/server/src/cli.ts` via jiti, so you don't need to rebuild the server on edits. The client still requires `npm run build` (or `npm run dev` for HMR).
+The link survives across shells. Every invocation — including `pi`'s bridge auto-spawn — runs `packages/server/src/cli.ts` via jiti, so you don't need to rebuild the server on edits. The client still requires `pnpm run build` (or `pnpm run dev` for HMR).
 
 > **Windows note:** symlink creation needs an admin shell or Windows Developer Mode enabled. Everything else works the same as POSIX.
 
@@ -228,7 +229,7 @@ PI Dashboard now includes a lightweight Simplified Chinese interface for the cor
 The language selector lives in **Settings → General → Interface**. English remains the default for existing users, and the selection is saved in the browser. Deployments that want to start in Chinese can build the web client with:
 
 ```bash
-VITE_PI_DASHBOARD_DEFAULT_LANGUAGE=zh-CN npm run build --workspace=@blackbelt-technology/pi-dashboard-web
+VITE_PI_DASHBOARD_DEFAULT_LANGUAGE=zh-CN pnpm --filter @blackbelt-technology/pi-dashboard-web run build
 ```
 
 This keeps plugin-provided dynamic content, package names, model names, and command output unchanged while making the main dashboard usable for Chinese-speaking operators out of the box.
@@ -412,7 +413,7 @@ The bridge extension **automatically starts the dashboard server** when pi launc
 
 In the Electron app, if the initial launch attempts fail (or the server is stopped externally), the **loading page exposes a Start server button**, an **Open Doctor link**, and a collapsible **Server log** panel showing the last 20 lines of `~/.pi/dashboard/server.log`. The system tray menu also includes a **Start server / Restart server** item that reflects current server state. All entry points share a single idempotent launch routine in the Electron main process.
 
-**Debugging the Electron app via CDP.** The desktop app accepts an opt-in `--debug-cdp[=<port>]` CLI flag (and equivalent `PI_DEBUG_CDP` env var) that exposes Chromium's Chrome DevTools Protocol on a loopback-only port (default `9222`) so `agent-browser`, Playwright, Chrome DevTools, or any CDP client can attach to the *installed shell* — not just a separate browser pointed at `http://localhost:8000`. The flag wins if both flag and env are set. CDP is **off by default**, never binds beyond `127.0.0.1`, and logs a one-line `[debug-cdp]` warning to stderr when active. **Single-instance contract:** CDP must be enabled at first-instance launch; passing the flag to an already-running instance cannot enable CDP retroactively and only logs a warning — fully quit and relaunch. From this repo, `cd packages/electron && npm run dev:cdp` launches the dev Electron with CDP on. The bundled universal `browser` skill (shipped by the bridge extension) contains a worked-example recipe for attaching `agent-browser` to the Pi Dashboard app.
+**Debugging the Electron app via CDP.** The desktop app accepts an opt-in `--debug-cdp[=<port>]` CLI flag (and equivalent `PI_DEBUG_CDP` env var) that exposes Chromium's Chrome DevTools Protocol on a loopback-only port (default `9222`) so `agent-browser`, Playwright, Chrome DevTools, or any CDP client can attach to the *installed shell* — not just a separate browser pointed at `http://localhost:8000`. The flag wins if both flag and env are set. CDP is **off by default**, never binds beyond `127.0.0.1`, and logs a one-line `[debug-cdp]` warning to stderr when active. **Single-instance contract:** CDP must be enabled at first-instance launch; passing the flag to an already-running instance cannot enable CDP retroactively and only logs a warning — fully quit and relaunch. From this repo, `cd packages/electron && pnpm run dev:cdp` launches the dev Electron with CDP on. The bundled universal `browser` skill (shipped by the bridge extension) contains a worked-example recipe for attaching `agent-browser` to the Pi Dashboard app.
 
 **Doctor diagnostics.** Help → Doctor (or the loading-page link) opens a styled `BrowserWindow` (`doctor.html`) that runs the same checks the Electron app already performed — grouped into sections (Runtime, Pi, Server, Bundles, Diagnostics) with status pills, paths, and per-row suggestion callouts; toolbar offers Re-run, Copy as Markdown / Plain, Open server log, Open doctor log, Run setup wizard. The web client exposes the portable subset at **Settings → Diagnostics**, which fetches `/api/doctor` and renders the same sections (Electron-only rows omitted). Both surfaces share `packages/shared/src/doctor-core.ts`, so a check defined once shows up everywhere.
 
@@ -713,24 +714,25 @@ Agent metrics are collected every 15s via heartbeats and include `eventLoopMaxMs
 ### Commands
 
 ```bash
-npm install          # Install dependencies
-npm test             # Run all tests (vitest)
-npm run test:watch   # Watch mode
-npm run build        # Build web client (Vite)
-npm run dev          # Start Vite dev server (HMR)
-npm run lint         # Type-check (tsc --noEmit)
-npm run reload       # Reload all connected pi sessions
-npm run reload:check # Type-check + reload all pi sessions
+corepack enable       # once: activate the pinned pnpm (packageManager field)
+pnpm install          # Install dependencies
+pnpm test             # Run all tests (vitest)
+pnpm run test:watch   # Watch mode
+pnpm run build        # Build web client (Vite)
+pnpm run dev          # Start Vite dev server (HMR)
+pnpm run lint         # Type-check (tsc --noEmit)
+pnpm run reload       # Reload all connected pi sessions
+pnpm run reload:check # Type-check + reload all pi sessions
 ```
 
 ### Typical local dev workflow
 
 ```bash
 # Terminal 1: Dashboard server in dev mode
-npx tsx packages/server/src/cli.ts --dev
+pnpm exec tsx packages/server/src/cli.ts --dev
 
 # Terminal 2: Vite dev server (HMR for the web client)
-npm run dev
+pnpm run dev
 
 # Terminal 3: pi with the bridge extension
 pi -e packages/extension/src/bridge.ts   # or just `pi` if installed
@@ -743,19 +745,19 @@ pi -e packages/extension/src/bridge.ts   # or just `pi` if installed
 
 ```bash
 # After client changes (production mode)
-npm run build
+pnpm run build
 curl -X POST http://localhost:8000/api/restart
 
 # After server changes (runs TypeScript directly, no build needed)
 curl -X POST http://localhost:8000/api/restart
 
 # After bridge extension changes
-npm run reload
+pnpm run reload
 
 # Full rebuild (e.g., after pulling updates)
-npm run build
+pnpm run build
 curl -X POST http://localhost:8000/api/restart
-npm run reload
+pnpm run reload
 ```
 
 ### Extension UI events
@@ -794,18 +796,18 @@ packages/
 ### Native build (current platform)
 
 ```bash
-npm run electron:build                    # Build for current platform & arch
-npm run electron:build -- --arch x64      # Override architecture
-npm run electron:build -- --skip-client   # Skip client rebuild
+pnpm run electron:build                    # Build for current platform & arch
+pnpm run electron:build -- --arch x64      # Override architecture
+pnpm run electron:build -- --skip-client   # Skip client rebuild
 ```
 
 Or step by step:
 
 ```bash
-npm run build                         # Build web client
+pnpm run build                        # Build web client
 cd packages/electron
 bash scripts/download-node.sh         # Download Node.js for bundling
-npm run make                          # Build installer
+pnpm run make                         # Build installer
 ```
 
 Output by platform:
@@ -821,10 +823,10 @@ Output by platform:
 From macOS or Linux, build installers for all platforms:
 
 ```bash
-npm run electron:build -- --all              # macOS (native) + Linux + Windows (Docker)
-npm run electron:build -- --linux            # Linux .deb + .AppImage only
-npm run electron:build -- --windows          # Windows .zip only
-npm run electron:build -- --linux --windows  # Both, skip native
+pnpm run electron:build -- --all              # macOS (native) + Linux + Windows (Docker)
+pnpm run electron:build -- --linux            # Linux .deb + .AppImage only
+pnpm run electron:build -- --windows          # Windows .zip only
+pnpm run electron:build -- --linux --windows  # Both, skip native
 ```
 
 ### Building both macOS DMGs locally (`--mac-both`)
@@ -832,7 +834,7 @@ npm run electron:build -- --linux --windows  # Both, skip native
 On an Apple Silicon mac, produce both the arm64 and Intel x64 DMGs in one invocation:
 
 ```bash
-npm run electron:build -- --mac-both
+pnpm run electron:build -- --mac-both
 ```
 
 Requires Rosetta 2 (`softwareupdate --install-rosetta --agree-to-license`) so node-pty's x64 prebuilt binary can be unpacked during the cross-arch run. The script wipes per-arch caches between the two builds (`resources/.last-arch` sentinel) so back-to-back runs don't accidentally ship arm64 binaries inside an x64 DMG. Intel macs cannot cross-build arm64 locally (Rosetta is one-way) — use CI for arm64 validation.
@@ -844,11 +846,11 @@ Docker builds use a Node 22 Debian container for Windows cross-compilation. Outp
 ```bash
 # Start the dashboard server and Vite dev server first
 pi-dashboard start --dev
-npm run dev
+pnpm run dev
 
 # Then launch Electron pointing at the dev server
 cd packages/electron
-npm run start:dev
+pnpm run start:dev
 ```
 
 ### Regenerating icons
@@ -857,7 +859,7 @@ All platform icon variants are generated from the master icon at `packages/elect
 
 ```bash
 cd packages/electron
-npm run icons    # Generates .icns (macOS), .ico (Windows), and resized PNGs
+pnpm run icons    # Generates .icns (macOS), .ico (Windows), and resized PNGs
 ```
 
 ---
@@ -870,10 +872,10 @@ See [`docs/release-process.md`](docs/release-process.md) for the full cut-a-rele
 
 Every push to `develop` and every pull request against `develop` triggers [`ci.yml`](.github/workflows/ci.yml):
 
-1. `npm ci` — install dependencies
-2. `npm run lint` — type check
-3. `npm test` — run tests
-4. `npm run build` — build web client
+1. `pnpm install --frozen-lockfile` — install dependencies
+2. `pnpm run lint` — type check
+3. `pnpm test` — run tests
+4. `pnpm run build` — build web client
 
 ### Releasing
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wrapAsciiTables } from "../wrap-ascii-tables.js";
+import { wrapAsciiTables } from "../preview/wrap-ascii-tables.js";
 
 describe("wrapAsciiTables", () => {
   it("should return content unchanged when no ASCII tables", () => {

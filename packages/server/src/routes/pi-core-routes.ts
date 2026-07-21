@@ -15,9 +15,9 @@ import type {
 	PiCoreUpdateRequest,
 	PiCoreUpdateResponse,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import type { PiCoreChecker } from "../pi-core-checker.js";
-import type { PiCoreUpdater } from "../pi-core-updater.js";
-import { PackageOperationBusyError } from "../package-manager-wrapper.js";
+import type { PiCoreChecker } from "../pi/pi-core-checker.js";
+import type { PiCoreUpdater } from "../pi/pi-core-updater.js";
+import { PackageOperationBusyError } from "../package/package-manager-wrapper.js";
 
 export interface PiCoreRouteDeps {
 	piCoreChecker: PiCoreChecker;

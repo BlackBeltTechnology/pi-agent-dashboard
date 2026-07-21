@@ -5,7 +5,7 @@ import {
   normalizeLanguage,
   registerPluginCatalog,
   t,
-} from "../lib/i18n";
+} from "../lib/i18n/i18n.js";
 
 describe("normalizeLanguage", () => {
   it("maps Hungarian variants to hu", () => {

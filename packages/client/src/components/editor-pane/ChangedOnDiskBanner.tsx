@@ -9,7 +9,7 @@
 
 import { mdiAlertOutline, mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useI18n } from "../../lib/i18n";
+import { useI18n } from "../../lib/i18n/i18n.js";
 
 interface Props {
   fileName: string;

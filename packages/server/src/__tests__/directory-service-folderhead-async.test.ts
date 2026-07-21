@@ -17,9 +17,9 @@ import * as path from "node:path";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
-import type { HeadInfo } from "../git-operations.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import type { HeadInfo } from "../git-worktree/git-operations.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 
 const runOpenSpecListMock = vi.fn();
 vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (importOriginal) => {
@@ -31,10 +31,10 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (i
     runOpenSpecStatus: vi.fn(async () => ({ name: "demo", status: "active", artifacts: [], completedTasks: 0, totalTasks: 1 })),
   };
 });
-vi.mock("../pi-resource-scanner.js", () => ({
+vi.mock("../pi/pi-resource-scanner.js", () => ({
   scanPiResources: vi.fn(async () => ({ local: { extensions: [], skills: [], prompts: [] }, global: { extensions: [], skills: [], prompts: [] }, packages: [] })),
 }));
-vi.mock("../session-discovery.js", () => ({ discoverSessionsForCwd: vi.fn(() => []) }));
+vi.mock("../session/session-discovery.js", () => ({ discoverSessionsForCwd: vi.fn(() => []) }));
 
 function createMockPrefs(pinned: string[]): PreferencesStore {
   return {

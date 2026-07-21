@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createTerminalGateway } from "../terminal-gateway.js";
-import type { TerminalManager } from "../terminal-manager.js";
+import { createTerminalGateway } from "../terminal/terminal-gateway.js";
+import type { TerminalManager } from "../terminal/terminal-manager.js";
 
 describe("TerminalGateway", () => {
   let mockManager: TerminalManager;

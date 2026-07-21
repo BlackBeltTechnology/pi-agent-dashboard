@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createTerminalManager, detectShell, type TerminalManager } from "../terminal-manager.js";
+import { createTerminalManager, detectShell, type TerminalManager } from "../terminal/terminal-manager.js";
 
 // Mock node-pty
 const mockPtyWrite = vi.fn();

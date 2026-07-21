@@ -5,7 +5,7 @@ import {
   createReplayCache,
   REPLAY_CACHE_SCHEMA_VERSION,
   type CachedEvent,
-} from "../replay-cache.js";
+} from "../replay/replay-cache.js";
 
 function evt(seq: number): CachedEvent {
   return {

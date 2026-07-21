@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { createBranchedSessionFile } from "../session-file-reader.js";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createBranchedSessionFile, findSessionToolCallPayload } from "../session/session-file-reader.js";
 
 describe("createBranchedSessionFile", () => {
   let tmpDir: string;
@@ -81,5 +81,90 @@ describe("createBranchedSessionFile", () => {
 
     expect(header.id).not.toBe("original-id");
     expect(header.id).toMatch(/^[0-9a-f-]+$/); // UUID format
+  });
+});
+
+// opt-in-out-of-cwd-session-diffs: full untruncated payload from the on-disk JSONL.
+describe("findSessionToolCallPayload", () => {
+  let tmpDir: string;
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "session-payload-"));
+  });
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+  function writeSession(entries: any[]): string {
+    const path = join(tmpDir, "s.jsonl");
+    writeFileSync(path, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    return path;
+  }
+
+  it("E4 — returns untruncated Write content (7 KB, no truncation marker)", () => {
+    const bigContent = "x".repeat(7 * 1024);
+    const file = writeSession([
+      { type: "session", id: "s1", cwd: "/tmp" },
+      {
+        type: "message", id: "e1", parentId: null,
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "writing" },
+            { type: "toolCall", id: "tc-write", name: "write", arguments: { path: "/tmp/big.txt", content: bigContent } },
+          ],
+        },
+      },
+    ]);
+    const payload = findSessionToolCallPayload(file, "tc-write");
+    expect(payload).not.toBeNull();
+    expect(payload!.content).toBe(bigContent);
+    expect(payload!.content).not.toContain("[truncated]");
+    expect(payload!.content!.length).toBe(7 * 1024);
+  });
+
+  it("E5 — returns the full 21-element edits array", () => {
+    const edits = Array.from({ length: 21 }, (_, i) => ({ oldText: `a${i}`, newText: `b${i}` }));
+    const file = writeSession([
+      { type: "session", id: "s1", cwd: "/tmp" },
+      {
+        type: "message", id: "e1", parentId: null,
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "tc-edit", name: "edit", arguments: { path: "src/a.ts", edits } }],
+        },
+      },
+    ]);
+    const payload = findSessionToolCallPayload(file, "tc-edit");
+    expect(payload!.edits).toHaveLength(21);
+    expect(payload!.edits).toEqual(edits);
+  });
+
+  it("E6 — unknown toolCallId yields null (not-found)", () => {
+    const file = writeSession([
+      { type: "session", id: "s1", cwd: "/tmp" },
+      {
+        type: "message", id: "e1", parentId: null,
+        message: { role: "assistant", content: [{ type: "toolCall", id: "tc-real", name: "write", arguments: { path: "a", content: "x" } }] },
+      },
+    ]);
+    expect(findSessionToolCallPayload(file, "tc-missing")).toBeNull();
+  });
+
+  it("X3 — missing JSONL file yields null (graceful, no throw)", () => {
+    expect(findSessionToolCallPayload(join(tmpDir, "gone.jsonl"), "tc-x")).toBeNull();
+  });
+
+  it("reads the nested content[].id, not the entry top-level id", () => {
+    // Decoy: the entry's TOP-LEVEL id differs from the nested tool-call id.
+    const file = writeSession([
+      { type: "session", id: "s1", cwd: "/tmp" },
+      {
+        type: "message", id: "entry-top-level-id", parentId: null,
+        message: { role: "assistant", content: [{ type: "toolCall", id: "tc-nested", name: "write", arguments: { path: "a", content: "correct" } }] },
+      },
+    ]);
+    // Matching the NESTED tool-call id resolves the payload.
+    expect(findSessionToolCallPayload(file, "tc-nested")!.content).toBe("correct");
+    // Matching the entry TOP-LEVEL id must NOT resolve (never keyed on it).
+    expect(findSessionToolCallPayload(file, "entry-top-level-id")).toBeNull();
   });
 });

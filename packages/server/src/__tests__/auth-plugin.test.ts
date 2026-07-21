@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { validateWsUpgrade, escapeHtml, isBypassed } from "../auth-plugin.js";
-import { isBypassedHost } from "../localhost-guard.js";
-import { signToken, COOKIE_NAME } from "../auth.js";
+import { validateWsUpgrade, escapeHtml, isBypassed } from "../auth/auth-plugin.js";
+import { isBypassedHost } from "../auth/localhost-guard.js";
+import { signToken, COOKIE_NAME } from "../auth/auth.js";
 
 const SECRET = "test-secret-for-ws-auth-testing";
 

@@ -2,9 +2,9 @@ import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ModelSelector } from "../ModelSelector.js";
-import { StatusBar } from "../StatusBar.js";
-import { ThinkingLevelSelector } from "../ThinkingLevelSelector.js";
+import { ModelSelector } from "../settings/ModelSelector.js";
+import { StatusBar } from "../shell/StatusBar.js";
+import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
 
 afterEach(() => cleanup());
 

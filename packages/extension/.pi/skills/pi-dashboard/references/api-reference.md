@@ -6,6 +6,20 @@ All responses use JSON. Mutation endpoints require `Content-Type: application/js
 
 ---
 
+## WebSocket bus verbs
+
+Session/flow COMMAND verbs are preferably driven over the SAME WebSocket bus the
+web client uses, via `@blackbelt-technology/pi-dashboard-bus-client` (wrapped by
+[`scripts/dashboard-bus.ts`](../scripts/dashboard-bus.ts)). The client sends
+`BrowserToServerMessage` verbs; the per-verb helpers are codegen'd from that
+union, with a denylist that excludes `plugin_config_write` (stays REST). `spawn`
+and `resume` replies are **exact-correlated** to the request; all other waits are
+**structural** (matched on session-id + status). The REST endpoints below remain
+a supported compatibility shell for the same operations plus the read-only and
+no-WS-twin endpoints.
+
+---
+
 ## Health & Status
 
 ### `GET /api/health`
@@ -436,6 +450,12 @@ Create a tunnel connection.
 
 ### `POST /api/tunnel-disconnect`
 Disconnect the active tunnel.
+
+**Body (optional):**
+```json
+{ "forget": true }
+```
+When `forget: true`, releases reserved URL (zrok v2 `zrok2 delete name`) and clears config `tunnel.zrok.reservedName`. Without body or `forget: false`, plain disconnect preserves reserved URL + config (URL stable on next connect).
 
 ---
 

@@ -11,7 +11,7 @@ import {
   InvalidResetRequestError,
   PackageOperationBusyError,
   UnsupportedSourceForDestinationError,
-} from "../package-manager-wrapper.js";
+} from "../package/package-manager-wrapper.js";
 import { registerPackageRoutes } from "../routes/package-routes.js";
 
 // Mock pi dependency (pulled transitively by package-manager-wrapper)
@@ -21,7 +21,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 }));
 
 // Mock npm-search-proxy
-vi.mock("../npm-search-proxy.js", () => ({
+vi.mock("../package/npm-search-proxy.js", () => ({
   searchPackages: vi.fn().mockResolvedValue({ packages: [{ name: "pi-doom", types: ["extension"] }], total: 1 }),
   fetchReadme: vi.fn().mockResolvedValue({ readme: "# Test", name: "pi-doom", version: "1.0.0" }),
   fetchPackageMeta: vi.fn().mockResolvedValue({ version: "0.5.0" }),
@@ -30,7 +30,7 @@ vi.mock("../npm-search-proxy.js", () => ({
   },
 }));
 
-import { fetchReadme, PackageNotFoundError, searchPackages } from "../npm-search-proxy.js";
+import { fetchReadme, PackageNotFoundError, searchPackages } from "../package/npm-search-proxy.js";
 
 function createMockWrapper() {
   return {

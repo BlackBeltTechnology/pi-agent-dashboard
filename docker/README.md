@@ -1,8 +1,8 @@
 # pi-dashboard in Docker
 
-Run the entire pi-dashboard ecosystem — server, pi coding agent, code-server,
-zrok, tmux, terminals — in one self-contained container. No host install of
-pi, Node, or any tool required.
+Run the entire pi-dashboard ecosystem — server, pi coding agent, zrok, tmux,
+terminals — in one self-contained container. No host install of pi, Node, or
+any tool required.
 
 ## Quick start
 
@@ -37,6 +37,8 @@ All knobs live in `.env` (copy from `.env.example`). Highlights:
 API keys are seeded **once**: the first run writes `auth.json` into the
 `pi-state` volume; later runs ignore the env vars (the volume wins). Change
 providers anytime via the dashboard UI.
+
+**Zrok v2 in the image.** Image ships `zrok v2.0.4` (`zrok2` binary). Tarball extracts `zrok2` with a symlink `zrok → zrok2` for command compatibility. When `ZROK_TOKEN` set, entrypoint enrolls headless (via `zrok2 enable <token> --headless`), avoiding TTY requirement in server context. Config dir `~/.zrok2` persists across restarts via volume.
 
 ## Workspaces (path-identical mounts)
 
@@ -114,9 +116,8 @@ install**:
 
 ## Notes
 
-- **Single container by design.** pi sessions, terminals (node-pty),
-  code-server, and the gateway share one filesystem and localhost. A
-  multi-container split fights the architecture.
+- **Single container by design.** pi sessions, terminals (node-pty), and the
+  gateway share one filesystem and localhost. A multi-container split fights
+  the architecture.
 - **Debian, not Alpine.** node-pty needs glibc for correct PTY behavior.
 - **Non-root.** All processes run as user `pi` (UID 1000).
-- **Image size** ~2.5 GB (code-server alone is ~500 MB).

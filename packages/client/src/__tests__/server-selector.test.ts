@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
-import { isLoopbackOrigin, buildServerEntries, isLanHost } from "../components/ServerSelector.js";
+import type { DiscoveredServerInfo } from "../components/connectivity/ServerSelector.js";
+import { isLoopbackOrigin, buildServerEntries, isLanHost } from "../components/connectivity/ServerSelector.js";
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 
 describe("ServerSelector logic", () => {

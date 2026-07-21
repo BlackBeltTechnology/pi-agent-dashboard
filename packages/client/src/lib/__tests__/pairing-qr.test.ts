@@ -4,8 +4,8 @@
  * 1.3 (copy-string distinct + unchanged), 1.6 (copy-string is not a URL).
  */
 import { describe, expect, it } from "vitest";
-import type { PairingPayload } from "../pairing-api.js";
-import { decodePayloadString, encodePairingQrUrl, encodePayloadString } from "../pairing-qr.js";
+import type { PairingPayload } from "../pairing/pairing-api.js";
+import { decodePayloadString, encodePairingQrUrl, encodePayloadString } from "../pairing/pairing-qr.js";
 
 const PAYLOAD: PairingPayload = {
   v: 1,

@@ -2,13 +2,15 @@
  * Session-related REST API routes.
  */
 import { readFile } from "node:fs/promises";
-import { resolve, relative, isAbsolute } from "node:path";
-import type { FastifyInstance } from "fastify";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { EventStore } from "../memory-event-store.js";
+import { isAbsolute, relative, resolve } from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FastifyInstance } from "fastify";
+import type { EventStore } from "../persistence/memory-event-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import { buildSessionDiffCached, type SessionDiffResult } from "../session/session-diff.js";
+import { SessionDiffCache } from "../session/session-diff-cache.js";
+import { findSessionToolCallPayload } from "../session/session-file-reader.js";
 import type { NetworkGuard } from "./route-deps.js";
-import { buildSessionDiff } from "../session-diff.js";
 
 export function registerSessionRoutes(
   fastify: FastifyInstance,
@@ -19,6 +21,12 @@ export function registerSessionRoutes(
   },
 ) {
   const { sessionManager, eventStore, networkGuard } = deps;
+
+  // Per-server session-diff result cache + single-flight coordinator. Short TTL
+  // so repeated UI polls of an unchanged session skip recompute, and concurrent
+  // identical requests coalesce onto one git computation. See change:
+  // fix-session-diff-eventloop-block.
+  const sessionDiffCache = new SessionDiffCache<SessionDiffResult>();
 
   fastify.get("/api/sessions", async () => {
     const sessions = sessionManager.listAll();
@@ -57,6 +65,33 @@ export function registerSessionRoutes(
     },
   );
 
+  // Full session-authored Write/Edit payload from the on-disk JSONL, addressed
+  // by (sessionId, toolCallId) — NEVER by filesystem path. Upgrades an
+  // out-of-cwd (or any truncated) diff to full fidelity: the in-memory event
+  // store caps strings at ~4 KB and collapses `edits` arrays >20, so this is
+  // REQUIRED for correctness on large Writes / Edits, not merely an optimization.
+  // The sessionFile is resolved via sessionManager (set at session creation),
+  // never constructed from the sessionId string. Miss → 404, reads nothing else.
+  // See change: opt-in-out-of-cwd-session-diffs.
+  fastify.get<{ Params: { sessionId: string; toolCallId: string } }>(
+    "/api/session-change/:sessionId/:toolCallId",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { sessionId, toolCallId } = request.params;
+      const session = sessionManager.get(sessionId);
+      if (!session?.sessionFile) {
+        reply.code(404);
+        return { success: false, error: "session not found" } satisfies ApiResponse;
+      }
+      const payload = findSessionToolCallPayload(session.sessionFile, toolCallId);
+      if (!payload) {
+        reply.code(404);
+        return { success: false, error: "tool call not found" } satisfies ApiResponse;
+      }
+      return { success: true, data: payload } satisfies ApiResponse;
+    },
+  );
+
   // Session file diff endpoint (localhost-only)
   fastify.get<{ Querystring: { sessionId?: string } }>(
     "/api/session-diff",
@@ -71,7 +106,7 @@ export function registerSessionRoutes(
         return { success: false, error: "session not found" } satisfies ApiResponse;
       }
       const events = eventStore.getEvents(sessionId, 0).map((e) => e.event);
-      const result = buildSessionDiff(events, session.cwd);
+      const result = await buildSessionDiffCached(sessionId, events, session.cwd, sessionDiffCache);
       return {
         success: true,
         data: {

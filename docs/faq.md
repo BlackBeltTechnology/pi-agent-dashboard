@@ -15,6 +15,7 @@ Type `/view <target>` in the composer.
 - `/view https://youtu.be/dQw4w9WgXcQ` — YouTube embed iframe.
 - `/view https://example.com/spec.pdf` — URL with PDF extension renders inline pdfjs viewer.
 - `/view @spec.docx` — docx. Two-tier: `document-converter` PDF render when engine available (mounts pdfjs `PdfPreview` via `/api/file/rendered-pdf`), else in-process `mammoth` HTML baseline (hyperlink-guard + DOMPurify + image cap). Any engine error falls through to HTML.
+- `/view @deck.pptx` — pptx (slide deck). On-demand: card shows "Render slides" button, no auto-convert. Activate → `document-converter` renders pptx→PDF (LibreOffice Impress export filter, cached), mounts pdfjs `PdfPreview` via `/api/file/rendered-pdf`. NO in-process fallback — engine absent → Download fallback. Size cap 100 MB → 413. See change: render-pptx-preview.
 - `/view @data.xlsx` — spreadsheet. SheetJS structured JSON via `/api/file/sheet`, frozen-header grid + sheet tabs, no Docker.
 - `/view @export.csv` — spreadsheet. Encoding detected (chardet) + decoded (iconv-lite); charset pill shown.
 
@@ -38,6 +39,8 @@ Cross-refs:
 - packages/server/src/lib/office-preview.ts
 - packages/client/src/components/preview/DocxPreview.tsx
 - packages/client/src/components/preview/SpreadsheetPreview.tsx
+- openspec/changes/render-pptx-preview/
+- packages/client/src/components/preview/PptxPreview.tsx
 
 ## How to build Windows electron zip?
 
@@ -2440,3 +2443,121 @@ Cross-refs:
 - packages/server/src/routes/git-routes.ts
 - packages/client/src/lib/worktree-init-store.ts
 - packages/client/src/components/WorktreeInitChip.tsx
+
+## Why does `openspec change new` fail with "unknown command"?
+
+Command order wrong. CLI v1.3.1 takes `openspec new change <name>`, not `openspec change new`.
+
+Fix: `openspec new change <name>` — scaffolds only `.openspec.yaml` (schema:spec-driven).
+
+- Hand-write `openspec/changes/<name>/{proposal,tasks,design}.md` + `specs/<cap>/spec.md`.
+- Validate with `openspec validate <name>`. No `verify` subcommand.
+
+Cross-refs:
+- ~/.pi/agent/projects-memory/pi-agent-dashboard/MEMORY.md
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why does an automation run stay "running" forever with no result.md?
+
+`index.ts` correlated run→session by cwd-FIFO. Action prompt mis-delivered to a pre-existing/busy session at that cwd. Run stuck `status="running"`, no result.md; spawned agent shows empty "Waiting for input" with automation badge.
+
+Fix: correlate by `automationRun.runId` stamp via `engine.pendingForRunId` + `onSessionRegisteredForRun`. Removed cwd fallback. Commit 5009b883.
+
+- Host applies stamp during `session_register`, so spawned session carries its runId when plugin `onEvent` fires.
+- Still-open separate bug: result.md captures injected prompt, not model reply (`extractAssistantText` role-filter).
+
+Cross-refs:
+- ~/.pi/agent/projects-memory/pi-agent-dashboard/MEMORY.md
+- ~/.pi/agent/pi-hermes-memory/failures.md
+- packages/automation-plugin/src/server/engine.ts
+- packages/automation-plugin/src/server/index.ts
+
+## Why do unrelated files leak into my commit in the shared worktree?
+
+Working tree often shared with concurrent pi sessions. Git index reset between separate Bash calls when a concurrent session runs `git add`/`reset`.
+
+Fix: stage + commit atomically in ONE Bash call: `git reset && git add <files> && git commit`. Never split staging and commit across tool calls.
+
+- Default branch `develop`. Repo BlackBeltTechnology/pi-agent-dashboard.
+
+Cross-refs:
+- ~/.pi/agent/projects-memory/pi-agent-dashboard/MEMORY.md
+
+## Why does `npx vitest run` abort with "[test-isolation] process.env.HOME equals the real user home"?
+
+Guard blocks tests reading/mutating ~/.pi/.
+
+Fix: `HOME=$(mktemp -d) npx vitest run …`
+
+- Test prints "[test-isolation] HOME=/var/folders/.../tmp.XXXX (real=/Users/...)" then proceeds.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why does `npx playwright install chromium` time out?
+
+CDN cdn.playwright.dev times out / blocked.
+
+Fix: pin `@playwright/test` to a version whose chromium revision already in ~/Library/Caches/ms-playwright.
+
+- Map version→revision: `curl unpkg.com/playwright-core@<ver>/browsers.json`.
+- pw 1.57.0 → chromium-1200; 1.61.0 → chromium-1228.
+- Complete pair needs BOTH chromium-<rev> AND chromium_headless_shell-<rev> cached. Headless uses the shell.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why do folder routes break on non-ASCII (Unicode) cwd paths?
+
+`encodeFolderPath`/`decodeFolderPath` use bare `btoa`/`atob` → throw "Invalid character" on non-ASCII cwd.
+
+Fix (ASCII output unchanged):
+- encode: `btoa(String.fromCharCode(...new TextEncoder().encode(cwd)))` then +→- /→_ =strip.
+- decode: restore padding/chars, `atob` → `Uint8Array.from(binary, ch => ch.charCodeAt(0))` → `new TextDecoder("utf-8",{fatal:true}).decode(bytes)` in try/catch, return null on failure.
+- automation-plugin keeps a MIRRORED copy at packages/automation-plugin/src/client/folder-encoding.ts — apply fixes to BOTH.
+- Route-param guard: components consuming decoded params reject null decode (render "Invalid folder route"), never fall through to undefined cwd.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+- packages/client/src/lib/folder-encoding.ts
+- packages/automation-plugin/src/client/folder-encoding.ts
+
+## Why are the openspec-* skills missing in my worktree (apply-change stalls)?
+
+Worktree OpenSpec skills gated on `test ! -d node_modules`. node_modules present → init SKIPS, apply-change stalls.
+
+Fix: `npx openspec init --tools pi --force`
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why does agent-browser MCP `eval` echo JS source instead of running it?
+
+MCP `eval` echoes JS source, does not execute.
+
+Fix: use the agent-browser CLI directly, dump output to a file (element.outerHTML → /tmp/card.html), then read it.
+
+- MCP `viewport`/`resize` unrecognized ("Unknown command") — cannot force desktop breakpoints.
+- Query source CSS tokens + grab one real element outerHTML via CLI.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why can't jsdom render mermaid (CSSStyleSheet not defined)?
+
+jsdom cannot render mermaid 11.16 — CSSStyleSheet not defined.
+
+- Real browser (agent-browser mockup server) is the only reliable harness for mermaid rendering.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why does a pi session show "stuck in thinking" / only "memory savings"?
+
+NOT a pi-agent-dashboard bug. External pkg pi-hermes-memory spawns child `pi -p` helpers (background-review/session-flush/consolidation) that re-inherit the full parent extension stack. context-mode loads in the child and prints its ctx_stats banner ("tokens saved · N% savings") — that line is context-mode, not hermes.
+
+Fix: edit ~/.pi/agent/hermes-memory-config.json → `flushOnCompact:false`, `flushOnShutdown:false`, `reviewEnabled:false` (all default true) to stop child spawns.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+- ~/.pi/agent/hermes-memory-config.json

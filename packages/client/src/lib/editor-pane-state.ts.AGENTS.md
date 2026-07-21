@@ -1,3 +1,0 @@
-# editor-pane-state.ts — index
-
-Per-session pane state + localStorage persistence under `pi-dashboard:editor-pane:<sessionId>`. `editorPaneReducer` (openFile idempotent, closeTab, setActive, toggleTreeRoot, reorderTabs). openFile + setActive also expand the file's `ancestorDirs()` into `treeOpenRoots` to reveal its row (#5). `useEditorPaneState(sessionId)` hook loads on session change, persists on change. Corrupt JSON / quota errors logged, fall back to empty state. `VALID_VIEWERS` includes `"diff"`. See change: add-internal-monaco-editor-pane. See change: improve-content-editor. See change: add-change-summary-table.

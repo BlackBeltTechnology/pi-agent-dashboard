@@ -2,8 +2,8 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { foldLiveEvents } from "../../lib/coalesce-live-events.js";
-import { createInitialState, type SessionState } from "../../lib/event-reducer.js";
+import { foldLiveEvents } from "../../lib/chat/coalesce-live-events.js";
+import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
 import {
   applySessionMessage,
   createSessionAccumulator,

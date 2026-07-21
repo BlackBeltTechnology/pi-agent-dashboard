@@ -15,7 +15,7 @@ import {
   runInitHook,
   hookDefHash,
   type WorktreeInitHook,
-} from "../worktree-init.js";
+} from "../git-worktree/worktree-init.js";
 
 let tmp: string;
 beforeEach(() => {

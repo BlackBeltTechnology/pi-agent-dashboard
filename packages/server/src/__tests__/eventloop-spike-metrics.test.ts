@@ -3,7 +3,7 @@
  * See change: attribute-openspec-poll-eventloop-stalls.
  */
 import { describe, expect, it } from "vitest";
-import { createEventLoopSpikeMetrics, type EventLoopSpike } from "../eventloop-spike-metrics.js";
+import { createEventLoopSpikeMetrics, type EventLoopSpike } from "../metrics/eventloop-spike-metrics.js";
 
 function makeSpike(overrides: Partial<EventLoopSpike> = {}): EventLoopSpike {
   return { at: Date.now(), ms: 700, turn: null, ...overrides };

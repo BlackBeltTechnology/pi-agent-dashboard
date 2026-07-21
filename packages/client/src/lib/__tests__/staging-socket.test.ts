@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { openStagingSocket } from "../staging-socket.js";
+import { openStagingSocket } from "../api/staging-socket.js";
 
 /**
  * Minimal WebSocket fake: installed onto the global and driven manually via

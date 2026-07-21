@@ -16,12 +16,12 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 }));
 
 // Mock the npm-search-proxy so we can assert enrichment + failure paths.
-vi.mock("../npm-search-proxy.js", () => ({
+vi.mock("../package/npm-search-proxy.js", () => ({
 	fetchPackageMeta: vi.fn(),
 	fetchGithubPackageJson: vi.fn(),
 }));
 
-import { fetchPackageMeta, fetchGithubPackageJson } from "../npm-search-proxy.js";
+import { fetchPackageMeta, fetchGithubPackageJson } from "../package/npm-search-proxy.js";
 import {
 	registerRecommendedRoutes,
 	invalidateRecommendedCache,

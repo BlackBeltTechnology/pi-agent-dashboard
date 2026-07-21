@@ -9,19 +9,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const challengeIdentity = vi.fn();
 const postJson = vi.fn();
-vi.mock("../../lib/pair-protocol.js", () => ({
+vi.mock("../../lib/pairing/pair-protocol.js", () => ({
   challengeIdentity: (...a: any[]) => challengeIdentity(...a),
   postJson: (...a: any[]) => postJson(...a),
 }));
 
 const storeDeviceBearer = vi.fn();
-vi.mock("../../lib/device-auth.js", () => ({
+vi.mock("../../lib/pairing/device-auth.js", () => ({
   storeDeviceBearer: (...a: any[]) => storeDeviceBearer(...a),
 }));
 
-import { encodePayloadString } from "../../lib/pairing-qr.js";
-import type { PairingPayload } from "../../lib/pairing-api.js";
-import { PairLanding } from "../PairLanding.js";
+import { encodePayloadString } from "../../lib/pairing/pairing-qr.js";
+import type { PairingPayload } from "../../lib/pairing/pairing-api.js";
+import { PairLanding } from "../connectivity/PairLanding.js";
 
 const PAYLOAD: PairingPayload = {
   v: 1,

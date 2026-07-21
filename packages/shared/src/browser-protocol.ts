@@ -7,7 +7,6 @@ import type {
   PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
-import type { EditorInstanceStatus } from "./editor-types.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type {
   CommandInfo,
@@ -23,6 +22,7 @@ import type {
   OpenSpecData,
   OpenSpecGroup,
   PiSessionInfo,
+  ViewTarget,
 } from "./types.js";
 
 // Batch ask_user contracts live in protocol.ts; re-export so browser-side
@@ -478,14 +478,6 @@ export interface FramesDroppedMessage {
   dropped: number;
 }
 
-/** Notifies browsers of editor instance status changes. */
-export interface EditorStatusMessage {
-  type: "editor_status";
-  cwd: string;
-  id: string;
-  status: EditorInstanceStatus;
-}
-
 // ── PromptBus protocol (Server → Browser) ───────────────────────────
 
 export interface BrowserPromptRequestMessage {
@@ -747,6 +739,22 @@ export interface BrowserAssetRegisterMessage {
   data: string;
 }
 
+/**
+ * Server → browser: a `plugin_action` arrived for a `pluginId` with no
+ * registered handler. Surfaced to the sender so the action is never silently
+ * dropped. Best-effort out-of-band signal (plugin_action is fire-and-forget,
+ * not correlated). See change: fix-plugin-action-fanout-and-handlers.
+ */
+export interface PluginActionErrorMessage {
+  type: "plugin_action_error";
+  /** The pluginId that had no registered handler. */
+  pluginId: string;
+  /** The action that could not be delivered (echoed for client branching). */
+  action?: string;
+  /** Human-readable error description. */
+  error: string;
+}
+
 /** Sent when a plugin's config changes; carries only that plugin's namespace. */
 export interface PluginConfigUpdateMessage {
   type: "plugin_config_update";
@@ -825,6 +833,7 @@ export type ServerToBrowserMessage =
   | AutoNameErrorBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
+  | PluginActionErrorMessage
   | SessionAddedMessage
   | SessionUpdatedMessage
   | SessionRemovedMessage
@@ -860,7 +869,6 @@ export type ServerToBrowserMessage =
   | PackageOperationCompleteMessage
   | PiCoreUpdateProgressMessage
   | PiCoreUpdateCompleteMessage
-  | EditorStatusMessage
   | ForceKillResultMessage
   | BrowserRolesListMessage
   | ProcessListUpdateMessage
@@ -884,8 +892,50 @@ export type ServerToBrowserMessage =
   | DisplayPrefsUpdatedMessage
   | QueueUpdateToBrowserMessage
   | PromptReceivedToBrowserMessage
-  | ViewMessagesUpdateMessage
+  | CanvasIntentMessage
+  | CanvasServerChipMessage
   | FileChangedMessage;
+
+/**
+ * Server push: drive the per-session auto-canvas surface (change: auto-canvas).
+ *
+ * Two phases (Decision 1 two-phase open):
+ *   - `eager`  — the first qualifying candidate mid-turn; open immediately
+ *                (subject to the client viewport gate — mobile surfaces a chip
+ *                instead of yanking chat).
+ *   - `settle` — fired at `agent_end`; the turn's winning target owns the slot.
+ *
+ * `target` is the normalized winning `ViewTarget` (file/url), or `null` when the
+ * turn produced nothing renderable. `mode` maps to the lifecycle state
+ * (`replace` transient vs `pin` kept). Servers never arrive here — they use
+ * `canvas_server_chip`.
+ */
+export interface CanvasIntentMessage {
+  type: "canvas_intent";
+  sessionId: string;
+  phase: "eager" | "settle";
+  target: ViewTarget | null;
+  mode?: "replace" | "pin";
+  title?: string;
+}
+
+/**
+ * Server push: surface a declared-server confirm chip (Decision 4). Carries
+ * ONLY the port — NO announced host (SSRF gate: the client probes
+ * `127.0.0.1:port` on tap, never a host the agent named). No pre-tap fetch.
+ */
+export interface CanvasServerChipMessage {
+  type: "canvas_server_chip";
+  sessionId: string;
+  port: number;
+  title?: string;
+  /**
+   * True = the chip expired at the turn boundary / server-exit and MUST become
+   * non-actionable (S32). When set, `port` echoes the expired chip's port; the
+   * client drops it. Absent/false = surface a fresh, tappable chip.
+   */
+  expire?: boolean;
+}
 
 /**
  * Server push: an open editor-pane file changed on disk (agent edit or
@@ -1011,25 +1061,10 @@ export interface PromptReceivedToBrowserMessage {
   fresh: boolean;
 }
 
-/**
- * Server → browser: full snapshot of a session's `/view` preview rows.
- * Sent on subscribe (as a snapshot) and on every change (append). Each
- * entry is a minimal ChatMessage shape with `view` set; the client merges
- * them into its rendered chat by timestamp. View messages live in a
- * separate server-side store, NEVER in pi's events.jsonl — the agent does
- * not observe them. See change: render-file-previews.
- */
-export interface ViewMessagesUpdateMessage {
-  type: "view_messages_update";
-  sessionId: string;
-  viewMessages: Array<{
-    id: string;
-    role: "user";
-    content: "";
-    timestamp: number;
-    view: import("./types.js").ViewTarget;
-  }>;
-}
+// The `/view` inline surface is retired (change:
+// open-view-command-in-editor-pane): `/view` opens the editor pane, so the
+// server no longer emits `view_messages_update` nor accepts
+// `inject_view_message`. Both message types removed.
 
 export interface RequestCommandsToBrowserMessage {
   type: "request_commands";
@@ -1544,19 +1579,6 @@ export interface UiManagementBrowserMessage {
   params?: Record<string, unknown>;
 }
 
-/**
- * Browser → server: inject a `/view` preview row into the session. The
- * server persists it in a per-session view-messages store (separate from
- * pi's events.jsonl so the agent never observes it) and broadcasts the
- * updated list via `view_messages_update`.
- * See change: render-file-previews.
- */
-export interface InjectViewMessageBrowserMessage {
-  type: "inject_view_message";
-  sessionId: string;
-  target: import("./types.js").ViewTarget;
-}
-
 export type BrowserToServerMessage =
   | SubscribeMessage
   | LoadOlderMessage
@@ -1630,7 +1652,6 @@ export type BrowserToServerMessage =
   | SetSessionDisplayPrefsBrowserMessage
   | SetSessionProcessDrawerBrowserMessage
   | SetSessionTagsBrowserMessage
-  | InjectViewMessageBrowserMessage
   | RecoveryDismissMessage
   | SubagentResyncRequestBrowserMessage
   | WatchFilesBrowserMessage;

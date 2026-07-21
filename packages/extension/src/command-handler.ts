@@ -17,6 +17,7 @@ import { draftCommitMessage } from "./commit-draft.js";
 import { killProcessByPgid } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk, loadPromptTemplate } from "./prompt-expander.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
+import { filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 
 const IGNORE_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", ".cache", "__pycache__", ".venv"]);
@@ -766,7 +767,7 @@ export function createCommandHandler(
             try {
               registry.authStorage?.reload?.();
               registry.refresh();
-              const models = registry.getAvailable().map(toModelInfo);
+              const models = filterByEnabledModels(registry.getAvailable().map(toModelInfo));
               return { type: "models_list", sessionId, models };
             } catch { /* ignore */ }
           }

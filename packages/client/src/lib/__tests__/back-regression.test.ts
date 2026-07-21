@@ -8,15 +8,15 @@ import {
   interpolateParentPath,
   type RouteDescriptor,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
-import { goBack } from "../history-back.js";
-import { registerPluginRouteDescriptors } from "../back-target.js";
+import { goBack } from "../nav/history-back.js";
+import { registerPluginRouteDescriptors } from "../nav/back-target.js";
 import {
   resetNavStack,
   recordNavigation,
   predecessor,
   popNav,
   initNavTracker,
-} from "../nav-tracker.js";
+} from "../nav/nav-tracker.js";
 
 const tracker = { predecessor, popNav };
 

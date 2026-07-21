@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { createInitialState, reduceEvent } from "../event-reducer.js";
+import { createInitialState, reduceEvent } from "../chat/event-reducer.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function startEvt(toolCallId: string, command: string, ts = 1000): DashboardEvent {

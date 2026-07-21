@@ -13,7 +13,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Router, useRoute } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { computeBackTarget, routeDepth } from "../back-target.js";
+import { computeBackTarget, routeDepth } from "../nav/back-target.js";
 
 function RouteProbe() {
   const [homeMatch] = useRoute("/folder/:encodedCwd");

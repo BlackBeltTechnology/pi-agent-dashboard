@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { createReplayCache, type CachedEvent } from "../replay-cache.js";
-import { rehydrateSession } from "../rehydrate-session.js";
+import { createReplayCache, type CachedEvent } from "../replay/replay-cache.js";
+import { rehydrateSession } from "../replay/rehydrate-session.js";
 
 function userMsg(seq: number, text: string): CachedEvent {
   return {

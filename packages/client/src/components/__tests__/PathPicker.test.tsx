@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, screen, cleanup, act } from "@testing-library/react";
 import React from "react";
-import { PathPicker } from "../PathPicker.js";
+import { PathPicker } from "../primitives/PathPicker.js";
 
 // Mock browse-api
 const mockBrowse = vi.fn();
 const mockMkdir = vi.fn();
 const mockClassify = vi.fn();
-vi.mock("../../lib/browse-api.js", () => ({
+vi.mock("../../lib/api/browse-api.js", () => ({
   browseDirectory: (...args: unknown[]) => mockBrowse(...args),
   classifyPaths: (...args: unknown[]) => mockClassify(...args),
   createDirectory: (...args: unknown[]) => mockMkdir(...args),

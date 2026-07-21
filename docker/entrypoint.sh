@@ -36,6 +36,29 @@ fi
 # 3. Start a detached tmux server so the tmux spawn strategy has a host.
 tmux start-server 2>/dev/null || true
 
+# 3.5 zrok v2 headless enrollment. `zrok2 enable <token>` without --headless
+#     dies on `open /dev/tty: device not configured` in a non-interactive
+#     container. Enroll only when not already enrolled (idempotent across
+#     restarts on the ~/.zrok2 volume). See change: support-zrok-v2.
+if [ -n "${ZROK_TOKEN:-}" ]; then
+  ZROK_ENV="${HOME}/.zrok2/environment.json"
+  # Validate the SAME required fields as readZrokEnvironment() — a malformed or
+  # partial environment.json must not permanently suppress enrollment.
+  if jq -e '
+    (.api_endpoint | type == "string" and length > 0) and
+    (.ziti_identity | type == "string" and length > 0) and
+    (.zrok_token | type == "string" and length > 0)
+  ' "${ZROK_ENV}" >/dev/null 2>&1; then
+    echo "[entrypoint] zrok already enrolled (~/.zrok2/environment.json valid) — skipping enable"
+  else
+    [ ! -f "${ZROK_ENV}" ] || mv "${ZROK_ENV}" "${ZROK_ENV}.invalid"
+    echo "[entrypoint] enrolling zrok v2 (headless)"
+    zrok2 enable "${ZROK_TOKEN}" --headless || echo "[entrypoint] zrok enable failed — tunnel will be unavailable"
+  fi
+else
+  echo "[entrypoint] ZROK_TOKEN unset — skipping zrok enrollment (tunnel disabled unless enrolled)"
+fi
+
 # 4. Build pi-dashboard flags from env.
 ARGS=("${@:-start}")
 [ -n "${DASHBOARD_PORT:-}" ]  && ARGS+=("--port" "${DASHBOARD_PORT}")

@@ -24,9 +24,11 @@ Two layers:
    the active branch and emits a structured **facts sheet** (prompts in order, tool usage,
    files written/edited, searches, skills/memories created, failed commands, cost). This is
    raw material, not the deliverable. TypeScript, run with `npx tsx` (repo convention).
-2. **Synthesis (you, the agent)** — read the facts sheet and write the guideline using
+2. **Synthesis** — read the facts sheet and write the guideline using
    `references/guideline-template.md`. The *why it's effective* and *what to steer* parts
-   require judgment; that's your job.
+   require judgment. Run it inline for a single session, or delegate to the
+   **`SessionGuideline` subagent** for batch / past-session application (see below) — the
+   synthesis is self-contained (facts sheet in, one guideline out), so it isolates cleanly.
 
 ## Where sessions live
 
@@ -45,16 +47,20 @@ Two layers:
    session is usually #0/`latest`; documenting a finished prior session gives a complete
    picture (the live one won't include the not-yet-written tail).
 
-2. **Extract the facts sheet** (cheap, deterministic):
+2. **Extract the facts sheet** (cheap, deterministic). Use a UNIQUE output path per run —
+   the fixed `/tmp/session_facts.md` is **NOT parallel-safe**: concurrent runs (e.g. a batch
+   of `SessionGuideline` spawns) clobber the same file and every reader gets the last
+   writer's sheet. Always `mktemp`:
    ```bash
-   npx tsx scripts/extract_session.ts <id-or-'latest'> --cwd "$(pwd)" \
-       --out-md /tmp/session_facts.md --out-json /tmp/session_facts.json
+   FACTS=$(mktemp /tmp/session_facts.XXXXXX.md)
+   npx tsx scripts/extract_session.ts <selector> --cwd "$(pwd)" --out-md "$FACTS"
    ```
    - `<selector>` may be an 8-char id, a full path, or `latest` (use `--index N` for the
-     Nth most recent).
+     Nth most recent). In BATCH runs prefer the **explicit JSONL path** — the extract's
+     parent-chain walk can drift to a parent file on forked sessions.
    - Use `--max-text` / `--max-cmd` to widen truncation if you need more prompt/command text.
 
-3. **Read the facts sheet** (`/tmp/session_facts.md`). Pay attention to:
+3. **Read the facts sheet** (`$FACTS`). Pay attention to:
    - **Prompt 1 = the goal**; **prompts 2..N = steering** (corrections, scope additions,
      quality bars, yes/all-three style unlocks).
    - **Skills created / Memories saved** — these are the reusable assets; explain *why*.
@@ -77,6 +83,39 @@ Two layers:
    When the write-up references images (storyboards, screenshots), link them with paths
    relative to `Prompt stories/` (e.g. `../Projektek/<Project>/.../shot_01.png`) and verify
    each resolves. Tell the user the path.
+
+## Batch / past-session application (via the `SessionGuideline` subagent)
+
+The synthesis is self-contained — facts sheet in, one guideline out, no coherence with any
+ongoing work — so it is a clean subagent job. For a SINGLE interactive session, running it
+inline (above) is fine. For applying to MANY past sessions, delegate each to the
+**`SessionGuideline`** subagent so the facts sheet and the reasoning stay out of the main
+context and sessions don't accumulate there:
+
+1. List the target sessions once:
+   ```bash
+   npx tsx scripts/list_sessions.ts --cwd "$(pwd)" --limit 50    # or --all
+   ```
+2. For each session, spawn `SessionGuideline` (explicit `Agent` call), passing the
+   **explicit JSONL path** (not a partial id — the extract's parent-chain walk can drift to
+   a parent file on forked sessions) + an explicit output path. Each spawn runs BOTH layers
+   in isolation (extract → synthesise) and returns only the written path + a short abstract:
+   ```
+   Agent(subagent_type="SessionGuideline",
+         prompt="session JSONL <abs-path>; cwd <dir>; write to Prompt stories/<Topic>.md")
+   ```
+3. Collect the returned paths. Parallel batches are safe ONLY because step 2 uses a
+   `mktemp` facts sheet per run — the old fixed `/tmp/session_facts.md` raced (concurrent
+   spawns overwrote it, so every playbook got the same sheet). Verify no two outputs share
+   an H1 title before trusting a batch.
+
+**Model role.** The synthesis is judgment-heavy WRITING on a SMALL, pre-condensed input
+(the extract script shrinks the JSONL first — it is NOT a long-context job). Quality lives
+in the insight sections (goal-vs-steering, steering→guardrails, why-skills-effective),
+where a weak model produces generic slop. Use **`@research`** (the subagent's default) for
+quality. For bulk backfill where cost dominates, **`@compact`** is the budget fallback
+(mechanical sections stay fine; insight degrades) — pass `model` on the `Agent` call to
+override per run.
 
 ## Selector cheatsheet
 

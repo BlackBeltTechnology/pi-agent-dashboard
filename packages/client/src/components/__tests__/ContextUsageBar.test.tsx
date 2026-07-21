@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
-import { ContextUsageBar } from "../ContextUsageBar.js";
+import { ContextUsageBar } from "../session/ContextUsageBar.js";
 
 afterEach(() => cleanup());
 
@@ -80,6 +80,58 @@ describe("ContextUsageBar", () => {
       const bar = screen.getByTestId("context-usage-bar");
       expect(bar.className).toContain("w-16");
       expect(bar.className).not.toContain("flex-1");
+    });
+  });
+
+  // Rendered compaction badge (test-plan F6, F7). The scenario observable is a
+  // pure render assertion (given compaction state, the badge appears / is
+  // absent in the DOM). Driven here as a component render test with real DOM:
+  // the faux e2e harness has no seam to inject a metadata-bearing
+  // session_compact event through pi. See change: adopt-pi-074-080-features (C.1).
+  describe("compaction badge", () => {
+    it("F6: threshold + 12,400-token reduction renders `auto-threshold \u221212.4k`", () => {
+      render(
+        <ContextUsageBar
+          tokens={7600}
+          contextWindow={200000}
+          compaction={{ reason: "threshold", preCompactionTokens: 20000, estimatedPostCompactionTokens: 7600 }}
+        />,
+      );
+      const badge = screen.getByTestId("compaction-badge");
+      expect(badge.textContent).toBe("auto-threshold \u221212.4k");
+    });
+
+    it("F7: no compaction metadata renders NO badge (bar identical to today)", () => {
+      render(<ContextUsageBar tokens={5000} contextWindow={10000} />);
+      expect(screen.queryByTestId("compaction-badge")).toBeNull();
+    });
+
+    it("renders the label only when the reduction is unknown", () => {
+      render(<ContextUsageBar tokens={5000} contextWindow={10000} compaction={{ reason: "manual" }} />);
+      expect(screen.getByTestId("compaction-badge").textContent).toBe("manual");
+    });
+
+    it("renders the overflow-retry label", () => {
+      render(
+        <ContextUsageBar
+          tokens={5000}
+          contextWindow={10000}
+          compaction={{ reason: "overflow", preCompactionTokens: 9000, estimatedPostCompactionTokens: 1000 }}
+        />,
+      );
+      expect(screen.getByTestId("compaction-badge").textContent).toBe("overflow-retry \u22128k");
+    });
+
+    it("renders the badge in compact mode too", () => {
+      render(
+        <ContextUsageBar
+          tokens={7600}
+          contextWindow={200000}
+          compact
+          compaction={{ reason: "threshold", preCompactionTokens: 20000, estimatedPostCompactionTokens: 7600 }}
+        />,
+      );
+      expect(screen.getByTestId("compaction-badge").textContent).toBe("auto-threshold \u221212.4k");
     });
   });
 });

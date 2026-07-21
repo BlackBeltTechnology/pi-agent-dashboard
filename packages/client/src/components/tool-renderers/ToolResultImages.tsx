@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import type { ChatImage } from "../../lib/event-reducer.js";
-import { ImageLightbox } from "../ImageLightbox.js";
+import type { ChatImage } from "../../lib/chat/event-reducer.js";
+import { ImageLightbox } from "../preview/ImageLightbox.js";
 
 /**
  * Renders inlined `type:"image"` tool-result blocks as clickable thumbnails

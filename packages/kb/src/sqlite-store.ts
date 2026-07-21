@@ -212,7 +212,10 @@ export class SqliteFtsStore implements KbStore {
         if (!pc) continue;
         const parent = this.getChunkById(h.root, pc);
         if (parent && parent.chunkId !== h.chunkId) {
-          h.parent = { root: parent.root, path: parent.path, headingPath: parent.headingPath, chunkId: parent.chunkId, docType: parent.docType, score: 0, snippet: parent.headingPath };
+          // Collapse to headingPath only: root/path/docType dup the child (same
+          // file by construction), score is a constant 0, snippet repeats
+          // headingPath, chunkId is not a tool refetch key. See change: slim-kb-search-output.
+          h.parent = { headingPath: parent.headingPath };
         }
       }
     }

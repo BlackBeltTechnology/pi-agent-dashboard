@@ -8,8 +8,8 @@ import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createInitialState, type SessionState, type SubagentState } from "../../lib/event-reducer.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { createInitialState, type SessionState, type SubagentState } from "../../lib/chat/event-reducer.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { AgentToolRenderer } from "../tool-renderers/AgentToolRenderer.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 
@@ -42,7 +42,7 @@ function makeContext(
   sessionId?: string,
   send?: ToolContext["send"],
 ): ToolContext {
-  return { editors: [], sessionId, session, send };
+  return { sessionId, session, send };
 }
 
 function sessionWithAgent(agentId: string, sub: Partial<SubagentState> = {}): SessionState {
@@ -148,6 +148,33 @@ describe("AgentToolRenderer — expand + popout", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  // X4 (change: resolve-subagent-inspector-by-session-id): the variant-A
+  // populated-timeline guard is preserved on the popout path too — opening the
+  // detail dialog for a subagent with non-empty entries[] sends no resync.
+  it("X4: popout does NOT resync when the timeline already has entries", async () => {
+    const send = vi.fn();
+    const session = sessionWithAgent("abc123", {
+      status: "running",
+      entries: [{ kind: "text", text: "hi", ts: 0 }],
+    });
+    render(wrapInProviders(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={{ subagent_type: "Explore", prompt: "do work" }}
+        status="running"
+        context={makeContext(session, "sess_42", send)}
+        toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
+      />
+    ));
+    fireEvent.click(screen.getByTitle(/Open subagent detail/i));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "subagent_resync_request" }),
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   // These three tests OPEN the ui:dialog, whose body mounts the full
   // SubagentDetailView subtree via a portal. They are `async` and use
   // `findByRole`/`waitFor` (both act-wrapped) so React's concurrent scheduler
@@ -177,7 +204,7 @@ describe("AgentToolRenderer — expand + popout", () => {
     expect(open).not.toHaveBeenCalled();
     open.mockRestore();
     // Tear the portal down within the test (flush the scheduler).
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
@@ -193,7 +220,7 @@ describe("AgentToolRenderer — expand + popout", () => {
     ));
     fireEvent.click(screen.getByTitle(/Open subagent detail/i));
     expect(await screen.findByRole("dialog")).toBeTruthy();
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 

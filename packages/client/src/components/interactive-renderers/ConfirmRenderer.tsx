@@ -1,8 +1,8 @@
 import { mdiShieldAlert } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React from "react";
-import { t as i18nT } from "../../lib/i18n";
-import { MarkdownContent } from "../MarkdownContent.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import type { InteractiveRendererProps } from "./types.js";

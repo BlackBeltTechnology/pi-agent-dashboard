@@ -13,6 +13,10 @@ without the LLM. Templates live in [`../commands/`](../commands/).
 Naming grammar: `/dashboard:<resource>-<verb>[-<modifier>]`. Resource is
 singular. Files are `dashboard-<resource>-<verb>[-<modifier>].md`.
 
+> The `/dashboard:session-*` and `/dashboard:flow-*` MUTATION commands are now
+> bus-backed: their bodies invoke the typed WebSocket bus CLI
+> (`scripts/dashboard-bus.ts`) instead of curling REST. See SKILL.md.
+
 ## LLM-free (read-only, no token cost)
 
 | Command | Args | Does |

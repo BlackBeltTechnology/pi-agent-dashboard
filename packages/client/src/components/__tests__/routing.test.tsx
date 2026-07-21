@@ -3,11 +3,11 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { LandingPage } from "../LandingPage.js";
-import { SessionHeader } from "../SessionHeader.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { LandingPage } from "../shell/LandingPage.js";
+import { SessionHeader } from "../session/SessionHeader.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { createInitialState } from "../../lib/event-reducer.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
 
 beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -96,7 +96,7 @@ describe("SessionHeader back button", () => {
 describe("Pi branding in SessionList", () => {
   it("shows the app icon image (not π text) and no 'Sessions' label", async () => {
     // Dynamic import to avoid issues — SessionList uses useLocation
-    const { SessionList } = await import("../SessionList.js");
+    const { SessionList } = await import("../session/SessionList.js");
     const { hook, navigate } = memoryLocation({ path: "/", static: true });
 
     render(
@@ -123,7 +123,7 @@ describe("Pi branding in SessionList", () => {
   });
 
   it("navigates to / when π is clicked", async () => {
-    const { SessionList } = await import("../SessionList.js");
+    const { SessionList } = await import("../session/SessionList.js");
     const { hook, navigate } = memoryLocation({ path: "/session/123" });
 
     render(

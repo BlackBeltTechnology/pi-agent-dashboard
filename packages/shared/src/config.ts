@@ -178,29 +178,6 @@ export const DEFAULT_KEEPER_LOG: KeeperLogConfig = {
   capturePiOutput: false,
 };
 
-export interface EditorConfig {
-  /** Override path to code-server binary */
-  binary?: string;
-  /** Minutes before idle instance is killed (default: 10) */
-  idleTimeoutMinutes: number;
-  /** Maximum concurrent code-server instances (default: 3) */
-  maxInstances: number;
-  /**
-   * When true, graceful dashboard shutdown (stop / restart / shutdown)
-   * sends `{"cmd":"stop"}` to every editor keeper and waits for them to
-   * exit. When false or omitted (default), keepers and their code-server children
-   * persist across dashboard restarts so editor tabs and dirty buffers
-   * survive. See change: add-editor-keeper-sidecar.
-   */
-  stopOnDashboardExit?: boolean;
-}
-
-export const DEFAULT_EDITOR_CONFIG: EditorConfig = {
-  idleTimeoutMinutes: 10,
-  maxInstances: 3,
-  stopOnDashboardExit: false,
-};
-
 export interface KnownServer {
   host: string;
   port: number;
@@ -298,7 +275,14 @@ export interface DashboardConfig {
      * safety; the normalized shape also carries it under `zrok.reservedToken`.
      */
     reservedToken?: string;
-    zrok?: { reservedToken?: string };
+    /**
+     * zrok sub-config. `reservedToken` is the legacy v1 token (preserved for
+     * downgrade, ignored by the v2 provider). `reservedName` is the v2 reserved
+     * name (namespaces+names) yielding a stable `<name>.shares.zrok.io` URL;
+     * `persistent` (default false) opts in to minting/serving a reserved name.
+     * See change: support-zrok-v2.
+     */
+    zrok?: { reservedToken?: string; reservedName?: string; persistent?: boolean };
     ngrok?: { authtoken?: string; domain?: string };
     tailscale?: { authKey?: string };
     zerotier?: { networkId?: string };
@@ -313,7 +297,6 @@ export interface DashboardConfig {
   auth?: AuthConfig;
   defaultModel: string;
   memoryLimits: MemoryLimitsConfig;
-  editor: EditorConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
   /** Session behavior — hydration worker offload toggle. */
@@ -458,6 +441,7 @@ const DEFAULTS: DashboardConfig = {
   spawnStrategy: "headless",
   tunnel: {
     enabled: true,
+    zrok: { persistent: false },
     watchdog: {
       enabled: true,
       intervalMs: 60000,
@@ -468,7 +452,6 @@ const DEFAULTS: DashboardConfig = {
   devBuildOnReload: false,
   defaultModel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
-  editor: { ...DEFAULT_EDITOR_CONFIG },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
   sessions: { ...DEFAULT_SESSIONS },
   keeperLog: { ...DEFAULT_KEEPER_LOG },
@@ -550,19 +533,6 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
     ...(typeof raw.admin === "string" && raw.admin ? { admin: raw.admin } : {}),
   };
 }
-
-function parseEditorConfig(raw: any): EditorConfig {
-  if (!raw || typeof raw !== "object") return { ...DEFAULT_EDITOR_CONFIG };
-  return {
-    ...(typeof raw.binary === "string" ? { binary: raw.binary } : {}),
-    idleTimeoutMinutes: typeof raw.idleTimeoutMinutes === "number" ? raw.idleTimeoutMinutes : DEFAULT_EDITOR_CONFIG.idleTimeoutMinutes,
-    maxInstances: typeof raw.maxInstances === "number" ? raw.maxInstances : DEFAULT_EDITOR_CONFIG.maxInstances,
-    stopOnDashboardExit: typeof raw.stopOnDashboardExit === "boolean" ? raw.stopOnDashboardExit : DEFAULT_EDITOR_CONFIG.stopOnDashboardExit,
-  };
-}
-
-/** Exported for tests; same parser used by `parseConfig`. */
-export const parseEditorConfigForTest = parseEditorConfig;
 
 function clampNumber(raw: any, fallback: number, min: number, max: number): number {
   const n = typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
@@ -772,17 +742,26 @@ export function normalizeTunnelConfig(
       : undefined;
   const mode = rawMode ?? (provider === "zrok" && !rawProvider ? ("public" as TunnelMode) : undefined);
 
-  const zrok =
-    raw?.zrok?.reservedToken || legacyToken
-      ? { reservedToken: raw?.zrok?.reservedToken ?? legacyToken }
-      : undefined;
+  // v2 (support-zrok-v2): preserve the legacy reservedToken for downgrade but
+  // NEVER promote it to reservedName (a name is not a token). Surface the v2
+  // reservedName + persistent when present; persistent defaults to false.
+  const rawZrok = raw?.zrok;
+  const zrokToken =
+    typeof rawZrok?.reservedToken === "string" ? rawZrok.reservedToken : legacyToken;
+  const zrokReservedName = typeof rawZrok?.reservedName === "string" ? rawZrok.reservedName : undefined;
+  const zrokPersistent = typeof rawZrok?.persistent === "boolean" ? rawZrok.persistent : false;
+  const zrok = {
+    ...(zrokToken ? { reservedToken: zrokToken } : {}),
+    ...(zrokReservedName ? { reservedName: zrokReservedName } : {}),
+    persistent: zrokPersistent,
+  };
 
   const out: DashboardConfig["tunnel"] = {
     enabled: raw?.enabled ?? defaults.enabled,
     ...(provider ? { provider } : {}),
     ...(mode ? { mode } : {}),
     ...(legacyToken ? { reservedToken: legacyToken } : {}),
-    ...(zrok ? { zrok } : {}),
+    zrok,
     ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: { ...raw.ngrok } } : {}),
     ...(raw?.tailscale && typeof raw.tailscale === "object" ? { tailscale: { ...raw.tailscale } } : {}),
     ...(raw?.zerotier && typeof raw.zerotier === "object" ? { zerotier: { ...raw.zerotier } } : {}),
@@ -863,7 +842,6 @@ export function loadConfig(): DashboardConfig {
       defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : defaults.defaultModel,
       auth: parseAuthConfig(parsed.auth),
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
-      editor: parseEditorConfig(parsed.editor),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
       sessions: parseSessionsConfig(parsed.sessions),
       keeperLog: parseKeeperLogConfig(parsed.keeperLog),

@@ -7,7 +7,7 @@ import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { listPullRequests, addWorktreeFromPr } from "../git-operations.js";
+import { listPullRequests, addWorktreeFromPr } from "../git-worktree/git-operations.js";
 
 function git(cmd: string, cwd: string): string {
   return execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" }).trim();

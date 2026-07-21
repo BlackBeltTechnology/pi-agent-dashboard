@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildMonacoTheme } from "../monaco-theme.js";
-import { THEMES, getTheme } from "../themes.js";
+import { buildMonacoTheme } from "../theme/monaco-theme.js";
+import { THEMES, getTheme } from "../theme/themes.js";
 
 const MODES = ["light", "dark"] as const;
 

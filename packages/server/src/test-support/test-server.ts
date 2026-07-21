@@ -30,7 +30,6 @@ const DEFAULTS: ServerConfig = {
   autoShutdown: false,
   shutdownIdleSeconds: 999,
   tunnel: false,
-  editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
 };
 
 export async function createTestServer(
