@@ -158,8 +158,15 @@ Ordered, reversible phases (design.md §D6). Each phase ends green before the ne
 
 ## 10. Docs + skills
 
-- [ ] 10.1 Update `README.md` + `docs/architecture.md` (commands, prereqs) via DocScribe (caveman style).
-- [ ] 10.2 Update skills/scripts that hard-code npm lockfile ops:
+- [x] 10.1 Update `README.md` (dev/build/test/CI/electron commands → pnpm + corepack;
+      Column C `npm i -g` user installs kept) + `docs/architecture.md` (new
+      `## Package manager (pnpm)` config reference, via DocScribe, caveman style).
+- [x] 10.2 Updated: `release-cut` (preflight `pnpm test`/`pnpm run build`; lockfile-regen
+      `pnpm install --lockfile-only`; commit/verify → `pnpm-lock.yaml`; stale npm@11.12.1
+      triage row rewritten), `ship-change` + `ship-it` (package-lock conflict recipe →
+      `pnpm-lock.yaml` + `pnpm install --lockfile-only`), `scripts/sync-versions.js` message.
+      `ci-troubleshoot` L100 `npm install` is the bundle-server Column C registry install —
+      correctly left npm. (`release-pipeline` skill does not exist.) Original list:
       **`release-cut`** (`.pi/skills/release-cut/SKILL.md`): the PRIMARY release
       trigger — L166-206 (`npm version -ws` + `npm install --package-lock-only` +
       `git add package-lock.json`; untouched it commits a 2nd lockfile or fails the
@@ -169,8 +176,12 @@ Ordered, reversible phases (design.md §D6). Each phase ends green before the ne
       and `scripts/sync-versions.js` L145-147 (the full 3-line message block:
       `package-lock.json`, the relocated `publish.yml > prepare` job name, and
       `npm install --package-lock-only`) — all stale post-migration, not just L147.
-- [ ] 10.3 Add directory-`AGENTS.md` rows for the new `pnpm-workspace.yaml` +
-      the bundle-server.mjs change (`See change: adopt-pnpm-for-dev-ci`).
+- [x] 10.3 Added `docs/AGENTS.md` row for `pnpm-workspace.yaml` (DocScribe) +
+      `packages/electron/AGENTS.md` row for `scripts/bundle-server.mjs`
+      (cpSync node_modules filter; `See change: adopt-pnpm-for-dev-ci`).
+<!-- 10.4 DEFERRED with §9/E3: needs a scratch `pnpm install` (falsify blockExoticSubdeps
+     by removing the key → expect ERR_PNPM_EXOTIC_SUBDEP). Belongs in the qa-smoke
+     harness (E3 exemplar qa/tests/01-install.sh), run in CI/VM, not this session. -->
 - [ ] 10.4 Add an early validation task: assert `blockExoticSubdeps`,
       `verifyDepsBeforeRun`, `preferWorkspacePackages`, `confirmModulesPurge` are
       honored by the PINNED pnpm (11.15.1) before rollout — a fresh

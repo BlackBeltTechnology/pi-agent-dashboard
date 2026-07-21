@@ -70,8 +70,8 @@ git merge --no-edit origin/develop
 Idempotent ("Already up to date" → no commit). **Merge, not rebase** — step 9
 squash-merges regardless, and rebase would force-push a worktree branch (the
 non-ff misalignment pitfall below). Conflicts → the recipes in Pitfalls
-(`AGENTS.md` union-keep; `package-lock.json` → `--theirs` +
-`npm install --package-lock-only`); unresolved → `git merge --abort` + STOP,
+(`AGENTS.md` union-keep; `pnpm-lock.yaml` → `--theirs` +
+`pnpm install --lockfile-only`); unresolved → `git merge --abort` + STOP,
 never push a half-merged tree.
 
 ### 2. Verify gate (must pass before PR)
@@ -273,7 +273,7 @@ Git/worktree/PR/CodeRabbit gotchas hit during ship. Each has a known fix.
 - **`git worktree add <path> origin/<x>` → DETACHED HEAD.** Files written detached VANISH on next checkout. Pass the origin-stripped local branch name, not `origin/<x>`.
 - **Worktree PR misalignment** (local carries `develop` merges but MISSES the PR feature commit; push rejected non-ff). Feature commit lives only on `origin/<pr-branch>` → `git reset --hard origin/<pr-branch>` THEN `git merge origin/develop`. Never force-push a misaligned branch.
 - **Conflict: a directory `AGENTS.md` (per-file tree; incl. `docs/AGENTS.md`)** → `git checkout origin/develop -- <path>/AGENTS.md`, then re-apply only your rows (union-keep silently drops develop's edits).
-- **Conflict: `package-lock.json`** → `git checkout --theirs package-lock.json && npm install --package-lock-only`. Never hand-merge.
+- **Conflict: `pnpm-lock.yaml`** → `git checkout --theirs pnpm-lock.yaml && pnpm install --lockfile-only`. Never hand-merge.
 - **`mergeStateStatus=DIRTY` won't start CI** → merge `develop`, resolve, push → flips to MERGEABLE.
 - **CodeRabbit "pass" is an ACK, not a review.** Rate-limited it posts a green "pass" with 0 comments ("~11min"). Auto-review is INCREMENTAL; plain `@coderabbitai review` no-ops on already-reviewed commits → wait ~11 min then `@coderabbitai full review`.
 - **Fetch inline CodeRabbit comments via `gh api repos/.../pulls/<n>/comments`** (NOT the reviews endpoint). Failed-to-post comments land in the review body under "Comments failed to post (N)".

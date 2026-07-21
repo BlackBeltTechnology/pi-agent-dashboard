@@ -85,8 +85,8 @@ history is moot while its force-push is a documented `ship-change` footgun.
 **Conflict → abort + STOP.** On an unresolved conflict, `git merge --abort`,
 report, and do **not** enter the harness — never run the gate on a half-merged
 tree. Resolve trivial conflicts with `ship-change`'s existing recipes (`AGENTS.md`
-union-keep; `package-lock.json` → `git checkout --theirs` +
-`npm install --package-lock-only`), then re-run the merge. A conflict you cannot
+union-keep; `pnpm-lock.yaml` → `git checkout --theirs` +
+`pnpm install --lockfile-only`), then re-run the merge. A conflict you cannot
 resolve mechanically → escape hatch (step 5).
 
 ### 3. Harness lifecycle — delegate the port, always tear down

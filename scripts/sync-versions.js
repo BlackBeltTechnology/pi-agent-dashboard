@@ -142,9 +142,9 @@ if (totalRewrites === 0 && totalPreserved === 0) {
 } else {
 	if (totalRewrites > 0) {
 		console.log(`\n✅ Rewrote ${totalRewrites} inter-package dep specifier(s).`);
-		console.log("   Note: package-lock.json regeneration runs automatically");
-		console.log("   in CI (publish.yml > prepare > 'Regenerate package-lock.json').");
-		console.log("   For LOCAL bumps, run: npm install --package-lock-only");
+		console.log("   Note: pnpm-lock.yaml regeneration runs automatically");
+		console.log("   in CI (publish.yml > tag-and-push > 'Regenerate pnpm-lock.yaml').");
+		console.log("   For LOCAL bumps, run: pnpm install --lockfile-only");
 	}
 	if (totalPreserved > 0) {
 		console.log(
