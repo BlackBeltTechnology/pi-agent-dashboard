@@ -31,6 +31,10 @@ describe("root scripts/ workspace imports are declared in root package.json", ()
   const declared = new Set([
     ...Object.keys(pkg.dependencies || {}),
     ...Object.keys(pkg.devDependencies || {}),
+    // The root metapackage's own name is always resolvable (it IS the repo) —
+    // a script naming it (e.g. `nightly-verdaccio-publish.mjs`'s ROOT_META
+    // publish-ordering sentinel) is never a pnpm phantom-dep hazard.
+    pkg.name,
   ]);
   const importRe = /['"](@blackbelt-technology\/[a-z0-9-]+)(?:\/[^'"]*)?['"]/g;
   const files = fs
