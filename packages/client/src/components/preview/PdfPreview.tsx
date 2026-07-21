@@ -61,6 +61,7 @@ function destroyViewer(handle: ViewerHandle): void {
 /** Load the document and construct the pdfjs `PDFViewer` bound to `container`. */
 async function mountViewer(container: HTMLDivElement, url: string): Promise<ViewerHandle> {
   const pdfjs = await loadPdfJs();
+  // Sequential await is required: pdf_viewer.mjs expects globalThis.pdfjsLib to be populated by the main pdfjs module.
   const { EventBus, PDFLinkService, PDFViewer } = await loadViewer();
   const doc = await pdfjs.getDocument({ url }).promise;
   const eventBus = new EventBus();

@@ -32,7 +32,8 @@ is why it surfaced intermittently rather than always.
   `Promise.all` with sequential awaits. This ordering is load-bearing, not a
   style choice: the concurrent load is what triggers the crash, so it MUST NOT
   be reverted to a `Promise.all`. The rationale lives here in the proposal and
-  in the `file-and-url-preview` spec requirement (not as an inline code comment).
+  in the `file-and-url-preview` spec requirement, plus a brief inline comment at
+  the call site to deter reverting the sequence back to a concurrent load.
 
 Out of scope: the continuous-scroll rendering behaviour and the lazy-chunk
 bundle split (both unchanged); upgrading `pdfjs-dist`.
