@@ -73,7 +73,11 @@ describe("manualChunks topology after fix-vite-build-warnings", () => {
   // A string literal unique to PdfPreview.tsx that survives minification, used
   // as the module marker: present in the lazy PdfPreview chunk, absent from the
   // main entry chunk once viewer-registry imports it lazily.
-  const PDF_PREVIEW_MARKER = "failed to render page";
+  // A string unique to the PdfPreview module that survives minification. The
+  // pre-rewrite "failed to render page" (per-page canvas error) was removed by
+  // change: pdf-preview-continuous-scroll; the load-failure message is the new
+  // stable marker.
+  const PDF_PREVIEW_MARKER = "failed to load PDF";
 
   it("folds react-syntax-highlighter into markdown: no standalone syntax chunk (test-plan #S2)", () => {
     if (!existsSync(assetsDir)) return; // no build output — CI builds first
