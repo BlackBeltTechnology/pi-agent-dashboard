@@ -15,14 +15,14 @@
  */
 
 import { fileKind, type ViewerKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
-import { type ComponentType, lazy } from "react";
+import { type ComponentType, lazy, Suspense } from "react";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { AsciiDocPreview } from "../preview/AsciiDocPreview.js";
 import { AudioPreview } from "../preview/AudioPreview.js";
 import { DocxPreview } from "../preview/DocxPreview.js";
 import { EmlPreview } from "../preview/EmlPreview.js";
 import { HtmlPreview } from "../preview/HtmlPreview.js";
 import { ImagePreview } from "../preview/ImagePreview.js";
-import { PdfPreview } from "../preview/PdfPreview.js";
 import { PptxPreview } from "../preview/PptxPreview.js";
 import { SpreadsheetPreview } from "../preview/SpreadsheetPreview.js";
 import { VideoPreview } from "../preview/VideoPreview.js";
@@ -36,6 +36,9 @@ import type { ViewerProps } from "./types.js";
 import UrlViewer from "./UrlViewer.js";
 
 const MonacoBuffer = lazy(() => import("./MonacoBuffer.js"));
+// Lazy like the four preview components that dynamically import PdfPreview — a
+// static import here would defeat their lazy boundary (dynamic-import warning).
+const PdfPreview = lazy(() => import("../preview/PdfPreview.js"));
 
 /** Adapt the editor-pane `ViewerProps` to a `preview/*` file target. */
 const asTarget = ({ cwd, path }: ViewerProps) => ({ kind: "file" as const, cwd, path });
@@ -50,7 +53,17 @@ const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd
  */
 const TerminalPlaceholder = (_p: ViewerProps) => null;
 
-const PdfViewer = (p: ViewerProps) => <PdfPreview target={asTarget(p)} />;
+const PdfViewer = (p: ViewerProps) => (
+  <Suspense
+    fallback={
+      <div className="p-4 text-sm text-[var(--text-tertiary)]">
+        {i18nT("status.loadingPdfViewer", undefined, "Loading PDF viewer…")}
+      </div>
+    }
+  >
+    <PdfPreview target={asTarget(p)} />
+  </Suspense>
+);
 const HtmlViewer = (p: ViewerProps) => <HtmlPreview target={asTarget(p)} restrictCsp={p.restrictCsp} />;
 const VideoViewer = (p: ViewerProps) => <VideoPreview target={asTarget(p)} />;
 const ImageTab = (p: ViewerProps) => <ImagePreview target={asTarget(p)} variant="full" />;

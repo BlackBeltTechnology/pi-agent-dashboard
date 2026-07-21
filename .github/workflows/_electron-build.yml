@@ -53,6 +53,19 @@ on:
         type: string
         required: false
         default: ""
+      registry_url:
+        description: |
+          Ephemeral private registry (Verdaccio) URL for the nightly round-trip.
+          When non-empty (e.g. http://localhost:4873): each leg starts its own
+          loopback Verdaccio, publishes all non-private workspaces to it, and
+          exports npm_config_registry so the bundle's `npm install` resolves
+          @blackbelt-technology/* from Verdaccio — a full publish→install→bundle
+          round-trip with ZERO public npm writes. Empty (default) → unchanged
+          public-npm / source-only paths for publish.yml + ci-electron.yml.
+          See change: add-nightly-verdaccio-build.
+        type: string
+        required: false
+        default: ""
 
 jobs:
   # Resolve the matrix subset *before* fan-out. Job-level `if:` cannot reference
@@ -223,6 +236,38 @@ jobs:
       - name: Build client
         run: npm run build
 
+      # ── Nightly Verdaccio round-trip (only when registry_url is set) ──────
+      # Each leg stands up its OWN loopback Verdaccio, publishes every
+      # non-private workspace (at inputs.version) to it, then routes npm at
+      # it so the bundle step's `npm install` resolves @blackbelt-technology/*
+      # from Verdaccio instead of public npm — full publish→install→bundle
+      # round-trip, ZERO public npm writes. Each action is its own step so a
+      # failure propagates on pwsh (Windows) and bash alike. No `shell: bash`
+      # (node-native — Windows-safe). See change: add-nightly-verdaccio-build.
+      - name: Install Verdaccio (nightly)
+        if: ${{ inputs.registry_url != '' }}
+        run: npm install -g verdaccio
+
+      - name: Start Verdaccio (nightly)
+        if: ${{ inputs.registry_url != '' }}
+        env:
+          REGISTRY: ${{ inputs.registry_url }}
+        run: node scripts/nightly-verdaccio-serve.mjs
+
+      - name: Publish workspaces to Verdaccio (nightly)
+        if: ${{ inputs.registry_url != '' }}
+        env:
+          REGISTRY: ${{ inputs.registry_url }}
+          NIGHTLY_VERSION: ${{ inputs.version }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: node scripts/nightly-verdaccio-publish.mjs
+
+      - name: Route npm to Verdaccio for the bundle install (nightly)
+        if: ${{ inputs.registry_url != '' }}
+        env:
+          REGISTRY: ${{ inputs.registry_url }}
+        run: node -e "require('fs').appendFileSync(process.env.GITHUB_ENV, 'npm_config_registry=' + process.env.REGISTRY + '\n')"
+
       # ---------------------------------------------------------------------
       # Vestigial bundle steps removed.
       #
@@ -295,6 +340,17 @@ jobs:
         env:
           GIT_TARGET_ARCH: ${{ matrix.arch }}
         run: node packages/electron/scripts/assert-runnable-bundle.mjs
+
+      - name: Assert bundled plugins complete
+        # Built-bundle plugin-completeness gate: after bundle-server.mjs runs,
+        # the bundle's resources/plugins/ MUST contain every non-fixture
+        # runtime plugin discoverable in packages/* (manifest-based predicate).
+        # Flags kb-plugin-style omissions at build time, on every leg, before
+        # the artifact is uploaded. Runs whenever a full (non-source-only)
+        # bundle was produced. Node-native — Windows-safe. See change:
+        # add-nightly-verdaccio-build.
+        if: ${{ inputs.source_only_bundle == false }}
+        run: node packages/electron/scripts/assert-bundled-plugins-complete.mjs
 
       - name: Assert no wmic in bundle (PowerShell-only Windows introspection)
         # Enforces spec scenario "No wmic shell-invocation anywhere in shipped
