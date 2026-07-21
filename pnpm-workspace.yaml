@@ -72,3 +72,9 @@ allowBuilds:
   phantomjs-prebuilt: set this to true or false
   protobufjs: set this to true or false
   sharp: set this to true or false
+
+minimumReleaseAgeExclude:
+  - '@earendil-works/pi-agent-core@0.81.1'
+  - '@earendil-works/pi-ai@0.81.1'
+  - '@earendil-works/pi-coding-agent@0.81.1'
+  - '@earendil-works/pi-tui@0.81.1'

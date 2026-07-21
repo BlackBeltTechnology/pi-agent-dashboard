@@ -14,6 +14,8 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- Bumped pinned pi (`@earendil-works/pi-coding-agent`) 0.80.10 → 0.81.1 across the server dependency, Dockerfile global install, and `verify-release-deps` floor. Lifted `piCompatibility.recommended` 0.78.0 → 0.81.1 to track the upstream line (soft upgrade hint); `piCompatibility.minimum` stays 0.78.0 (broad support floor — no blocking error for 0.78.x–0.80.x). 0.81.0 added full provider extensions + Qwen Token Plan providers (auto-surface via the derived provider catalogue — no bridge change); 0.81.1 restored the default stream fallback for extensions on the pre-0.81 agent-core API. No breaking-change entries in the range.
+
 ### Fixed
 
 ## [0.6.1] - 2026-07-20
