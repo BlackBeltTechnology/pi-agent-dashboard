@@ -50,4 +50,23 @@ describe("ActionList", () => {
     );
     expect(getByRole("button").getAttribute("title")).toBe("Run flow X");
   });
+
+  // Post static-conversion (change: shrink-client-index-chunk): mdi[key] is a
+  // synchronous lookup, so the icon path renders immediately with no useEffect.
+  it("renders the icon <path> synchronously for a valid mdi key (test-plan #S3)", () => {
+    const { container } = render(
+      <ActionList actions={[{ label: "Refresh", icon: "mdiRefresh" }]} />,
+    );
+    const p = container.querySelector("svg path");
+    expect(p).toBeTruthy();
+    expect(p?.getAttribute("d") ?? "").not.toBe("");
+  });
+
+  it("renders no icon and does not throw for an unknown mdi key (test-plan #S3)", () => {
+    const { container } = render(
+      <ActionList actions={[{ label: "Nope", icon: "mdiNotAReal" }]} />,
+    );
+    expect(container.querySelector("svg path")).toBeNull();
+    expect(container.querySelector("button")?.textContent).toContain("Nope");
+  });
 });

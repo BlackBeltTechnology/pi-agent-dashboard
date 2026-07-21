@@ -41,4 +41,23 @@ describe("StatusPill", () => {
     );
     expect(container.firstChild?.parentElement?.getAttribute("title") ?? container.querySelector("[title]")?.getAttribute("title")).toBe("Currently running");
   });
+
+  // Post static-conversion (change: shrink-client-index-chunk): mdi[key] is a
+  // synchronous lookup, so the icon path renders immediately with no useEffect.
+  it("renders the icon <path> synchronously for a valid mdi key (test-plan #S3)", () => {
+    const { container } = render(
+      <StatusPill state="running" text="Working" icon="mdiRefresh" />,
+    );
+    const p = container.querySelector("svg path");
+    expect(p).toBeTruthy();
+    expect(p?.getAttribute("d") ?? "").not.toBe("");
+  });
+
+  it("renders no icon and does not throw for an unknown mdi key (test-plan #S3)", () => {
+    const { container } = render(
+      <StatusPill state="error" text="Failed" icon="mdiNotAReal" />,
+    );
+    expect(container.querySelector("svg path")).toBeNull();
+    expect(container.querySelector("[data-status-pill]")?.textContent).toContain("Failed");
+  });
 });
