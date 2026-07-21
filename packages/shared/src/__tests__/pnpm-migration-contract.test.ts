@@ -19,6 +19,42 @@ const WF = path.join(REPO_ROOT, ".github", "workflows");
 const read = (p: string) => fs.readFileSync(path.join(REPO_ROOT, p), "utf8");
 const readWf = (name: string) => fs.readFileSync(path.join(WF, name), "utf8");
 
+// ── root-script phantom-dep guard (pnpm hoisted ≠ npm accidental hoist) ─────
+describe("root scripts/ workspace imports are declared in root package.json", () => {
+  // Under npm, an undeclared `@blackbelt-technology/*` import in a root script
+  // resolved via accidental hoist to root node_modules. pnpm's hoisted linker
+  // only links a workspace package into importers that DECLARE it, so a root
+  // script importing an undeclared workspace pkg fails ERR_MODULE_NOT_FOUND
+  // (regressed the Windows introspection smoke). See change: adopt-pnpm-for-dev-ci.
+  const scriptsDir = path.join(REPO_ROOT, "scripts");
+  const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf8"));
+  const declared = new Set([
+    ...Object.keys(pkg.dependencies || {}),
+    ...Object.keys(pkg.devDependencies || {}),
+  ]);
+  const importRe = /['"](@blackbelt-technology\/[a-z0-9-]+)(?:\/[^'"]*)?['"]/g;
+  const files = fs
+    .readdirSync(scriptsDir)
+    .filter((f) => /\.(ts|mjs|js|cjs)$/.test(f));
+  for (const f of files) {
+    it(`scripts/${f} imports only declared workspace packages`, () => {
+      const src = fs.readFileSync(path.join(scriptsDir, f), "utf8");
+      const missing = new Set<string>();
+      for (const m of src.matchAll(importRe)) {
+        if (!declared.has(m[1])) missing.add(m[1]);
+      }
+      if (missing.size) {
+        throw new Error(
+          `scripts/${f} imports undeclared workspace package(s): ${[...missing].join(", ")}. ` +
+            "Add them to root package.json devDependencies — pnpm's hoisted linker " +
+            "only links declared deps to root node_modules (npm hoisted them by accident). " +
+            "See change: adopt-pnpm-for-dev-ci.",
+        );
+      }
+    });
+  }
+});
+
 // ── E4: single lockfile hygiene (post-§9 swap) ────────────────────────────
 describe("E4 — pnpm-lock.yaml is the single committed lockfile", () => {
   it("pnpm-lock.yaml is present at the repo root", () => {

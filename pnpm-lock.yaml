@@ -42,6 +42,9 @@ importers:
       '@biomejs/biome':
         specifier: 2.5.1
         version: 2.5.1
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.6.1
+        version: link:packages/shared
       '@earendil-works/pi-ai':
         specifier: ^0.75.5
         version: 0.75.5(supports-color@8.1.1)(ws@8.21.1)(zod@4.4.3)
