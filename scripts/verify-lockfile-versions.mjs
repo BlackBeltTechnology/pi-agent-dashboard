@@ -28,6 +28,7 @@ const unquote = (s) => s.replace(/^['"]|['"]$/g, "");
 const indentOf = (l) => l.length - l.trimStart().length;
 
 const failures = [];
+let checkedCount = 0; // specifiers actually inspected — guards against a vacuous pass
 let inImporters = false;
 let importer = null; // current importer path
 let checkImporter = false; // is it a packages/* importer we verify
@@ -66,6 +67,7 @@ for (const line of lines) {
 	// specifier: 8-space indent, immediately under the dep name.
 	if (ind === 8 && pendingName && trimmed.startsWith("specifier:")) {
 		const spec = unquote(trimmed.slice("specifier:".length).trim());
+		checkedCount++;
 		if (spec !== expected) {
 			failures.push(`  ${importer} → ${pendingName}: ${spec} (expected ${expected})`);
 		}
@@ -80,4 +82,11 @@ if (failures.length) {
 	process.exit(1);
 }
 
-console.log(`✓ All cross-ref specifiers match ${expected}`);
+if (checkedCount === 0) {
+	console.error(
+		"::error::verify-lockfile-versions.mjs matched zero specifiers — parser drifted from pnpm-lock.yaml's shape.",
+	);
+	process.exit(1);
+}
+
+console.log(`✓ All cross-ref specifiers match ${expected} (${checkedCount} checked)`);
