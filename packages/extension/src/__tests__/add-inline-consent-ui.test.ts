@@ -36,7 +36,7 @@ describe("ib:* domain events forward under a stable renamed type", () => {
   it("does not clobber flow/subagent renames and leaves flowName in data untouched", () => {
     expect(renameChannel("flow:flow-started")).toBe("flow_started"); // flowName rides in data, not the map
     expect(renameChannel("subagents:started")).toBe("subagent_started");
-    expect(renameChannel("ib:connector-health")).toBe("ib:connector-health"); // unmapped ib:* still pass through
+    expect(renameChannel("ib:unknown-future-event")).toBe("ib:unknown-future-event"); // unmapped ib:* still pass through
   });
 });
 

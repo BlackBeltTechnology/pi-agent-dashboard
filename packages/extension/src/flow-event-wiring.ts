@@ -43,10 +43,26 @@ export const SUBAGENT_EVENT_MAP: Record<string, string> = {
  *  channel to the browser (unknown channels pass through as-is); this map gives
  *  the consumed domain events a stable, renamed protocol type — mirroring
  *  FLOW_EVENT_MAP — so a client can subscribe to a fixed name rather than the
- *  raw channel. Extend as more `ib:*` events (connector/intake) are consumed. */
+ *  raw channel. Covers the full lifecycle set (invoice-state, approval,
+ *  connector, intake, automation, source); payloads ride inside `data` and
+ *  forward verbatim via the catch-all, so no per-field remapping is needed.
+ *  See change: surface-invoice-domain-events-bridge. */
 export const IB_EVENT_MAP: Record<string, string> = {
+  "ib:invoice-state-changed": "ib_invoice_state_changed",
   "ib:approval-requested": "ib_approval_requested",
   "ib:approval-decided": "ib_approval_decided",
+  "ib:connector-registered": "ib_connector_registered",
+  "ib:connector-health": "ib_connector_health",
+  "ib:connector-needs-auth": "ib_connector_needs_auth",
+  "ib:intake-paused": "ib_intake_paused",
+  "ib:intake-resumed": "ib_intake_resumed",
+  "ib:intake-poll-complete": "ib_intake_poll_complete",
+  "ib:automation-toggled": "ib_automation_toggled",
+  "ib:automation-cadence-set": "ib_automation_cadence_set",
+  "ib:source-item-detected": "ib_source_item_detected",
+  "ib:source-item-dispatched": "ib_source_item_dispatched",
+  "ib:source-item-skipped": "ib_source_item_skipped",
+  "ib:source-error": "ib_source_error",
 };
 
 /**
