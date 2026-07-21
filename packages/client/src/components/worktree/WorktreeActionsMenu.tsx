@@ -24,6 +24,7 @@ import { Icon } from "@mdi/react";
 import React, { useEffect, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { createWorktreePR, pushWorktreeBranch } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { fetchTool } from "../../lib/api/tools-api.js";
@@ -106,7 +107,16 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
   const [ghAvailable, setGhAvailable] = useState<boolean | undefined>(ghAvailableCache);
   const isMobile = useMobile();
   const sheetTriggerRef = React.useRef<HTMLButtonElement>(null);
-  const { flipUp: sheetFlipUp, maxHeight: sheetMaxHeight } = usePopoverFlip(sheetTriggerRef, { open: sheetOpen });
+  // The `right-0` sheet can render in a slim, offset session-card rail; measure
+  // against that pane when a provider supplies it (else viewport). See change:
+  // fix-popover-container-clip.
+  const boundaryRef = usePopoverBoundary();
+  const {
+    flipUp: sheetFlipUp,
+    maxHeight: sheetMaxHeight,
+    anchorRight: sheetAnchorRight,
+    maxWidth: sheetMaxWidth,
+  } = usePopoverFlip(sheetTriggerRef, { open: sheetOpen, estimatedWidth: 140, boundaryRef });
 
   useEffect(() => {
     if (ghAvailable !== undefined) return;
@@ -238,10 +248,10 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
           {sheetOpen && (
             <div
               data-testid="worktree-actions-mobile-sheet"
-              style={{ maxHeight: sheetMaxHeight }}
-              className={`absolute right-0 z-50 flex flex-col gap-1 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded p-1 min-w-[140px] ${
-                sheetFlipUp ? "bottom-full mb-1" : "top-full mt-1"
-              }`}
+              style={{ maxHeight: sheetMaxHeight, maxWidth: sheetMaxWidth }}
+              className={`absolute z-50 flex flex-col gap-1 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded p-1 min-w-[140px] ${
+                sheetAnchorRight ? "right-0" : "left-0"
+              } ${sheetFlipUp ? "bottom-full mb-1" : "top-full mt-1"}`}
             >
               {buttons.map(renderButton)}
             </div>

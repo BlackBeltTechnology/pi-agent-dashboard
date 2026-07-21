@@ -25,6 +25,7 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { SourceType } from "../../lib/package/package-classifier.js";
 
@@ -156,7 +157,16 @@ export function PackageRow({
 	const canResetToNpm = !!publishedVariantSource && !!onResetToNpm;
 	const menuRef = useRef<HTMLDivElement | null>(null);
 	const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
-	const { flipUp: menuFlipUp, maxHeight: menuMaxHeight } = usePopoverFlip(menuTriggerRef, { open: menuOpen });
+	// The `right-0` menu can render in a narrow pi-resources list pane; measure
+	// against it when a provider supplies the pane (else viewport). See change:
+	// fix-popover-container-clip.
+	const boundaryRef = usePopoverBoundary();
+	const {
+		flipUp: menuFlipUp,
+		maxHeight: menuMaxHeight,
+		anchorRight: menuAnchorRight,
+		maxWidth: menuMaxWidth,
+	} = usePopoverFlip(menuTriggerRef, { open: menuOpen, estimatedWidth: 160, boundaryRef });
 
 	useEffect(() => {
 		if (!menuOpen) return;
@@ -295,10 +305,10 @@ export function PackageRow({
 							</button>
 							{menuOpen && (
 								<div
-									style={{ maxHeight: menuMaxHeight }}
-									className={`absolute right-0 z-10 min-w-[160px] overflow-y-auto rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-lg py-1 text-xs ${
-										menuFlipUp ? "bottom-full mb-1" : "top-full mt-1"
-									}`}
+									style={{ maxHeight: menuMaxHeight, maxWidth: menuMaxWidth }}
+									className={`absolute z-10 min-w-[160px] overflow-y-auto rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-lg py-1 text-xs ${
+										menuAnchorRight ? "right-0" : "left-0"
+									} ${menuFlipUp ? "bottom-full mb-1" : "top-full mt-1"}`}
 								>
 									{showMove && (
 										<button

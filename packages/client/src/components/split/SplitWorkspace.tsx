@@ -24,6 +24,7 @@ import { mdiChevronRight, mdiViewSplitVertical } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useRef } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import type { SplitMode, SplitOrientation } from "../../lib/layout/split-state.js";
 import { useSplitRatio } from "../../lib/layout/useSplitRatio.js";
 import { SplitDivider } from "./SplitDivider.js";
@@ -58,6 +59,11 @@ export function SplitWorkspace({
   replaceChat = false,
 }: SplitWorkspaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Clipping boundary for popovers rendered in the chat pane (ChatViewMenu,
+  // ModelSelector, ThinkingLevelSelector, composer menus). Provided via context
+  // so those popovers flip/clamp against this offset `overflow-hidden` pane
+  // rather than the viewport. See change: fix-popover-container-clip.
+  const chatPaneRef = useRef<HTMLDivElement>(null);
   const applyRatio = useSplitRatio(containerRef, orientation, onRatioChange);
 
   const isClosed = mode === "closed";
@@ -98,11 +104,12 @@ export function SplitWorkspace({
           composer draft + scroll position survive a split→full→split trip. */}
       <div
         key="chat"
+        ref={chatPaneRef}
         data-testid="split-chat-pane"
         className={`flex min-h-0 min-w-0 flex-col overflow-hidden ${isFull ? "hidden" : ""}`}
         style={isSplit ? { flexGrow: ratio, flexShrink: 1, flexBasis: 0 } : isClosed ? { flex: "1 1 0" } : undefined}
       >
-        {chat}
+        <PopoverBoundaryProvider value={chatPaneRef}>{chat}</PopoverBoundaryProvider>
       </div>
 
       {/* Resize-only divider — `split` only, no collapse control. */}
