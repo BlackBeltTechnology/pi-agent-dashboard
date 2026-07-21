@@ -752,8 +752,24 @@ export interface RecoveryDismissMessage {
   sessionIds: string[];
 }
 
+/**
+ * Server → browser (app-level, no per-session subscribe): a forwarded
+ * InvoiceBot lifecycle domain event (`ib_*`) rebroadcast to EVERY connected
+ * browser. `sessionId` is the originating session so a consumer can drill in;
+ * `event.eventType` is the stable renamed `ib_*` type and `event.data` is the
+ * payload verbatim. One envelope carries any lifecycle domain event, so new
+ * `ib_*` kinds add no protocol member. Additive — the per-session `event`
+ * stream is unchanged. See change: surface-invoice-domain-events-app-level.
+ */
+export interface IbDomainEventMessage {
+  type: "ib_domain_event";
+  sessionId: string;
+  event: { eventType: string; data: unknown };
+}
+
 export type ServerToBrowserMessage =
   | ServerRestartingMessage
+  | IbDomainEventMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
   | SessionAddedMessage
