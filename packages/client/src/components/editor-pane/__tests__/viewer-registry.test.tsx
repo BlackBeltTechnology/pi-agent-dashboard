@@ -66,13 +66,16 @@ describe("viewerRegistry — preview/* delegation", () => {
     }
   });
 
-  it("pdf mounts the pdfjs continuous-scroll viewer, NOT an <object> plugin", () => {
+  it("pdf mounts the pdfjs continuous-scroll viewer, NOT an <object> plugin", async () => {
     // See change: pdf-preview-continuous-scroll — PdfPreview renders the pdfjs
     // component viewer (`.pdfViewerContainer` scroll box), not a bare <canvas>
     // + Prev/Next toolbar. pdfjs fills canvases into `.pdfViewer` at runtime.
     const { container } = renderKind("pdf");
+    // PdfPreview is lazy here (Option B, change: fix-vite-build-warnings) — wait
+    // for the <Suspense> boundary to resolve past its "Loading PDF viewer…"
+    // fallback before asserting the viewer mounted.
+    await waitFor(() => expect(container.querySelector(".pdfViewerContainer")).toBeTruthy());
     expect(container.querySelector("object")).toBeNull();
-    expect(container.querySelector(".pdfViewerContainer")).toBeTruthy();
   });
 
   it("video mounts a <video controls>", () => {

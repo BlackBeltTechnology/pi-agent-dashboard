@@ -88,8 +88,11 @@ export default defineConfig({
         manualChunks(id: string) {
           const chunks: Record<string, string[]> = {
             "react-vendor": ["react", "react-dom"],
-            "markdown": ["react-markdown", "remark-gfm", "rehype-raw", "dompurify"],
-            "syntax": ["react-syntax-highlighter"],
+            // react-syntax-highlighter is folded into `markdown` (not a
+            // standalone chunk) because MarkdownContent.tsx statically imports
+            // both — a separate `syntax` chunk only re-created a
+            // `syntax → markdown → syntax` circular-chunk warning.
+            "markdown": ["react-markdown", "remark-gfm", "rehype-raw", "dompurify", "react-syntax-highlighter"],
             "diff": [
               "@git-diff-view/core",
               "@git-diff-view/file",
