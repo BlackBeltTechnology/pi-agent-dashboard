@@ -39,9 +39,10 @@ jobs:
         run: npx biome lint . --reporter=github
       - run: npm test
       # Build and fail on the mechanical warnings removed by
-      # `fix-vite-build-warnings`. The @mdi/js dynamic-import warning and the
-      # oversized-chunk (>700 kB) warning are intentionally OUT of scope here
-      # (owned by `shrink-client-index-chunk`) and must NOT fail this gate.
+      # `fix-vite-build-warnings`, plus the @mdi/js dynamic-import warning
+      # removed by `shrink-client-index-chunk`. The oversized-chunk (>700 kB)
+      # aggregate warning stays OUT of scope (monaco is the floor) and must NOT
+      # fail this gate.
       - name: Build (fail on regressed warnings)
         run: |
           set -o pipefail
@@ -55,5 +56,8 @@ jobs:
           fi
           if grep -qE "(PdfPreview\.tsx|known-servers-api\.ts) is dynamically imported" /tmp/build.log; then
             echo "::error::PdfPreview / known-servers-api dynamic-import warning re-appeared"; fail=1
+          fi
+          if grep "dynamic import will not move module into another chunk" /tmp/build.log | grep -q "@mdi/js"; then
+            echo "::error::@mdi/js dynamic-import warning re-appeared (shrink-client-index-chunk)"; fail=1
           fi
           exit $fail

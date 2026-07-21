@@ -115,6 +115,11 @@ export default defineConfig({
             // MonacoBuffer, so this chunk is fetched on first text-file open.
             // See change: add-internal-monaco-editor-pane.
             "monaco": ["monaco-editor", "@monaco-editor/react"],
+            // The full @mdi/js icon set (~2.6 MB raw / ~7000 SVG paths) is
+            // eager (App.tsx statically imports it) but changes far less often
+            // than app code — split it out of the `index` entry chunk into its
+            // own cacheable chunk. See change: shrink-client-index-chunk.
+            "mdi": ["@mdi/js"],
           };
           for (const [chunk, deps] of Object.entries(chunks)) {
             if (deps.some((dep) => id.includes(`/node_modules/${dep}/`))) {
