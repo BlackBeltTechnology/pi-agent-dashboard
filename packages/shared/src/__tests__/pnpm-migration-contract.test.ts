@@ -3,11 +3,10 @@
  * adopt-pnpm-for-dev-ci. Folds the statically-verifiable automated scenarios
  * from test-plan.md (X3, X5, X6, X7, E8) into repo-lint assertions.
  *
- * NOT covered here (require CI / VM / docker harness, or gate on the §9
- * lockfile swap): E1/E2/E3/X1 (L2 qa smoke), E5/E6/E7 (electron — verified
- * locally via bundle-server + electron-forge package), E4 (single-lockfile —
- * gated on §9 package-lock.json deletion), X2/X8 (real publish/smoke runs),
- * X4 (full ci-electron.yml installer matrix — human-dispatched gate).
+ * NOT covered here (require CI / VM / docker harness): E1/E2/E3/X1 (L2 qa
+ * smoke), E5/E6/E7 (electron — verified locally via bundle-server +
+ * electron-forge package), X2/X8 (real publish/smoke runs). X4 (full
+ * ci-electron.yml installer matrix) passed on a dispatched run.
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
@@ -19,6 +18,16 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const WF = path.join(REPO_ROOT, ".github", "workflows");
 const read = (p: string) => fs.readFileSync(path.join(REPO_ROOT, p), "utf8");
 const readWf = (name: string) => fs.readFileSync(path.join(WF, name), "utf8");
+
+// ── E4: single lockfile hygiene (post-§9 swap) ────────────────────────────
+describe("E4 — pnpm-lock.yaml is the single committed lockfile", () => {
+  it("pnpm-lock.yaml is present at the repo root", () => {
+    expect(fs.existsSync(path.join(REPO_ROOT, "pnpm-lock.yaml"))).toBe(true);
+  });
+  it("package-lock.json is absent at the repo root", () => {
+    expect(fs.existsSync(path.join(REPO_ROOT, "package-lock.json"))).toBe(false);
+  });
+});
 
 // ── X3: runtime installs stay npm (Column C guard) ────────────────────────
 // The shipped server / electron app installs pi-core on END-USER machines via
