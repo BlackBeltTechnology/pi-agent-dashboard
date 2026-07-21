@@ -25,6 +25,7 @@ import {
   type EditorPaneState,
   useEditorPaneState,
 } from "../lib/editor-pane-state.js";
+import { normalizeUnderCwd } from "../lib/session-rel-path.js";
 import { type SplitOrientation, type SplitState, useSplitState } from "../lib/split-state.js";
 import { saveTreeVisible } from "../lib/tree-visible.js";
 
@@ -134,14 +135,17 @@ export function SplitWorkspaceProvider({
 
   // Diff tabs open under a virtual `diff:<relPath>` path (mirrors `live:<url>`)
   // so they never collide with the monaco tab of the same real file (the
-  // reducer dedups by full path). See change: add-change-summary-table.
+  // reducer dedups by full path). Absolute tool paths are rewritten to
+  // relative-posix under session cwd so DiffViewer matches server keys.
+  // See changes: add-change-summary-table, fix-session-diff-open-nongit-and-preview.
   const openDiffTab = useCallback(
     (relPath: string) => {
       if (!relPath) return;
-      dispatch({ type: "openFile", path: `diff:${relPath}`, viewer: "diff" });
+      const key = normalizeUnderCwd(relPath, cwd);
+      dispatch({ type: "openFile", path: `diff:${key}`, viewer: "diff" });
       updateSplit({ open: true });
     },
-    [dispatch, updateSplit],
+    [dispatch, updateSplit, cwd],
   );
 
   const [changesRevealSignal, setChangesRevealSignal] = useState(0);

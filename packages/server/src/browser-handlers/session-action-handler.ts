@@ -6,11 +6,14 @@ import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
+  isProcessAlive,
   killPidWithGroup,
   killProcess,
+  killProcessTree,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import {
   findPidByMarker,
+  isProcessLikePi,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
 import { keeperOptsFromSpawnResult } from "../headless-pid-registry.js";
 import { spawnPiSession } from "../process-manager.js";
@@ -364,6 +367,7 @@ export async function handleResumeSession(
   const result = await spawnPiSession(session.cwd, {
     sessionFile: forkSessionFile,
     mode: msg.mode,
+    model: msg.mode === "continue" ? session.model : undefined,
     strategy: resumeConfig.spawnStrategy,
   });
   // Record fork parent keyed by spawn token (was: keyed by cwd, racy on
@@ -669,58 +673,87 @@ export async function handleForceKill(
   ctx: BrowserHandlerContext,
 ): Promise<void> {
   const { sessionManager, piGateway, headlessPidRegistry, broadcast, sendTo, ws, metaPersistence } = ctx;
+  const startedAt = Date.now();
   const session = sessionManager.get(msg.sessionId);
+
+  const logAttempt = (pid: number | undefined, outcome: string) => {
+    console.log(
+      `[dashboard] force_kill session=${msg.sessionId} pid=${pid ?? "none"} outcome=${outcome} tookMs=${Date.now() - startedAt}`,
+    );
+  };
+  const fail = (pid: number | undefined, outcome: string, message: string) => {
+    logAttempt(pid, outcome);
+    sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: false, message });
+  };
+  const succeed = (pid: number, outcome: string, message: string) => {
+    const endedAt = Date.now();
+    sessionManager.update(msg.sessionId, { status: "ended", endedAt });
+    broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt } });
+    if (session?.sessionFile && metaPersistence) {
+      metaPersistence.setLiveness(session.sessionFile, { live: false, closedReason: "manual" });
+    }
+    logAttempt(pid, outcome);
+    sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: true, message });
+  };
+
   if (!session) {
     sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: false, message: "Session not found", code: "resume.session_not_found" });
     return;
   }
 
-  // Force-kill is an intentional close: durably clear the liveness marker
-  // with a manual reason so cold start does not offer to reopen it.
-  // See change: reopen-sessions-after-shutdown.
-  if (session.sessionFile && metaPersistence) {
-    metaPersistence.setLiveness(session.sessionFile, { live: false, closedReason: "manual" });
-  }
-
   // Force-close the bridge WebSocket regardless of PID availability
   piGateway.closeSession(msg.sessionId);
 
-  const pid = session?.pid;
+  // Resolve the target PID: session-registered, else marker search.
+  // See change: fix-stuck-session-stop-escalation (design D3).
+  let pid = session?.pid;
   if (!pid) {
-    // No PID — we can only close the WebSocket
-    sessionManager.update(msg.sessionId, { status: "ended", endedAt: Date.now() });
-    broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt: Date.now() } });
-    sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: true, message: "WebSocket closed (no PID available)" });
+    const found = findPidByMarker(msg.sessionId);
+    pid = found[0];
+  }
+  if (!pid) {
+    // Honest failure: the process may still be running somewhere — do NOT
+    // stamp `ended` (the WS close drives the normal disconnect flow if it
+    // really died). Previous behavior lied with success:true here.
+    fail(undefined, "not_found", "Process not found — it may still be running");
     return;
   }
 
-  // Delegate the full SIGTERM → wait → SIGKILL escalation to the
-  // platform helper so Windows uses `taskkill /F /T /PID <pid>`
-  // (genuine tree kill) and POSIX keeps the 2s grace window.
-  // See change: route-kill-paths-through-platform.
-  //
-  // PID-safety check: skip SIGKILL escalation on Unix when the PID
-  // no longer resembles a pi process. We can't pass this check INTO
-  // killProcess without a plugin, so: if `killProcess` reports forced
-  // SIGKILL and isPiProcess says no, we still accept the result —
-  // the process was either a pi leaf or a recycled PID, and either
-  // way the session is ended. On Windows `taskkill /F /T` is atomic
-  // so the check isn't meaningful.
-  const killResult = await killProcess(pid, { timeoutMs: 2000 });
+  // PID-reuse guard (design D2): never signal a PID that no longer looks
+  // like a pi process. Only meaningful when the process is still alive —
+  // a dead PID falls through to the tree kill which no-ops safely.
+  if (isProcessAlive(pid) && !isProcessLikePi(pid)) {
+    fail(pid, "pid_reused", "PID no longer looks like a pi process (recycled?) — kill aborted");
+    return;
+  }
+
+  // Tree kill (design D1): POSIX group-kills every descendant process group
+  // (pi spawns bash tools detached in their own groups); Windows keeps the
+  // atomic `taskkill /F /T` path inside killProcessTree.
+  const killResult = await killProcessTree(pid, { timeoutMs: 2000 });
 
   // Also kill any headless-registered siblings (same session ID).
   // See change: fix-keeper-kill-escalation (await for SIGKILL escalation).
   await headlessPidRegistry.killBySessionId(msg.sessionId);
 
-  const endedAt = Date.now();
-  sessionManager.update(msg.sessionId, { status: "ended", endedAt });
-  broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt } });
+  // Verify before stamping (design D4): poll liveness up to 3 s.
+  const verifyDeadline = Date.now() + 3000;
+  let alive = isProcessAlive(pid);
+  while (alive && Date.now() < verifyDeadline) {
+    await new Promise((r) => setTimeout(r, 200));
+    alive = isProcessAlive(pid);
+  }
+  if (alive) {
+    fail(pid, "survived", "Process survived SIGKILL — status unchanged");
+    return;
+  }
 
   if (!killResult.ok) {
-    // Process was already dead when the kill was issued.
-    sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: true, message: "Process already exited" });
+    // Kill reported failure but the process is verifiably dead — it was
+    // already gone when the kill was issued.
+    succeed(pid, "killed", "Process already exited");
     return;
   }
   const suffix = killResult.forced ? " (SIGKILL)" : "";
-  sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: true, message: `Process terminated${suffix}` });
+  succeed(pid, "tree_killed", `Process tree terminated${suffix}`);
 }

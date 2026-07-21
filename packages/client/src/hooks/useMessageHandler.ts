@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/coalesce-live-events.js";
 import { isVisibleCwd } from "../lib/cwd-visibility.js";
-import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/event-reducer.js";
+import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, foldReplayBuffer, reduceEvent, type SessionState } from "../lib/event-reducer.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
 import { t } from "../lib/i18n";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/loading-history.js";
@@ -97,6 +97,7 @@ export interface MessageHandlerSetters {
    * See change: render-file-previews.
    */
   setViewMessagesMap: React.Dispatch<React.SetStateAction<Map<string, import("../lib/event-reducer.js").ChatMessage[]>>>;
+  setForceKillResetSignals: React.Dispatch<React.SetStateAction<Map<string, number>>>;
   /**
    * Per-session "history loading" flag. Cleared on the first content batch,
    * the terminal `event_replay{isLast:true}`, or `session_updated{dataUnavailable:true}`.
@@ -146,6 +147,17 @@ export interface MessageHandlerDeps {
    */
   replayPersister?: ReplayPersister;
   /**
+   * Record scroll-up availability for a session (tail-first-session-loading).
+   * Set from `event_replay` `kind: "tail"` / `"older"` `hasOlder` metadata;
+   * gates the ChatView scroll-up trigger. Optional for back-compat.
+   */
+  setHasOlder?: (sessionId: string, hasOlder: boolean) => void;
+  /**
+   * Record the oldest loaded seq for a session (tail-first-session-loading).
+   * Becomes the next `load_older` `beforeSeq`. Optional for back-compat.
+   */
+  setOldestLoadedSeq?: (sessionId: string, seq?: number) => void;
+  /**
    * Show a global toast. Used for `auto_name_error` (bridge could not
    * auto-name a session). Optional for back-compat / lean test contexts.
    * See change: add-auto-session-naming.
@@ -162,12 +174,16 @@ export function useMessageHandler(
     setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
     setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
-    setDisplayPrefs, setViewMessagesMap, setLoadingHistory,
+    setDisplayPrefs, setViewMessagesMap, setLoadingHistory, setForceKillResetSignals,
   } = setters;
-  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayPersister, showToast } = deps;
+  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayPersister, setHasOlder, setOldestLoadedSeq, showToast } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
   // session id. See change: add-auto-session-naming.
   const autoNameToastedRef = useRef<Set<string>>(new Set());
+  // `kind: "tail"` can span several batches. Reset exactly once at the
+  // window's first non-empty batch; continuations append. See change:
+  // tail-first-session-loading.
+  const tailReplayInProgressRef = useRef<Set<string>>(new Set());
 
   // Phase 3 (change: reduce-chat-render-cpu-umbrella): live `event` bursts
   // arrive one-per-WS-frame in separate macrotasks, so React 18 automatic
@@ -329,13 +345,20 @@ export function useMessageHandler(
         // See change: enrich-custom-provider-model-metadata.
         {
           const updates = msg.updates as Partial<DashboardSession>;
-          if (updates.thinkingLevel !== undefined || updates.model !== undefined) {
+          if (updates.thinkingLevel !== undefined || updates.model !== undefined || updates.status === "ended") {
             setSessionStates((prev) => {
               const next = new Map(prev);
               const existing = next.get(msg.sessionId) ?? createInitialState();
               const patched: SessionState = { ...existing };
               if (updates.thinkingLevel !== undefined) patched.thinkingLevel = updates.thinkingLevel;
               if (updates.model !== undefined) patched.model = updates.model;
+              if (updates.status === "ended") {
+                patched.status = "ended";
+                patched.isStreaming = false;
+                patched.currentTool = undefined;
+                patched.pendingPrompt = undefined;
+                patched.retryState = undefined;
+              }
               next.set(msg.sessionId, patched);
               return next;
             });
@@ -354,7 +377,20 @@ export function useMessageHandler(
         });
         break;
 
+      case "frames_dropped": {
+        // The server dropped transcript frames under back-pressure for this
+        // session. Recover with ONE bounded re-subscribe (tail cursor,
+        // lastSeq:0) so the server replays only the bounded tail window — NOT
+        // an eager full replay. The server re-arms its notice on this
+        // subscribe. See change: bound-bridge-resume-replay (D4).
+        if (subscribedRef.current.has(msg.sessionId)) {
+          send({ type: "subscribe", sessionId: msg.sessionId, lastSeq: 0 });
+        }
+        break;
+      }
+
       case "session_state_reset":
+        tailReplayInProgressRef.current.delete(msg.sessionId);
         setSessionStates((prev) => {
           const next = new Map(prev);
           // Carry `pendingPrompt` across reset: it's optimistic UI state
@@ -592,18 +628,66 @@ export function useMessageHandler(
         break;
 
       case "event_replay": {
+        // ── kind: "older" — scroll-up pagination (tail-first-session-loading) ──
+        // Prepend the window to the raw buffer and REFOLD the whole buffer from
+        // scratch. The reducer is order-dependent and cannot fold an older
+        // window into existing state from the middle, so a full refold is the
+        // only correct rebuild (same cost as the cold-load fold). MUST NOT
+        // touch maxSeqMapRef and MUST NOT set the loading flag.
+        if (msg.kind === "older") {
+          if (msg.events.length > 0 && replayPersister) {
+            const fullBuffer = replayPersister.prepend(msg.sessionId, msg.events);
+            const rebuilt = foldReplayBuffer(fullBuffer.map((e) => e.event));
+            setSessionStates((prev) => {
+              const next = new Map(prev);
+              const carry = next.get(msg.sessionId)?.pendingPrompt;
+              const state = carry ? { ...rebuilt, pendingPrompt: carry } : rebuilt;
+              next.set(msg.sessionId, state);
+              return next;
+            });
+            // Rebuild the plugin store from the full ordered buffer so
+            // `useSessionEvents` consumers observe a consistent stream.
+            clearSessionEvents(msg.sessionId);
+            publishSessionEvents(msg.sessionId, fullBuffer.map((e) => e.event));
+          }
+          // Track scroll-up availability: hasOlder gates the trigger; the oldest
+          // loaded seq becomes the next `beforeSeq`. An EMPTY older response can
+          // never advance the cursor, so force hasOlder=false regardless of the
+          // wire value — otherwise the client would re-fire load_older forever
+          // against the same beforeSeq (livelock). See change:
+          // tail-first-session-loading (doubt: livelock guard).
+          setHasOlder?.(msg.sessionId, msg.events.length > 0 && msg.hasOlder === true);
+          // Call even for an empty final/unavailable response: parent clears
+          // the single-flight loading row regardless of whether a new cursor
+          // exists.
+          setOldestLoadedSeq?.(msg.sessionId, msg.events[0]?.seq);
+          break;
+        }
+
+        // ── kind-driven reset decision (tail-first-session-loading) ──
+        // Explicit metadata replaces the fragile `firstSeq <= maxSeq` inference:
+        //   tail  → reset once (first batch of the window), rebuild maxSeq.
+        //   delta → append onto existing state.
+        //   legacy (no kind) → previous heuristic.
         const firstSeq = msg.events.length > 0 ? msg.events[0].seq : null;
-        // Reset on every full replay sweep: firstSeq===1 (cold start) OR
-        // firstSeq <= maxSeq for this session (server is re-replaying events
-        // the client has already accounted for, e.g. paginated reconnect
-        // re-replay where the first batch may not start at seq=1).
-        // See change: fix-replay-duplicates-tool-and-flushed-rows.
         const maxSeq = maxSeqMapRef.current.get(msg.sessionId) ?? 0;
-        const shouldReset = firstSeq != null && (firstSeq === 1 || firstSeq <= maxSeq);
+        let shouldReset: boolean;
+        if (msg.kind === "tail") {
+          // Seq comparison cannot identify continuation batches: each starts
+          // above the prior batch's maxSeq. Track window lifecycle explicitly.
+          shouldReset = firstSeq != null && !tailReplayInProgressRef.current.has(msg.sessionId);
+          if (firstSeq != null) tailReplayInProgressRef.current.add(msg.sessionId);
+        } else if (msg.kind === "delta") {
+          shouldReset = false;
+        } else {
+          // Legacy: firstSeq===1 (cold start) OR firstSeq <= maxSeq re-replay.
+          // See change: fix-replay-duplicates-tool-and-flushed-rows.
+          shouldReset = firstSeq != null && (firstSeq === 1 || firstSeq <= maxSeq);
+        }
         setSessionStates((prev) => {
           const next = new Map(prev);
           // Same rationale as session_state_reset: preserve optimistic
-          // pendingPrompt across the full-replay reset branch.
+          // pendingPrompt across the reset branch.
           // See change: preserve-pending-prompt-across-replay.
           const carry = shouldReset ? next.get(msg.sessionId)?.pendingPrompt : undefined;
           let current = shouldReset ? createInitialState() : (next.get(msg.sessionId) ?? createInitialState());
@@ -635,14 +719,19 @@ export function useMessageHandler(
             maxSeqMapRef.current.set(msg.sessionId, lastEvt.seq);
           }
         }
-        // Strategy A: mirror the reducer into the durable replay buffer. A
-        // full-sweep reset (shouldReset) replaces the buffer; a delta appends.
-        // This is also the reconciliation path: an offline-drift replay whose
-        // firstSeq <= maxSeq resets and rebuilds the persisted tail too.
-        // See change: reduce-session-replay-traffic.
+        // Strategy A: mirror the reducer into the durable replay buffer. A tail
+        // window (shouldReset) seeds the persist boundary; a delta appends.
+        // See change: reduce-session-replay-traffic, tail-first-session-loading.
         if (msg.events.length > 0) {
           if (shouldReset) replayPersister?.seed(msg.sessionId, msg.events);
           else replayPersister?.record(msg.sessionId, msg.events);
+        }
+        // Track scroll-up availability from the tail/delta window metadata.
+        if (msg.kind === "tail") {
+          setHasOlder?.(msg.sessionId, msg.hasOlder === true);
+          if (firstSeq != null) setOldestLoadedSeq?.(msg.sessionId, firstSeq);
+        } else if (msg.hasOlder !== undefined) {
+          setHasOlder?.(msg.sessionId, msg.hasOlder === true);
         }
         // Exit LOADING: first content (clear immediately so partial history
         // paints) OR terminal marker for a genuinely-empty session
@@ -658,6 +747,9 @@ export function useMessageHandler(
           clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId);
         } else {
           rearmLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId, HYDRATE_CEILING_MS);
+        }
+        if (msg.kind === "tail" && msg.isLast) {
+          tailReplayInProgressRef.current.delete(msg.sessionId);
         }
         break;
       }
@@ -722,6 +814,33 @@ export function useMessageHandler(
           // For fork mode, leave the entry alive: session_added will arrive
           // for the new fork sessionId and trigger auto-navigate.
           // See change: spawn-correlation-token.
+        }
+        break;
+
+      case "force_kill_result":
+        if (!msg.success) {
+          showToast?.(msg.message ?? "Force stop failed", "error");
+          setForceKillResetSignals((prev) => {
+            const next = new Map(prev);
+            next.set(msg.sessionId!, (next.get(msg.sessionId!) ?? 0) + 1);
+            return next;
+          });
+        } else {
+          // Force Stop is terminal. Preserve the visible error/stall reason so
+          // the user can still see why the session ended.
+          setSessionStates((prev) => {
+            const next = new Map(prev);
+            const existing = next.get(msg.sessionId) ?? createInitialState();
+            next.set(msg.sessionId, {
+              ...existing,
+              status: "ended",
+              isStreaming: false,
+              currentTool: undefined,
+              pendingPrompt: undefined,
+              retryState: undefined,
+            });
+            return next;
+          });
         }
         break;
 
@@ -1099,5 +1218,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setLoadingHistory, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setLoadingHistory, setForceKillResetSignals, showToast, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister, setHasOlder, setOldestLoadedSeq, flushLiveEvents, scheduleLiveFlush]);
 }

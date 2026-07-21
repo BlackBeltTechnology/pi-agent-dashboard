@@ -1,4 +1,15 @@
 allowBuilds:
+  '@blackbelt-technology/pi-dashboard-server': set this to true or false
+  '@fission-ai/openspec': set this to true or false
   '@google/genai': set this to true or false
   esbuild: set this to true or false
+  fs-xattr: set this to true or false
+  koffi: set this to true or false
+  macos-alias: set this to true or false
+  node-pty: set this to true or false
   protobufjs: set this to true or false
+minimumReleaseAgeExclude:
+  - '@earendil-works/pi-agent-core@0.80.2'
+  - '@earendil-works/pi-ai@0.80.2'
+  - '@earendil-works/pi-coding-agent@0.80.2'
+  - '@earendil-works/pi-tui@0.80.2'

@@ -57,7 +57,7 @@ describe("session-action liveness clearing", () => {
 
     const ctx = {
       ws: {},
-      sessionManager: { get: () => ({ id: "s2", sessionFile: sf, pid: undefined, status: "streaming" }), update: () => {} },
+      sessionManager: { get: () => ({ id: "s2", sessionFile: sf, pid: 2147483647, status: "streaming" }), update: () => {} },
       piGateway: { closeSession: () => true, sendToSession: () => true },
       headlessPidRegistry: { killBySessionId: async () => false },
       broadcast: () => {},
@@ -70,6 +70,27 @@ describe("session-action liveness clearing", () => {
     const meta = readSessionMeta(sf);
     expect(meta?.live).toBe(false);
     expect(meta?.closedReason).toBe("manual");
+    metaPersistence.dispose();
+  });
+
+  it("handleForceKill preserves liveness when no process can be verified dead", async () => {
+    const metaPersistence = createMetaPersistence();
+    const sf = makeSessionFile("s-kill-missing");
+    metaPersistence.setLiveness(sf, { live: true, liveEpoch: 1 });
+
+    const ctx = {
+      ws: {},
+      sessionManager: { get: () => ({ id: "s3", sessionFile: sf, pid: undefined, status: "streaming" }), update: () => {} },
+      piGateway: { closeSession: () => true, sendToSession: () => true },
+      headlessPidRegistry: { killBySessionId: async () => false },
+      broadcast: () => {},
+      sendTo: () => {},
+      metaPersistence,
+    } as unknown as BrowserHandlerContext;
+
+    await handleForceKill({ type: "force_kill", sessionId: "s3" } as any, ctx);
+
+    expect(readSessionMeta(sf)?.live).toBe(true);
     metaPersistence.dispose();
   });
 });

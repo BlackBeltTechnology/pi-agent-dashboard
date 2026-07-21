@@ -132,6 +132,7 @@ import { DisplayPrefsProvider } from "./lib/DisplayPrefsContext.js";
 import { registerPluginCatalog, useI18n } from "./lib/i18n.js";
 import { SessionAssetsProvider } from "./lib/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/selectedSessionId.js";
+import { countMutationResults } from "./lib/diff-refresh-signal.js";
 import { selectViewedSessionId } from "./lib/selectViewedSessionId.js";
 
 // Stable empty references for plugin context's session-state primitives.
@@ -344,6 +345,7 @@ export default function App() {
   // See change: add-plugin-activation-ui.
   usePluginEnabledSet(_pluginRegistry);
   const { messages: toastMessages, showToast, dismissToast } = useToast();
+  const [forceKillResetSignals, setForceKillResetSignals] = useState<Map<string, number>>(() => new Map());
   const apiBase = useMemo(() => {
     const base = deriveApiBase(wsUrl) || VITE_API_URL;
     setGlobalApiBase(base);
@@ -581,6 +583,50 @@ export default function App() {
   // ChatView loading indicator. See change: show-chat-history-loading-indicator.
   const [loadingHistory, setLoadingHistory] = useState<Map<string, boolean>>(new Map());
   const loadingHistoryTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Tail-first scroll-up pagination (change: tail-first-session-loading).
+  // `hasOlder` gates the ChatView scroll-up trigger; `oldestLoadedSeq` is the
+  // next `load_older` `beforeSeq`; `loadingOlderRef` enforces single-flight.
+  const [hasOlderMap, setHasOlderMap] = useState<Map<string, boolean>>(new Map());
+  const oldestLoadedSeqRef = useRef(new Map<string, number>());
+  const loadingOlderRef = useRef(new Set<string>());
+  const [loadingOlderMap, setLoadingOlderMap] = useState<Map<string, boolean>>(new Map());
+  const setHasOlder = useCallback((sessionId: string, hasOlder: boolean) => {
+    setHasOlderMap((prev) => {
+      if (prev.get(sessionId) === hasOlder) return prev;
+      const next = new Map(prev);
+      next.set(sessionId, hasOlder);
+      return next;
+    });
+  }, []);
+  const setOldestLoadedSeq = useCallback((sessionId: string, seq?: number) => {
+    if (seq != null) oldestLoadedSeqRef.current.set(sessionId, seq);
+    // An older-window response resolves an in-flight request → clear the gate.
+    if (loadingOlderRef.current.delete(sessionId)) {
+      setLoadingOlderMap((prev) => {
+        if (!prev.get(sessionId)) return prev;
+        const next = new Map(prev);
+        next.set(sessionId, false);
+        return next;
+      });
+    }
+  }, []);
+  // Fire a single-flight `load_older` for the given session (ChatView trigger).
+  const handleLoadOlder = useCallback(
+    (sessionId: string) => {
+      if (loadingOlderRef.current.has(sessionId)) return; // single-flight
+      if (!hasOlderMap.get(sessionId)) return; // nothing older
+      const beforeSeq = oldestLoadedSeqRef.current.get(sessionId);
+      if (beforeSeq == null || beforeSeq <= 1) return; // already at seq 1
+      loadingOlderRef.current.add(sessionId);
+      setLoadingOlderMap((prev) => {
+        const next = new Map(prev);
+        next.set(sessionId, true);
+        return next;
+      });
+      send({ type: "load_older", sessionId, beforeSeq });
+    },
+    [hasOlderMap, send],
+  );
   // After overlay-url-routing: shell overlays are URL-driven via the
   // useRoute matches declared above. `previewState`, `specsBrowserCwd`,
   // `archiveBrowserCwd`, `diffViewSessionId`, and the three useContentViews
@@ -726,8 +772,8 @@ export default function App() {
   }, []);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current, showToast },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory, setForceKillResetSignals },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current, setHasOlder, setOldestLoadedSeq, showToast },
   );
 
   useEffect(() => {
@@ -976,19 +1022,14 @@ export default function App() {
     () => extractUserPromptHistory(selectedState.messages),
     [selectedState.messages],
   );
-  // Monotonic edit/write/bash count for the selected session — drives the
-  // shared session-diff refetch (change: add-change-summary-table). Bash is
-  // included so tool-created files (converter/image/script output detected via
-  // git-status) surface after the command completes, not just Write/Edit.
-  // See change: detect-tool-created-files.
+  // Monotonic mutation-result count for the selected session — drives the
+  // shared session-diff refetch (change: add-change-summary-table). Uses the
+  // shared mutation classifier so provider aliases (Shell, StrReplace,
+  // apply_patch, exec_command) and failed results all schedule a refresh,
+  // while Read/search stay excluded. See changes: detect-tool-created-files,
+  // retain-failed-tool-file-changes.
   const diffChangeSignal = useMemo(
-    () =>
-      selectedState.messages.reduce(
-        (n, m) =>
-          n +
-          (m.role === "toolResult" && /^(edit|write|bash)$/i.test(m.toolName ?? "") ? 1 : 0),
-        0,
-      ),
+    () => countMutationResults(selectedState.messages),
     [selectedState.messages],
   );
 
@@ -1139,7 +1180,7 @@ export default function App() {
     selectedId, send, navigate, setMobileOpen,
     sessions, setSessions, setSessionStates, setSpawningCwds, setTerminals,
     clearSpawningCwd, spawnTimeoutsRef, pendingTerminalCwdRef, terminals,
-    pendingSpawnsRef,
+    pendingSpawnsRef, setResumeErrors,
   });
   const {
     // Queue-mutation action senders removed entirely (pi exposes no mutation
@@ -1685,7 +1726,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} hasOlder={selectedId ? hasOlderMap.get(selectedId) ?? false : false} loadingOlder={selectedId ? loadingOlderMap.get(selectedId) ?? false : false} onLoadOlder={selectedId ? handleLoadOlder : undefined} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Single-card error-lifecycle surface. Sticky above the command
@@ -1775,6 +1816,7 @@ export default function App() {
             retrying={selectedState.retryState !== undefined}
             onAbort={handleAbort}
             onForceKill={handleForceKill}
+            resetStopSignal={selectedId ? (forceKillResetSignals.get(selectedId) ?? 0) : 0}
             onStopAfterTurn={handleStopAfterTurn}
             pendingPrompt={!!selectedState.pendingPrompt}
             onCancelPending={handleCancelPending}

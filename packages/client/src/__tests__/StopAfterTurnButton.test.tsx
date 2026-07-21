@@ -1,13 +1,12 @@
 /**
- * "Stop after turn" button in CommandInput.
+ * Stop-after-turn affordance in CommandInput.
  *
- * Visible only while streaming; click invokes onStopAfterTurn and swaps to an
- * optimistic "stopping after this turn…" pill. Absent when idle.
+ * Hidden from composer to avoid duplicate stop buttons next to the red Stop.
  *
  * See change: adopt-pi-071-072-073-features (B.2).
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, fireEvent, cleanup } from "@testing-library/react";
+import { render, cleanup } from "@testing-library/react";
 import { CommandInput } from "../components/CommandInput.js";
 
 afterEach(() => cleanup());
@@ -18,23 +17,9 @@ function renderInput(props: Partial<React.ComponentProps<typeof CommandInput>> =
 }
 
 describe("StopAfterTurn button", () => {
-  it("is visible while streaming and hidden when idle", () => {
+  it("does not render a second stop button while streaming", () => {
     const streaming = renderInput({ sessionStatus: "streaming", onStopAfterTurn: vi.fn() });
-    expect(streaming.queryByTestId("stop-after-turn-button")).toBeTruthy();
-    cleanup();
-
-    const idle = renderInput({ sessionStatus: "idle", onStopAfterTurn: vi.fn() });
-    expect(idle.queryByTestId("stop-after-turn-button")).toBeNull();
-  });
-
-  it("click invokes onStopAfterTurn and shows the optimistic pill", () => {
-    const onStopAfterTurn = vi.fn();
-    const { getByTestId, queryByTestId } = renderInput({ sessionStatus: "streaming", onStopAfterTurn });
-
-    fireEvent.click(getByTestId("stop-after-turn-button"));
-
-    expect(onStopAfterTurn).toHaveBeenCalledTimes(1);
-    expect(queryByTestId("stop-after-turn-button")).toBeNull();
-    expect(queryByTestId("stop-after-turn-pill")).toBeTruthy();
+    expect(streaming.queryByTestId("stop-after-turn-button")).toBeNull();
+    expect(streaming.queryByTestId("stop-after-turn-pill")).toBeNull();
   });
 });

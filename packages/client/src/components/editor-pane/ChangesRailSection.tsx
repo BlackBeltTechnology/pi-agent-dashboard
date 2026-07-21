@@ -71,6 +71,7 @@ export function ChangesRailSection({ activePath }: { activePath?: string | null 
           <DiffFileTree
             files={files}
             otherChanges={otherChanges}
+            fileOperationFailures={diff?.data?.fileOperationFailures}
             selection={selection}
             onSelect={(sel) => openDiffTab(sel.filePath)}
             totalAdditions={totalAdditions}

@@ -116,6 +116,27 @@ export interface EventReplayMessage {
   sessionId: string;
   events: Array<{ seq: number; event: DashboardEvent }>;
   isLast: boolean;
+  /**
+   * Window classification for the tail-first loading model. Additive/optional
+   * — a batch without `kind` falls back to the legacy `firstSeq` reset
+   * heuristic on the client.
+   *   - `"tail"`  → newest window on a cold/warm `lastSeq:0` subscribe; the
+   *                 client resets state to `createInitialState()` before
+   *                 folding the first batch of the window.
+   *   - `"delta"` → extends already-seen state (warm reconnect / catch-up).
+   *   - `"older"` → history preceding the current window (a `load_older`
+   *                 response); the client prepends to its raw buffer and
+   *                 refolds, and never advances `maxSeq`.
+   * See change: tail-first-session-loading.
+   */
+  kind?: "tail" | "older" | "delta";
+  /**
+   * True when older history exists below the delivered window (scroll-up
+   * pagination is available). Set on `kind: "tail"` and `kind: "older"`
+   * responses. Absent on legacy full replays.
+   * See change: tail-first-session-loading.
+   */
+  hasOlder?: boolean;
 }
 
 export interface BrowserCommandsListMessage {
@@ -442,6 +463,19 @@ export interface TerminalUpdatedMessage {
 export interface SessionStateResetMessage {
   type: "session_state_reset";
   sessionId: string;
+}
+
+/**
+ * Emitted once when back-pressure-dropped frames for a session cross a small
+ * threshold, so the client can trigger a bounded re-subscribe instead of
+ * rendering a silently-truncated transcript. Emitted at most once per session
+ * until its drop count resets. See change: bound-bridge-resume-replay (D4).
+ */
+export interface FramesDroppedMessage {
+  type: "frames_dropped";
+  sessionId: string;
+  /** Total frames dropped for this session at the moment the notice fired. */
+  dropped: number;
 }
 
 /** Notifies browsers of editor instance status changes. */
@@ -821,6 +855,7 @@ export type ServerToBrowserMessage =
   | TerminalRemovedMessage
   | TerminalUpdatedMessage
   | SessionStateResetMessage
+  | FramesDroppedMessage
   | PackageProgressMessage
   | PackageOperationCompleteMessage
   | PiCoreUpdateProgressMessage
@@ -876,6 +911,21 @@ export interface SubscribeMessage {
 export interface UnsubscribeMessage {
   type: "unsubscribe";
   sessionId: string;
+}
+
+/**
+ * Scroll-up pagination request (tail-first loading model). The client asks for
+ * the window of events immediately preceding `beforeSeq`; the server replies
+ * with a single `event_replay { kind: "older", … }`. See change:
+ * tail-first-session-loading.
+ */
+export interface LoadOlderMessage {
+  type: "load_older";
+  sessionId: string;
+  /** Return events with `seq < beforeSeq` (the oldest seq the client holds). */
+  beforeSeq: number;
+  /** Optional window budget override; server default is `TAIL_WINDOW_EVENTS`. */
+  limit?: number;
 }
 
 export interface SendPromptToBrowserMessage {
@@ -1509,6 +1559,7 @@ export interface InjectViewMessageBrowserMessage {
 
 export type BrowserToServerMessage =
   | SubscribeMessage
+  | LoadOlderMessage
   | UnsubscribeMessage
   | BrowserExtensionUiResponseMessage
   | SendPromptToBrowserMessage

@@ -1194,10 +1194,11 @@ describe("CommandInput v2 — mobile adaptation (T4)", () => {
     expect(menu.querySelector('[data-testid="open-inline-terminal-button"]')).not.toBeNull();
   });
 
-  it("the action button meets the 44px touch-target minimum", () => {
+  it("the action button shares the unified h-8 toolbar chip height", () => {
     const { container } = renderInput({ draft: "x", onDraftChange: vi.fn() });
     const send = container.querySelector('[data-testid="send-button"]') as HTMLElement;
-    expect(send.className).toContain("min-w-[44px]");
-    expect(send.className).toContain("min-h-[44px]");
+    expect(send.className).toContain("h-8");
+    expect(send.className).toContain("w-8");
+    expect(send.className).toContain("rounded-md");
   });
 });

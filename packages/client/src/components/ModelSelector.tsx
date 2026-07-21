@@ -274,7 +274,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
       <button
         ref={triggerRef}
         onClick={() => hasModels && setOpen(!open)}
-        className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
+        className={`focus-ring inline-flex items-center gap-1 h-8 px-2 rounded-md text-xs transition-colors ${
           hasModels
             ? "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             : "text-[var(--text-muted)]"
@@ -296,7 +296,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
 
       {open && (
         <div
-          className={`absolute left-0 flex flex-col bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-50 overflow-hidden ${
+          className={`absolute left-0 flex flex-col bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-md shadow-lg z-50 overflow-hidden ${
             flipUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
           style={{ width: "20rem", maxHeight }}

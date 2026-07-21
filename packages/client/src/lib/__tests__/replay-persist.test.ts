@@ -47,6 +47,31 @@ describe("replay-persist", () => {
     expect((await cache.get("s1"))?.payload.map((e) => e.seq)).toEqual([10]);
   });
 
+  it("prepend keeps older pages in the refold buffer but excludes them from persistence", async () => {
+    const cache = createReplayCache({ factory });
+    const p = createReplayPersister(cache, 0);
+    // Tail establishes durable boundary at seq 10.
+    p.seed("s1", [evt(10), evt(11)]);
+    const full = p.prepend("s1", [evt(8), evt(9), evt(10)]);
+
+    expect(full.map((entry) => entry.seq)).toEqual([8, 9, 10, 11]);
+    expect(p.getBuffer("s1").map((entry) => entry.seq)).toEqual([8, 9, 10, 11]);
+    await p.flush("s1");
+    // Reload resumes from bounded tail, not every paginated older page.
+    expect((await cache.get("s1"))?.payload.map((entry) => entry.seq)).toEqual([10, 11]);
+  });
+
+  it("record appends live/delta events after a tail seed without moving its boundary", async () => {
+    const cache = createReplayCache({ factory });
+    const p = createReplayPersister(cache, 0);
+    p.seed("s1", [evt(10)]);
+    p.prepend("s1", [evt(8), evt(9)]);
+    p.record("s1", [evt(11), evt(12)]);
+    await p.flush("s1");
+
+    expect((await cache.get("s1"))?.payload.map((entry) => entry.seq)).toEqual([10, 11, 12]);
+  });
+
   it("drop clears the buffer and deletes the persisted entry", async () => {
     const cache = createReplayCache({ factory });
     const p = createReplayPersister(cache, 0);

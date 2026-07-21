@@ -94,3 +94,41 @@ describe("server→browser dropped-frame instrumentation", () => {
     expect(gateway.getDroppedFrameStats().total).toBe(0);
   });
 });
+
+describe("dropped-frame threshold notice (D4)", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("emits one frames_dropped notice after the drop count crosses the threshold, not per drop", () => {
+    const seed = seedSessions({ focusedCwd: "/repo/a", idleCwds: [] });
+    const gateway = buildLoadGateway(seed.manager);
+    const ws = overloadSocket(gateway, seed.focusedSessionId);
+
+    // Drive a storm of drops well past the threshold (5).
+    for (let seq = 2; seq < 30; seq++) {
+      gateway.broadcastEvent(seed.focusedSessionId, seq, { type: "tool_execution_end", data: { toolCallId: `t${seq}` } });
+    }
+
+    const notices = ws.sent.filter((r) => r.type === "frames_dropped");
+    // Exactly one notice for the session despite many drops.
+    expect(notices.length).toBe(1);
+    expect(notices[0].sessionId).toBe(seed.focusedSessionId);
+  });
+
+  it("does NOT emit a notice below the threshold", () => {
+    const seed = seedSessions({ focusedCwd: "/repo/a", idleCwds: [] });
+    const gateway = buildLoadGateway(seed.manager);
+    const ws = overloadSocket(gateway, seed.focusedSessionId);
+
+    // Only 3 drops (< threshold of 5).
+    for (let seq = 2; seq < 5; seq++) {
+      gateway.broadcastEvent(seed.focusedSessionId, seq, { type: "tool_execution_end", data: { toolCallId: `t${seq}` } });
+    }
+
+    expect(ws.sent.filter((r) => r.type === "frames_dropped").length).toBe(0);
+  });
+});

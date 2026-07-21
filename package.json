@@ -50,8 +50,8 @@
   ],
   "scripts": {
     "postinstall": "node scripts/maybe-patch-package.cjs && node scripts/fix-pty-permissions.cjs",
-    "dev": "npm run dev --workspace=@blackbelt-technology/pi-dashboard-web",
-    "build": "npm run build --workspace=@blackbelt-technology/pi-dashboard-web",
+    "dev": "node scripts/run-workspace-script.mjs dev",
+    "build": "node scripts/run-workspace-script.mjs build",
     "test": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run",
     "test:watch": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest",
     "generate:plugin-registry": "node scripts/generate-plugin-registry.mjs",
@@ -100,8 +100,10 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.1",
-    "@earendil-works/pi-ai": "^0.75.5",
-    "@playwright/test": "1.61.1",
+    "@earendil-works/pi-ai": "^0.80.2",
+    "@earendil-works/pi-coding-agent": "^0.80.2",
+    "@earendil-works/pi-tui": "^0.80.2",
+    "@playwright/test": "^1.57.0",
     "jsdom": "^29.0.2",
     "jsqr": "^1.4.0",
     "patch-package": "^8.0.1",

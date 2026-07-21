@@ -3,7 +3,9 @@
  * The spawned server runs in foreground mode (no subcommand) and writes
  * its own PID file at ~/.pi/dashboard/server.pid.
  */
-
+import fs from "node:fs";
+import os from "node:os";
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,12 +56,16 @@ export interface LaunchResult {
  * a pristine checkout with no node_modules yet).
  */
 export function resolveServerCliPath(): string {
+  const monorepoCliPath = path.resolve(__dirname, "..", "..", "server", "src", "cli.ts");
+  if (fs.existsSync(monorepoCliPath)) {
+    return monorepoCliPath;
+  }
+
   try {
     const serverPkgJson = require.resolve("@blackbelt-technology/pi-dashboard-server/package.json");
     return path.resolve(path.dirname(serverPkgJson), "src", "cli.ts");
   } catch {
-    // Dev-repo fallback: <extension>/src/../../server/src/cli.ts
-    return path.resolve(__dirname, "..", "..", "server", "src", "cli.ts");
+    return monorepoCliPath;
   }
 }
 
@@ -105,6 +111,70 @@ export function buildSpawnArgs(config: DashboardConfig): string[] {
   ];
 }
 
+function parseNodeVersion(version: string): { major: number; minor: number; patch: number } | null {
+  const match = version.trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return null;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  };
+}
+
+function isSupportedDashboardNode(version: string): boolean {
+  const parsed = parseNodeVersion(version);
+  if (!parsed) return false;
+  if (parsed.major < 22 || parsed.major >= 26) return false;
+  if (parsed.major === 22) {
+    if (parsed.minor < 19) return false;
+    if (parsed.minor === 19 && parsed.patch < 0) return false;
+  }
+  return true;
+}
+
+function getNodeVersion(nodeBin: string): string | null {
+  try {
+    return execFileSync(nodeBin, ["-v"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function candidateNodeBins(baseEnv: NodeJS.ProcessEnv): string[] {
+  const candidates = [
+    baseEnv.PI_DASHBOARD_NODE_BIN,
+    path.join(os.homedir(), ".pi-dashboard", "node", "bin", process.platform === "win32" ? "node.exe" : "node"),
+  ];
+
+  const nvmVersionsDir = path.join(os.homedir(), ".nvm", "versions", "node");
+  try {
+    for (const entry of fs.readdirSync(nvmVersionsDir)) {
+      candidates.push(path.join(nvmVersionsDir, entry, "bin", process.platform === "win32" ? "node.exe" : "node"));
+    }
+  } catch {
+    // nvm is optional.
+  }
+
+  return [...new Set(candidates.filter((candidate): candidate is string => !!candidate))];
+}
+
+export function resolveDashboardNodeBin(baseEnv: NodeJS.ProcessEnv = process.env): string | undefined {
+  const currentVersion = getNodeVersion(process.execPath) ?? process.version;
+  if (isSupportedDashboardNode(currentVersion)) return undefined;
+
+  const usable = candidateNodeBins(baseEnv)
+    .filter((candidate) => fs.existsSync(candidate))
+    .map((candidate) => ({ candidate, version: getNodeVersion(candidate) }))
+    .filter((entry): entry is { candidate: string; version: string } => !!entry.version && isSupportedDashboardNode(entry.version))
+    .sort((a, b) => {
+      const av = parseNodeVersion(a.version)!;
+      const bv = parseNodeVersion(b.version)!;
+      return bv.major - av.major || bv.minor - av.minor || bv.patch - av.patch;
+    });
+
+  return usable[0]?.candidate;
+}
+
 /**
  * Launch the dashboard server as a detached background process.
  * Delegates to the shared `launchDashboardServer` primitive which owns
@@ -124,7 +194,9 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
   const args = buildSpawnArgs(config);
 
   try {
+    const nodeBin = resolveDashboardNodeBin();
     const result = await launchDashboardServer({
+      ...(nodeBin ? { nodeBin } : {}),
       cliPath,
       extraArgs: args,
       stdio: { logFile: getDashboardServerLogPath() },

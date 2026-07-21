@@ -120,6 +120,23 @@ describe("saveRoleConfig", () => {
     const leftovers = readdirSync(dir).filter((n) => n.includes(".tmp-"));
     expect(leftovers).toEqual([]);
   });
+
+  it("refuses to write when the existing file is malformed JSON (preserves providers)", () => {
+    // Regression: a malformed providers.json must NOT be clobbered by a role
+    // write — otherwise the user's `providers` (e.g. 9router) and other keys
+    // silently vanish. saveRoleConfig must throw and leave the file untouched.
+    const corrupt = '{ "providers": { "9router": { "baseUrl": "http://x" } }, oops';
+    writeFileSync(CONFIG(), corrupt);
+    expect(() =>
+      saveRoleConfig({ roles: { fast: "x/y" }, rolePresets: [], activePreset: null }),
+    ).toThrow();
+    // File content unchanged — nothing destroyed.
+    expect(readFileSync(CONFIG(), "utf-8")).toBe(corrupt);
+    // And no stray tmp file left behind.
+    const { readdirSync } = require("node:fs") as typeof import("node:fs");
+    const dir = join(homedir(), ".pi", "agent");
+    expect(readdirSync(dir).filter((n) => n.includes(".tmp-"))).toEqual([]);
+  });
 });
 
 describe("roles:get-all", () => {

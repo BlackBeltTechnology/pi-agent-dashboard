@@ -6,6 +6,7 @@
  *
  * See change: platform-command-executor.
  */
+import { existsSync } from "node:fs";
 import path from "node:path";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { GitStatus, GitWorktreeInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -26,6 +27,29 @@ export interface GitInfo {
 }
 
 /**
+ * Detect git metadata without spawning git for an existing ordinary folder.
+ * Returns undefined when cwd itself is unavailable, preserving the normal git
+ * probe for paths whose filesystem state cannot be determined locally.
+ */
+function hasGitMetadata(cwd: string): boolean | undefined {
+  if (!existsSync(cwd)) return undefined;
+
+  let dir = path.resolve(cwd);
+  while (true) {
+    if (
+      existsSync(path.join(dir, ".git")) ||
+      (existsSync(path.join(dir, "HEAD")) && existsSync(path.join(dir, "objects")))
+    ) {
+      return true;
+    }
+
+    const parent = path.dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+}
+
+/**
  * Detect whether `cwd` is a git repository as a tri-state.
  *
  * Uses the `git.isGitRepo()` `Result` (NOT `isGitRepoOr`) to distinguish
@@ -42,6 +66,8 @@ export interface GitInfo {
  * See change: gate-session-worktree-button-on-git.
  */
 export function detectIsGitRepo(cwd: string): boolean | undefined {
+  if (hasGitMetadata(cwd) === false) return false;
+
   const res = git.isGitRepo({ cwd });
   if (res.ok) return res.value;
   if (res.error.kind === "exit" && res.error.code === 128) return false;
@@ -50,6 +76,8 @@ export function detectIsGitRepo(cwd: string): boolean | undefined {
 
 /** Detect the current git branch. Returns short SHA for detached HEAD. */
 export function detectBranch(cwd: string): string | undefined {
+  if (hasGitMetadata(cwd) === false) return undefined;
+
   const ref = git.currentBranchOr({ cwd });
   if (!ref) return undefined;
   if (ref === "HEAD") {

@@ -5,10 +5,12 @@
 
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
+import { BRIDGE_REPLAY_TAIL_ENTRIES } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { BrowserGateway } from "./browser-gateway.js";
+import { beginReattachHistoryHydration } from "./browser-handlers/subscription-handler.js";
 import { decideDashboardSource } from "./dashboard-source-decision.js";
 import type { DirectoryService } from "./directory-service.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./event-status-extraction.js";
@@ -32,6 +34,47 @@ import {
   extractModelTurnError,
 } from "./spawned-turn-log.js";
 import type { ViewedSessionTracker } from "./viewed-session-tracker.js";
+
+/**
+ * Max entry-count drift tolerated when deciding to skip the same-id resume
+ * event-store wipe. pi auto-appends a small, bounded number of setup entries
+ * (`model_change`, `thinking_level_change`) on session start, so a genuine
+ * resume of an unchanged transcript reports a slightly higher `eventCount`
+ * than the stored `lastEntryCount`. A delta within this allowance means the
+ * transcript is unchanged; a larger delta means real new turns — wipe + refill.
+ * See change: bound-bridge-resume-replay (D3).
+ */
+export const SETUP_ENTRY_DELTA_ALLOWANCE = 4;
+
+/**
+ * Decide whether a same-id resume can SKIP the event-store wipe + reset.
+ *
+ * Pure so it is unit-testable in isolation from the register handler.
+ *
+ * Skips only when:
+ *  - the store already holds events (empty store must always full-load), AND
+ *  - both counts are known, AND
+ *  - the bridge-reported count is a prefix-consistent superset of the stored
+ *    count within the bounded setup-entry allowance
+ *    (`0 <= eventCount - lastEntryCount <= SETUP_ENTRY_DELTA_ALLOWANCE`).
+ *
+ * A negative delta (bridge reports FEWER entries than stored) or a delta beyond
+ * the allowance means the transcript changed — do not skip.
+ *
+ * @param eventCount     bridge-reported branch entry count (may be undefined)
+ * @param lastEntryCount server's last known entry count (may be undefined)
+ * @param hasEvents      whether the store currently holds events for the session
+ */
+export function canSkipEventWipe(
+  eventCount: number | undefined,
+  lastEntryCount: number | undefined,
+  hasEvents: boolean,
+): boolean {
+  if (!hasEvents) return false;
+  if (eventCount === undefined || lastEntryCount === undefined) return false;
+  const delta = eventCount - lastEntryCount;
+  return delta >= 0 && delta <= SETUP_ENTRY_DELTA_ALLOWANCE;
+}
 
 /**
  * `true` iff `changeName` appears in the cwd's authoritative OpenSpec poll
@@ -113,6 +156,13 @@ export interface EventWiringDeps {
    */
   pendingAutomationRunRegistry?: import("./pending-automation-run-registry.js").PendingAutomationRunRegistry;
   /**
+   * Optional pending-hidden registry. When provided, the wiring consumes a
+   * pending hidden marker on each `session_register` and stamps
+   * `DashboardSession.hidden = true` (+ persists) so plugin worker sessions
+   * stay out of the sidebar. See change: hide-council-explorer-sessions.
+   */
+  pendingHiddenRegistry?: import("./pending-hidden-registry.js").PendingHiddenRegistry;
+  /**
    * Optional pending-goal-link registry + goal store. When both provided, the
    * wiring consumes a pending goalId on each `session_register`, stamps
    * `.meta.json#goalId` + in-memory `DashboardSession.goalId`, and links the
@@ -144,11 +194,15 @@ export interface EventWiringDeps {
    * correlation. See change: spawn-correlation-token.
    */
   pendingClientCorrelations?: import("./pending-client-correlations.js").PendingClientCorrelations;
+  /** Optional translate-via-bridge dispatcher. */
+  translateBridgeDispatcher?: import("./translate-via-bridge.js").TranslateBridgeDispatcher;
   /**
    * Optional plugin pi-message dispatcher. When provided, every
    * `plugin_pi_message` envelope forwarded from a plugin bridge entry is
    * routed to plugin-server handlers registered via
-   * `ServerPluginContext.registerPiHandler(messageType, handler)`.
+   * `ServerPluginContext.registerPiHandler(messageType, handler)`. Host-native
+   * `session_register` is also mirrored under that message type so plugins can
+   * correlate `spawnSession().spawnToken` to the real DashboardSession id.
    * See change: add-goal-continuation-plugin.
    */
   dispatchPluginPiMessage?: (messageType: string, msg: unknown) => void;
@@ -206,11 +260,13 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingInitialPromptRegistry,
     pendingWorktreeBaseRegistry,
     pendingAutomationRunRegistry,
+    pendingHiddenRegistry,
     pendingGoalLinkRegistry,
     goalStore,
     primeGoalSession,
     viewedSessionTracker,
     pendingClientCorrelations,
+    translateBridgeDispatcher,
     dispatchPluginPiMessage,
     dispatchPluginRawEvent,
     metaPersistence,
@@ -222,6 +278,49 @@ export function wireEvents(deps: EventWiringDeps): void {
   // → epoch already stamped. Prevents a fresh atomic write on every event.
   // See change: reopen-sessions-after-shutdown.
   const stampedLiveEpoch = new Map<string, number>();
+  // Session → entry count covered by canonical JSONL history. A same-count
+  // re-register must never overwrite it with a bounded bridge tail; a newer
+  // count triggers exactly one fresh disk fill.
+  const canonicalHistoryEntryCounts = new Map<string, number>();
+
+  /**
+   * Send the fast bridge tail, then replace its temporary store with the full
+   * on-disk history and reset subscribers onto canonical sequence numbers.
+   * `load_older` waits on the registered fill promise while this runs.
+   */
+  async function replayTailAndHydrateHistory(
+    sessionId: string,
+    sendBridgeTail: boolean,
+  ): Promise<void> {
+    const replay = sendBridgeTail
+      ? browserGateway.replayTailToSubscribers(sessionId)
+      : Promise.resolve();
+    const session = sessionManager.get(sessionId);
+    const sessionFile = session?.sessionFile;
+    const entryCount = session?.lastEntryCount ?? 0;
+    const hydration =
+      session &&
+      sessionFile !== undefined &&
+      entryCount > BRIDGE_REPLAY_TAIL_ENTRIES &&
+      canonicalHistoryEntryCounts.get(sessionId) !== entryCount
+      ? beginReattachHistoryHydration(
+          eventStore,
+          directoryService,
+          sessionId,
+          sessionFile,
+          session.contextWindow,
+        )
+      : undefined;
+    if (!hydration) {
+      await replay;
+      return;
+    }
+    const [, hydrated] = await Promise.all([replay, hydration]);
+    if (!hydrated) return;
+    canonicalHistoryEntryCounts.set(sessionId, entryCount);
+    browserGateway.broadcastSessionStateReset(sessionId);
+    await browserGateway.replayTailToSubscribers(sessionId);
+  }
 
   /**
    * Deferred order-key re-resolution. A worktree session registers BEFORE
@@ -398,6 +497,27 @@ export function wireEvents(deps: EventWiringDeps): void {
       autoNameSessions: preferencesStore.getAutoNameSessions(),
     });
 
+    // ── hidden-session arm ────────────────────────────────────────────
+    // Consume any pending hidden marker queued by a plugin's spawn hook for
+    // this cwd. Stamps `hidden=true` (+ persists) so the session stays out of
+    // the sidebar list (filterSessions already drops hidden sessions). Used by
+    // council explorer threads. See change: hide-council-explorer-sessions.
+    if (pendingHiddenRegistry && pendingHiddenRegistry.consume(cwd)) {
+      sessionManager.update(sessionId, { hidden: true });
+      const session = sessionManager.get(sessionId);
+      if (session?.sessionFile) {
+        try {
+          mergeSessionMeta(session.sessionFile, { hidden: true });
+        } catch (err) {
+          console.warn(
+            `[event-wiring] failed to persist hidden flag to .meta.json for ${sessionId}:`,
+            err,
+          );
+        }
+      }
+      browserGateway.broadcastSessionUpdated(sessionId, { hidden: true });
+    }
+
     // NOTE: goal-driver linking moved to the onEvent `session_register` branch
     // (after `linkByToken`) so the strong token→goalId path can run — the
     // registry entry's `sessionId` is only set by `linkByToken`, which fires
@@ -495,6 +615,11 @@ export function wireEvents(deps: EventWiringDeps): void {
   const LAST_ACTIVITY_BROADCAST_INTERVAL_MS = 30_000;
 
   piGateway.onEvent = (sessionId, msg) => {
+    if (msg.type === "translate_response") {
+      translateBridgeDispatcher?.handleResponse(msg);
+      return;
+    }
+
     // Generic plugin bridge→server channel. Routed to plugin-server
     // handlers by messageType; never touches core session state.
     // See change: add-goal-continuation-plugin.
@@ -850,24 +975,26 @@ export function wireEvents(deps: EventWiringDeps): void {
           openspecChange: null,
         });
       }
-      // Send replayed events to browser subscribers.
-      // During replay, event_forward messages were stored but not broadcast.
-      // Subscribers who received session_state_reset need the events to rebuild chat.
-      // Skip when canSkipWipe was true — browser already has the events.
+      // Deliver the bounded tail to browser subscribers in back-pressure-aware
+      // batches. During replay, event_forward messages were stored but not
+      // broadcast; subscribers who received session_state_reset need the tail
+      // to rebuild chat. Older history streams lazily via `load_older`. This
+      // replaces the single giant `event_replay` frame that could exceed
+      // MAX_WS_BUFFER and be silently dropped. Skip when canSkipWipe was true —
+      // the browser already has the events. See change:
+      // bound-bridge-resume-replay (D2).
       if (!wasSkipped) {
-        const storedEvents = eventStore.getEvents(sessionId, 1);
-        if (storedEvents.length > 0) {
-          browserGateway.sendToSubscribers(sessionId, {
-            type: "event_replay",
-            sessionId,
-            events: storedEvents.map((e) => ({ seq: e.seq, event: e.event })),
-            isLast: true,
-          } as any);
-        }
+        void replayTailAndHydrateHistory(sessionId, true);
+      } else {
+        // A pre-fix bounded tail can satisfy canSkipWipe while still lacking
+        // older JSONL pages. Repair it once regardless of reconnect order.
+        void replayTailAndHydrateHistory(sessionId, false);
       }
     }
 
     if (msg.type === "session_register") {
+      // Plugins correlate spawnToken → sessionId (council explorer threads).
+      dispatchPluginPiMessage?.("session_register", msg);
       // Reset the once-per-activation liveness guard on every (re)register so
       // a resumed session re-stamps `{ live:true, liveEpoch }` on its next
       // activity event. Without this, a session manually closed (sidecar
@@ -889,35 +1016,39 @@ export function wireEvents(deps: EventWiringDeps): void {
               currentTool: session.currentTool ?? null,
             });
           }
-          // Send any accumulated events to browser subscribers
+          // Deliver the bounded tail in batches (mirrors replay_complete path).
+          // See change: bound-bridge-resume-replay (D2).
           if (!wasSkipped) {
-            const fallbackEvents = eventStore.getEvents(sessionId, 1);
-            if (fallbackEvents.length > 0) {
-              browserGateway.sendToSubscribers(sessionId, {
-                type: "event_replay",
-                sessionId,
-                events: fallbackEvents.map((e) => ({ seq: e.seq, event: e.event })),
-                isLast: true,
-              } as any);
-            }
+            void replayTailAndHydrateHistory(sessionId, true);
+          } else {
+            void replayTailAndHydrateHistory(sessionId, false);
           }
         }
       }, 5_000);
       // Skip wipe if bridge provides eventCount matching the last known entry count.
       // This avoids full replay cascade when bridge simply reconnects.
       // Compare entry counts (apples to apples) — not entries vs stored events.
+      // Tolerate pi's auto-appended setup entries (model_change /
+      // thinking_level_change) so a genuine resume of an UNCHANGED transcript
+      // reuses the loaded store instead of wiping + refilling. See change:
+      // bound-bridge-resume-replay (D3).
       const session = sessionManager.get(sessionId);
       const lastEntryCount = session?.lastEntryCount;
-      const canSkipWipe = msg.eventCount !== undefined && lastEntryCount !== undefined && msg.eventCount === lastEntryCount && eventStore.hasEvents(sessionId);
+      const canSkipWipe = canSkipEventWipe(msg.eventCount, lastEntryCount, eventStore.hasEvents(sessionId));
+      const hasCanonicalHistory =
+        canonicalHistoryEntryCounts.has(sessionId) && eventStore.hasEvents(sessionId);
       // Store the bridge's entry count for future reconnect comparisons
       if (msg.eventCount !== undefined) {
         sessionManager.update(sessionId, { lastEntryCount: msg.eventCount });
       }
-      if (!canSkipWipe) {
+      if (!canSkipWipe && !hasCanonicalHistory) {
         eventStore.deleteEventsForSession(sessionId);
+        canonicalHistoryEntryCounts.delete(sessionId);
         browserGateway.broadcastSessionStateReset(sessionId);
       } else {
-        // Mark this session so replayed events are not re-inserted into the store
+        // Preserve either an unchanged store or canonical disk history; the
+        // latter rehydrates when eventCount advanced, instead of duplicating a
+        // bounded bridge replay into the canonical buffer.
         skipReplayInsert.add(sessionId);
       }
       // NOTE: do NOT reset `hidden` here. The auto-hide decision is the sole
@@ -1023,11 +1154,11 @@ export function wireEvents(deps: EventWiringDeps): void {
       // upcoming session_added broadcast can carry spawnRequestId and the
       // client can auto-select / dismiss its placeholder.
       // See change: spawn-correlation-token.
-      const spawnRequestId = (msg.spawnToken && pendingClientCorrelations)
-        ? pendingClientCorrelations.consume(msg.spawnToken)
-        : undefined;
+        const spawnRequestId = (msg.spawnToken && pendingClientCorrelations)
+          ? pendingClientCorrelations.consume(msg.spawnToken)
+          : undefined;
 
-      const isNewSession = !knownSessionIds.has(sessionId);
+        const isNewSession = !knownSessionIds.has(sessionId);
       knownSessionIds.add(sessionId);
       // Decision matrix delegated to `decideDashboardSource` — strong
       // signal (`msg.dashboardSpawned`, sent on every register from
@@ -1384,6 +1515,9 @@ export function wireEvents(deps: EventWiringDeps): void {
 
     // ── PromptBus protocol messages (extension → browser) ──
     if (msg.type === "prompt_request") {
+      // Public plugin-server hook: council-style orchestrators need to pool a
+      // hidden worker's question before any browser subscribes to that worker.
+      dispatchPluginPiMessage?.("prompt_request", { ...msg, sessionId });
       browserGateway.trackPromptRequest(sessionId, msg as any);
       browserGateway.sendToSubscribers(sessionId, msg as any);
     }

@@ -99,16 +99,17 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
     // Path B: git aggregate diff (raw hunks)
     if (file.gitDiff) {
       const lang = getLang(file.path);
-      const hunks = extractHunks(file.gitDiff);
-      if (hunks.length > 0) {
-        return {
-          data: {
-            oldFile: { fileName: file.path, fileLang: lang, content: "" },
-            newFile: { fileName: file.path, fileLang: lang, content: "" },
-            hunks,
-          },
-        };
-      }
+      // DiffFile's parser expects a complete unified diff. Passing only lines
+      // from `@@` onward drops the ---/+++ header and produces zero rendered
+      // rows. Keep the server payload intact. See change:
+      // fix-session-diff-open-nongit-and-preview.
+      return {
+        data: {
+          oldFile: { fileName: file.path, fileLang: lang, content: "" },
+          newFile: { fileName: file.path, fileLang: lang, content: "" },
+          hunks: [file.gitDiff],
+        },
+      };
     }
 
     // Fallback: show the most recent change (Path A)
@@ -237,26 +238,4 @@ function buildChangeDiffTexts(
   }
 
   return null;
-}
-
-/** Extract hunk strings from a unified diff */
-function extractHunks(gitDiff: string): string[] {
-  const lines = gitDiff.split("\n");
-  const hunks: string[] = [];
-  let currentHunk: string[] = [];
-
-  for (const line of lines) {
-    if (line.startsWith("@@")) {
-      if (currentHunk.length > 0) {
-        hunks.push(currentHunk.join("\n"));
-      }
-      currentHunk = [line];
-    } else if (currentHunk.length > 0) {
-      currentHunk.push(line);
-    }
-  }
-  if (currentHunk.length > 0) {
-    hunks.push(currentHunk.join("\n"));
-  }
-  return hunks;
 }

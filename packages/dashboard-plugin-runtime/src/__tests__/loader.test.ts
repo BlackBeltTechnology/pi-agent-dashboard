@@ -22,6 +22,7 @@ function makeFakeContext(): ServerPluginContext {
     onEvent: () => () => {},
     onSessionEnded: () => () => {},
     sendToSession: () => true,
+    setSessionModel: () => true,
     emitEventToSession: () => true,
     consumeAll: () => [],
     spawnSession: async () => ({ success: false }),

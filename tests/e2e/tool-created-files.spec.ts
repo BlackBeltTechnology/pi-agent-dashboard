@@ -69,4 +69,41 @@ test.describe("detect tool-created files", () => {
     await rail.getByTestId("session-only-toggle").locator("input").check();
     await expect(rail.getByTestId("other-changes-group")).toHaveCount(0);
   });
+
+  test("retains a Codex partial patch with failure context and an openable diff", async ({ page }) => {
+    await spawnFreshGitSession(page);
+    await sendPrompt(page, "[[faux:tool-codex-partial-patch]] apply a partial patch");
+
+    const chip = page.getByTestId("changed-files-chip");
+    await expect(chip).toBeVisible({ timeout: 20_000 });
+    await chip.click();
+    const rail = page.getByTestId("changes-rail-section");
+    await expect(rail).toBeVisible({ timeout: 10_000 });
+
+    await expect(rail.getByText("codex-partial.md").first()).toBeVisible({ timeout: 10_000 });
+    await expect(rail.getByTestId("failed-operations")).toBeVisible();
+    await expect(rail.getByText("apply_patch")).toBeVisible();
+    await expect(rail.getByText("One hunk did not apply")).toBeVisible();
+    await expect(rail.getByLabel(/failed operation.*codex-partial\.md/i)).toBeVisible();
+
+    await rail.getByRole("button", { name: /codex-partial\.md/i }).click();
+    await expect(page.getByRole("tab").filter({ hasText: "diff" }).first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("retains a Grok Shell output file after the non-zero result", async ({ page }) => {
+    await spawnFreshGitSession(page);
+    await sendPrompt(page, "[[faux:tool-grok-failed-shell]] write then fail");
+
+    const chip = page.getByTestId("changed-files-chip");
+    await expect(chip).toBeVisible({ timeout: 20_000 });
+    await chip.click();
+    const rail = page.getByTestId("changes-rail-section");
+    await expect(rail).toBeVisible({ timeout: 10_000 });
+
+    await expect(rail.getByText("grok-shell-failed.md").first()).toBeVisible({ timeout: 10_000 });
+    await expect(rail.getByTestId("failed-operations")).toBeVisible();
+    await expect(rail.getByText("Shell").first()).toBeVisible();
+    await expect(rail.getByText(/Shell exited 1 after writing/i)).toBeVisible();
+    await expect(rail.getByLabel(/failed operation.*grok-shell-failed\.md/i)).toBeVisible();
+  });
 });

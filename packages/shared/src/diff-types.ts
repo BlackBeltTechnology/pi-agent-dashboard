@@ -70,6 +70,36 @@ export interface FileDiffEntry {
   sessionOwned?: boolean;
 }
 
+/**
+ * A file-affecting tool failure correlated to changed files by `toolCallId`.
+ * Emitted only when at least one `affectedPaths` entry also survives in
+ * `SessionDiffResponse.files` or `otherChanges`. See change:
+ * retain-failed-tool-file-changes.
+ */
+export interface FileOperationFailure {
+  /** pi-neutral tool call id pairing the start/end lifecycle events. */
+  toolCallId: string;
+  /** Tool name as reported by pi (original casing). */
+  toolName: string;
+  /** End-event timestamp (ms since epoch) of the selected failure. */
+  timestamp: number;
+  /**
+   * `error` when pi set `isError: true`; `partial_failure` when a mutation
+   * tool reported `details.status: "partial_failure"` while `isError !== true`.
+   */
+  kind: "error" | "partial_failure";
+  /**
+   * Bounded, redacted plain-text failure message. Terminal control sequences
+   * stripped, secrets redacted, cwd/home prefixes collapsed. Never HTML.
+   */
+  message: string;
+  /**
+   * Normalized cwd-relative posix paths this failure changed. Every entry also
+   * exists in `files` or `otherChanges`; capped at 50 per failure.
+   */
+  affectedPaths: string[];
+}
+
 /** Response from GET /api/session-diff */
 export interface SessionDiffResponse {
   /** Changed files with their change events (owned by this session) */
@@ -106,4 +136,11 @@ export interface SessionDiffResponse {
    * non-git / git-error. Excludes binary/omitted files.
    */
   totalDeletions?: number;
+  /**
+   * File-affecting tool failures correlated to changed files by `toolCallId`.
+   * Optional + additive: older clients ignore it. Capped at 100 newest
+   * entries, ordered newest end first with `toolCallId` as stable secondary
+   * key. See change: retain-failed-tool-file-changes.
+   */
+  fileOperationFailures?: FileOperationFailure[];
 }

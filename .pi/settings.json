@@ -1,11 +1,6 @@
 {
-  "packages": [
-    {
-      "source": "/Users/robson/Project/pi-agent-dashboard",
-      "extensions": [
-        "+packages/kb-extension/src/index.ts"
-      ]
-    }
+  "extensions": [
+    "../packages/kb-extension/src/index.ts"
   ],
   "worktreeInit": {
     "gate": "test ! -e node_modules/.package-lock.json || test ! -d .pi/skills/openspec-explore || test ! -f .pi/dashboard/kb/index.db",

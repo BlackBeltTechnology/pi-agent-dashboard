@@ -21,6 +21,7 @@ function depsWithSharedRegistry(): ServerContextDeps {
     onEvent: () => () => {},
     onSessionEnded: () => () => {},
     sendToSession: () => true,
+    setSessionModel: () => true,
     emitEventToSession: () => true,
     consumeAll: <T = unknown>(prefix: string) => {
       const out: Array<{ key: string; value: T }> = [];

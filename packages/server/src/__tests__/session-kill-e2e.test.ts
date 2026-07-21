@@ -61,17 +61,19 @@ interface HungSession {
   keeper: ChildProcess;
   keeperPid: number;
   piPid: number;
+  detachedChildPid?: number;
   sockPath: string;
   sessionId: string;
   home: string;
   piPidFile: string;
+  detachedChildPidFile?: string;
 }
 
 /**
  * Spawn a real keeper.cjs subprocess wired to a hung mock-pi child.
  * Resolves once mock-pi has written its PID file (proves it's started + hung).
  */
-async function spawnHungSession(): Promise<HungSession> {
+async function spawnHungSession(opts: { detachedChild?: boolean } = {}): Promise<HungSession> {
   const sessionId = `e2e${Math.floor(Math.random() * 1e9).toString(36)}`;
   const home = makeShortHome();
   const sessionsDir = path.join(home, ".pi", "dashboard", "sessions");
@@ -88,6 +90,9 @@ async function spawnHungSession(): Promise<HungSession> {
 
   const sockPath = path.join(sessionsDir, `${sessionId}.rpc.sock`);
   const piPidFile = path.join(sessionsDir, `mock-pi-${sessionId}.pid`);
+  const detachedChildPidFile = opts.detachedChild
+    ? path.join(sessionsDir, `mock-pi-child-${sessionId}.pid`)
+    : undefined;
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -97,6 +102,7 @@ async function spawnHungSession(): Promise<HungSession> {
     MOCK_PI_LOG: path.join(sessionsDir, `mock-pi-${sessionId}.log`),
     MOCK_PI_MODE: "hung",
     MOCK_PI_PID_FILE: piPidFile,
+    ...(detachedChildPidFile ? { MOCK_PI_DETACHED_CHILD_PID_FILE: detachedChildPidFile } : {}),
   };
 
   const keeper = spawn(process.execPath, [KEEPER_PATH, sessionId], {
@@ -117,14 +123,28 @@ async function spawnHungSession(): Promise<HungSession> {
     throw new Error(`mock-pi pid ${piPid} not alive at registration`);
   }
 
+  let detachedChildPid: number | undefined;
+  if (detachedChildPidFile) {
+    await waitFor(() => existsSync(detachedChildPidFile), 3000);
+    detachedChildPid = Number(readFileSync(detachedChildPidFile, "utf8").trim());
+    if (!Number.isFinite(detachedChildPid) || detachedChildPid <= 0) {
+      throw new Error(`invalid detached child pid: ${detachedChildPid}`);
+    }
+    if (!isProcessAlive(detachedChildPid)) {
+      throw new Error(`mock-pi detached child pid ${detachedChildPid} not alive at registration`);
+    }
+  }
+
   return {
     keeper,
     keeperPid: keeper.pid!,
     piPid,
+    detachedChildPid,
     sockPath,
     sessionId,
     home,
     piPidFile,
+    detachedChildPidFile,
   };
 }
 
@@ -153,6 +173,7 @@ describe("Session kill e2e (fix-keeper-kill-escalation)", () => {
   afterEach(async () => {
     // Belt-and-braces cleanup: kill any survivors before tearing down server.
     if (session) {
+      if (session.detachedChildPid) killAlive(session.detachedChildPid);
       killAlive(session.piPid);
       killAlive(session.keeperPid);
       session = undefined;
@@ -206,8 +227,8 @@ describe("Session kill e2e (fix-keeper-kill-escalation)", () => {
     browser.close();
   }, 15_000);
 
-  itUnix("force_kill (browser WS) escalates hung pi via SIGKILL", async () => {
-    session = await spawnHungSession();
+  itUnix("force_kill (browser WS) terminates hung pi and detached child", async () => {
+    session = await spawnHungSession({ detachedChild: true });
 
     const registry = server!.browserGateway.headlessPidRegistry;
     registry.register(session.keeperPid, "/e2e/cwd", session.keeper, "tok_fk", {
@@ -227,6 +248,8 @@ describe("Session kill e2e (fix-keeper-kill-escalation)", () => {
     });
 
     expect(isProcessAlive(session.piPid)).toBe(true);
+    expect(session.detachedChildPid).toBeTypeOf("number");
+    expect(isProcessAlive(session.detachedChildPid!)).toBe(true);
 
     const browser = new WebSocket(`ws://127.0.0.1:${HTTP_PORT}/ws`);
     await waitForOpen(browser);
@@ -235,11 +258,12 @@ describe("Session kill e2e (fix-keeper-kill-escalation)", () => {
       sessionId: session.sessionId,
     }));
 
-    // handleForceKill drives BOTH killProcess(session.pid) AND
-    // killBySessionId (which also routes through killProcess). The hung pi
-    // dies near the 2 s ladder deadline.
+    // handleForceKill tree-kills detached child process groups before killing
+    // the pi root PID. A single-PID kill would orphan this child.
     await waitFor(() => !isProcessAlive(session!.piPid), 3000, 50);
+    await waitFor(() => !isProcessAlive(session!.detachedChildPid!), 3000, 50);
     expect(isProcessAlive(session.piPid)).toBe(false);
+    expect(isProcessAlive(session.detachedChildPid!)).toBe(false);
 
     browser.close();
   }, 15_000);

@@ -4,6 +4,12 @@
 import type { CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, ImageContent, ModelInfo, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
 
 /**
+ * Max pi session entries the bridge replays on resume/reattach. When a bridge
+ * reports more entries, the server cold-fills older pages from the JSONL.
+ */
+export const BRIDGE_REPLAY_TAIL_ENTRIES = 500;
+
+/**
  * Bridge -> server: mirror of pi's native steering + follow-up queues, forwarded
  * from pi's `queue_update` event. Server caches the latest snapshot per session
  * in `SessionUiState.pendingQueues` and broadcasts via `session_updated`.
@@ -550,6 +556,21 @@ export interface AssetRegisterMessage {
   data: string;
 }
 
+/** One-shot translation request — server → bridge. */
+export interface TranslateRequestMessage {
+  type: "translate_request";
+  requestId: string;
+  modelRef: string;
+  system: string;
+  user: string;
+  maxTokens?: number;
+}
+
+/** Translation reply — bridge → server. */
+export type TranslateResponseMessage =
+  | { type: "translate_response"; requestId: string; ok: true; text: string }
+  | { type: "translate_response"; requestId: string; ok: false; error: string; status?: number };
+
 /**
  * Generic plugin-originated message forwarded from a plugin bridge entry to
  * its plugin server entry. The bridge emits `pi.events.emit("dashboard:plugin-message",
@@ -572,6 +593,7 @@ export interface PluginPiMessage {
 }
 
 export type ExtensionToServerMessage =
+  | TranslateResponseMessage
   | SessionRegisterMessage
   | SessionUnregisterMessage
   | SessionHeartbeatMessage
@@ -954,7 +976,8 @@ export type ServerToExtensionMessage =
   | PluginEmitEventExtensionMessage
   | PreferencesUpdateExtensionMessage
   | GitCommitDraftMessage
-  | SubagentResyncRequestExtensionMessage;
+  | SubagentResyncRequestExtensionMessage
+  | TranslateRequestMessage;
 
 /**
  * Server → extension: request an AI-drafted commit message. The bridge builds
@@ -995,5 +1018,3 @@ export interface SubagentResyncRequestExtensionMessage {
   sessionId: string;
   agentId: string;
 }
-
-

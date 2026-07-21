@@ -1,11 +1,13 @@
 /**
  * DiffViewer virtual-path handling + no-provider fallback
  * (change: add-change-summary-table).
+ * Path abs→rel lookup (change: fix-session-diff-open-nongit-and-preview).
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
-import DiffViewer, { stripDiffPrefix } from "../DiffViewer.js";
+import type { SessionDiffResponse } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import DiffViewer, { findDiffFile, stripDiffPrefix } from "../DiffViewer.js";
 
 afterEach(cleanup);
 
@@ -15,6 +17,31 @@ describe("stripDiffPrefix", () => {
   });
   it("leaves a bare path unchanged", () => {
     expect(stripDiffPrefix("src/a.ts")).toBe("src/a.ts");
+  });
+});
+
+describe("findDiffFile", () => {
+  const data: SessionDiffResponse = {
+    files: [
+      {
+        path: "src/a.ts",
+        changes: [{ type: "write", timestamp: 1, content: "hello\n" }],
+        gitDiff: undefined,
+      },
+    ],
+    isGitRepo: false,
+  };
+
+  it("exact relative match", () => {
+    expect(findDiffFile(data, "src/a.ts", "/repo")?.path).toBe("src/a.ts");
+  });
+
+  it("resolves absolute path under cwd to the relative key", () => {
+    expect(findDiffFile(data, "/repo/src/a.ts", "/repo")?.path).toBe("src/a.ts");
+  });
+
+  it("misses when path is outside cwd and not in files", () => {
+    expect(findDiffFile(data, "/other/a.ts", "/repo")).toBeUndefined();
   });
 });
 

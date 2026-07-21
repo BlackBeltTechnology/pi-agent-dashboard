@@ -2513,6 +2513,30 @@ describe("lastError extraction from agent_end", () => {
     expect(state.lastError).toBeUndefined();
   });
 
+  it("surfaces an assistant error at message_end without waiting for agent_end", () => {
+    const state = applyEvents([
+      { eventType: "agent_start", timestamp: 1000, data: {} },
+      {
+        eventType: "message_end",
+        timestamp: 1100,
+        data: {
+          message: {
+            role: "assistant",
+            stopReason: "error",
+            errorMessage: "Your credit balance is too low to access the Anthropic API",
+            content: [],
+          },
+        },
+      },
+    ]);
+
+    expect(state.lastError).toEqual({
+      message: "Your credit balance is too low to access the Anthropic API",
+      timestamp: 1100,
+    });
+    expect(state.retryState).toBeUndefined();
+  });
+
   it("also clears lastError on the Anthropic-normalized 'end_turn' stopReason", () => {
     let state = applyEvents([
       {

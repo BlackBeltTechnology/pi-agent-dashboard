@@ -120,4 +120,19 @@ describe("ThinkingLevelSelector", () => {
     fireEvent.click(buttons[4]);
     expect(onSelect).toHaveBeenCalledWith("high");
   });
+
+  it("filters thinking levels to the current model capabilities", () => {
+    const capableModels: ModelInfo[] = [
+      { provider: "anthropic", id: "claude-4", supportedThinkingLevels: ["off", "minimal", "low", "medium", "high"] },
+      { provider: "openai", id: "gpt-5.5", supportedThinkingLevels: ["xhigh"] },
+    ];
+    render(<StatusBar model="anthropic/claude-4" models={capableModels} status="idle" onSelectModel={() => {}} onSelectThinkingLevel={() => {}} />);
+    fireEvent.click(screen.getByTestId("thinking-level-button"));
+    expect(screen.getByTestId("thinking-level-dropdown").textContent).toContain("off");
+    expect(screen.getByTestId("thinking-level-dropdown").textContent).toContain("minimal");
+    expect(screen.getByTestId("thinking-level-dropdown").textContent).toContain("low");
+    expect(screen.getByTestId("thinking-level-dropdown").textContent).toContain("medium");
+    expect(screen.getByTestId("thinking-level-dropdown").textContent).toContain("high");
+    expect(screen.getByTestId("thinking-level-dropdown").textContent).not.toContain("xhigh");
+  });
 });

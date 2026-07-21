@@ -8,7 +8,10 @@
  *
  * See change: platform-command-executor.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { currentBranchOr, headShaOr, remoteUrlOr, prNumberOr, commonDirOr, toplevelOr, isGitRepo } = vi.hoisted(() => ({
   currentBranchOr: vi.fn(),
@@ -30,7 +33,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", () => ({
   isGitRepo,
 }));
 
-import { gatherGitInfo, detectBranch, detectRemoteUrl, detectPrNumber, detectWorktree, detectIsGitRepo } from "../vcs-info.js";
+import { detectBranch, detectIsGitRepo, detectPrNumber, detectRemoteUrl, detectWorktree, gatherGitInfo } from "../vcs-info.js";
 
 describe("git-info", () => {
   beforeEach(() => {
@@ -44,6 +47,18 @@ describe("git-info", () => {
   });
 
   describe("detectIsGitRepo", () => {
+    it("skips git probes for an existing directory with no git metadata", () => {
+      const plainDir = mkdtempSync(join(tmpdir(), "pi-dashboard-vcs-"));
+      try {
+        expect(detectIsGitRepo(plainDir)).toBe(false);
+        expect(isGitRepo).not.toHaveBeenCalled();
+        expect(detectBranch(plainDir)).toBeUndefined();
+        expect(currentBranchOr).not.toHaveBeenCalled();
+      } finally {
+        rmSync(plainDir, { recursive: true, force: true });
+      }
+    });
+
     it("returns true when git confirms a work tree", () => {
       isGitRepo.mockReturnValue({ ok: true, value: true });
       expect(detectIsGitRepo("/repo")).toBe(true);

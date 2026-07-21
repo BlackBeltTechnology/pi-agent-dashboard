@@ -28,6 +28,7 @@ import { InstructionsPage } from "./DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "./Gateway/GatewayPage.js";
 import { KnownServersSection } from "./KnownServersSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
+import { HiddenModelsSection } from "./HiddenModelsSection.js";
 import { ModelSelector } from "./ModelSelector.js";
 import { NetworkDiscoverySection } from "./NetworkDiscoverySection.js";
 import { OpenSpecProfileSection } from "./OpenSpecProfileSection.js";
@@ -1132,6 +1133,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                       current={config.defaultModel || undefined}
                       models={availableModels}
                       onSelect={(v) => update((c) => { c.defaultModel = v; })}
+                      applyVisibilityFilter={false}
                     />
                   </div>
                   <div>
@@ -1150,6 +1152,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     </p>
                   </div>
                 </Section>
+                <HiddenModelsSection models={availableModels} />
                 <SettingsSectionSlot tab="sessions" />
               </>
             )}

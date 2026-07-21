@@ -10,6 +10,7 @@
  */
 import { structuredPatch } from "diff";
 import type { ChatMessage } from "./event-reducer.js";
+import { normalizeUnderCwd } from "./session-rel-path.js";
 
 export interface LineDelta {
   additions: number;
@@ -111,7 +112,12 @@ function isEditOrWrite(toolName: string | undefined): boolean {
   return t === "edit" || t === "write";
 }
 
-/** Rel-path of an Edit/Write tool event, or `undefined`. */
+/**
+ * Path of an Edit/Write tool event as recorded (may be absolute), or
+ * `undefined`. Callers that open session-diff tabs MUST run this through
+ * `normalizeUnderCwd(path, sessionCwd)` so it matches server `data.files`
+ * keys. See change: fix-session-diff-open-nongit-and-preview.
+ */
 function toolPath(msg: ChatMessage): string | undefined {
   return typeof msg.args?.path === "string" ? (msg.args.path as string) : undefined;
 }
@@ -181,26 +187,34 @@ function assembleTurnSummary(
   turn: number,
   acc: TurnAcc,
   isAdded: (path: string, turn: number) => boolean,
+  cwd?: string | null,
 ): TurnSummary | null {
   if (acc.files.size === 0) return null;
   const files: TurnFileSummary[] = [];
   let totalAdditions = 0;
   let totalDeletions = 0;
-  for (const [path, delta] of acc.files) {
+  for (const [rawPath, delta] of acc.files) {
     totalAdditions += delta.additions;
     totalDeletions += delta.deletions;
+    // Display + open key: absolute under cwd → relative-posix (matches server).
+    const path = normalizeUnderCwd(rawPath, cwd);
     files.push({
       path,
       additions: delta.additions,
       deletions: delta.deletions,
-      status: isAdded(path, turn) ? "added" : "modified",
+      status: isAdded(rawPath, turn) ? "added" : "modified",
     });
   }
   files.sort((a, b) => a.path.localeCompare(b.path));
   return { turn, files, totalAdditions, totalDeletions, boundaryUserMessageId: acc.boundaryUserMessageId };
 }
 
-export function buildTurnSummaries(messages: ChatMessage[]): TurnSummary[] {
+/**
+ * Build per-turn change summaries. Optional `cwd` rewrites absolute tool paths
+ * under the session root to relative-posix so ChangeSummaryBlock rows open the
+ * correct DiffViewer tab. See change: fix-session-diff-open-nongit-and-preview.
+ */
+export function buildTurnSummaries(messages: ChatMessage[], cwd?: string | null): TurnSummary[] {
   const turnData = new Map<number, TurnAcc>();
   const order: number[] = [];
   const firstSeenTurn = new Map<string, number>();
@@ -240,7 +254,7 @@ export function buildTurnSummaries(messages: ChatMessage[]): TurnSummary[] {
 
   const summaries: TurnSummary[] = [];
   for (const turn of order) {
-    const summary = assembleTurnSummary(turn, turnData.get(turn)!, isAdded);
+    const summary = assembleTurnSummary(turn, turnData.get(turn)!, isAdded, cwd);
     if (summary) summaries.push(summary);
   }
   return summaries;

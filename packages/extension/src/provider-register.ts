@@ -46,6 +46,7 @@ export interface ModelMetadata {
   reasoning: boolean;
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
   input: InputModality[];
+  thinkingLevelMap?: Record<string, string | boolean | null>;
   /**
    * `"catalog"` when the probe resolved the model against pi's registry (real
    * capabilities); `"fallback"` when defaults were forced because no catalog
@@ -68,6 +69,7 @@ export type CatalogProbe = (provider: string, modelId: string) => {
   reasoning: boolean;
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
   input: readonly ("text" | "image")[];
+  thinkingLevelMap?: Record<string, string | boolean | null>;
 } | null | undefined;
 
 // -- Model metadata enrichment --------------------------------------------
@@ -89,7 +91,7 @@ export type CatalogProbe = (provider: string, modelId: string) => {
 const CANDIDATE_PROVIDERS: Record<string, readonly string[]> = {
   "anthropic-messages": ["anthropic", "opencode"],
   "google-generative-ai": ["google", "google-vertex"],
-  "openai-completions": ["openai", "openrouter", "groq", "xai", "mistral"],
+  "openai-completions": ["openai", "openrouter", "amazon-bedrock", "groq", "xai", "mistral"],
 };
 
 // Api-typed fallback defaults when the catalog has no match. Modern floors:
@@ -140,13 +142,14 @@ export function enrichModelMetadata(
   const resolvedApi = api && api in CANDIDATE_PROVIDERS ? api : "openai-completions";
   const candidates = CANDIDATE_PROVIDERS[resolvedApi] ?? CANDIDATE_PROVIDERS["openai-completions"];
 
-  // Build dedup'd list of ids to try: full, then everything after the last `/`.
+  // Build dedup'd ids to try: full, bare suffix, and Bedrock OpenAI ids.
   const lookupIds: string[] = [discoveredId];
   const lastSlash = discoveredId.lastIndexOf("/");
-  if (lastSlash >= 0 && lastSlash < discoveredId.length - 1) {
-    const bare = discoveredId.slice(lastSlash + 1);
-    if (bare && bare !== discoveredId) lookupIds.push(bare);
-  }
+  const bare = lastSlash >= 0 && lastSlash < discoveredId.length - 1
+    ? discoveredId.slice(lastSlash + 1)
+    : discoveredId;
+  if (bare && bare !== discoveredId) lookupIds.push(bare);
+  if (/^gpt-\d/.test(bare)) lookupIds.push(`openai.${bare}`);
 
   if (probe) {
     for (const id of lookupIds) {
@@ -164,6 +167,7 @@ export function enrichModelMetadata(
             reasoning: match.reasoning,
             cost: match.cost,
             input: [...match.input] as InputModality[],
+            thinkingLevelMap: match.thinkingLevelMap,
             metadataSource: "catalog",
           };
         }
@@ -244,8 +248,8 @@ export function toModelInfo(m: any): {
   reasoning?: boolean;
   vision?: boolean;
   contextWindow?: number;
-  metadataSource?: "catalog" | "fallback";
   supportedThinkingLevels?: string[];
+  metadataSource?: "catalog" | "fallback";
 } {
   const provider = m?.provider ?? "";
   const id = m?.id ?? "";
@@ -346,6 +350,11 @@ function hasApiKey(_providerName: string, entry: ProviderEntry): boolean {
 interface DiscoveredModel {
   id: string;
   owned_by?: string;
+  reasoning?: boolean;
+  thinkingLevelMap?: Record<string, string | boolean | null>;
+  contextWindow?: number;
+  maxTokens?: number;
+  input?: ("text" | "image")[];
 }
 
 async function discoverModels(baseUrl: string, apiKey: string): Promise<DiscoveredModel[]> {
@@ -360,7 +369,7 @@ async function discoverModels(baseUrl: string, apiKey: string): Promise<Discover
         "Authorization": `Bearer ${resolved}`,
         "Content-Type": "application/json",
       },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(2_000),
     });
 
     if (!response.ok) {
@@ -376,7 +385,15 @@ async function discoverModels(baseUrl: string, apiKey: string): Promise<Discover
 
     return body.data
       .filter((m: any) => m?.id && typeof m.id === "string")
-      .map((m: any) => ({ id: m.id, owned_by: m.owned_by }));
+      .map((m: any) => ({
+        id: m.id,
+        owned_by: m.owned_by,
+        reasoning: m.reasoning,
+        thinkingLevelMap: m.thinkingLevelMap,
+        contextWindow: m.contextWindow,
+        maxTokens: m.maxTokens,
+        input: Array.isArray(m.input) ? m.input : undefined,
+      }));
   } catch (err: any) {
     console.warn(`[provider] Model discovery failed for ${url}: ${err.message}`);
     return [];
@@ -639,10 +656,18 @@ async function registerEntry(pi: ExtensionAPI, name: string, entry: ProviderEntr
 
   const models = discovered.map((m) => {
     const meta = enrichModelMetadata(m.id, entry.api, probe);
+    const merged = {
+      ...meta,
+      reasoning: m.reasoning ?? meta.reasoning,
+      thinkingLevelMap: m.thinkingLevelMap ?? meta.thinkingLevelMap,
+      contextWindow: m.contextWindow ?? meta.contextWindow,
+      maxTokens: m.maxTokens ?? meta.maxTokens,
+      input: m.input ?? meta.input,
+    };
     // Record enrichment confidence so models_list push sites can flag
     // assumed-vs-verified capabilities. Keyed by the registered provider name.
     enrichmentSource.set(`${name}/${m.id}`, meta.metadataSource);
-    return { id: m.id, name: m.id, ...meta };
+    return { id: m.id, name: m.id, ...merged };
   });
 
   pi.registerProvider(name, {

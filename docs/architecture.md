@@ -977,6 +977,19 @@ Session-ownership gate (git state cwd-scoped, not session-scoped): each git-dete
 
 200-entry file-count cap. Write/Edit take precedence when truncating.
 
+**Tool execution failures** (change: retain-failed-tool-file-changes):
+
+`buildSessionDiff` pairs mutations by pairing `tool_execution_start` + `tool_execution_end` events via `toolCallId`. Shared case-insensitive classifier covers `write`, `edit`, `strreplace`, `bash`, `shell`, `exec_command`, `apply_patch`.
+
+Failure exposure: failures only document when exact path evidence (Write/Edit event target, detected bash output path, git-status entry, mtime proof) **intersects** final `files` or `otherChanges`. Suppress false-positive tool-error attribution when file unrelated.
+
+Failure kind mapping: `isError:true` on the tool event yields `error` kind. Structured `details.status:"partial_failure"` yields `partial_failure`; otherwise no error (non-errored execution or unstructured error). Live nested `result.details` and replay top-level `details` normalize identically via same classifier.
+
+Message sanitizing: tool-error message scrubs control characters, secret shapes (API keys, tokens), active `cwd` path, and `$HOME` + Windows `USERPROFILE` → bounds response length. Truncate at `MAX_FAILURE_MESSAGE` (500 characters).
+
+Response envelope: `/api/session-diff` gains optional `fileOperationFailures[]` array: entries carry `toolCallId`, `toolName` (classified name), `timestamp`, `kind` (`error` | `partial_failure`), `message` (sanitized), `affectedPaths` (string[], files matching evidence filter). Client renders `Failed operations` section with per-file failure badges + existing diff-path buttons.
+
+
 Client: Files panel badges tool/mixed rows (`created by <command>`). `otherChanges` render under muted, collapsed "N other working-tree changes" group with "this session only" toggle.
 
 Scope (v1): out-of-cwd files + deleted files excluded. No change to `/api/session-file` cwd 403 gate.

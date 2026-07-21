@@ -1,0 +1,141 @@
+/**
+ * Tests for the tail-first replay window selector.
+ * See change: tail-first-session-loading.
+ */
+import { describe, expect, it } from "vitest";
+import type { StoredEvent } from "../../memory-event-store.js";
+import { selectWindow, TAIL_WINDOW_EVENTS } from "../select-window.js";
+
+/** Build a stored event with a given seq + type (default a neutral event). */
+function ev(seq: number, eventType = "stats_update"): StoredEvent {
+  return { seq, event: { eventType, timestamp: seq, data: {} } };
+}
+
+/** Build a run of neutral events over the inclusive seq range. */
+function run(from: number, to: number): StoredEvent[] {
+  const out: StoredEvent[] = [];
+  for (let s = from; s <= to; s++) out.push(ev(s));
+  return out;
+}
+
+describe("selectWindow", () => {
+  it("returns the whole session when it fits the budget (hasOlder=false)", () => {
+    const events = run(1, 80);
+    const { events: win, hasOlder } = selectWindow(events, undefined, 200);
+    expect(win.length).toBe(80);
+    expect(win[0].seq).toBe(1);
+    expect(hasOlder).toBe(false);
+  });
+
+  it("selects the newest window and reports hasOlder for a large session", () => {
+    // 5000 neutral events → all boundaries safe → naive start = 4800.
+    const events = run(1, 5000);
+    const { events: win, hasOlder } = selectWindow(events, undefined, 200);
+    expect(win.length).toBe(200);
+    expect(win[0].seq).toBe(4801);
+    expect(win[win.length - 1].seq).toBe(5000);
+    expect(hasOlder).toBe(true);
+  });
+
+  it("snaps the window start backward to the nearest safe cut point", () => {
+    // Neutral events, then an open tool span straddling the naive boundary.
+    // budget 5 over 12 events → naive start index 7 (seq 8). Put a
+    // tool_execution_start at seq 8 with its end at seq 11, so the naive cut
+    // sits INSIDE the open tool span and must extend back to seq 8's start
+    // boundary (index 7 is unsafe; index 7 boundary open). Simplify: place the
+    // open span so the safe cut lands earlier.
+    const events: StoredEvent[] = [
+      ev(1),
+      ev(2),
+      ev(3),
+      ev(4),
+      ev(5),
+      ev(6),
+      ev(7, "tool_execution_start"),
+      ev(8),
+      ev(9, "tool_execution_end"),
+      ev(10),
+      ev(11),
+      ev(12),
+    ];
+    // budget 5 → naive start index 7 (boundary after seq 7 start). That
+    // boundary is INSIDE the tool span (start at index 6, end at index 8), so
+    // it must extend back to index 6 (boundary before the tool_execution_start,
+    // seq 7).
+    const { events: win } = selectWindow(events, undefined, 5);
+    expect(win[0].seq).toBe(7);
+    // The window must begin at a safe boundary: the tool_execution_start.
+    expect(win[0].event.eventType).toBe("tool_execution_start");
+  });
+
+  it("cuts at the hard cap when no safe point exists within 2x budget", () => {
+    // Construct a pool whose last 2*budget events are ALL inside one never-
+    // closing open span, so no safe boundary exists after capFloor.
+    const budget = 3;
+    const events: StoredEvent[] = [
+      ev(1),
+      ev(2),
+      // seq 3..9: an open tool span with no matching end within the cap window
+      ev(3, "tool_execution_start"),
+      ev(4),
+      ev(5),
+      ev(6),
+      ev(7),
+      ev(8),
+      ev(9),
+    ];
+    // pool.length 9, budget 3 → capFloor = 9 - 6 = 3 (index 3, seq 4).
+    // Boundaries index 4..6 are all inside the open span → unsafe → falls back
+    // to capFloor index 3 (seq 4).
+    const { events: win, hasOlder } = selectWindow(events, undefined, budget);
+    expect(win[0].seq).toBe(4);
+    expect(hasOlder).toBe(true);
+  });
+
+  it("older page returns events ending at beforeSeq - 1", () => {
+    const events = run(1, 5000);
+    const { events: win, hasOlder } = selectWindow(events, 4801, 200);
+    expect(win[win.length - 1].seq).toBe(4800);
+    expect(win.length).toBe(200);
+    expect(win[0].seq).toBe(4601);
+    expect(hasOlder).toBe(true);
+  });
+
+  it("older page reaching seq 1 reports hasOlder=false", () => {
+    const events = run(1, 300);
+    // beforeSeq 150 → pool is 1..149 (149 events) ≤ budget 200 → all, no older.
+    const { events: win, hasOlder } = selectWindow(events, 150, 200);
+    expect(win[0].seq).toBe(1);
+    expect(win[win.length - 1].seq).toBe(149);
+    expect(hasOlder).toBe(false);
+  });
+
+  it("defaults budget to TAIL_WINDOW_EVENTS", () => {
+    const events = run(1, 1000);
+    const { events: win } = selectWindow(events, undefined);
+    expect(win.length).toBe(TAIL_WINDOW_EVENTS);
+  });
+
+  it("empty session yields an empty window", () => {
+    const { events: win, hasOlder } = selectWindow([], undefined, 200);
+    expect(win.length).toBe(0);
+    expect(hasOlder).toBe(false);
+  });
+
+  it("gap-aware hasOlder: a trimmed buffer whose oldest seq > 1 does NOT advertise older when it fits the budget", () => {
+    // Store trimmed the head: only seqs 3120..3200 survive (81 events ≤ budget).
+    const events: StoredEvent[] = [];
+    for (let s = 3120; s <= 3200; s++) events.push(ev(s));
+    const { events: win, hasOlder } = selectWindow(events, undefined, 200);
+    expect(win.length).toBe(81);
+    // Oldest surviving seq is 3120 (> 1), so olderExists is true — the window
+    // fits the budget but real history precedes it.
+    expect(hasOlder).toBe(true);
+  });
+
+  it("contiguous-from-1 buffer reports hasOlder=false when it fits the budget", () => {
+    const events = run(1, 50);
+    const { hasOlder } = selectWindow(events, undefined, 200);
+    expect(hasOlder).toBe(false);
+  });
+});

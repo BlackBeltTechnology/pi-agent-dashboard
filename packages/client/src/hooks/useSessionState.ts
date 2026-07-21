@@ -31,9 +31,11 @@ import {
   applyPromptReceived,
   createInitialState,
   dismissInteractiveRequest,
+  foldReplayBuffer,
   reduceEvent,
   type SessionState,
 } from "../lib/event-reducer.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 /**
  * Accumulator threaded through the pure reducer. `maxSeq` is the highest event
@@ -44,10 +46,19 @@ import {
 export interface SessionStateAccumulator {
   readonly state: SessionState;
   readonly maxSeq: number;
+  /**
+   * Raw event buffer (ascending by seq), the authoritative fold input for the
+   * tail-first `kind: "older"` prepend+refold path. Optional so pre-existing
+   * callers that build `{ state, maxSeq }` accumulators keep working (treated
+   * as empty). See change: tail-first-session-loading.
+   */
+  readonly buffer?: ReadonlyArray<{ seq: number; event: DashboardEvent }>;
+  /** True between the first and final batches of a `kind: "tail"` window. */
+  readonly tailReplayInProgress?: boolean;
 }
 
 export function createSessionAccumulator(): SessionStateAccumulator {
-  return { state: createInitialState(), maxSeq: 0 };
+  return { state: createInitialState(), maxSeq: 0, buffer: [], tailReplayInProgress: false };
 }
 
 /** Return the same accumulator when the folded state is referentially unchanged. */
@@ -62,10 +73,35 @@ function settle(acc: SessionStateAccumulator, state: SessionState): SessionState
  */
 function applyReplay(
   acc: SessionStateAccumulator,
-  events: ReadonlyArray<{ seq: number; event: Parameters<typeof reduceEvent>[1] }>,
+  msg: Extract<ServerToBrowserMessage, { type: "event_replay" }>,
 ): SessionStateAccumulator {
+  const events = msg.events as ReadonlyArray<{ seq: number; event: DashboardEvent }>;
+
+  // kind: "older" — prepend to the raw buffer, refold the whole buffer from
+  // scratch (order-dependent reducer forbids mid-stream folds), never touch
+  // maxSeq. See change: tail-first-session-loading.
+  if (msg.kind === "older") {
+    if (events.length === 0) return acc;
+    const accBuffer = acc.buffer ?? [];
+    const seen = new Set(accBuffer.map((e) => e.seq));
+    const older = events.filter((e) => !seen.has(e.seq));
+    const merged = [...older, ...accBuffer].sort((a, b) => a.seq - b.seq);
+    let state = foldReplayBuffer(merged.map((e) => e.event));
+    if (acc.state.pendingPrompt) state = { ...state, pendingPrompt: acc.state.pendingPrompt };
+    return { state, maxSeq: acc.maxSeq, buffer: merged, tailReplayInProgress: acc.tailReplayInProgress };
+  }
+
+  // Reset decision driven by explicit window metadata (kind), with the legacy
+  // firstSeq heuristic as the no-kind fallback.
   const firstSeq = events.length > 0 ? events[0].seq : null;
-  const shouldReset = firstSeq != null && (firstSeq === 1 || firstSeq <= acc.maxSeq);
+  let shouldReset: boolean;
+  if (msg.kind === "tail") {
+    shouldReset = firstSeq != null && !acc.tailReplayInProgress;
+  } else if (msg.kind === "delta") {
+    shouldReset = false;
+  } else {
+    shouldReset = firstSeq != null && (firstSeq === 1 || firstSeq <= acc.maxSeq);
+  }
   let current = shouldReset ? createInitialState() : acc.state;
   const carry = shouldReset ? acc.state.pendingPrompt : undefined;
   if (carry) current = { ...current, pendingPrompt: carry };
@@ -76,7 +112,22 @@ function applyReplay(
   if (events.length > 0) {
     maxSeq = Math.max(maxSeq, events[events.length - 1].seq);
   }
-  return { state: current, maxSeq };
+  // Maintain the raw buffer: reset replaces it, delta/continuation appends
+  // (dedup by seq).
+  const base = shouldReset ? [] : [...(acc.buffer ?? [])];
+  const seen = new Set(base.map((e) => e.seq));
+  for (const e of events) {
+    if (!seen.has(e.seq)) {
+      base.push({ seq: e.seq, event: e.event });
+      seen.add(e.seq);
+    }
+  }
+  return {
+    state: current,
+    maxSeq,
+    buffer: base,
+    tailReplayInProgress: msg.kind === "tail" ? !msg.isLast : false,
+  };
 }
 
 /**
@@ -91,16 +142,20 @@ export function applySessionMessage(
   switch (msg.type) {
     case "event": {
       const { state, maxSeq } = foldLiveEvents(acc.state, [{ seq: msg.seq, event: msg.event }]);
-      return { state, maxSeq: Math.max(acc.maxSeq, maxSeq) };
+      const accBuffer = acc.buffer ?? [];
+      const buffer = accBuffer.some((e) => e.seq === msg.seq)
+        ? accBuffer
+        : [...accBuffer, { seq: msg.seq, event: msg.event }];
+      return { state, maxSeq: Math.max(acc.maxSeq, maxSeq), buffer, tailReplayInProgress: acc.tailReplayInProgress };
     }
 
     case "event_replay":
-      return applyReplay(acc, msg.events);
+      return applyReplay(acc, msg);
 
     case "session_state_reset": {
       const fresh = createInitialState();
       if (acc.state.pendingPrompt) fresh.pendingPrompt = acc.state.pendingPrompt;
-      return { state: fresh, maxSeq: 0 };
+      return { state: fresh, maxSeq: 0, buffer: [], tailReplayInProgress: false };
     }
 
     case "prompt_received":

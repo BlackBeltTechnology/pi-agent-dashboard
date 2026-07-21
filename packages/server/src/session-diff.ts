@@ -6,7 +6,13 @@ import { readFileSync, existsSync, statSync } from "node:fs";
 import { resolve, relative, isAbsolute, sep as pathSep, extname } from "node:path";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { FileChangeEvent, FileDiffEntry, EditOperation } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import type {
+  FileChangeEvent,
+  FileDiffEntry,
+  EditOperation,
+  FileOperationFailure,
+} from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import { mutationFamily, type MutationFamily } from "@blackbelt-technology/pi-dashboard-shared/tool-mutation.js";
 import { isGitRepo } from "./git-operations.js";
 
 const GIT_TIMEOUT = 15_000;
@@ -16,10 +22,14 @@ const MAX_MESSAGE_LENGTH = 120;
 export const SYNTHETIC_DIFF_MAX_BYTES = 256 * 1024;
 /** Hard cap on the produced changed-file list (Write/Edit entries take precedence). */
 export const MAX_FILES = 200;
+/** Hard cap on correlated file-operation failures in one response (newest first). */
+export const MAX_FAILURES = 100;
+/** Hard cap on affected paths per failure (after intersection with changed rows). */
+export const MAX_AFFECTED_PATHS = 50;
+/** Length cap for the redacted, sanitized failure message. */
+const MAX_FAILURE_MESSAGE = 500;
 /** Slack (ms) absorbing fs/event clock jitter when matching mtime to a Bash window. */
 const MTIME_SLACK_MS = 1000;
-
-const WRITE_EDIT_TOOLS = new Set(["write", "edit"]);
 
 /** Extensions treated as binary without reading the file. */
 const BINARY_EXTS = new Set([
@@ -33,7 +43,7 @@ const BINARY_EXTS = new Set([
 
 /**
  * Extract file change events from session events.
- * Scans tool_execution_start events for Write/Edit tools,
+ * Scans tool_execution_start events for direct-file mutation tools,
  * groups by file path, and includes preceding assistant message as context.
  */
 export function extractFileChanges(events: DashboardEvent[], cwd: string): FileDiffEntry[] {
@@ -62,7 +72,9 @@ export function extractFileChanges(events: DashboardEvent[], cwd: string): FileD
     if (event.eventType !== "tool_execution_start") continue;
 
     const toolName = (event.data.toolName as string || "").toLowerCase();
-    if (!WRITE_EDIT_TOOLS.has(toolName)) continue;
+    // Direct-file mutation family (write / edit / strreplace) — path from args.
+    // See change: retain-failed-tool-file-changes.
+    if (mutationFamily(toolName) !== "direct") continue;
 
     const args = event.data.args as Record<string, unknown> | undefined;
     if (!args) continue;
@@ -290,9 +302,11 @@ export function parseBashArtifacts(
   const map = new Map<string, Attribution>();
   for (const event of events) {
     if (event.eventType !== "tool_execution_start") continue;
-    if ((event.data.toolName as string || "").toLowerCase() !== "bash") continue;
+    // Shell mutation family (bash / shell / exec_command) — output-token paths.
+    // See change: retain-failed-tool-file-changes.
+    if (mutationFamily(event.data.toolName as string) !== "shell") continue;
     const args = event.data.args as Record<string, unknown> | undefined;
-    const cmd = args?.command as string | undefined;
+    const cmd = (args?.command ?? args?.cmd) as string | undefined;
     if (!cmd) continue;
     const redacted = redactCommand(cmd);
     for (const raw of bashOutputCandidates(cmd)) {
@@ -339,11 +353,11 @@ export function extractBashWindows(events: DashboardEvent[], now = Date.now()): 
   const starts = new Map<string, number>();
   const windows: BashWindow[] = [];
   for (const event of events) {
-    const toolName = (event.data.toolName as string || "").toLowerCase();
+    const isShell = mutationFamily(event.data.toolName as string) === "shell";
     const id = event.data.toolCallId as string | undefined;
-    if (event.eventType === "tool_execution_start" && toolName === "bash" && id) {
+    if (event.eventType === "tool_execution_start" && isShell && id) {
       starts.set(id, event.timestamp);
-    } else if (event.eventType === "tool_execution_end" && toolName === "bash" && id) {
+    } else if (event.eventType === "tool_execution_end" && isShell && id) {
       const start = starts.get(id);
       if (start !== undefined) {
         windows.push({ start, end: event.timestamp });
@@ -564,6 +578,7 @@ export interface SessionDiffResult {
   baseLabel?: string;
   totalAdditions?: number;
   totalDeletions?: number;
+  fileOperationFailures?: FileOperationFailure[];
 }
 
 function safeIsGitRepo(cwd: string): boolean {
@@ -584,12 +599,44 @@ function safeIsGitRepo(cwd: string): boolean {
  *   5. Session-ownership gate — owned → `files`, else → `otherChanges`.
  *   6. Cap at MAX_FILES (Write/Edit precedence), then enrich (binary-safe).
  */
+/**
+ * Map normalized apply_patch applied-path → the end-event timestamp. Structured
+ * applied/changed/created/moved paths are proof of applied work; failed-only or
+ * intended targets are NOT included. See change: retain-failed-tool-file-changes.
+ */
+export function extractPatchAppliedPaths(events: DashboardEvent[], cwd: string): Map<string, number> {
+  const map = new Map<string, number>();
+  const patchIds = new Set<string>();
+  for (const event of events) {
+    if (event.eventType !== "tool_execution_start") continue;
+    if (mutationFamily(event.data.toolName as string) !== "patch") continue;
+    const id = event.data.toolCallId as string | undefined;
+    if (id) patchIds.add(id);
+  }
+  for (const event of events) {
+    if (event.eventType !== "tool_execution_end") continue;
+    const id = event.data.toolCallId as string | undefined;
+    if (!id || !patchIds.has(id)) continue;
+    const details = extractDetails(event.data);
+    for (const field of ["appliedFiles", "changedFiles", "createdFiles", "movedFiles"]) {
+      for (const key of structuredPaths(details, field, cwd)) {
+        map.set(key, event.timestamp);
+      }
+    }
+  }
+  return map;
+}
+
 export function buildSessionDiff(events: DashboardEvent[], cwd: string): SessionDiffResult {
   const gitRepo = safeIsGitRepo(cwd);
   const writeEdit = extractFileChanges(events, cwd);
   const writeEditPaths = new Set(writeEdit.map((f) => f.path));
   const attribution = parseBashArtifacts(events, cwd);
   const windows = extractBashWindows(events);
+  // Structured applied paths from apply_patch end events. These are proof of
+  // applied work and are session-owned even in a non-git cwd where git-status
+  // cannot discover them. See change: retain-failed-tool-file-changes.
+  const patchApplied = extractPatchAppliedPaths(events, cwd);
 
   // ─ Detection ─
   let detected = new Set<string>();
@@ -605,6 +652,11 @@ export function buildSessionDiff(events: DashboardEvent[], cwd: string): Session
     for (const key of attribution.keys()) {
       if (isNoisePath(key)) continue; // node_modules / .git noise
       // In-cwd existence probe only (key is already cwd-contained — no oracle).
+      if (existsSync(resolve(cwd, key))) detected.add(key);
+    }
+    // Non-git: admit apply_patch applied paths that exist + are not noise.
+    for (const key of patchApplied.keys()) {
+      if (isNoisePath(key)) continue;
       if (existsSync(resolve(cwd, key))) detected.add(key);
     }
   }
@@ -638,7 +690,7 @@ export function buildSessionDiff(events: DashboardEvent[], cwd: string): Session
   const owned: FileDiffEntry[] = [];
   const other: FileDiffEntry[] = [];
   for (const entry of entryMap.values()) {
-    const hasRealEvent = writeEditPaths.has(entry.path);
+    const hasRealEvent = writeEditPaths.has(entry.path) || patchApplied.has(entry.path);
     const attributed = attribution.has(entry.path);
     const inWindow = (() => {
       if (hasRealEvent || attributed) return false; // already owned; skip stat
@@ -666,6 +718,15 @@ export function buildSessionDiff(events: DashboardEvent[], cwd: string): Session
   const enrichedOwned = enrichWithGitDiff(cwd, cappedOwned, { untracked });
   const enrichedOther = enrichWithGitDiff(cwd, other, { untracked });
 
+  // ─ Failure correlation (change: retain-failed-tool-file-changes) ─
+  // The final surviving changed-file key set gates every failure: a failure is
+  // exposed only when at least one evidenced path also survives here.
+  const survivingPaths = new Set<string>([
+    ...enrichedOwned.enrichedFiles.map((f) => f.path),
+    ...enrichedOther.enrichedFiles.map((f) => f.path),
+  ]);
+  const fileOperationFailures = correlateFileOperationFailures(events, cwd, survivingPaths);
+
   return {
     files: enrichedOwned.enrichedFiles,
     otherChanges: enrichedOther.enrichedFiles,
@@ -675,5 +736,184 @@ export function buildSessionDiff(events: DashboardEvent[], cwd: string): Session
     baseLabel: enrichedOwned.isGitRepo ? "HEAD" : undefined,
     totalAdditions: enrichedOwned.totalAdditions,
     totalDeletions: enrichedOwned.totalDeletions,
+    ...(fileOperationFailures.length > 0 ? { fileOperationFailures } : {}),
   };
+}
+
+// ── File-operation failure correlation ──────────────────────────────────────
+// Provider-neutral: pairs mutation start/end lifecycle events by `toolCallId`,
+// normalizes failure state without error-text heuristics, unions candidate
+// paths, and intersects with the surviving changed-file key set. See change:
+// retain-failed-tool-file-changes.
+
+interface MutationStart {
+  toolCallId: string;
+  toolName: string;
+  family: MutationFamily;
+  /** Normalized cwd-relative candidate paths from direct args / shell tokens. */
+  argCandidates: Set<string>;
+}
+
+/** Strip terminal / non-printing control sequences from failure text. */
+function stripControlSequences(text: string): string {
+  // CSI / OSC escape sequences, then bare C0/C1 control chars (keep \n \t).
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: sanitizing tool output
+  const noEsc = text.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "").replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "");
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: sanitizing tool output
+  return noEsc.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
+}
+
+/** Bound, redact, and sanitize a failure message for the API response. */
+function sanitizeFailureMessage(raw: string, cwd: string): string {
+  let out = stripControlSequences(raw).trim();
+  for (const re of SECRET_PATTERNS) out = out.replace(re, "‹redacted›");
+  // Collapse cwd + home prefixes so local paths do not leak, keep relatives.
+  if (cwd) out = out.split(cwd).join(".");
+  for (const home of [process.env.HOME, process.env.USERPROFILE]) {
+    if (home) out = out.split(home).join("~");
+  }
+  out = out.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  if (out.length > MAX_FAILURE_MESSAGE) out = `${out.slice(0, MAX_FAILURE_MESSAGE - 1)}…`;
+  return out;
+}
+
+/** Extract plain text from a live ToolResult `content` array or a string. */
+function extractResultText(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (result && typeof result === "object") {
+    const content = (result as { content?: unknown }).content;
+    if (Array.isArray(content)) {
+      return content
+        .filter((b): b is { text: string } => {
+          const o = b as { type?: unknown; text?: unknown } | null;
+          return !!o && o.type === "text" && typeof o.text === "string";
+        })
+        .map((b) => b.text)
+        .join("\n");
+    }
+  }
+  return "";
+}
+
+/** Read structured details from replay top-level or live `result.details`. */
+function extractDetails(data: Record<string, unknown>): Record<string, unknown> | undefined {
+  const top = data.details;
+  if (top && typeof top === "object" && !Array.isArray(top)) return top as Record<string, unknown>;
+  const result = data.result;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const nested = (result as { details?: unknown }).details;
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      return nested as Record<string, unknown>;
+    }
+  }
+  return undefined;
+}
+
+/** Normalized posix-path list from a structured details string[] field. */
+function structuredPaths(details: Record<string, unknown> | undefined, key: string, cwd: string): string[] {
+  const raw = details?.[key];
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const p of raw) {
+    if (typeof p !== "string") continue;
+    const key2 = normalizePath(p, cwd);
+    if (key2) out.push(key2);
+  }
+  return out;
+}
+
+export function correlateFileOperationFailures(
+  events: DashboardEvent[],
+  cwd: string,
+  survivingPaths: Set<string>,
+): FileOperationFailure[] {
+  // ─ Index mutation starts by toolCallId ─
+  const starts = new Map<string, MutationStart>();
+  for (const event of events) {
+    if (event.eventType !== "tool_execution_start") continue;
+    const toolName = (event.data.toolName as string) || "";
+    const family = mutationFamily(toolName);
+    if (!family) continue;
+    const id = event.data.toolCallId as string | undefined;
+    if (!id) continue;
+    const args = event.data.args as Record<string, unknown> | undefined;
+    const argCandidates = new Set<string>();
+    if (family === "direct") {
+      const rawPath = (args?.path ?? args?.file_path) as string | undefined;
+      const key = rawPath ? normalizePath(rawPath, cwd) : null;
+      if (key) argCandidates.add(key);
+    } else if (family === "shell") {
+      const cmd = (args?.command ?? args?.cmd) as string | undefined;
+      if (cmd) {
+        for (const raw of bashOutputCandidates(cmd)) {
+          const key = normalizePath(raw, cwd);
+          if (key) argCandidates.add(key);
+        }
+      }
+    }
+    // patch family: no arg paths; applied paths come from end-event details.
+    starts.set(id, { toolCallId: id, toolName, family, argCandidates });
+  }
+
+  // ─ Pair end events, normalize failure, dedup by toolCallId (latest wins) ─
+  const byId = new Map<string, FileOperationFailure>();
+  for (const event of events) {
+    if (event.eventType !== "tool_execution_end") continue;
+    const id = event.data.toolCallId as string | undefined;
+    if (!id) continue;
+    const start = starts.get(id);
+    if (!start) continue; // orphan / non-mutation end — not a proven failure
+
+    const data = event.data;
+    const isError = data.isError === true;
+    const details = extractDetails(data);
+    const partial = details?.status === "partial_failure";
+    if (!isError && !partial) continue; // success — no failure to expose
+    const kind: FileOperationFailure["kind"] = isError ? "error" : "partial_failure";
+
+    // Candidate path union: direct/shell args + structured applied/changed.
+    const candidates = new Set<string>(start.argCandidates);
+    for (const key of structuredPaths(details, "appliedFiles", cwd)) candidates.add(key);
+    for (const key of structuredPaths(details, "changedFiles", cwd)) candidates.add(key);
+    for (const key of structuredPaths(details, "createdFiles", cwd)) candidates.add(key);
+    for (const key of structuredPaths(details, "movedFiles", cwd)) candidates.add(key);
+    // Intersect with the surviving changed-file key set — mtime-only proximity
+    // never associates a failure with a file.
+    const affected = [...candidates].filter((p) => survivingPaths.has(p)).sort();
+    if (affected.length === 0) continue; // no correlated changed path — chat-only
+
+    // Message: result text → structured details.error → tool-name fallback.
+    const detailsError = typeof details?.error === "string" ? (details.error as string) : "";
+    const rawMessage = extractResultText(data.result) || detailsError;
+    const cleaned = sanitizeFailureMessage(rawMessage, cwd);
+    const message = cleaned || (start.toolName.trim() ? `${start.toolName} failed` : "Tool operation failed");
+
+    const failure: FileOperationFailure = {
+      toolCallId: id,
+      toolName: start.toolName,
+      timestamp: event.timestamp,
+      kind,
+      message,
+      affectedPaths: affected.slice(0, MAX_AFFECTED_PATHS),
+    };
+
+    const prev = byId.get(id);
+    if (!prev) {
+      byId.set(id, failure);
+      continue;
+    }
+    // Latest end timestamp wins; equal → isError, then partial_failure, then
+    // lexically smaller message (deterministic).
+    if (failure.timestamp > prev.timestamp) byId.set(id, failure);
+    else if (failure.timestamp === prev.timestamp) {
+      const rank = (f: FileOperationFailure) => (f.kind === "error" ? 0 : 1);
+      if (rank(failure) < rank(prev)) byId.set(id, failure);
+      else if (rank(failure) === rank(prev) && failure.message < prev.message) byId.set(id, failure);
+    }
+  }
+
+  // ─ Order newest end first, toolCallId as stable secondary key, cap ─
+  return [...byId.values()]
+    .sort((a, b) => (b.timestamp - a.timestamp) || a.toolCallId.localeCompare(b.toolCallId))
+    .slice(0, MAX_FAILURES);
 }

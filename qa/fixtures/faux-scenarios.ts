@@ -594,6 +594,35 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "bash" },
   },
+  // Captured-shape Codex partial patch: the E2E fixture tool writes the applied
+  // file then returns structured `{status:"partial_failure", appliedFiles}`.
+  // See change: retain-failed-tool-file-changes.
+  "tool-codex-partial-patch": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("apply_patch", { path: "codex-partial.md" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("partial patch completed")]),
+    ],
+    expect: { toolName: "apply_patch" },
+  },
+  // Captured-shape Grok Shell failure: the E2E fixture writes the output path
+  // then throws, producing pi's normal `isError:true` lifecycle end event.
+  // See change: retain-failed-tool-file-changes.
+  "tool-grok-failed-shell": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("Shell", {
+          command: "echo grok-output > grok-shell-failed.md && false",
+          outputPath: "grok-shell-failed.md",
+        })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("shell failure recorded")]),
+    ],
+    expect: { toolName: "Shell" },
+  },
   "tool-ctx": toolScenario("ctx_execute", {
     language: "shell",
     code: "echo hi",

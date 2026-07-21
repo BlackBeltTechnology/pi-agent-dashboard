@@ -16,14 +16,14 @@ interface Props {
   supportedLevels?: string[];
 }
 
-export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Props) {
-  const levelsToRender = supportedLevels?.length
-    ? THINKING_LEVELS.filter((l) => supportedLevels.includes(l))
-    : THINKING_LEVELS;
+export function ThinkingLevelSelector({ current, supportedLevels, onSelect }: Props) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const { flipUp, maxHeight } = usePopoverFlip(triggerRef, { open });
+  const levels = supportedLevels?.length
+    ? THINKING_LEVELS.filter((level) => supportedLevels.includes(level))
+    : THINKING_LEVELS;
 
   useEffect(() => {
     if (!open) return;
@@ -41,20 +41,20 @@ export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Pr
       <button
         ref={triggerRef}
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2 py-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+        className="focus-ring inline-flex items-center gap-1 h-8 px-2 rounded-md text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
         data-testid="thinking-level-button"
       >
         <span className="font-mono truncate flex items-center gap-1"><Icon path={mdiHeadLightbulb} size={0.5} /> {current ?? "off"}</span>
       </button>
       {open && (
         <div
-          className={`absolute left-0 w-32 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-50 overflow-hidden ${
+          className={`absolute left-0 w-32 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-md shadow-lg z-50 overflow-hidden ${
             flipUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
           data-testid="thinking-level-dropdown"
         >
           <div className="overflow-y-auto" style={{ maxHeight }}>
-            {levelsToRender.map((level) => (
+            {levels.map((level) => (
               <button
                 key={level}
                 onClick={() => {

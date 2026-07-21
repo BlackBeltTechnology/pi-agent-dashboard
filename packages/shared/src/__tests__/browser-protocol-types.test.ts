@@ -17,6 +17,8 @@ import type {
   RecoveryDismissMessage,
   BatchQuestion,
   BatchAnswer,
+  LoadOlderMessage,
+  EventReplayMessage,
 } from "../browser-protocol.js";
 import type {
   ExtensionToServerMessage,
@@ -43,6 +45,9 @@ type _AssetRegisterInBrowserUnion   = AssertExtends<BrowserAssetRegisterMessage,
 // fix-recovery-offer-dismiss-and-phantom-reopen: recovery_dismiss must live in
 // the browser→server union so the server's switch arm survives esbuild.
 type _RecoveryDismissInBrowserToServerUnion = AssertExtends<RecoveryDismissMessage, BrowserToServerMessage>;
+// tail-first-session-loading: load_older must live in the browser→server union
+// so the server's switch arm survives esbuild.
+type _LoadOlderInBrowserToServerUnion = AssertExtends<LoadOlderMessage, BrowserToServerMessage>;
 
 // Runtime verification that the type discriminants are reachable in a switch
 function extractPromptType(msg: ServerToBrowserMessage): string | null {
@@ -192,6 +197,67 @@ describe("recovery_dismiss is a member of the browser→server union", () => {
     const parsed = JSON.parse(JSON.stringify(msg)) as RecoveryDismissMessage;
     expect(parsed.type).toBe("recovery_dismiss");
     expect(parsed.sessionIds).toEqual(["abc", "def"]);
+  });
+});
+
+// tail-first-session-loading: load_older + event_replay window metadata.
+function extractLoadOlderBeforeSeq(msg: BrowserToServerMessage): number | null {
+  switch (msg.type) {
+    case "load_older":
+      return msg.beforeSeq;
+    default:
+      return null;
+  }
+}
+
+describe("tail-first-session-loading protocol additions", () => {
+  it("load_older is a valid browser→server discriminant", () => {
+    const msg: LoadOlderMessage = {
+      type: "load_older",
+      sessionId: "s1",
+      beforeSeq: 4801,
+    };
+    expect(extractLoadOlderBeforeSeq(msg)).toBe(4801);
+  });
+
+  it("load_older round-trips through JSON with optional limit", () => {
+    const msg: LoadOlderMessage = {
+      type: "load_older",
+      sessionId: "s1",
+      beforeSeq: 100,
+      limit: 50,
+    };
+    const parsed = JSON.parse(JSON.stringify(msg)) as LoadOlderMessage;
+    expect(parsed.beforeSeq).toBe(100);
+    expect(parsed.limit).toBe(50);
+  });
+
+  it("event_replay carries optional kind + hasOlder metadata", () => {
+    const tail: EventReplayMessage = {
+      type: "event_replay",
+      sessionId: "s1",
+      events: [],
+      isLast: true,
+      kind: "tail",
+      hasOlder: true,
+    };
+    const older: EventReplayMessage = {
+      type: "event_replay",
+      sessionId: "s1",
+      events: [],
+      isLast: true,
+      kind: "older",
+      hasOlder: false,
+    };
+    const legacy: EventReplayMessage = {
+      type: "event_replay",
+      sessionId: "s1",
+      events: [],
+      isLast: true,
+    };
+    expect(tail.kind).toBe("tail");
+    expect(older.hasOlder).toBe(false);
+    expect(legacy.kind).toBeUndefined();
   });
 });
 

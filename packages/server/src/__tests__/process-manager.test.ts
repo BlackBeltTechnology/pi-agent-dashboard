@@ -102,6 +102,15 @@ describe("Process Manager", () => {
       expect(args).toEqual(["--mode", "rpc", "--session", "/path/to/session.jsonl"]);
     });
 
+    it("should include --model when continuing with a selected model", () => {
+      const args = buildHeadlessArgs({
+        sessionFile: "/path/to/session.jsonl",
+        mode: "continue",
+        model: "anthropic/claude-opus",
+      });
+      expect(args).toEqual(["--mode", "rpc", "--session", "/path/to/session.jsonl", "--model", "anthropic/claude-opus"]);
+    });
+
     it("should include --fork for fork mode", () => {
       const args = buildHeadlessArgs({
         sessionFile: "/path/to/session.jsonl",

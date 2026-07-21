@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHeadlessPidRegistry } from "../headless-pid-registry.js";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { ChildProcess } from "node:child_process";
 
@@ -44,6 +44,28 @@ describe("HeadlessPidRegistry", () => {
     const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
     const linked = registry.linkSession("session-1", "/unknown");
     expect(linked).toBe(false);
+  });
+
+  // Bug 2: keeper entry stores the spawn-time cwd while the bridge reports the
+  // symlink-resolved cwd (macOS /tmp -> /private/tmp). linkSession must match
+  // them via realpath canonicalization, else writeRpc fails with
+  // "no keeper or socket gone". See change: fix-codex-slash-dispatch-fresh-session-link.
+  it("should link across a symlinked cwd (spawn cwd vs realpath cwd)", () => {
+    const realDir = makeTempDir();
+    const linkDir = join(makeTempDir(), "link");
+    symlinkSync(realDir, linkDir);
+    // Sanity: the two paths differ as strings but resolve to the same realpath.
+    expect(linkDir).not.toBe(realDir);
+    expect(realpathSync(linkDir)).toBe(realpathSync(realDir));
+
+    const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
+    const proc = mockProcess();
+    // Registered with the symlinked spawn path...
+    registry.register(100, linkDir, proc);
+    // ...linked with the realpath-resolved cwd the bridge reports.
+    const linked = registry.linkSession("session-1", realpathSync(realDir));
+    expect(linked).toBe(true);
+    expect(registry.getPid("session-1")).toBe(100);
   });
 
   it("should use FIFO matching for same cwd", () => {

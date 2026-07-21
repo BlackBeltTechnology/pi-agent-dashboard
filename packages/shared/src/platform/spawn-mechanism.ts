@@ -121,7 +121,7 @@ export interface SessionFlags {
  */
 export function sessionFlagsToArgv(flags: SessionFlags): string[] {
   if (flags.sessionFile && flags.mode === "continue") {
-    return ["--session", flags.sessionFile];
+    return ["--session", flags.sessionFile, ...modelFlag(flags)];
   }
   if (flags.sessionFile && flags.mode === "fork") {
     return ["--fork", flags.sessionFile, ...modelFlag(flags)];

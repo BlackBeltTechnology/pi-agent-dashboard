@@ -23,6 +23,7 @@ import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupD
 import type { ToolCallGroup } from "../lib/group-tool-calls.js";
 import { t as i18nT } from "../lib/i18n";
 import { buildTurnSummaries, type TurnSummary } from "../lib/lineDelta.js";
+import { normalizeUnderCwd } from "../lib/session-rel-path.js";
 import { BashOutputCard } from "./BashOutputCard.js";
 import { ChangeSummaryBlock } from "./ChangeSummaryBlock.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
@@ -77,6 +78,16 @@ interface Props {
    * session. See change: show-chat-history-loading-indicator.
    */
   loadingHistory?: boolean;
+  /**
+   * Tail-first scroll-up pagination (change: tail-first-session-loading).
+   * `hasOlder` — older history exists below the loaded window (gates the
+   * scroll-up trigger). `loadingOlder` — a `load_older` request is in flight
+   * (renders the slim top-of-transcript loading row, single-flight). `onLoadOlder`
+   * — fired when the user scrolls near the top; parent sends the request.
+   */
+  hasOlder?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: (sessionId: string) => void;
   /**
    * Client-only signal: the user manually collapsed the LIVE streaming
    * reasoning block. Sets `streamingThinkingCollapsed` on the session state so
@@ -238,7 +249,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, hasOlder, loadingOlder, onLoadOlder, onCollapseStreamingThinking }, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // True when the user wants the chat to chase new content. Flips to false on
   // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on
@@ -293,13 +304,20 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // independent of tool-call display filters; gated on the `changeSummaryTable`
   // display pref. Memoized on message identity (performance-optimization).
   const splitWs = useOptionalSplitWorkspace();
+  // Normalize absolute tool paths under session cwd → relative-posix so the
+  // DiffViewer lookup matches server `data.files` keys. See change:
+  // fix-session-diff-open-nongit-and-preview.
   const openDiffFile = useCallback(
-    (relPath: string) => splitWs?.openDiffTab(relPath),
+    (rawPath: string) => {
+      const cwd = splitWs?.cwd;
+      const rel = normalizeUnderCwd(rawPath, cwd);
+      splitWs?.openDiffTab(rel);
+    },
     [splitWs],
   );
   const turnSummaries = useMemo(
-    () => (prefs.changeSummaryTable ? buildTurnSummaries(state.messages) : []),
-    [state.messages, prefs.changeSummaryTable],
+    () => (prefs.changeSummaryTable ? buildTurnSummaries(state.messages, splitWs?.cwd) : []),
+    [state.messages, prefs.changeSummaryTable, splitWs?.cwd],
   );
   const { anchoredSummaries, tailSummary } = useMemo(() => {
     const anchored = new Map<string, TurnSummary>();
@@ -601,6 +619,16 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     ascendingRef.current = false;
   }, []);
 
+  // Prepend-anchor bookkeeping (change: tail-first-session-loading). An anchor
+  // belongs to one explicit `load_older` request, never to arbitrary scroll or
+  // tail-append churn.
+  const anchorBeforePrependRef = useRef<{
+    sessionId: string;
+    key: string;
+    index: number;
+    offset: number;
+  } | null>(null);
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -624,6 +652,23 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       setShowScrollButton(!nearBottom);
     }
     setShowScrollTopButton(!nearTop);
+    // Tail-first scroll-up pagination (change: tail-first-session-loading): when
+    // the user reaches near the top and older history exists, ask the parent to
+    // fetch the previous window. Single-flight is enforced by the parent
+    // (loadingOlderRef); `loadingOlder` short-circuits here to avoid spamming.
+    if (nearTop && hasOlder && !loadingOlder && sessionId && onLoadOlder) {
+      const items = virtualizer.getVirtualItems();
+      const anchor = items.find((vi) => vi.start + vi.size > el.scrollTop) ?? items[0];
+      if (anchor) {
+        anchorBeforePrependRef.current = {
+          sessionId,
+          key: String(anchor.key),
+          index: anchor.index,
+          offset: el.scrollTop - anchor.start,
+        };
+      }
+      onLoadOlder(sessionId);
+    }
     // Persist scroll position for this session in VIRTUAL coordinates (CR-6):
     // the first below-the-fold row's stable id + its intra-row offset. Raw
     // scrollTop is meaningless once total size is an estimate across a remount.
@@ -636,7 +681,36 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         nearBottom,
       });
     }
-  }, [sessionId, virtualizer]);
+  }, [sessionId, virtualizer, hasOlder, loadingOlder, onLoadOlder]);
+
+  // Anchor preservation on an explicit older-page prepend. Tool-burst grouping
+  // can keep row count flat or merge a boundary row, so row-count growth cannot
+  // identify a prepend. Restore only when the saved key moves to a higher index.
+  useLayoutEffect(() => {
+    const anchor = anchorBeforePrependRef.current;
+    if (!anchor) return;
+    if (anchor.sessionId !== sessionId) {
+      anchorBeforePrependRef.current = null;
+      return;
+    }
+    // Only correct when scroll-locked (not sticky bottom) — a prepend while
+    // pinned to bottom must not yank the view up.
+    if (stickToBottomRef.current) return;
+    const idx = displayRows.findIndex((r, i) => virtualRowKey(r, i) === anchor.key);
+    if (idx < 0 || idx <= anchor.index) {
+      // Key disappeared through grouping/filtering, or this render was an
+      // unrelated tail append. Never guess a different row as the anchor.
+      if (idx < 0) anchorBeforePrependRef.current = null;
+      return;
+    }
+    anchorBeforePrependRef.current = null;
+    virtualizer.scrollToIndex(idx, { align: "start" });
+    const off = anchor.offset;
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop += off;
+    });
+  }, [displayRows, sessionId, virtualizer]);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -763,6 +837,16 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         each synchronous measurement correction and race the next, reintroducing
         the scroll-to-top drift. See change: fix-chat-scroll-to-top-estimate-drift. */}
     <div ref={scrollRef} onScroll={handleScroll} onCopy={handleCopy} onWheel={cancelDescent} onTouchMove={cancelDescent} style={{ overflowAnchor: "none" }} data-testid="chat-scroll-container" className={`chat-cv h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"}`}>
+      {/* Slim "loading older…" row (change: tail-first-session-loading). Covers
+          scroll-up pagination feedback; distinct from the full-screen initial
+          history skeleton (loadingHistory). Renders outside the virtual spacer
+          so it does not perturb row measurement. */}
+      {loadingOlder ? (
+        <div data-testid="chat-loading-older" className="chat-cv-skip flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          <span>{i18nT("session.loadingOlder", undefined, "Loading older messages…")}</span>
+        </div>
+      ) : null}
       {/* Windowed historical rows (TanStack Virtual): only viewport + overscan
           are mounted. The spacer reserves getTotalSize(); each row is absolutely
           positioned + re-measured on mount. chat-cv-skip keeps Step A's

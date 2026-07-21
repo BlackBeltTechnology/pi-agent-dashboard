@@ -20,6 +20,7 @@
 "use strict";
 
 const fs = require("fs");
+const { spawn } = require("child_process");
 
 const mode = process.env.MOCK_PI_MODE || "normal";
 const logPath = process.env.MOCK_PI_LOG;
@@ -39,6 +40,14 @@ if (mode === "hung") {
   process.stdin.resume();
   if (process.env.MOCK_PI_PID_FILE) {
     try { fs.writeFileSync(process.env.MOCK_PI_PID_FILE, String(process.pid)); } catch { /* ignore */ }
+  }
+  if (process.env.MOCK_PI_DETACHED_CHILD_PID_FILE) {
+    const child = spawn(process.execPath, ["-e", "process.on('SIGTERM',()=>{}); setInterval(()=>{},1000);"], {
+      detached: true,
+      stdio: "ignore",
+    });
+    try { fs.writeFileSync(process.env.MOCK_PI_DETACHED_CHILD_PID_FILE, String(child.pid)); } catch { /* ignore */ }
+    child.unref();
   }
   // Keep the event loop busy so we cannot be killed by a graceful exit path.
   setInterval(() => { /* tick */ }, 100);

@@ -4,6 +4,7 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
+| `__tests__/ChatView.history-pagination.test.tsx` | Covers tail-first scroll-up trigger and loading-older row. See change: tail-first-session-loading. |
 | `ActionButton.tsx` | `<ActionButton action options pendingLabel>` thin wrapper over `useAsyncAction.bind`. → see `ActionButton.tsx.AGENTS.md` |
 | `AddToWorkspaceMenu.tsx` | Popover menu listing workspaces plus `+ New workspace…` entry. Surfaced on folder action bar. Exports `AddToWorkspaceMenu`. Closes on outside click / Escape. |
 | `agent-card-utils.ts` | Re-export shim. Forwards to `@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils`. Symbol moved in change `complete-flows-plugin-migration` (Layer 0). |
@@ -160,6 +161,7 @@ Files in this directory. One row per source file.
 | `Toast.tsx` | `ToastMessage.variant?: "error"|"success"|"info"` default "error". `useToast.showToast(text, variant?)` additive. Success green, info neutral, error red. See change: add-async-action-feedback. |
 | `TokenStatsBar.tsx` | Exports `TokenStatsBar`. Renders per-turn butterfly chart (input up / output down) + stats panel +… → see `TokenStatsBar.tsx.AGENTS.md` |
 | `ToolBurstGroup.tsx` | Renders temporal BURST group (data from `lib/group-tool-bursts.ts`). → see `ToolBurstGroup.tsx.AGENTS.md` |
+| `TranslateButton.tsx` | Composer translate split-button. Stores selected model in localStorage. Aligns with v2 inner-toolbar chip height. |
 | `ToolCallStep.tsx` | Renders tool-call card. Adds `showResultBody?: boolean` prop (default `true`); when `false` hides result body… → see `ToolCallStep.tsx.AGENTS.md` |
 | `ToolsSection.tsx` | Settings → General → **Tools** section. One row per registered tool: status badge, source, truncated path,… → see `ToolsSection.tsx.AGENTS.md` |
 | `TunnelButton.tsx` | Exports `TunnelButton`. Unified tunnel/QR button. Polls `/api/tunnel-status` every 30s. → see `TunnelButton.tsx.AGENTS.md` |

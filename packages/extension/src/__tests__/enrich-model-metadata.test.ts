@@ -69,6 +69,17 @@ const FAKE_CATALOG = new Map<string, any>([
       input: ["text"],
     },
   ],
+  [
+    "amazon-bedrock|openai.gpt-5.5",
+    {
+      contextWindow: 272_000,
+      maxTokens: 128_000,
+      reasoning: true,
+      cost: { input: 5.5, output: 33, cacheRead: 0.55, cacheWrite: 0 },
+      input: ["text", "image"],
+      thinkingLevelMap: { xhigh: "xhigh" },
+    },
+  ],
 ]);
 
 const fakeProbe: CatalogProbe = (provider, id) =>
@@ -114,6 +125,14 @@ describe("enrichModelMetadata — catalog matches via probe", () => {
     expect(result.contextWindow).toBe(400_000);
     expect(result.maxTokens).toBe(128_000);
     expect(result.reasoning).toBe(true);
+  });
+
+  it("resolves `cx/gpt-5.5` to Bedrock OpenAI catalog metadata including xhigh", () => {
+    const result = enrichModelMetadata("cx/gpt-5.5", "openai-completions", fakeProbe);
+    expect(result.contextWindow).toBe(272_000);
+    expect(result.maxTokens).toBe(128_000);
+    expect(result.reasoning).toBe(true);
+    expect(result.thinkingLevelMap).toEqual({ xhigh: "xhigh" });
   });
 });
 

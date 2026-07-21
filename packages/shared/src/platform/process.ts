@@ -149,6 +149,158 @@ export async function killProcess(
   return { ok: true, forced: true };
 }
 
+// ── Tree kill (root + detached descendants) ──────────────────────────────────
+
+export interface PsTreeRow {
+  pid: number;
+  ppid: number;
+  pgid: number;
+}
+
+/**
+ * Parse `ps -eo pid,ppid,pgid` output into rows. Pure; exported for tests.
+ * Non-numeric lines (header, garbage) are skipped.
+ */
+export function parsePsTree(output: string): PsTreeRow[] {
+  const rows: PsTreeRow[] = [];
+  for (const line of output.split(/\r?\n/)) {
+    const cols = line.trim().split(/\s+/);
+    if (cols.length < 3) continue;
+    const pid = Number.parseInt(cols[0], 10);
+    const ppid = Number.parseInt(cols[1], 10);
+    const pgid = Number.parseInt(cols[2], 10);
+    if (!Number.isFinite(pid) || !Number.isFinite(ppid) || !Number.isFinite(pgid)) continue;
+    rows.push({ pid, ppid, pgid });
+  }
+  return rows;
+}
+
+/**
+ * BFS the ps snapshot from `rootPid`, returning root + all descendants.
+ * Pure; exported for tests. Returns [] when the root is absent.
+ */
+export function collectDescendants(rootPid: number, rows: PsTreeRow[]): PsTreeRow[] {
+  const byPid = new Map(rows.map((r) => [r.pid, r]));
+  if (!byPid.has(rootPid)) return [];
+  const childrenOf = new Map<number, PsTreeRow[]>();
+  for (const r of rows) {
+    const list = childrenOf.get(r.ppid);
+    if (list) list.push(r);
+    else childrenOf.set(r.ppid, [r]);
+  }
+  const result: PsTreeRow[] = [];
+  const queue = [rootPid];
+  const seen = new Set<number>();
+  while (queue.length > 0) {
+    const pid = queue.shift() as number;
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    const row = byPid.get(pid);
+    if (row) result.push(row);
+    for (const child of childrenOf.get(pid) ?? []) queue.push(child.pid);
+  }
+  return result;
+}
+
+/**
+ * Terminate a process AND all descendant processes, cross-platform:
+ *   - win32: `taskkill /F /T /PID <pid>` (already a tree kill)
+ *   - unix:  snapshot `ps -eo pid,ppid,pgid` → BFS descendants → SIGTERM each
+ *            unique descendant process GROUP (kill(-pgid)) → wait → SIGKILL
+ *            survivors → finally single-PID SIGTERM→SIGKILL on the root.
+ *
+ * pi spawns bash tools `detached: true` (own process groups), so a
+ * single-PID kill orphans hung children — group kill is the only reliable
+ * sweep. The caller's own process group (`ownPgid`) is never signalled.
+ * See change: fix-stuck-session-stop-escalation (design D1).
+ */
+export async function killProcessTree(
+  pid: number,
+  opts: ProcessOpts & { timeoutMs?: number; ownPgid?: number } = {},
+): Promise<KillProcessResult> {
+  const platform = opts.platform ?? process.platform;
+  const exec = opts.exec ?? defaultExec;
+  const kill = opts.kill ?? defaultKill;
+  const timeoutMs = opts.timeoutMs ?? 2000;
+  const ownPgid = opts.ownPgid ?? readOwnPgid(exec);
+
+  if (platform === "win32") {
+    // taskkill /F /T is a genuine tree kill; delegate.
+    return killProcess(pid, opts);
+  }
+
+  const snapshot = (): PsTreeRow[] => {
+    try {
+      return parsePsTree(exec("ps -eo pid,ppid,pgid", { encoding: "utf-8" }));
+    } catch {
+      return [];
+    }
+  };
+
+  const targetGroups = (rows: PsTreeRow[]): number[] => {
+    const groups = new Set<number>();
+    for (const r of collectDescendants(pid, rows)) {
+      if (r.pgid > 0 && r.pgid !== ownPgid) groups.add(r.pgid);
+    }
+    return [...groups];
+  };
+
+  const signalGroups = (groups: number[], signal: NodeJS.Signals): void => {
+    for (const pgid of groups) {
+      try {
+        kill(-pgid, signal);
+      } catch {
+        /* ESRCH — group already gone */
+      }
+    }
+  };
+
+  // Phase 1: SIGTERM every descendant group, plus the root PID directly
+  // (covers ps-snapshot failure and a root whose group was excluded).
+  signalGroups(targetGroups(snapshot()), "SIGTERM");
+  try {
+    kill(pid, "SIGTERM");
+  } catch {
+    /* already dead */
+  }
+
+  // Grace window: wait for the root to die.
+  const deadline = Date.now() + timeoutMs;
+  let rootDead = !isProcessAlive(pid, { kill });
+  while (!rootDead && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 100));
+    rootDead = !isProcessAlive(pid, { kill });
+  }
+
+  if (rootDead) {
+    // Second snapshot pass: SIGKILL straggler groups forked mid-kill.
+    const leftover = targetGroups(snapshot());
+    if (leftover.length > 0) signalGroups(leftover, "SIGKILL");
+    return { ok: true, forced: false };
+  }
+
+  // Phase 2: SIGKILL surviving groups (fresh snapshot), then the root PID.
+  signalGroups(targetGroups(snapshot()), "SIGKILL");
+  try {
+    kill(pid, "SIGKILL");
+  } catch {
+    /* already dead */
+  }
+  await new Promise((r) => setTimeout(r, 100));
+  if (!isProcessAlive(pid, { kill })) return { ok: true, forced: true };
+  return { ok: false, forced: true };
+}
+
+function readOwnPgid(exec: ExecFn): number | undefined {
+  try {
+    const out = exec(`ps -p ${process.pid} -o pgid=`, { encoding: "utf-8" }).trim();
+    const pgid = Number.parseInt(out, 10);
+    return Number.isFinite(pgid) && pgid > 0 ? pgid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ── Process-group kill (for detached children) ───────────────────────────────
 
 /**

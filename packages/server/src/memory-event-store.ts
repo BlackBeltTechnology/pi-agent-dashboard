@@ -12,6 +12,8 @@ export interface StoredEvent {
 export interface EventStore {
   /** Insert an event, returns assigned sequence number */
   insertEvent(sessionId: string, event: DashboardEvent): number;
+  /** Atomically replace a session buffer with events sequenced from 1. */
+  replaceEvents(sessionId: string, events: DashboardEvent[]): void;
   /** Get events for a session starting from minSeq (inclusive) */
   getEvents(sessionId: string, minSeq: number): StoredEvent[];
   /** Get a single event by sessionId and seq */
@@ -428,6 +430,24 @@ export function createMemoryEventStore(
       }
       evictedSessionsTotal += evictIfNeeded();
       return seq;
+    },
+
+    replaceEvents(sessionId: string, events: DashboardEvent[]): void {
+      const buf: SessionBuffer = {
+        events: events.map((event, i) => ({ seq: i + 1, event: truncateEventData(event) })),
+        nextSeq: events.length + 1,
+        lastAccess: Date.now(),
+      };
+      if (maxEventsPerSession > 0 && buf.events.length > maxEventsPerSession) {
+        const { dropped, toolEndDropped } = trimBufferToLimit(buf, maxEventsPerSession);
+        if (dropped > 0) {
+          trimmedEventsTotal += dropped;
+          trimmedToolEndTotal += toolEndDropped;
+          trimmedEventsBySession.set(sessionId, (trimmedEventsBySession.get(sessionId) ?? 0) + dropped);
+        }
+      }
+      buffers.set(sessionId, buf);
+      evictedSessionsTotal += evictIfNeeded();
     },
 
     getEvents(sessionId: string, minSeq: number): StoredEvent[] {

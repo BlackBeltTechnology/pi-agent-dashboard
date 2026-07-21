@@ -65,9 +65,10 @@ export function buildOpenSpecConnectSnapshot(
 
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "./browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "./browser-handlers/handler-context.js";
+import { selectWindow, TAIL_WINDOW_EVENTS } from "./browser-handlers/select-window.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest } from "./browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "./browser-handlers/session-meta-handler.js";
-import { handleSubscribe } from "./browser-handlers/subscription-handler.js";
+import { handleLoadOlder, handleSubscribe } from "./browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "./browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "./pending-resume-registry.js";
 import type { TerminalManager } from "./terminal-manager.js";
@@ -112,6 +113,15 @@ export interface BrowserGateway {
   clearPromptRequest(sessionId: string, promptId: string): void;
   /** Tell browser subscribers to reset accumulated state for a session (bridge reconnected) */
   broadcastSessionStateReset(sessionId: string): void;
+  /**
+   * Deliver the bounded tail window of a session's stored events to every
+   * subscriber, in back-pressure-aware batches (change:
+   * bound-bridge-resume-replay, D2). Replaces the single giant `event_replay`
+   * frame the resume `replay_complete` path used to send — that frame could
+   * exceed MAX_WS_BUFFER and be silently dropped. Returns a promise that
+   * resolves when the last batch has been enqueued.
+   */
+  replayTailToSubscribers(sessionId: string): Promise<void>;
   /** Shut down all tracked headless child processes */
   shutdownHeadlessProcesses(): void;
   /** Registry for linking headless PIDs to session IDs */
@@ -310,10 +320,30 @@ export function createBrowserGateway(
   const droppedFramesBySession = new Map<string, number>();
   const DROP_WARN_WINDOW_MS = 5_000;
   let lastDropWarnAt = 0;
+  // Sessions that have already had a `frames_dropped` notice emitted since
+  // their drop count was last reset. Prevents a notice per dropped frame — one
+  // notice per session per drop-storm. See change: bound-bridge-resume-replay (D4).
+  const DROP_NOTICE_THRESHOLD = 5;
+  const droppedNoticeSent = new Set<string>();
 
   function recordDroppedFrame(sessionId: string | undefined, seq: number | undefined, bufferedAmount: number) {
     droppedFramesTotal++;
-    if (sessionId) droppedFramesBySession.set(sessionId, (droppedFramesBySession.get(sessionId) ?? 0) + 1);
+    if (sessionId) {
+      const count = (droppedFramesBySession.get(sessionId) ?? 0) + 1;
+      droppedFramesBySession.set(sessionId, count);
+      // Emit a structured notice exactly once when the session first crosses
+      // the threshold, so the client can trigger a bounded re-subscribe.
+      if (count >= DROP_NOTICE_THRESHOLD && !droppedNoticeSent.has(sessionId)) {
+        droppedNoticeSent.add(sessionId);
+        const notice: ServerToBrowserMessage = { type: "frames_dropped", sessionId, dropped: count };
+        for (const ws of getSubscribers(sessionId)) {
+          // Send directly — bypass the buffer guard so the notice reaches the
+          // client even when the buffer is what triggered the drops. A single
+          // tiny frame cannot meaningfully worsen the back-pressure.
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(notice));
+        }
+      }
+    }
     const now = Date.now();
     if (now - lastDropWarnAt >= DROP_WARN_WINDOW_MS) {
       lastDropWarnAt = now;
@@ -497,7 +527,17 @@ export function createBrowserGateway(
 
         switch (msg.type) {
           case "subscribe":
+            // A (re-)subscribe re-arms the dropped-frame notice for this
+            // session: after the client acts on a notice, a subsequent storm
+            // should be able to notify again. See change:
+            // bound-bridge-resume-replay (D4).
+            droppedNoticeSent.delete((msg as { sessionId: string }).sessionId);
             handleSubscribe(msg, subs, ctx);
+            break;
+          case "load_older":
+            // Scroll-up pagination (tail-first-session-loading). Sent outside
+            // the replaying bookkeeping; live events keep flowing.
+            await handleLoadOlder(msg, ctx);
             break;
           case "unsubscribe":
             subs.delete(msg.sessionId);
@@ -917,6 +957,43 @@ export function createBrowserGateway(
       const msg: ServerToBrowserMessage = { type: "session_state_reset", sessionId };
       for (const ws of subscribers) {
         sendTo(ws, msg);
+      }
+    },
+
+    async replayTailToSubscribers(sessionId: string): Promise<void> {
+      const subscribers = getSubscribers(sessionId);
+      if (subscribers.length === 0) return;
+      const all = eventStore.getEvents(sessionId, 1);
+      if (all.length === 0) return;
+      // Bound to the same tail window the browser subscribe path uses, so the
+      // resume replay never sends more than the client would fetch on a cold
+      // subscribe. Older history is served lazily via `load_older`.
+      const { events: window, hasOlder } = selectWindow(all, undefined, TAIL_WINDOW_EVENTS);
+      const BATCH = 50;
+      for (const ws of subscribers) {
+        for (let i = 0; i < window.length; i += BATCH) {
+          if (ws.readyState !== ws.OPEN) break;
+          const batch = window.slice(i, i + BATCH);
+          const isLast = i + BATCH >= window.length;
+          sendTo(
+            ws,
+            {
+              type: "event_replay",
+              sessionId,
+              events: batch.map((e) => ({ seq: e.seq, event: e.event })),
+              isLast,
+              kind: "tail",
+              hasOlder,
+            } as ServerToBrowserMessage,
+            { sessionId, seq: batch[batch.length - 1]?.seq },
+          );
+          // Yield between batches so the WS send buffer drains and never
+          // crosses MAX_WS_BUFFER (the silent-drop trigger). See change:
+          // bound-bridge-resume-replay (D2).
+          if (!isLast) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          }
+        }
       }
     },
 

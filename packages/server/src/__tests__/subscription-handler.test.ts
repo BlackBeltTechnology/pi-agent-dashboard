@@ -2,7 +2,13 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { handleSubscribe, replaySessionAssets } from "../browser-handlers/subscription-handler.js";
+import { TAIL_WINDOW_EVENTS } from "../browser-handlers/select-window.js";
+import {
+  beginReattachHistoryHydration,
+  handleLoadOlder,
+  handleSubscribe,
+  replaySessionAssets,
+} from "../browser-handlers/subscription-handler.js";
 import { createMemoryEventStore } from "../memory-event-store.js";
 import { createMemorySessionManager } from "../memory-session-manager.js";
 
@@ -218,6 +224,206 @@ describe("handleSubscribe — stale lastSeq detection", () => {
   });
 });
 
+// tail-first-session-loading
+describe("handleSubscribe — tail-first window", () => {
+  it("cold subscribe (lastSeq:0) sends only the tail window with kind:\"tail\" and hasOlder:true", async () => {
+    const ctx = createMockContext();
+    const total = TAIL_WINDOW_EVENTS * 5;
+    for (let i = 0; i < total; i++) ctx.eventStore.insertEvent("s1", makeEvent("message_start"));
+
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 0 }, new Set(), ctx);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const calls = (ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>;
+    const replays = calls.filter(([, m]) => m.type === "event_replay");
+    const allEvents = replays.flatMap(([, m]: any) => m.events);
+    // Window is bounded by [budget, 2*budget]; never the full history.
+    expect(allEvents.length).toBeGreaterThanOrEqual(TAIL_WINDOW_EVENTS);
+    expect(allEvents.length).toBeLessThanOrEqual(2 * TAIL_WINDOW_EVENTS);
+    // Newest event is present; oldest of the window is > 1.
+    expect(allEvents[allEvents.length - 1].seq).toBe(total);
+    expect(allEvents[0].seq).toBeGreaterThan(1);
+    // Every batch carries kind:"tail"; final carries hasOlder:true.
+    expect(replays.every(([, m]: any) => m.kind === "tail")).toBe(true);
+    const last = replays[replays.length - 1][1] as any;
+    expect(last.isLast).toBe(true);
+    expect(last.hasOlder).toBe(true);
+  });
+
+  it("small session sends everything as the tail with hasOlder:false", async () => {
+    const ctx = createMockContext();
+    for (let i = 0; i < 80; i++) ctx.eventStore.insertEvent("s1", makeEvent("message_start"));
+
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 0 }, new Set(), ctx);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const calls = (ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>;
+    const replays = calls.filter(([, m]) => m.type === "event_replay");
+    const allEvents = replays.flatMap(([, m]: any) => m.events);
+    expect(allEvents).toHaveLength(80);
+    const last = replays[replays.length - 1][1] as any;
+    expect(last.kind).toBe("tail");
+    expect(last.hasOlder).toBe(false);
+  });
+
+  it("warm delta subscribe (lastSeq within range) sends kind:\"delta\"", async () => {
+    const ctx = createMockContext();
+    for (let i = 0; i < 5; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 3 }, new Set(), ctx);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const calls = (ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>;
+    const replays = calls.filter(([, m]) => m.type === "event_replay");
+    expect(replays.every(([, m]: any) => m.kind === "delta")).toBe(true);
+  });
+
+  it("stale lastSeq replies session_state_reset + tail window (kind:\"tail\"), not full-from-1", async () => {
+    const ctx = createMockContext();
+    for (let i = 0; i < 3; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 100 }, new Set(), ctx);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const calls = (ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>;
+    expect(calls.filter(([, m]) => m.type === "session_state_reset")).toHaveLength(1);
+    const replays = calls.filter(([, m]) => m.type === "event_replay");
+    expect(replays.every(([, m]: any) => m.kind === "tail")).toBe(true);
+    const last = replays[replays.length - 1][1] as any;
+    // ≤ budget stored events → all covered, hasOlder:false.
+    expect(last.hasOlder).toBe(false);
+  });
+});
+
+describe("handleLoadOlder — scroll-up pagination", () => {
+  it("returns the previous window ending at beforeSeq-1 with kind:\"older\"", async () => {
+    const ctx = createMockContext();
+    // Neutral events → every boundary is a safe cut → exact budget-size window.
+    for (let i = 0; i < 5000; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+
+    await handleLoadOlder({ type: "load_older", sessionId: "s1", beforeSeq: 4801 }, ctx);
+
+    const calls = (ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>;
+    const replays = calls.filter(([, m]) => m.type === "event_replay");
+    expect(replays).toHaveLength(1);
+    const m = replays[0][1] as any;
+    expect(m.kind).toBe("older");
+    expect(m.isLast).toBe(true);
+    expect(m.hasOlder).toBe(true);
+    expect(m.events[m.events.length - 1].seq).toBe(4800);
+    expect(m.events.length).toBe(TAIL_WINDOW_EVENTS);
+  });
+
+  it("final page reaching seq 1 reports hasOlder:false", async () => {
+    const ctx = createMockContext();
+    for (let i = 0; i < 300; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+
+    await handleLoadOlder({ type: "load_older", sessionId: "s1", beforeSeq: 150 }, ctx);
+
+    const m = ((ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>)
+      .filter(([, x]) => x.type === "event_replay")[0][1] as any;
+    expect(m.kind).toBe("older");
+    expect(m.hasOlder).toBe(false);
+    expect(m.events[0].seq).toBe(1);
+  });
+
+  it("unavailable session degrades to empty older window with hasOlder:false", async () => {
+    const ctx = createMockContext();
+    await handleLoadOlder({ type: "load_older", sessionId: "missing", beforeSeq: 100 }, ctx);
+
+    const m = ((ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>)
+      .filter(([, x]) => x.type === "event_replay")[0][1] as any;
+    expect(m.kind).toBe("older");
+    expect(m.events).toHaveLength(0);
+    expect(m.hasOlder).toBe(false);
+    expect(m.isLast).toBe(true);
+  });
+
+  it("does NOT call markReplaying (older bypasses suppression)", async () => {
+    const markReplaying = vi.fn();
+    const ctx = createMockContext({ markReplaying });
+    for (let i = 0; i < 500; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+
+    await handleLoadOlder({ type: "load_older", sessionId: "s1", beforeSeq: 300 }, ctx);
+    expect(markReplaying).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-finite / ≤ 1 beforeSeq with an empty end-of-history reply", async () => {
+    for (const bad of [Number.NaN, 0, 1, -5, Number.POSITIVE_INFINITY]) {
+      const ctx = createMockContext();
+      for (let i = 0; i < 500; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+      await handleLoadOlder({ type: "load_older", sessionId: "s1", beforeSeq: bad }, ctx);
+      const m = ((ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>)
+        .filter(([, x]) => x.type === "event_replay")[0][1] as any;
+      expect(m.kind).toBe("older");
+      expect(m.events).toHaveLength(0);
+      expect(m.hasOlder).toBe(false);
+    }
+  });
+
+  it("clamps a client-supplied limit to 2× the tail budget", async () => {
+    const ctx = createMockContext();
+    for (let i = 0; i < 5000; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+    await handleLoadOlder({ type: "load_older", sessionId: "s1", beforeSeq: 4801, limit: 99999 }, ctx);
+    const m = ((ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>)
+      .filter(([, x]) => x.type === "event_replay")[0][1] as any;
+    expect(m.events.length).toBeLessThanOrEqual(2 * TAIL_WINDOW_EVENTS);
+  });
+});
+
+describe("handleSubscribe — cold load delivers tail before full buffer fill", () => {
+  it("sends the tail window to subscribers and then fills the store", async () => {
+    const events = Array.from({ length: 1200 }, () => makeEvent("message_start"));
+    const loadSessionEvents = vi.fn(async () => ({ success: true, events }));
+    const ctx = createMockContext({ directoryService: { loadSessionEvents } as any });
+    ctx.getSubscribers = () => [ctx.ws];
+    ctx.sessionManager.restore({
+      id: "s-cold", cwd: "/test", source: "tui", status: "ended",
+      startedAt: 1, endedAt: 2, tokensIn: 0, tokensOut: 0, cost: 0,
+      contextWindow: 200000, sessionFile: "/sessions/s-cold.jsonl",
+      sessionDir: "/sessions", hidden: false,
+    } as any);
+
+    handleSubscribe({ type: "subscribe", sessionId: "s-cold" }, new Set(), ctx);
+    // Let the load resolve + tail send happen; allow several setImmediate ticks
+    // for the chunked fill.
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+
+    const calls = (ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>;
+    const tail = calls.filter(([, m]) => m.type === "event_replay" && (m as any).kind === "tail");
+    const tailEvents = tail.flatMap(([, m]: any) => m.events);
+    expect(tailEvents.length).toBeGreaterThanOrEqual(TAIL_WINDOW_EVENTS);
+    expect(tailEvents.length).toBeLessThanOrEqual(2 * TAIL_WINDOW_EVENTS);
+    expect(tailEvents[tailEvents.length - 1].seq).toBe(1200);
+    // Full list landed in the store after the fill.
+    expect(ctx.eventStore.getMaxSeq("s-cold")).toBe(1200);
+  });
+
+  it("load_older during fill answers after the fill from the full buffer", async () => {
+    const events = Array.from({ length: 1200 }, () => makeEvent());
+    const loadSessionEvents = vi.fn(async () => ({ success: true, events }));
+    const ctx = createMockContext({ directoryService: { loadSessionEvents } as any });
+    ctx.getSubscribers = () => [ctx.ws];
+    ctx.sessionManager.restore({
+      id: "s-cold2", cwd: "/test", source: "tui", status: "ended",
+      startedAt: 1, endedAt: 2, tokensIn: 0, tokensOut: 0, cost: 0,
+      contextWindow: 200000, sessionFile: "/sessions/s-cold2.jsonl",
+      sessionDir: "/sessions", hidden: false,
+    } as any);
+
+    handleSubscribe({ type: "subscribe", sessionId: "s-cold2" }, new Set(), ctx);
+    // Let the disk parse resolve + tail send happen (fill promise now registered
+    // and possibly still chunking); then request older and await completion.
+    await new Promise((r) => setTimeout(r, 10));
+    await handleLoadOlder({ type: "load_older", sessionId: "s-cold2", beforeSeq: 1001 }, ctx);
+
+    const older = ((ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>)
+      .filter(([, m]) => m.type === "event_replay" && (m as any).kind === "older")[0][1] as any;
+    expect(older.events.length).toBe(TAIL_WINDOW_EVENTS);
+    expect(older.events[older.events.length - 1].seq).toBe(1000);
+  });
+});
+
 // chat-markdown-local-images-and-math
 describe("replaySessionAssets — emits one asset_register per Session.assets entry", () => {
   it("sends nothing when session has no assets", () => {
@@ -392,5 +598,122 @@ describe("handleSubscribe — asset replay precedes events", () => {
     expect(firstAssetIdx).toBeGreaterThanOrEqual(0);
     expect(firstEventIdx).toBeGreaterThanOrEqual(0);
     expect(firstAssetIdx).toBeLessThan(firstEventIdx);
+  });
+});
+
+describe("beginReattachHistoryHydration", () => {
+  it("replaces a bounded bridge tail with the complete on-disk history", async () => {
+    const store = createMemoryEventStore(() => false);
+    const tail3 = makeEvent("tail-3");
+    const tail4 = makeEvent("tail-4");
+    const tail5 = makeEvent("full-5");
+    store.insertEvent("s1", tail3);
+    store.insertEvent("s1", tail4);
+    store.insertEvent("s1", tail5);
+    const fullHistory = [
+      makeEvent("full-1"),
+      makeEvent("full-2"),
+      tail3,
+      tail4,
+      tail5,
+    ];
+    const loadSessionEvents = vi.fn(async () => ({ success: true as const, events: fullHistory }));
+
+    const hydration = beginReattachHistoryHydration(
+      store,
+      { loadSessionEvents } as any,
+      "s1",
+      "/sessions/s1.jsonl",
+    );
+
+    expect(await hydration).toBe(true);
+    expect(loadSessionEvents).toHaveBeenCalledWith("s1", "/sessions/s1.jsonl", undefined);
+    expect(store.getEvents("s1", 1).map((entry) => entry.event.eventType)).toEqual([
+      "full-1",
+      "full-2",
+      "tail-3",
+      "tail-4",
+      "full-5",
+    ]);
+  });
+
+  it("preserves live events received while the full JSONL worker runs", async () => {
+    const store = createMemoryEventStore(() => false);
+    const tail2 = makeEvent("tail-2");
+    const tail3 = makeEvent("tail-3");
+    store.insertEvent("s-live", tail2);
+    store.insertEvent("s-live", tail3);
+    let resolveLoad!: (value: { success: true; events: DashboardEvent[] }) => void;
+    const hydration = beginReattachHistoryHydration(
+      store,
+      {
+        loadSessionEvents: vi.fn(
+          () => new Promise<{ success: true; events: DashboardEvent[] }>((resolve) => {
+            resolveLoad = resolve;
+          }),
+        ),
+      } as any,
+      "s-live",
+      "/sessions/s-live.jsonl",
+    );
+    store.insertEvent("s-live", makeEvent("live-4"));
+
+    resolveLoad({ success: true, events: [makeEvent("full-1"), tail2, tail3] });
+    expect(await hydration).toBe(true);
+    expect(store.getEvents("s-live", 1).map((entry) => entry.event.eventType)).toEqual([
+      "full-1",
+      "tail-2",
+      "tail-3",
+      "live-4",
+    ]);
+  });
+
+  it("deduplicates an already-running full-history load", async () => {
+    const store = createMemoryEventStore(() => false);
+    let resolveLoad!: (value: { success: true; events: DashboardEvent[] }) => void;
+    const loadSessionEvents = vi.fn(
+      () => new Promise<{ success: true; events: DashboardEvent[] }>((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+    const directoryService = { loadSessionEvents } as any;
+
+    const first = beginReattachHistoryHydration(store, directoryService, "s2", "/sessions/s2.jsonl");
+    const second = beginReattachHistoryHydration(store, directoryService, "s2", "/sessions/s2.jsonl");
+    expect(second).toBeUndefined();
+    expect(loadSessionEvents).toHaveBeenCalledTimes(1);
+
+    resolveLoad({ success: true, events: [makeEvent("full")] });
+    expect(await first).toBe(true);
+  });
+
+  it("keeps the usable bridge tail when disk hydration fails", async () => {
+    const store = createMemoryEventStore(() => false);
+    store.insertEvent("s3", makeEvent("tail"));
+
+    const hydration = beginReattachHistoryHydration(
+      store,
+      { loadSessionEvents: vi.fn(async () => ({ success: false as const, events: [], error: "bad_jsonl" })) } as any,
+      "s3",
+      "/sessions/s3.jsonl",
+    );
+
+    expect(await hydration).toBe(false);
+    expect(store.getEvents("s3", 1).map((entry) => entry.event.eventType)).toEqual(["tail"]);
+  });
+
+  it("keeps the usable bridge tail when disk hydration returns an empty history", async () => {
+    const store = createMemoryEventStore(() => false);
+    store.insertEvent("s-empty", makeEvent("tail"));
+
+    const hydration = beginReattachHistoryHydration(
+      store,
+      { loadSessionEvents: vi.fn(async () => ({ success: true as const, events: [] })) } as any,
+      "s-empty",
+      "/sessions/s-empty.jsonl",
+    );
+
+    expect(await hydration).toBe(false);
+    expect(store.getEvents("s-empty", 1).map((entry) => entry.event.eventType)).toEqual(["tail"]);
   });
 });

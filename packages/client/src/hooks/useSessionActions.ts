@@ -2,12 +2,12 @@
  * Session action callbacks extracted from App.tsx.
  * Handles send, abort, resume, spawn, hide, rename, shutdown, terminal, and selection actions.
  */
+
+import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback } from "react";
 import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
 import { encodePromptAnswer } from "../lib/prompt-answer-encoder.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
-import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 export interface SessionActionDeps {
   selectedId: string | undefined;
@@ -36,6 +36,48 @@ export interface SessionActionDeps {
    * See change: spawn-correlation-token.
    */
   pendingSpawnsRef: React.MutableRefObject<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>;
+  /** REST continue-resume failures clear the optimistic spinner here. */
+  setResumeErrors: React.Dispatch<React.SetStateAction<Map<string, string>>>;
+}
+
+interface ResumeApiResponse {
+  success?: boolean;
+  error?: string;
+}
+
+const RESUME_REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * Continue-resume needs an acknowledged spawn result. Browser WebSocket sends
+ * are fire-and-forget, so a dropped frame leaves the optimistic spinner stuck.
+ * The REST endpoint uses the same server-side keeper spawn path and gives the
+ * client a definite success or failure response.
+ */
+async function resumeSessionViaApi(sessionId: string): Promise<void> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, RESUME_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`/api/session/${encodeURIComponent(sessionId)}/resume`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "continue" }),
+      signal: controller.signal,
+    });
+    const payload = (await response.json().catch(() => ({}))) as ResumeApiResponse;
+    if (!response.ok || payload.success !== true) {
+      throw new Error(payload.error ?? `Resume failed (${response.status})`);
+    }
+  } catch (error) {
+    if (timedOut) throw new Error("Resume request timed out");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function useSessionActions(deps: SessionActionDeps) {
@@ -43,7 +85,7 @@ export function useSessionActions(deps: SessionActionDeps) {
     selectedId, send, navigate, setMobileOpen,
     sessions, setSessions, setSessionStates, setSpawningCwds, setTerminals,
     clearSpawningCwd, spawnTimeoutsRef, pendingTerminalCwdRef, terminals,
-    pendingSpawnsRef,
+    pendingSpawnsRef, setResumeErrors,
   } = deps;
 
   // Native crypto.randomUUID is widely available; fall back to a Math.random
@@ -271,13 +313,41 @@ export function useSessionActions(deps: SessionActionDeps) {
     [send, setSessionStates],
   );
 
-  const handleResumeSession = useCallback((sessionId: string, mode: "continue" | "fork", entryId?: string) => {
+  const handleResumeSession = useCallback(async (sessionId: string, mode: "continue" | "fork", entryId?: string) => {
+    if (sessions.get(sessionId)?.resuming) return;
     setSessions((prev) => {
       const next = new Map(prev);
       const existing = next.get(sessionId);
       if (existing) next.set(sessionId, { ...existing, resuming: true });
       return next;
     });
+    // Normal Continue has no entry-position semantics. Use the acknowledged
+    // REST path so a lost WS frame cannot strand this card on a spinner. Fork
+    // and fork-from-here retain the WS route because it carries `entryId`.
+    if (mode === "continue" && !entryId) {
+      try {
+        await resumeSessionViaApi(sessionId);
+        setResumeErrors((prev) => {
+          if (!prev.has(sessionId)) return prev;
+          const next = new Map(prev);
+          next.delete(sessionId);
+          return next;
+        });
+      } catch (error) {
+        setSessions((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(sessionId);
+          if (existing) next.set(sessionId, { ...existing, resuming: false });
+          return next;
+        });
+        setResumeErrors((prev) => {
+          const next = new Map(prev);
+          next.set(sessionId, error instanceof Error ? error.message : "Resume failed");
+          return next;
+        });
+      }
+      return;
+    }
     // Mint requestId so session_added (for fork mode) carries spawnRequestId
     // and the client can auto-select the new fork. cwd is left empty here
     // because resume's parent-session lookup happens server-side; we only
@@ -289,7 +359,7 @@ export function useSessionActions(deps: SessionActionDeps) {
     // intent visible at the wire level. See change:
     // differentiate-resume-intent-by-trigger.
     send({ type: "resume_session", sessionId, mode, placement: "front", requestId, ...(entryId ? { entryId } : {}) });
-  }, [send, setSessions, pendingSpawnsRef]);
+  }, [send, sessions, setSessions, pendingSpawnsRef, setResumeErrors]);
 
   /**
    * Drag-to-resume entry point. The drop position was just persisted via

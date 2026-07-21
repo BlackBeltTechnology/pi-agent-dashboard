@@ -8,8 +8,8 @@ import { existsSync } from "node:fs";
  */
 function findClientDir(serverDir: string): string {
   const searchPaths = [
-    path.join(serverDir, "../../node_modules/@blackbelt-technology/pi-dashboard-web/dist"),
     path.join(serverDir, "../../client/dist"),
+    path.join(serverDir, "../../node_modules/@blackbelt-technology/pi-dashboard-web/dist"),
     path.join(serverDir, "../../dist/client"),
   ];
   return searchPaths.find(p => existsSync(path.join(p, "index.html"))) ?? "";
@@ -21,18 +21,19 @@ describe("client static file discovery", () => {
     expect(findClientDir("/tmp/nonexistent-server-dir")).toBe("");
   });
 
-  it("searches npm package path first", () => {
+  it("prefers monorepo client/dist before npm package dist", () => {
     // This is a structural test — verifies search order
     const serverDir = "/fake/packages/server/src";
     const searchPaths = [
-      path.join(serverDir, "../../node_modules/@blackbelt-technology/pi-dashboard-web/dist"),
       path.join(serverDir, "../../client/dist"),
+      path.join(serverDir, "../../node_modules/@blackbelt-technology/pi-dashboard-web/dist"),
       path.join(serverDir, "../../dist/client"),
     ];
-    // npm package path should be first
-    expect(searchPaths[0]).toContain("pi-dashboard-web/dist");
-    // workspace sibling second
-    expect(searchPaths[1]).toContain("client/dist");
+    // workspace sibling should be first in a checked-out repo so local builds
+    // win over stale package dist snapshots under node_modules.
+    expect(searchPaths[0]).toContain("client/dist");
+    // npm package fallback second
+    expect(searchPaths[1]).toContain("pi-dashboard-web/dist");
     // legacy third
     expect(searchPaths[2]).toContain("dist/client");
   });

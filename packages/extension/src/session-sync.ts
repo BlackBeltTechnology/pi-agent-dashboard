@@ -2,13 +2,15 @@
  * Session sync: register, replay, and handle session changes.
  * Extracted from bridge.ts for clarity.
  */
-import type { BridgeContext } from "./bridge-context.js";
-import { getCurrentModelString, extractFirstMessage, filterHiddenCommands } from "./bridge-context.js";
-import { detectSessionSource } from "./source-detector.js";
+
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
-import { gatherGitInfo, detectIsGitRepo } from "./vcs-info.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { BridgeContext } from "./bridge-context.js";
+import { extractFirstMessage, filterHiddenCommands, getCurrentModelString } from "./bridge-context.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
+import { selectEntryWindow } from "./select-entry-window.js";
+import { detectSessionSource } from "./source-detector.js";
+import { detectIsGitRepo, gatherGitInfo } from "./vcs-info.js";
 
 /**
  * Send full state sync to the server (session_register, commands, flows, models).
@@ -105,16 +107,42 @@ export function sendStateSync(
   }
 }
 
+/** Dashboard events sent per yielding batch during bounded replay. */
+export const REPLAY_EVENT_BATCH = 50;
+
 /**
- * Replay all session entries as protocol events.
+ * Replay session history as protocol events — bounded to a tail window and
+ * sent in yielding batches (change: bound-bridge-resume-replay, D1).
+ *
+ * On resume/reattach of a large session the bridge used to loop over the FULL
+ * branch and `connection.send()` each synthesized event in one synchronous
+ * burst, saturating the WS send buffer and the server→browser fan-out. Now it
+ * selects the newest `BRIDGE_TAIL_ENTRIES` entries (with a safe cut so the tail
+ * never opens mid-tool-span), synthesizes their events, and sends them in
+ * `REPLAY_EVENT_BATCH`-sized chunks yielding (`setImmediate`) between chunks so
+ * neither the bridge event loop nor the WS buffer saturates. Older history is
+ * served on demand by the server's `load_older` handler — the bridge does not
+ * eagerly re-forward it.
+ *
+ * `replay_complete` semantics are unchanged: the caller still sends it after
+ * this resolves.
  */
-export function replaySessionEntries(bc: BridgeContext): void {
+export async function replaySessionEntries(bc: BridgeContext): Promise<void> {
   try {
     const entries = bc.cachedCtx?.sessionManager?.getBranch?.();
     if (!entries || entries.length === 0) return;
-    const events = replayEntriesAsEvents(bc.sessionId, entries);
-    for (const msg of events) {
-      bc.connection.send(msg);
+    const { entries: window } = selectEntryWindow(entries);
+    const events = replayEntriesAsEvents(bc.sessionId, window);
+    for (let i = 0; i < events.length; i += REPLAY_EVENT_BATCH) {
+      const batch = events.slice(i, i + REPLAY_EVENT_BATCH);
+      for (const msg of batch) {
+        bc.connection.send(msg);
+      }
+      // Yield to the event loop between batches so the bridge stays responsive
+      // and the WS send buffer drains between chunks.
+      if (i + REPLAY_EVENT_BATCH < events.length) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
   } catch { /* ignore */ }
 }
@@ -123,11 +151,11 @@ export function replaySessionEntries(bc: BridgeContext): void {
  * Handle session change (new/fork/resume): unregister old, register new, replay, sync.
  * Called from session_start when event.reason indicates a session switch.
  */
-export function handleSessionChange(
+export async function handleSessionChange(
   bc: BridgeContext,
   ctx: any,
   getFlowsList: () => FlowInfo[],
-): void {
+): Promise<void> {
   bc.connection.send({ type: "session_unregister", sessionId: bc.sessionId });
 
   bc.sessionId = ctx.sessionManager.getSessionId();
@@ -176,7 +204,7 @@ export function handleSessionChange(
     isGitRepo: detectIsGitRepo(ctx.cwd),
   });
 
-  replaySessionEntries(bc);
+  await replaySessionEntries(bc);
   bc.connection.send({ type: "replay_complete", sessionId: bc.sessionId });
 
   // Send git info

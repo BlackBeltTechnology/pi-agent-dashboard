@@ -61,6 +61,7 @@ function makeHarness(initialState: Map<string, SessionState>) {
     setDisplayPrefs: noop,
     setViewMessagesMap: noop,
     setLoadingHistory: noop,
+    setForceKillResetSignals: noop,
   };
 
   const deps: MessageHandlerDeps = {

@@ -107,6 +107,7 @@ export function FileDiffView({ sessionId, onBack }: FileDiffViewProps) {
             {mobileShowTree ? (
               <DiffFileTree
                 files={data.files}
+                fileOperationFailures={data.fileOperationFailures}
                 selection={selection}
                 onSelect={handleSelect}
                 totalAdditions={data.totalAdditions}
@@ -126,6 +127,7 @@ export function FileDiffView({ sessionId, onBack }: FileDiffViewProps) {
             <ResizableTreePanel>
               <DiffFileTree
                 files={data.files}
+                fileOperationFailures={data.fileOperationFailures}
                 selection={selection}
                 onSelect={handleSelect}
                 totalAdditions={data.totalAdditions}

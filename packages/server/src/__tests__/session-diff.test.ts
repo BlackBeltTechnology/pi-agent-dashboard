@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", () => ({
   numstatOr: vi.fn(() => ""),
@@ -13,20 +13,20 @@ vi.mock("node:fs", () => ({
 }));
 
 import { existsSync, readFileSync, statSync } from "node:fs";
+import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { isGitRepo } from "../git-operations.js";
 import {
+  bashOutputCandidates,
+  buildSessionDiff,
+  enrichWithGitDiff,
+  extractBashWindows,
   extractFileChanges,
   gitNumstat,
-  enrichWithGitDiff,
-  buildSessionDiff,
   parsePorcelain,
-  bashOutputCandidates,
   redactCommand,
-  extractBashWindows,
 } from "../session-diff.js";
-import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
-import { isGitRepo } from "../git-operations.js";
-import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 
 function makeEvent(eventType: string, timestamp: number, data: Record<string, unknown> = {}): DashboardEvent {
   return { eventType, timestamp, data: { type: eventType, ...data } };
@@ -601,5 +601,417 @@ describe("buildSessionDiff — degradation", () => {
     expect(isRepo).toBe(false);
     expect(files.some((f) => f.path === "src/a.ts")).toBe(true);
     expect(otherChanges).toEqual([]);
+  });
+});
+
+// ── retain-failed-tool-file-changes: failure correlation ────────────────────
+
+/**
+ * Live-shape tool end: `result` is the full ToolResult ({content, details}),
+ * `details` lifted to top-level by the bridge, plus `isError`.
+ */
+function makeToolEnd(
+  toolName: string,
+  toolCallId: string,
+  opts: { isError?: boolean; result?: unknown; details?: unknown; timestamp?: number } = {},
+): DashboardEvent {
+  return makeEvent("tool_execution_end", opts.timestamp ?? 2000, {
+    toolName,
+    toolCallId,
+    isError: opts.isError ?? false,
+    ...(opts.result !== undefined ? { result: opts.result } : {}),
+    ...(opts.details !== undefined ? { details: opts.details } : {}),
+  });
+}
+
+function startWithId(toolName: string, args: Record<string, unknown>, id: string, timestamp = 1000): DashboardEvent {
+  return makeEvent("tool_execution_start", timestamp, { toolName, toolCallId: id, args });
+}
+
+describe("buildSessionDiff — file-operation failures", () => {
+  const cwd = "/project";
+  beforeEach(() => {
+    vi.mocked(isGitRepo).mockReset().mockReturnValue(true);
+    vi.mocked(git.diffOr).mockReset().mockReturnValue("");
+    vi.mocked(git.numstatOr).mockReset().mockReturnValue("");
+    vi.mocked(git.statusPorcelainOr).mockReset().mockReturnValue("");
+    vi.mocked(existsSync).mockReset().mockReturnValue(true);
+    vi.mocked(readFileSync).mockReset().mockImplementation((_p: any, enc: any) =>
+      enc === "utf-8" ? "x" : Buffer.from("x"),
+    );
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 0 } as any);
+  });
+
+  it("2.1 failed Write retains its changed file + one error failure", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M src/foo.ts\n");
+    const events = [
+      startWithId("Write", { path: "src/foo.ts", content: "x" }, "w1", 1000),
+      makeToolEnd("Write", "w1", { isError: true, result: "EACCES: permission denied", timestamp: 2000 }),
+    ];
+    const { files, fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(files.some((f) => f.path === "src/foo.ts")).toBe(true);
+    expect(fileOperationFailures).toHaveLength(1);
+    expect(fileOperationFailures![0].kind).toBe("error");
+    expect(fileOperationFailures![0].toolCallId).toBe("w1");
+    expect(fileOperationFailures![0].affectedPaths).toEqual(["src/foo.ts"]);
+    expect(fileOperationFailures![0].message).toContain("EACCES");
+  });
+
+  it("2.1 StrReplace failure surfaces via direct-file family", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M lib/x.ts\n");
+    const events = [
+      startWithId("StrReplace", { path: "lib/x.ts", oldText: "a", newText: "b" }, "s1", 1000),
+      makeToolEnd("StrReplace", "s1", { isError: true, result: "no match", timestamp: 2000 }),
+    ];
+    const { files, fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(files.some((f) => f.path === "lib/x.ts")).toBe(true);
+    expect(fileOperationFailures).toHaveLength(1);
+    expect(fileOperationFailures![0].toolName).toBe("StrReplace");
+  });
+
+  it("2.1 unrelated failure is NOT attributed to a changed file", () => {
+    // A changed file exists (git-status) but the failed tool touched no path.
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M src/foo.ts\n");
+    const events = [
+      startWithId("Write", { path: "src/foo.ts", content: "x" }, "w1", 1000),
+      // A DIFFERENT failed tool call with no path evidence at all.
+      startWithId("Read", { path: "other.ts" }, "r1", 1500),
+      makeToolEnd("Read", "r1", { isError: true, result: "boom", timestamp: 1600 }),
+    ];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    // Read is not a mutation tool → no failure entry.
+    expect(fileOperationFailures).toBeUndefined();
+  });
+
+  it("2.2 Codex apply_patch partial_failure with isError:false → partial_failure", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n?? b.ts\n");
+    const events = [
+      startWithId("apply_patch", { patch: "..." }, "p1", 1000),
+      makeToolEnd("apply_patch", "p1", {
+        isError: false,
+        result: "applied 2, failed 1",
+        details: {
+          status: "partial_failure",
+          appliedFiles: ["a.ts", "b.ts"],
+          failedFiles: ["c.ts"],
+          error: "hunk failed for c.ts",
+        },
+        timestamp: 2000,
+      }),
+    ];
+    const { files, fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(files.some((f) => f.path === "a.ts")).toBe(true);
+    expect(files.some((f) => f.path === "b.ts")).toBe(true);
+    expect(fileOperationFailures).toHaveLength(1);
+    expect(fileOperationFailures![0].kind).toBe("partial_failure");
+    expect(fileOperationFailures![0].affectedPaths.sort()).toEqual(["a.ts", "b.ts"]);
+    // failed-only target is excluded from affectedPaths
+    expect(fileOperationFailures![0].affectedPaths).not.toContain("c.ts");
+  });
+
+  it("2.2 isError:true wins over partial_failure → kind error", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const events = [
+      startWithId("apply_patch", { patch: "..." }, "p1", 1000),
+      makeToolEnd("apply_patch", "p1", {
+        isError: true,
+        result: "fatal",
+        details: { status: "partial_failure", appliedFiles: ["a.ts"] },
+        timestamp: 2000,
+      }),
+    ];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures![0].kind).toBe("error");
+  });
+
+  it("2.2 unknown structured status is not a failure without isError", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const events = [
+      startWithId("apply_patch", { patch: "..." }, "p1", 1000),
+      makeToolEnd("apply_patch", "p1", {
+        isError: false,
+        result: "ok",
+        details: { status: "some_other_status", appliedFiles: ["a.ts"] },
+        timestamp: 2000,
+      }),
+    ];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures).toBeUndefined();
+  });
+
+  it("2.2 failed-only patch target does not create a file row", () => {
+    // No git-status change; apply_patch only reports a FAILED target.
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("");
+    const events = [
+      startWithId("apply_patch", { patch: "..." }, "p1", 1000),
+      makeToolEnd("apply_patch", "p1", {
+        isError: true,
+        result: "all hunks failed",
+        details: { status: "partial_failure", appliedFiles: [], failedFiles: ["c.ts"] },
+        timestamp: 2000,
+      }),
+    ];
+    const { files, fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(files.some((f) => f.path === "c.ts")).toBe(false);
+    expect(fileOperationFailures).toBeUndefined();
+  });
+
+  it("2.2 duplicate end events dedupe deterministically (latest wins)", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const events = [
+      startWithId("Write", { path: "a.ts", content: "x" }, "w1", 1000),
+      makeToolEnd("Write", "w1", { isError: true, result: "first", timestamp: 2000 }),
+      makeToolEnd("Write", "w1", { isError: true, result: "second", timestamp: 2500 }),
+    ];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures).toHaveLength(1);
+    expect(fileOperationFailures![0].message).toContain("second");
+    expect(fileOperationFailures![0].timestamp).toBe(2500);
+  });
+
+  it("4.2 emits the same failure payload for equivalent live and replay streams", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const details = { status: "partial_failure", appliedFiles: ["a.ts"], error: "one hunk failed" };
+    const start = startWithId("apply_patch", { patch: "..." }, "p1", 1000);
+    const live = makeToolEnd("apply_patch", "p1", {
+      isError: false,
+      result: { content: [{ type: "text", text: "one hunk failed" }], details },
+      timestamp: 2000,
+    });
+    const replay = makeToolEnd("apply_patch", "p1", {
+      isError: false,
+      result: "one hunk failed",
+      details,
+      timestamp: 2000,
+    });
+
+    expect(buildSessionDiff([start, live], cwd).fileOperationFailures).toEqual(
+      buildSessionDiff([start, replay], cwd).fileOperationFailures,
+    );
+  });
+
+  it("2.3 failed Shell attributes output-token path", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? out.txt\n");
+    const events = [
+      startWithId("Shell", { command: "echo hi > out.txt && false" }, "sh1", 1000),
+      makeToolEnd("Shell", "sh1", { isError: true, result: "exit 1", timestamp: 2000 }),
+    ];
+    const { files, fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(files.some((f) => f.path === "out.txt")).toBe(true);
+    expect(fileOperationFailures).toHaveLength(1);
+    expect(fileOperationFailures![0].affectedPaths).toContain("out.txt");
+  });
+
+  it("2.3 exec_command alias works like shell", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? gen.json\n");
+    const events = [
+      startWithId("exec_command", { command: "tool -o gen.json" }, "e1", 1000),
+      makeToolEnd("exec_command", "e1", { isError: true, result: "boom", timestamp: 2000 }),
+    ];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures![0].affectedPaths).toContain("gen.json");
+  });
+
+  it("2.3 mtime-only proximity CANNOT attach a failure", () => {
+    // File is owned via mtime-in-window, but the failed shell command has no
+    // output token naming it → no exact candidate path → no failure.
+    vi.mocked(git.statusPorcelainOr).mockReturnValue("?? touched.ts\n");
+    vi.mocked(statSync).mockReset().mockReturnValue({ size: 10, mtimeMs: 150 } as any);
+    const events = [
+      startWithId("Shell", { command: "make build" }, "sh1", 100),
+      makeToolEnd("Shell", "sh1", { isError: true, result: "build failed", timestamp: 200 }),
+    ];
+    const { files, fileOperationFailures } = buildSessionDiff(events, cwd);
+    // The file may be session-owned via mtime, but no failure is attributed.
+    expect(files.some((f) => f.path === "touched.ts")).toBe(true);
+    expect(fileOperationFailures).toBeUndefined();
+  });
+
+  it("2.4 non-git apply_patch applied path is discovered + failure surfaces", () => {
+    vi.mocked(isGitRepo).mockReset().mockReturnValue(false);
+    vi.mocked(existsSync).mockReset().mockReturnValue(true);
+    const events = [
+      startWithId("apply_patch", { patch: "..." }, "p1", 1000),
+      makeToolEnd("apply_patch", "p1", {
+        isError: false,
+        result: "partial",
+        details: { status: "partial_failure", appliedFiles: ["src/x.ts"] },
+        timestamp: 2000,
+      }),
+    ];
+    const { files, fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(files.some((f) => f.path === "src/x.ts")).toBe(true);
+    expect(fileOperationFailures).toHaveLength(1);
+    expect(fileOperationFailures![0].affectedPaths).toContain("src/x.ts");
+  });
+
+  it("2.4 non-git StrReplace direct path is retained with its failure", () => {
+    vi.mocked(isGitRepo).mockReset().mockReturnValue(false);
+    const events = [
+      startWithId("StrReplace", { path: "src/x.ts", oldText: "a", newText: "b" }, "s1", 1000),
+      makeToolEnd("StrReplace", "s1", { isError: true, result: "no match", timestamp: 2000 }),
+    ];
+    const { files, fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(files.some((f) => f.path === "src/x.ts")).toBe(true);
+    expect(fileOperationFailures![0].affectedPaths).toEqual(["src/x.ts"]);
+  });
+
+  it("2.4 cwd-escape candidate is excluded from the failure payload", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M safe.ts\n");
+    const events = [
+      startWithId("Write", { path: "../outside.ts", content: "x" }, "w1", 1000),
+      makeToolEnd("Write", "w1", { isError: true, result: "failed", timestamp: 2000 }),
+    ];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures).toBeUndefined();
+  });
+
+  it("2.4 orphan end (no matching start) is not fabricated", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const events = [makeToolEnd("Write", "orphan", { isError: true, result: "x", timestamp: 2000 })];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures).toBeUndefined();
+  });
+
+  it("2.4 missing toolCallId on end is skipped", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const events = [
+      startWithId("Write", { path: "a.ts", content: "x" }, "w1", 1000),
+      makeEvent("tool_execution_end", 2000, { toolName: "Write", isError: true, result: "x" }),
+    ];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures).toBeUndefined();
+  });
+
+  it("2.4 start with no end is not a proven failure", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const events = [startWithId("Write", { path: "a.ts", content: "x" }, "w1", 1000)];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures).toBeUndefined();
+  });
+
+  it("2.4 empty message falls back to `<toolName> failed`", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const events = [
+      startWithId("Write", { path: "a.ts", content: "x" }, "w1", 1000),
+      makeToolEnd("Write", "w1", { isError: true, result: "", timestamp: 2000 }),
+    ];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures![0].message).toBe("Write failed");
+  });
+
+  it("2.4 blank tool name falls back to generic label", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const events = [
+      startWithId("Write", { path: "a.ts", content: "x" }, "w1", 1000),
+      makeEvent("tool_execution_end", 2000, { toolName: "", toolCallId: "w1", isError: true, result: "" }),
+    ];
+    // toolName "" is not a mutation tool at start; use Write start, blank end name.
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    // start carries "Write" so message uses that; assert non-empty.
+    expect(fileOperationFailures![0].message.length).toBeGreaterThan(0);
+  });
+
+  it("2.4 oversized + control-sequence output is bounded and sanitized", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const big = `\u001b[31m${"E".repeat(5000)}\u001b[0m`;
+    const events = [
+      startWithId("Write", { path: "a.ts", content: "x" }, "w1", 1000),
+      makeToolEnd("Write", "w1", { isError: true, result: big, timestamp: 2000 }),
+    ];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    const msg = fileOperationFailures![0].message;
+    expect(msg.length).toBeLessThanOrEqual(500);
+    expect(msg).not.toContain("\u001b");
+  });
+
+  it("2.4 cwd/home prefixes collapse in the message", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+    const events = [
+      startWithId("Write", { path: "a.ts", content: "x" }, "w1", 1000),
+      makeToolEnd("Write", "w1", { isError: true, result: "failed at /project/a.ts", timestamp: 2000 }),
+    ];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures![0].message).toContain("./a.ts");
+    expect(fileOperationFailures![0].message).not.toContain("/project/a.ts");
+  });
+
+  it("2.4 Windows USERPROFILE prefix also collapses in the message", () => {
+    const originalHome = process.env.HOME;
+    const originalUserProfile = process.env.USERPROFILE;
+    delete process.env.HOME;
+    process.env.USERPROFILE = "C:\\Users\\pi";
+    try {
+      vi.mocked(git.statusPorcelainOr).mockReturnValue(" M a.ts\n");
+      const events = [
+        startWithId("Write", { path: "a.ts", content: "x" }, "w1", 1000),
+        makeToolEnd("Write", "w1", {
+          isError: true,
+          result: "failed at C:\\Users\\pi\\a.ts",
+          timestamp: 2000,
+        }),
+      ];
+      expect(buildSessionDiff(events, cwd).fileOperationFailures![0].message).toContain("~\\a.ts");
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = originalUserProfile;
+    }
+  });
+
+  it("2.4 one file touched by multiple failed calls → one entry per call", () => {
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(" M shared.ts\n");
+    const events = [
+      startWithId("Write", { path: "shared.ts", content: "x" }, "w1", 1000),
+      makeToolEnd("Write", "w1", { isError: true, result: "e1", timestamp: 2000 }),
+      startWithId("Edit", { path: "shared.ts" }, "w2", 3000),
+      makeToolEnd("Edit", "w2", { isError: true, result: "e2", timestamp: 4000 }),
+    ];
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures).toHaveLength(2);
+    expect(fileOperationFailures!.every((f) => f.affectedPaths.includes("shared.ts"))).toBe(true);
+    // newest end first
+    expect(fileOperationFailures![0].toolCallId).toBe("w2");
+  });
+
+  it("2.4 caps failures at MAX_FAILURES and paths at MAX_AFFECTED_PATHS", () => {
+    const porcelainLines: string[] = [];
+    const events: DashboardEvent[] = [];
+    for (let i = 0; i < 120; i++) {
+      porcelainLines.push(` M f${i}.ts`);
+      events.push(startWithId("Write", { path: `f${i}.ts`, content: "x" }, `w${i}`, 1000 + i));
+      events.push(makeToolEnd("Write", `w${i}`, { isError: true, result: "e", timestamp: 5000 + i }));
+    }
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(`${porcelainLines.join("\n")}\n`);
+    const { fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(fileOperationFailures!.length).toBeLessThanOrEqual(100);
+  });
+
+  it("2.4 caps affected paths after final changed-file intersection", () => {
+    const appliedFiles = Array.from({ length: 60 }, (_unused, i) => `f${i}.ts`);
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(appliedFiles.map((path) => ` M ${path}`).join("\n"));
+    const events = [
+      startWithId("apply_patch", { patch: "..." }, "p1", 1000),
+      makeToolEnd("apply_patch", "p1", {
+        isError: false,
+        result: "partial",
+        details: { status: "partial_failure", appliedFiles },
+        timestamp: 2000,
+      }),
+    ];
+    expect(buildSessionDiff(events, cwd).fileOperationFailures![0].affectedPaths).toHaveLength(50);
+  });
+
+  it("2.4 drops a failure whose only path was evicted by MAX_FILES", () => {
+    const paths = Array.from({ length: 201 }, (_unused, i) => `f${String(i).padStart(3, "0")}.ts`);
+    vi.mocked(git.statusPorcelainOr).mockReturnValue(paths.map((path) => ` M ${path}`).join("\n"));
+    const events = paths.map((path, i) => startWithId("Write", { path, content: "x" }, `w${i}`, 1000 + i));
+    events.push(makeToolEnd("Write", "w200", { isError: true, result: "late failure", timestamp: 3000 }));
+
+    const { files, fileOperationFailures } = buildSessionDiff(events, cwd);
+    expect(files).toHaveLength(200);
+    expect(files.some((f) => f.path === "f200.ts")).toBe(false);
+    expect(fileOperationFailures).toBeUndefined();
   });
 });

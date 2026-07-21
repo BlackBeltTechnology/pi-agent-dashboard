@@ -23,10 +23,12 @@ vi.mock("react-syntax-highlighter", () => ({
 }));
 
 // Mock @git-diff-view/react's DiffView to capture the diffViewTheme prop.
+const diffViewProps: Record<string, unknown>[] = [];
 vi.mock("@git-diff-view/react", () => ({
-  DiffView: (props: Record<string, unknown>) => (
-    <div data-testid="diff-view" data-diff-theme={String(props.diffViewTheme)} />
-  ),
+  DiffView: (props: Record<string, unknown>) => {
+    diffViewProps.push(props);
+    return <div data-testid="diff-view" data-diff-theme={String(props.diffViewTheme)} />;
+  },
   DiffModeEnum: { Split: "split", Unified: "unified" },
 }));
 
@@ -96,7 +98,10 @@ function renderWith(resolved: "light" | "dark") {
 }
 
 describe("DiffPanel binds diffViewTheme to active app theme", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    diffViewProps.length = 0;
+  });
 
   it("passes diffViewTheme=\"dark\" when resolved theme is dark", () => {
     const { getByTestId } = renderWith("dark");
@@ -108,5 +113,34 @@ describe("DiffPanel binds diffViewTheme to active app theme", () => {
     const { getByTestId } = renderWith("light");
     const dv = getByTestId("diff-view");
     expect(dv.getAttribute("data-diff-theme")).toBe("light");
+  });
+
+  it("passes the complete unified git diff, including headers, to DiffView", () => {
+    const gitDiff = [
+      "diff --git a/src/example.ts b/src/example.ts",
+      "--- a/src/example.ts",
+      "+++ b/src/example.ts",
+      "@@ -1 +1 @@",
+      "-const a = 1;",
+      "+const a = 2;",
+    ].join("\n");
+    const file: FileDiffEntry = {
+      path: "src/example.ts",
+      changes: [],
+      gitDiff,
+    };
+    const Provider = ThemeProvider as any;
+    render(
+      <Provider value={{ resolved: "dark", themeName: "base" }}>
+        <DiffPanel
+          file={file}
+          selection={{ filePath: file.path, changeIndex: null }}
+          sessionId="sess-test"
+        />
+      </Provider>,
+    );
+
+    const rawData = diffViewProps.at(-1)?.data as { hunks?: string[] } | undefined;
+    expect(rawData?.hunks).toEqual([gitDiff]);
   });
 });

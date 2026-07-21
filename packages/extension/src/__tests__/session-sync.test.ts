@@ -1,9 +1,10 @@
 /**
  * Tests for session-sync: sendStateSync and handleSessionSwitch.
  */
-import { describe, it, expect, vi } from "vitest";
-import { sendStateSync, handleSessionChange } from "../session-sync.js";
+import { describe, expect, it, vi } from "vitest";
 import type { BridgeContext } from "../bridge-context.js";
+import { BRIDGE_TAIL_ENTRIES } from "../select-entry-window.js";
+import { handleSessionChange, REPLAY_EVENT_BATCH, replaySessionEntries, sendStateSync } from "../session-sync.js";
 
 function createMockBridgeContext(overrides?: Partial<BridgeContext>): BridgeContext {
   const sent: any[] = [];
@@ -107,6 +108,74 @@ describe("sendStateSync", () => {
     const sent = (bc as any)._sent;
     const registerMsg = sent.find((m: any) => m.type === "session_register");
     expect(registerMsg.registerReason).toBe("reattach");
+  });
+});
+
+describe("replaySessionEntries (bounded tail + yielding batches)", () => {
+  function userEntry(i: number) {
+    return { id: `u${i}`, type: "message", message: { role: "user", content: `hi ${i}` } };
+  }
+
+  it("sends at most the bridge tail budget worth of entries on resume", async () => {
+    // A branch far larger than the tail budget.
+    const entries = Array.from({ length: BRIDGE_TAIL_ENTRIES + 300 }, (_, i) => userEntry(i));
+    const bc = createMockBridgeContext({
+      cachedCtx: { sessionManager: { getBranch: () => entries } },
+    } as any);
+
+    await replaySessionEntries(bc);
+
+    const sent = (bc as any)._sent as any[];
+    const starts = sent.filter((m) => m.type === "event_forward" && m.event?.eventType === "message_start");
+    // One message_start per user entry; must not exceed the tail budget.
+    expect(starts.length).toBeLessThanOrEqual(BRIDGE_TAIL_ENTRIES);
+    expect(starts.length).toBeGreaterThan(0);
+    // The oldest re-forwarded entry is a TAIL entry, not entry 0.
+    const firstStart = starts[0];
+    expect(firstStart.event.data.entryId).not.toBe("u0");
+  });
+
+  it("yields to the event loop between batches", async () => {
+    const entries = Array.from({ length: REPLAY_EVENT_BATCH * 3 }, (_, i) => userEntry(i));
+    const bc = createMockBridgeContext({
+      cachedCtx: { sessionManager: { getBranch: () => entries } },
+    } as any);
+
+    let yields = 0;
+    const realSetImmediate = globalThis.setImmediate;
+    const spy = vi
+      .spyOn(globalThis, "setImmediate")
+      .mockImplementation(((cb: any, ...args: any[]) => {
+        yields++;
+        return realSetImmediate(cb, ...args);
+      }) as any);
+    try {
+      await replaySessionEntries(bc);
+    } finally {
+      spy.mockRestore();
+    }
+    // 3 batches → at least 2 inter-batch yields.
+    expect(yields).toBeGreaterThanOrEqual(2);
+  });
+
+  it("sends all entries for a small session (unchanged behavior)", async () => {
+    const entries = [userEntry(0), userEntry(1), userEntry(2)];
+    const bc = createMockBridgeContext({
+      cachedCtx: { sessionManager: { getBranch: () => entries } },
+    } as any);
+    await replaySessionEntries(bc);
+    const starts = ((bc as any)._sent as any[]).filter(
+      (m) => m.type === "event_forward" && m.event?.eventType === "message_start",
+    );
+    expect(starts.map((m) => m.event.data.entryId)).toEqual(["u0", "u1", "u2"]);
+  });
+
+  it("no-ops on an empty branch", async () => {
+    const bc = createMockBridgeContext({
+      cachedCtx: { sessionManager: { getBranch: () => [] } },
+    } as any);
+    await replaySessionEntries(bc);
+    expect((bc as any)._sent).toHaveLength(0);
   });
 });
 

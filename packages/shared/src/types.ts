@@ -471,6 +471,15 @@ export interface CommandInfo {
   source: "extension" | "prompt" | "skill" | "builtin";
   location?: string;
   path?: string;
+  /**
+   * Sub-command / argument completions for commands that branch on their
+   * first argument (e.g. `/codex usage`, `/codex reset`). Populated by pi's
+   * `getCommands()` from each command's `getArgumentCompletions("")` when the
+   * installed pi exposes it (additive upstream field). Absent on older pi —
+   * the composer then shows only the top-level command. Feature-detected, no
+   * version gate. See change: surface-command-argument-completions.
+   */
+  argumentCompletions?: { value: string; label?: string }[];
 }
 
 /** Image content for message attachments (compatible with pi SDK ImageContent) */

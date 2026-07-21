@@ -2,7 +2,11 @@
  * DiffFileTree — two-level file tree showing changed files with expandable change events.
  */
 
-import type { FileChangeEvent, FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import type {
+  FileChangeEvent,
+  FileDiffEntry,
+  FileOperationFailure,
+} from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import type React from "react";
 import { useCallback, useMemo, useState } from "react";
 import { buildFileTree, type TreeNode } from "../lib/diff-tree.js";
@@ -18,6 +22,8 @@ export interface FileSelection {
 
 interface DiffFileTreeProps {
   files: FileDiffEntry[];
+  /** Correlated file-operation failures. Omitted by older servers. */
+  fileOperationFailures?: FileOperationFailure[];
   /**
    * Working-tree changes this session cannot claim. Rendered under a muted,
    * collapsed `▸ N other working-tree changes` group, hidden by the
@@ -40,6 +46,7 @@ interface DiffFileTreeProps {
 
 export function DiffFileTree({
   files,
+  fileOperationFailures = [],
   otherChanges = [],
   selection,
   onSelect,
@@ -48,6 +55,15 @@ export function DiffFileTree({
   summed = false,
 }: DiffFileTreeProps) {
   const tree = useMemo(() => buildFileTree(files), [files]);
+  const failureCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const failure of fileOperationFailures) {
+      for (const path of failure.affectedPaths) {
+        counts.set(path, (counts.get(path) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [fileOperationFailures]);
   const totalFiles = files.length;
   const hasTotals = totalAdditions !== undefined || totalDeletions !== undefined;
   // "this session only" hides the other-working-tree-changes group entirely.
@@ -102,8 +118,16 @@ export function DiffFileTree({
             depth={0}
             selection={selection}
             onSelect={onSelect}
+            failureCounts={failureCounts}
           />
         ))}
+
+        {fileOperationFailures.length > 0 && (
+          <FailedOperations
+            failures={fileOperationFailures}
+            onSelect={onSelect}
+          />
+        )}
 
         {/* Other working-tree changes (not owned by this session) — muted,
             collapsed by default, hidden entirely by the "this session only"
@@ -166,11 +190,13 @@ function TreeNodeView({
   depth,
   selection,
   onSelect,
+  failureCounts,
 }: {
   node: TreeNode;
   depth: number;
   selection: FileSelection | null;
   onSelect: (selection: FileSelection) => void;
+  failureCounts: Map<string, number>;
 }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -194,6 +220,7 @@ function TreeNodeView({
               depth={depth + 1}
               selection={selection}
               onSelect={onSelect}
+              failureCounts={failureCounts}
             />
           ))}
       </>
@@ -221,6 +248,7 @@ function TreeNodeView({
       statusIndicator={statusIndicator}
       selection={selection}
       onSelect={onSelect}
+      failureCount={failureCounts.get(file.path) ?? 0}
     />
   );
 }
@@ -234,6 +262,7 @@ function FileNodeView({
   statusIndicator,
   selection,
   onSelect,
+  failureCount,
 }: {
   node: TreeNode;
   file: FileDiffEntry;
@@ -243,6 +272,7 @@ function FileNodeView({
   statusIndicator: React.ReactNode;
   selection: FileSelection | null;
   onSelect: (selection: FileSelection) => void;
+  failureCount: number;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -267,6 +297,7 @@ function FileNodeView({
         )}
         {statusIndicator}
         <span className="truncate">{node.name}</span>
+        {failureCount > 0 && <FailureBadge filePath={file.path} count={failureCount} />}
         <OriginBadge file={file} />
         {(file.origin === "tool" || file.origin === "mixed") && file.producedBy && (
           <span
@@ -303,6 +334,73 @@ function FileNodeView({
           />
         ))}
     </>
+  );
+}
+
+function FailureBadge({ filePath, count }: { filePath: string; count: number }) {
+  const noun = count === 1
+    ? i18nT("diff.failedOperation", undefined, "failed operation")
+    : i18nT("diff.failedOperations", undefined, "failed operations");
+  const verb = count === 1
+    ? i18nT("diff.affects", undefined, "affects")
+    : i18nT("diff.affect", undefined, "affect");
+  const label = `${count} ${noun} ${verb} ${filePath}`;
+  return (
+    <span
+      aria-label={label}
+      title={label}
+      className="shrink-0 rounded bg-red-500/15 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-red-400"
+    >
+      {count}!
+    </span>
+  );
+}
+
+function FailedOperations({
+  failures,
+  onSelect,
+}: {
+  failures: FileOperationFailure[];
+  onSelect: (selection: FileSelection) => void;
+}) {
+  const title = i18nT("diff.failedOperations", undefined, "Failed operations");
+  return (
+    <section
+      data-testid="failed-operations"
+      aria-label={title}
+      className="mt-2 border-y border-red-500/20 bg-red-500/5 py-1"
+    >
+      <div className="px-2 py-1 text-xs font-medium text-red-300">
+        {title} ({failures.length})
+      </div>
+      {failures.map((failure) => (
+        <div key={failure.toolCallId} className="px-2 py-1 text-xs text-[var(--text-secondary)]">
+          <div className="flex items-baseline gap-1.5">
+            <span className="rounded bg-red-500/15 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-red-300">
+              {failure.kind === "partial_failure"
+                ? i18nT("diff.partialFailure", undefined, "Partial failure")
+                : i18nT("diff.operationError", undefined, "Error")}
+            </span>
+            <span className="font-medium text-[var(--text-primary)]">{failure.toolName || i18nT("diff.toolOperation", undefined, "Tool operation")}</span>
+            <span className="text-[var(--text-tertiary)]">{formatRelativeTime(failure.timestamp)}</span>
+          </div>
+          <p className="mt-0.5 break-words text-[var(--text-secondary)]">{failure.message}</p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {failure.affectedPaths.map((path) => (
+              <button
+                key={path}
+                type="button"
+                aria-label={`${i18nT("diff.openFile", undefined, "Open")} ${path}`}
+                onClick={() => onSelect({ filePath: path, changeIndex: null })}
+                className="rounded bg-[var(--bg-tertiary)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+              >
+                {path}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }
 

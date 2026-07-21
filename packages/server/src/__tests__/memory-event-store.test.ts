@@ -25,6 +25,18 @@ describe("memory-event-store", () => {
     expect(events[1].seq).toBe(2);
   });
 
+  it("atomically replaces a session buffer with canonical sequences", () => {
+    const store = createMemoryEventStore(neverPinned);
+    store.insertEvent("s1", makeEvent("stale-tail"));
+    store.replaceEvents("s1", [makeEvent("full-1"), makeEvent("full-2")]);
+
+    expect(store.getEvents("s1", 1).map((entry) => [entry.seq, entry.event.eventType])).toEqual([
+      [1, "full-1"],
+      [2, "full-2"],
+    ]);
+    expect(store.insertEvent("s1", makeEvent("live-3"))).toBe(3);
+  });
+
   it("getEvents with minSeq filters correctly", () => {
     const store = createMemoryEventStore(neverPinned);
     store.insertEvent("s1", makeEvent());

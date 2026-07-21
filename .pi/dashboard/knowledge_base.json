@@ -2,11 +2,11 @@
   "sources": [
     {
       "kind": "filesystem",
-      "ref": "docs"
+      "ref": "openspec"
     },
     {
       "kind": "filesystem",
-      "ref": "openspec"
+      "ref": "docs"
     },
     {
       "kind": "filesystem",

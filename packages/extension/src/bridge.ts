@@ -24,11 +24,11 @@ import {
   persistAttachment,
 } from "./ask-user-attachments.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
+import { type AutoNamer, createAutoNamer, type StreamSimpleFn } from "./auto-session-namer.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstAssistantReply, extractFirstMessage, filterHiddenCommands, getCurrentModelString } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
-import { type AutoNamer, createAutoNamer, type StreamSimpleFn } from "./auto-session-namer.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager } from "./connection.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
@@ -58,6 +58,7 @@ import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { detectSessionSource } from "./source-detector.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { inlineToolResultImages } from "./tool-result-image-inliner.js";
+import { handleTranslateRequest } from "./translate-handler.js";
 import { classifyTurnActionability } from "./turn-actionability.js";
 import { handleUiManagement, refreshUiModules, subscribeUiInvalidate, type UiModulesBridgeCtx } from "./ui-modules.js";
 import { detectIsGitRepo } from "./vcs-info.js";
@@ -761,6 +762,13 @@ function initBridge(pi: ExtensionAPI) {
         }
         return;
       }
+      if (msg.type === "translate_request") {
+        void handleTranslateRequest(msg, {
+          modelRegistry: cachedModelRegistry,
+          send: (r) => connection.send(r),
+        });
+        return;
+      }
       // Graceful stop-after-turn: latch a per-session flag; the next turn_end
       // shuts the session down cleanly. Idempotent. See change:
       // adopt-pi-071-072-073-features.
@@ -1036,7 +1044,7 @@ function initBridge(pi: ExtensionAPI) {
         setTimeout(() => sendModelUpdateIfChanged(), 50);
       }
     }),
-    onReconnect: safe(() => {
+    onReconnect: safe(async () => {
       if (!isActive()) return; // Stale listener guard
       // Reset caches that aren't persisted server-side so the upcoming
       // 30s tick (and the inline calls below) re-emit the live state.
@@ -1054,7 +1062,7 @@ function initBridge(pi: ExtensionAPI) {
           sendCwdMissingIfChanged(activeCtx.cwd);
         }
       } catch { /* probe failure non-fatal */ }
-      replaySessionEntries();
+      await replaySessionEntries();
       // Flush subagent frames buffered while the socket was down (D1). Unlike
       // session_start, a transient WS reconnect keeps `sessionReady` true, so
       // the intercept routes those frames into the per-agent buffer; drain them
@@ -1355,7 +1363,7 @@ function initBridge(pi: ExtensionAPI) {
 
   // Local wrappers that sync bc around extracted module calls
   function sendStateSync() { const bc = syncBc(); _sendStateSync(bc, getFlowsList); applyBc(bc); }
-  function replaySessionEntries() { _replaySessionEntries(syncBc()); }
+  function replaySessionEntries(): Promise<void> { return _replaySessionEntries(syncBc()); }
   function sendModelUpdateIfChanged() { const bc = syncBc(); _sendModelUpdateIfChanged(bc); applyBc(bc); }
   function sendSessionNameIfChanged() { const bc = syncBc(); _sendSessionNameIfChanged(bc); applyBc(bc); }
 
@@ -1930,7 +1938,7 @@ function initBridge(pi: ExtensionAPI) {
       // legitimate turn aborted by the agent_start/message_start latch hooks.
       // See change: unify-error-retry-lifecycle.
       abortLatch.clear(sessionId);
-      handleSessionChange(ctx);
+      await handleSessionChange(ctx);
     }
 
     cachedHasUI = ctx.hasUI;
@@ -2376,8 +2384,8 @@ function initBridge(pi: ExtensionAPI) {
     // subagent's detail empty. See change: fix-subagent-live-detail-reliability.
     flushPendingSubagentFrames();
 
-    // Replay full session history so the dashboard has all messages
-    replaySessionEntries();
+    // Replay the bounded session-history tail so the dashboard rebuilds chat.
+    await replaySessionEntries();
     connection.send({ type: "replay_complete", sessionId });
     // If agent is mid-turn (e.g. reload during streaming), send synthetic agent_start
     if (getBridgeState().isAgentStreaming) {
@@ -2578,7 +2586,7 @@ function initBridge(pi: ExtensionAPI) {
   }));
 
   // Shared handler for session changes (new/fork/resume)
-  function handleSessionChange(ctx: any) {
+  async function handleSessionChange(ctx: any) {
     // Clear attachedChange on a real session switch (new/fork/resume): it is
     // persisted globally + restored at activate, so without this the previous
     // session's attached change would leak into the new session's prompt until
@@ -2602,7 +2610,7 @@ function initBridge(pi: ExtensionAPI) {
       emitQueueUpdate();
     }
     const bc = syncBc();
-    _handleSessionChange(bc, ctx, getFlowsList);
+    await _handleSessionChange(bc, ctx, getFlowsList);
     applyBc(bc);
 
     // Restart polling timers

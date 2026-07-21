@@ -10,6 +10,7 @@ import { useI18n } from "../lib/i18n.js";
 import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
 import { ModelSelector } from "./ModelSelector.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
+import { TranslateButton } from "./TranslateButton.js";
 
 /** Built-in pi commands available from the dashboard */
 const BUILTIN_COMMANDS: CommandInfo[] = [
@@ -73,6 +74,8 @@ interface Props {
   retrying?: boolean;
   onAbort?: () => void;
   onForceKill?: () => void;
+  /** Increment to revert a failed force_kill from Killing back to Force Stop. */
+  resetStopSignal?: number;
   /** Graceful stop: finish the current turn, then end the session cleanly. */
   onStopAfterTurn?: () => void;
   pendingPrompt?: boolean;
@@ -210,7 +213,14 @@ export function shouldWalkFileQuery(query: string): boolean {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, contextUsage }: Props) {
+/** Shared composer-toolbar tokens — one height, one radius, one hover language. */
+const TOOLBAR_CHIP =
+  "focus-ring inline-flex items-center justify-center h-8 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+const TOOLBAR_ICON = `${TOOLBAR_CHIP} w-8 shrink-0`;
+const TOOLBAR_ACTION =
+  "focus-ring inline-flex items-center justify-center h-8 w-8 min-w-8 shrink-0 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, resetStopSignal, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, contextUsage }: Props) {
   const { t } = useI18n();
   // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
   const isWorking = sessionStatus === "streaming" || retrying === true;
@@ -232,6 +242,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   }, [isControlled, onDraftChange]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [stopState, setStopState] = useState<StopState>("idle");
+  const [forceStopEmphasized, setForceStopEmphasized] = useState(false);
+  const resetStopSignalRef = useRef(resetStopSignal);
 
   // --- v2 composer state (see change: redesign-prompt-input) ---
   // Delivery mode surfaces the hidden Enter(steer)/Alt+Enter(followUp)
@@ -260,6 +272,20 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   useEffect(() => {
     if (sessionStatus !== "streaming" && !retrying) setStopState("idle");
   }, [sessionStatus, retrying]);
+
+  useEffect(() => {
+    if (resetStopSignalRef.current !== resetStopSignal) {
+      resetStopSignalRef.current = resetStopSignal;
+      if (resetStopSignal !== undefined && isWorking) setStopState("aborting");
+    }
+  }, [resetStopSignal, isWorking]);
+
+  useEffect(() => {
+    setForceStopEmphasized(false);
+    if (stopState !== "aborting" || !isWorking) return;
+    const timer = setTimeout(() => setForceStopEmphasized(true), 5000);
+    return () => clearTimeout(timer);
+  }, [stopState, isWorking]);
 
   // Graceful stop-after-turn optimistic pill. Cleared once the session is no
   // longer streaming (next agent_end / session_removed flips status).
@@ -673,24 +699,28 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     actionButton = (
       <button
         onClick={() => { onForceKill(); setStopState("killing"); }}
-        className="focus-ring flex items-center justify-center min-w-[44px] min-h-[44px] bg-orange-600 rounded-lg hover:bg-orange-500 self-end animate-pulse motion-reduce:animate-none"
-        title={t("command.forceStop", undefined, "Force Stop - kill the process")}
-        aria-label={t("command.forceStop", undefined, "Force Stop - kill the process")}
+        className={`${TOOLBAR_ACTION} animate-pulse motion-reduce:animate-none ${forceStopEmphasized ? "bg-orange-500 ring-2 ring-orange-200/80 text-white" : "bg-orange-600 hover:bg-orange-500 text-white"}`}
+        title={forceStopEmphasized
+          ? t("command.forceStopStalled", undefined, "Still running — Force Stop kills the process")
+          : t("command.forceStop", undefined, "Force Stop - kill the process")}
+        aria-label={forceStopEmphasized
+          ? t("command.forceStopStalled", undefined, "Still running — Force Stop kills the process")
+          : t("command.forceStop", undefined, "Force Stop - kill the process")}
         data-testid="force-stop-button"
       >
-        <Icon path={mdiAlertOctagon} size={0.8} />
+        <Icon path={mdiAlertOctagon} size={0.7} />
       </button>
     );
   } else if (isWorking && stopState === "killing") {
     actionButton = (
       <button
         disabled
-        className="flex items-center justify-center min-w-[44px] min-h-[44px] bg-orange-800 rounded-lg opacity-60 cursor-not-allowed self-end"
+        className={`${TOOLBAR_ACTION} bg-orange-800 text-white opacity-60`}
         title={t("command.killing", undefined, "Killing process...")}
         aria-label={t("command.killing", undefined, "Killing process...")}
         data-testid="killing-button"
       >
-        <Icon path={mdiStop} size={0.8} />
+        <Icon path={mdiStop} size={0.7} />
       </button>
     );
   } else if ((isWorking || pendingIdle) && canStop) {
@@ -704,12 +734,12 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             if (onForceKill) setStopState("aborting");
           }
         }}
-        className="focus-ring flex items-center justify-center min-w-[44px] min-h-[44px] bg-red-600 rounded-lg hover:bg-red-500 self-end"
+        className={`${TOOLBAR_ACTION} bg-red-600 hover:bg-red-500 text-white`}
         title={pendingIdle ? t("command.cancelPending", undefined, "Cancel") : t("command.stop", undefined, "Stop")}
         aria-label={pendingIdle ? t("command.cancelPending", undefined, "Cancel") : t("command.stop", undefined, "Stop")}
         data-testid="stop-button"
       >
-        <Icon path={mdiStop} size={0.8} />
+        <Icon path={mdiStop} size={0.7} />
       </button>
     );
   } else {
@@ -717,12 +747,12 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       <button
         onClick={() => handleSend(deliveryMode === "queue" ? "followUp" : "steer")}
         disabled={disabled || pendingIdle || !text.trim()}
-        className="focus-ring flex items-center justify-center min-w-[44px] min-h-[44px] bg-blue-600 rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed self-end"
+        className={`${TOOLBAR_ACTION} bg-[var(--accent-primary)] hover:opacity-90 text-white`}
         title={t("command.send", undefined, "Send")}
         aria-label={t("command.send", undefined, "Send")}
         data-testid="send-button"
       >
-        <Icon path={mdiSendVariant} size={0.8} />
+        <Icon path={mdiSendVariant} size={0.7} />
       </button>
     );
   }
@@ -731,21 +761,21 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   const showStopAfterTurn = isWorking && onStopAfterTurn && stopState === "idle" && !pendingPrompt;
   const stopAfterTurnNode = !showStopAfterTurn ? null : stopAfterTurnRequested ? (
     <span
-      className="flex items-center gap-1 px-2 self-end text-xs text-[var(--text-muted)]"
+      className="inline-flex items-center gap-1 h-8 px-2 text-xs text-[var(--text-muted)]"
       data-testid="stop-after-turn-pill"
     >
-      <Icon path={mdiStopCircleOutline} size={0.6} />
+      <Icon path={mdiStopCircleOutline} size={0.55} />
       {t("command.stoppingAfterTurn", undefined, "stopping after this turn…")}
     </span>
   ) : (
     <button
       onClick={() => { onStopAfterTurn?.(); setStopAfterTurnRequested(true); }}
-      className="focus-ring flex items-center gap-1 self-end px-2 h-[30px] rounded-lg text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+      className={`${TOOLBAR_CHIP} gap-1 px-2 text-xs`}
       title={t("command.stopAfterTurn", undefined, "Stop after turn — finish this turn, then end cleanly")}
       aria-label={t("command.stopAfterTurn", undefined, "Stop after turn")}
       data-testid="stop-after-turn-button"
     >
-      <Icon path={mdiStopCircleOutline} size={0.6} />
+      <Icon path={mdiStopCircleOutline} size={0.55} />
       <span className="hidden @[30rem]:inline">{t("command.afterTurn", undefined, "after turn")}</span>
     </button>
   );
@@ -753,7 +783,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   // Delivery segmented control (Steer | Queue) — shared desktop + overflow.
   const deliveryControl = (
     <div
-      className="inline-flex rounded-lg overflow-hidden border border-[var(--border-secondary)] h-[30px]"
+      className="inline-flex h-8 rounded-md overflow-hidden border border-[var(--border-secondary)]"
       data-testid="delivery-control"
       role="group"
       aria-label={t("command.deliveryMode", undefined, "Delivery mode")}
@@ -763,7 +793,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         onClick={() => setDeliveryMode("steer")}
         aria-pressed={deliveryMode === "steer"}
         data-testid="delivery-steer"
-        className={`inline-flex items-center gap-1 px-2 text-[11px] ${deliveryMode === "steer" ? "bg-[color-mix(in_srgb,var(--accent-primary)_18%,transparent)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"}`}
+        className={`inline-flex items-center gap-1 px-2 text-[11px] transition-colors ${deliveryMode === "steer" ? "bg-[color-mix(in_srgb,var(--accent-primary)_18%,transparent)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"}`}
       >
         <Icon path={mdiFlag} size={0.5} />{t("command.steer", undefined, "Steer")}
       </button>
@@ -772,7 +802,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         onClick={() => setDeliveryMode("queue")}
         aria-pressed={deliveryMode === "queue"}
         data-testid="delivery-queue"
-        className={`inline-flex items-center gap-1 px-2 text-[11px] ${deliveryMode === "queue" ? "bg-[color-mix(in_srgb,var(--accent-purple)_20%,transparent)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"}`}
+        className={`inline-flex items-center gap-1 px-2 text-[11px] transition-colors ${deliveryMode === "queue" ? "bg-[color-mix(in_srgb,var(--accent-purple)_20%,transparent)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"}`}
       >
         <Icon path={mdiPlaylistPlus} size={0.5} />{t("command.queue", undefined, "Queue")}
       </button>
@@ -783,12 +813,12 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     <button
       onClick={() => onOpenInlineTerminal()}
       disabled={disabled}
-      className="focus-ring inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+      className={TOOLBAR_ICON}
       title={t("command.inlineTerminal", undefined, "Open inline terminal")}
       aria-label={t("command.inlineTerminal", undefined, "Open inline terminal")}
       data-testid="open-inline-terminal-button"
     >
-      <Icon path={mdiConsole} size={0.7} />
+      <Icon path={mdiConsole} size={0.65} />
     </button>
   ) : null;
 
@@ -817,7 +847,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       {dropdownMode === "command" && (
         <div
           style={{ maxHeight: ddMaxHeight }}
-          className={`absolute left-3 right-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-y-auto shadow-lg z-10 ${
+          className={`absolute left-3 right-3 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-md overflow-y-auto shadow-lg z-10 ${
             ddFlipUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
           data-testid="command-dropdown"
@@ -860,7 +890,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       {dropdownMode === "file" && (
         <div
           style={{ maxHeight: ddMaxHeight }}
-          className={`absolute left-3 right-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-y-auto shadow-lg z-10 ${
+          className={`absolute left-3 right-3 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-md overflow-y-auto shadow-lg z-10 ${
             ddFlipUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
         >
@@ -965,18 +995,18 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               type="button"
               onClick={() => setAttachOpen((v) => !v)}
               disabled={disabled}
-              className="focus-ring inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+              className={TOOLBAR_ICON}
               title={t("command.attach", undefined, "Attach")}
               aria-label={t("command.attach", undefined, "Attach")}
               aria-haspopup="menu"
               aria-expanded={attachOpen}
               data-testid="attach-button"
             >
-              <Icon path={mdiPlus} size={0.85} />
+              <Icon path={mdiPlus} size={0.7} />
             </button>
             {attachOpen && (
               <div
-                className="absolute left-0 bottom-full mb-2 w-56 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-hidden shadow-lg z-20"
+                className="absolute left-0 bottom-full mb-2 w-56 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-md overflow-hidden shadow-lg z-20"
                 role="menu"
                 data-testid="attach-menu"
               >
@@ -1008,6 +1038,23 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             />
           )}
 
+          <TranslateButton
+            models={models}
+            text={text}
+            disabled={disabled || pendingPrompt}
+            onTranslated={(translated) => {
+              setText(translated);
+              requestAnimationFrame(() => {
+                const ta = inputRef.current;
+                if (!ta) return;
+                ta.style.height = "38px";
+                ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+                ta.focus();
+                ta.setSelectionRange(translated.length, translated.length);
+              });
+            }}
+          />
+
           {/* Thinking + delivery + terminal — desktop inline; folded into ⋯ on mobile. */}
           <span className="hidden @[44rem]:inline-flex">{thinkingChip}</span>
           <span className="hidden @[44rem]:inline-flex">{deliveryControl}</span>
@@ -1019,18 +1066,18 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             <button
               type="button"
               onClick={() => setOverflowOpen((v) => !v)}
-              className="focus-ring inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+              className={TOOLBAR_ICON}
               title={t("command.more", undefined, "More")}
               aria-label={t("command.more", undefined, "More")}
               aria-haspopup="menu"
               aria-expanded={overflowOpen}
               data-testid="overflow-button"
             >
-              <Icon path={mdiDotsHorizontal} size={0.7} />
+              <Icon path={mdiDotsHorizontal} size={0.65} />
             </button>
             {overflowOpen && (
               <div
-                className="absolute right-0 bottom-full mb-2 flex flex-col gap-2 p-2 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl shadow-lg z-20"
+                className="absolute right-0 bottom-full mb-2 flex flex-col gap-2 p-2 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-md shadow-lg z-20"
                 role="menu"
                 data-testid="overflow-menu"
               >

@@ -32,13 +32,15 @@
  * See change: add-faux-model-integration-tests, add-e2e-faux-model-roundtrip.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { writeFileSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 // pi-ai's published `index.d.ts` re-exports members with `.ts` extensions,
 // unresolvable under this repo's `moduleResolution: "bundler"`. Mirror
 // `faux-scenarios.ts`: import the namespace and read runtime helpers off an
 // `any` view (this file is now in tsc's graph via the faux-router unit test).
 // Runtime resolution is unaffected.
 import * as piAi from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type FauxContext, SCENARIOS } from "./faux-scenarios.js";
 
 export interface FauxRegistration {
@@ -55,6 +57,15 @@ const { fauxAssistantMessage, getApiProvider, registerFauxProvider } =
 
 /** Sentinel a prompt embeds to select its scenario, e.g. `[[faux:tool-read]]`. */
 const SENTINEL = /\[\[faux:([\w-]+)\]\]/;
+
+/** Keep fixture tool writes inside the pi session cwd. */
+export function fixturePath(path: string): string {
+  const cwd = process.cwd();
+  const absolute = resolve(cwd, path);
+  const rel = relative(cwd, absolute);
+  if (rel.startsWith("..") || isAbsolute(rel)) throw new Error("fixture path must stay inside cwd");
+  return absolute;
+}
 
 /** Flatten a context message to its plain text (user prompt / assistant text). */
 function messageText(message: FauxContext["messages"][number]): string {
@@ -132,6 +143,49 @@ export default function fauxProviderExtension(pi: ExtensionAPI): void {
         maxTokens: 16384,
       },
     ],
+  });
+
+  // E2E-only lifecycle fixtures. These names and result shapes mirror captured
+  // Codex/Grok events while keeping the Docker test self-contained.
+  pi.registerTool({
+    name: "apply_patch",
+    label: "Apply Patch",
+    description: "E2E partial-patch fixture.",
+    parameters: {
+      type: "object",
+      properties: { path: { type: "string" } },
+      required: ["path"],
+    },
+    async execute(_id: string, params: { path: string }) {
+      writeFileSync(fixturePath(params.path), `partial patch ${Date.now()}\n`);
+      return {
+        content: [{ type: "text", text: `Applied ${params.path}; one hunk failed.` }],
+        details: {
+          status: "partial_failure",
+          appliedFiles: [params.path],
+          failedFiles: ["never-created-by-fixture.ts"],
+          error: "One hunk did not apply",
+        },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "Shell",
+    label: "Shell",
+    description: "E2E failed-shell fixture.",
+    parameters: {
+      type: "object",
+      properties: {
+        command: { type: "string" },
+        outputPath: { type: "string" },
+      },
+      required: ["command", "outputPath"],
+    },
+    async execute(_id: string, params: { command: string; outputPath: string }) {
+      writeFileSync(fixturePath(params.outputPath), `shell output ${Date.now()}\n`);
+      throw new Error(`Shell exited 1 after writing ${params.outputPath}`);
+    },
   });
 
   // Self-perpetuating router: re-appends itself each call so the faux queue

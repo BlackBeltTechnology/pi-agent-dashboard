@@ -72,6 +72,60 @@ describe("applySessionMessage (pure reducer)", () => {
     expect(out.maxSeq).toBe(4);
   });
 
+  it("kind:tail resets once across multiple batches", () => {
+    const first = applySessionMessage(
+      { state: { ...createInitialState(), isStreaming: true }, maxSeq: 99 },
+      {
+        type: "event_replay",
+        sessionId: SID,
+        kind: "tail",
+        isLast: false,
+        events: [{ seq: 10, event: ev("agent_start") }],
+      },
+    );
+    const second = applySessionMessage(
+      first,
+      {
+        type: "event_replay",
+        sessionId: SID,
+        kind: "tail",
+        isLast: true,
+        events: [{ seq: 11, event: ev("agent_end", { messages: [] }) }],
+      },
+    );
+    // If the second tail batch reset, agent_end would fold on fresh state and
+    // fail to close the span started by the first batch.
+    expect(second.state.isStreaming).toBe(false);
+    expect(second.maxSeq).toBe(11);
+    expect(second.tailReplayInProgress).toBe(false);
+  });
+
+  it("kind:older prepends and refolds without advancing maxSeq", () => {
+    const tail = applySessionMessage(
+      createSessionAccumulator(),
+      {
+        type: "event_replay",
+        sessionId: SID,
+        kind: "tail",
+        isLast: true,
+        events: [{ seq: 3, event: ev("agent_start") }],
+      },
+    );
+    const older = applySessionMessage(
+      tail,
+      {
+        type: "event_replay",
+        sessionId: SID,
+        kind: "older",
+        isLast: true,
+        hasOlder: false,
+        events: [{ seq: 1, event: ev("agent_start") }, { seq: 2, event: ev("agent_end", { messages: [] }) }],
+      },
+    );
+    expect(older.buffer?.map((entry) => entry.seq)).toEqual([1, 2, 3]);
+    expect(older.maxSeq).toBe(3);
+  });
+
   it("extension_ui_request adds an interactive request; ui_dismiss removes it", () => {
     const acc0 = createSessionAccumulator();
     const added = applySessionMessage(acc0, {

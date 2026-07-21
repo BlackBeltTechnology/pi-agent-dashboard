@@ -4,6 +4,8 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
+| `__tests__/diff-refresh-signal.test.ts` | Tests shared mutation-classifier refresh count. Includes aliases, failed results, Read/search exclusions. See change: retain-failed-tool-file-changes. |
+| `__tests__/event-reducer-tail-window.test.ts` | Covers unsafe tail-window cut orphan suppression. See change: tail-first-session-loading. |
 | `api-context.ts` | React context + module-level store for HTTP API base URL. → see `api-context.ts.AGENTS.md` |
 | `auto-init-worktree.ts` | Fire-and-forget post-spawn worktree auto-init. Exports `maybeAutoInitWorktreeOnSpawn(cwd)`; no-op unless… → see `auto-init-worktree.ts.AGENTS.md` |
 | `back-target.ts` | Pure `computeBackTarget(route): string \| null` — maps route to parent route one shell depth up. → see `back-target.ts.AGENTS.md` |
@@ -17,6 +19,7 @@ Files in this directory. One row per source file.
 | `context-usage.ts` | Exports `buildContextUsageMap(sessionStates, sessions): Map<string, ContextUsageInfo>`. → see `context-usage.ts.AGENTS.md` |
 | `cwd-visibility.ts` | Pure `isVisibleCwd(cwd, {pinnedDirectories, workspaces, sessions, platform?})`. → see `cwd-visibility.ts.AGENTS.md` |
 | `diff-tree.ts` | Builds directory tree from flat `FileDiffEntry[]`. Exports `TreeNode`, `buildFileTree` (sorts dirs-first alpha, collapses single-child dir chains). Used by diff view. |
+| `diff-refresh-signal.ts` | `countMutationResults(messages)` counts classified mutation `toolResult` rows using shared `isMutationTool`; drives serialized session-diff refresh, excludes Read/search. See change: retain-failed-tool-file-changes. |
 | `DisplayPrefsContext.tsx` | React context exposing `{ global: DisplayPrefs|undefined, getSessionOverride(id):… → see `DisplayPrefsContext.tsx.AGENTS.md` |
 | `doctor-api.ts` | Typed `fetchDoctorReport(): Promise<DoctorReport>` against `/api/doctor` via auth-aware fetch wrapper. |
 | `document-title.ts` | Exports `buildDocumentTitle(session, folderCwd?)` — derives `<projectDir>` from `cwd` last segment, composes `"<name> (<dir>) — PI Dashboard"` title. Falls back to folder cwd or `"PI Dashboard"`. |
@@ -42,6 +45,7 @@ Files in this directory. One row per source file.
 | `group-tool-bursts.ts` | Temporal burst grouping — OUTER pass over `groupConsecutiveToolCalls`. → see `group-tool-bursts.ts.AGENTS.md` |
 | `group-tool-calls.ts` | Collapses repetitive retry loops in chat view. Exports `ToolCallGroup`, `ChatItem`,… → see `group-tool-calls.ts.AGENTS.md` |
 | `history-back.ts` | Exports `goBack(navigate, currentRoute, tracker)` — depth-aware mobile/overlay back action. → see `history-back.ts.AGENTS.md` |
+| `i18n-hu.ts` | Hungarian `huCatalog` translations. Adds Changes failure labels. See change: retain-failed-tool-file-changes. |
 | `i18n.tsx` | i18n provider + `t()` translator. Exports `Language` ("en"|"zh-CN"), `LANGUAGE_OPTIONS`, `t(key, vars?,… → see `i18n.tsx.AGENTS.md` |
 | `installed-list-helpers.ts` | Pure client helpers for installed-packages UI. Exports `computeDestIdentity(source)` — mirrors server… → see `installed-list-helpers.ts.AGENTS.md` |
 | `known-servers-api.ts` | Client fetch helpers for known-servers management. Exports `listKnownServers`, `addKnownServer(host, port,… → see `known-servers-api.ts.AGENTS.md` |
@@ -85,6 +89,7 @@ Files in this directory. One row per source file.
 | `replay-persist.ts` | Debounced replay-cache writer. createReplayPersister(cache,debounceMs). → see `replay-persist.ts.AGENTS.md` |
 | `route-builders.ts` | URL builders for shell overlay routes: `buildOpenSpecPreviewUrl`, `buildOpenSpecArchiveUrl`,… → see `route-builders.ts.AGENTS.md` |
 | `selectedSessionId.ts` | Pure derivation of selected session id from wouter route matches. → see `selectedSessionId.ts.AGENTS.md` |
+| `session-rel-path.ts` | Client path normalize matching server `session-diff.ts::normalizePath`. `normalizeUnderCwd(raw,cwd)`: abs under cwd → relative-posix; else posix-only. Used by ChatView/openDiffTab/DiffViewer/lineDelta. See change: fix-session-diff-open-nongit-and-preview. |
 | `selectViewedSessionId.ts` | Pure selector for currently-viewed session id from `/session/:id` route. → see `selectViewedSessionId.ts.AGENTS.md` |
 | `server-switch.ts` | `performServerSwitch(target, deps)` — extracted two-phase transaction (stage → commit) from `App.tsx`'s… → see `server-switch.ts.AGENTS.md` |
 | `session-card-time.ts` | Pure picker of session-card relative-time badge anchor timestamp. Exports `selectBadgeTimestamp(session)`. → see `session-card-time.ts.AGENTS.md` |

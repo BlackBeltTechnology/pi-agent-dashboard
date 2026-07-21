@@ -65,6 +65,9 @@ export type OnSessionEndedFn = (handler: (sessionId: string) => void) => () => v
  */
 export type SendToSessionFn = (sessionId: string, text: string) => boolean;
 
+/** Force a running session onto a `provider/model` ref (e.g. council explorer threads). */
+export type SetSessionModelFn = (sessionId: string, modelRef: string) => boolean;
+
 /**
  * Emit a configured pi event INTO a running session's in-process event bus
  * (relayed over the bridge as a `plugin_emit_event` control message; the
@@ -113,6 +116,14 @@ export interface PluginSpawnOptions {
    * run's effective board visibility.
    */
   automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
+  /**
+   * When true, the spawned session is stamped `hidden=true` once it registers
+   * (queued by cwd, applied on `session_register`) so it stays out of the
+   * sidebar session list. Generic mechanism for plugin worker sessions the
+   * user should open only from the plugin's own board (e.g. council explorer
+   * threads). See change: hide-council-explorer-sessions.
+   */
+  hidden?: boolean;
 }
 
 /** Result of a plugin session-spawn request. */
@@ -129,6 +140,22 @@ export interface PluginSpawnResult {
  * rejects with `success: false`. See change: add-automation-plugin.
  */
 export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnResult>;
+
+export type PluginWorktreeResult =
+  | { success: true; path: string; branch: string }
+  | { success: false; error: string };
+
+/** Create an isolated worktree from the repository's current HEAD. */
+export type CreateWorktreeFn = (args: {
+  cwd: string;
+  newBranch: string;
+}) => Promise<PluginWorktreeResult>;
+
+/** Remove a plugin-owned worktree after its sessions have stopped. */
+export type RemoveWorktreeFn = (args: {
+  cwd: string;
+  force?: boolean;
+}) => Promise<boolean>;
 
 /**
  * Abort a running pi session by id. Gated to first-party / trusted plugins by
@@ -204,6 +231,8 @@ export interface ServerPluginContext {
   onSessionEnded: OnSessionEndedFn;
   /** Send a prompt/command into a running session. See change: add-goal-continuation-plugin. */
   sendToSession: SendToSessionFn;
+  /** Set provider+model on a connected session (overrides dashboard default). */
+  setSessionModel: SetSessionModelFn;
   /**
    * Emit a configured pi event into a running session. See change:
    * automation-emit-configured-event.
@@ -215,6 +244,8 @@ export interface ServerPluginContext {
    * See change: add-automation-plugin.
    */
   spawnSession: SpawnSessionFn;
+  createWorktree?: CreateWorktreeFn;
+  removeWorktree?: RemoveWorktreeFn;
   /**
    * Abort a running session. Gated to first-party/trusted plugins; untrusted
    * plugins get a hook that returns `false`. See change:
@@ -258,8 +289,11 @@ export interface ServerContextDeps {
   onEvent: OnEventFn;
   onSessionEnded: OnSessionEndedFn;
   sendToSession: SendToSessionFn;
+  setSessionModel: SetSessionModelFn;
   emitEventToSession: EmitEventToSessionFn;
   spawnSession: SpawnSessionFn;
+  createWorktree?: CreateWorktreeFn;
+  removeWorktree?: RemoveWorktreeFn;
   abortSession: AbortSessionFn;
   abortSpawnedRun: AbortSpawnedRunFn;
   provide: ProvideFn;
@@ -288,8 +322,11 @@ export function createServerPluginContext(
     onEvent: deps.onEvent,
     onSessionEnded: deps.onSessionEnded,
     sendToSession: deps.sendToSession,
+    setSessionModel: deps.setSessionModel,
     emitEventToSession: deps.emitEventToSession,
     spawnSession: deps.spawnSession,
+    createWorktree: deps.createWorktree ?? (async () => ({ success: false, error: "worktree API unavailable" })),
+    removeWorktree: deps.removeWorktree ?? (async () => false),
     abortSession: deps.abortSession,
     abortSpawnedRun: deps.abortSpawnedRun,
     provide: deps.provide,

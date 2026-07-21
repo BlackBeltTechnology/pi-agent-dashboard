@@ -9,7 +9,8 @@
  * See change: add-e2e-faux-model-roundtrip.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveActiveStep } from "../../../../qa/fixtures/faux-provider.ext.js";
+import { resolve } from "node:path";
+import { fixturePath, resolveActiveStep } from "../../../../qa/fixtures/faux-provider.ext.js";
 import type { FauxContext } from "../../../../qa/fixtures/faux-scenarios.js";
 
 function userMsg(text: string): FauxContext["messages"][number] {
@@ -67,5 +68,15 @@ describe("resolveActiveStep", () => {
   it("returns undefined id when no sentinel and FAUX_SCRIPT unset", () => {
     delete process.env.FAUX_SCRIPT;
     expect(resolveActiveStep(ctx([userMsg("hello")])).id).toBeUndefined();
+  });
+});
+
+describe("fixturePath", () => {
+  it("resolves a relative fixture output inside the session cwd", () => {
+    expect(fixturePath("nested/output.md")).toBe(resolve(process.cwd(), "nested/output.md"));
+  });
+
+  it("rejects a traversal outside the session cwd", () => {
+    expect(() => fixturePath("../outside.md")).toThrow("fixture path must stay inside cwd");
   });
 });

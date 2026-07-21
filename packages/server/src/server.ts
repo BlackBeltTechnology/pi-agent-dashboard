@@ -68,6 +68,7 @@ import { PairedDeviceRegistry } from "./paired-devices.js";
 import { PairingManager } from "./pairing.js";
 import { createPendingAttachRegistry } from "./pending-attach-registry.js";
 import { createPendingAutomationRunRegistry } from "./pending-automation-run-registry.js";
+import { createPendingHiddenRegistry } from "./pending-hidden-registry.js";
 import { createPendingClientCorrelations } from "./pending-client-correlations.js";
 import { createPendingForkRegistry, type PendingForkRegistry } from "./pending-fork-registry.js";
 import { createPendingGoalLinkRegistry } from "./pending-goal-link-registry.js";
@@ -89,6 +90,7 @@ import { registerFileRoutes } from "./routes/file-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGoalRoutes } from "./routes/goal-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
+import { addWorktree, readHead, removeWorktree } from "./git-operations.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
 import { registerManifestRoute } from "./routes/manifest-route.js";
@@ -115,6 +117,7 @@ import { registerResourceActivationRoutes } from "./routes/resource-activation-r
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
+import { registerTranslateRoutes } from "./routes/translate-routes.js";
 import { removePid, writePid } from "./server-pid.js";
 import { registerSessionApi } from "./session-api.js";
 import { discoverAndBroadcastSessions } from "./session-bootstrap.js";
@@ -124,6 +127,7 @@ import { sessionToMeta } from "./session-to-meta.js";
 import { mintSpawnToken } from "./spawn-token.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal-gateway.js";
 import { createTerminalManager, type TerminalManager } from "./terminal-manager.js";
+import { createTranslateBridgeDispatcher } from "./translate-via-bridge.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel-watchdog.js";
 import { createWorktreeInitRegistry } from "./worktree-init-registry.js";
@@ -499,6 +503,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // session_register hook to stamp kind="automation" + automationRun.
   // See change: add-automation-plugin.
   const pendingAutomationRunRegistry = createPendingAutomationRunRegistry();
+  const pendingHiddenRegistry = createPendingHiddenRegistry();
   // Pending user-initiated resume intents (sessionId → timestamp).
   // Consumed by `sessionManager.onChange` in the ended→alive branch to
   // gate the sessionOrder mutation behind explicit user intent so that
@@ -877,6 +882,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     );
   };
 
+  const translateBridgeDispatcher = createTranslateBridgeDispatcher({ piGateway });
+
   // Wire up event forwarding from pi gateway to browser gateway
   wireEvents({
     sessionManager,
@@ -894,12 +901,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingAttachRegistry,
     pendingWorktreeBaseRegistry,
     pendingAutomationRunRegistry,
+    pendingHiddenRegistry,
     pendingGoalLinkRegistry,
     goalStore,
     primeGoalSession: primeGoalSessionImpl,
     pendingInitialPromptRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
     pendingClientCorrelations,
+    translateBridgeDispatcher,
     dispatchPluginPiMessage,
     dispatchPluginRawEvent,
     dispatchPluginSessionEnded,
@@ -1209,6 +1218,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
+  registerTranslateRoutes(fastify, { networkGuard, bridgeDispatcher: translateBridgeDispatcher });
 
   // /api/bootstrap/* routes removed under change:
   // eliminate-electron-runtime-install (task 3.4). pi-core in-place
@@ -1459,11 +1469,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Serve static files / SPA fallback.
   //
   // Resolution strategies, in order:
-  //  1. Node module resolver — works in ANY install layout
-  //     (flat `node_modules/`, scoped, nested, pnpm, whatever).
-  //  2. Sibling-to-server in the installed @scope layout.
-  //  3. Monorepo workspace sibling.
-  //  4. Legacy dist/client.
+  //  1. Monorepo workspace sibling (`packages/client/dist`) so a checked-out
+  //     repo serves the freshly-built local web client, not a stale package
+  //     snapshot left under node_modules.
+  //  2. Node module resolver — works in installed layouts.
+  //  3. Legacy dist/client.
   //
   // Same class of bug as commits 40a1319 (bridge auto-registration)
   // and e11f5eb (server-launcher.ts resolve): sibling-path arithmetic
@@ -1482,16 +1492,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // package hasn't been linked yet).
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   let clientDir = "";
-  try {
-    const webPkgJson = createRequire(import.meta.url).resolve(
-      "@blackbelt-technology/pi-dashboard-web/package.json",
-    );
-    const candidate = path.join(path.dirname(webPkgJson), "dist");
-    if (existsSync(path.join(candidate, "index.html"))) clientDir = candidate;
-  } catch {
-    // Web package not resolvable — try dev-monorepo sibling.
-    const devCandidate = path.join(__dirname, "../../client/dist");
-    if (existsSync(path.join(devCandidate, "index.html"))) clientDir = devCandidate;
+  const devCandidate = path.join(__dirname, "../../client/dist");
+  if (existsSync(path.join(devCandidate, "index.html"))) {
+    clientDir = devCandidate;
+  } else {
+    try {
+      const webPkgJson = createRequire(import.meta.url).resolve(
+        "@blackbelt-technology/pi-dashboard-web/package.json",
+      );
+      const candidate = path.join(path.dirname(webPkgJson), "dist");
+      if (existsSync(path.join(candidate, "index.html"))) clientDir = candidate;
+    } catch {
+      // No packaged web dist either — API-only mode below.
+    }
   }
   const hasProductionBuild = !!clientDir;
   if (!hasProductionBuild) {
@@ -1703,6 +1716,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               },
               sendToSession: (sessionId, text) =>
                 piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text }),
+              setSessionModel: (sessionId, modelRef) => {
+                const slash = modelRef.indexOf("/");
+                if (slash <= 0) return false;
+                const provider = modelRef.slice(0, slash);
+                const modelId = modelRef.slice(slash + 1);
+                if (!provider || !modelId) return false;
+                return piGateway.sendToSession(sessionId, {
+                  type: "set_model",
+                  sessionId,
+                  provider,
+                  modelId,
+                });
+              },
               // Session-spawn hook. Gated to first-party/trusted plugins
               // (priority <= 100 by convention). Untrusted plugins get a
               // hook that always rejects. See change: add-automation-plugin.
@@ -1713,6 +1739,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 }
                 if (opts.automationRun) {
                   pendingAutomationRunRegistry.enqueue(opts.cwd, opts.automationRun);
+                }
+                if (opts.hidden) {
+                  pendingHiddenRegistry.enqueue(opts.cwd);
                 }
                 // mode/sandbox threading (change: redesign-automation-editor-and-board).
                 // DOCUMENTED LIMITATION (task 4.2): the host hook does not yet
@@ -1749,6 +1778,28 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 } catch (err) {
                   return { success: false, message: err instanceof Error ? err.message : String(err) };
                 }
+              },
+              createWorktree: async ({ cwd, newBranch }) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return { success: false, error: "worktree creation not permitted" };
+                try {
+                  const head = readHead(cwd);
+                  const base = head.branch ?? head.sha;
+                  if (!base) return { success: false, error: "repository has no commits" };
+                  const result = addWorktree({ cwd, base, newBranch });
+                  if (!result.ok) return { success: false, error: result.message };
+                  return { success: true, path: result.path, branch: result.branch };
+                } catch (err) {
+                  return {
+                    success: false,
+                    error: err instanceof Error ? err.message : String(err),
+                  };
+                }
+              },
+              removeWorktree: async ({ cwd, force }) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return false;
+                return removeWorktree({ cwd, force: force === true }).ok;
               },
               // Session-abort hook. Gated to first-party/trusted plugins
               // (priority <= 100), mirroring `spawnSession`. Untrusted plugins

@@ -83,6 +83,7 @@ export function registerSessionRoutes(
           baseLabel: result.baseLabel,
           totalAdditions: result.totalAdditions,
           totalDeletions: result.totalDeletions,
+          ...(result.fileOperationFailures ? { fileOperationFailures: result.fileOperationFailures } : {}),
         },
       } satisfies ApiResponse;
     },

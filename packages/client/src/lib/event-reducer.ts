@@ -1009,6 +1009,47 @@ export function deriveBannerState(state: SessionState): BannerState {
   return out;
 }
 
+/**
+ * Event types that only make sense CLOSING or CONTINUING an already-open span.
+ * When a replay window begins mid-span (possible only at the hard-cap unsafe
+ * cut, see `select-window.ts`), the window's leading events may be these
+ * fragments whose opening event was not included. Folding them would either
+ * throw or produce a phantom partial bubble / orphan tool row.
+ * See change: tail-first-session-loading.
+ */
+const ORPHAN_CONTINUATION_TYPES: ReadonlySet<string> = new Set([
+  "message_update",
+  "message_end",
+  "tool_execution_end",
+]);
+
+/**
+ * Fold a full raw replay buffer from `createInitialState()`, tolerating a window
+ * that begins mid-span. Leading `message_update` / `message_end` /
+ * `tool_execution_end` events (whose opening event precedes the window) are
+ * skipped so the fold neither throws nor renders orphan fragments. Once a
+ * span-opening or standalone event is reached, all remaining events fold
+ * normally via `reduceEvent`.
+ *
+ * This is the fold ENTRY POINT for the `kind: "older"` prepend+refold path and
+ * the tail-window initial fold; the `reduceEvent` core is unchanged.
+ * See change: tail-first-session-loading.
+ */
+export function foldReplayBuffer(
+  events: ReadonlyArray<DashboardEvent>,
+): SessionState {
+  let state = createInitialState();
+  let started = false;
+  for (const event of events) {
+    if (!started) {
+      if (ORPHAN_CONTINUATION_TYPES.has(event.eventType)) continue; // drop orphan
+      started = true;
+    }
+    state = reduceEvent(state, event);
+  }
+  return state;
+}
+
 export function reduceEvent(
   state: SessionState,
   event: DashboardEvent,
@@ -1298,6 +1339,11 @@ export function reduceEvent(
         // See change: unify-error-retry-lifecycle.
         if (CONFIRMED_GOOD_STOP_REASONS.has(msg.stopReason)) {
           next.lastError = undefined;
+        } else if (msg.stopReason === "error" && typeof msg.errorMessage === "string") {
+          // Some providers omit or indefinitely delay agent_end after a
+          // terminal quota failure. Surface message_end immediately instead.
+          next.lastError = { message: msg.errorMessage, timestamp: event.timestamp };
+          next.retryState = undefined;
         }
         // Reasoning reconstruction on REPLAY. Live turns build `thinking` rows
         // from thinking_start/delta/end events (see message_update), but the

@@ -26,6 +26,7 @@ function makeStartEvt(toolCallId: string, ts: number): DashboardEvent {
 function setup() {
   const sessionStatesRef = { current: new Map<string, SessionState>() };
   const maxSeqMap = new Map<string, number>();
+  const setOldestLoadedSeq = vi.fn();
 
   const setSessionStates = vi.fn((updater: any) => {
     if (typeof updater === "function") {
@@ -66,12 +67,13 @@ function setup() {
     maxSeqMapRef: { current: maxSeqMap },
     selectedSessionIdRef: { current: undefined },
     loadingHistoryTimersRef: { current: new Map() },
+    setOldestLoadedSeq,
   };
 
   const { result } = renderHook(() => useMessageHandler(setters, deps));
   const dispatch = (msg: ServerToBrowserMessage) => result.current(msg);
 
-  return { dispatch, sessionStatesRef, maxSeqMap };
+  return { dispatch, sessionStatesRef, maxSeqMap, setOldestLoadedSeq };
 }
 
 function replayMsg(sid: string, seqStart: number, events: DashboardEvent[]): ServerToBrowserMessage {
@@ -141,6 +143,43 @@ describe("useMessageHandler event_replay reset trigger", () => {
     const tools = sessionStatesRef.current.get(SID)!.messages.filter((m) => m.role === "toolResult");
     expect(tools).toHaveLength(4);
     expect(tools.map((m) => m.toolCallId)).toEqual(["t1", "t2", "t3", "t4"]);
+  });
+
+  it("kind:tail resets only once across multi-batch window", () => {
+    const { dispatch, sessionStatesRef, maxSeqMap } = setup();
+    // Existing state must be replaced by this authoritative tail window.
+    dispatch(replayMsg(SID, 1, [makeStartEvt("stale", 1)]));
+    const first = {
+      ...replayMsg(SID, 100, [makeStartEvt("t1", 100)]),
+      kind: "tail" as const,
+      isLast: false,
+    };
+    const second = {
+      ...replayMsg(SID, 101, [makeStartEvt("t2", 200)]),
+      kind: "tail" as const,
+      isLast: true,
+    };
+
+    dispatch(first);
+    dispatch(second);
+
+    const tools = sessionStatesRef.current.get(SID)!.messages.filter((m) => m.role === "toolResult");
+    expect(tools.map((m) => m.toolCallId)).toEqual(["t1", "t2"]);
+    expect(maxSeqMap.get(SID)).toBe(101);
+  });
+
+  it("empty kind:older completion clears the parent single-flight gate", () => {
+    const { dispatch, setOldestLoadedSeq } = setup();
+    dispatch({
+      type: "event_replay",
+      sessionId: SID,
+      kind: "older",
+      isLast: true,
+      hasOlder: false,
+      events: [],
+    } as ServerToBrowserMessage);
+
+    expect(setOldestLoadedSeq).toHaveBeenCalledWith(SID, undefined);
   });
 
   it("empty replay preserves state", () => {

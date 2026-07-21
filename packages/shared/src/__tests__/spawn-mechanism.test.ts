@@ -115,6 +115,15 @@ describe("sessionFlagsToArgv", () => {
     expect(sessionFlagsToArgv({ sessionFile: "/s/abc.jsonl", mode: "continue" })).toEqual(["--session", "/s/abc.jsonl"]);
   });
 
+  it("preserves model when continuing a session", () => {
+    expect(sessionFlagsToArgv({ sessionFile: "/s/abc.jsonl", mode: "continue", model: "anthropic/claude-opus" })).toEqual([
+      "--session",
+      "/s/abc.jsonl",
+      "--model",
+      "anthropic/claude-opus",
+    ]);
+  });
+
   it("returns --fork file for fork mode", () => {
     expect(sessionFlagsToArgv({ sessionFile: "C:\\s\\abc.jsonl", mode: "fork" })).toEqual(["--fork", "C:\\s\\abc.jsonl"]);
   });

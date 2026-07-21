@@ -83,6 +83,25 @@ function loadFullConfig(): Record<string, unknown> {
 }
 
 /**
+ * Strict read for the WRITE path. Unlike `loadFullConfig` (read path, tolerant),
+ * this distinguishes "file missing" (safe: returns {}) from "file present but
+ * malformed" (unsafe: throws). Rationale: a role write that silently treated a
+ * corrupt file as {} would clobber the user's `providers` and every other
+ * top-level key. Refusing to write preserves the file for manual recovery.
+ */
+function loadFullConfigForWrite(): Record<string, unknown> {
+  const path = configPath();
+  if (!existsSync(path)) return {};
+  const parsed = JSON.parse(readFileSync(path, "utf-8"));
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error(
+      `Refusing to write roles: ${path} is not a JSON object (would clobber providers and other keys)`,
+    );
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/**
  * Read the role-relevant slice of `providers.json`. Tolerant of missing file
  * and malformed JSON; both produce `{ roles: {}, rolePresets: [], activePreset: null }`.
  *
@@ -119,7 +138,9 @@ export function loadRoleConfig(): RoleConfig {
 export function saveRoleConfig(roleConfig: RoleConfig): void {
   const path = configPath();
   mkdirSync(join(homedir(), ".pi", "agent"), { recursive: true });
-  const full = loadFullConfig();
+  // Strict read: throws on malformed JSON so a corrupt file is never
+  // overwritten (which would silently drop `providers` and other keys).
+  const full = loadFullConfigForWrite();
   full.roles = roleConfig.roles;
   full.rolePresets = roleConfig.rolePresets;
   full.activePreset = roleConfig.activePreset;
@@ -356,9 +377,16 @@ export function activate(pi: ExtensionAPI): void {
       if (preset) preset.roles = { ...cfg.roles };
     }
 
-    saveRoleConfig(cfg);
-    currentRoles = cfg.roles;
-    data.success = true;
+    // saveRoleConfig throws on a malformed providers.json (refuses to clobber).
+    // Report failure to the dashboard instead of crashing the extension event.
+    try {
+      saveRoleConfig(cfg);
+      currentRoles = cfg.roles;
+      data.success = true;
+    } catch (err: any) {
+      console.warn(`[dashboard] flow:role-set save refused: ${err?.message ?? String(err)}`);
+      data.success = false;
+    }
   });
 
   pi.events.on("roles:preset-load", (data: any) => {
@@ -376,9 +404,14 @@ export function activate(pi: ExtensionAPI): void {
     // Wholesale replacement (spec scenario "load replaces roles wholesale").
     cfg.roles = { ...preset.roles };
     cfg.activePreset = name;
-    saveRoleConfig(cfg);
-    currentRoles = cfg.roles;
-    data.success = true;
+    try {
+      saveRoleConfig(cfg);
+      currentRoles = cfg.roles;
+      data.success = true;
+    } catch (err: any) {
+      console.warn(`[dashboard] flow:role-preset-load save refused: ${err?.message ?? String(err)}`);
+      data.success = false;
+    }
   });
 
   pi.events.on("roles:preset-save", (data: any) => {
@@ -392,8 +425,13 @@ export function activate(pi: ExtensionAPI): void {
     const preset: RolePreset = { name, roles: { ...cfg.roles } };
     if (idx >= 0) cfg.rolePresets[idx] = preset;
     else cfg.rolePresets.push(preset);
-    saveRoleConfig(cfg);
-    data.success = true;
+    try {
+      saveRoleConfig(cfg);
+      data.success = true;
+    } catch (err: any) {
+      console.warn(`[dashboard] flow:role-preset-save refused: ${err?.message ?? String(err)}`);
+      data.success = false;
+    }
   });
 
   pi.events.on("roles:remove", (data: any) => {
@@ -430,7 +468,12 @@ export function activate(pi: ExtensionAPI): void {
       return;
     }
     if (cfg.activePreset === name) cfg.activePreset = null;
-    saveRoleConfig(cfg);
-    data.success = true;
+    try {
+      saveRoleConfig(cfg);
+      data.success = true;
+    } catch (err: any) {
+      console.warn(`[dashboard] flow:role-preset-delete save refused: ${err?.message ?? String(err)}`);
+      data.success = false;
+    }
   });
 }
