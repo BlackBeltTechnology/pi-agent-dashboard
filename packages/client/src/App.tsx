@@ -1347,7 +1347,6 @@ export default function App() {
   const sessionList = (
     <SessionList
       sessions={Array.from(sessions.values())}
-      terminals={Array.from(terminals.values())}
       selectedId={selectedId}
       onSelect={handleSelect}
       revealRequest={revealRequest}
@@ -1423,8 +1422,6 @@ export default function App() {
       onSetProcessDrawer={(sessionId, collapsed) => send({ type: "set_session_process_drawer", sessionId, collapsed })}
       inflightBashMap={inflightBashMap}
       onAbortTool={handleAbortTool}
-      onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
-      onOpenEditor={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
       gitWorktreeEnabled={gitWorktreeEnabled}
       errorSessionIds={errorSessionIds}
       noticeSessionIds={noticeSessionIds}

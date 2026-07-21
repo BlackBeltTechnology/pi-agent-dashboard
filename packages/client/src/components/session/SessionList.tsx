@@ -1,5 +1,4 @@
 import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -154,7 +153,8 @@ interface Props {
   onSetWorkspaceCollapsed?: (id: string, collapsed: boolean) => void;
   onAddFolderToWorkspace?: (id: string, path: string) => void;
   onRemoveFolderFromWorkspace?: (id: string, path: string) => void;
-  terminals?: TerminalSession[];
+  // onKillTerminal/onRenameTerminal are pre-existing unused props (terminals
+  // moved to the editor pane); left as-is, out of scope for this change.
   onKillTerminal?: (terminalId: string) => void;
   onRenameTerminal?: (terminalId: string, title: string) => void;
   onCollapseSidebar?: () => void;
@@ -180,8 +180,6 @@ interface Props {
   onOpenArchive?: (cwd: string) => void;
   /** Navigate to the full-page OpenSpec board for a cwd. See change: redesign-openspec-board. */
   onOpenBoard?: (cwd: string) => void;
-  onOpenTerminals?: (cwd: string) => void;
-  onOpenEditor?: (cwd: string) => void;
   /** Extra content rendered in the sidebar header toolbar */
   headerExtra?: React.ReactNode;
   /** Set of session IDs that have an active error */
@@ -234,7 +232,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -400,17 +398,6 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     () => sessions.filter((s) => s.hidden).length,
     [sessions],
   );
-
-  // Build a map of terminals by cwd for quick lookup
-  const terminalsByCwd = useMemo(() => {
-    const map = new Map<string, TerminalSession[]>();
-    for (const t of terminals ?? []) {
-      const existing = map.get(t.cwd);
-      if (existing) existing.push(t);
-      else map.set(t.cwd, [t]);
-    }
-    return map;
-  }, [terminals]);
 
   const { pinned: pinnedGroups, unpinned: unpinnedGroups } = useMemo(
     () => groupSessionsByDirectory(filteredSessions, sessionOrderMap, pinnedDirectories),
@@ -987,20 +974,26 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               of a collapsed folder is unaffected.
               See change: condense-collapsed-folder-header. */}
           {!isCollapsed && (<>
-          <div className="flex items-center gap-1">
-            <GroupGitInfo
-              sessions={group.sessions}
-              cwd={group.cwd}
-              folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
-              onBranchClick={() => setBranchDialogCwd(group.cwd)}
-            />
-          </div>
-          <div className="mt-1">
+          {/* Git info + folder actions share ONE compact row (variant B):
+              branch/commit left, Initialize + settings gear right-grouped.
+              Terminals + Editor buttons removed — that pane is reachable from
+              the Directory home page and ChatView.
+              `flex-wrap` + `justify-between`: the small idle Initialize button
+              sits inline right of the git info, but a wide init state (the
+              running / failed `WorktreeInitChip`, min-w ~240px) wraps to its own
+              line instead of overflowing and overlapping the git row.
+              See change: compact-folder-header-actions. */}
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <div className="min-w-0">
+              <GroupGitInfo
+                sessions={group.sessions}
+                cwd={group.cwd}
+                folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
+                onBranchClick={() => setBranchDialogCwd(group.cwd)}
+              />
+            </div>
             <FolderActionBar
               cwd={group.cwd}
-              terminalCount={terminalsByCwd.get(group.cwd)?.length ?? 0}
-              onOpenTerminals={() => onOpenTerminals?.(group.cwd)}
-              onOpenEditor={() => onOpenEditor?.(group.cwd)}
               onOpenPiResources={() => onOpenPiResources?.(group.cwd)}
               onInitializeProject={onSpawnSession ? (cwd) => onSpawnSession(cwd, undefined, { initialPrompt: "/skill:project-init" }) : undefined}
               brokenSessionCount={group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended" && !s.hidden).length}

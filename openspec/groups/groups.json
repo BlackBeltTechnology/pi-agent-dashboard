@@ -198,10 +198,15 @@
     "distill-hermes-memory-into-skills": "next-phase",
     "fix-session-diff-eventloop-block": "ui",
     "add-codegraph-code-plane": "next-phase",
-    "fix-stacked-escape-closes-layers": "ui"
+    "fix-stacked-escape-closes-layers": "ui",
+    "adopt-pnpm-for-dev-ci": "ui",
+    "pdf-preview-continuous-scroll": "ui",
+    "shrink-client-index-chunk": "ui"
   },
   "changeOrder": {
-    "__ungrouped__": [],
+    "__ungrouped__": [
+      "fix-pi-install-node26-and-omit-dev-build"
+    ],
     "kowledge-base": [
       "add-lora-dataset-export-skill",
       "add-automatic-session-kb-index",
@@ -210,7 +215,9 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "fix-stacked-escape-closes-layers"
+      "adopt-pnpm-for-dev-ci",
+      "shrink-client-index-chunk",
+      "pdf-preview-continuous-scroll"
     ],
     "next-phase": [
       "add-codegraph-code-plane",
