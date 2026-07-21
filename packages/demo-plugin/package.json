@@ -28,5 +28,8 @@
         "toolName": "DashboardDemo"
       }
     ]
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.6.1"
   }
 }

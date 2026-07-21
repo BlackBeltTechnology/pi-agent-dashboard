@@ -37,39 +37,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
-      # `npm ci` fallback covers npm/cli#4828 (platform optional-deps, incl. the
-      # koffi optionalDependency). OS-split so the cleanup stays shell-correct.
-      - name: Install dependencies (POSIX)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: npm ci || (echo "npm ci failed (npm/cli#4828); clean install" && rm -rf node_modules package-lock.json && npm install)
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          npm ci
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "npm ci failed (npm/cli#4828); clean install"
-            Remove-Item -Recurse -Force node_modules, package-lock.json -ErrorAction SilentlyContinue
-            npm install
-          }
+      # pnpm re-resolves the full platform optional-dep tree from
+      # pnpm-lock.yaml, so the npm/cli#4828 OS-split clean-install fallback is
+      # gone — one cross-platform install step.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       # Package the app for this OS (bundled Node skipped when absent; the E2E
       # attaches to a fake server, so no real server spawn is needed).
       - name: Package Electron app
-        run: npm run -w packages/electron package
+        run: pnpm --filter @blackbelt-technology/pi-dashboard-electron run package
 
       # Electron needs Chromium's system libraries; ubuntu-latest images no
       # longer ship them all. install-deps pulls libnss3/libgbm/libatk/etc.
       # without downloading a browser binary (Electron uses its own).
       - name: Install Electron system libraries (Linux)
         if: runner.os == 'Linux'
-        run: npx playwright install-deps chromium
+        run: pnpm exec playwright install-deps chromium
 
       # ubuntu-24.04 (noble) blocks unprivileged user namespaces via AppArmor
       # (kernel.apparmor_restrict_unprivileged_userns=1), which breaks Chromium/
@@ -83,13 +73,13 @@ jobs:
       # app's own Electron binary (no chromium download needed).
       - name: Run Electron E2E under xvfb (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:e2e:electron
+        run: xvfb-run -a pnpm run test:e2e:electron
         env:
           CI: "1"
       - name: Run Electron E2E (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: npm run test:e2e:electron
+        run: pnpm run test:e2e:electron
         env:
           CI: "1"
 
@@ -115,19 +105,14 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
       - name: Install dependencies
         shell: pwsh
-        run: |
-          npm ci
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "npm ci failed (npm/cli#4828); clean install"
-            Remove-Item -Recurse -Force node_modules, package-lock.json -ErrorAction SilentlyContinue
-            npm install
-          }
+        run: pnpm install --frozen-lockfile
       # Bundle Node so the packaged app can actually SPAWN a server (the attach
       # E2E jobs don't need this, but the Job Object cascade requires a real
       # server boot, not the execpath fallback). Mirrors _electron-build.yml.
@@ -145,7 +130,7 @@ jobs:
           Copy-Item -Recurse "temp-node/node-$version-win-$arch/node_modules" "$outDir/"
           Remove-Item -Recurse -Force temp-node, node.zip
       - name: Package Electron app
-        run: npm run -w packages/electron package
+        run: pnpm --filter @blackbelt-technology/pi-dashboard-electron run package
       - name: Job Object kill-on-close smoke (taskkill /F cascade)
         shell: pwsh
-        run: npx tsx scripts/windows-job-object-smoke.ts
+        run: pnpm exec tsx scripts/windows-job-object-smoke.ts

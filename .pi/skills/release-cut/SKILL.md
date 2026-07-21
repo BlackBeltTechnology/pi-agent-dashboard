@@ -53,12 +53,12 @@ Run these in order. If any fails, **stop and report** — do not continue.
 
 4. **Tests pass**
    ```bash
-   npm test
+   pnpm test
    ```
 
 5. **Build succeeds**
    ```bash
-   npm run build
+   pnpm run build
    ```
 
 6. **Dependency-shape gate** (introduced by `enable-standalone-npm-install` to prevent regressions of v0.5.3 publish-time bugs)
@@ -165,17 +165,19 @@ grep -n "^## " CHANGELOG.md | head
 ```bash
 npm version <version> --workspaces --include-workspace-root --no-git-tag-version
 node scripts/sync-versions.js
-npm install --package-lock-only --no-audit --no-fund
+pnpm install --lockfile-only
 ```
 
-The first command bumps the `version` field on the root + every workspace.
-The second rewrites every inter-package `dependencies` specifier (e.g.
+The first command bumps the `version` field on the root + every workspace
+(`npm version` only edits package.json — no lockfile, no install — so it
+stays npm even under the pnpm migration). The second rewrites every
+inter-package `dependencies` specifier (e.g.
 `"@blackbelt-technology/pi-dashboard-shared": "^<old>"`) to the new version.
-The third regenerates `package-lock.json` so its recorded cross-ref
-specifiers match the bumped versions — without it, strict prerelease
-semver causes `npm ci` on consumers to fall back to stale registry
-tarballs. The CI `prepare` job runs the same three commands; doing it
-locally keeps the commit honest. See change: fix-release-lockfile-drift.
+The third regenerates `pnpm-lock.yaml` so its recorded cross-ref specifiers
+match the bumped versions — without it, strict prerelease semver causes
+consumer installs to fall back to stale registry tarballs. The CI
+`tag-and-push` job runs the same three commands; doing it locally keeps the
+commit honest. See changes: fix-release-lockfile-drift, adopt-pnpm-for-dev-ci.
 
 > **Why the second step?** The npm CLI does not implement the `workspace:`
 > protocol (it's a pnpm/yarn feature). We use plain semver ranges and
@@ -193,17 +195,17 @@ locally keeps the commit honest. See change: fix-release-lockfile-drift.
 
 Verify with:
 ```bash
-git diff --stat package.json packages/*/package.json package-lock.json
+git diff --stat package.json packages/*/package.json pnpm-lock.yaml
 ```
 
 Should show `version` bumps in `package.json` and every
 `packages/*/package.json` plus synchronised `@blackbelt-technology/pi-dashboard-*`
-dependency specifiers, plus a regenerated `package-lock.json`. No other files.
+dependency specifiers, plus a regenerated `pnpm-lock.yaml`. No other files.
 
 ## Step 6 — Commit
 
 ```bash
-git add CHANGELOG.md package.json package-lock.json packages/*/package.json
+git add CHANGELOG.md package.json pnpm-lock.yaml packages/*/package.json
 git commit -m "chore(release): v<version>"
 ```
 
@@ -297,8 +299,8 @@ reached yet (e.g. a single red smoke leg).
 | Symptom | Class | Action |
 |---|---|---|
 | `ci-checks` red but all tests passed — vitest "Uncaught Exception" (`window is not defined`, react-virtual `setTimeout` after jsdom teardown, `ChatView.test.tsx`) | **flake** | re-run the `ci-checks` job |
-| One smoke leg: `ECONNRESET` / `network aborted` during `npm ci`, or Windows "web UI not reachable" 5s timeout on a cold runner | **flake** | re-run just that leg |
-| `publish` `npm ci` fails `EALLOWGIT` (npm refuses the `@electron/node-gyp` git dep) | **npm-version** | the publish job PINS `npm@11.12.1` — `@latest` blocks git deps, `11.5.1` has a lightningcss optional-dep bug. Known-good = the version that shipped the last successful release. |
+| One smoke leg: `ECONNRESET` / `network aborted` during `pnpm install`, or Windows "web UI not reachable" 5s timeout on a cold runner | **flake** | re-run just that leg |
+| `publish` install fails resolving the `@electron/node-gyp` git dep (`ERR_PNPM_EXOTIC_SUBDEP`) | **config** | `pnpm-workspace.yaml` must keep `blockExoticSubdeps: false`. (The old `npm@11.12.1` EALLOWGIT pin is GONE — post-migration the publish job installs with pnpm and upgrades to `npm@latest` only for the OIDC `npm publish --provenance` step. See change: adopt-pnpm-for-dev-ci §8.3.) |
 | `publish` 422 `Error verifying sigstore provenance bundle: repository.url is ""` | **metadata** | the offending non-private `package.json` is missing a `repository` block (url + `directory`). Add it, matching a sibling like `shared`. Pre-check: `for f in package.json packages/*/package.json; do node -e "const p=require('./$f'); if(!p.private && !p.repository) console.log(p.name)"; done` |
 | `publish` **E404** (not 403) on one package's `npm publish` | **human / npmjs.com** | Trusted Publisher not configured OR mismatched for THAT package. Since the other packages published with the same OIDC token, the config differs in one field. It must match EXACTLY: repo `BlackBeltTechnology/pi-agent-dashboard`, workflow **filename** `publish.yml` (NOT the display name "Release"), environment `npm-publish`. Web-UI action only — hand off to the user. |
 | `electron`/`github-release` skipped instantly (<1s) even though `publish` is green | **workflow-if** (fixed in-repo; watch for regressions) | a skipped `tag-and-push` in needs-ancestry poisons the default `if: success()`. Those jobs now carry explicit `if: !cancelled() && needs.publish.result == 'success'`. |

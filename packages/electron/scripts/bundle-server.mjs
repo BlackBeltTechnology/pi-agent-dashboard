@@ -50,6 +50,16 @@ function resolveTargetPlatformForGit() {
 const PROJECT_DIR = path.resolve(ELECTRON_DIR, "..", "..");
 const SERVER_BUNDLE = path.join(ELECTRON_DIR, "resources", "server");
 
+// pnpm's per-package `node_modules` are symlinks into the `.pnpm`
+// content-addressed store. Copied verbatim into the bundle they become broken
+// links that make the bundle's own `npm install` skip node-pty → empty
+// `prebuilds/` → the GO/NO-GO guard fails. Exclude any `node_modules` segment
+// from workspace/plugin package-tree copies. Windows-safe split: the path may
+// use `\` on win32 — exactly the leg where node-pty prebuilds are load-bearing
+// — so split on both separators, NOT `path.sep`.
+// See change: adopt-pnpm-for-dev-ci (design.md §D4).
+const excludeNodeModules = (src) => !src.split(/[\\/]/).includes("node_modules");
+
 // ── parse args ────────────────────────────────────────────────────────────
 const SOURCE_ONLY = process.argv.slice(2).includes("--source-only");
 
@@ -89,7 +99,7 @@ for (const pkg of BUNDLED_WORKSPACE_PKGS) {
   cpSync(
     path.join(PROJECT_DIR, "packages", pkg),
     path.join(SERVER_BUNDLE, "packages", pkg),
-    { recursive: true, dereference: false },
+    { recursive: true, dereference: false, filter: excludeNodeModules },
   );
 }
 
@@ -131,7 +141,7 @@ for (const pluginDir of BUNDLED_PLUGINS) {
     /* parse error — skip defensively */
   }
   const dst = path.join(BUNDLED_PLUGINS_DIR, pluginDir);
-  cpSync(src, dst, { recursive: true, dereference: false });
+  cpSync(src, dst, { recursive: true, dereference: false, filter: excludeNodeModules });
 }
 console.log(
   `  Bundled ${BUNDLED_PLUGINS.length} first-party plugin(s) into resources/plugins/`,
@@ -295,7 +305,10 @@ if (targetArch) {
 }
 const npmInstall = spawnSync(
   npmCmd,
-  ["install", "--omit=dev", "--no-audit", "--no-fund"],
+  // --no-package-lock: the repo lockfile is pnpm-lock.yaml; do NOT let this
+  // internal npm install write a stray package-lock.json into resources/server/
+  // (second-lockfile leak). See change: adopt-pnpm-for-dev-ci (§9.3).
+  ["install", "--omit=dev", "--no-audit", "--no-fund", "--no-package-lock"],
   {
     cwd: SERVER_BUNDLE,
     encoding: "utf8",
@@ -480,7 +493,11 @@ if (existsSync(BB_DIR)) {
     // Replace symlink with copy via tmp + rename for atomicity.
     const tmpPath = linkPath + ".materializing";
     rmSync(tmpPath, { recursive: true, force: true });
-    cpSync(absTarget, tmpPath, { recursive: true, dereference: true });
+    cpSync(absTarget, tmpPath, {
+      recursive: true,
+      dereference: true,
+      filter: excludeNodeModules,
+    });
     rmSync(linkPath, { force: true });
     renameSync(tmpPath, linkPath);
     materialized += 1;

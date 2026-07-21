@@ -608,7 +608,7 @@ The shared `<RichDiff>` component is also consumed by `DiffPanel` (Path A / chan
 - `flow-tui.ts`: `autonomousMode` included in `flow:flow-started` event data
 
 ### `/reload` Flow (two code paths)
-Reload from the dashboard (via `npm run reload`, the reload button, or `/reload` typed into the chat composer) follows one of two paths depending on how the pi session was spawned. The server transparently selects the right path:
+Reload from the dashboard (via `pnpm run reload`, the reload button, or `/reload` typed into the chat composer) follows one of two paths depending on how the pi session was spawned. The server transparently selects the right path:
 
 ```mermaid
 flowchart TD
@@ -1160,7 +1160,7 @@ The web client includes a Settings panel (gear icon in sidebar header → `/sett
 3. Browser's event reducer processes replay, rebuilding state
 
 ### Bridge Reconnection (State Reset)
-When a bridge extension reconnects (e.g., after `npm run reload` or network recovery):
+When a bridge extension reconnects (e.g., after `pnpm run reload` or network recovery):
 1. Bridge sends `session_register` with `eventCount` to re-register the session
 2. Server checks `canSkipWipe`: if the bridge's `eventCount` matches the server's `lastEntryCount` and events exist in the store, the wipe is skipped (fast reconnect path)
 3. **Full replay path** (`canSkipWipe = false`): Server clears the in-memory event store, broadcasts `session_state_reset` to browsers, stores replayed events, and sends them as `event_replay` batch after `replay_complete`
@@ -2306,6 +2306,43 @@ row also honors the flag — when set, the row shows an amber "skipped" pill
 instead of a red blocker and Continue is enabled.
 
 See change: require-git-on-boot.
+
+## Package manager (pnpm)
+
+Package manager: **pnpm**, pinned to `pnpm@11.15.1` via root `package.json` `packageManager` field + `corepack enable`.
+
+Scope: pnpm drives ALL dev, CI, Docker, and build work. `npm` survives ONLY in locations listed below.
+
+Lockfile: Single committed lockfile = `pnpm-lock.yaml`. Old `package-lock.json` removed.
+
+Configuration lives in `pnpm-workspace.yaml` (NOT `package.json` `pnpm.*` — yaml file takes precedence when present). Config keys:
+
+- `packages: ['packages/*']` — workspace scope.
+- `nodeLinker: hoisted` — **MANDATORY**. electron-forge preflight hard-fails with `"When using pnpm, node-linker must be set to 'hoisted'"`. Flattens `node_modules` npm-like. Third-party phantom deps auto-resolve.
+- `blockExoticSubdeps: false` — Allows transitive git subdep `@electron/node-gyp` (HTTPS codeload). Replaces old fragile `npm@11.12.1` EALLOWGIT pin.
+- `verifyDepsBeforeRun: false` — Avoids `runDepsStatusCheck`/`execaCoreSync` crash on `pnpm run`.
+- `linkWorkspacePackages: true` + `preferWorkspacePackages: true` — Local `@blackbelt-technology/*` linked from workspace even when local version > registry.
+- `confirmModulesPurge: false` — Non-interactive.
+- `strictDepBuilds: false` — Demotes `ERR_PNPM_IGNORED_BUILDS` from FATAL (pnpm 11 exit 1) to warning. Without it, every CI `pnpm install --frozen-lockfile` reds. (Note: `onlyBuiltDependencies` proved unreliable — allow-listed scripts stay ignored; permit all instead.)
+- `ignoredBuiltDependencies` — Names known build-script deps to quiet warning.
+- `overrides: { bonjour-service: 1.4.2 }` — Pins away bad 1.4.3 patch (re-exports `Service`/`Browser` as values, breaks `import { type Service }` in `packages/shared/src/mdns-discovery.ts`).
+
+**Workspace phantom deps.** `nodeLinker: hoisted` auto-resolves THIRD-PARTY phantom deps. Eight WORKSPACE (`@blackbelt-technology/*`) phantom-dep edges declared explicitly in consuming `package.json` files (plain semver `^` ranges — `sync-versions.js` forbids `workspace:*`).
+
+**Native builds.** NOT run at `pnpm install`. Rebuilt explicitly where needed:
+- `_electron-build.yml` runs `pnpm rebuild node-pty` + electron `node install.js`.
+- `bundle-server.mjs` runs its own `npm install` for electron bundle's `node_modules`.
+
+**CI install.** Command: `pnpm install --frozen-lockfile`. Cache via `pnpm/action-setup` + `actions/setup-node` `cache: pnpm`.
+
+**npm survivors (SHALL remain npm).**
+
+1. `npm publish --provenance` in `publish.yml` — OIDC Trusted Publishing. Needs no npm-installed tree. `publish` job upgrades to `npm@latest` only for OIDC ≥11.5.1 floor.
+2. Column C runtime `npm install` on END-USER machines: `pi-core-updater.ts`, `pi-core-checker.ts`, `recovery-server.ts`, electron `update-checker.ts`.
+3. `bundle-server.mjs` internal `npm install --omit=dev` for electron bundle.
+4. `deploy-site.yml` `site/` job (separate `site/package-lock.json`; `site/` NOT a pnpm workspace member).
+
+See change: adopt-pnpm-for-dev-ci.
 
 ## Doctor Diagnostics
 

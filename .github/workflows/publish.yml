@@ -93,15 +93,16 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.ref }}
 
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm test
+      - run: pnpm run build
 
   # ── release-gate: smoke (standalone-install-smoke matrix) ─────────────────
   # Calls the reusable `_smoke.yml` with the resolved ref. Fans out in
@@ -132,15 +133,16 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: pnpm/action-setup@v4
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
         shell: bash
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Bump workspace versions
         shell: bash
@@ -158,16 +160,15 @@ jobs:
         shell: bash
         run: node scripts/sync-versions.js
 
-      - name: Regenerate package-lock.json with bumped versions
+      - name: Regenerate pnpm-lock.yaml with bumped versions
         shell: bash
         run: |
-          # The workspace symlink graph changed (every package.json's
-          # version + cross-ref specifiers were bumped). The lockfile
-          # must be regenerated so its recorded specifiers match,
-          # otherwise strict prerelease semver causes npm ci on consumers
-          # to fall back to the registry on every install. See change:
-          # fix-release-lockfile-drift.
-          npm install --package-lock-only --no-audit --no-fund
+          # The workspace graph changed (every package.json's version +
+          # cross-ref specifiers were bumped). The lockfile must be
+          # regenerated so its recorded specifiers match, otherwise strict
+          # prerelease semver causes consumer installs to fall back to the
+          # registry on every install. See change: fix-release-lockfile-drift.
+          pnpm install --lockfile-only
 
       - name: Verify lockfile matches workspace versions
         shell: bash
@@ -240,25 +241,23 @@ jobs:
           # have moved past.
           ref: ${{ needs.resolve.outputs.tag }}
 
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          cache: pnpm
 
-      # Trusted Publishing requires npm CLI ≥ 11.5.1. Node 24 ships a recent
-      # npm, but upgrade explicitly to guarantee the feature is available.
-      # PINNED to 11.12.1 (not @latest): a LATER npm defaults to refusing git-
-      # protocol dependency fetches (EALLOWGIT), which breaks `npm ci` on the
-      # pre-existing transitive git dep @electron/node-gyp (via @electron/rebuild
-      # ← @electron-forge/core devDeps). An EARLIER npm (11.5.1) has an optional
-      # platform-dep install bug that drops lightningcss-linux-x64-gnu, breaking
-      # the client vite build. 11.12.1 is the version that shipped v0.5.4
-      # successfully: supports OIDC trusted publishing, allows the git dep, and
-      # installs optional native deps. Do NOT float back to @latest.
-      - name: Upgrade npm for trusted publishing (pinned 11.12.1; see note)
-        run: npm install -g npm@11.12.1
+      # Trusted Publishing requires npm CLI ≥ 11.5.1 for the OIDC provenance
+      # exchange. Dependency installation is now pnpm's job (blockExoticSubdeps
+      # handles the transitive git dep @electron/node-gyp), so the old EALLOWGIT
+      # pin to 11.12.1 is no longer needed — float to @latest, which guarantees
+      # the OIDC floor. npm survives here only for `npm publish --provenance`.
+      # See change: adopt-pnpm-for-dev-ci (§8.3).
+      - name: Upgrade npm for trusted publishing (OIDC ≥ 11.5.1)
+        run: npm install -g npm@latest
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Set version from resolved tag
         run: npm version "${{ needs.resolve.outputs.version }}" --no-git-tag-version --allow-same-version --workspaces --include-workspace-root
@@ -266,7 +265,7 @@ jobs:
       - name: Sync inter-package dep specifiers to bumped version
         run: node scripts/sync-versions.js
 
-      - run: npm run build
+      - run: pnpm run build
 
       - name: "Publish to npm (idempotent, ordered: sub-packages first, root last)"
         # Replaces the old `npm publish --workspaces --include-workspace-root` call.
