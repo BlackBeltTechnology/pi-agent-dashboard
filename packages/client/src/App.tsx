@@ -9,6 +9,8 @@ import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
 import { ChatViewMenu } from "./components/chat/ChatViewMenu.js";
 import { CommandInput } from "./components/chat/CommandInput.js";
+import { GrammarPanel } from "./components/chat/GrammarPanel.js";
+import { useGrammarCheck } from "./hooks/useGrammarCheck.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
 import { ComposerSessionActions } from "./components/session/ComposerSessionActions.js";
 import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStatusBanner.js";
@@ -1019,6 +1021,16 @@ export default function App() {
     [selectedId],
   );
 
+  // Composer grammar/spell check (opt-in; server-gated by config.grammar.enabled).
+  // See change: add-composer-grammar-check.
+  const grammar = useGrammarCheck({
+    draft: selectedDraft,
+    sessionId: selectedId,
+    sessionStatus: selectedState.status,
+    onDraftChange: setDraftForSelected,
+    apiBase,
+  });
+
   const clearDraftForSession = useCallback((sid: string) => {
     setDrafts((m) => {
       if (!m.has(sid)) return m;
@@ -1766,9 +1778,21 @@ export default function App() {
             onPromote={promoteFollowUpEntry}
             onClearAll={() => clearFollowUpEntries("all")}
           />
+          <GrammarPanel
+            status={grammar.status}
+            error={grammar.error}
+            suggestions={grammar.suggestions}
+            summary={grammar.summary}
+            truncated={grammar.truncated}
+            onApplyAll={grammar.applyAll}
+            onAccept={grammar.accept}
+            onDismiss={grammar.dismiss}
+            onDismissPanel={grammar.dismissPanel}
+          />
           <CommandInput
             commands={selectedCommands}
             onSend={wrappedHandleSend}
+            onGrammarCheck={grammar.enabled ? grammar.checkNow : undefined}
             onListFiles={handleListFiles}
             fileResults={fileResults}
             disabled={false}

@@ -84,6 +84,7 @@ import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGoalRoutes } from "./routes/goal-routes.js";
+import { registerGrammarRoutes } from "./routes/grammar-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
@@ -1025,6 +1026,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
+  // Composer grammar/spell check. Config re-read per request so a settings
+  // backend switch takes effect without a restart. See change: add-composer-grammar-check.
+  registerGrammarRoutes(fastify, { networkGuard, getGrammarConfig: () => loadConfig().grammar });
   registerOpenSpecRoutes(fastify, {
     sessionManager,
     preferencesStore,

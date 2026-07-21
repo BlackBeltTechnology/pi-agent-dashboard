@@ -1,5 +1,5 @@
 import type { CommandInfo, FileEntry, ImageContent, ModelInfo, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlertOctagon, mdiClipboardText, mdiConsole, mdiDotsHorizontal, mdiEyeOutline, mdiFile, mdiFileDocumentOutline, mdiFlag, mdiFlash, mdiFolder, mdiImageOutline, mdiPlaylistPlus, mdiPlus, mdiSendVariant, mdiStop, mdiStopCircleOutline, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlertOctagon, mdiClipboardText, mdiConsole, mdiDotsHorizontal, mdiEyeOutline, mdiFile, mdiFileDocumentOutline, mdiFlag, mdiFlash, mdiFolder, mdiImageOutline, mdiPlaylistPlus, mdiPlus, mdiSendVariant, mdiSpellcheck, mdiStop, mdiStopCircleOutline, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useImagePaste } from "../../hooks/useImagePaste.js";
@@ -117,6 +117,12 @@ interface Props {
    */
   onOpenInlineTerminal?: () => void;
   /**
+   * Manual grammar-check trigger for the current draft. When provided, a
+   * Check button appears in the composer toolbar and Cmd/Ctrl+G triggers it.
+   * Omitted when the grammar feature is disabled. See change: add-composer-grammar-check.
+   */
+  onGrammarCheck?: () => void;
+  /**
    * Current session's messages — source for the `@`-autocomplete URL pool
    * (via `extractRecentUrls`). Omit to disable URL surfacing.
    * See change: render-file-previews.
@@ -211,7 +217,7 @@ export function shouldWalkFileQuery(query: string): boolean {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, contextUsage }: Props) {
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, onGrammarCheck, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, contextUsage }: Props) {
   const { t } = useI18n();
   // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
   const isWorking = sessionStatus === "streaming" || retrying === true;
@@ -959,7 +965,15 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             }
             setText(e.target.value);
           }}
-          onKeyDown={handleKeyDown}
+          onKeyDown={(e) => {
+            // Cmd/Ctrl+G triggers a manual grammar check (when enabled).
+            if (onGrammarCheck && (e.metaKey || e.ctrlKey) && (e.key === "g" || e.key === "G")) {
+              e.preventDefault();
+              onGrammarCheck();
+              return;
+            }
+            handleKeyDown(e);
+          }}
           onPaste={handlePaste}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
@@ -980,6 +994,20 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
 
         {/* Inner toolbar. */}
         <div className="flex items-center gap-1.5 pt-1">
+          {/* Grammar check (only when the feature is enabled). */}
+          {onGrammarCheck && (
+            <button
+              type="button"
+              onClick={onGrammarCheck}
+              disabled={disabled || !text.trim()}
+              className="focus-ring inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+              title={t("command.grammarCheck", undefined, "Check grammar (⌘G)")}
+              aria-label={t("command.grammarCheck", undefined, "Check grammar")}
+              data-testid="grammar-check-button"
+            >
+              <Icon path={mdiSpellcheck} size={0.85} />
+            </button>
+          )}
           {/* ＋ attach menu. */}
           <div className="relative" ref={attachRef}>
             <button

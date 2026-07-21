@@ -684,6 +684,75 @@ Adoption ratchet: `packages/client/src/__tests__/state-feedback-adoption.test.ts
 
 Reference: `--status-*` tokens defined once in `index.css` (owned by change improve-dashboard-attention-routing). `statusPresentation` references, does not redefine.
 
+### Composer grammar check
+
+Opt-in grammar + spell check for composer draft. Gate: `~/.pi/dashboard/config.json` `grammar.enabled` (default `false`). Change: `add-composer-grammar-check`.
+
+**Configuration.** `DashboardConfig.grammar` in `packages/shared/src/config.ts`. `parseGrammarConfig` validates + clamps values:
+- `enabled` (boolean, default `false`)
+- `backend` (`"llm" | "languagetool"`, default `"languagetool"`)
+- `autoCheck` (boolean, default `true`) — debounced auto-check on keystroke
+- `debounceMs` (integer, default 1200, clamp 300–10000)
+- `minChars` (integer, default 12, clamp 1–500) — skip check below this length
+- `maxChars` (integer, default 4000, clamp 100–20000) — truncate draft if longer
+- `language` (`"auto"`, default `"auto"`)
+- `languagetool.url` (string, default `"http://localhost:8081"`)
+- `llm?` object with `{ provider, model }` — optional; used when `backend === "llm"`
+
+**Wire contract.** `packages/shared/src/grammar-types.ts`:
+- `GrammarSuggestion` — `{ offset, length, original, replacement, kind, message }`. `original` source-of-truth for apply.
+- `GrammarCheckResult` — `{ backend, correctedText, suggestions[], summary, language, truncated }`.
+- `GrammarHealth` — config probe response.
+- `GrammarErrorCode` — error discriminant.
+
+**Server.** `packages/server/src/grammar/`:
+- `grammar-service.ts` `checkGrammar()` — gate `enabled → grammar_disabled`; empty text → `empty_text`; clip to `maxChars` → `truncated` flag; dispatch by backend; never throws.
+- `getGrammarHealth()` — config + backend availability.
+- `backends/languagetool.ts` — POST `<url>/v2/check`. Offline. Draft on LT host.
+- `backends/llm.ts` — resolve provider creds from `~/.pi/agent/providers.json`. OpenAI `/chat/completions` or Anthropic `/v1/messages`. Temperature 0. Offsets relocated by `original` token, never trusted.
+- `abort.ts` `withTimeoutSignal` — abort in-flight requests.
+- Routes: `packages/server/src/routes/grammar-routes.ts`, registered in `server.ts`:
+  - `POST /api/grammar/check { text, language? }` — auth-gated (`networkGuard`).
+  - `GET /api/grammar/health` — auth-gated.
+- Config re-read per request → backend switch needs no restart.
+- Error → HTTP: `grammar_disabled` 409, `empty_text` 400, `backend_unconfigured` 400, `backend_unreachable` / `backend_bad_response` 502, `backend_timeout` 504.
+- One structured `[grammar]` log line per call. NO draft text logged.
+
+**Client.** `packages/client/src/hooks/useGrammarCheck.ts`:
+- Fetch `/api/grammar/health` once for config.
+- Manual `checkNow` + debounced auto-check.
+- Abort in-flight on new keystroke / session switch.
+- Skip auto-check while streaming, below `minChars`, or on `/` · `!` · `!!` prefixed drafts.
+- Offset-safe `applyAll()` / `accept()` / `dismiss()`.
+
+**UI.** `packages/client/src/components/chat/GrammarPanel.tsx`:
+- Renders above composer (sibling to `QueuePanel` in `App.tsx`).
+- Diff-highlighted corrections + summary.
+- Per-suggestion Accept/Dismiss + Apply-all button.
+- `CommandInput.tsx` gains Check toolbar button + ⌘G shortcut (`onGrammarCheck` prop).
+- `<textarea>` cannot style substrings → highlighting in panel, not inline.
+
+**Privacy.** `llm` backend: draft leaves machine to provider. `languagetool` backend: on-box. Provider credentials resolved server-side, never reach browser.
+
+**Data flow:**
+
+```mermaid
+flowchart LR
+    A["Composer draft"] --> B["debounce | ⌘G / Check button"]
+    B --> C["useGrammarCheck"]
+    C --> D["POST /api/grammar/check"]
+    D --> E["grammar-service"]
+    E --> F{"Backend"}
+    F -->|LanguageTool| G["LT host"]
+    F -->|LLM| H["Provider API"]
+    G --> I["GrammarCheckResult"]
+    H --> I
+    I --> J["GrammarPanel"]
+    J --> K{"User action"}
+    K -->|Apply-all| L["onDraftChange updates draft"]
+    K -->|Accept/Dismiss| L
+```
+
 ### Auto-Resume on Prompt
 When a user sends a prompt to an ended session, the server automatically resumes it:
 1. Server detects `send_prompt` for a session with `status === "ended"` and a valid `sessionFile`
