@@ -21,7 +21,7 @@ already ships.
 pdfjs 4.10.38 exports from `pdfjs-dist/web/pdf_viewer.mjs`: `PDFViewer`, `EventBus`,
 `PDFLinkService`, `PDFFindController`, `ScrollMode`, plus `web/pdf_viewer.css`.
 
-```
+```text
 loadPdfJs()            (unchanged — worker via ?url)
    │
 getDocument(url).promise → doc
@@ -46,7 +46,7 @@ Construct once per document load (in the load effect); tear down on unmount / ta
 
 `PDFViewer` measures its `container` and requires a specific DOM shape:
 
-```
+```html
 <div style="position:relative; height:100%">        ← positioned parent
   <div class="pdfViewerContainer"                    ← container handed to PDFViewer
        style="position:absolute; inset:0; overflow:auto">

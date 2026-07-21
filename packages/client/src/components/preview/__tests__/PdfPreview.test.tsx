@@ -77,4 +77,24 @@ describe("PdfPreview", () => {
     expect(pdfViewerCalls[0].options.textLayerMode).toBe(2);
     expect(pdfViewerCalls[0].options.container).toBeTruthy();
   });
+
+  it("surfaces a load failure via the error state", async () => {
+    getDocument.mockImplementationOnce(() => ({
+      promise: Promise.reject(new Error("boom pdf")),
+    }));
+    const { findByText, container } = render(<PdfPreview target={target} />);
+    // The rejection is caught and surfaced as the error message.
+    expect(await findByText("boom pdf")).toBeTruthy();
+    expect(container.querySelector(".pdfViewerContainer")).toBeNull();
+  });
+
+  it("switching target tears down the previous document and mounts the new one", async () => {
+    const { rerender } = render(<PdfPreview target={target} />);
+    await waitFor(() => expect(pdfViewerCalls.length).toBe(1));
+    // A new target re-runs the effect: the previous document is destroyed on
+    // teardown (no leak / no stale-mount clobber) and a fresh viewer mounts.
+    rerender(<PdfPreview target={{ ...target, path: "other.pdf" }} />);
+    await waitFor(() => expect(pdfViewerCalls.length).toBe(2));
+    await waitFor(() => expect(destroy).toHaveBeenCalled());
+  });
 });
