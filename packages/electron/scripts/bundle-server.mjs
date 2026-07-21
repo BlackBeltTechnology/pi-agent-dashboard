@@ -305,7 +305,10 @@ if (targetArch) {
 }
 const npmInstall = spawnSync(
   npmCmd,
-  ["install", "--omit=dev", "--no-audit", "--no-fund"],
+  // --no-package-lock: the repo lockfile is pnpm-lock.yaml; do NOT let this
+  // internal npm install write a stray package-lock.json into resources/server/
+  // (second-lockfile leak). See change: adopt-pnpm-for-dev-ci (§9.3).
+  ["install", "--omit=dev", "--no-audit", "--no-fund", "--no-package-lock"],
   {
     cwd: SERVER_BUNDLE,
     encoding: "utf8",

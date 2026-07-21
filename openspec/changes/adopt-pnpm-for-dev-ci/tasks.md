@@ -137,6 +137,8 @@ Ordered, reversible phases (design.md §D6). Each phase ends green before the ne
 
 ## 9. Lockfile swap (point of no easy return — GATED on §5 AND a green ci-electron run)
 
+<!-- 9.1/9.2 REMAIN for the human CI cycle: the irreversible-adjacent swap,
+     GATED on a green X4 (ci-electron.yml installer matrix). 9.3/9.4 pre-staged. -->
 - [ ] 9.1 **Gate:** do NOT delete `package-lock.json` until a full `ci-electron.yml`
       run of the swap branch is GREEN (test-plan #X4). Rationale: the release graph
       is `publish → electron → github-release`; `publish` runs `npm publish
@@ -150,11 +152,14 @@ Ordered, reversible phases (design.md §D6). Each phase ends green before the ne
       the release also runs `.deb` (forge make), DMG/AppImage/NSIS (electron-builder),
       and the `latest*.yml` update-metadata that `github-release` hard-asserts.
 - [ ] 9.2 `git rm package-lock.json`; commit `pnpm-lock.yaml`.
-- [ ] 9.3 Ensure `bundle-server.mjs`'s internal `npm install` uses
-      `--no-package-lock` so it does not write a stray `package-lock.json` into
-      `resources/server/` (second-lockfile leak).
-- [ ] 9.4 Update `.pi/settings.json` `worktreeInit` hook `(npm ci || npm install)` →
-      `corepack enable && pnpm install`.
+- [x] 9.3 `bundle-server.mjs`'s internal `npm install --omit=dev` now passes
+      `--no-package-lock` — no stray `package-lock.json` written into
+      `resources/server/` (second-lockfile leak). (Pre-staged; safe before the swap.)
+- [x] 9.4 `.pi/settings.json` `worktreeInit`: command `(npm ci || npm install)` →
+      `corepack enable && pnpm install`; `npm run build --workspace=…kb` →
+      `pnpm --filter …kb run build`; gate marker `node_modules/.package-lock.json`
+      → `node_modules/.modules.yaml` (pnpm's marker; the npm one is never written
+      under pnpm → gate would always re-run). (Pre-staged; safe before the swap.)
 
 ## 10. Docs + skills
 
