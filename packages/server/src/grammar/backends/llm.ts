@@ -1,9 +1,13 @@
 /**
- * LLM grammar backend. Runs one chat completion against a configured provider
- * (resolved from `~/.pi/agent/providers.json`, reusing the provider-probe
- * credential resolver) and parses a strict JSON response into the shared
- * {@link GrammarCheckResult}. Supports `openai-completions` and
- * `anthropic-messages` provider APIs.
+ * LLM grammar backend. Runs one completion through the dashboard's in-process
+ * model runtime — pi-ai's `streamSimple`, with credentials resolved by the
+ * shared {@link InternalRegistry} (`getApiKeyAndHeaders`, OAuth- AND api_key-
+ * aware) — and parses a strict JSON response into {@link GrammarCheckResult}.
+ *
+ * This is the SAME resolution path the model proxy (`/v1/chat/completions`,
+ * `/v1/messages`) uses, so it works for OAuth logins (auth.json) and does NOT
+ * depend on `providers.json#providers` (which is empty in OAuth-only setups —
+ * that was why the old provider-probe path failed with backend_unconfigured).
  *
  * Privacy: with this backend the draft leaves the machine to the provider.
  * Credentials are resolved server-side and never returned to the client.
@@ -15,10 +19,41 @@ import type {
   GrammarIssueKind,
   GrammarSuggestion,
 } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
-import { readProvidersFromDisk, resolveProbeApiKey } from "../../package/provider-probe.js";
+import { convertOpenAIMessages } from "../../model-proxy/convert/index.js";
 import { withTimeoutSignal } from "../abort.js";
 import { GrammarBackendError } from "../grammar-errors.js";
 import { summarize } from "./languagetool.js";
+
+/** OAuth/api_key-aware model resolver (subset of the model-proxy InternalRegistry). */
+export interface LlmModelRegistry {
+  find(provider: string, modelId: string): Promise<unknown | null>;
+  getApiKeyAndHeaders(model: unknown): Promise<{ apiKey: string; headers: Record<string, string> }>;
+}
+
+/** Subset of pi-ai's streamSimple (as adapted by the server) that we consume. */
+export type LlmStreamFn = (opts: {
+  model: unknown;
+  messages: unknown[];
+  system?: string;
+  maxTokens?: number;
+  temperature?: number;
+  apiKey?: string;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+}) => AsyncIterable<{ type?: string; message?: unknown; error?: { errorMessage?: string } }>;
+
+/** Extract plain text from a pi-ai "done" message (string or text-block array). */
+function extractMessageText(msg: unknown): string {
+  const content = (msg as { content?: unknown })?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((c) => (c as { type?: string })?.type === "text")
+      .map((c) => (c as { text?: string }).text ?? "")
+      .join("");
+  }
+  return "";
+}
 
 const DEFAULT_TIMEOUT_MS = 20000;
 const MAX_OUTPUT_TOKENS = 2048;
@@ -41,15 +76,20 @@ interface RawResult {
 function systemPrompt(language: string): string {
   const lang = language && language !== "auto" ? ` The text language is "${language}".` : "";
   return (
-    "You are a meticulous grammar and spelling checker." +
+    "You are an expert writing assistant and proofreader." +
     lang +
-    " Return ONLY a JSON object (no prose, no code fences) with keys: " +
-    '"correctedText" (string: the full text with spelling/grammar/punctuation fixed), ' +
+    " Correct every spelling, grammar, and punctuation mistake, AND improve the writing" +
+    " for clarity, concision, flow, and word choice. Preserve the author's original meaning," +
+    " intent, voice/tone, language, markdown formatting, and any code or URLs verbatim; do not" +
+    " add new content or change facts. " +
+    "Return ONLY a JSON object (no prose, no code fences) with keys: " +
+    '"correctedText" (string: the full text with mistakes fixed AND wording improved), ' +
     '"suggestions" (array of objects: {"original": string, "replacement": string, ' +
-    '"kind": one of "spelling"|"grammar"|"style"|"punctuation", "message": short explanation}), ' +
-    'and "summary" (string). Preserve the author\'s meaning, tone, markdown, and any code. ' +
+    '"kind": one of "spelling"|"grammar"|"style"|"punctuation", "message": short explanation}; ' +
+    'use "style" for clarity/flow/word-choice improvements that are not strict errors), ' +
+    'and "summary" (string: a brief overview of the changes). ' +
     "Each suggestion's `original` MUST be an exact substring of the input text. " +
-    "If there are no issues, set correctedText to the input unchanged and suggestions to []."
+    "If the text needs no changes, set correctedText to the input unchanged and suggestions to []."
   );
 }
 
@@ -124,68 +164,46 @@ export function parseLlmResult(raw: unknown, text: string, language: string): Gr
   return { backend: "llm", correctedText, suggestions, summary, language, truncated: false };
 }
 
-async function callProvider(
-  entry: { baseUrl: string; apiKey: string; api?: string },
-  model: string,
-  text: string,
-  language: string,
-  signal: AbortSignal,
+/** Resolve a model + credentials from the registry, or throw backend_unconfigured. */
+async function resolveModelAndCreds(
+  registry: LlmModelRegistry,
+  provider: string,
+  modelId: string,
+): Promise<{ model: unknown; creds: { apiKey: string; headers: Record<string, string> } }> {
+  const model = await registry.find(provider, modelId);
+  if (!model) {
+    throw new GrammarBackendError(
+      "backend_unconfigured",
+      `model "${provider}/${modelId}" is not available`,
+    );
+  }
+  return { model, creds: await registry.getApiKeyAndHeaders(model) };
+}
+
+/** Drain a streamSimple event stream to the final assistant text, or throw. */
+async function collectStreamText(
+  events: AsyncIterable<{ type?: string; message?: unknown; error?: { errorMessage?: string } }>,
 ): Promise<string> {
-  const base = entry.baseUrl.replace(/\/+$/, "");
-  const system = systemPrompt(language);
-  if (entry.api === "anthropic-messages") {
-    const response = await fetch(`${base}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "x-api-key": entry.apiKey,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        temperature: 0,
-        system,
-        messages: [{ role: "user", content: text }],
-      }),
-      signal,
-    });
-    if (!response.ok) {
-      throw new GrammarBackendError("backend_unreachable", `provider HTTP ${response.status}`);
+  let finalMsg: unknown;
+  for await (const event of events) {
+    if (event?.type === "done") finalMsg = event.message;
+    else if (event?.type === "error") {
+      throw new GrammarBackendError(
+        "backend_unreachable",
+        event.error?.errorMessage || "provider error",
+      );
     }
-    const json = (await response.json()) as { content?: Array<{ text?: string }> };
-    return json.content?.map((c) => c.text ?? "").join("") ?? "";
   }
-  // Default: OpenAI-compatible chat completions.
-  const response = await fetch(`${base}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${entry.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: text },
-      ],
-      response_format: { type: "json_object" },
-    }),
-    signal,
-  });
-  if (!response.ok) {
-    throw new GrammarBackendError("backend_unreachable", `provider HTTP ${response.status}`);
+  if (finalMsg === undefined) {
+    throw new GrammarBackendError("backend_bad_response", "no response from model");
   }
-  const json = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  return json.choices?.[0]?.message?.content ?? "";
+  return extractMessageText(finalMsg);
 }
 
 /**
- * Run a grammar check via the configured LLM provider/model. Throws a
- * {@link GrammarBackendError} on any failure.
+ * Run a grammar check via the dashboard's model runtime (pi-ai `streamSimple`)
+ * with credentials resolved by the {@link LlmModelRegistry} (OAuth/api_key).
+ * Throws a {@link GrammarBackendError} on any failure.
  */
 export async function checkWithLlm(
   text: string,
@@ -193,6 +211,8 @@ export async function checkWithLlm(
     provider?: string;
     model?: string;
     language: string;
+    registry?: LlmModelRegistry | null;
+    streamSimple?: LlmStreamFn | null;
     signal?: AbortSignal;
     timeoutMs?: number;
   },
@@ -200,28 +220,30 @@ export async function checkWithLlm(
   if (!opts.provider || !opts.model) {
     throw new GrammarBackendError("backend_unconfigured", "grammar.llm provider/model not set");
   }
-  const providers = readProvidersFromDisk();
-  const entry = providers[opts.provider];
-  if (!entry?.baseUrl) {
-    throw new GrammarBackendError("backend_unconfigured", `no provider "${opts.provider}"`);
+  if (!opts.registry || !opts.streamSimple) {
+    throw new GrammarBackendError(
+      "backend_unconfigured",
+      "model runtime unavailable (pi-ai not resolved)",
+    );
   }
-  const resolved = resolveProbeApiKey({
-    apiKey: entry.apiKey,
-    name: opts.provider,
-    readProviders: readProvidersFromDisk,
-  });
-  if (!resolved.ok) {
-    throw new GrammarBackendError("backend_unconfigured", resolved.error);
-  }
+  const { model, creds } = await resolveModelAndCreds(opts.registry, opts.provider, opts.model);
+  // Reuse the canonical OpenAI→pi-ai message converter so the message shape
+  // matches what the model proxy sends; our grammar system prompt is separate.
+  const { messages } = convertOpenAIMessages([{ role: "user", content: text }]);
 
   const { signal, done } = withTimeoutSignal(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, opts.signal);
   try {
-    const body = await callProvider(
-      { baseUrl: entry.baseUrl, apiKey: resolved.key, api: entry.api },
-      opts.model,
-      text,
-      opts.language,
-      signal,
+    const body = await collectStreamText(
+      opts.streamSimple({
+        model,
+        messages,
+        system: systemPrompt(opts.language),
+        maxTokens: MAX_OUTPUT_TOKENS,
+        temperature: 0,
+        apiKey: creds.apiKey,
+        headers: creds.headers,
+        signal,
+      }),
     );
     return parseLlmResult(extractJsonObject(body), text, opts.language);
   } catch (err) {

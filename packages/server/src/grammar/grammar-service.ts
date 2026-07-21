@@ -16,7 +16,7 @@ import type {
   GrammarHealth,
 } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import { checkWithLanguageTool } from "./backends/languagetool.js";
-import { checkWithLlm } from "./backends/llm.js";
+import { checkWithLlm, type LlmModelRegistry, type LlmStreamFn } from "./backends/llm.js";
 import { GrammarBackendError } from "./grammar-errors.js";
 
 export type GrammarCheckOutcome =
@@ -28,6 +28,10 @@ export interface CheckGrammarArgs {
   language?: string;
   config: GrammarConfig;
   signal?: AbortSignal;
+  /** OAuth/api_key-aware model resolver for the `llm` backend (from the model proxy). */
+  registry?: LlmModelRegistry | null;
+  /** pi-ai streamSimple adapter for the `llm` backend. */
+  streamSimple?: LlmStreamFn | null;
 }
 
 /**
@@ -55,6 +59,8 @@ export async function checkGrammar(args: CheckGrammarArgs): Promise<GrammarCheck
         provider: config.llm?.provider,
         model: config.llm?.model,
         language,
+        registry: args.registry,
+        streamSimple: args.streamSimple,
         signal: args.signal,
       });
     } else {

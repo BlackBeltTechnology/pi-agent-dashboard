@@ -68,8 +68,10 @@ switchable via config.
   - `backends/languagetool.ts` — POSTs to `<languagetool.url>/v2/check`, maps LT `matches`
     → `GrammarSuggestion[]`, derives `correctedText` by applying non-overlapping matches.
   - `backends/llm.ts` — calls the configured `grammar.llm` provider/model with a structured
-    prompt, parses a strict JSON response into `GrammarCheckResult`. Resolves provider
-    credentials the same way `provider-routes.ts` / the providers-test probe does.
+    prompt, parses a strict JSON response into `GrammarCheckResult`. Resolves the model +
+    credentials via the OAuth/api_key-aware `LlmModelRegistry` (the same model-runtime path
+    the model proxy uses) and runs pi-ai `streamSimple`. **Amended 2026-07-21** — the original
+    provider-probe / `providers.json` path failed under OAuth; see the amendment below.
 
 - **NEW** REST route `packages/server/src/routes/grammar-routes.ts`, registered in
   `packages/server/src/server.ts`:
@@ -146,3 +148,47 @@ new auth-gated endpoint using provider credentials), observability-instrumentati
 endpoint + external call needs latency/error logging and a health probe),
 performance-optimization (debounce budget, abort-on-keystroke, input caps, and LLM token
 cost must be bounded).
+
+## Amendment — 2026-07-21: LLM backend OAuth credential resolution
+
+While building `add-grammar-settings-plugin` (the in-app settings UI for this feature) the
+`llm` backend was found to be broken for OAuth logins. This amendment records the problem and
+the fix, both landed on branch `feat/local_extetion_for_grammer_and_spell_check`.
+
+### The problem
+
+`backends/llm.ts` resolved provider credentials from `~/.pi/agent/providers.json` via the
+provider-probe helpers (`readProvidersFromDisk`, `resolveProbeApiKey`). In OAuth-only setups
+that file's `providers` map is empty — creds live in `auth.json` — so `checkGrammar` with
+`backend: "llm"` always failed with `backend_unconfigured`. The LLM backend was effectively
+unusable for any user who logged in via OAuth rather than pasting an API key.
+
+### What we added
+
+- **Rewired credential + model resolution off `providers.json`.** `checkWithLlm` now resolves
+  the model and creds through the shared OAuth/api_key-aware `LlmModelRegistry`
+  (`find` → `getApiKeyAndHeaders`, the model-proxy `InternalRegistry`) — the SAME path
+  `/v1/chat/completions` and `/v1/messages` use — and runs the completion through pi-ai
+  `streamSimple` instead of hand-rolled `fetch` to `/chat/completions` \| `/v1/messages`.
+  New helpers: `resolveModelAndCreds`, `collectStreamText` (drains `done`/`error` events),
+  `extractMessageText`. The pure `extractJsonObject` + `parseLlmResult` (re-locates each
+  suggestion by `original`) are unchanged.
+- **Threaded the runtime through the call chain.** `LlmModelRegistry` + `LlmStreamFn` are
+  injected `server.ts` → `grammar-routes.ts` (`getModelRegistry`, `streamSimple` deps;
+  registry resolved lazily and only when `backend === "llm"`) → `grammar-service.ts`
+  (`registry`, `streamSimple` on `CheckGrammarArgs`) → `backends/llm.ts`. The system prompt
+  is passed as `context.systemPrompt` because pi-ai providers ignore `context.system`.
+  Message shape is built with the canonical `convertOpenAIMessages` converter.
+- **Broadened the system prompt from proofreading to writing improvement.** It now corrects
+  spelling/grammar/punctuation AND improves clarity, concision, flow, and word choice,
+  emitting `style` suggestions for non-error improvements, while preserving meaning, voice,
+  markdown, code, and URLs verbatim.
+- **Tests** (`grammar-llm.test.ts`): `checkWithLlm` over a registry+`streamSimple` stub —
+  parses the model JSON, surfaces `style` (improve-writing) suggestions, and throws
+  `backend_unconfigured` when the runtime is unavailable.
+
+### Impact on stated scope
+
+This touches the core CHECK path, which `add-grammar-settings-plugin` had declared out of
+scope; that proposal is annotated accordingly. No config-shape or public-API change:
+`config.grammar.llm.{provider,model}` and the `POST /api/grammar/check` contract are unchanged.

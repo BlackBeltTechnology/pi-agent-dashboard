@@ -17,6 +17,7 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import type { LlmModelRegistry, LlmStreamFn } from "../grammar/backends/llm.js";
 import {
   checkGrammar as defaultCheckGrammar,
   getGrammarHealth as defaultGetGrammarHealth,
@@ -37,6 +38,13 @@ export interface GrammarRouteDeps {
   networkGuard: NetworkGuard;
   /** Re-reads the resolved grammar config per request. */
   getGrammarConfig: () => GrammarConfig;
+  /**
+   * OAuth/api_key-aware model registry for the `llm` backend (from the model
+   * proxy singleton). Resolved lazily and only when the backend is `llm`.
+   */
+  getModelRegistry?: () => Promise<LlmModelRegistry | null>;
+  /** pi-ai streamSimple adapter for the `llm` backend. */
+  streamSimple?: LlmStreamFn;
   /** Injectable for tests; defaults to the real service. */
   check?: typeof defaultCheckGrammar;
   health?: typeof defaultGetGrammarHealth;
@@ -57,9 +65,19 @@ export function registerGrammarRoutes(fastify: FastifyInstance, deps: GrammarRou
         typeof request.body?.language === "string" ? request.body.language : undefined;
       const started = Date.now();
 
+      // Resolve the model runtime only for the llm backend (cheap for LT).
+      let registry: LlmModelRegistry | null = null;
+      if (config.backend === "llm" && deps.getModelRegistry) {
+        try {
+          registry = await deps.getModelRegistry();
+        } catch {
+          registry = null;
+        }
+      }
+
       let outcome: GrammarCheckOutcome;
       try {
-        outcome = await check({ text, language, config });
+        outcome = await check({ text, language, config, registry, streamSimple: deps.streamSimple });
       } catch {
         // checkGrammar never throws, but guard defensively.
         outcome = { ok: false, code: "backend_unreachable", message: "grammar backend failed" };

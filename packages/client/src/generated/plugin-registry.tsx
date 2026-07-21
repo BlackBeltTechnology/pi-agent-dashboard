@@ -3,6 +3,7 @@
 import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, AutomationBadge, isAutomationRun, AutomationSettings, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
+import { GrammarSettings, catalog as grammar_settings_catalog } from "@blackbelt-technology/pi-dashboard-grammar-settings-plugin";
 import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackbelt-technology/pi-dashboard-kb-plugin";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
@@ -187,6 +188,26 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "grammar-settings",
+        "displayName": "Grammar & Spelling",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "GrammarSettings",
+                "tab": "general"
+            }
+        ],
+        "client": "./src/index.tsx",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "grammar-settings", priority: 100, slot: "settings-section", tab: "general", Component: GrammarSettings },
+    ],
+    catalog: grammar_settings_catalog,
+  },
+  {
+    manifest: {
         "id": "kb",
         "displayName": "Knowledge Base",
         "priority": 100,
@@ -295,4 +316,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "3a3c05c63b8b115f8f94e440f260f19a5d93c88f4ae33176607f5c7294b4b112";
+export const PLUGIN_REGISTRY_HASH = "8936236815bb3b371f527a713f818013a00407f869ca706f04606ac5f203c8c2";

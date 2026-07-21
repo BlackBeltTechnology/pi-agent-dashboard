@@ -1,0 +1,51 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-grammar-settings-plugin",
+  "version": "0.6.1",
+  "private": true,
+  "description": "Bundled first-party plugin — surfaces the core composer grammar/spell-check settings (config.grammar) in the dashboard Settings UI via a settings-section slot claim. Reads/writes core config through GET/PUT /api/config; the grammar CHECK itself stays core.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/grammar-settings-plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.tsx",
+      "default": "./src/index.tsx"
+    },
+    "./client": {
+      "types": "./src/index.tsx",
+      "default": "./src/index.tsx"
+    }
+  },
+  "files": [
+    "src/"
+  ],
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.6.1",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.6.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0"
+  },
+  "pi-dashboard-plugin": {
+    "id": "grammar-settings",
+    "displayName": "Grammar & Spelling",
+    "i18nCatalog": "catalog",
+    "priority": 100,
+    "client": "./src/index.tsx",
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "GrammarSettings",
+        "tab": "general"
+      }
+    ]
+  }
+}

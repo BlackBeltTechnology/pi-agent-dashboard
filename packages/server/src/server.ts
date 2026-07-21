@@ -1028,7 +1028,26 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
   // Composer grammar/spell check. Config re-read per request so a settings
   // backend switch takes effect without a restart. See change: add-composer-grammar-check.
-  registerGrammarRoutes(fastify, { networkGuard, getGrammarConfig: () => loadConfig().grammar });
+  registerGrammarRoutes(fastify, {
+    networkGuard,
+    getGrammarConfig: () => loadConfig().grammar,
+    // llm backend resolves creds via the same OAuth-aware model runtime as the
+    // model proxy (auth.json), NOT providers.json. See change: add-composer-grammar-check.
+    getModelRegistry: async () => {
+      try {
+        return await getModelRegistry();
+      } catch {
+        return null;
+      }
+    },
+    streamSimple: (opts) => {
+      const fn = getStreamSimpleFn();
+      if (!fn) throw new Error("streamSimple not available");
+      // pi-ai providers read the system prompt from `context.systemPrompt`
+      // (NOT `context.system`) — see @earendil-works/pi-ai providers/*.js.
+      return fn(opts.model, { messages: opts.messages, systemPrompt: opts.system }, opts);
+    },
+  });
   registerOpenSpecRoutes(fastify, {
     sessionManager,
     preferencesStore,
