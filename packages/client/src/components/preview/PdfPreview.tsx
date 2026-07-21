@@ -60,10 +60,8 @@ function destroyViewer(handle: ViewerHandle): void {
 
 /** Load the document and construct the pdfjs `PDFViewer` bound to `container`. */
 async function mountViewer(container: HTMLDivElement, url: string): Promise<ViewerHandle> {
-  const [pdfjs, { EventBus, PDFLinkService, PDFViewer }] = await Promise.all([
-    loadPdfJs(),
-    loadViewer(),
-  ]);
+  const pdfjs = await loadPdfJs();
+  const { EventBus, PDFLinkService, PDFViewer } = await loadViewer();
   const doc = await pdfjs.getDocument({ url }).promise;
   const eventBus = new EventBus();
   const linkService = new PDFLinkService({ eventBus });
