@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Directory Card — Redesign Mockup</title>
+<style>
+  /* ── Theme tokens (mirror packages/client/src/index.css) ───────────── */
+  :root {
+    /* cream / "earth" skin — matches the reference screenshot */
+    --page:        #e9e6d3;
+    --card:        #f4f2e4;
+    --card-2:      #efedde;
+    --inset:       rgba(120,116,86,0.06);
+    --rim:         rgba(255,255,255,0.85);
+    --shadow:      rgba(80,74,40,0.14);
+    --border:      rgba(90,84,52,0.14);
+    --border-2:    rgba(90,84,52,0.22);
+    --text-1:      #2c2a20;
+    --text-2:      #5b5744;
+    --text-3:      #8f8b74;
+    --text-mut:    #b0ac93;
+    --blue:        #5b6fc4;
+    --green:       #3f9a52;
+    --orange:      #d3792f;
+    --purple:      #8b62c4;
+    --cyan:        #2f9bb0;
+    --amber:       #c98a12;
+    --red:         #c4503f;
+    --indigo:      #6b63c4;
+  }
+  [data-theme="dark"] {
+    --page:        #0a0a0a;
+    --card:        #141414;
+    --card-2:      #1a1a1a;
+    --inset:       rgba(255,255,255,0.03);
+    --rim:         rgba(255,255,255,0.10);
+    --shadow:      rgba(0,0,0,0.5);
+    --border:      rgba(255,255,255,0.07);
+    --border-2:    rgba(255,255,255,0.13);
+    --text-1:      #e5e5e5;
+    --text-2:      #b0b0b0;
+    --text-3:      #808080;
+    --text-mut:    #585858;
+    --blue:        #6b8afd;
+    --green:       #4ade80;
+    --orange:      #fb923c;
+    --purple:      #c084fc;
+    --cyan:        #38bec9;
+    --amber:       #fbbf24;
+    --red:         #f87171;
+    --indigo:      #a5a1fb;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--page);
+    color: var(--text-1);
+    padding: 28px 20px 80px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .toolbar {
+    max-width: 1200px; margin: 0 auto 24px; display:flex; gap:12px; align-items:center;
+  }
+  .toolbar h1 { font-size: 15px; font-weight: 700; margin:0; color: var(--text-1); }
+  .toolbar .sp { flex:1; }
+  .toolbar button {
+    font: inherit; font-size: 12px; font-weight: 600;
+    padding: 6px 12px; border-radius: 8px;
+    border: 1px solid var(--border-2); background: var(--card);
+    color: var(--text-2); cursor: pointer;
+  }
+  .toolbar button:hover { color: var(--text-1); }
+
+  .grid {
+    max-width: 1200px; margin: 0 auto;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 40px 48px;
+    align-items: start;
+  }
+  @media (max-width: 900px){ .grid { grid-template-columns: 1fr; } }
+  .col h2 {
+    font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--text-3); margin: 0 0 12px 2px;
+  }
+  .note { font-size: 11px; color: var(--text-3); margin: 10px 2px 0; line-height:1.5; }
+  .note b { color: var(--text-2); }
+
+  svg { display:block; }
+  .ico { width: 1em; height: 1em; fill: currentColor; flex-shrink:0; }
+
+  /* full-card centered folder watermark */
+  .cardmark {
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    pointer-events:none; z-index:0;
+  }
+  .cardmark img {
+    width: 188px; height: auto; opacity: .16;
+    filter: saturate(.85);
+  }
+  [data-theme="dark"] .cardmark img { opacity: .13; }
+
+  /* ── Shared card shell ─────────────────────────────────────────────── */
+  .card {
+    position: relative;
+    overflow: hidden;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: inset 0 1px 0 var(--rim), 0 2px 6px var(--shadow);
+    padding: 12px 14px;
+  }
+  .card > .hdr, .card > .git, .card .body { position: relative; z-index: 1; }
+
+  /* header row */
+  .hdr { display:flex; align-items:center; gap:8px; }
+  .hdr .chev { color: var(--text-3); font-size: 13px; }
+  .hdr .folder { color: var(--text-2); }
+  .hdr .path { color: var(--text-2); font-size: 13px; }
+  .hdr .name { color: var(--text-1); font-size: 18px; font-weight: 800; }
+  .hdr .count { color: var(--text-mut); font-size: 12px; }
+  .hdr .sp { flex:1; }
+  .hdr .iconbtn { color: var(--text-3); cursor:pointer; padding:2px; font-size:16px; }
+  .hdr .iconbtn:hover { color: var(--text-2); }
+
+  /* git row */
+  .git { display:flex; align-items:center; gap:10px; margin-top:10px; font-size:13px; }
+  .git .branch { color: var(--blue); font-weight:600; display:flex; align-items:center; gap:5px; }
+  .git .badge {
+    display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700;
+    padding: 2px 9px; border-radius: 999px; border:1px solid var(--orange);
+    color: var(--orange);
+  }
+  .git .badge .dot { width:8px; height:8px; border-radius:50%; background: var(--orange); }
+  .git .commit { color: var(--blue); font-weight:600; }
+  .git .gear {
+    margin-left:auto; display:inline-flex; align-items:center; justify-content:center;
+    width:28px; height:28px; border-radius:8px; border:1px solid var(--border-2);
+    color: var(--text-3); background: var(--card-2); cursor:pointer;
+  }
+
+  /* ══════════════ BEFORE (current) ══════════════ */
+  .old .slotrow { display:flex; align-items:center; gap:8px; margin-top:11px; }
+  .old .slotlabel { font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color: var(--text-3); display:flex; align-items:center; gap:5px; }
+  .old .slotlabel .arrow, .old .refresh { color: var(--text-mut); }
+  .old .slotlabel .k { color: var(--text-2); font-weight:800; }
+  .old .stale { color: var(--amber); font-weight:800; }
+  .old .sp { flex:1; }
+  .old .chip {
+    font-size:11px; font-weight:600; padding: 3px 9px; border-radius:8px;
+    border:1px solid; background: transparent; cursor:pointer; display:inline-flex; align-items:center; gap:4px;
+  }
+  .old .chip.blue { color:var(--blue); border-color: color-mix(in srgb, var(--blue) 40%, transparent); }
+  .old .chip.indigo { color:var(--indigo); border-color: color-mix(in srgb, var(--indigo) 40%, transparent); }
+  .old .chip.purple { color:var(--purple); border-color: color-mix(in srgb, var(--purple) 40%, transparent); }
+  .old .chip.cyan { color:var(--cyan); border-color: color-mix(in srgb, var(--cyan) 40%, transparent); }
+  .old .spawn { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
+  .old .spawnbtn {
+    width:100%; text-align:center; font-size:13px; font-weight:600; padding:9px; border-radius:8px;
+    border:1px solid; background: transparent; cursor:pointer;
+  }
+  .old .spawnbtn.green { color:var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); background: color-mix(in srgb, var(--green) 6%, transparent); }
+  .old .spawnbtn.orange { color:var(--orange); border-color: color-mix(in srgb, var(--orange) 40%, transparent); background: color-mix(in srgb, var(--orange) 6%, transparent); }
+
+  /* ══════════════ AFTER (redesign) ══════════════ */
+  .new .pillgrid {
+    position: relative; z-index:1;
+    margin-top: 12px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  /* self-contained slot pill */
+  .pill {
+    display:flex; align-items:center; gap:9px;
+    padding: 7px 9px 7px 10px; border-radius: 11px;
+    border: 1px solid var(--border);
+    background: var(--card-2);
+    box-shadow: 0 1px 2px var(--shadow);
+    cursor: pointer; min-width:0;
+  }
+  .pill:hover { border-color: var(--border-2); background: var(--card-2); }
+  .pill .glyph {
+    width:26px; height:26px; border-radius:8px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; font-size:15px;
+  }
+  .pill .mid { display:flex; flex-direction:column; min-width:0; line-height:1.15; flex:1; }
+  .pill .lbl { font-size:9.5px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; color: var(--text-3); }
+  .pill .val { font-size:13px; font-weight:800; color: var(--text-1); display:flex; align-items:baseline; gap:5px; }
+  .pill .val .unit { font-size:10px; font-weight:600; color: var(--text-3); }
+  .pill .val .warn { font-size:10px; font-weight:800; color: var(--amber); display:inline-flex; align-items:center; gap:3px; }
+  .pill .act {
+    flex-shrink:0; width:24px; height:24px; border-radius:7px;
+    display:flex; align-items:center; justify-content:center;
+    border:1px dashed var(--border-2); color: var(--text-3); font-size:15px;
+  }
+  .pill:hover .act { color: var(--text-1); border-style:solid; }
+  /* accent tints per slot */
+  .pill.auto  .glyph { color:var(--blue);   background: color-mix(in srgb, var(--blue) 12%, transparent); }
+  .pill.goals .glyph { color:var(--indigo); background: color-mix(in srgb, var(--indigo) 12%, transparent); }
+  .pill.kb    .glyph { color:var(--cyan);   background: color-mix(in srgb, var(--cyan) 12%, transparent); }
+  .pill.spec  .glyph { color:var(--purple); background: color-mix(in srgb, var(--purple) 12%, transparent); }
+  .pill.auto:hover  { border-color: color-mix(in srgb, var(--blue) 45%, transparent); }
+  .pill.goals:hover { border-color: color-mix(in srgb, var(--indigo) 45%, transparent); }
+  .pill.kb:hover    { border-color: color-mix(in srgb, var(--cyan) 45%, transparent); }
+  .pill.spec:hover  { border-color: color-mix(in srgb, var(--purple) 45%, transparent); }
+  /* secondary action pills belonging to a slot (Specs / Archive) live as a
+     thin sub-row so the slot pill stays a single clear concern */
+  .new .subactions { position:relative; z-index:1; display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .new .miniact {
+    font-size:10.5px; font-weight:700; padding: 3px 9px; border-radius: 999px;
+    border:1px solid; display:inline-flex; align-items:center; gap:5px; cursor:pointer;
+    background: transparent;
+  }
+  .miniact.purple { color:var(--purple); border-color: color-mix(in srgb, var(--purple) 38%, transparent); }
+  .miniact.cyan   { color:var(--cyan);   border-color: color-mix(in srgb, var(--cyan) 38%, transparent); }
+
+  /* Detached spawn zone — deliberately OUTSIDE the card surface.
+     No card border/shadow; reads as a floating action tray. */
+  .new-wrap { display:flex; flex-direction:column; }
+  .spawnzone {
+    margin-top: 10px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    padding: 0 2px;
+  }
+  .spawnzone .sbtn {
+    display:flex; align-items:center; justify-content:center; gap:7px;
+    font-size:13px; font-weight:700; padding: 11px; border-radius: 12px;
+    border:1px solid; cursor:pointer;
+    background: color-mix(in srgb, var(--card) 55%, transparent);
+    backdrop-filter: blur(2px);
+  }
+  .spawnzone .sbtn.green  { color:var(--green);  border-color: color-mix(in srgb, var(--green) 45%, transparent); }
+  .spawnzone .sbtn.orange { color:var(--orange); border-color: color-mix(in srgb, var(--orange) 45%, transparent); }
+  .spawnzone .sbtn.green:hover  { background: color-mix(in srgb, var(--green) 12%, transparent); }
+  .spawnzone .sbtn.orange:hover { background: color-mix(in srgb, var(--orange) 12%, transparent); }
+  .zonehint { text-align:center; font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-mut); margin: 12px 0 5px; position:relative; }
+  .zonehint::before, .zonehint::after {
+    content:""; position:absolute; top:50%; width:38%; height:1px; background: var(--border-2);
+  }
+  .zonehint::before { left:0; } .zonehint::after { right:0; }
+</style>
+</head>
+<body data-theme="light">
+
+<div class="toolbar">
+  <h1>Directory Card — redesign mockup</h1>
+  <span class="sp"></span>
+  <button onclick="toggleTheme()" id="tbtn">◑ Dark theme</button>
+</div>
+
+<div class="grid">
+  <!-- ══════════════ BEFORE ══════════════ -->
+  <div class="col">
+    <h2>Before — current</h2>
+    <div class="card old">
+      <div class="hdr">
+        <span class="chev">⌄</span>
+        <span class="folder">📁</span>
+        <span class="path">/Users/robson/Project/</span>
+        <span class="name">pi-agent-dashboard</span>
+        <span class="count">(669)</span>
+        <span class="sp"></span>
+        <span class="iconbtn">≡</span>
+        <span class="iconbtn">⤢</span>
+        <span class="iconbtn">✕</span>
+      </div>
+
+      <div class="git">
+        <span class="branch">⑂ undefined</span>
+        <span class="badge"><span class="dot"></span>10 ↑10</span>
+        <span class="commit">Commit</span>
+        <span class="gear">⚙</span>
+      </div>
+
+      <div class="slotrow">
+        <span class="slotlabel">Automations (1) <span class="arrow">→</span></span>
+        <span class="refresh">⟳</span>
+        <span class="sp"></span>
+        <button class="chip blue">+ New</button>
+      </div>
+      <div class="slotrow">
+        <span class="slotlabel">Goals (0) <span class="arrow">→</span></span>
+        <span class="refresh">⟳</span>
+        <span class="sp"></span>
+        <button class="chip indigo">+ Goal</button>
+      </div>
+      <div class="slotrow">
+        <span class="slotlabel">KB · <span class="k">20,230</span> chunks · <span class="stale">1 stale</span> <span class="arrow">→</span></span>
+        <span class="sp"></span>
+        <span class="refresh">⟳</span>
+      </div>
+      <div class="slotrow">
+        <span class="slotlabel">OpenSpec (60) <span class="arrow">→</span></span>
+        <span class="refresh">⟳</span>
+        <span class="sp"></span>
+        <button class="chip purple">▤ Archive</button>
+        <button class="chip cyan">▤ Specs</button>
+      </div>
+
+      <div class="spawn">
+        <button class="spawnbtn green">+ New Session</button>
+        <button class="spawnbtn orange">⑂ New Worktree</button>
+      </div>
+    </div>
+    <p class="note">Slots are dense text rows; each mixes label + count + state + a right-floated action. The spawn buttons sit <b>inside</b> the card border, competing with the informational rows.</p>
+  </div>
+
+  <!-- ══════════════ AFTER ══════════════ -->
+  <div class="col">
+    <h2>After — redesign</h2>
+    <div class="new-wrap">
+      <div class="card new">
+        <div class="hdr">
+          <span class="chev">⌄</span>
+          <span class="folder">📁</span>
+          <span class="path">/Users/robson/Project/</span>
+          <span class="name">pi-agent-dashboard</span>
+          <span class="count">(669)</span>
+          <span class="sp"></span>
+          <span class="iconbtn">≡</span>
+          <span class="iconbtn">⤢</span>
+          <span class="iconbtn">✕</span>
+        </div>
+
+        <div class="git">
+          <span class="branch">⑂ undefined</span>
+          <span class="badge"><span class="dot"></span>10 ↑10</span>
+          <span class="commit">Commit</span>
+          <span class="gear">⚙</span>
+        </div>
+
+        <!-- half-open folder watermark: AI-rendered 3D icon (nano-banana),
+             posterized to 6 flat tones + vectorized (vtracer) into a low-color
+             icon-style SVG -->
+        <div class="cardmark">
+          <img src="assets/folder-3d.svg" alt="" />
+        </div>
+
+        <div class="body">
+          <div class="pillgrid">
+            <!-- each slot = one self-contained, single-concern pill -->
+            <div class="pill auto">
+              <span class="glyph">⚙</span>
+              <span class="mid">
+                <span class="lbl">Automations</span>
+                <span class="val">1 <span class="unit">flows</span></span>
+              </span>
+              <span class="act" title="New automation">+</span>
+            </div>
+
+            <div class="pill goals">
+              <span class="glyph">◎</span>
+              <span class="mid">
+                <span class="lbl">Goals</span>
+                <span class="val">0 <span class="unit">active</span></span>
+              </span>
+              <span class="act" title="New goal">+</span>
+            </div>
+
+            <div class="pill kb">
+              <span class="glyph">🗄</span>
+              <span class="mid">
+                <span class="lbl">Knowledge base</span>
+                <span class="val">20.2k <span class="unit">chunks</span> <span class="warn">⚠ 1 stale</span></span>
+              </span>
+              <span class="act" title="Reindex">⟳</span>
+            </div>
+
+            <div class="pill spec">
+              <span class="glyph">▤</span>
+              <span class="mid">
+                <span class="lbl">OpenSpec</span>
+                <span class="val">60 <span class="unit">changes</span></span>
+              </span>
+              <span class="act" title="Refresh">⟳</span>
+            </div>
+          </div>
+
+          <!-- slot-owned secondary actions kept as a thin pill sub-row so the
+               main slot pills stay single-concern -->
+          <div class="subactions">
+            <button class="miniact purple">▤ Archive</button>
+            <button class="miniact cyan">▤ Specs</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detached spawn tray: not part of the card surface -->
+      <div class="zonehint">Create</div>
+      <div class="spawnzone">
+        <button class="sbtn green">＋ New Session</button>
+        <button class="sbtn orange">⑂ New Worktree</button>
+      </div>
+    </div>
+    <p class="note"><b>Fragmented pills:</b> each slot is one clickable chip — icon + label + count, state (stale) inline. <b>Watermark:</b> faint folder glyph centers the card. <b>Spawn tray</b> lives outside the card border — reads as an action zone, not a data row.</p>
+  </div>
+</div>
+
+<script>
+  if (location.hash === '#dark') { document.body.setAttribute('data-theme','dark'); document.getElementById('tbtn').textContent='◐ Light theme'; }
+  function toggleTheme(){
+    const b = document.body;
+    const dark = b.getAttribute('data-theme') === 'dark';
+    b.setAttribute('data-theme', dark ? 'light' : 'dark');
+    document.getElementById('tbtn').textContent = dark ? '◑ Dark theme' : '◐ Light theme';
+  }
+</script>
+</body>
+</html>
