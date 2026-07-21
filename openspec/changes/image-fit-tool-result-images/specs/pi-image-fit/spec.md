@@ -2,7 +2,7 @@
 
 ### Requirement: Message-content interception seam
 
-The extension SHALL register a single `pi.on("context", ...)` handler that inspects the `event.messages` deep copy before each LLM call, fits every oversize image content block (`{ type: "image", data, mimeType }`) in every message per the Content-block resize policy, and returns `{ messages }` ONLY when at least one image was resized. When no image is resized the handler MUST return `undefined` (or nothing) so the original message list is used unchanged. The handler MUST NOT be registered when `PI_IMAGE_FIT_DISABLE` is truthy. This seam operates on pi's in-flight deep copy and MUST NOT rewrite the on-disk session transcript.
+The extension SHALL register a single `pi.on("context", ...)` handler that inspects the `event.messages` deep copy before each LLM call, fits every oversize image content block (`{ type: "image", data, mimeType }`) per the Content-block resize policy, and returns `{ messages }` ONLY when at least one image was resized. The handler MUST traverse EVERY message whose `content` is an array regardless of message role (user, tool result, and custom/injected messages), because all of them reach the provider; it MUST NOT branch on role. A message whose `content` is a plain string MUST be skipped without error (it carries no image). When no image is resized the handler MUST return `undefined` (or nothing) so the original message list is used unchanged. The handler MUST NOT be registered when `PI_IMAGE_FIT_DISABLE` is truthy. This seam operates on pi's in-flight deep copy and MUST NOT rewrite the on-disk session transcript.
 
 #### Scenario: Oversize tool-result image is fitted before the provider call
 
@@ -29,6 +29,16 @@ The extension SHALL register a single `pi.on("context", ...)` handler that inspe
 - **WHEN** messages contain text, tool-call, or other non-image content blocks
 - **THEN** the handler leaves those blocks untouched and only ever modifies `type === "image"` blocks
 
+#### Scenario: Oversize image in a custom/injected message is fitted regardless of role
+
+- **WHEN** an oversize image content block appears in a message whose role is not `user` or `tool` (e.g. a custom or extension-injected message that still carries `content: (TextContent | ImageContent)[]` and will be converted for the provider)
+- **THEN** the handler resizes it the same as any other block, because traversal is role-agnostic
+
+#### Scenario: String message content is skipped without error
+
+- **WHEN** a message's `content` is a plain string rather than a content-block array
+- **THEN** the handler skips that message without throwing and without logging a warning
+
 #### Scenario: Disabled via environment variable
 
 - **WHEN** `PI_IMAGE_FIT_DISABLE` is truthy at extension load
@@ -36,7 +46,7 @@ The extension SHALL register a single `pi.on("context", ...)` handler that inspe
 
 ### Requirement: Content-block resize policy
 
-The extension SHALL resize an image content block when EITHER its decoded byte size exceeds the configured byte threshold OR its long-edge pixel dimension exceeds the configured pixel threshold, reusing the same defaults as the read-path seam (1568 px long edge, 4 MiB bytes). Because a small byte size does not bound pixel dimensions, the extension MUST determine the image's dimensions before declaring a block already-small; a byte-size-only short-circuit is NOT sufficient. On resize the long edge SHALL be scaled to at most `maxEdge` preserving aspect ratio. Output format SHALL be adaptive from the block's `mimeType`: `image/png` produces PNG output (lossless); all other mime types produce JPEG output at the configured quality (default 85). The block's `mimeType` MUST be updated to match the output format. The extension MUST use `jimp` and MUST NOT depend on `sharp`, `@napi-rs/image`, or any other native-binary image processor.
+The extension SHALL resize an image content block when EITHER its decoded byte size exceeds the configured byte threshold OR its long-edge pixel dimension exceeds the configured pixel threshold, reusing the same defaults as the read-path seam (1568 px long edge, 4 MiB bytes). Because a small byte size does not bound pixel dimensions, the extension MUST determine the image's dimensions before declaring a block already-small; a byte-size-only short-circuit is NOT sufficient. To keep the steady-state cost low, the extension SHALL determine dimensions via a cheap image-header probe (no full pixel decode) and estimate byte size from the encoded data length; a block within both thresholds MUST be skipped at this gate without a full decode, without hashing, and without a cache entry. A full decode SHALL occur only when a block is an oversize candidate and no cache entry exists (i.e. only on an actual resize). On resize the long edge SHALL be scaled to at most `maxEdge` preserving aspect ratio. Output format SHALL be adaptive from the block's `mimeType`: `image/png` produces PNG output (lossless); all other mime types produce JPEG output at the configured quality (default 85). The block's `mimeType` MUST be updated to match the output format. The extension MUST use `jimp` and MUST NOT depend on `sharp`, `@napi-rs/image`, or any other native-binary image processor.
 
 #### Scenario: Oversize dimensions under the byte threshold still trigger a resize
 
@@ -47,6 +57,11 @@ The extension SHALL resize an image content block when EITHER its decoded byte s
 
 - **WHEN** an image content block's decoded byte size exceeds the byte threshold regardless of its dimensions
 - **THEN** the extension resizes and re-encodes it to a smaller block
+
+#### Scenario: Within-limit image is skipped at the cheap-probe gate
+
+- **WHEN** an image content block is at or below both the byte and pixel thresholds
+- **THEN** the extension determines this from the header probe + byte estimate alone, performing no full pixel decode, no hash, and no cache write for that block
 
 #### Scenario: Long-edge scaling preserves aspect ratio
 
@@ -60,7 +75,7 @@ The extension SHALL resize an image content block when EITHER its decoded byte s
 
 ### Requirement: Content-hash cache for message-content fits
 
-Because the `context` handler runs before every LLM call and re-sees the same historical image blocks each turn, the extension SHALL cache message-content resize results in memory keyed by a hash of `${base64Data}|${maxEdge}|${maxBytes}|${quality}`, so that an unchanged image block is decoded and re-encoded at most once per distinct content+threshold combination. The cache SHALL be bounded (a fixed cap on entries or total cached bytes with least-recently-used eviction) so that long, image-heavy sessions cannot grow memory without limit. This in-memory cache is independent of the read-path temp-file cache; the `context` path MUST NOT write temp files.
+Because the `context` handler runs before every LLM call and re-sees the same historical image blocks each turn, the extension SHALL cache message-content resize results in memory keyed by a hash of `${base64Data}|${mimeType}|${maxEdge}|${maxBytes}|${quality}`, so that an unchanged oversize image block is decoded and re-encoded at most once per distinct content+format+threshold combination. The key MUST include `mimeType` so two blocks with identical bytes but different declared formats do not collide and serve the wrong output format. Only oversize candidates (those that fail the cheap-probe gate of the Content-block resize policy) are ever hashed or cached; images already within limits MUST NOT be hashed. The cache SHALL be bounded by a fixed byte budget with least-recently-used eviction so that long, image-heavy sessions cannot grow memory without limit. This in-memory cache is independent of the read-path temp-file cache; the `context` path MUST NOT write temp files.
 
 #### Scenario: Repeat turn serves from cache without re-encoding
 
@@ -71,6 +86,11 @@ Because the `context` handler runs before every LLM call and re-sees the same hi
 
 - **WHEN** `PI_IMAGE_FIT_MAX_EDGE` differs from a previously cached fit for the same image
 - **THEN** the new threshold yields a different cache key and a fresh resize
+
+#### Scenario: Same bytes, different declared format do not collide
+
+- **WHEN** two oversize image blocks share identical base64 `data` but declare different `mimeType` values
+- **THEN** the `mimeType` in the cache key yields two distinct entries, so each block is re-encoded to the output format its own mime dictates and neither serves the other's bytes
 
 #### Scenario: Bounded eviction under many distinct images
 
