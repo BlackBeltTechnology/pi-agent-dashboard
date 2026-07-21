@@ -37,9 +37,38 @@ return a `maxWidth` clamped to the available horizontal space in the chosen
 anchor direction, with a minimum floor, so a popover in a container narrower
 than its natural width never extends past the viewport/container edge.
 
-Direction, `maxHeight`, horizontal anchor, and `maxWidth` SHALL be recomputed on
-each open and on `resize` / `scroll` while open. Listeners SHALL be attached
-only while the popover is open.
+The hook SHALL accept an optional clipping-boundary reference. When a boundary
+element is provided, the hook SHALL measure available space on BOTH the
+horizontal and vertical axes against that boundary's bounding rect instead of
+the viewport — i.e. the room extending from an anchor edge SHALL be computed
+against the boundary's left/right/top/bottom edges rather than
+`window.innerWidth` / `window.innerHeight`. When no boundary is provided, the
+hook SHALL measure against the viewport (the prior behavior on both axes), so
+every existing call site is unaffected. Consuming popovers that render inside a
+scrollable or `overflow`-clipped pane narrower than or offset from the viewport
+SHALL supply their clipping pane as the boundary, so the popover flips/clamps
+against the pane and its content is never clipped by the pane's `overflow` edge.
+
+The hook SHALL accept an optional preferred horizontal anchor. A consumer whose
+current anchor is the left edge SHALL be able to declare that preference so
+opting into the horizontal axis does NOT change its default anchor when the
+popover already fits; the hook SHALL keep the preferred anchor and flip only
+when the preferred side cannot fit the needed width AND the opposite side has
+more room. The hook SHALL also accept an optional minimum content width below
+which it flips to the opposite anchor rather than returning a clamped `maxWidth`
+that would render the content below its readable width; it clamps only when
+neither side satisfies the minimum.
+
+When a boundary is supplied, direction/anchor/`maxHeight`/`maxWidth` SHALL be
+recomputed not only on window `resize`/`scroll` but also when the boundary
+itself scrolls or changes size (so an internally-scrolling pane or a resized
+split-pane does not leave the open popover clamped to a stale boundary rect).
+When the supplied boundary contains the popover element, the hook SHALL emit a
+development warning (the boundary must be the clipping pane, not the popover's
+own overflow wrapper). Direction, `maxHeight`, horizontal anchor, and `maxWidth`
+SHALL be recomputed on each open and on `resize` / `scroll` while open.
+Listeners (window and, when supplied, boundary) SHALL be attached only while the
+popover is open.
 
 #### Scenario: Opens downward with room below
 - **GIVEN** a popover trigger in the upper half of the viewport
@@ -78,6 +107,49 @@ only while the popover is open.
 - **WHEN** it opens in the chosen anchor direction
 - **THEN** its rendered width equals the available space in that direction
   (down to the minimum floor)
+
+#### Scenario: Measures against a clipping boundary when one is supplied
+- **GIVEN** a right-anchored popover whose trigger sits in a pane that is
+  narrower than and offset from the viewport, and whose pane is supplied as the
+  clipping boundary
+- **AND** the space extending leftward from the trigger to the pane's left edge
+  is smaller than the popover's natural width, while the viewport has ample room
+  to the left of the pane
+- **WHEN** the popover opens
+- **THEN** the horizontal anchor is decided against the pane's edges, not the
+  viewport
+- **AND** the popover flips or clamps so its content stays within the pane
+  rather than being clipped by the pane's `overflow` edge
+
+#### Scenario: Falls back to the viewport when no boundary is supplied
+- **GIVEN** a popover consumer that supplies no clipping boundary
+- **WHEN** the popover opens
+- **THEN** all space measurements use the viewport (`window.innerWidth` /
+  `window.innerHeight`) on both axes, identical to the prior behavior
+
+#### Scenario: Left-preferring consumer keeps its anchor when it fits
+- **GIVEN** a consumer whose current anchor is `left-0` that opts into the
+  horizontal axis with a preferred-left anchor, inside a boundary wide enough
+  for the popover's width
+- **WHEN** the popover opens
+- **THEN** it stays `left-0` (its opt-in does not silently flip it to `right-0`)
+- **AND** it flips to `right-0` only when the left side cannot fit the width and
+  the right side has more room
+
+#### Scenario: Flips instead of squishing below the readable width
+- **GIVEN** a consumer that declares a minimum content width, in a boundary
+  where the preferred side's space is below that minimum
+- **WHEN** the popover opens
+- **THEN** the hook flips to the opposite side rather than returning a clamped
+  `maxWidth` below the minimum
+- **AND** it clamps only when neither side satisfies the minimum
+
+#### Scenario: Re-measures when the boundary scrolls or resizes
+- **GIVEN** an open popover measured against a supplied boundary pane
+- **WHEN** the boundary pane scrolls internally or changes size (e.g. a
+  split-pane divider drag) without a window `resize`/`scroll`
+- **THEN** the hook re-measures against the boundary's new rect within the same
+  open session
 
 #### Scenario: Re-evaluates on resize while open
 - **GIVEN** an open popover positioned downward

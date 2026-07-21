@@ -5,6 +5,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, act, waitFor } from "@testing-library/react";
 import { WorktreeActionsMenu, __resetGhAvailableCache } from "../worktree/WorktreeActionsMenu.js";
+import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 // Stub useMobile + git-api + tools-api so we drive every branch.
@@ -124,6 +125,60 @@ describe("WorktreeActionsMenu — desktop", () => {
     expect(toast.textContent).toContain("branch pushed, but `gh pr create` failed");
     // stderr surfaced via the details disclosure.
     expect(screen.getByTestId("worktree-actions-toast-details").textContent).toContain("No commits between develop");
+  });
+});
+
+// F9 (fix-popover-container-clip). The mobile `right-0` action sheet is a
+// `usePopoverFlip` consumer wired to `PopoverBoundaryContext`. The docker E2E
+// harness has no worktree-session fixture (WorktreeActionsMenu renders null
+// without `session.gitWorktree`), so its boundary-aware flip is proven here at
+// the component level with mocked rects instead of L3. rect helper:
+function rect(over: Partial<DOMRect>): DOMRect {
+  return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}), ...over } as DOMRect;
+}
+
+function BoundaryHarness({ session, boundaryRect }: { session: DashboardSession; boundaryRect: DOMRect }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => {
+    if (ref.current) ref.current.getBoundingClientRect = () => boundaryRect;
+  });
+  return (
+    <div ref={ref}>
+      <PopoverBoundaryProvider value={ref}>
+        <WorktreeActionsMenu session={session} allSessions={[]} onShutdownSession={() => {}} />
+      </PopoverBoundaryProvider>
+    </div>
+  );
+}
+
+describe("WorktreeActionsMenu — F9 boundary-aware sheet (fix-popover-container-clip)", () => {
+  beforeEach(() => { mobile = true; });
+
+  it("flips the mobile sheet to left-0 when the pane's right anchor cannot fit", () => {
+    // Boundary pane offset right {left:500,right:900}; trigger hugs the pane's
+    // LEFT edge → right-anchor (extend left) has ~32px, left-anchor (extend
+    // right) has ~382px → the hook must flip the `right-0` sheet to `left-0`.
+    render(<BoundaryHarness session={makeSession()} boundaryRect={rect({ left: 500, right: 900, bottom: 1000, width: 400, height: 1000, x: 500 })} />);
+    const trigger = screen.getByTestId("worktree-actions-mobile-trigger");
+    (trigger as HTMLElement).getBoundingClientRect = () =>
+      rect({ left: 510, right: 540, top: 100, bottom: 130, width: 30, height: 30, x: 510, y: 100 });
+    fireEvent.click(trigger);
+    const sheet = screen.getByTestId("worktree-actions-mobile-sheet");
+    expect(sheet.className).toContain("left-0");
+    expect(sheet.className).not.toContain("right-0");
+  });
+
+  it("keeps the sheet right-0 (default) when the pane has ample room to the left", () => {
+    // Trigger near the pane's RIGHT edge with a wide pane → right-anchor fits →
+    // no flip, preserves the existing `right-0` behavior.
+    render(<BoundaryHarness session={makeSession()} boundaryRect={rect({ left: 0, right: 900, bottom: 1000, width: 900, height: 1000 })} />);
+    const trigger = screen.getByTestId("worktree-actions-mobile-trigger");
+    (trigger as HTMLElement).getBoundingClientRect = () =>
+      rect({ left: 840, right: 870, top: 100, bottom: 130, width: 30, height: 30, x: 840, y: 100 });
+    fireEvent.click(trigger);
+    const sheet = screen.getByTestId("worktree-actions-mobile-sheet");
+    expect(sheet.className).toContain("right-0");
+    expect(sheet.className).not.toContain("left-0");
   });
 });
 

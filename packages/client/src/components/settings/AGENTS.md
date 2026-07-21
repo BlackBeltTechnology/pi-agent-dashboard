@@ -11,7 +11,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `ModelSelector.tsx` | Variant C: grouped by provider, pinned ★ Favorites group, per-row star toggle, capability badges (🧠/👁… → see `ModelSelector.tsx.AGENTS.md` |
 | `ProviderAuthSection.tsx` | Settings section for LLM provider auth. Exports `ProviderAuthSection`. → see `ProviderAuthSection.tsx.AGENTS.md` |
 | `SettingsPanel.tsx` | Settings UI: left-nav rail + page content… → see `SettingsPanel.tsx.AGENTS.md` |
-| `ThemePicker.tsx` | Palette dropdown for theme selection. Lists `THEMES` with color swatches, flip-aware (`usePopoverFlip`), outside-click close. Reads/writes `useThemeContext`. Exports `ThemePicker`. |
+| `ThemePicker.tsx` | Palette dropdown for theme selection. Lists `THEMES` with color swatches, flip-aware (`usePopoverFlip`), outside-click close. Reads/writes `useThemeContext`. Exports `ThemePicker`. See change: fix-popover-container-clip — documented structurally immune (full-width settings header, no narrow offset `overflow` pane above it → keeps viewport measurement, no `boundaryRef`). |
 | `ThemeProvider.tsx` | React context provider wrapping `useTheme` hook. Exports `ThemeProvider`, `useThemeContext` (throws outside provider). |
 | `ThemeToggle.tsx` | Exports `ThemeToggle`. Three-button light/system/dark switcher; reads `preference`/`setPreference` from `useThemeContext`. Renders mdi icons, `data-testid="theme-toggle"`. |
 | `ThinkingLevelSelector.tsx` | Thinking-level picker. Optional prop `supportedLevels` filters `THINKING_LEVELS` to supported set (canonical… → see `ThinkingLevelSelector.tsx.AGENTS.md` |

@@ -37,6 +37,10 @@ export function ThemePicker() {
         <Icon path={mdiPalette} size={0.5} />
       </button>
 
+      {/* fix-popover-container-clip audit: structurally immune. ThemePicker
+          lives in the full-width settings header — there is no narrow offset
+          `overflow` pane above it to clip against — so it keeps the viewport
+          measurement (no boundaryRef). */}
       {open && (
         <div
           style={{ maxHeight }}

@@ -3,6 +3,7 @@ import { mdiBrain, mdiChevronDown, mdiEye, mdiLoading, mdiRefresh, mdiStar, mdiS
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 // Per-browser view-state persistence (NOT favorites — those persist server-side).
@@ -110,7 +111,19 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const { flipUp, maxHeight } = usePopoverFlip(triggerRef, { open });
+  // Opt into the horizontal axis, left-preserving: this `left-0` 320px dropdown
+  // must flip (not silently swap to right-0) when its composer pane is too
+  // narrow, and flip rather than squish its dense provider/model grid below
+  // ~280px. `boundaryRef` is the composer/chat pane when rendered there (else
+  // viewport). See change: fix-popover-container-clip.
+  const boundaryRef = usePopoverBoundary();
+  const { flipUp, maxHeight, anchorRight, maxWidth } = usePopoverFlip(triggerRef, {
+    open,
+    estimatedWidth: 320, // 20rem natural width
+    minContentWidth: 280, // readable floor for the provider/model grid
+    preferredAnchor: "left",
+    boundaryRef,
+  });
 
   const hasModels = !!models && models.length > 0;
   const favSet = useMemo(() => new Set(favorites ?? []), [favorites]);
@@ -296,10 +309,12 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
 
       {open && (
         <div
-          className={`absolute left-0 flex flex-col bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-50 overflow-hidden ${
-            flipUp ? "bottom-full mb-1" : "top-full mt-1"
-          }`}
-          style={{ width: "20rem", maxHeight }}
+          className={`absolute flex flex-col bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-50 overflow-hidden ${
+            anchorRight ? "right-0" : "left-0"
+          } ${flipUp ? "bottom-full mb-1" : "top-full mt-1"}`}
+          // Natural width 320px, capped by the pane-aware `maxWidth` (the hook
+          // flips before it would squish below `minContentWidth`).
+          style={{ width: Math.min(320, maxWidth), maxHeight }}
           data-testid="model-dropdown"
         >
           {/* ── Filters ── */}

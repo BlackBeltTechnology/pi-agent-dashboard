@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { Icon } from "@mdi/react";
 import { mdiHeadLightbulb } from "@mdi/js";
 
@@ -23,7 +24,15 @@ export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Pr
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const { flipUp, maxHeight } = usePopoverFlip(triggerRef, { open });
+  // In the composer/chat pane (NOT immune): measure against that offset
+  // `overflow` pane, left-preserving. See change: fix-popover-container-clip.
+  const boundaryRef = usePopoverBoundary();
+  const { flipUp, maxHeight, anchorRight } = usePopoverFlip(triggerRef, {
+    open,
+    estimatedWidth: 128, // w-32 natural width
+    preferredAnchor: "left",
+    boundaryRef,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -48,9 +57,9 @@ export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Pr
       </button>
       {open && (
         <div
-          className={`absolute left-0 w-32 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-50 overflow-hidden ${
-            flipUp ? "bottom-full mb-1" : "top-full mt-1"
-          }`}
+          className={`absolute w-32 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-50 overflow-hidden ${
+            anchorRight ? "right-0" : "left-0"
+          } ${flipUp ? "bottom-full mb-1" : "top-full mt-1"}`}
           data-testid="thinking-level-dropdown"
         >
           <div className="overflow-y-auto" style={{ maxHeight }}>

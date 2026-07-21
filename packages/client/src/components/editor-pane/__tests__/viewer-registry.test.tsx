@@ -13,8 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 
 import { MAX_PREVIEW_BYTES } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
-import { CappedViewer } from "../CappedViewer.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
+import { CappedViewer } from "../CappedViewer.js";
 import { viewerRegistry } from "../viewer-registry.js";
 
 const originalFetch = globalThis.fetch;
@@ -66,12 +66,15 @@ describe("viewerRegistry — preview/* delegation", () => {
     }
   });
 
-  it("pdf mounts a canvas viewer, NOT an <object> plugin", async () => {
+  it("pdf mounts the pdfjs continuous-scroll viewer, NOT an <object> plugin", async () => {
+    // See change: pdf-preview-continuous-scroll — PdfPreview renders the pdfjs
+    // component viewer (`.pdfViewerContainer` scroll box), not a bare <canvas>
+    // + Prev/Next toolbar. pdfjs fills canvases into `.pdfViewer` at runtime.
     const { container } = renderKind("pdf");
     // PdfPreview is lazy here (Option B, change: fix-vite-build-warnings) — wait
     // for the <Suspense> boundary to resolve past its "Loading PDF viewer…"
-    // fallback before asserting the canvas mounted.
-    await waitFor(() => expect(container.querySelector("canvas")).toBeTruthy());
+    // fallback before asserting the viewer mounted.
+    await waitFor(() => expect(container.querySelector(".pdfViewerContainer")).toBeTruthy());
     expect(container.querySelector("object")).toBeNull();
   });
 
@@ -126,13 +129,13 @@ describe("CappedViewer — large-file byte cap (D7 / P1)", () => {
 
   it("at 10MB exactly → rich viewer mounts (not TooLargePreview)", async () => {
     const { queryByTestId, container } = renderCapped(MAX_PREVIEW_BYTES);
-    await waitFor(() => expect(container.querySelector("canvas")).toBeTruthy());
+    await waitFor(() => expect(container.querySelector(".pdfViewerContainer")).toBeTruthy());
     expect(queryByTestId("too-large-preview")).toBeNull();
   });
 
   it("at 10MB−1 → rich viewer mounts", async () => {
     const { queryByTestId, container } = renderCapped(MAX_PREVIEW_BYTES - 1);
-    await waitFor(() => expect(container.querySelector("canvas")).toBeTruthy());
+    await waitFor(() => expect(container.querySelector(".pdfViewerContainer")).toBeTruthy());
     expect(queryByTestId("too-large-preview")).toBeNull();
   });
 

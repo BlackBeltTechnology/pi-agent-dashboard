@@ -9,7 +9,8 @@ $tests = @(
     "05-git-ops.ps1",
     "07-electron-bootstrap-v2.ps1",  # skips when ZIP artifact absent
     "09-image-fit-extension.ps1",   # @blackbelt-technology/pi-image-fit install + dep-tree sanity. See change: pi-image-fit-extension.
-    "10-bundled-git.ps1"   # bundled dugite-native git+sh present + runnable. See change: embed-git-bash-on-windows.
+    "10-bundled-git.ps1",   # bundled dugite-native git+sh present + runnable. See change: embed-git-bash-on-windows.
+    "12-openspec-shim.ps1"   # extensionless openspec shim resolves via Git Bash, no node on PATH. See change: provision-openspec-cli-in-sessions.
 )
 
 $passed = 0

@@ -146,7 +146,7 @@ The pane SHALL dispatch the active tab to a viewer via a kind-based registry. Th
 
 - **GIVEN** the pane runs inside the Electron shell (no PDF plugin)
 - **WHEN** the user opens a `.pdf` tab
-- **THEN** the tab renders `PdfPreview` (canvas) with page navigation
+- **THEN** the tab renders `PdfPreview` as a continuous-scroll pdfjs viewer (text-selectable, find-capable), not a Prev/Next paged canvas
 
 ### Requirement: Pane SHALL be read-only in v1
 

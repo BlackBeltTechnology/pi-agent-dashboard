@@ -67,10 +67,22 @@ const RULES = [
     dep: "@fission-ai/openspec",
     kind: "dependencies",
     evidence:
-      "eliminate-electron-runtime-install task 1.1.a — openspec lifted from " +
-      "optional peer to regular dep. Floor 1.3.0 taken from the now-vestigial " +
-      "packages/electron/offline-packages.json pin.",
-    minVersion: "1.3.0",
+      "provision-openspec-cli-in-sessions task 1.4 — floor raised 1.3.0 → 1.6.0 " +
+      "to match the version that generated the openspec-* skills " +
+      "(generatedBy: 1.6.0). npm hoists the server + extension ^1.6.0 ranges to " +
+      "one installed copy the session shim resolves.",
+    minVersion: "1.6.0",
+  },
+  {
+    pkgPath: "packages/extension/package.json",
+    dep: "@fission-ai/openspec",
+    kind: "dependencies",
+    evidence:
+      "provision-openspec-cli-in-sessions task 1.4 — the bridge shim " +
+      "(openspec-cli-shim.ts) require.resolves this dep, so it must travel with " +
+      "the published extension into generic projects (no dashboard copy hoisted " +
+      "there). Floor tracks the single-source version 1.6.0.",
+    minVersion: "1.6.0",
   },
   {
     pkgPath: "packages/server/package.json",
@@ -85,9 +97,47 @@ const RULES = [
   },
 ];
 
-const failures = [];
+/**
+ * Extract the version floor from a declared range: strips a leading caret/tilde
+ * and any prerelease suffix so `^1.6.0` / `~1.6.0` / `1.6.0` all floor to
+ * `1.6.0`. Returns null for a range we cannot parse (e.g. `*`, a git/url dep).
+ */
+export function floorOf(range) {
+  const m = String(range).match(/(\d+\.\d+\.\d+)/);
+  return m ? m[1] : null;
+}
 
-for (const rule of RULES) {
+/**
+ * Cross-consistency: the server and extension `@fission-ai/openspec` ranges MUST
+ * share one version floor (single-source governance). Returns an error string
+ * naming the drifted sites, or null when consistent. Exported so the T-S1 unit
+ * test can drive it with package.json fixtures.
+ * See change: provision-openspec-cli-in-sessions.
+ */
+export function checkOpenspecFloorConsistency(serverPkg, extensionPkg) {
+  const serverRange = serverPkg?.dependencies?.["@fission-ai/openspec"];
+  const extensionRange = extensionPkg?.dependencies?.["@fission-ai/openspec"];
+  if (!serverRange || !extensionRange) {
+    return (
+      "openspec floor consistency: missing @fission-ai/openspec dependency " +
+      `(server=${serverRange ?? "absent"}, extension=${extensionRange ?? "absent"})`
+    );
+  }
+  const serverFloor = floorOf(serverRange);
+  const extensionFloor = floorOf(extensionRange);
+  if (serverFloor === null || extensionFloor === null || serverFloor !== extensionFloor) {
+    return (
+      "openspec floor drift: server and extension @fission-ai/openspec floors must match — " +
+      `server "${serverRange}" (floor ${serverFloor}) vs extension "${extensionRange}" (floor ${extensionFloor})`
+    );
+  }
+  return null;
+}
+
+function collectFailures() {
+  const failures = [];
+
+  for (const rule of RULES) {
   const abs = path.join(REPO_ROOT, rule.pkgPath);
   let pkg;
   try {
@@ -119,19 +169,43 @@ for (const rule of RULES) {
   }
 }
 
-if (failures.length > 0) {
-  console.error("verify-release-deps.mjs: pre-release dependency gate FAILED");
-  console.error("");
-  for (const f of failures) {
-    console.error("  ✗ " + f.replace(/\n/g, "\n    "));
-    console.error("");
-  }
-  console.error(
-    `Total failures: ${failures.length}. Fix the workspace package.json files before cutting a release.`,
+// Cross-consistency gate: server ↔ extension openspec floors must not drift.
+try {
+  const serverPkg = JSON.parse(
+    readFileSync(path.join(REPO_ROOT, "packages/server/package.json"), "utf-8"),
   );
-  process.exit(1);
+  const extensionPkg = JSON.parse(
+    readFileSync(path.join(REPO_ROOT, "packages/extension/package.json"), "utf-8"),
+  );
+  const drift = checkOpenspecFloorConsistency(serverPkg, extensionPkg);
+  if (drift) failures.push(drift);
+  } catch (err) {
+    failures.push(`Cannot check openspec floor consistency: ${err.message}`);
+  }
+
+  return failures;
 }
 
-console.log(
-  `verify-release-deps.mjs: OK — ${RULES.length} rules passed.`,
-);
+function main() {
+  const failures = collectFailures();
+
+  if (failures.length > 0) {
+    console.error("verify-release-deps.mjs: pre-release dependency gate FAILED");
+    console.error("");
+    for (const f of failures) {
+      console.error("  ✗ " + f.replace(/\n/g, "\n    "));
+      console.error("");
+    }
+    console.error(
+      `Total failures: ${failures.length}. Fix the workspace package.json files before cutting a release.`,
+    );
+    process.exit(1);
+  }
+
+  console.log(`verify-release-deps.mjs: OK — ${RULES.length} rules passed.`);
+}
+
+// Run only when invoked directly (CLI), not when imported by a unit test.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}

@@ -4,6 +4,7 @@ import { Icon } from "@mdi/react";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useImagePaste } from "../../hooks/useImagePaste.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import type { ChatMessage } from "../../lib/chat/event-reducer.js";
 import { extractRecentUrls } from "../../lib/preview/extract-urls.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
@@ -244,6 +245,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   const [attachOpen, setAttachOpen] = useState(false);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const attachRef = useRef<HTMLDivElement>(null);
+  const attachBtnRef = useRef<HTMLButtonElement>(null);
   const overflowRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -373,6 +375,19 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   // fix-popover-viewport-flip.
   const { flipUp: ddFlipUp, maxHeight: ddMaxHeight } = usePopoverFlip(composerRef, {
     open: dropdownMode !== null,
+  });
+
+  // Attach (＋) menu boundary-awareness (fix-popover-container-clip): the
+  // `left-0 w-56` menu overflows the composer pane's right edge once the split
+  // pane narrows to its 25% floor (~222px < 224px menu). Measure the horizontal
+  // axis against the chat pane so it clamps/flips within the pane; vertical
+  // stays hardcoded `bottom-full` (composer sits at the pane bottom).
+  const boundaryRef = usePopoverBoundary();
+  const { anchorRight: attachAnchorRight, maxWidth: attachMaxWidth } = usePopoverFlip(attachBtnRef, {
+    open: attachOpen,
+    estimatedWidth: 224, // w-56
+    preferredAnchor: "left",
+    boundaryRef,
   });
 
   // Reset selectedIndex when dropdown mode or filter changes
@@ -813,8 +828,12 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       data-testid="composer-root"
       className="border-t border-[var(--border-primary)] p-3 relative"
     >
-      {/* Autocomplete dropdown — grouped by source with badges + arg hints. */}
+      {/* Autocomplete dropdown — grouped by source with badges + arg hints.
+          Structurally immune to the container-clip class (fix-popover-container-clip):
+          `left-3 right-3` pins BOTH composer edges, so it can never overflow the
+          pane on either side regardless of offset — no boundaryRef needed. */}
       {dropdownMode === "command" && (
+
         <div
           style={{ maxHeight: ddMaxHeight }}
           className={`absolute left-3 right-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-y-auto shadow-lg z-10 ${
@@ -857,6 +876,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         </div>
       )}
 
+      {/* File/mention dropdown — same `left-3 right-3` dual-edge pin as the
+          command dropdown → structurally immune to the container clip. */}
       {dropdownMode === "file" && (
         <div
           style={{ maxHeight: ddMaxHeight }}
@@ -971,12 +992,22 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               aria-haspopup="menu"
               aria-expanded={attachOpen}
               data-testid="attach-button"
+              ref={attachBtnRef}
             >
               <Icon path={mdiPlus} size={0.85} />
             </button>
+            {/* Attach menu (fix-popover-container-clip): CONVERTED to a
+                boundary-aware hook consumer — a clip reproduced in a 25%-floor
+                split pane (222px < the 224px `w-56` menu). Horizontal anchor +
+                `maxWidth` come from `usePopoverFlip` against the chat pane;
+                `bottom-full` stays hardcoded (composer sits at the pane
+                bottom). */}
             {attachOpen && (
               <div
-                className="absolute left-0 bottom-full mb-2 w-56 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-hidden shadow-lg z-20"
+                style={{ maxWidth: attachMaxWidth }}
+                className={`absolute bottom-full mb-2 w-56 max-w-full bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-hidden shadow-lg z-20 ${
+                  attachAnchorRight ? "right-0" : "left-0"
+                }`}
                 role="menu"
                 data-testid="attach-menu"
               >
@@ -1028,6 +1059,11 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             >
               <Icon path={mdiDotsHorizontal} size={0.7} />
             </button>
+            {/* Overflow (⋯) menu (fix-popover-container-clip audit): hardcoded
+                `bottom-full`, NOT a usePopoverFlip consumer. `right-0` anchors
+                at the far-right ⋯ button and extends leftward into the composer
+                — it grows toward pane-center, never past the offset pane's right
+                edge — so no container clip reproduces; stays no-clamp. */}
             {overflowOpen && (
               <div
                 className="absolute right-0 bottom-full mb-2 flex flex-col gap-2 p-2 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl shadow-lg z-20"

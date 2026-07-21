@@ -1,12 +1,13 @@
 /**
  * PDF preview using `pdfjs-dist`. Imported via dynamic `import()` so the
- * library lives in a separate Vite chunk (NOT in the main bundle). Page
- * navigation: Prev / Next + "Page X of Y". The pdfjs worker is bundled by
- * Vite as a separate static asset via `?url` import — no manual copy step.
- * See change: render-file-previews.
+ * library lives in a separate Vite chunk (NOT in the main bundle). Renders the
+ * document through pdfjs's own `PDFViewer` component (`pdfjs-dist/web/
+ * pdf_viewer.mjs`): virtualized continuous scroll, a text layer (selection +
+ * ctrl-F find), and link handling — no hand-rolled paging. The pdfjs worker is
+ * bundled by Vite as a separate static asset via `?url` import — no manual copy
+ * step. See change: render-file-previews. See change: pdf-preview-continuous-scroll.
  */
-import React, { useEffect, useRef, useState } from "react";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useEffect, useRef, useState } from "react";
 import { rawUrl } from "./raw-url.js";
 
 interface Props {
@@ -33,92 +34,84 @@ async function loadPdfJs(): Promise<typeof import("pdfjs-dist")> {
   return mod;
 }
 
+// Load the pdfjs component viewer + its stylesheet via dynamic import so both
+// ride the lazy PdfPreview chunk, NOT the main bundle. `PdfPreview` is imported
+// statically by the editor-pane viewer-registry, so a top-level `import` of
+// these would leak pdfjs into the main entry (breaks the §160 lazy guarantee).
+// See change: pdf-preview-continuous-scroll.
+async function loadViewer(): Promise<typeof import("pdfjs-dist/web/pdf_viewer.mjs")> {
+  const [mod] = await Promise.all([
+    import("pdfjs-dist/web/pdf_viewer.mjs"),
+    import("pdfjs-dist/web/pdf_viewer.css"),
+  ]);
+  return mod;
+}
+
+type ViewerHandle = {
+  doc: import("pdfjs-dist").PDFDocumentProxy;
+  viewer: import("pdfjs-dist/web/pdf_viewer.mjs").PDFViewer;
+};
+
+/** Release a viewer handle: detach the document from the viewer, then destroy it. */
+function destroyViewer(handle: ViewerHandle): void {
+  handle.viewer.setDocument(null as never);
+  handle.doc.destroy();
+}
+
+/** Load the document and construct the pdfjs `PDFViewer` bound to `container`. */
+async function mountViewer(container: HTMLDivElement, url: string): Promise<ViewerHandle> {
+  const [pdfjs, { EventBus, PDFLinkService, PDFViewer }] = await Promise.all([
+    loadPdfJs(),
+    loadViewer(),
+  ]);
+  const doc = await pdfjs.getDocument({ url }).promise;
+  const eventBus = new EventBus();
+  const linkService = new PDFLinkService({ eventBus });
+  // Enable the text layer (textLayerMode 2) → text selection + ctrl-F find.
+  const viewer = new PDFViewer({ container, eventBus, linkService, textLayerMode: 2 });
+  linkService.setViewer(viewer);
+  viewer.setDocument(doc);
+  linkService.setDocument(doc, null);
+  return { doc, viewer };
+}
+
 export function PdfPreview({ target, srcUrl }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [pageNum, setPageNum] = useState(1);
-  const [pageCount, setPageCount] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
-  const docRef = useRef<any>(null);
+  const { cwd, path } = target;
 
-  // Load the document on target change.
+  // Construct the pdfjs `PDFViewer` once per document load; tear it down on
+  // unmount / target change. If the effect is torn down before the async mount
+  // resolves, the late handle is destroyed instead of being adopted.
   useEffect(() => {
     let cancelled = false;
+    let handle: ViewerHandle | null = null;
     setError(null);
-    setPageNum(1);
-    setPageCount(0);
-    (async () => {
-      try {
-        const pdfjs = await loadPdfJs();
-        const loadingTask = pdfjs.getDocument({ url: srcUrl ?? rawUrl(target) });
-        const doc = await loadingTask.promise;
-        if (cancelled) {
-          doc.destroy();
-          return;
-        }
-        docRef.current = doc;
-        setPageCount(doc.numPages);
-      } catch (e) {
+    const container = containerRef.current;
+    if (!container) return;
+    mountViewer(container, srcUrl ?? rawUrl({ kind: "file", cwd, path }))
+      .then((h) => {
+        if (cancelled) destroyViewer(h);
+        else handle = h;
+      })
+      .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to load PDF");
-      }
-    })();
+      });
     return () => {
       cancelled = true;
-      const doc = docRef.current;
-      docRef.current = null;
-      if (doc) doc.destroy();
+      if (handle) destroyViewer(handle);
     };
-  }, [target.cwd, target.path, srcUrl]);
-
-  // Render the current page when doc or pageNum changes.
-  useEffect(() => {
-    let cancelled = false;
-    const canvas = canvasRef.current;
-    const doc = docRef.current;
-    if (!canvas || !doc || pageCount === 0) return;
-    (async () => {
-      try {
-        const page = await doc.getPage(pageNum);
-        if (cancelled) return;
-        const viewport = page.getViewport({ scale: 1.5 });
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvasContext: ctx, viewport }).promise;
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "failed to render page");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [pageNum, pageCount]);
+  }, [cwd, path, srcUrl]);
 
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
 
+  // pdfjs `PDFViewer` measures its container and requires a positioned parent
+  // with a definite height plus an absolutely-positioned scroll container
+  // holding a `.pdfViewer` child (which the viewer fills in). See design.md.
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-2 py-1 border-b border-[var(--border-secondary)] text-xs">
-        <button
-          className="px-2 py-0.5 rounded hover:bg-[var(--bg-surface)] disabled:opacity-40"
-          disabled={pageNum <= 1 || pageCount === 0}
-          onClick={() => setPageNum((n) => Math.max(1, n - 1))}
-        >
-          {i18nT("common.prev", undefined, "Prev")}
-        </button>
-        <span className="text-[var(--text-muted)]">
-          {pageCount === 0 ? "Loading…" : `Page ${pageNum} of ${pageCount}`}
-        </span>
-        <button
-          className="px-2 py-0.5 rounded hover:bg-[var(--bg-surface)] disabled:opacity-40"
-          disabled={pageNum >= pageCount || pageCount === 0}
-          onClick={() => setPageNum((n) => Math.min(pageCount, n + 1))}
-        >
-          {i18nT("common.next2", undefined, "Next")}
-        </button>
-      </div>
-      <div className="flex-1 overflow-auto p-2 bg-[var(--bg-canvas)] flex justify-center">
-        <canvas ref={canvasRef} className="max-w-full h-auto" />
+    <div className="relative h-full">
+      <div ref={containerRef} className="pdfViewerContainer absolute inset-0 overflow-auto">
+        <div className="pdfViewer" />
       </div>
     </div>
   );

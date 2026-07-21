@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
+import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 type ToolCallPatch = Partial<DisplayPrefs["toolCalls"]>;
@@ -45,9 +46,14 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // Measure against the chat pane (offset `overflow-hidden` in split/board
+  // layouts), not the viewport, so the `right-0` popover flips before its label
+  // column is guillotined by the pane edge. See change: fix-popover-container-clip.
+  const boundaryRef = usePopoverBoundary();
   const { flipUp, maxHeight, anchorRight, maxWidth } = usePopoverFlip(triggerRef, {
     open,
     estimatedWidth: 256, // w-64 natural width
+    boundaryRef,
   });
 
   useEffect(() => {
