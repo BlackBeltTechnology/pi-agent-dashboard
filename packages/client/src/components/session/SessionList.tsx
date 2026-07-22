@@ -2,7 +2,7 @@ import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
+import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -882,7 +882,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     );
   }
 
-  function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false) {
+  function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string) {
     const displayPath = truncatePathMiddle(group.cwd, 45);
     const lastSlash = displayPath.lastIndexOf('/');
     const parentPath = lastSlash >= 0 ? displayPath.slice(0, lastSlash + 1) : '';
@@ -891,14 +891,17 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
 
     return (
       <div key={group.cwd} className="space-y-1">
+        {/* Folder-tab nub — a small tab peeking above the card's top-left
+            corner so the directory card reads as a folder. Sits behind the
+            bordered card (which paints on top, hiding the nub's lower edge)
+            and is non-interactive. The pt-[9px] on the wrapper reserves the
+            space the nub occupies above the card. See change: folder-card-tab-nub. */}
+        <div className="relative pt-[9px]">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute top-0 left-3.5 w-[78px] h-3 bg-[var(--bg-primary)] border border-[var(--border-subtle)] border-b-0 rounded-t-lg"
+        />
         <div className="relative overflow-hidden bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-[14px] p-1.5 shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]">
-        {/* Faint 3D half-open folder watermark — a static vector asset, behind
-            content, non-interactive, clipped to the card's rounded bounds
-            (design D2; Q2 resolved: centered on the card, anchoring the pill
-            grid). See change: redesign-directory-card. */}
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
-          <img src="/assets/folder-3d.svg" alt="" className="w-[188px] max-w-[70%] h-auto opacity-[0.13] saturate-[.85]" />
-        </div>
         <div className="relative z-[1]">
         <div className="flex gap-1.5 px-1 py-1 min-h-[44px] md:min-h-0 rounded">
           {/* Left gutter — chevron at top, drag-handle column extending below */}
@@ -1002,6 +1005,23 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 <Icon path={mdiPin} size={0.55} />
               </button>
             )}
+            {/* Remove-from-workspace — grouped inline after the open-home
+                icon (workspace folders only), not floated in the card corner. */}
+            {inWorkspace && workspaceId && onRemoveFolderFromWorkspace && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemoveFolderFromWorkspace(workspaceId, group.cwd);
+                }}
+                className="px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-red-400 hover:bg-[var(--bg-hover)]"
+                title={t("sessionList.removeFromWorkspace", undefined, "Remove from workspace")}
+                aria-label={t("sessionList.removeFromWorkspace", undefined, "Remove from workspace")}
+                data-testid={`ws-remove-${workspaceId}-${group.cwd}`}
+              >
+                <Icon path={mdiClose} size={0.5} />
+              </button>
+            )}
           </div>
           {/* Collapsed density (variant B): when collapsed, the heavy slots
               (git · action bar · plugin sections · OpenSpec proposal state ·
@@ -1066,6 +1086,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         </div>
         </div>{/* end content layer (relative z-1) */}
         </div>{/* end bordered info card */}
+        </div>{/* end folder-tab nub wrapper */}
         {/* Detached Create tray — rendered OUTSIDE the bordered card as a
             sibling below it, with a divider label; not part of the card
             surface (design D3). See change: redesign-directory-card. */}
@@ -1526,18 +1547,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                           <SortableContext items={ws.folders.filter((f) => !anyTagFilterActive || folderMatchesFilters(f)).map((f) => f.cwd)} strategy={verticalListSortingStrategy}>
                             {ws.folders.filter((folder) => !anyTagFilterActive || folderMatchesFilters(folder)).map((folder) => (
                               <SortableWorkspaceFolder key={`ws-${ws.id}-f-${folder.cwd}`} id={folder.cwd} wsId={ws.id}>
-                                <div className="relative">
-                                  {renderGroup(folder, folder.pinned, true)}
-                                  {/* Quick "remove from workspace" affordance —
-                                      full menu lives on the folder action bar. */}
-                                  <button
-                                    onClick={() => onRemoveFolderFromWorkspace?.(ws.id, folder.cwd)}
-                                    className="absolute top-1 right-1 text-[10px] text-[var(--text-muted)] hover:text-red-400 px-1"
-                                    title={t("sessionList.removeFromWorkspace", undefined, "Remove from workspace")}
-                                    data-testid={`ws-remove-${ws.id}-${folder.cwd}`}
-                                  >
-                                    ×
-                                  </button>
+                                <div>
+                                  {renderGroup(folder, folder.pinned, true, ws.id)}
                                 </div>
                               </SortableWorkspaceFolder>
                             ))}
