@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkWithLlm,
   extractJsonObject,
+  googleToOpenAiCompat,
   type LlmModelRegistry,
   type LlmStreamFn,
   parseLlmResult,
@@ -177,5 +178,74 @@ describe("checkWithLlm (registry + streamSimple)", () => {
         streamSimple: errStream,
       }),
     ).rejects.toMatchObject({ code: "backend_unreachable" });
+  });
+});
+
+describe("googleToOpenAiCompat", () => {
+  it("reroutes a google-generative-ai model to the OpenAI-compat endpoint", () => {
+    const out = googleToOpenAiCompat({
+      provider: "google",
+      id: "gemini-flash-latest",
+      api: "google-generative-ai",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    } as Record<string, unknown>);
+    expect(out.api).toBe("openai-completions");
+    expect(out.baseUrl).toBe("https://generativelanguage.googleapis.com/v1beta/openai");
+    expect(out.compat).toMatchObject({ supportsStore: false });
+    // id + provider unchanged — same model, only transport rewritten
+    expect(out.id).toBe("gemini-flash-latest");
+    expect(out.provider).toBe("google");
+  });
+
+  it("preserves existing compat flags while forcing supportsStore:false", () => {
+    const out = googleToOpenAiCompat({
+      api: "google-generative-ai",
+      compat: { supportsReasoningEffort: true },
+    } as Record<string, unknown>);
+    expect(out.compat).toMatchObject({ supportsReasoningEffort: true, supportsStore: false });
+  });
+
+  it("returns non-google models unchanged (same reference)", () => {
+    const anthropic = { provider: "anthropic", id: "claude-haiku-4-5", api: "anthropic-messages" };
+    expect(googleToOpenAiCompat(anthropic)).toBe(anthropic);
+  });
+});
+
+describe("checkWithLlm google rerouting", () => {
+  it("streams a resolved google model over the OpenAI-compat route (no native SDK)", async () => {
+    let capturedModel: Record<string, unknown> | undefined;
+    const registry: LlmModelRegistry = {
+      find: async (provider, id) => ({
+        provider,
+        id,
+        api: "google-generative-ai",
+        baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+      }),
+      getApiKeyAndHeaders: async () => ({ apiKey: "k", headers: {} }),
+    };
+    const capturing: LlmStreamFn = (opts) => {
+      capturedModel = opts.model as Record<string, unknown>;
+      return (async function* () {
+        yield {
+          type: "done",
+          message: {
+            content: [
+              { type: "text", text: '{"correctedText":"the cat","suggestions":[],"summary":"none"}' },
+            ],
+          },
+        };
+      })();
+    };
+    const result = await checkWithLlm("teh cat", {
+      provider: "google",
+      model: "gemini-flash-latest",
+      language: "en",
+      registry,
+      streamSimple: capturing,
+    });
+    expect(result.backend).toBe("llm");
+    expect(capturedModel?.api).toBe("openai-completions");
+    expect(capturedModel?.baseUrl).toBe("https://generativelanguage.googleapis.com/v1beta/openai");
+    expect(capturedModel?.compat).toMatchObject({ supportsStore: false });
   });
 });

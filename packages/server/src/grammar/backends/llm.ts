@@ -65,6 +65,33 @@ const MAX_OUTPUT_TOKENS = 8192;
 
 const VALID_KINDS: GrammarIssueKind[] = ["spelling", "grammar", "style", "punctuation"];
 
+/** Google's OpenAI-compatible base URL (Chat Completions shape, plain fetch). */
+const GOOGLE_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
+
+/**
+ * Reroute a Google (`google-generative-ai`) model to Google's OpenAI-compatible
+ * endpoint so it streams via pi-ai's `openai-completions` adapter (plain fetch)
+ * instead of the native `@google/genai` SDK. The SDK pulls in `gaxios`, whose
+ * build has top-level `await` that Node's `require()` rejects under the dashboard
+ * server's jiti loader (every google model → instant `backend_unreachable`).
+ *
+ * Same model id + api_key; only the transport changes. `supportsStore:false`
+ * because the Google OpenAI-compat endpoint 400s on the `store` field pi-ai's
+ * adapter sends by default. Non-Google models are returned unchanged.
+ * See change: route-google-grammar-over-openai-compat.
+ */
+export function googleToOpenAiCompat<
+  T extends { api?: string; baseUrl?: string; compat?: Record<string, unknown> },
+>(model: T): T {
+  if (!model || model.api !== "google-generative-ai") return model;
+  return {
+    ...model,
+    api: "openai-completions",
+    baseUrl: GOOGLE_OPENAI_BASE_URL,
+    compat: { ...(model.compat ?? {}), supportsStore: false },
+  };
+}
+
 interface RawSuggestion {
   original?: unknown;
   replacement?: unknown;
@@ -251,6 +278,12 @@ export async function checkWithLlm(
     );
   }
   const { model, creds } = await resolveModelAndCreds(opts.registry, opts.provider, opts.model);
+  // Google models resolve with api "google-generative-ai" (native SDK → gaxios,
+  // unloadable under jiti). Reroute to the OpenAI-compatible endpoint so the
+  // draft streams over fetch. Creds (google api_key) already resolved above.
+  const streamModel = googleToOpenAiCompat(
+    model as { api?: string; baseUrl?: string; compat?: Record<string, unknown> },
+  );
   // Reuse the canonical OpenAI→pi-ai message converter so the message shape
   // matches what the model proxy sends; our grammar system prompt is separate.
   // The draft is wrapped (userPrompt) so the model proofreads it instead of
@@ -262,7 +295,7 @@ export async function checkWithLlm(
   try {
     const body = await collectStreamText(
       opts.streamSimple({
-        model,
+        model: streamModel,
         messages,
         system: systemPrompt(opts.language),
         maxTokens: MAX_OUTPUT_TOKENS,
