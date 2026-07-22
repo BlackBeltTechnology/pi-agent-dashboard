@@ -16,6 +16,13 @@ import type { RecoveryCandidate } from "@blackbelt-technology/pi-dashboard-share
 
 export interface RecoveryOffer {
   candidates: RecoveryCandidate[];
+  /**
+   * Epoch-ms deadline until which candidate liveness is still being resolved
+   * (Class-2 bridge-reattach grace window). While `Date.now() < graceUntil` the
+   * host keeps Reopen non-actionable ("verifying…"). Absent/past ⇒ actionable.
+   * See change: fix-recovery-offer-bridge-liveness-gate.
+   */
+  graceUntil?: number;
 }
 
 type Listener = (offer: RecoveryOffer | null) => void;
@@ -23,12 +30,12 @@ type Listener = (offer: RecoveryOffer | null) => void;
 let current: RecoveryOffer | null = null;
 const listeners = new Set<Listener>();
 
-export function setRecoveryOffer(candidates: RecoveryCandidate[]): void {
+export function setRecoveryOffer(candidates: RecoveryCandidate[], graceUntil?: number): void {
   if (candidates.length === 0) {
     clearRecoveryOffer();
     return;
   }
-  current = { candidates };
+  current = { candidates, graceUntil };
   emit();
 }
 

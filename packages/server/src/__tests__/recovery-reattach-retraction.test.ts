@@ -1,5 +1,6 @@
 /**
- * SPIKE / RED repro (explore-mode diagnostic, NOT a fix).
+ * ACCEPTANCE test for the recovery-offer process-liveness gate.
+ * (Promoted from the red explore-mode spike once the gate landed.)
  *
  * The cold-start recovery offer must be gated by PROCESS LIVENESS, not by the
  * on-disk `live:true` marker alone. A session is only worth a "Reopen" offer
@@ -28,21 +29,23 @@
  *   - keeper-alive candidate  → NOT offered
  *   - bridge-reattach candidate → NOT offered
  *   - genuinely-dead candidate  → STILL offered (the feature must still work)
- * It is EXPECTED RED against current code (offer includes all three).
+ *
+ * Class 1 (keeper) is subtracted synchronously at broadcast time; Class 2
+ * (bridge) is retracted when the reattach comes alive within the grace window.
+ * See change: fix-recovery-offer-bridge-liveness-gate.
  */
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { WebSocket } from "ws";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
-import path from "node:path";
-import os from "node:os";
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WebSocket } from "ws";
 
 function seedCandidate(sessionsDir: string, id: string, meta: Record<string, unknown>): string {
   const cwdDir = path.join(sessionsDir, id.slice(0, 4)); // distinct cwd per candidate
   mkdirSync(cwdDir, { recursive: true });
   const jsonl = path.join(cwdDir, `2026-06-30T10-00-00-000Z_${id}.jsonl`);
-  writeFileSync(jsonl, JSON.stringify({ type: "session", id, cwd: cwdDir }) + "\n");
+  writeFileSync(jsonl, `${JSON.stringify({ type: "session", id, cwd: cwdDir })}\n`);
   writeFileSync(jsonl.replace(/\.jsonl$/, ".meta.json"), JSON.stringify({
     source: "cli", cwd: cwdDir, status: "streaming",
     startedAt: Date.now(), cachedAt: Date.now() + 60_000,
@@ -60,11 +63,12 @@ const KEEPER_SOCK_DIR = path.join(DASH_DIR, "sessions");
 const PID_FILE = path.join(DASH_DIR, "headless-pids.json");
 let configSnapshot: string | null = null;
 
-function writeAskConfig(): void {
+function writeConfig(mode: "ask" | "auto"): void {
   mkdirSync(DASH_DIR, { recursive: true });
   configSnapshot = existsSync(CONFIG_PATH) ? readFileSync(CONFIG_PATH, "utf-8") : null;
-  writeFileSync(CONFIG_PATH, JSON.stringify({ reopenSessionsAfterShutdown: "ask" }));
+  writeFileSync(CONFIG_PATH, JSON.stringify({ reopenSessionsAfterShutdown: mode }));
 }
+function writeAskConfig(): void { writeConfig("ask"); }
 function restoreConfig(): void {
   if (configSnapshot !== null) writeFileSync(CONFIG_PATH, configSnapshot);
   else if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH);
@@ -73,7 +77,7 @@ function restoreConfig(): void {
   if (existsSync(PID_FILE)) rmSync(PID_FILE);
 }
 
-describe("SPIKE: recovery offer must be gated by process liveness (keeper + bridge)", () => {
+describe("recovery offer is gated by process liveness (keeper + bridge)", () => {
   let sessionsDir: string;
   let server: any;
 
@@ -108,8 +112,9 @@ describe("SPIKE: recovery offer must be gated by process liveness (keeper + brid
     mkdirSync(KEEPER_SOCK_DIR, { recursive: true });
     writeFileSync(path.join(KEEPER_SOCK_DIR, `${KEEPER}.rpc.sock.pid`), String(process.pid));
 
-    // Cold start (ask mode). Disk-only classifier flags ALL THREE as candidates
-    // today; keeper reclaim runs in start() before the offer broadcast.
+    // Cold start (ask mode). Disk-only classifier flags ALL THREE as candidates;
+    // keeper reclaim runs in start() before the offer broadcast, and the bridge
+    // reattach retracts BRIDGE before the browser connects.
     server = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
@@ -148,8 +153,36 @@ describe("SPIKE: recovery offer must be gated by process liveness (keeper + brid
 
     // The feature must still work for a genuine loss.
     expect(offeredIds).toContain(DEAD);
-    // ← FAIL TODAY: both are phantom-offered because the classifier is disk-only.
+    // Gated out: keeper reclaim proves KEEPER alive; BRIDGE's reattach retracts it.
     expect(offeredIds).not.toContain(KEEPER);
     expect(offeredIds).not.toContain(BRIDGE);
+  }, 15_000);
+
+  // Auto-mode Class 1: a keeper-alive candidate SHALL NOT be auto-resumed. The
+  // gate runs synchronously in start() (before the deferred resume), so the
+  // proof is the consumed on-disk marker — a second `continue` spawn for an
+  // already-alive sessionId is what breaks message routing.
+  // See change: fix-recovery-offer-bridge-liveness-gate.
+  it("auto mode: keeper-alive candidate is excluded (marker consumed, not resumed)", async () => {
+    writeConfig("auto");
+    vi.stubEnv("PI_CODING_AGENT_SESSION_DIR", sessionsDir);
+    vi.resetModules();
+    const { createServer } = await import("../server.js");
+
+    const KEEPER = "keee2222-3333-4444-5555-666666666666";
+    seedCandidate(sessionsDir, KEEPER, {});
+    mkdirSync(KEEPER_SOCK_DIR, { recursive: true });
+    writeFileSync(path.join(KEEPER_SOCK_DIR, `${KEEPER}.rpc.sock.pid`), String(process.pid));
+
+    server = await createServer({
+      port: 0, piPort: 0, host: "127.0.0.1", dev: true,
+      autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
+    });
+    await server.start();
+
+    // Keeper reclaim consumed the marker synchronously at start() — a later
+    // cold boot will not re-classify it, and the deferred auto-resume skips it.
+    const metaFile = path.join(sessionsDir, KEEPER.slice(0, 4), `2026-06-30T10-00-00-000Z_${KEEPER}.meta.json`);
+    expect(JSON.parse(readFileSync(metaFile, "utf-8")).live).toBe(false);
   }, 15_000);
 });
