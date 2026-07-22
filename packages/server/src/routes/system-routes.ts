@@ -121,9 +121,13 @@ export function registerSystemRoutes(
         evictedSessions: number;
       };
     };
+    // Embed-session-lifecycle diagnostics; `/api/health` reads its snapshot
+    // (active/idle ephemeral counts, reaped-by-reason, capacity rejections,
+    // acquire reuse hit/miss). See change: add-embed-session-lifecycle.
+    embedLifecycle?: { snapshot: () => unknown };
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle } = deps;
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -480,6 +484,17 @@ export function registerSystemRoutes(
         trimmedEvents: { total: 0, toolExecutionEnd: 0, bySession: {} },
         evictedSessions: 0,
       },
+      // Embed-session-lifecycle diagnostics (active/idle ephemeral counts,
+      // reaped-by-reason, capacity rejections, acquire reuse hit/miss). Failure-
+      // isolated so a throwing snapshot can never 500 the health hot path.
+      // See change: add-embed-session-lifecycle.
+      embedLifecycle: (() => {
+        try {
+          return embedLifecycle?.snapshot();
+        } catch {
+          return undefined;
+        }
+      })(),
     };
   });
 
