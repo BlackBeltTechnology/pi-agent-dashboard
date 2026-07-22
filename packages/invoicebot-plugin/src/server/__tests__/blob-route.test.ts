@@ -12,7 +12,8 @@ import type { EngineResult, InvoiceEngine } from "../engine/port.js";
 import { mountInvoiceBotRoutes } from "../routes.js";
 
 const noop = async (): Promise<EngineResult> => ({ content: [{ type: "text", text: "" }], details: {} });
-const engine: InvoiceEngine = { query: noop, review: noop, setup: noop, rules: noop };
+const noIngest = async () => ({ results: [], landed: 0, skipped: 0, rejected: 0 });
+const engine: InvoiceEngine = { query: noop, review: noop, setup: noop, rules: noop, ingest: noIngest };
 
 let app: FastifyInstance;
 let cwd: string;

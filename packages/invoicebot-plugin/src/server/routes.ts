@@ -9,6 +9,7 @@
  *   POST /api/plugins/invoicebot/setup   → ib_setup  (action)
  *   POST /api/plugins/invoicebot/rules   → ib_rules  (action)
  *   GET  /api/plugins/invoicebot/blob    → stream a retained original document
+ *   POST /api/plugins/invoicebot/upload  → multipart ingest of raw invoice bytes
  *   POST /api/plugins/invoicebot/automation → enable/disable a schedule automation
  *   GET  /api/plugins/invoicebot/automation → list schedule automations + state
  *
@@ -28,6 +29,7 @@
  */
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { basename } from "node:path";
+import fastifyMultipart from "@fastify/multipart";
 import type { FastifyInstance } from "fastify";
 import {
   AutomationNotFoundError,
@@ -36,7 +38,12 @@ import {
   listInvoicebotAutomations,
 } from "./automation-toggle.js";
 import { contentTypeFor, resolveBlobPath } from "./blob.js";
-import type { EngineResult, FlowRunSpec, InvoiceEngine } from "./engine/port.js";
+import type { EngineResult, FlowRunSpec, IngestFile, IngestOutcome, InvoiceEngine } from "./engine/port.js";
+
+/** Per-file cap (bytes) enforced at the multipart boundary — matches the engine's 20 MB cap. */
+const UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
+/** Max file parts per upload request. */
+const UPLOAD_MAX_FILES = 20;
 
 /** Parse a single-range `Range: bytes=start-end` header against a known size. */
 function parseRange(
@@ -110,6 +117,14 @@ function normalize(
 
 export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBotRouteDeps): void {
   const { engine, dispatchFlow } = deps;
+
+  // Register multipart for the upload route. throwFileSizeLimit:false makes an
+  // oversize part set `file.truncated` (per-file reject) instead of failing the
+  // whole request; auth runs in the global onRequest hook, before body parsing.
+  fastify.register(fastifyMultipart, {
+    throwFileSizeLimit: false,
+    limits: { fileSize: UPLOAD_MAX_BYTES, files: UPLOAD_MAX_FILES },
+  });
 
   /** Dispatch the captured flow (if any) into the workspace session; returns the sessionId. */
   async function dispatchIfFlow(body: Record<string, unknown>, result: EngineResult): Promise<string | undefined> {
@@ -232,6 +247,57 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
     if (cwdErr) { reply.code(400); return { error: cwdErr }; }
     const automations = listInvoicebotAutomations(q.cwd as string);
     return { automations };
+  });
+
+  // ── /upload — POST multipart ingest of raw invoice bytes (design D1–D9) ────
+  // Breaks the POST-JSON-envelope convention deliberately: binary file content
+  // does not fit `{ selector, ...args }`. The write-side twin of GET /blob.
+  // Streams each file part to a Buffer, forwards to engine.ingest(cwd, files),
+  // and returns the per-file outcome verbatim. Dispatches NO flow (D9): the
+  // engine's own `file` trigger drains the drop folder. 400 only on bad cwd /
+  // no file parts (D6); a fully-rejected batch is still 200.
+  fastify.post("/api/plugins/invoicebot/upload", async (req, reply) => {
+    const files: IngestFile[] = [];
+    const boundaryRejected: IngestOutcome[] = [];
+    let cwd: string | undefined;
+    let sawFilePart = false;
+
+    for await (const part of req.parts()) {
+      if (part.type === "field") {
+        if (part.fieldname === "cwd" && typeof part.value === "string") cwd = part.value;
+        continue;
+      }
+      sawFilePart = true;
+      const filename = part.filename || "unnamed";
+      try {
+        const bytes = await part.toBuffer();
+        // Oversize part: never forward partial bytes; reject just this file.
+        if (part.file.truncated) {
+          boundaryRejected.push({ filename, hash: "", status: "rejected", reason: "too large" });
+        } else {
+          files.push({ filename, bytes });
+        }
+      } catch {
+        boundaryRejected.push({ filename, hash: "", status: "rejected", reason: "too large" });
+      }
+    }
+
+    const cwdErr = badCwd(cwd);
+    if (cwdErr) { reply.code(400); return { error: cwdErr }; }
+    if (!sawFilePart) { reply.code(400); return { error: "no file parts" }; }
+
+    const ingest = await engine.ingest(cwd as string, files);
+    const merged = {
+      results: [...ingest.results, ...boundaryRejected],
+      landed: ingest.landed,
+      skipped: ingest.skipped,
+      rejected: ingest.rejected + boundaryRejected.length,
+    };
+    req.log.info(
+      { landed: merged.landed, skipped: merged.skipped, rejected: merged.rejected, code: 200 },
+      "invoicebot upload processed",
+    );
+    return merged;
   });
 
   // ── /rules — rule authoring (action); request is flow-triggering ───────────

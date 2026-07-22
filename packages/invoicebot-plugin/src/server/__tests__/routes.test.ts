@@ -27,7 +27,11 @@ function makeRecorder() {
     const flow = method === "review" || method === "rules" ? flowFor(args) : undefined;
     return { content: [{ type: "text", text: `${method}:${args.view ?? args.action}` }], details: { echoedCwd: cwd, ok: true }, ...(flow ? { flow } : {}) };
   };
-  const engine: InvoiceEngine = { query: mk("query"), review: mk("review"), setup: mk("setup"), rules: mk("rules") };
+  const ingest = async (cwd: string, files: any[]) => {
+    calls.push({ method: "ingest", cwd, args: files });
+    return { results: [], landed: 0, skipped: 0, rejected: 0 };
+  };
+  const engine: InvoiceEngine = { query: mk("query"), review: mk("review"), setup: mk("setup"), rules: mk("rules"), ingest };
   return { engine, calls };
 }
 

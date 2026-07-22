@@ -163,3 +163,45 @@ describe("FakeInvoiceEngine — flow-triggering vs pure ops", () => {
     }
   });
 });
+
+describe("FakeInvoiceEngine — ingest", () => {
+  const PDF = Buffer.from("%PDF-1.4\nhello", "utf8");
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+  const TXT = Buffer.from("just some text, not an invoice", "utf8");
+
+  it("classifies by magic bytes: PDF + PNG land, unsupported rejected", async () => {
+    const fake = new FakeInvoiceEngine();
+    const r = await fake.ingest(CWD, [
+      { filename: "a.pdf", bytes: PDF },
+      { filename: "b.png", bytes: PNG },
+      { filename: "c.txt", bytes: TXT },
+    ]);
+    expect(r.results.map((o) => o.status)).toEqual(["landed", "landed", "rejected"]);
+    expect(r.results[2].reason).toMatch(/unsupported/i);
+    expect(r.results.map((o) => o.filename)).toEqual(["a.pdf", "b.png", "c.txt"]);
+    expect(r.results.every((o) => typeof o.hash === "string")).toBe(true);
+    expect(r).toMatchObject({ landed: 2, skipped: 0, rejected: 1 });
+  });
+
+  it("repeat bytes are skipped(duplicate) within one instance", async () => {
+    const fake = new FakeInvoiceEngine();
+    const r = await fake.ingest(CWD, [
+      { filename: "first.pdf", bytes: PDF },
+      { filename: "again.pdf", bytes: PDF },
+    ]);
+    expect(r.results[0].status).toBe("landed");
+    expect(r.results[1].status).toBe("skipped");
+    expect(r.results[1].reason).toMatch(/duplicate/i);
+    expect(r.results[0].hash).toBe(r.results[1].hash);
+    expect(r).toMatchObject({ landed: 1, skipped: 1, rejected: 0 });
+  });
+
+  it("oversize bytes are rejected(too large)", async () => {
+    const fake = new FakeInvoiceEngine();
+    const huge = Buffer.concat([Buffer.from("%PDF-"), Buffer.alloc(20 * 1024 * 1024 + 1)]);
+    const r = await fake.ingest(CWD, [{ filename: "big.pdf", bytes: huge }]);
+    expect(r.results[0].status).toBe("rejected");
+    expect(r.results[0].reason).toMatch(/too large/i);
+    expect(r).toMatchObject({ landed: 0, skipped: 0, rejected: 1 });
+  });
+});

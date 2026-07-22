@@ -12,7 +12,7 @@
  * (publish or vendor) — this adapter is unchanged by that swap.
  * See change: add-invoicebot-rest-plugin (Decision 0b).
  */
-import type { EngineResult, InvoiceEngine } from "./port.js";
+import type { EngineResult, IngestFile, IngestResult, InvoiceEngine } from "./port.js";
 
 /** The supported facade surface (`@blackbelt-technology/invoicebot/engine`). */
 interface InvoiceFacade {
@@ -20,6 +20,7 @@ interface InvoiceFacade {
   review(cwd: string, args: { action: string; [k: string]: unknown }): Promise<EngineResult>;
   setup(cwd: string, args: { action: string; [k: string]: unknown }): Promise<EngineResult>;
   rules(cwd: string, args: { action: string; [k: string]: unknown }): Promise<EngineResult>;
+  ingest(cwd: string, files: IngestFile[]): Promise<IngestResult>;
 }
 
 export class RealInvoiceEngine implements InvoiceEngine {
@@ -35,6 +36,9 @@ export class RealInvoiceEngine implements InvoiceEngine {
   }
   rules(cwd: string, args: { action: string; [k: string]: unknown }): Promise<EngineResult> {
     return this.facade.rules(cwd, args);
+  }
+  ingest(cwd: string, files: IngestFile[]): Promise<IngestResult> {
+    return this.facade.ingest(cwd, files);
   }
 }
 
