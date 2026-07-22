@@ -34,6 +34,12 @@ omission and closes that spec gap.
 Out of scope: rebuilding the actual Electron bundle artifact (regenerated on `electron:build`);
 any change to the grammar feature behaviour itself.
 
+**Follow-up:** this bundling gap exists because grammar is a core feature with a companion
+settings plugin (not a self-contained plugin). The root fix — moving the route, composer surface,
+and config into the plugin so core carries zero grammar code — is proposed separately in
+`make-grammar-fully-plugin-contained`, which supersedes this `BUNDLED_PLUGINS` entry once the
+plugin absorbs the route/UI.
+
 ## Deferred / related (found during this work — NOT fixed here)
 
 Captured so they are not re-discovered; each is a separate change:
