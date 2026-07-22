@@ -47,8 +47,8 @@ describe("grammar manifest", () => {
     // (no longer core). See change: make-grammar-fully-plugin-contained.
     const manifest = pkg["pi-dashboard-plugin"];
     expect(manifest.server).toBe("./src/server/index.ts");
-    // configSchema still absent — config migration to plugins.grammar is a
-    // later increment; the route currently reads core config.grammar.
-    expect(manifest.configSchema).toBeUndefined();
+    // configSchema present — config lives in the plugin namespace plugins.grammar
+    // (migrated off core config.grammar). See change: make-grammar-fully-plugin-contained.
+    expect(manifest.configSchema).toBe("./configSchema.json");
   });
 });

@@ -1,4 +1,4 @@
-import { DEFAULT_GRAMMAR } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { DEFAULT_GRAMMAR } from "../grammar-config.js";
 import type { GrammarCheckResult } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";

@@ -25,7 +25,8 @@
     }
   },
   "files": [
-    "src/"
+    "src/",
+    "configSchema.json"
   ],
   "peerDependencies": {
     "react": ">=18.0.0"
@@ -56,6 +57,7 @@
         "slot": "composer-panel",
         "component": "GrammarComposerPanel"
       }
-    ]
+    ],
+    "configSchema": "./configSchema.json"
   }
 }

@@ -16,7 +16,7 @@
  * See change: add-grammar-settings-plugin.
  */
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { GrammarConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { GrammarConfig } from "./grammar-config.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
@@ -110,8 +110,10 @@ export function GrammarSettings(): React.ReactElement {
     setLoading(true);
     try {
       const res = await fetch("/api/config");
-      const json = (await res.json()) as { data?: { grammar?: Partial<GrammarConfig> } };
-      const next = normalize(json.data?.grammar);
+      const json = (await res.json()) as {
+        data?: { plugins?: { grammar?: Partial<GrammarConfig> } };
+      };
+      const next = normalize(json.data?.plugins?.grammar);
       setConfig(next);
       setDraft(next);
     } finally {
@@ -128,12 +130,12 @@ export function GrammarSettings(): React.ReactElement {
   const save = useCallback(async () => {
     setSaving(true);
     try {
-      await fetch("/api/config", {
-        method: "PUT",
+      await fetch("/api/config/plugins/grammar", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ grammar: draft }),
+        body: JSON.stringify(draft),
       });
-      // PUT does not echo the reloaded config; re-GET to surface server clamping.
+      // POST does not echo the reloaded config; re-GET to surface server clamping.
       await load();
     } finally {
       setSaving(false);

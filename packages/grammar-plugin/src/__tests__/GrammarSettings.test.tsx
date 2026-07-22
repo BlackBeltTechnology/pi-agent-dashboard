@@ -14,7 +14,7 @@ import {
   PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
-import type { GrammarConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { GrammarConfig } from "../grammar-config.js";
 import type { UiModelSelectorProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
@@ -96,20 +96,20 @@ function installFetch(opts: {
         { id: "openai/gpt-4o", provider: "openai" },
       ],
     });
-  const putConfig = (init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body ?? "{}"));
+  // Plugin config write: POST /api/config/plugins/grammar with the config as the
+  // body (no `{ grammar }` wrapper). See change: make-grammar-fully-plugin-contained.
+  const postPluginConfig = (init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as GrammarConfig;
     putBodies.push(body);
-    const next = body.grammar as GrammarConfig;
-    state.grammar = opts.clamp ? opts.clamp(next) : next;
-    return jsonResponse({ success: true, restartRequired: false });
+    state.grammar = opts.clamp ? opts.clamp(body) : body;
+    return jsonResponse({ success: true });
   };
   const mock = vi.fn(async (input: any, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
+    if (url.endsWith("/api/config/plugins/grammar") && method === "POST") return postPluginConfig(init);
     if (url.endsWith("/api/config")) {
-      return method === "PUT"
-        ? putConfig(init)
-        : jsonResponse({ success: true, data: { grammar: state.grammar } });
+      return jsonResponse({ success: true, data: { plugins: { grammar: state.grammar } } });
     }
     if (url.endsWith("/api/grammar/health")) return health();
     if (url.endsWith("/api/models")) return models();
@@ -196,10 +196,10 @@ describe("GrammarSettings", () => {
     fireEvent.click(getByTestId("grammar-save"));
 
     await waitFor(() => expect(putBodies.length).toBe(1));
-    expect(putBodies[0].grammar.llm).toEqual({ provider: "anthropic", model: "claude-opus-4" });
+    expect(putBodies[0].llm).toEqual({ provider: "anthropic", model: "claude-opus-4" });
   });
 
-  it("Save PUTs only a { grammar } partial carrying the edit", async () => {
+  it("Save POSTs the grammar config to /api/config/plugins/grammar", async () => {
     const { putBodies } = installFetch({ grammar: baseGrammar() });
     const { getByTestId } = render(wrap(<GrammarSettings />));
 
@@ -208,11 +208,11 @@ describe("GrammarSettings", () => {
     fireEvent.click(getByTestId("grammar-save"));
 
     await waitFor(() => expect(putBodies.length).toBe(1));
+    // Body is the plugin config object itself (no `{ grammar }` wrapper).
     const body = putBodies[0];
-    expect(Object.keys(body)).toEqual(["grammar"]);
-    expect(body.grammar.debounceMs).toBe(2000);
+    expect(body.debounceMs).toBe(2000);
     // Nested objects survive the write.
-    expect(body.grammar.languagetool.url).toBe("http://localhost:8081");
+    expect(body.languagetool.url).toBe("http://localhost:8081");
   });
 
   it("re-syncs the form to the server-clamped value after Save", async () => {

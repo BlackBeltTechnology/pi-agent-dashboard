@@ -9,7 +9,7 @@
  * See change: add-composer-grammar-check.
  */
 
-import type { GrammarConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { GrammarConfig } from "../grammar-config.js";
 import type {
   GrammarCheckResult,
   GrammarErrorCode,

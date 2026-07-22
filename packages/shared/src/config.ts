@@ -148,45 +148,9 @@ export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
 
 // ── Grammar / spell check ───────────────────────────────────────────
 
-export type GrammarBackendKind = "llm" | "languagetool";
-
-/**
- * Composer grammar/spell-check config. Opt-in (`enabled` default false).
- * The check runs server-side (`POST /api/grammar/check`) against the selected
- * `backend`: a local LanguageTool server (offline) or a configured LLM
- * provider/model. See change: add-composer-grammar-check.
- */
-export interface GrammarConfig {
-  /** Master gate. Default `false` — feature is fully invisible when off. */
-  enabled: boolean;
-  /** Which backend performs the check. Default `"languagetool"`. */
-  backend: GrammarBackendKind;
-  /** Run a debounced check as the user types. Default `true`. */
-  autoCheck: boolean;
-  /** Idle debounce before an auto-check. Default 1200. Clamped [300, 10000]. */
-  debounceMs: number;
-  /** Minimum draft length before auto-check runs. Default 12. Clamped [1, 500]. */
-  minChars: number;
-  /** Input cap; longer text is clipped + flagged `truncated`. Default 4000. Clamped [100, 20000]. */
-  maxChars: number;
-  /** Language passed to the backend. Default `"auto"` (e.g. `"en-US"`, `"hu-HU"`). */
-  language: string;
-  /** LanguageTool backend server. Default `http://localhost:8081`. */
-  languagetool: { url: string };
-  /** LLM backend provider/model. Only set when configured. */
-  llm?: { provider: string; model: string };
-}
-
-export const DEFAULT_GRAMMAR: GrammarConfig = {
-  enabled: false,
-  backend: "languagetool",
-  autoCheck: true,
-  debounceMs: 1200,
-  minChars: 12,
-  maxChars: 4000,
-  language: "auto",
-  languagetool: { url: "http://localhost:8081" },
-};
+// Composer grammar/spell-check config moved into the grammar plugin
+// (packages/grammar-plugin) — persisted under `plugins.grammar.*`, not core.
+// See change: make-grammar-fully-plugin-contained.
 
 export interface SessionsConfig {
   /**
@@ -388,8 +352,6 @@ export interface DashboardConfig {
   embedLifecycle: EmbedLifecycleConfig;
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. */
   keeperLog: KeeperLogConfig;
-  /** Composer grammar/spell-check behavior (opt-in). See change: add-composer-grammar-check. */
-  grammar: GrammarConfig;
   /**
    * Timeout for ask_user prompts in seconds.
    * Default: 300 (5 minutes).
@@ -543,7 +505,6 @@ const DEFAULTS: DashboardConfig = {
   sessions: { ...DEFAULT_SESSIONS },
   embedLifecycle: { ...DEFAULT_EMBED_LIFECYCLE },
   keeperLog: { ...DEFAULT_KEEPER_LOG },
-  grammar: { ...DEFAULT_GRAMMAR, languagetool: { ...DEFAULT_GRAMMAR.languagetool } },
   trustedNetworks: [],
   resolvedTrustedNetworks: [],
   cors: { allowedOrigins: [] },
@@ -678,41 +639,6 @@ function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
     jitterSeconds: clampNumber(raw.jitterSeconds, DEFAULT_OPENSPEC_POLL.jitterSeconds, 0, 60),
     useWorker:
       typeof raw.useWorker === "boolean" ? raw.useWorker : DEFAULT_OPENSPEC_POLL.useWorker,
-  };
-}
-
-function parseGrammarConfig(raw: any): GrammarConfig {
-  const d = DEFAULT_GRAMMAR;
-  if (!raw || typeof raw !== "object") {
-    return { ...d, languagetool: { ...d.languagetool } };
-  }
-  const backend: GrammarBackendKind =
-    raw.backend === "llm" || raw.backend === "languagetool" ? raw.backend : d.backend;
-  const url =
-    typeof raw.languagetool?.url === "string" && raw.languagetool.url.trim()
-      ? raw.languagetool.url
-      : d.languagetool.url;
-  let llm: { provider: string; model: string } | undefined;
-  if (
-    raw.llm &&
-    typeof raw.llm === "object" &&
-    typeof raw.llm.provider === "string" &&
-    raw.llm.provider &&
-    typeof raw.llm.model === "string" &&
-    raw.llm.model
-  ) {
-    llm = { provider: raw.llm.provider, model: raw.llm.model };
-  }
-  return {
-    enabled: typeof raw.enabled === "boolean" ? raw.enabled : d.enabled,
-    backend,
-    autoCheck: typeof raw.autoCheck === "boolean" ? raw.autoCheck : d.autoCheck,
-    debounceMs: clampNumber(raw.debounceMs, d.debounceMs, 300, 10000),
-    minChars: clampNumber(raw.minChars, d.minChars, 1, 500),
-    maxChars: clampNumber(raw.maxChars, d.maxChars, 100, 20000),
-    language: typeof raw.language === "string" && raw.language.trim() ? raw.language : d.language,
-    languagetool: { url },
-    ...(llm ? { llm } : {}),
   };
 }
 
@@ -995,7 +921,6 @@ export function loadConfig(): DashboardConfig {
       sessions: parseSessionsConfig(parsed.sessions),
       embedLifecycle: parseEmbedLifecycleConfig(parsed.embedLifecycle),
       keeperLog: parseKeeperLogConfig(parsed.keeperLog),
-      grammar: parseGrammarConfig(parsed.grammar),
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
       resolvedTrustedNetworks: [],
       cors: {

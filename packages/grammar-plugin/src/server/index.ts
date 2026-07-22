@@ -6,19 +6,46 @@
  * runtime (`ctx.modelRuntime`) so completions resolve credentials server-side
  * with no model-proxy loopback (and keep the Google→OpenAI-compat reroute).
  *
- * Config is read per request from the core `config.grammar` block for now;
- * migration to the `plugins.grammar.*` namespace is a later increment.
+ * Config lives in the plugin namespace `plugins.grammar.*` (validated by
+ * `configSchema.json`); read per request via `ctx.getPluginConfig()` so a
+ * settings change needs no restart. On first load a legacy core
+ * `config.grammar` block is migrated in once (read-through).
  * See change: make-grammar-fully-plugin-contained.
  */
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { readFileSync } from "node:fs";
+import { CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { LlmModelRegistry, LlmStreamFn } from "./backends/llm.js";
+import { parseGrammarConfig } from "../grammar-config.js";
 import { mountGrammarRoutes } from "./routes.js";
 
-export default function registerPlugin(ctx: ServerPluginContext): void {
+/**
+ * One-time migration: if the plugin has no `plugins.grammar` config yet but a
+ * legacy core `config.grammar` block exists, copy it into the plugin namespace
+ * so existing users keep their settings. Idempotent (skips once migrated).
+ */
+async function migrateLegacyConfig(ctx: ServerPluginContext): Promise<void> {
+  try {
+    const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8")) as {
+      plugins?: Record<string, unknown>;
+      grammar?: unknown;
+    };
+    const already = raw?.plugins?.grammar;
+    const legacy = raw?.grammar;
+    if (!already && legacy && typeof legacy === "object") {
+      await ctx.updatePluginConfig(parseGrammarConfig(legacy));
+      ctx.logger.info?.("migrated legacy config.grammar → plugins.grammar");
+    }
+  } catch {
+    /* no config file yet — nothing to migrate */
+  }
+}
+
+export default async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
+  await migrateLegacyConfig(ctx);
   const runtime = ctx.modelRuntime;
   mountGrammarRoutes(ctx.fastify, {
-    getGrammarConfig: () => loadConfig().grammar,
+    getGrammarConfig: () => parseGrammarConfig(ctx.getPluginConfig()),
     getModelRegistry: runtime
       ? () => runtime.getModelRegistry() as Promise<LlmModelRegistry | null>
       : undefined,

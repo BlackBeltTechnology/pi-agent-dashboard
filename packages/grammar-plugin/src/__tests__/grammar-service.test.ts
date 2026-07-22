@@ -1,5 +1,5 @@
-import type { GrammarConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { DEFAULT_GRAMMAR } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { GrammarConfig } from "../grammar-config.js";
+import { DEFAULT_GRAMMAR } from "../grammar-config.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkGrammar } from "../server/grammar-service.js";
 

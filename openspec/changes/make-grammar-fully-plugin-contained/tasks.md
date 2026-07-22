@@ -58,13 +58,18 @@
 > UX change (per approved option 1): the grammar trigger moved from the composer toolbar to the
 > plugin's panel below the input; functionality identical.
 
-## 5. Move config into the plugin
+## 5. Move config into the plugin — DONE
 
-- [ ] 5.1 Add plugin `configSchema` mirroring `GrammarConfig`; server entry reads `pluginConfig`;
-  one-time read-through of legacy `config.grammar` when `plugins.grammar` is empty.
-- [ ] 5.2 Settings UI writes via `POST /api/config/plugins/grammar` (was `PUT /api/config#grammar`).
-- [ ] 5.3 Remove `GrammarConfig`/`DEFAULT_GRAMMAR`/parser from `shared/src/config.ts`; keep
-  `GrammarCheckResult`/`GrammarSuggestion` in shared (protocol types).
+- [x] 5.1 Added `configSchema.json` (`plugins.grammar.*`) + `src/grammar-config.ts` (type +
+  `DEFAULT_GRAMMAR` + `parseGrammarConfig`, moved from shared). Server entry reads
+  `parseGrammarConfig(ctx.getPluginConfig())`; `migrateLegacyConfig` one-time read-through of
+  legacy `config.grammar` → `plugins.grammar` (idempotent). **Runtime-verified**: my live
+  `config.grammar` (google/gemini) migrated + grammar check still 200.
+- [x] 5.2 Settings UI loads `data.plugins.grammar`, saves via `POST /api/config/plugins/grammar`.
+- [x] 5.3 Removed `GrammarConfig`/`DEFAULT_GRAMMAR`/`parseGrammarConfig`/`GrammarBackendKind` +
+  the `grammar` field from `shared/src/config.ts`; kept `GrammarCheckResult`/`GrammarSuggestion`
+  (+ `GrammarBackendKind`) in `shared/grammar-types.ts` (protocol types). Moved `config-grammar`
+  test into the plugin (now tests `parseGrammarConfig` directly).
 
 ## 6. Rename + finalize — DONE (done BEFORE 5, so config migrates in ONE step)
 
@@ -75,9 +80,24 @@
   grammar plugin was never in `packages/client/package.json` deps (3rd omission from 717929eb)
   — added it, which is why the workspace symlink now resolves. Runtime-verified: `[plugin:grammar]
   Loaded plugin` + grammar check 200.
-- [ ] 6.2 Guard test: no grammar-specific reference remains in core (added in increment 5 once
-  config leaves `shared/config.ts`).
-- [ ] 6.3 Supersede `fix-grammar-settings-plugin-bundle` (note already in its proposal).
+- [x] 6.2 Guaranteed by `tsc`: core (`shared/config.ts`, `server/src`, `client/src`) imports none
+  of the removed grammar symbols and references no `config.grammar` — typecheck is green with
+  zero grammar code in core. (No brittle grep test added.)
+- [x] 6.3 `fix-grammar-settings-plugin-bundle` proposal already notes it is superseded by this
+  change (its BUNDLED_PLUGINS entry became `grammar-plugin` here).
+
+## 7. Validate — DONE
+
+- [x] 7.1 `pnpm run lint` clean; plugin 85/85; server suite green except 2 pre-existing env/timing
+  flakes (`pi-gateway-bind-host` 0.0.0.0 bind, `rpc-keeper` 1s crash-detection); client 3835;
+  production `pnpm run build` OK.
+- [x] 7.2 Composer keystroke path unchanged in core (slot component owns its own debounce; core
+  passes the draft without debouncing) — no added latency vs the prior in-core hook.
+- [x] 7.3 Manual/runtime: grammar works end-to-end on `google`(OpenAI-compat) via the plugin route
+  + composer slot; legacy config migrated; settings load/save via plugin config.
+
+> Deferred: `docs/architecture.md` grammar section still describes grammar as core — delegate a
+> DocScribe caveman-style rewrite (out of this session's scope).
 
 ## 7. Validate
 

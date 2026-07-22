@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean", "default": false },
+    "backend": { "enum": ["languagetool", "llm"], "default": "languagetool" },
+    "autoCheck": { "type": "boolean", "default": true },
+    "debounceMs": { "type": "integer", "minimum": 300, "maximum": 10000, "default": 1200 },
+    "minChars": { "type": "integer", "minimum": 1, "maximum": 500, "default": 12 },
+    "maxChars": { "type": "integer", "minimum": 100, "maximum": 20000, "default": 4000 },
+    "language": { "type": "string", "default": "auto" },
+    "languagetool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "url": { "type": "string", "default": "http://localhost:8081" } }
+    },
+    "llm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string" },
+        "model": { "type": "string" }
+      }
+    }
+  }
+}

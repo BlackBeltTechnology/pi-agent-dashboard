@@ -11,7 +11,7 @@
  * See change: make-grammar-fully-plugin-contained.
  */
 
-import type { GrammarConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { GrammarConfig } from "../grammar-config.js";
 import type {
   GrammarCheckResult,
   GrammarErrorCode,
