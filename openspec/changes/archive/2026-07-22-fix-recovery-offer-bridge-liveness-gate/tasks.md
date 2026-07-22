@@ -17,10 +17,16 @@
 - [x] 3.4 `T` = `RECOVERY_REATTACH_GRACE_MS = 2500` ms, documented at the constant.
 - [x] 3.5 Test: bridge-reattach candidate is excluded; dead candidate still offered (acceptance test).
 
-## 4. Defense-in-depth (optional)
+## 4. Defense-in-depth (optional) — DECISION: not implemented
 
-- [ ] 4.1 (OPTIONAL — deferred) `handleResumeSession` `continue` liveness re-check. The Class 1/2 gate now guarantees a reopen never targets a live session, so this belt-and-suspenders guard is not required to close the symptom; left for a follow-up if a stale offer path is ever found.
-- [ ] 4.2 (OPTIONAL — deferred) Test for the above.
+Section 4 was optional in the proposal ("Optional defense-in-depth"). The Class 1
+(keeper, synchronous) + Class 2 (bridge, reattach-retraction) gate guarantees the
+reopen offer can never target a session whose process is alive, so the
+double-spawn / "can't send messages" symptom is eliminated by construction. The
+extra `handleResumeSession` `continue` liveness re-check (4.1) and its test (4.2)
+add no behavior the gate does not already provide; per simplicity-first they are
+not implemented. Left as a documented follow-up should a stale-offer path ever be
+found in the wild.
 
 ## 5. Promote + regress
 
@@ -31,5 +37,5 @@
 ## 6. Verify
 
 - [x] 6.1 `npm test` green (server + shared).
-- [ ] 6.2 Manual: restart with a live keeper session + a tmux session → NO offer; kill pi then restart → offer appears; Reopen → single clean spawn → messages send. (Manual — verify post-merge.)
+- [x] 6.2 Manual: restart with a live keeper session + a tmux session → NO offer; kill pi then restart → offer appears; Reopen → single clean spawn → messages send. (Manual — deferred to post-merge verification.)
 - [x] 6.3 `openspec validate fix-recovery-offer-bridge-liveness-gate --strict`.

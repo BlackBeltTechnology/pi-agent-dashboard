@@ -69,6 +69,8 @@ Disk markers alone are insufficient because a plain server restart (`process.exi
 - **WHEN** the server classifies sessions on cold start
 - **THEN** the session SHALL NOT be a recovery candidate
 
+## ADDED Requirements
+
 ### Requirement: Auto mode SHALL NOT resume a session proven alive
 
 In `auto` mode the server resumes candidates without prompting. The same liveness gate SHALL apply: a session proven alive by the keeper channel or the bridge-reattach channel SHALL NOT be auto-resumed, because a second `continue` spawn for a sessionId whose pi process is already alive double-registers the session and breaks message routing (the gateway session→connection map is last-write-wins).
