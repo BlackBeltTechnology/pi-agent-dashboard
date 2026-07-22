@@ -220,6 +220,47 @@ export const DEFAULT_KEEPER_LOG: KeeperLogConfig = {
   capturePiOutput: false,
 };
 
+// ── Embed session lifecycle ─────────────────────────────────────────
+
+/**
+ * Server-side lifecycle controls for machine-fronted (`ephemeral`) sessions:
+ * idempotent acquire, the idle reaper, and active-session caps. Disabled by
+ * default (D8) — every numeric threshold is inert while `enabled` is false, so
+ * an upgrade is byte-for-byte behavior-preserving until an operator opts in.
+ * Thresholds are seconds on the wire; the reaper converts to ms. Lives under
+ * `~/.pi/dashboard/config.json` `embedLifecycle`.
+ * See change: add-embed-session-lifecycle.
+ */
+export interface EmbedLifecycleConfig {
+  /** Master toggle. Default false — reaper, caps, and server-side acquire dormant. */
+  enabled: boolean;
+  /** Idle reap threshold: reap a quiescent ephemeral session after this idle. */
+  idleTimeoutSeconds: number;
+  /** Phantom force-reap ceiling: a run streaming longer than this without settling is wedged. */
+  hardCeilingSeconds: number;
+  /** Post-spawn/resume grace window before a fresh session is reap-eligible. */
+  graceWindowSeconds: number;
+  /** Reaper sweep cadence. */
+  sweepIntervalSeconds: number;
+  /** Bounded acquire-coalescing timeout: reject if `session_register` never arrives. */
+  registerTimeoutSeconds: number;
+  /** Per-visitor active-ephemeral cap (fairness bound for trusted identities). */
+  maxActiveEmbedSessionsPerVisitor: number;
+  /** Global active-ephemeral cap (the HARD security bound against spoofed identities). */
+  maxActiveEmbedSessionsGlobal: number;
+}
+
+export const DEFAULT_EMBED_LIFECYCLE: EmbedLifecycleConfig = {
+  enabled: false,
+  idleTimeoutSeconds: 1800,
+  hardCeilingSeconds: 3600,
+  graceWindowSeconds: 30,
+  sweepIntervalSeconds: 60,
+  registerTimeoutSeconds: 30,
+  maxActiveEmbedSessionsPerVisitor: 5,
+  maxActiveEmbedSessionsGlobal: 50,
+};
+
 export interface KnownServer {
   host: string;
   port: number;
@@ -343,6 +384,8 @@ export interface DashboardConfig {
   openspec: OpenSpecPollConfig;
   /** Session behavior — hydration worker offload toggle. */
   sessions: SessionsConfig;
+  /** Embed/ephemeral session lifecycle controls (reaper, caps, acquire). Off by default. */
+  embedLifecycle: EmbedLifecycleConfig;
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. */
   keeperLog: KeeperLogConfig;
   /** Composer grammar/spell-check behavior (opt-in). See change: add-composer-grammar-check. */
@@ -498,6 +541,7 @@ const DEFAULTS: DashboardConfig = {
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
   sessions: { ...DEFAULT_SESSIONS },
+  embedLifecycle: { ...DEFAULT_EMBED_LIFECYCLE },
   keeperLog: { ...DEFAULT_KEEPER_LOG },
   grammar: { ...DEFAULT_GRAMMAR, languagetool: { ...DEFAULT_GRAMMAR.languagetool } },
   trustedNetworks: [],
@@ -584,6 +628,31 @@ function clampNumber(raw: any, fallback: number, min: number, max: number): numb
   if (n < min) return min;
   if (n > max) return max;
   return n;
+}
+
+export function parseEmbedLifecycleConfig(raw: any): EmbedLifecycleConfig {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_EMBED_LIFECYCLE };
+  const d = DEFAULT_EMBED_LIFECYCLE;
+  return {
+    enabled: typeof raw.enabled === "boolean" ? raw.enabled : d.enabled,
+    idleTimeoutSeconds: clampNumber(raw.idleTimeoutSeconds, d.idleTimeoutSeconds, 1, 86_400),
+    hardCeilingSeconds: clampNumber(raw.hardCeilingSeconds, d.hardCeilingSeconds, 1, 604_800),
+    graceWindowSeconds: clampNumber(raw.graceWindowSeconds, d.graceWindowSeconds, 0, 3_600),
+    sweepIntervalSeconds: clampNumber(raw.sweepIntervalSeconds, d.sweepIntervalSeconds, 1, 3_600),
+    registerTimeoutSeconds: clampNumber(raw.registerTimeoutSeconds, d.registerTimeoutSeconds, 1, 600),
+    maxActiveEmbedSessionsPerVisitor: clampNumber(
+      raw.maxActiveEmbedSessionsPerVisitor,
+      d.maxActiveEmbedSessionsPerVisitor,
+      1,
+      10_000,
+    ),
+    maxActiveEmbedSessionsGlobal: clampNumber(
+      raw.maxActiveEmbedSessionsGlobal,
+      d.maxActiveEmbedSessionsGlobal,
+      1,
+      100_000,
+    ),
+  };
 }
 
 function parseSessionsConfig(raw: any): SessionsConfig {
@@ -924,6 +993,7 @@ export function loadConfig(): DashboardConfig {
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
       sessions: parseSessionsConfig(parsed.sessions),
+      embedLifecycle: parseEmbedLifecycleConfig(parsed.embedLifecycle),
       keeperLog: parseKeeperLogConfig(parsed.keeperLog),
       grammar: parseGrammarConfig(parsed.grammar),
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),

@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Hermes Memory settings plugin configuration",
+  "description": "Per-plugin (global) configuration for the hermes-memory-plugin. The hermes MemoryConfig fields themselves live in the external ~/.pi/agent/hermes-memory-config.json (edited via the settings form + the plugin's own routes), NOT in this dashboard config. See change: add-hermes-memory-settings-plugin.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "When false, the plugin is inactive (no settings section, no routes). Default-enabled when the pi-hermes-memory extension is installed."
+    }
+  }
+}

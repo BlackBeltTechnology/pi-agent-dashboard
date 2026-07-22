@@ -38,11 +38,12 @@ import type {
 // plugin slot contributions look them up via `useUiPrimitive(key)`. Adding
 // a key in shared/ui-primitives.ts requires adding a registration here.
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { MarkdownContent } from "./components/preview/MarkdownContent.js";
-import { ModelSelector } from "./components/settings/ModelSelector.js";
-import { PairLanding } from "./components/connectivity/PairLanding.js";
 import { ThinkingBlock } from "./components/chat/ThinkingBlock.js";
 import { ToolCallStep } from "./components/chat/ToolCallStep.js";
+import { PairLanding } from "./components/connectivity/PairLanding.js";
+import { MarkdownContent } from "./components/preview/MarkdownContent.js";
+import { LogBlock } from "./components/primitives/LogBlock.js";
+import { ModelSelector } from "./components/settings/ModelSelector.js";
 import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
 
 const primitiveRegistry = createUiPrimitiveRegistry();
@@ -88,6 +89,7 @@ registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.actionList, ActionList)
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.statusPill, StatusPill);
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.modelSelector, ModelSelector);
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.popover, Popover);
+registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.logBlock, LogBlock);
 
 // `toolCallStep` primitive — plugin timelines (e.g. flow-plugin's
 // MinimalChatView) consume this to render tool calls with the same

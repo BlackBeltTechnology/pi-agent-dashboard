@@ -6,15 +6,35 @@ Define the folder-group action bar and elevated spawn buttons rendered in the si
 ## Requirements
 ### Requirement: Folder action bar layout
 
-Each folder group in the sidebar SHALL render a horizontal action bar below the group header containing buttons in this order: `Terminals(N)`, `Editor`, `Clean up broken (N)` (conditional), and Pi Resources (right-aligned). The action bar SHALL NOT contain native-editor (e.g. `Zed`) buttons, `+Session`, or `+Worktree` buttons — native-editor launch is removed, and spawn buttons live in the elevated spawn-button stack.
+Each folder group in the sidebar SHALL render its action controls on the SAME
+row as the group git info (`GroupGitInfo`): the git info is left-aligned
+(`min-w-0`) and the `FolderActionBar` is right-grouped (`ml-auto`, content
+width). The action bar SHALL contain, in order: the Initialize control
+(conditional, see the Initialize Requirements), `Clean up broken (N)`
+(conditional), and Directory Settings (the right-most gear icon). The action bar
+SHALL NOT contain a `Terminals(N)` button, an `Editor` button, a native-editor
+(e.g. `Zed`) button, a `+Session` button, or a `+Worktree` button — Terminals
+and Editor are removed (the internal folder editor pane at
+`/folder/:encodedCwd/editor` remains reachable from the Directory home page and
+ChatView), native-editor launch is removed, and spawn buttons live in the
+elevated spawn-button stack. A wide init state (the running / failed
+`WorktreeInitChip`) SHALL wrap to its own line rather than overflow the git row.
 
-#### Scenario: Action bar omits native-editor and spawn buttons
+#### Scenario: Action bar omits Terminals, Editor, native-editor, and spawn buttons
 
 - **WHEN** a folder group action bar is rendered for a git repository
-- **THEN** the action bar SHALL display: Terminals(0), Editor, and the Pi Resources icon
+- **THEN** the action bar SHALL NOT contain a `Terminals(N)` button
+- **THEN** the action bar SHALL NOT contain an `Editor` button
 - **THEN** the action bar SHALL NOT contain a `Zed` (or any native-editor) button
 - **THEN** the action bar SHALL NOT contain a `+Session` button
 - **THEN** the action bar SHALL NOT contain a `+Worktree` button
+
+#### Scenario: Actions share the git row, right-grouped
+
+- **WHEN** a folder group header is rendered expanded
+- **THEN** the git info and the action bar SHALL render on one row
+- **AND** the git info SHALL be left-aligned and the action bar SHALL be right-grouped
+- **AND** the Directory Settings gear SHALL be the right-most control
 
 ### Requirement: +Worktree button opens worktree dialog
 The `+ New Worktree` action SHALL be presented as a full-width line button in the elevated spawn-button stack (see "Elevated folder spawn buttons"), not as a pill in the action bar. Clicking it SHALL open `WorktreeSpawnDialog` scoped to the folder's cwd. The button SHALL be hidden (not disabled) unless the folder is detected as a git repository AND the global preference `gitWorktreeEnabled` is `true` AND a spawn handler is wired.
@@ -41,36 +61,6 @@ The `+ New Session` action SHALL be presented as a full-width line button in the
 - **WHEN** the user clicks `+ New Session`
 - **THEN** a new pi session SHALL be spawned in the folder's cwd
 - **THEN** the button SHALL be disabled until the spawn completes
-
-### Requirement: Terminals button with count badge
-The Terminals button SHALL display the count of open terminals for the folder as a badge (e.g., `Terminals(3)`). Clicking it SHALL navigate to the TerminalsView. When no terminals exist, the badge SHALL show 0.
-
-#### Scenario: Navigate to terminals view
-- **WHEN** user clicks Terminals(N)
-- **THEN** the content area SHALL navigate to `/folder/:encodedCwd/terminals`
-
-#### Scenario: Badge reflects terminal count
-- **WHEN** a folder has 3 active terminals
-- **THEN** the Terminals button SHALL display `Terminals(3)`
-
-#### Scenario: No terminals exist
-- **WHEN** a folder has no terminals
-- **THEN** the Terminals button SHALL display `Terminals(0)`
-
-### Requirement: Editor button opens the internal folder pane
-
-The Editor button SHALL navigate to `/folder/:encodedCwd/editor`, which mounts the internal Monaco editor pane rooted at the folder cwd (see capability `folder-scoped-editor-pane`). The button SHALL NOT display any `code-server` status indicator (green/pulsing/warning), because no external editor process exists.
-
-#### Scenario: Click navigates to the internal folder pane
-
-- **WHEN** the user clicks the Editor button
-- **THEN** the content area SHALL navigate to `/folder/:encodedCwd/editor`
-- **AND** the internal Monaco pane SHALL mount rooted at the folder cwd
-
-#### Scenario: Editor button has no status indicator
-
-- **WHEN** the Editor button is rendered for any folder
-- **THEN** it SHALL NOT display a green/pulsing dot or a yellow warning icon
 
 ### Requirement: Pi Resources button with updated icon
 The Pi Resources button SHALL be right-aligned in the action bar and use a more representative icon (replacing `mdiPuzzleOutline`). Clicking it SHALL open the PiResourcesView (existing behavior, relocated).

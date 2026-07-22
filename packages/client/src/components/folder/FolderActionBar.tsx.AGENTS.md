@@ -1,3 +1,3 @@
 # FolderActionBar.tsx — index
 
-Sidebar folder-group action bar. Buttons: Terminals(N), Editor (plain button → `/folder/:cwd/editor` internal pane), Clean up broken, Directory Settings. Native-editor / code-server status wiring removed. See change: remove-external-editor-integration. → see `FolderActionBar.tsx.AGENTS.md`
+Sidebar folder-group action bar. Buttons: Initialize (ProjectInit/WorktreeInit), Clean up broken (conditional), Directory Settings (gear). Terminals + Editor buttons REMOVED — that pane is reachable from the Directory home page + ChatView. Tight content-width group (no `flex-wrap`, gear no longer `ml-auto`); `SessionList` renders it right-grouped on the folder git row (variant-B compact one-row layout). Props: `cwd`, `onOpenPiResources`, `onInitializeProject?`, `brokenSessionCount?`, `onCleanUpBroken?`. Native-editor / code-server status wiring removed. See change: remove-external-editor-integration, compact-folder-header-actions.

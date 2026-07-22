@@ -5,11 +5,12 @@
  * the create editor directly. api + CreateAutomationDialog mocked.
  * See change: add-automation-plugin, fix-automation-slot-parity-and-routing.
  */
+
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, cleanup, waitFor, fireEvent } from "@testing-library/react";
-import type { DiscoveredAutomation } from "../shared/automation-types.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { encodeFolderPath } from "../client/folder-encoding.js";
+import type { DiscoveredAutomation } from "../shared/automation-types.js";
 
 const { listAutomations } = vi.hoisted(() => ({
   listAutomations: vi.fn(async (_cwd?: string): Promise<DiscoveredAutomation[]> => []),
@@ -31,15 +32,15 @@ afterEach(() => {
 });
 
 describe("FolderAutomationSection", () => {
-  it("renders OpenSpec-parity markup: uppercase title, refresh, + New chip", async () => {
+  it("renders the SlotPill: Automations label + count, refresh, + New chip", async () => {
     listAutomations.mockResolvedValueOnce([
       { name: "a", scope: "folder", dir: "/r/.pi/automation/a", valid: true },
       { name: "b", scope: "global", dir: "~/.pi/automation/b", valid: true },
     ]);
     const { getByTestId } = render(<FolderAutomationSection folder={{ cwd: "/r" }} />);
     const board = await waitFor(() => getByTestId("folder-automation-open-board"));
-    expect(board.textContent).toContain("Automations (2)");
-    expect(board.className).toContain("uppercase");
+    expect(board.textContent).toContain("Automations");
+    expect(getByTestId("folder-automation-count").textContent).toBe("2");
     expect(getByTestId("folder-automation-refresh")).toBeTruthy();
     expect(getByTestId("folder-automation-new-btn").textContent).toContain("+ New");
   });
@@ -47,7 +48,8 @@ describe("FolderAutomationSection", () => {
   it("still renders (count 0) when the folder has no automations, as the create entry point", async () => {
     listAutomations.mockResolvedValueOnce([]);
     const { getByTestId } = render(<FolderAutomationSection folder={{ cwd: "/empty" }} />);
-    await waitFor(() => expect(getByTestId("folder-automation-open-board").textContent).toContain("Automations (0)"));
+    await waitFor(() => expect(getByTestId("folder-automation-open-board").textContent).toContain("Automations"));
+    expect(getByTestId("folder-automation-count").textContent).toBe("0");
   });
 
   it("navigates to the shell-overlay board /folder/<enc>/automations", async () => {

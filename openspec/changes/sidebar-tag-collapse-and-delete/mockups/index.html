@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sidebar Tags — whole-area collapse + overflow + global delete</title>
+<style>
+  /* ── studio theme tokens (grounded in packages/client/src/index.css) ── */
+  :root[data-theme="dark"]{
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-secondary:#333; --border-subtle:rgba(255,255,255,.06); --accent-red:#ef4444;
+  }
+  :root[data-theme="light"]{
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+    --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06); --accent-red:#dc2626;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    background:var(--bg-primary);color:var(--text-primary);padding:24px;transition:background .2s}
+  .wrap{max-width:340px;margin:0 auto}
+  .toolbar{display:flex;gap:8px;margin-bottom:16px}
+  .toolbar button{font-size:12px;padding:4px 10px;border-radius:6px;cursor:pointer;
+    background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary)}
+  /* sidebar panel */
+  .sidebar{background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:10px;overflow:hidden}
+  .filter-bar{display:flex;align-items:center;gap:8px;padding:8px 12px}
+  .filter-bar input{min-width:0;flex:1;padding:5px 8px;font-size:12px;border-radius:6px;
+    background:var(--bg-primary);border:1px solid var(--border-subtle);color:var(--text-primary)}
+  .filter-bar input::placeholder{color:var(--text-muted)}
+  .toggle{font-size:12px;padding:5px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;
+    background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary)}
+
+  /* ── whole tag area: one master collapse (default collapsed) ── */
+  .tagarea{padding:0 12px}
+  .area-head{display:flex;align-items:center;gap:6px;width:100%;padding:9px 0 8px;cursor:pointer;
+    background:none;border:none;text-align:left;color:var(--text-tertiary);
+    font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+  .area-head:hover{color:var(--text-secondary)}
+  .chev{width:12px;height:12px;flex:none;transition:transform .15s}
+  .tagarea[data-open="false"] .chev{transform:rotate(-90deg)}
+  .tagarea[data-open="false"] .area-body{display:none}
+  .count{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--text-muted);
+    text-transform:none;letter-spacing:0;font-weight:400}
+  .area-body{padding-bottom:8px}
+
+  /* inner groups (labels only, no per-group chevron now) */
+  .group + .group{margin-top:4px}
+  .group-label{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);
+    padding:4px 0 5px;display:flex;align-items:center;gap:6px}
+  .group-label .count{color:var(--text-muted)}
+  .chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-bottom:4px}
+
+  /* chip primitive — mirrors TagChip.baseClass */
+  .chip{display:inline-flex;align-items:center;gap:4px;border-radius:9999px;border:1px solid;
+    padding:2px 8px;font-size:11px;line-height:1.1;white-space:nowrap;cursor:pointer;
+    background:transparent;color:inherit;font-family:inherit}
+  .chip.sel{outline:2px solid currentColor;outline-offset:1px}
+  .chip.exec{border-style:dashed;border-color:var(--border-secondary);color:var(--text-tertiary);cursor:default}
+  .chip .rm{margin-left:1px;border:none;background:none;cursor:pointer;color:currentColor;
+    opacity:.45;font-size:11px;line-height:1;padding:0 3px;border-radius:3px;min-width:16px}
+  .chip .rm:hover{opacity:1;color:var(--accent-red)}
+  .lock{font-size:10px;opacity:.6}
+  .more{font-size:11px;color:var(--text-tertiary);background:none;border:none;cursor:pointer;
+    text-decoration:underline;padding:2px}
+  .more:hover{color:var(--text-secondary)}
+
+  /* fake session rows below, for context */
+  .rows{border-top:1px solid var(--border-subtle);padding:8px 12px;color:var(--text-tertiary);font-size:12px}
+  .rows .r{padding:4px 0;display:flex;gap:6px;align-items:center}
+  /* confirm dialog */
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center}
+  .scrim.show{display:flex}
+  .dialog{background:var(--bg-tertiary);border:1px solid var(--border-secondary);border-radius:10px;
+    padding:18px;max-width:300px;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+  .dialog h3{margin:0 0 6px;font-size:14px;color:var(--text-primary)}
+  .dialog p{margin:0 0 14px;font-size:12.5px;color:var(--text-secondary)}
+  .dialog .acts{display:flex;justify-content:flex-end;gap:8px}
+  .dialog button{font-size:12px;padding:6px 12px;border-radius:6px;cursor:pointer}
+  .btn-cancel{background:var(--bg-secondary);border:1px solid var(--border-secondary);color:var(--text-secondary)}
+  .btn-del{background:var(--accent-red);border:1px solid var(--accent-red);color:#fff}
+  .caption{max-width:340px;margin:14px auto 0;font-size:11.5px;color:var(--text-muted);line-height:1.5}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="toolbar">
+      <button id="themeBtn">◐ Toggle theme</button>
+      <button id="resetBtn">↺ Reset fold</button>
+    </div>
+
+    <div class="sidebar">
+      <div class="filter-bar">
+        <input type="search" placeholder="Folder…" aria-label="Filter folders" />
+        <input type="search" placeholder="Session…" aria-label="Search sessions" />
+        <button class="toggle">Hidden</button>
+      </div>
+
+      <!-- ONE master collapse for the whole tag area · default COLLAPSED -->
+      <div class="tagarea" id="tagArea" data-open="false">
+        <button class="area-head" id="areaHead" aria-expanded="false" aria-controls="areaBody">
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+          <span>Tags</span>
+          <span class="count" id="areaCount"></span>
+        </button>
+        <div class="area-body" id="areaBody">
+          <!-- YOUR TAGS: overflow + removable -->
+          <div class="group">
+            <div class="group-label">Your tags <span class="count" id="tagCount"></span></div>
+            <div class="chips" id="tagChips"></div>
+          </div>
+          <!-- PHASE: read-only -->
+          <div class="group">
+            <div class="group-label">Phase (read-only) <span class="count" id="phaseCount"></span></div>
+            <div class="chips" id="phaseChips"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rows">
+        <div class="r">⋮⋮ ▸ Pi Dashboard <span style="margin-left:auto">(5)</span></div>
+        <div class="r">⋮⋮ ▸ worktrees <span style="margin-left:auto">(2)</span></div>
+      </div>
+    </div>
+
+    <p class="caption">
+      The <b>whole tag area</b> is one collapse, <b>default collapsed</b> — the header shows a total count
+      so you know tags exist without unfolding. Expanded, it holds <b>Your tags</b>
+      (first 10 chips, rest behind <b>+N more</b>, each with a destructive ✕ → confirm →
+      strips the tag from every carrying session) and read-only <b>Phase</b> chips. Fold state persists.
+    </p>
+  </div>
+
+  <!-- confirm dialog -->
+  <div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+    <div class="dialog">
+      <h3 id="dlgTitle">Remove tag?</h3>
+      <p id="dlgBody"></p>
+      <div class="acts">
+        <button class="btn-cancel" id="dlgCancel">Cancel</button>
+        <button class="btn-del" id="dlgDel">Remove</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ── grounded palette + hash (packages/shared/src/tags.ts) ──
+  const PALETTE=[
+    {t:"#a5b4fc",b:"rgba(99,102,241,.45)",g:"rgba(99,102,241,.12)"},
+    {t:"#7dd3fc",b:"rgba(56,189,248,.45)",g:"rgba(56,189,248,.12)"},
+    {t:"#86efac",b:"rgba(34,197,94,.45)",g:"rgba(34,197,94,.12)"},
+    {t:"#fcd34d",b:"rgba(245,158,11,.45)",g:"rgba(245,158,11,.12)"},
+    {t:"#fda4af",b:"rgba(244,63,94,.45)",g:"rgba(244,63,94,.12)"},
+    {t:"#d8b4fe",b:"rgba(168,85,247,.45)",g:"rgba(168,85,247,.12)"},
+    {t:"#5eead4",b:"rgba(20,184,166,.45)",g:"rgba(20,184,166,.12)"},
+    {t:"#fdba74",b:"rgba(249,115,22,.45)",g:"rgba(249,115,22,.12)"},
+    {t:"#cbd5e1",b:"rgba(148,163,184,.40)",g:"rgba(148,163,184,.10)"},
+  ];
+  function fnv1a32(s){const bytes=new TextEncoder().encode(s);let h=0x811c9dc5;
+    for(const by of bytes){h=Math.imul(h^by,0x01000193)>>>0}return h>>>0}
+  const color=t=>PALETTE[fnv1a32(t)%PALETTE.length];
+
+  // demo data: tag -> #sessions carrying it
+  const TAGS=[["explore",3],["bug",5],["api",2],["frontend",4],["backend",2],
+    ["docs",1],["release",1],["security",6],["perf",2],["flaky",1],
+    ["electron",2],["mockup",1],["review",3]];
+  const PHASES=["proposal","apply","archive"];
+  const CAP=10;
+  const LS="mock.tagAreaOpen";
+
+  // master fold — DEFAULT COLLAPSED (only open if user explicitly opened before)
+  const area=document.getElementById("tagArea");
+  const saved=localStorage.getItem(LS);
+  const open = saved==="true";           // default (null) => collapsed
+  area.dataset.open=String(open);
+  document.getElementById("areaHead").setAttribute("aria-expanded",String(open));
+  document.getElementById("areaHead").addEventListener("click",()=>{
+    const nowOpen=area.dataset.open!=="true";
+    area.dataset.open=String(nowOpen);
+    document.getElementById("areaHead").setAttribute("aria-expanded",String(nowOpen));
+    localStorage.setItem(LS,String(nowOpen));
+  });
+
+  // render user tags with overflow
+  let tagsExpanded=false;
+  function renderTags(){
+    const box=document.getElementById("tagChips");box.innerHTML="";
+    const shown = tagsExpanded ? TAGS : TAGS.slice(0,CAP);
+    for(const [name,n] of shown){
+      const c=color(name);
+      const chip=document.createElement("span");
+      chip.className="chip";chip.style.color=c.t;chip.style.borderColor=c.b;chip.style.background=c.g;
+      chip.innerHTML=`<button style="all:unset;cursor:pointer" aria-pressed="false" aria-label="Filter by tag ${name}">#${name}</button>`;
+      const rm=document.createElement("button");
+      rm.className="rm";rm.textContent="✕";rm.setAttribute("aria-label",`Remove tag ${name} from all sessions`);
+      rm.onclick=e=>{e.stopPropagation();askDelete(name,n)};
+      chip.appendChild(rm);
+      box.appendChild(chip);
+    }
+    if(TAGS.length>CAP){
+      const more=document.createElement("button");more.className="more";
+      more.textContent=tagsExpanded?"show less":`+${TAGS.length-CAP} more`;
+      more.onclick=()=>{tagsExpanded=!tagsExpanded;renderTags()};
+      box.appendChild(more);
+    }
+    document.getElementById("tagCount").textContent=TAGS.length;
+    updateAreaCount();
+  }
+  function renderPhase(){
+    const box=document.getElementById("phaseChips");box.innerHTML="";
+    for(const p of PHASES){
+      const chip=document.createElement("span");chip.className="chip exec";
+      chip.innerHTML=`${p}<span class="lock" aria-hidden>🔒</span>`;
+      box.appendChild(chip);
+    }
+    document.getElementById("phaseCount").textContent=PHASES.length;
+  }
+  function updateAreaCount(){
+    // total shown on the collapsed header so tags are discoverable without unfolding
+    document.getElementById("areaCount").textContent=`${TAGS.length} tags · ${PHASES.length} phases`;
+  }
+
+  // confirm dialog for destructive delete
+  let pending=null;
+  function askDelete(name,n){
+    pending=name;
+    document.getElementById("dlgTitle").textContent=`Remove #${name}?`;
+    document.getElementById("dlgBody").textContent=
+      `This removes #${name} from ${n} session${n===1?"":"s"}. It reappears if any session re-adds it. This can't be undone.`;
+    document.getElementById("scrim").classList.add("show");
+    document.getElementById("dlgDel").focus();
+  }
+  document.getElementById("dlgCancel").onclick=()=>{pending=null;closeDlg()};
+  document.getElementById("dlgDel").onclick=()=>{
+    const i=TAGS.findIndex(t=>t[0]===pending);if(i>=0)TAGS.splice(i,1);
+    pending=null;closeDlg();renderTags();
+  };
+  function closeDlg(){document.getElementById("scrim").classList.remove("show")}
+  document.getElementById("scrim").addEventListener("click",e=>{if(e.target.id==="scrim"){pending=null;closeDlg()}});
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){pending=null;closeDlg()}});
+
+  // toolbar
+  document.getElementById("themeBtn").onclick=()=>{
+    const r=document.documentElement;r.dataset.theme=r.dataset.theme==="dark"?"light":"dark";
+  };
+  document.getElementById("resetBtn").onclick=()=>{localStorage.removeItem(LS);location.reload()};
+
+  renderTags();renderPhase();
+</script>
+</body>
+</html>

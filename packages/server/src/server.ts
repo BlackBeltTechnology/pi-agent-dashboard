@@ -27,39 +27,37 @@ import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
-import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
-import { createCommitDraftRelay } from "./commit-draft-relay.js";
-import { writeConfigPartial } from "./config-api.js";
 import { isCorsOriginAllowed } from "./auth/cors-origin.js";
 import { registerCsp, resolveCspMode } from "./auth/csp.js";
+import { ensureServerIdentity } from "./auth/identity.js";
+import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
+import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
+import { mintSpawnToken } from "./auth/spawn-token.js";
+import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
+import { createCommitDraftRelay } from "./commit-draft-relay.js";
+import { writeConfigPartial } from "./config-api.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
 import { wireEvents } from "./event-wiring.js";
-import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
-import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
+import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
+import { decorateGoalsWithSpend } from "./goal/decorate-goals-spend.js";
 import { decideBudgetHalt } from "./goal/goal-budget-guard.js";
 import { buildGoalReprime, primeGoalSession } from "./goal/goal-session-primer.js";
 import { createGoalStatusProjector } from "./goal/goal-status-projector.js";
 import { createGoalStore } from "./goal/goal-store.js";
 import { createGoalSupervisor, type GoalDriverSpawnRequest, type GoalSupervisor } from "./goal/goal-supervisor.js";
 import { createGoalVerdictAccumulator } from "./goal/goal-verdict-accumulator.js";
-import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
-import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
-import { ensureServerIdentity } from "./auth/identity.js";
-import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
-import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
-import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
-import { createMemoryEventStore, type EventStore } from "./persistence/memory-event-store.js";
-import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
-import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
-import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
+import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
+import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
+import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
 import { PackageManagerWrapper } from "./package/package-manager-wrapper.js";
+import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager } from "./pairing/pairing.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
@@ -70,15 +68,14 @@ import { createPendingGoalLinkRegistry } from "./pending/pending-goal-link-regis
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
+import { createMemoryEventStore, type EventStore } from "./persistence/memory-event-store.js";
+import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
+import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
+import { createPreferencesStore, type PreferencesStore } from "./persistence/preferences-store.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway, type PiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
-import { createPreferencesStore, type PreferencesStore } from "./persistence/preferences-store.js";
-import { spawnPiSession } from "./spawn-process/process-manager.js";
-import { applyReattachPolicy } from "./session/reattach-placement.js";
-import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
-import { resolveOrderKey } from "./session/resolve-order-key.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
@@ -110,21 +107,26 @@ import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
+import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
-import { removePid, writePid } from "./spawn-process/server-pid.js";
+import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
+import { applyReattachPolicy } from "./session/reattach-placement.js";
+import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
+import { resolveOrderKey } from "./session/resolve-order-key.js";
 import { registerSessionApi } from "./session/session-api.js";
 import { discoverAndBroadcastSessions } from "./session/session-bootstrap.js";
 import { createSessionOrderManager, type SessionOrderManager } from "./session/session-order-manager.js";
 import { scanAllSessions } from "./session/session-scanner.js";
 import { sessionToMeta } from "./session/session-to-meta.js";
-import { mintSpawnToken } from "./auth/spawn-token.js";
+import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
+import { createIdleTimer } from "./spawn-process/idle-timer.js";
+import { spawnPiSession } from "./spawn-process/process-manager.js";
+import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, type TerminalManager } from "./terminal/terminal-manager.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
-import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
-import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
 
 export interface ServerConfig {
   port: number;
@@ -1086,7 +1088,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Folder-scoped goals: broadcast on mutation + REST surface.
   // See change: add-goals-folder-page.
   goalStore.subscribe((cwd, payload) => {
-    browserGateway.broadcastToAll({ type: "goals_update", cwd, goals: payload.goals });
+    // Decorate with read-time spend so the WS path is not a raw second delivery
+    // path. See change: fix-goal-detail-turns-and-spend.
+    browserGateway.broadcastToAll({ type: "goals_update", cwd, goals: decorateGoalsWithSpend(payload.goals, sessionManager) });
   });
   // Stamp/clear goalId on a session: in-memory + .meta.json + broadcast.
   const applyGoalIdToSession = (sessionId: string, goalId: string | null): void => {
@@ -1215,7 +1219,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   }, GOAL_BOOT_RECONCILE_DELAY_MS);
   bootReconcileTimer.unref?.();
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore });
+  // Embed-session-lifecycle: construct the reaper + observability metrics wired
+  // to the live server components. Dormant unless config.embedLifecycle.enabled
+  // (off by default) — construction/start is behavior-preserving on upgrade.
+  // Reclaims the automation-produced ephemeral sessions #383 is about; the
+  // acquire registry + caps are shared-layer modules the embed front constructs.
+  // See change: add-embed-session-lifecycle.
+  const embedLifecycle = createEmbedLifecycleController({
+    config: () => loadConfig().embedLifecycle,
+    listSessions: () => sessionManager.listAll(),
+    getSubscriberCount: (id) => browserGateway.getSubscriberCount(id),
+    listTerminalCwds: () => terminalManager.list().map((t) => t.cwd),
+    hasPendingUiRequest: (id) => browserGateway.hasPendingUiRequest(id),
+    killBySessionId: (id) => browserGateway.headlessPidRegistry.killBySessionId(id),
+    sendStopAfterTurn: (id) =>
+      piGateway.sendToSession(id, { type: "stop_after_turn", sessionId: id }),
+  });
+
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -2061,6 +2082,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       idleTimer.start();
+      // Start the embed-lifecycle reaper sweep (dormant unless the feature is
+      // enabled). See change: add-embed-session-lifecycle.
+      embedLifecycle.start();
 
       // Cold-start recovery offer. Gated by `reopenSessionsAfterShutdown`:
       //   off  → handled at classify time (candidates normalized to `ended`,
@@ -2138,6 +2162,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // Stop the dedicated ELD safety-net sampler + its histogram.
       // See change: attribute-openspec-poll-eventloop-stalls.
       try { eventLoopSampler.stop(); } catch { /* ignore */ }
+      // Stop the embed-lifecycle reaper sweep.
+      // See change: add-embed-session-lifecycle.
+      try { embedLifecycle.stop(); } catch { /* ignore */ }
       // Stop mDNS before closing
       try {
         if (mdnsBrowser) { mdnsBrowser.stop(); mdnsBrowser = null; }

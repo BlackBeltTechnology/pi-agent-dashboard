@@ -668,6 +668,72 @@ describe("MarkdownContent", () => {
   });
 });
 
+// fix-markdown-preview-relative-images: local image src rewrite via imageBase.
+describe("MarkdownContent — local image base rewrite", () => {
+  function renderBase(
+    content: string,
+    imageBase?: { cwd: string; dir: string },
+    assets: Record<string, { data: string; mimeType: string }> = {},
+  ) {
+    return render(
+      <ThemeProvider>
+        <SessionAssetsProvider assets={assets}>
+          <MarkdownContent content={content} imageBase={imageBase} />
+        </SessionAssetsProvider>
+      </ThemeProvider>,
+    );
+  }
+
+  it("#E6 resolves pi-asset FIRST even when imageBase is set (data URL, not raw endpoint)", () => {
+    const { container } = renderBase(
+      "![pic](pi-asset:abc1234567890123)",
+      { cwd: "/w", dir: "/w/docs" },
+      { abc1234567890123: { data: "AAAA", mimeType: "image/png" } },
+    );
+    const img = container.querySelector("img")!;
+    expect(img.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    expect(img.getAttribute("src")).not.toContain("/api/file/raw");
+  });
+
+  it("#E7 renders verbatim when no imageBase provider is present", () => {
+    const { container } = renderBase("![a](hero.png)");
+    const img = container.querySelector("img")!;
+    expect(img.getAttribute("src")).toBe("hero.png");
+  });
+
+  it("#E11 chat surface (no imageBase) leaves a relative src verbatim", () => {
+    const { container } = renderBase("![a](p.png)");
+    const img = container.querySelector("img")!;
+    expect(img.getAttribute("src")).toBe("p.png");
+  });
+
+  it("rewrites a relative src to /api/file/raw when imageBase is set", () => {
+    const { container } = renderBase("![a](p.png)", { cwd: "/w", dir: "/w/docs" });
+    const img = container.querySelector("img")!;
+    expect(img.getAttribute("src")).toBe("/api/file/raw?cwd=%2Fw&path=%2Fw%2Fdocs%2Fp.png");
+  });
+
+  it("#F1 a rewritten image that errors swaps to a neutral placeholder (img unmounted, no reserve leak)", () => {
+    const { container } = renderBase("![a](p.png)", { cwd: "/w", dir: "/w/docs" });
+    const img = container.querySelector("img")!;
+    expect(img.style.minHeight).toBe("6rem"); // reserved pre-decode
+    fireEvent.error(img);
+    expect(container.querySelector("img")).toBeNull(); // unmounted → reserve dies with it
+    expect(container.textContent).toMatch(/couldn.t load image/i);
+  });
+
+  it("#F2 a verbatim (no-imageBase) image that errors keeps NO placeholder and still opens the lightbox", () => {
+    const { container } = renderBase("![logo](https://example.com/logo.png)");
+    const img = container.querySelector("img")!;
+    fireEvent.error(img);
+    // No placeholder swap on the verbatim branch — the broken img stays.
+    expect(container.querySelector("img")).not.toBeNull();
+    expect(container.textContent).not.toMatch(/couldn.t load image/i);
+    fireEvent.click(container.querySelector("img")!);
+    expect(document.querySelector('[data-testid="lightbox-backdrop"]')).not.toBeNull();
+  });
+});
+
 describe("extractFrontmatter", () => {
   it("returns raw + body for a leading block", () => {
     const r = extractFrontmatter("---\ntitle: X\n---\n\n# Heading");

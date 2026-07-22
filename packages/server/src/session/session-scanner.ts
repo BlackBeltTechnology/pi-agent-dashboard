@@ -69,6 +69,10 @@ function sessionFromMeta(
     // See change: add-auto-session-naming.
     nameSource: meta.nameSource,
     source: (meta.source as SessionSource) ?? "tui",
+    // Restore the disposability marker so a restart never reclassifies an
+    // ephemeral session as durable (absent ⇒ durable) and lets it escape
+    // reaping forever. See change: add-embed-session-lifecycle.
+    lifecyclePolicy: meta.lifecyclePolicy,
     status: (meta.status as DashboardSession["status"]) ?? "ended",
     model: meta.model,
     thinkingLevel: meta.thinkingLevel,
@@ -77,6 +81,11 @@ function sessionFromMeta(
     // Seed last-activity from events.jsonl mtime so the session-card relative-time
     // badge survives server restarts. See change: session-card-last-activity-badge.
     lastActivityAt: readJsonlMtime(sessionFile),
+    // Seed the lifecycle at-rest mark from the same mtime so a rehydrated
+    // quiescent ephemeral session is immediately evaluable by the reaper's
+    // quiescence gate without waiting for a fresh run to settle (E14).
+    // See change: add-embed-session-lifecycle.
+    lastSettledAt: readJsonlMtime(sessionFile),
     tokensIn: meta.tokensIn ?? 0,
     tokensOut: meta.tokensOut ?? 0,
     cacheRead: meta.cacheRead,

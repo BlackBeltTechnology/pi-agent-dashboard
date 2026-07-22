@@ -8,10 +8,10 @@
     }
   ],
   "worktreeInit": {
-    "gate": "test ! -e node_modules/.package-lock.json || test ! -d .pi/skills/openspec-explore || test ! -f .pi/dashboard/kb/index.db",
+    "gate": "test ! -e node_modules/.modules.yaml || test ! -d .pi/skills/openspec-explore || test ! -f .pi/dashboard/kb/index.db",
     "run": {
       "type": "script",
-      "command": "(npm ci || npm install) && npx --no-install openspec init --tools pi --force && npm run build --workspace=@blackbelt-technology/pi-dashboard-kb && NODE_OPTIONS=--experimental-sqlite npx kb index"
+      "command": "command -v corepack >/dev/null 2>&1 && corepack enable; pnpm install && npx --no-install openspec init --tools pi --force && pnpm --filter @blackbelt-technology/pi-dashboard-kb run build && NODE_OPTIONS=--experimental-sqlite npx kb index"
     }
   }
 }

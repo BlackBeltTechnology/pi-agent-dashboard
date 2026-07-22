@@ -1,16 +1,38 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { Jimp, JimpMime } from "jimp";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  ROOT_DIR,
+  ContentCache,
   cacheKey,
   cleanupOrphans,
   cleanupSession,
   ensureDir,
   hasCached,
+  ROOT_DIR,
   scopeFor,
 } from "../cache.js";
+import { fitContextMessages } from "../extension.js";
+import type { ImageFitConfig } from "../policy.js";
+import * as resize from "../resize.js";
+
+const CONFIG: ImageFitConfig = { disabled: false, maxEdge: 1568, maxBytes: 4 * 1024 * 1024, quality: 85 };
+const POLICY = { maxEdge: 1568, maxBytes: 4 * 1024 * 1024, quality: 85 };
+
+async function oversizePngB64(w = 2000, h = 1200): Promise<string> {
+  const img = new Jimp({ width: w, height: h, color: 0x2233ccff });
+  const buf = (await img.getBuffer(JimpMime.png)) as unknown as Buffer;
+  return buf.toString("base64");
+}
+
+function imageMsg(data: string, mimeType = "image/png") {
+  return { role: "user", content: [{ type: "image", data, mimeType }] };
+}
+
+function b64OfBytes(n: number): string {
+  return Buffer.alloc(n, 0x41).toString("base64");
+}
 
 const TEST_INPUT = {
   absPath: "/abs/path/to/image.png",
@@ -144,5 +166,89 @@ describe("cleanupOrphans", () => {
     // with a tiny maxAge and asserting no throw. ROOT_DIR may or may not
     // exist depending on test order; either way no exception escapes.
     await expect(cleanupOrphans(1, () => Date.now(), () => {})).resolves.toBeUndefined();
+  });
+});
+
+describe("ContentCache — content-hash keying + bounded LRU", () => {
+  it("E13: same bytes, different mime → distinct keys, no collision", async () => {
+    const data = await oversizePngB64();
+    const cache = new ContentCache();
+    const kPng = cache.keyFor(data, "image/png", POLICY);
+    const kWebp = cache.keyFor(data, "image/webp", POLICY);
+    expect(kPng).not.toBe(kWebp); // mimeType is part of the key
+    cache.set(kPng, { data: "PPP", mimeType: "image/png" });
+    cache.set(kWebp, { data: "JJJ", mimeType: "image/jpeg" });
+    // Each key serves its own format — neither serves the other's bytes.
+    expect(cache.get(kPng)).toEqual({ data: "PPP", mimeType: "image/png" });
+    expect(cache.get(kWebp)).toEqual({ data: "JJJ", mimeType: "image/jpeg" });
+  });
+
+  it("E15 (key level): a changed maxEdge yields a fresh key", async () => {
+    const data = await oversizePngB64();
+    const cache = new ContentCache();
+    const k1568 = cache.keyFor(data, "image/png", { ...POLICY, maxEdge: 1568 });
+    const k800 = cache.keyFor(data, "image/png", { ...POLICY, maxEdge: 800 });
+    expect(k1568).not.toBe(k800);
+    cache.set(k1568, { data: "X", mimeType: "image/png" });
+    expect(cache.has(k800)).toBe(false); // new threshold → miss → fresh resize
+  });
+
+  it("E16: bounded LRU evicts least-recently-used past the byte budget", () => {
+    const cache = new ContentCache(300); // budget = 300 bytes
+    const e = (tag: string) => ({ data: b64OfBytes(200), mimeType: `x/${tag}` });
+    cache.set("k1", e("1"));
+    cache.set("k2", e("2")); // 400 > 300 → evict k1
+    expect(cache.has("k1")).toBe(false);
+    expect(cache.has("k2")).toBe(true);
+    cache.set("k3", e("3")); // 400 > 300 → evict k2
+    expect(cache.has("k2")).toBe(false);
+    expect(cache.has("k3")).toBe(true);
+    expect(cache.bytes).toBeLessThanOrEqual(300);
+    // Re-access (re-resize) of an evicted key repopulates it.
+    cache.set("k1", e("1"));
+    expect(cache.has("k1")).toBe(true);
+  });
+
+  it("E16b: get() refreshes recency so the touched entry survives eviction", () => {
+    const cache = new ContentCache(300);
+    const e = (tag: string) => ({ data: b64OfBytes(200), mimeType: `x/${tag}` });
+    cache.set("k1", e("1"));
+    cache.set("k2", e("2")); // evicts k1 (k1 oldest); k2 remains
+    cache.get("k2"); // touch k2 (already newest — stays)
+    cache.set("k3", e("3")); // evicts k2 (oldest now)
+    expect(cache.has("k3")).toBe(true);
+  });
+});
+
+describe("content-hash cache across turns (fitContextMessages integration)", () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+    vi.restoreAllMocks();
+  });
+
+  it("E14: same oversize block over two turns → resizeBuffer runs exactly once", async () => {
+    const data = await oversizePngB64();
+    const cache = new ContentCache();
+    const spy = vi.spyOn(resize, "resizeBuffer");
+    // Each turn presents a FRESH copy of the same oversize block (as pi does
+    // when re-deep-copying the persisted transcript every turn).
+    const t1 = await fitContextMessages([imageMsg(data)], CONFIG, cache);
+    const t2 = await fitContextMessages([imageMsg(data)], CONFIG, cache);
+    expect(t1).toBeTruthy(); // turn 1 changed (resized)
+    expect(t2).toBeTruthy(); // turn 2 changed (served from cache)
+    expect(spy).toHaveBeenCalledTimes(1); // turn 2 hit the cache
+  });
+
+  it("E15: changed maxEdge across turns → new key → fresh resize", async () => {
+    const data = await oversizePngB64();
+    const cache = new ContentCache();
+    const spy = vi.spyOn(resize, "resizeBuffer");
+    await fitContextMessages([imageMsg(data)], { ...CONFIG, maxEdge: 1568 }, cache);
+    await fitContextMessages([imageMsg(data)], { ...CONFIG, maxEdge: 800 }, cache);
+    expect(spy).toHaveBeenCalledTimes(2); // distinct keys → two resizes
   });
 });

@@ -113,7 +113,7 @@ RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cu
 # 1.4 Global pi coding agent + openspec (spawned/probed by the dashboard).
 # Install must be fatal; the version probes stay non-fatal (grouped so a
 # non-zero `--version` can't mask an `npm install -g` failure).
-RUN npm install -g @earendil-works/pi-coding-agent@0.80.10 openspec \
+RUN npm install -g @earendil-works/pi-coding-agent@0.81.1 openspec \
  && { pi --version || true; } \
  && { openspec --version || true; }
 
@@ -130,11 +130,16 @@ RUN npm install -g \
  && ls -d /usr/local/lib/node_modules/@blackbelt-technology/pi-flows \
          /usr/local/lib/node_modules/@blackbelt-technology/pi-anthropic-messages
 
+# Enable corepack so `pnpm` resolves to the version pinned by the root
+# package.json `packageManager` field (pnpm@11.15.1). The global `npm install
+# -g` tool installs above stay npm (Column C-style user installs).
+RUN corepack enable
+
 WORKDIR /app
 
 # 1.5 Install deps + build the web client. Copy package manifests first for
 # layer caching, then the full source.
-COPY package.json package-lock.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # Root tsconfigs that every package extends (../../tsconfig.base.json).
 COPY tsconfig.base.json tsconfig.json ./
 # Root scripts/ (postinstall: maybe-patch-package + fix-pty-permissions) and
@@ -149,16 +154,11 @@ COPY qa/fixtures ./qa/fixtures
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/scripts ./docker/scripts
 
-# Drop the committed lockfile before install: npm bug #4828 makes both
-# `npm install` and `npm ci` skip platform-matching optional deps when resolving
-# against a lockfile generated on another platform (here: the macOS lock omits
-# the install of `@rollup/rollup-linux-x64-gnu`, breaking the linux web-client
-# build with `Cannot find module .../rollup/dist/native.js`). Removing the lock
-# lets npm resolve the correct native binary for the build platform — the fix
-# the error itself prescribes. Scoped to this build image only.
-RUN rm -f package-lock.json \
- && npm install \
- && npm run build \
+# pnpm re-resolves the full platform optional-dep tree from pnpm-lock.yaml
+# (so the npm/cli#4828 lockfile-nuke hack — which dropped
+# @rollup/rollup-linux-x64-gnu on the linux build — is no longer needed).
+RUN pnpm install --frozen-lockfile \
+ && pnpm run build \
  # Link the root package so `pi-dashboard` is on PATH.
  && npm link \
  # 1.5 Drop build toolchain — not needed at runtime (~200 MB saved).

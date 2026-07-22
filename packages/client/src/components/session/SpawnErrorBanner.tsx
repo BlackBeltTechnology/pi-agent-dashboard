@@ -1,17 +1,21 @@
 /**
  * Spawn error banner component.
  *
- * Renders structured spawn failure info: code→hint mapping, preflight
- * reasons list, collapsed stderr, and a distinct "timeout" banner when
- * pi started but never connected to the dashboard.
+ * Renders structured spawn failure info via the shared `InlineMessage`
+ * primitive: code→hint mapping, preflight reasons list, stderr in a
+ * collapsible `LogBlock`, and — when pi started but never connected — a
+ * `severity="warning"` timeout surface (folded in, no separate
+ * `TimeoutBanner` component).
  *
- * See change: spawn-failure-diagnostics.
+ * See change: spawn-failure-diagnostics; redesign-directory-card.
  */
 
 import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import React from "react";
+import { mdiAlertCircleOutline, mdiClockAlertOutline } from "@mdi/js";
 import type { SpawnErrorDetail } from "../../hooks/useMessageHandler.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { InlineMessage } from "../primitives/InlineMessage.js";
+import { LogBlock } from "../primitives/LogBlock.js";
 
 interface HintEntry {
   labelKey: string;
@@ -46,85 +50,67 @@ interface Props {
 }
 
 export function SpawnErrorBanner({ detail, onDismiss }: Props) {
-  const { kind, message, code, reasons, stderr, pid } = detail;
+  const { kind, message, code, reasons, stderr } = detail;
 
   if (kind === "timeout") {
-    return <TimeoutBanner detail={detail} onDismiss={onDismiss} />;
+    return <TimeoutSurface detail={detail} onDismiss={onDismiss} />;
   }
 
   const hint = code ? CODE_HINTS[code] : undefined;
+  const title = hint ? i18nT(hint.labelKey, undefined, hint.label) : message;
+  const showMessageSub = hint && (!code || code !== "PREFLIGHT_FAILED");
+
+  const actions = hint?.cta ? (
+    hint.cta.action === "wizard" ? (
+      <button
+        type="button"
+        onClick={openWizard}
+        className="text-xs font-semibold px-2 py-0.5 rounded-full border border-current inline-flex items-center gap-1 bg-[color-mix(in_srgb,currentColor_12%,transparent)]"
+      >
+        {i18nT(hint.cta.labelKey, undefined, hint.cta.label)}
+      </button>
+    ) : (
+      <a
+        href="/settings/general"
+        className="text-xs font-semibold px-2 py-0.5 rounded-full border border-current inline-flex items-center gap-1 bg-[color-mix(in_srgb,currentColor_12%,transparent)]"
+      >
+        {i18nT(hint.cta.labelKey, undefined, hint.cta.label)}
+      </a>
+    )
+  ) : undefined;
 
   return (
-    <div
-      data-testid="spawn-error-banner"
-      className="mx-2 bg-[var(--severity-error-bg)] border border-[var(--severity-error-border)] rounded-lg px-3 py-2 text-xs text-[var(--severity-error-fg)]"
-    >
-      <div className="flex items-start gap-2">
-        <div className="flex-1 min-w-0">
-          {hint ? (
-            <>
-              <span className="font-medium">{i18nT(hint.labelKey, undefined, hint.label)}</span>
-              {!code || code !== "PREFLIGHT_FAILED" ? (
-                <span className="ml-1 text-[var(--severity-error-fg)]/70">{message}</span>
-              ) : null}
-            </>
-          ) : (
-            <span>{message}</span>
-          )}
-
-          {/* Preflight reasons list */}
-          {code === "PREFLIGHT_FAILED" && reasons && reasons.length > 0 && (
-            <ul className="mt-1 space-y-0.5 list-disc list-inside text-[var(--severity-error-fg)]/80">
-              {reasons.map((r, i) => (
-                <li key={i}>{r.message}</li>
-              ))}
-            </ul>
-          )}
-
-          {/* CTA button */}
-          {hint?.cta && (
-            <div className="mt-1.5">
-              {hint.cta.action === "wizard" && (
-                <button
-                  onClick={openWizard}
-                  className="text-xs text-[var(--severity-error-fg)] underline hover:text-[var(--severity-error-fg)]/80"
-                >
-                  {i18nT(hint.cta.labelKey, undefined, hint.cta.label)}
-                </button>
-              )}
-              {hint.cta.action === "log" && (
-                <a
-                  href="/settings/general"
-                  className="text-xs text-[var(--severity-error-fg)] underline hover:text-[var(--severity-error-fg)]/80"
-                >
-                  {i18nT(hint.cta.labelKey, undefined, hint.cta.label)}
-                </a>
-              )}
-            </div>
-          )}
-
-          {/* Stderr tail */}
-          {stderr && (
-            <details className="mt-1.5">
-              <summary className="cursor-pointer text-[var(--severity-error-fg)]/70 hover:text-[var(--severity-error-fg)]">{i18nT("terminal.piStderr", undefined, "Pi stderr")}</summary>
-              <pre className="mt-1 text-[10px] text-[var(--severity-error-fg)]/60 whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono">{stderr}</pre>
-            </details>
-          )}
-        </div>
-
-        {onDismiss && (
-          <button
-            data-testid="spawn-error-dismiss"
-            onClick={onDismiss}
-            className="text-[var(--severity-error-fg)]/80 hover:text-[var(--severity-error-fg)] shrink-0 mt-0.5"
-          >✕</button>
+    <div className="mx-2">
+      <InlineMessage
+        severity="error"
+        icon={mdiAlertCircleOutline}
+        title={title}
+        onDismiss={onDismiss}
+        testId="spawn-error-banner"
+        dismissTestId="spawn-error-dismiss"
+        actions={actions}
+      >
+        {showMessageSub && <span className="opacity-80">{message}</span>}
+        {code === "PREFLIGHT_FAILED" && reasons && reasons.length > 0 && (
+          <ul className="mt-1 space-y-0.5 list-disc list-inside opacity-80">
+            {reasons.map((r, i) => (
+              <li key={i}>{r.message}</li>
+            ))}
+          </ul>
         )}
-      </div>
+        {stderr && (
+          <LogBlock
+            label={i18nT("terminal.piStderr", undefined, "Pi stderr")}
+            text={stderr}
+            collapsible
+          />
+        )}
+      </InlineMessage>
     </div>
   );
 }
 
-function TimeoutBanner({ detail, onDismiss }: Props) {
+function TimeoutSurface({ detail, onDismiss }: Props) {
   const { pid, stderr, timeoutMs } = detail;
   // Use the timeout value carried in the message; fall back to 30s for legacy servers.
   const timeoutSecs = timeoutMs !== undefined ? timeoutMs / 1000 : 30;
@@ -134,28 +120,23 @@ function TimeoutBanner({ detail, onDismiss }: Props) {
     : i18nT("err.spawnTimeout", { secs: timeoutSecs }, "Pi started but never connected to the dashboard within {secs}s.");
 
   return (
-    <div
-      data-testid="spawn-timeout-banner"
-      className="mx-2 bg-[var(--severity-warning-bg)] border border-[var(--severity-warning-border)] rounded-lg px-3 py-2 text-xs text-[var(--severity-warning-fg)]"
-    >
-      <div className="flex items-start gap-2">
-        <div className="flex-1 min-w-0">
-          <span className="font-medium">{label}</span>
-          {stderr && (
-            <details className="mt-1.5">
-              <summary className="cursor-pointer text-[var(--severity-warning-fg)]/70 hover:text-[var(--severity-warning-fg)]">{i18nT("terminal.piStderr", undefined, "Pi stderr")}</summary>
-              <pre className="mt-1 text-[10px] text-[var(--severity-warning-fg)]/60 whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono">{stderr}</pre>
-            </details>
-          )}
-        </div>
-        {onDismiss && (
-          <button
-            data-testid="spawn-timeout-dismiss"
-            onClick={onDismiss}
-            className="text-[var(--severity-warning-fg)]/80 hover:text-[var(--severity-warning-fg)] shrink-0 mt-0.5"
-          >✕</button>
+    <div className="mx-2">
+      <InlineMessage
+        severity="warning"
+        icon={mdiClockAlertOutline}
+        title={label}
+        onDismiss={onDismiss}
+        testId="spawn-timeout-banner"
+        dismissTestId="spawn-timeout-dismiss"
+      >
+        {stderr && (
+          <LogBlock
+            label={i18nT("terminal.piStderr", undefined, "Pi stderr")}
+            text={stderr}
+            collapsible
+          />
         )}
-      </div>
+      </InlineMessage>
     </div>
   );
 }

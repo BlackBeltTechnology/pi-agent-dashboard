@@ -85,7 +85,7 @@ export interface GoalSupervisorDeps {
    *  it — `/goal` control is only reliable in dashboard-spawned headless). */
   headlessAvailable?: () => boolean;
   now?: () => number;
-  setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
+  setTimer?: (fn: () => void | Promise<void>, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (t: ReturnType<typeof setTimeout>) => void;
   log?: (msg: string, meta?: Record<string, unknown>) => void;
 }
@@ -275,8 +275,10 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
     const timer = setTimer(() => {
       timers.delete(goal.id);
       // performSpawn is generation-guarded + lock-serialized; catch so a store
-      // I/O failure can't become an unhandled rejection.
-      void withGoalLock(goal.id, () =>
+      // I/O failure can't become an unhandled rejection. Return the promise so a
+      // fake timer (tests) can deterministically await the spawn instead of
+      // racing a fixed settle delay; real setTimeout ignores the return value.
+      return withGoalLock(goal.id, () =>
         performSpawn(goal.id, goal.cwd, reason, sessionFile, generationAtSchedule),
       ).catch((err) => log("[goal-supervisor] performSpawn failed", { goalId: goal.id, err: String(err) }));
     }, backoff);

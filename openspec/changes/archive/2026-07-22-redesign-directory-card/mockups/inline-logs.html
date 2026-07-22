@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inline messages / logs — design review</title>
+<style>
+  :root {
+    --page:#e9e6d3; --card:#f4f2e4; --card-2:#efedde; --inset:#e7e4d2;
+    --rim:rgba(255,255,255,.85); --shadow:rgba(80,74,40,.14);
+    --border:rgba(90,84,52,.14); --border-2:rgba(90,84,52,.22);
+    --text-1:#2c2a20; --text-2:#5b5744; --text-3:#8f8b74; --text-mut:#b0ac93;
+    --blue:#5b6fc4; --green:#3f9a52; --amber:#c98a12; --red:#c4503f; --cyan:#2f9bb0;
+    --err-bg:rgba(196,80,63,.10); --err-bd:rgba(196,80,63,.34); --err-fg:#a13c2d;
+    --warn-bg:rgba(201,138,18,.12); --warn-bd:rgba(201,138,18,.36); --warn-fg:#8a5e0c;
+    --info-bg:rgba(91,111,196,.10); --info-bd:rgba(91,111,196,.34); --info-fg:#3f4f9e;
+    --logbg:#e7e4d2; --logfg:#6a6653;
+  }
+  [data-theme="dark"]{
+    --page:#0a0a0a; --card:#141414; --card-2:#1a1a1a; --inset:#0e0e0e;
+    --rim:rgba(255,255,255,.10); --shadow:rgba(0,0,0,.5);
+    --border:rgba(255,255,255,.07); --border-2:rgba(255,255,255,.13);
+    --text-1:#e5e5e5; --text-2:#b0b0b0; --text-3:#808080; --text-mut:#585858;
+    --blue:#6b8afd; --green:#4ade80; --amber:#fbbf24; --red:#f87171; --cyan:#38bec9;
+    --err-bg:rgba(248,113,113,.10); --err-bd:rgba(248,113,113,.30); --err-fg:#fca5a5;
+    --warn-bg:rgba(251,191,36,.10); --warn-bd:rgba(251,191,36,.30); --warn-fg:#fcd34d;
+    --info-bg:rgba(107,138,253,.10); --info-bd:rgba(107,138,253,.30); --info-fg:#a5b4fc;
+    --logbg:#0d0d0d; --logfg:#8a8a8a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--page);color:var(--text-1);padding:26px 20px 80px;-webkit-font-smoothing:antialiased}
+  .bar{max-width:1240px;margin:0 auto 22px;display:flex;gap:12px;align-items:center}
+  .bar h1{font-size:15px;font-weight:700;margin:0}
+  .bar .sp{flex:1}
+  .bar button{font:inherit;font-size:12px;font-weight:600;padding:6px 12px;border-radius:8px;border:1px solid var(--border-2);background:var(--card);color:var(--text-2);cursor:pointer}
+  .grid{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:34px 44px}
+  @media(max-width:940px){.grid{grid-template-columns:1fr}}
+  .colhd{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);margin:0 0 14px 2px}
+  .surface{margin-bottom:26px}
+  .surface .cap{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-mut);margin:0 0 7px 2px}
+  .frame{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:inset 0 1px 0 var(--rim),0 2px 6px var(--shadow);padding:12px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  /* ═══════ BEFORE — the four current, divergent patterns ═══════ */
+  /* 1 spawn error banner */
+  .b-spawn{background:var(--err-bg);border:1px solid var(--err-bd);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--err-fg)}
+  .b-spawn .msg{color:color-mix(in srgb,var(--err-fg) 70%,transparent)}
+  .b-spawn ul{margin:4px 0 0;padding-left:16px;font-size:12px}
+  .b-spawn .cta{display:inline-block;margin-top:6px;font-size:12px;text-decoration:underline}
+  .b-spawn details{margin-top:6px}
+  .b-spawn summary{cursor:pointer;font-size:12px;opacity:.75}
+  .b-spawn pre{margin:4px 0 0;font-size:10px;opacity:.6;white-space:pre-wrap;max-height:80px;overflow:auto}
+  /* 2 session banner */
+  .b-sess{position:relative;overflow:hidden;background:rgba(239,68,68,.10);border:1px solid rgba(239,68,68,.30);border-radius:12px;padding:10px 14px;display:flex;gap:8px;align-items:flex-start}
+  .b-sess .strip{position:absolute;inset-inline:0;top:0;height:2px;background:linear-gradient(90deg,transparent,rgba(251,191,36,.8),transparent)}
+  .b-sess .ic{color:var(--red)}
+  .b-sess .tx{font-size:13px;color:#c0392b}
+  .b-sess .rt{font-size:11px;color:var(--amber);margin-top:3px}
+  .b-sess .row{margin-top:6px;display:flex;gap:8px}
+  .b-sess .chip{font-size:11px;padding:1px 8px;border-radius:6px;border:1px solid rgba(239,68,68,.4);color:#b23}
+  /* 3 missing tool */
+  .b-tool{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--amber);border:1px solid var(--warn-bd);border-radius:5px;padding:3px 8px}
+  .b-tool .nm{color:var(--text-2)}
+  .b-tool .btn{margin-left:auto;font-size:11px;padding:1px 7px;border:1px solid var(--warn-bd);border-radius:5px}
+  /* 4 flow log preview */
+  .b-flow{border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--card-2)}
+  .b-flow .ln{font-size:10px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* ═══════ AFTER — one shared inline-message + logblock system ═══════ */
+  .msg{position:relative;border-radius:11px;padding:9px 12px 9px 13px;display:flex;gap:9px;align-items:flex-start;border:1px solid;overflow:hidden}
+  .msg::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px}
+  .msg.error{background:var(--err-bg);border-color:var(--err-bd);color:var(--err-fg)}
+  .msg.error::before{background:var(--red)}
+  .msg.warn{background:var(--warn-bg);border-color:var(--warn-bd);color:var(--warn-fg)}
+  .msg.warn::before{background:var(--amber)}
+  .msg .gi{flex-shrink:0;font-size:15px;line-height:1.2;margin-top:1px}
+  .msg .content{flex:1;min-width:0}
+  .msg .title{font-size:12.5px;font-weight:700}
+  .msg .sub{font-size:11.5px;color:color-mix(in srgb,currentColor 72%,transparent);margin-top:1px}
+  .msg .reasons{margin:5px 0 0;padding-left:15px;font-size:11.5px;color:color-mix(in srgb,currentColor 80%,transparent)}
+  .msg .actions{margin-top:8px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .msg .act{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid currentColor;display:inline-flex;align-items:center;gap:4px;background:transparent;cursor:pointer}
+  .msg .act.solid{background:color-mix(in srgb,currentColor 12%,transparent)}
+  .msg .x{flex-shrink:0;cursor:pointer;opacity:.7;font-size:15px;line-height:1}
+  .msg.animate::after{content:"";position:absolute;inset-inline:0;top:0;height:2px;background:linear-gradient(90deg,transparent,var(--amber),transparent);animation:sweep 1.6s linear infinite}
+  @keyframes sweep{0%{opacity:.3}50%{opacity:1}100%{opacity:.3}}
+
+  /* the ONE log/stderr primitive, shared by spawn stderr + flow logs */
+  .logblock{margin-top:8px;border:1px solid var(--border);border-radius:8px;background:var(--logbg);overflow:hidden}
+  .logblock .lh{display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--border);font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+  .logblock .lh .sp{flex:1}
+  .logblock .lh .mini{cursor:pointer;color:var(--text-mut);font-size:11px}
+  .logblock pre{margin:0;padding:7px 9px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;line-height:1.5;color:var(--logfg);white-space:pre-wrap;word-break:break-word;max-height:96px;overflow:auto}
+  .logblock.preview pre{white-space:nowrap;overflow:hidden}
+  .logblock.preview .ln{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .note{font-size:11px;color:var(--text-3);margin:8px 2px 0;line-height:1.5}
+  .note b{color:var(--text-2)}
+</style>
+</head>
+<body data-theme="light">
+<div class="bar">
+  <h1>Inline messages / logs — design review</h1><span class="sp"></span>
+  <button onclick="tt()" id="tb">◑ Dark theme</button>
+</div>
+
+<div class="grid">
+  <!-- ════ BEFORE ════ -->
+  <div>
+    <p class="colhd">Before — four divergent patterns</p>
+
+    <div class="surface"><p class="cap">1 · SpawnErrorBanner (in directory card)</p>
+      <div class="frame">
+        <div class="b-spawn">
+          <span style="font-weight:600">Pi exited immediately. See log below.</span>
+          <span class="msg">spawn pi ENOENT</span>
+          <a class="cta">View log</a>
+          <details open><summary>Pi stderr</summary>
+            <pre>Error: Cannot find module '@earendil-works/pi-coding-agent'
+  at Module._resolveFilename (node:internal/modules/cjs/loader:1140:15)
+  at Module._load (node:internal/modules/cjs/loader:981:27)</pre>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <div class="surface"><p class="cap">2 · SessionBanner (above composer)</p>
+      <div class="frame">
+        <div class="b-sess">
+          <div class="strip"></div>
+          <span class="ic">⚠</span>
+          <div style="flex:1">
+            <div class="tx">Request failed: 529 overloaded_error — the model is temporarily unavailable.</div>
+            <div class="rt">retrying… (attempt 2)</div>
+            <div class="row"><span class="chip">⏹ Stop (ends the session)</span><span class="chip">⧉ Copy</span></div>
+          </div>
+          <span style="opacity:.7">✕</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="surface"><p class="cap">3 · MissingToolInlineError (in chat)</p>
+      <div class="frame">
+        <div class="b-tool">
+          <span>⊘</span><span class="nm"><span class="mono">rg</span> not found.</span>
+          <span class="btn">Install rg →</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="surface"><p class="cap">4 · FlowAgentCard log preview (code node)</p>
+      <div class="frame">
+        <div class="b-flow">
+          <div class="ln">▸ npm run build</div>
+          <div class="ln">vite v5.4.2 building for production…</div>
+          <div class="ln">✓ 342 modules transformed. dist/index.js 1.2 MB</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="note">Four different radii (8/12/5/10px), two token systems (<b>--severity-*</b> vs raw <b>red-500/amber-500</b>), three log treatments (collapsible &lt;pre&gt; · prose · fixed 3 truncated lines), two dismiss glyphs, two alert icons. No shared "log" primitive.</p>
+  </div>
+
+  <!-- ════ AFTER ════ -->
+  <div>
+    <p class="colhd">After — one message + one log primitive</p>
+
+    <div class="surface"><p class="cap">1 · Spawn error → <span class="mono">.msg.error</span> + <span class="mono">.logblock</span></p>
+      <div class="frame">
+        <div class="msg error">
+          <span class="gi">✕</span>
+          <div class="content">
+            <div class="title">Pi exited immediately</div>
+            <div class="sub"><span class="mono">spawn pi ENOENT</span></div>
+            <div class="logblock">
+              <div class="lh"><span>Pi stderr</span><span class="sp"></span><span class="mini">⧉ copy</span><span class="mini">▾</span></div>
+              <pre>Error: Cannot find module '@earendil-works/pi-coding-agent'
+  at Module._resolveFilename (node:internal/modules/cjs/loader:1140:15)
+  at Module._load (node:internal/modules/cjs/loader:981:27)</pre>
+            </div>
+            <div class="actions"><button class="act solid">View log →</button></div>
+          </div>
+          <span class="x">✕</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="surface"><p class="cap">2 · Session error/retry → same <span class="mono">.msg.error.animate</span></p>
+      <div class="frame">
+        <div class="msg error animate">
+          <span class="gi">⚠</span>
+          <div class="content">
+            <div class="title">Request failed — 529 overloaded_error</div>
+            <div class="sub">The model is temporarily unavailable · <span style="color:var(--amber);font-weight:600">retrying… (attempt 2)</span></div>
+            <div class="actions"><button class="act">⏹ Stop</button><button class="act">⧉ Copy</button></div>
+          </div>
+          <span class="x">✕</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="surface"><p class="cap">3 · Missing tool → compact <span class="mono">.msg.warn</span></p>
+      <div class="frame">
+        <div class="msg warn" style="align-items:center">
+          <span class="gi" style="margin-top:0">⊘</span>
+          <div class="content" style="display:flex;align-items:center;gap:8px">
+            <span class="title" style="font-weight:600"><span class="mono">rg</span> not found</span>
+            <span style="flex:1"></span>
+            <button class="act">Install rg →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="surface"><p class="cap">4 · Flow logs → same <span class="mono">.logblock.preview</span></p>
+      <div class="frame">
+        <div class="logblock preview">
+          <div class="lh"><span>Program log</span><span class="sp"></span><span class="mini">⧉ copy</span><span class="mini">⤢ expand</span></div>
+          <pre><div class="ln">▸ npm run build</div><div class="ln">vite v5.4.2 building for production…</div><div class="ln">✓ 342 modules transformed. dist/index.js 1.2 MB</div></pre>
+        </div>
+      </div>
+    </div>
+
+    <p class="note"><b>One <span class="mono">.msg</span></b> (severity accent bar + icon + title + sub + action-pills + <span class="mono">mdiClose</span>) drives spawn, session, and missing-tool. <b>One <span class="mono">.logblock</span></b> (labelled header · copy · collapse/expand · mono inset) drives stderr AND flow logs. All radii, severity tokens, icons unified.</p>
+  </div>
+</div>
+
+<script>
+  if(location.hash==='#dark'){document.body.setAttribute('data-theme','dark');document.getElementById('tb').textContent='◐ Light theme';}
+  function tt(){const b=document.body,d=b.getAttribute('data-theme')==='dark';b.setAttribute('data-theme',d?'light':'dark');document.getElementById('tb').textContent=d?'◑ Dark theme':'◐ Light theme';}
+</script>
+</body>
+</html>

@@ -7,16 +7,17 @@
  * /api/pi-resource-file, and renders it wrapped in a fenced ```ts block.
  * See change: open-code-handler-from-flow-card.
  */
-import React from "react";
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
+
 import {
-  UiPrimitiveProvider,
   createUiPrimitiveRegistry,
   registerUiPrimitive,
+  UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { FlowAgentState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FlowAgentCard } from "../client/FlowAgentCard.js";
 
 const registry = createUiPrimitiveRegistry();
@@ -51,6 +52,19 @@ registerUiPrimitive(
   registry,
   UI_PRIMITIVE_KEYS.markdownContent,
   (({ content }: { content: string }) => <pre data-testid="md">{content}</pre>) as never,
+);
+// LogBlock: preview mode surfaces last-N lines + a copy button carrying the
+// FULL text so the code-node preview's copy/expand affordances are testable.
+registerUiPrimitive(
+  registry,
+  UI_PRIMITIVE_KEYS.logBlock,
+  (({ label, text, previewLines = 3 }: { label: string; text: string; previewLines?: number }) => (
+    <div data-testid="log-block">
+      <span>{label}</span>
+      <button type="button" data-testid="log-block-copy" data-full={text}>copy</button>
+      <pre data-testid="log-block-body">{text.split("\n").slice(-previewLines).join("\n")}</pre>
+    </div>
+  )) as never,
 );
 
 function makeAgent(over: Partial<FlowAgentState>): FlowAgentState {
@@ -130,6 +144,28 @@ describe("FlowAgentCard code-handler source", () => {
 
     const md = await findByTestId("md");
     expect(md.textContent).toBe("```ts\nexport const x = 1;\n```");
+  });
+
+  it("3.5 code-node log preview renders via LogBlock with copy carrying the FULL log", () => {
+    const agent = makeAgent({
+      nodeKind: "code",
+      codeTarget: HANDLER_PATH,
+      detailHistory: [
+        { kind: "text", text: "line-1" },
+        { kind: "text", text: "line-2" },
+        { kind: "text", text: "line-3" },
+        { kind: "text", text: "line-4" },
+      ],
+    } as Partial<FlowAgentState>);
+    const { getByTestId } = renderCard(agent);
+    const body = getByTestId("log-block-body");
+    // Preview shows the last 3 lines.
+    expect(body.textContent).toContain("line-4");
+    expect(body.textContent).not.toContain("line-1");
+    // Copy carries the FULL log (all 4 lines).
+    expect(getByTestId("log-block-copy").getAttribute("data-full")).toBe(
+      "line-1\nline-2\nline-3\nline-4",
+    );
   });
 
   it("3.4 fetch error surfaces in the dialog", async () => {

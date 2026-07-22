@@ -1630,6 +1630,86 @@ describe("command_feedback events", () => {
       });
     });
 
+    // A running Agent's partial `details` ride the DURABLE message channel and
+    // carry the full snapshot (agentId + entries[]). The inspector map must be
+    // hydrated live from this channel — not only at tool_execution_end — so
+    // expand/popout does not show "Subagent not found" for the whole run when
+    // the ephemeral subagent_* event_forward frames are lost under
+    // back-pressure. See change: fix-subagent-live-detail-durable-hydration.
+    it("hydrates the subagents map live from a running Agent partialResult (agentId + entries)", () => {
+      const state = applyEvents([
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1000,
+          data: { toolCallId: "agent-1", toolName: "Agent", args: { prompt: "Review" } },
+        },
+        {
+          eventType: "tool_execution_update",
+          timestamp: 2000,
+          data: {
+            toolCallId: "agent-1",
+            toolName: "Agent",
+            partialResult: {
+              content: [{ type: "text", text: "Working..." }],
+              details: {
+                agentId: "a4-agent-id",
+                agentSessionId: "v7-runner-id",
+                subagentType: "Explore",
+                displayName: "Explore",
+                description: "Cross-model review",
+                status: "running",
+                entries: [{ kind: "text", text: "first step", ts: 1500 }],
+              },
+            },
+          },
+        },
+      ]);
+
+      const byAgentId = state.subagents.get("a4-agent-id");
+      expect(byAgentId).toBeDefined();
+      expect(byAgentId?.status).toBe("running");
+      expect(byAgentId?.entries).toHaveLength(1);
+      // Dual-indexed: a v7 runner-id deep-link resolves the SAME state.
+      expect(state.subagents.get("v7-runner-id")).toBe(byAgentId);
+    });
+
+    // A late/reordered running partial must not regress a terminal state that a
+    // completion (or ephemeral subagent_completed) already recorded.
+    it("does not regress a completed subagent to running on a late partial", () => {
+      const state = applyEvents([
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1000,
+          data: { toolCallId: "agent-1", toolName: "Agent", args: { prompt: "Review" } },
+        },
+        {
+          eventType: "tool_execution_end",
+          timestamp: 3000,
+          data: {
+            toolCallId: "agent-1",
+            toolName: "Agent",
+            result: "Done",
+            isError: false,
+            details: { agentId: "a4-agent-id", subagentType: "Explore", status: "completed" },
+          },
+        },
+        {
+          eventType: "tool_execution_update",
+          timestamp: 4000,
+          data: {
+            toolCallId: "agent-1",
+            toolName: "Agent",
+            partialResult: {
+              content: [{ type: "text", text: "stale" }],
+              details: { agentId: "a4-agent-id", subagentType: "Explore", status: "running" },
+            },
+          },
+        },
+      ]);
+
+      expect(state.subagents.get("a4-agent-id")?.status).toBe("completed");
+    });
+
     it("should complete Agent tool with duration", () => {
       const state = applyEvents([
         {

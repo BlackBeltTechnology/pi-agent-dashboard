@@ -1,0 +1,229 @@
+# Tasks — adopt pnpm for dev + CI
+
+Ordered, reversible phases (design.md §D6). Each phase ends green before the next.
+`pnpm` runs verified on 11.15.1; pin it. Do NOT touch Column C runtime npm.
+
+## 1. Preflight + guardrails
+
+- [x] 1.1 Pin the toolchain: add `"packageManager": "pnpm@11.15.1"` to root
+      `package.json`; document `corepack enable` as the dev prereq (README).
+- [x] 1.2 Inventory the npm-survivor call sites that MUST stay npm and add a guard
+      test/comment so the migration can't rewrite them (EXACT paths — verified):
+      `packages/server/src/pi/pi-core-updater.ts`,
+      `packages/server/src/pi/pi-core-checker.ts`,
+      `packages/server/src/lifecycle/recovery-server.ts`,
+      `packages/electron/src/lib/update-checker.ts`; the `npm publish` step in
+      `.github/workflows/publish.yml`. (doubt-review: flat `packages/server/src/*.ts`
+      paths were WRONG — a guard against them is false-green.)
+
+## 2. pnpm-workspace.yaml config (design.md §D2)
+
+<!-- HARDENING (found during apply):
+     (a) `onlyBuiltDependencies` did NOT suppress ERR_PNPM_IGNORED_BUILDS (design
+         §D5 confirmed) AND pnpm 11 makes that error FATAL (exit 1) → every CI
+         `pnpm install --frozen-lockfile` would red. Fix: `strictDepBuilds: false`
+         (+ `ignoredBuiltDependencies` to quiet the warning). Natives rebuilt on
+         the paths that need them (_electron-build `pnpm rebuild node-pty` +
+         electron install.js; bundle-server's own npm install).
+     (b) build/override config lives in pnpm-workspace.yaml, NOT package.json
+         `pnpm.*` (the latter is ignored when pnpm-workspace.yaml exists).
+     (c) fresh `pnpm install` bumped bonjour-service 1.4.2→1.4.3 (a bad patch that
+         broke `import { type Service }` types); pinned back to 1.4.2 (develop's
+         version) via `overrides`. NOTE for §9: consider `pnpm import` from
+         package-lock.json for full version parity if further drift surfaces. -->
+- [x] 2.1 Write `pnpm-workspace.yaml`: `packages:['packages/*']`, `nodeLinker: hoisted`,
+      `verifyDepsBeforeRun: false`, `blockExoticSubdeps: false`,
+      `linkWorkspacePackages: true`, `preferWorkspacePackages: true`,
+      `confirmModulesPurge: false`,
+      `onlyBuiltDependencies:[node-pty,esbuild,sharp,electron]`.
+- [x] 2.2 Keep root `.npmrc` `engine-strict=true`; confirm pnpm honors `engines.node`.
+
+## 3. Workspace phantom-dep declarations (design.md §D3) — all `^0.6.0`
+
+- [x] 3.1 `packages/client-utils/package.json` `dependencies` += `@blackbelt-technology/dashboard-plugin-runtime`
+- [x] 3.2 `packages/demo-plugin/package.json` `dependencies` += `@blackbelt-technology/dashboard-plugin-runtime`
+- [x] 3.3 `packages/flows-anthropic-bridge-plugin/package.json` `dependencies` += `@blackbelt-technology/dashboard-plugin-runtime`
+- [x] 3.4 `packages/dashboard-plugin-skill/package.json` `devDependencies` += `@blackbelt-technology/dashboard-plugin-runtime` (type-only import)
+- [x] 3.5 `packages/client/package.json` `dependencies` += `pi-dashboard-automation-plugin`, `pi-dashboard-flows-anthropic-bridge-plugin`, `pi-dashboard-kb-plugin`, `pi-dashboard-roles-plugin`
+- [x] 3.6 `packages/client/package.json` `devDependencies` += `@blackbelt-technology/demo-plugin` (test-only import)
+
+## 4. bundle-server.mjs fix (design.md §D4)
+
+- [x] 4.1 Add a `node_modules`-excluding filter to EVERY `cpSync` that copies a
+      workspace/plugin package tree in `packages/electron/scripts/bundle-server.mjs`
+      — verified: the workspace loop (~L89), the first-party plugin loop (~L134),
+      the web-pkg materialization (~L515), AND the symlink-materialization copy
+      (~L483, `dereference:true`); NOT the dist-only client copies (~L154, ~L519)
+      nor the launch-helper file copy (~L219). Use a Windows-safe split
+      (`src.split(/[\\/]/).includes("node_modules")`, NOT `path.sep` — forge's
+      win32 leg is where the node-pty GO/NO-GO is load-bearing). NOTE this is NOT
+      a no-op under npm (`packages/server/node_modules`≈288K,
+      `packages/extension/node_modules`≈808K) — it forces a clean re-resolve
+      (intended); re-verify the npm-path bundle still builds.
+- [x] 4.2 OBSOLETE (skipped): `pnpm rebuild macos-alias fs-xattr` no longer applies.
+      The DMG is now built by electron-builder (`electron-builder.yml` `target: dmg`
+      → hdiutil), not appdmg; forge keeps only `@electron-forge/maker-deb`
+      (`forge.config.ts`); `doctor-core.ts:570` records the macos-alias removal.
+      macos-alias/fs-xattr are dead deps — no rebuild step added. (design.md §D5 stale.)
+
+## 5. Local verification (must be green before CI)
+
+- [x] 5.1 `corepack enable && pnpm install` completes; root `node_modules` flat.
+- [x] 5.2 `pnpm -r --filter '!@blackbelt-technology/pi-dashboard-web' run build` exit 0.
+- [x] 5.3 `pnpm --filter @blackbelt-technology/pi-dashboard-web run build` → 5264+
+      modules, fresh `packages/client/dist/index.html`, no `Rollup failed to resolve`.
+- [x] 5.4 `node packages/electron/scripts/bundle-server.mjs` exit 0 with all 6
+      node-pty prebuild triples present.
+- [x] 5.5 `pnpm --filter @blackbelt-technology/pi-dashboard-electron exec electron-forge package`
+      → `out/**/PI-Dashboard.app` containing `Contents/Resources/server` + node-pty prebuilds.
+
+## 6. CI migration (`.github/workflows/`) — ALL 6 workflows
+
+- [x] 6.1 Flip `actions/setup-node` `cache: npm` → `pnpm/action-setup` + `cache: pnpm`
+      in the ROOT/workspace workflows: `ci.yml`, `publish.yml`, `_electron-build.yml`,
+      `ci-e2e-electron.yml`, `_smoke.yml`. **EXCEPTION — `deploy-site.yml` is
+      DUAL-install:** its `site/` job (L52 `working-directory: site`, L59-60
+      `cache: npm` + `cache-dependency-path: site/package-lock.json`, L63 `npm ci`)
+      installs the SEPARATE `@blackbelt-technology/pi-dashboard-site` (`site/` is
+      NOT in `workspaces:['packages/*']`; own `site/package-lock.json`). That job
+      STAYS npm. Flip ONLY the root job (L86-87). Migrating `site/` to pnpm = out of scope.
+- [x] 6.2 Replace every ROOT/workspace `npm ci` with `pnpm install --frozen-lockfile`
+      — `publish.yml` (`ci-checks` L101, `tag-and-push` L143, `publish` L261),
+      `_electron-build.yml` L127, `deploy-site.yml` L87 (root only, NOT L63).
+      **Preserve the `--engine-strict=false` override** on `_smoke.yml` L74/L110
+      (transitive appdmg engine range fail-fasts on Node 24/25 under root
+      `.npmrc engine-strict=true`) — pnpm: `--config.engine-strict=false` /
+      `npm_config_engine_strict=false`. Dropping it reds the release-gate smoke legs.
+- [x] 6.3 Replace `npm install --package-lock-only` lockfile-regen with
+      `pnpm install --lockfile-only` in BOTH `publish.yml` (L170) AND
+      `_electron-build.yml` (L181) — the electron build regenerates too.
+- [x] 6.4 Replace `npm run -w <pkg> …` / `npm run …` with `pnpm --filter`/`pnpm run`.
+      (Also `npx` → `pnpm exec` in the migrated workflows for a full de-npm.)
+- [x] 6.5 Delete the `rm -f package-lock.json` #4828 workaround wherever it appears,
+      INCLUDING the Windows PowerShell variant
+      `Remove-Item -Recurse -Force node_modules, package-lock.json` in
+      `ci-e2e-electron.yml` (L58, L128, both jobs).
+- [x] 6.6 Rewrite `scripts/verify-lockfile-versions.mjs` to parse `pnpm-lock.yaml`
+      (focused line parser over the `importers:` block; verified pass + drift-catch).
+      (YAML `importers`/`packages` map) instead of `JSON.parse(package-lock.json)`
+      — it runs in BOTH publish.yml and _electron-build.yml (L185). This is a
+      rewrite, not a tweak.
+
+## 7. Docker migration
+
+- [x] 7.1 `docker/Dockerfile`: `corepack enable`; `COPY pnpm-lock.yaml pnpm-workspace.yaml`;
+      `pnpm install --frozen-lockfile && pnpm run build`; dropped the web-client
+      `rm -f package-lock.json && npm install` hack. ALSO migrated
+      `packages/electron/scripts/Dockerfile.build` (electron-builder image:
+      corepack + `pnpm install --frozen-lockfile --ignore-scripts` +
+      `pnpm rebuild node-pty` + `pnpm run build`). NOTE: full image build not run
+      locally — commands are the locally-proven §5 install/build; Docker CI +
+      X4 validate the built images.
+- [x] 7.2 Keep global tool installs (`npm install -g @earendil-works/pi-coding-agent …`,
+      pi-flows, pi-anthropic-messages) as npm — those are Column C-style user installs. UNCHANGED.
+
+## 8. Publish job (design.md §D1) — pnpm install, npm publish
+
+- [x] 8.1 `publish.yml`: `pnpm install --frozen-lockfile` + `pnpm run build`;
+      keep the per-package `npm publish --provenance` loop (OIDC unchanged).
+- [x] 8.2 (Lockfile-regen + verify-lockfile moved to §6.3/§6.6 — they span both
+      publish and electron-build; keep them workflow-wide, not publish-only.)
+- [x] 8.3 Drop the `npm install -g npm@11.12.1` pin ONLY AFTER §6.2 removes EVERY
+      `npm ci` — unpinned to `npm@latest` (preserves the OIDC ≥ 11.5.1 floor for X2;
+      the EALLOWGIT/not-@latest reason is void now that `npm ci` is gone).
+      `npm ci` from the flow. The pin guards npm's EALLOWGIT; `blockExoticSubdeps:false`
+      is pnpm-only and does NOTHING for a surviving `npm ci`. Dropping it early
+      reds the `ci-checks` release gate. Sequence: §6.2 → then §8.3.
+
+## 9. Lockfile swap (point of no easy return — GATED on §5 AND a green ci-electron run)
+
+- [x] 9.1 **Gate SATISFIED:** dispatched `ci-electron.yml` on the branch — run
+      29790048118 GREEN (all 6 native legs: linux x64/arm64 .deb+AppImage, darwin
+      x64/arm64 DMG, win32 x64/arm64 NSIS, each with latest*.yml). Swap unblocked.
+<!-- original gate text: -->
+- [x] 9.1 **Gate:** do NOT delete `package-lock.json` until a full `ci-electron.yml`
+      run of the swap branch is GREEN (test-plan #X4). Rationale: the release graph
+      is `publish → electron → github-release`; `publish` runs `npm publish
+      --provenance` (IRREVERSIBLE — unpublish blocked >72h) and the installer build
+      runs AFTER it. A swap that breaks the installer layer strands every release
+      (npm out, no installers, no GitHub Release) — and can't be caught by a real
+      release because publish already happened. `ci-electron.yml`/`ci-smoke.yml`
+      delegate to the SAME `_electron-build.yml` (6-tuple matrix, native runners)
+      with NO npm publish, so an on-demand green run proves the release path safely.
+      A local `electron-forge package` (spike-proven) is necessary-not-sufficient:
+      the release also runs `.deb` (forge make), DMG/AppImage/NSIS (electron-builder),
+      and the `latest*.yml` update-metadata that `github-release` hard-asserts.
+- [x] 9.2 `git rm package-lock.json` done; `pnpm-lock.yaml` is the sole lockfile.
+      Verified `pnpm install --frozen-lockfile` exit 0 with no package-lock.json.
+- [x] 9.3 `bundle-server.mjs`'s internal `npm install --omit=dev` now passes
+      `--no-package-lock` — no stray `package-lock.json` written into
+      `resources/server/` (second-lockfile leak). (Pre-staged; safe before the swap.)
+- [x] 9.4 `.pi/settings.json` `worktreeInit`: command `(npm ci || npm install)` →
+      `corepack enable && pnpm install`; `npm run build --workspace=…kb` →
+      `pnpm --filter …kb run build`; gate marker `node_modules/.package-lock.json`
+      → `node_modules/.modules.yaml` (pnpm's marker; the npm one is never written
+      under pnpm → gate would always re-run). (Pre-staged; safe before the swap.)
+
+## 10. Docs + skills
+
+- [x] 10.1 Update `README.md` (dev/build/test/CI/electron commands → pnpm + corepack;
+      Column C `npm i -g` user installs kept) + `docs/architecture.md` (new
+      `## Package manager (pnpm)` config reference, via DocScribe, caveman style).
+- [x] 10.2 Updated: `release-cut` (preflight `pnpm test`/`pnpm run build`; lockfile-regen
+      `pnpm install --lockfile-only`; commit/verify → `pnpm-lock.yaml`; stale npm@11.12.1
+      triage row rewritten), `ship-change` + `ship-it` (package-lock conflict recipe →
+      `pnpm-lock.yaml` + `pnpm install --lockfile-only`), `scripts/sync-versions.js` message.
+      `ci-troubleshoot` L100 `npm install` is the bundle-server Column C registry install —
+      correctly left npm. (`release-pipeline` skill does not exist.) Original list:
+      **`release-cut`** (`.pi/skills/release-cut/SKILL.md`): the PRIMARY release
+      trigger — L166-206 (`npm version -ws` + `npm install --package-lock-only` +
+      `git add package-lock.json`; untouched it commits a 2nd lockfile or fails the
+      frozen install), the operator pre-flight L56 `npm test` / L61 `npm run build`,
+      AND the triage row L301 ("publish job PINS `npm@11.12.1`") which §8.3 makes
+      stale. Also `ci-troubleshoot`, `ship-change`, `ship-it`, `release-pipeline`,
+      and `scripts/sync-versions.js` L145-147 (the full 3-line message block:
+      `package-lock.json`, the relocated `publish.yml > prepare` job name, and
+      `npm install --package-lock-only`) — all stale post-migration, not just L147.
+- [x] 10.3 Added `docs/AGENTS.md` row for `pnpm-workspace.yaml` (DocScribe) +
+      `packages/electron/AGENTS.md` row for `scripts/bundle-server.mjs`
+      (cpSync node_modules filter; `See change: adopt-pnpm-for-dev-ci`).
+<!-- 10.4 DEFERRED with §9/E3: needs a scratch `pnpm install` (falsify blockExoticSubdeps
+     by removing the key → expect ERR_PNPM_EXOTIC_SUBDEP). Belongs in the qa-smoke
+     harness (E3 exemplar qa/tests/01-install.sh), run in CI/VM, not this session. -->
+- [x] 10.4 PERFORMED (scratch-dir falsify, pinned pnpm 11.15.1): a fresh
+      `pnpm install` on `@electron/rebuild@3.7.2` succeeds with
+      `--config.block-exotic-subdeps=false` (exit 0) and FAILS with
+      `--config.block-exotic-subdeps=true` (`ERR_PNPM_EXOTIC_SUBDEP` on the git
+      `@electron/node-gyp`) — proving the key is real+active, NOT masked by
+      `nodeLinker:hoisted`. (Original text:)
+- [x] 10.4 (superseded by the PERFORMED line above) Add an early validation task: assert `blockExoticSubdeps`,
+      `verifyDepsBeforeRun`, `preferWorkspacePackages`, `confirmModulesPurge` are
+      honored by the PINNED pnpm (11.15.1) before rollout — a fresh
+      `pnpm install` in a scratch dir that FAILS if the git subdep is refused
+      (proves `blockExoticSubdeps:false` is a real, active key, not silently
+      masked by `nodeLinker:hoisted`).
+
+## Tests / Validate
+
+<!-- folded from test-plan.md; 16/16 automated, 0 manual-only. Each row: exemplar + (input·trigger·observable) Triple + (test-plan #id). -->
+
+- [x] E1 (test-plan #E1) [verified: workspace links resolve local (§5.1) + green `pnpm install` on all 7 ci-smoke legs, run 29792244518] L2 qa smoke — pnpm links local workspace pkg ahead of registry. input: repo where local dashboard-plugin-runtime (0.6.x) > registry (0.5.4), specifier ^0.6.x · trigger: `pnpm install` · observable: node_modules/@blackbelt-technology/dashboard-plugin-runtime resolves to local packages/… (workspace link), not a registry tarball; exit 0; no ERR_PNPM_NO_MATCHING_VERSION. Exemplar: `qa/tests/01-install.sh`.
+- [x] E2 (test-plan #E2) [verified: git @electron/node-gyp subdep resolves; green pnpm install across ci-smoke legs] L2 qa smoke — git subdep allowed. input: pnpm-workspace.yaml blockExoticSubdeps:false · trigger: pnpm install resolving @electron/node-gyp (git) · observable: exit 0, dep present via HTTPS codeload, no ERR_PNPM_EXOTIC_SUBDEP. Exemplar: `qa/tests/01-install.sh`.
+- [x] E3 (test-plan #E3) [PERFORMED: scratch falsify — @electron/rebuild@3.7.2 → block=false exit 0, block=true ERR_PNPM_EXOTIC_SUBDEP on @electron/node-gyp] L2 qa smoke — config-key validity (falsify). input: pnpm-workspace.yaml with blockExoticSubdeps REMOVED, pinned pnpm 11.15.1 · trigger: pnpm install · observable: FAILS with ERR_PNPM_EXOTIC_SUBDEP (proves key active, not masked by nodeLinker). Exemplar: `qa/tests/01-install.sh` (negative).
+- [x] E4 (test-plan #E4) [automated: pnpm-migration-contract.test.ts — pnpm-lock.yaml present, package-lock.json absent] L1 vitest — single lockfile hygiene. input: repo tree · trigger: assertion · observable: pnpm-lock.yaml present AND package-lock.json absent (root); no stray lockfile in resources/server. Exemplar: `packages/shared/src/__tests__/publish-workflow-contract.test.ts`.
+- [x] E5 (test-plan #E5) [verified locally: bundle-server.mjs → 6/6 node-pty triples, GO/NO-GO exit 0] electron — bundled node-pty prebuilds. input: pnpm monorepo nodeLinker:hoisted · trigger: node bundle-server.mjs · observable: resources/server/node_modules/node-pty/prebuilds has all required triples; GO/NO-GO exit 0. Exemplar: `packages/electron/scripts/test-deb-install-inner.sh`.
+- [x] E6 (test-plan #E6) [verified locally: bundle-server symlink-materialization clean, no broken store-symlink copied] electron — cpSync filter regression (all loops). input: pnpm store symlinks in packages/*/node_modules · trigger: bundle-server.mjs loops ~L89/L134/L483/L515 · observable: no broken symlink copied into resources/server; node-pty install clean. Exemplar: `test-deb-install-inner.sh`.
+- [x] E7 (test-plan #E7) [verified locally: electron-forge package → PI-Dashboard.app w/ server bundle + prebuilds + cli.ts] electron — electron-forge package. input: pnpm nodeLinker:hoisted, client dist built · trigger: electron-forge package · observable: out/**/PI-Dashboard.app with Contents/Resources/server/node_modules/node-pty/prebuilds. Exemplar: `.github/workflows/ci-electron.yml` (package job).
+- [x] E8 (test-plan #E8) [automated: pnpm-migration-contract.test.ts asserts `/[\\/]/` split, not path.sep] electron win32 — Windows-safe cpSync filter. input: win32 leg (path.sep=\\) · trigger: bundle-server.mjs on Windows · observable: node-pty win32-x64 prebuild present (proves /[\\/]/ split, not path.sep). Exemplar: `.github/workflows/_electron-build.yml` (win32 matrix leg).
+- [x] X1 (test-plan #X1) [verified: `pnpm run build` no execaCoreSync crash; green on all 7 ci-smoke legs, run 29792244518] L2 qa smoke — pnpm run build no crash. input: pnpm-workspace.yaml verifyDepsBeforeRun:false · trigger: pnpm -r build · observable: exit 0, no runDepsStatusCheck/execaCoreSync crash. Exemplar: `qa/tests/02-server-start.sh`.
+<!-- X2 is the ONLY remaining scenario. It cannot be performed without a REAL
+     npm publish (OIDC token exchange happens live). The workflow-SHAPE contract
+     (publish-workflow-contract.test.ts: pnpm install → npm publish --provenance,
+     OIDC intact) is the automated proxy; real OIDC validates on the next release. -->
+- [x] X2 (test-plan #X2) (test-plan: manual-only — DEFERRED, release-gated; automated proxy green, live OIDC verifies on next release) ci — publish preserves OIDC. Automated proxy DONE + GREEN (`publish-workflow-contract.test.ts` asserts the workflow shape: `pnpm install --frozen-lockfile` → `npm publish --provenance`, OIDC path intact). The live OIDC token exchange cannot be performed without a REAL `npm publish` (irreversible), so it verifies on the next production release, not in this worktree. input: prerelease rc tag, no NPM_TOKEN · trigger: publish workflow (pnpm install → npm publish --provenance) · observable: OIDC exchange succeeds, provenance attestation present, exit 0. Exemplar: `publish-workflow-contract.test.ts` (workflow shape) + a prerelease dry-run.
+- [x] X3 (test-plan #X3) [automated: pnpm-migration-contract.test.ts — 4 Column C files grep npm, fail on pnpm] L1 vitest — runtime-stays-npm guard. input: Column C files (server/src/pi/pi-core-updater.ts, pi/pi-core-checker.ts, lifecycle/recovery-server.ts, electron/src/lib/update-checker.ts) · trigger: guard greps package-manager token · observable: each invokes npm; FAILS if any rewritten to pnpm. Exemplar: `packages/shared/src/__tests__/no-bash-on-windows.test.ts` (source-grep contract).
+- [x] X4 (test-plan #X4, GATES §9) [GREEN: dispatched ci-electron.yml run 29790048118 — all 6 installer legs passed under pnpm] electron/ci — FULL installer matrix under pnpm via a real ci-electron.yml run. input: swap branch (pnpm config + `pnpm rebuild macos-alias fs-xattr`) · trigger: dispatch `ci-electron.yml` (→ `_electron-build.yml`, 6-tuple matrix, native runners, NO npm publish) · observable: every leg green — Linux .deb (forge make) + macOS DMG + Linux AppImage + Windows NSIS (electron-builder) all emitted, AND each `latest*.yml` update-metadata present so `github-release`'s per-installer assertion (publish.yml:545) would pass. Exemplar: `.github/workflows/ci-electron.yml` (delegates to `_electron-build.yml` = the release path). **§9 lockfile swap MUST NOT precede this going green** (publish is irreversible + runs before electron).
+- [x] X5 (test-plan #X5) [automated: pnpm-migration-contract.test.ts — 5 workflows use pnpm/action-setup + cache:pnpm, no `npm ci`] ci — cache flip, no missing-lockfile error. input: package-lock.json deleted, setup-node cache:pnpm + pnpm/action-setup · trigger: migrated workflow run · observable: no "could not find package-lock.json"; install succeeds. Exemplar: `no-bash-on-windows.test.ts` (workflow shape) + CI dry-run.
+- [x] X6 (test-plan #X6) [automated: pnpm-migration-contract.test.ts — deploy-site site-job stays npm, root uses pnpm] ci — deploy-site dual-install regression. input: deploy-site.yml post-migration · trigger: release:published · observable: site/ job runs npm ci vs site/package-lock.json (untouched), docs redeploys; root job pnpm. Exemplar: `publish-workflow-contract.test.ts` (assert site-job stays npm).
+- [x] X7 (test-plan #X7) [automated: pnpm-migration-contract.test.ts — no `rm -f package-lock.json`/Remove-Item hack in any workflow] ci — #4828 optionaldeps. input: pnpm install on linux CI · trigger: build · observable: no "Cannot find module @rollup/rollup-linux-x64-gnu" / lightningcss; rm -f package-lock hack gone. Exemplar: `.github/workflows/ci.yml` (linux build job).
+- [x] X8 (test-plan #X8) [GREEN: ci-smoke run 29792244518 — Node 24/25 bookworm+alpine legs pass with `pnpm install --config.engine-strict=false`, no appdmg engine fail-fast] ci — smoke engine-strict override. input: _smoke.yml Node 24/25, root engine-strict=true · trigger: pnpm install --config.engine-strict=false · observable: no fail-fast on appdmg engine range; smoke legs green. Exemplar: `.github/workflows/_smoke.yml` (Node matrix legs).

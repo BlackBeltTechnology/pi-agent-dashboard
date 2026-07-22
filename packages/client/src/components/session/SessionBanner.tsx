@@ -1,9 +1,10 @@
-import { mdiAlert, mdiClose, mdiContentCopy, mdiStop } from "@mdi/js";
+import { mdiAlert, mdiContentCopy, mdiStop } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useState } from "react";
 import type { BannerState } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { CopyButton } from "../primitives/CopyButton.js";
+import { InlineMessage } from "../primitives/InlineMessage.js";
 
 export type { BannerState } from "../../lib/chat/event-reducer.js";
 
@@ -20,12 +21,14 @@ interface Props {
 }
 
 /**
- * Single-card error-lifecycle surface (change: simplify-error-retry-single-card).
+ * Single-card error-lifecycle surface (change: simplify-error-retry-single-card;
+ * redesign-directory-card — now rendered via the shared `InlineMessage`
+ * primitive with `severity="error"` and the `animate` retry sweep).
  *
  * ONE bordered card per failure. The raw error string is always the header;
  * the provider auto-retry is a live sub-line ("retrying… (attempt N)") on the
- * SAME surface, with a thin animated top strip while a retry is in flight —
- * never two stacked cards.
+ * SAME surface, with the primitive's animated top strip while a retry is in
+ * flight — never two stacked cards.
  *
  * Controls:
  *   - ✕ (dismiss) is clear-only. It NEVER aborts the session; it only clears
@@ -61,78 +64,64 @@ export function SessionBanner({
   const displayText =
     !isLong || expanded ? headerText : `${headerText.slice(0, collapseThreshold).trimEnd()}…`;
 
+  const actions = (
+    <>
+      {isLong && (
+        <button
+          type="button"
+          data-testid="error-banner-toggle"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-xs underline-offset-2 hover:underline"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+      {/* Sole abort: present only while retrying (pi still working). */}
+      {retrying && onAbort && (
+        <button
+          type="button"
+          data-testid="error-banner-stop"
+          onClick={onAbort}
+          title={i18nT("session.stopEndsSession", undefined, "Stop (ends the session)")}
+          className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-current"
+        >
+          <Icon path={mdiStop} size={0.55} />
+          {i18nT("session.stopEndsSession", undefined, "Stop (ends the session)")}
+        </button>
+      )}
+      <CopyButton
+        getText={() => headerText}
+        icon={<Icon path={mdiContentCopy} size={0.6} />}
+        title={i18nT("session.copyErrorMessage", undefined, "Copy error message")}
+      />
+    </>
+  );
+
   return (
     <div className="mt-4 mb-2 mx-auto max-w-2xl">
-      <div
-        data-testid="error-banner"
-        className="relative overflow-hidden bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-2.5 flex items-start gap-2"
+      <InlineMessage
+        severity="error"
+        icon={mdiAlert}
+        animate={retrying}
+        title={
+          <span data-testid="error-banner-text" className="whitespace-pre-wrap break-words font-normal">
+            {displayText}
+          </span>
+        }
+        onDismiss={onDismiss}
+        testId="error-banner"
+        dismissTestId="error-banner-dismiss"
+        actions={actions}
       >
         {retrying && (
-          // Thin animated top strip — the only "activity" affordance while pi
-          // is re-attempting. See change: simplify-error-retry-single-card.
-          <div
-            data-testid="retry-strip"
-            className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-amber-400/80 to-transparent animate-pulse"
-          />
-        )}
-        <Icon path={mdiAlert} size={0.7} className="text-red-400 shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0">
-          <div
-            data-testid="error-banner-text"
-            className="text-sm text-red-300 whitespace-pre-wrap break-words"
-          >
-            {displayText}
+          <div data-testid="retry-banner" className="text-xs">
+            <span data-testid="retry-banner-attempt">
+              {i18nT("status.retryingAttempt", undefined, "retrying…")} (
+              {i18nT("common.attempt", undefined, "attempt")} {retry!.attempt})
+            </span>
           </div>
-
-          {retrying && (
-            <div data-testid="retry-banner" className="mt-1 text-xs text-amber-300/90">
-              <span data-testid="retry-banner-attempt">
-                {i18nT("status.retryingAttempt", undefined, "retrying…")} (
-                {i18nT("common.attempt", undefined, "attempt")} {retry!.attempt})
-              </span>
-            </div>
-          )}
-
-          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-            {isLong && (
-              <button
-                data-testid="error-banner-toggle"
-                onClick={() => setExpanded((v) => !v)}
-                className="text-xs text-red-300 hover:text-red-200 underline-offset-2 hover:underline"
-              >
-                {expanded ? "Show less" : "Show more"}
-              </button>
-            )}
-            {/* Sole abort: present only while retrying (pi still working). */}
-            {retrying && onAbort && (
-              <button
-                data-testid="error-banner-stop"
-                onClick={onAbort}
-                title={i18nT("session.stopEndsSession", undefined, "Stop (ends the session)")}
-                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-red-500/40 text-red-200 hover:bg-red-500/15"
-              >
-                <Icon path={mdiStop} size={0.55} />
-                {i18nT("session.stopEndsSession", undefined, "Stop (ends the session)")}
-              </button>
-            )}
-            <CopyButton
-              getText={() => headerText}
-              icon={<Icon path={mdiContentCopy} size={0.6} />}
-              title={i18nT("session.copyErrorMessage", undefined, "Copy error message")}
-            />
-          </div>
-        </div>
-        {onDismiss && (
-          <button
-            data-testid="error-banner-dismiss"
-            onClick={onDismiss}
-            className="text-red-400 hover:text-red-300 shrink-0"
-            title={i18nT("common.dismiss", undefined, "Dismiss")}
-          >
-            <Icon path={mdiClose} size={0.6} />
-          </button>
         )}
-      </div>
+      </InlineMessage>
     </div>
   );
 }

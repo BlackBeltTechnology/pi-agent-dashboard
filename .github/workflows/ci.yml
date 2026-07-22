@@ -17,27 +17,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
-      # `npm ci` fails when package-lock.json omits a platform-specific
-      # optional binary for the runner OS (npm optional-deps bug, npm/cli#4828)
-      # — e.g. a lockfile generated on macOS lacks @rollup/rollup-linux-x64-gnu,
-      # so `npm ci` on ubuntu-latest cannot resolve it. Fall back to a clean
-      # install that re-resolves the full optional tree for this platform.
+      # pnpm re-resolves the full platform optional-dep tree from pnpm-lock.yaml,
+      # so the npm/cli#4828 clean-install fallback (macOS-generated lockfile
+      # missing @rollup/rollup-linux-x64-gnu on ubuntu) is no longer needed.
       - name: Install dependencies
-        run: npm ci || (echo "npm ci failed (likely npm/cli#4828 optional-deps); retrying clean install" && rm -rf node_modules package-lock.json && npm install)
+        run: pnpm install --frozen-lockfile
       # Single-source openspec-version gate: fail on server↔extension floor drift
       # on develop, not only at release. See change: provision-openspec-cli-in-sessions.
       - name: Verify release dependency shape
         run: node scripts/verify-release-deps.mjs
-      - run: npm run lint
+      - run: pnpm run lint
       # Hard-gates Tier A (error-severity) regressions; Tier B/C (warn) only annotate.
       - name: Biome static analysis (Tier A gate, warn-tier annotate)
-        run: npx biome lint . --reporter=github
-      - run: npm test
+        run: pnpm exec biome lint . --reporter=github
+      - run: pnpm test
       # Build and fail on the mechanical warnings removed by
       # `fix-vite-build-warnings`, plus the @mdi/js dynamic-import warning
       # removed by `shrink-client-index-chunk`. The oversized-chunk (>700 kB)
@@ -46,7 +46,7 @@ jobs:
       - name: Build (fail on regressed warnings)
         run: |
           set -o pipefail
-          npm run build 2>&1 | tee /tmp/build.log
+          pnpm run build 2>&1 | tee /tmp/build.log
           fail=0
           if grep -q "Unexpected token" /tmp/build.log; then
             echo "::error::CSS parse error (Unexpected token) re-appeared in the build log"; fail=1
