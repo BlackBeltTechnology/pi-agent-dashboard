@@ -60,7 +60,8 @@ interface InFlight {
   promise: Promise<AcquireResult>;
   resolve: (r: AcquireResult) => void;
   reject: (e: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  /** Set once the caps gate resolves + the spawn/resume fires (register-window). */
+  timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 export interface VisitorSessionRegistry {
@@ -93,30 +94,37 @@ export function createVisitorSessionRegistry(deps: RegistryDeps): VisitorSession
       reject = rej;
     });
     const timeoutMs = deps.config().registerTimeoutSeconds * 1000;
-    const timer = setTimeout(() => {
-      inFlight.delete(key);
-      reject(new Error(`acquire register timeout for ${key}`));
-    }, timeoutMs);
-    timer.unref?.();
-
     const entry: InFlight = {
       key,
       canonicalCwd,
       promise: promise.then((r) => ({ ...r, reason })),
       resolve,
       reject,
-      timer,
+      timer: undefined,
     };
     // Register the in-flight entry SYNCHRONOUSLY (before the caps-admission
     // await) so a truly-concurrent acquire coalesces onto it and the register
     // callback can find it. The caps gate + the actual spawn/resume then run
     // asynchronously; a capacity rejection clears the entry and rejects.
     inFlight.set(key, entry);
-    admit(key).then(fire).catch((e: Error) => {
-      clearTimeout(timer);
-      inFlight.delete(key);
-      reject(e);
-    });
+    admit(key)
+      .then(() => {
+        // Start the register-timeout clock only once the spawn/resume actually
+        // FIRES — the caps-admission gate may await a ~2 s graceful reclaim, and
+        // that must not eat into the register window (else a slow reclaim spuriously
+        // times out the acquire).
+        entry.timer = setTimeout(() => {
+          inFlight.delete(key);
+          reject(new Error(`acquire register timeout for ${key}`));
+        }, timeoutMs);
+        entry.timer.unref?.();
+        fire();
+      })
+      .catch((e: Error) => {
+        if (entry.timer) clearTimeout(entry.timer);
+        inFlight.delete(key);
+        reject(e);
+      });
     return entry.promise;
   }
 
@@ -154,7 +162,7 @@ export function createVisitorSessionRegistry(deps: RegistryDeps): VisitorSession
     // iteration is insertion order = FIFO).
     for (const entry of inFlight.values()) {
       if (entry.canonicalCwd !== canonicalCwd) continue;
-      clearTimeout(entry.timer);
+      if (entry.timer) clearTimeout(entry.timer);
       inFlight.delete(entry.key);
       keyToSessionId.set(entry.key, sessionId); // own the mapping / re-point (E10)
       entry.resolve({ sessionId, reason: "spawned" });

@@ -10,11 +10,14 @@
  * See OpenSpec change: add-embed-session-lifecycle.
  */
 import { realpathSync } from "node:fs";
+import { caseInsensitiveFilesystem } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import { within } from "../lib/path-containment.js";
 
 export interface AllowlistOptions {
   /** Test seam for `realpathSync`. */
   realpath?: (p: string) => string;
+  /** Force case-insensitivity (defaults to darwin/win32 detection). */
+  caseInsensitive?: boolean;
 }
 
 /**
@@ -29,12 +32,18 @@ export function isCwdAllowed(
 ): boolean {
   if (allowedRoots.length === 0) return false;
   const realpath = opts.realpath ?? realpathSync;
+  const caseInsensitive = opts.caseInsensitive ?? caseInsensitiveFilesystem();
   const resolve = (p: string): string => {
+    let r: string;
     try {
-      return realpath(p);
+      r = realpath(p);
     } catch {
-      return p;
+      r = p;
     }
+    // Case-normalize on case-insensitive filesystems so a realpath'd cwd and an
+    // allowed root differing only by casing still contain — matching how
+    // `identity-key.ts` canonicalizes the cwd (else a valid cwd is rejected).
+    return caseInsensitive ? r.toLowerCase() : r;
   };
   const realCwd = resolve(cwd);
   return allowedRoots.some((root) => within(realCwd, resolve(root)));

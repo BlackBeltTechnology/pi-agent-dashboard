@@ -131,7 +131,14 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
     for (const s of deps.listSessions()) {
       if (s.status === "ended") continue; // already gone
       if (!isEphemeral(s)) continue; // durable sessions are never governed (E1)
-      await reapOne(s, t);
+      // Isolate per-session failures: a throwing probe / kill must not reject
+      // the whole sweep (which runs unattended via setInterval → unhandled
+      // rejection) nor skip the remaining sessions.
+      try {
+        await reapOne(s, t);
+      } catch (err) {
+        console.warn(`[embed-lifecycle] reap sweep failed for ${s.id}:`, err);
+      }
     }
   }
 

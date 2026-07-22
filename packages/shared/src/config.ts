@@ -585,7 +585,7 @@ function clampNumber(raw: any, fallback: number, min: number, max: number): numb
   return n;
 }
 
-function parseEmbedLifecycleConfig(raw: any): EmbedLifecycleConfig {
+export function parseEmbedLifecycleConfig(raw: any): EmbedLifecycleConfig {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_EMBED_LIFECYCLE };
   const d = DEFAULT_EMBED_LIFECYCLE;
   return {
