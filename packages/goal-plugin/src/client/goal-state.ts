@@ -46,7 +46,7 @@ export function resolveGoalTurns(
 /** Clamp a used/max ratio to a 0–100 width percent. */
 export function gaugePct(used: number | undefined, max: number | undefined): number {
   if (used === undefined || !max || max <= 0) return 0;
-  return Math.min(100, Math.round((used / max) * 100));
+  return Math.max(0, Math.min(100, Math.round((used / max) * 100)));
 }
 
 /** 2-decimal USD; absent/undefined → `$0.00`. See change:

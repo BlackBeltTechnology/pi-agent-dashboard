@@ -1,7 +1,12 @@
 # goal-detail-stats Specification
 
 ## Purpose
-TBD - created by archiving change fix-goal-detail-turns-and-spend. Update Purpose after archive.
+Make a goal's execution statistics visible on the detail page and the goals board
+even when its driver loop is not live. Turns gauges fall back to the persisted
+`GoalRecord.lastKnownTurnsUsed` when there is no live `goal_status` snapshot, and
+spend is surfaced as `GoalRecord.totalSpendUsd` — a server-derived read-time sum of
+each linked session's `DashboardSession.cost` (never persisted). Display-only:
+`maxSpendUsd` is not runtime-enforced.
 ## Requirements
 ### Requirement: Goal turns gauges reflect persisted progress when the loop is not live
 The goal turns gauges on both the detail page and the goals board SHALL render
