@@ -45,11 +45,18 @@
 > Deferred to a DocScribe pass after increment 6: update `docs/architecture.md` grammar section
 > (still describes grammar as core).
 
-## 4. Move client into the plugin
+## 4. Move client into the plugin — DONE
 
-- [ ] 4.1 Move `GrammarPanel` + `useGrammarCheck` (+ their tests) into the plugin; claim
-  `composer-panel`.
-- [ ] 4.2 Remove the grammar imports/mounts from `App.tsx` + `CommandInput.tsx`.
+- [x] 4.1 Moved `GrammarPanel` + `useGrammarCheck` (+ their tests) into the plugin; added
+  `GrammarComposerPanel` (composer-panel slot component: trigger + ⌘G + panel). Claimed
+  `composer-panel`. Extended the slot contract with `sessionId`/`sessionStatus`/`onApplyText`
+  (bounded draft-write). Added a test-support cleanup setup (auto-unmount).
+- [x] 4.2 Removed grammar imports/mounts + `onGrammarCheck` from `App.tsx` + `CommandInput.tsx`
+  (grammar button + ⌘G gone from the toolbar). Regenerated `plugin-registry`. Typecheck clean;
+  plugin 75/75; client 1985; production build OK.
+
+> UX change (per approved option 1): the grammar trigger moved from the composer toolbar to the
+> plugin's panel below the input; functionality identical.
 
 ## 5. Move config into the plugin
 

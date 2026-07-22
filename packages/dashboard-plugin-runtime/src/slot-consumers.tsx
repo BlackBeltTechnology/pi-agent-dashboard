@@ -228,9 +228,15 @@ export function WorkspaceActionBarSlot({ session }: { session: DashboardSession 
 export function ComposerPanelSlot({
   draft,
   language,
+  sessionId,
+  sessionStatus,
+  onApplyText,
 }: {
   draft: string;
   language?: string;
+  sessionId?: string;
+  sessionStatus?: string;
+  onApplyText: (text: string) => void;
 }) {
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
@@ -239,7 +245,13 @@ export function ComposerPanelSlot({
   return (
     <>
       {claims.map((c) =>
-        renderClaim(c as Parameters<typeof renderClaim>[0], "composer-panel", { draft, language }),
+        renderClaim(c as Parameters<typeof renderClaim>[0], "composer-panel", {
+          draft,
+          language,
+          sessionId,
+          sessionStatus,
+          onApplyText,
+        }),
       )}
     </>
   );

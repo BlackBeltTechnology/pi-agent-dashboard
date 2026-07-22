@@ -374,7 +374,7 @@ describe("ComposerPanelSlot", () => {
     });
     render(
       <PluginContextProvider registry={registry}>
-        <ComposerPanelSlot draft="teh cat" language="en" />
+        <ComposerPanelSlot draft="teh cat" language="en" onApplyText={() => {}} />
       </PluginContextProvider>,
     );
     expect(screen.getByTestId("panel").textContent).toBe("draft=teh cat lang=en");
@@ -384,7 +384,7 @@ describe("ComposerPanelSlot", () => {
     const registry = createSlotRegistry();
     const { container } = render(
       <PluginContextProvider registry={registry}>
-        <ComposerPanelSlot draft="anything" />
+        <ComposerPanelSlot draft="anything" onApplyText={() => {}} />
       </PluginContextProvider>,
     );
     expect(container.textContent).toBe("");

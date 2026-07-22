@@ -51,6 +51,10 @@
         "slot": "settings-section",
         "component": "GrammarSettings",
         "tab": "general"
+      },
+      {
+        "slot": "composer-panel",
+        "component": "GrammarComposerPanel"
       }
     ]
   }

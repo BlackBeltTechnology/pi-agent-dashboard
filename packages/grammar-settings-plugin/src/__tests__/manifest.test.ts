@@ -16,22 +16,29 @@ const pkg = JSON.parse(
 );
 
 describe("grammar-settings manifest", () => {
-  it("declares a single settings-section claim on the general tab", () => {
+  it("declares the settings-section + composer-panel claims", () => {
     const manifest = pkg["pi-dashboard-plugin"];
     expect(manifest.id).toBe("grammar-settings");
-    expect(manifest.claims).toHaveLength(1);
-    expect(manifest.claims[0]).toMatchObject({
+    expect(manifest.claims).toHaveLength(2);
+    expect(manifest.claims).toContainEqual({
       slot: "settings-section",
       component: "GrammarSettings",
       tab: "general",
     });
+    // The composer-panel claim renders the grammar check UI below the input.
+    // See change: make-grammar-fully-plugin-contained.
+    expect(manifest.claims).toContainEqual({
+      slot: "composer-panel",
+      component: "GrammarComposerPanel",
+    });
   });
 
-  it("exports the claimed component and the i18n catalog from the barrel", () => {
+  it("exports every claimed component and the i18n catalog from the barrel", () => {
     const manifest = pkg["pi-dashboard-plugin"];
-    expect(typeof (barrel as Record<string, unknown>)[manifest.claims[0].component]).toBe(
-      "function",
-    );
+    // The vite registry generator resolves each claim.component by name.
+    for (const claim of manifest.claims) {
+      expect(typeof (barrel as Record<string, unknown>)[claim.component]).toBe("function");
+    }
     expect((barrel as Record<string, unknown>)[manifest.i18nCatalog]).toBeTypeOf("object");
   });
 

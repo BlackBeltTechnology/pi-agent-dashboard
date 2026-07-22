@@ -82,6 +82,16 @@ export interface SlotPropsMap {
     draft: string;
     /** Optional language hint for the draft (e.g. "en"); undefined = auto. */
     language?: string;
+    /** Current session id (for reset-on-switch); undefined when none selected. */
+    sessionId?: string;
+    /** Current session status (e.g. gate work while "streaming"). */
+    sessionStatus?: string;
+    /**
+     * Bounded draft-write: replace the composer input with `text`. The only
+     * mutation a composer-panel plugin may perform (e.g. apply a correction);
+     * NOT a general setter. See change: make-grammar-fully-plugin-contained.
+     */
+    onApplyText: (text: string) => void;
     pluginContext: AnyPluginContext;
   };
   "content-view": {

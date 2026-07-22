@@ -9,5 +9,6 @@
  * See change: add-grammar-settings-plugin.
  */
 
+export { GrammarComposerPanel } from "./GrammarComposerPanel.js";
 export { GrammarSettings } from "./GrammarSettings.js";
 export { catalog } from "./i18n.js";

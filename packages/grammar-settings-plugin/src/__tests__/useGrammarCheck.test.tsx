@@ -41,7 +41,7 @@ function render(props: { draft: string; sessionStatus?: "idle" | "streaming" | "
   const onDraftChange = props.onDraftChange ?? vi.fn();
   const view = renderHook(
     ({ draft, sessionStatus }) =>
-      useGrammarCheck({ draft, sessionId: "s1", sessionStatus, onDraftChange, apiBase: "" }),
+      useGrammarCheck({ draft, sessionId: "s1", sessionStatus, onDraftChange, }),
     { initialProps: { draft: props.draft, sessionStatus: props.sessionStatus ?? ("idle" as const) } },
   );
   return { ...view, onDraftChange };

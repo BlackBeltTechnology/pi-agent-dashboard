@@ -7,10 +7,10 @@
  */
 
 import type { GrammarErrorCode } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { mdiCheck, mdiClose, mdiSpellcheck } from "@mdi/js";
 import Icon from "@mdi/react";
-import type { ActiveSuggestion, GrammarStatus } from "../../hooks/useGrammarCheck.js";
-import { useI18n } from "../../lib/i18n/i18n.js";
+import type { ActiveSuggestion, GrammarStatus } from "./useGrammarCheck.js";
 
 interface Props {
   status: GrammarStatus;
@@ -24,7 +24,7 @@ interface Props {
   onDismissPanel: () => void;
 }
 
-function errorMessage(t: ReturnType<typeof useI18n>["t"], code: GrammarErrorCode): string {
+function errorMessage(t: ReturnType<typeof useT>, code: GrammarErrorCode): string {
   switch (code) {
     case "backend_unreachable":
       return t("grammar.err.unreachable", undefined, "Grammar backend unreachable. Check the LanguageTool server or provider.");
@@ -50,9 +50,10 @@ export function GrammarPanel({
   onDismiss,
   onDismissPanel,
 }: Props) {
-  const { t } = useI18n();
+  const t = useT();
 
-  // Idle with nothing to show → render nothing (the Check button lives in the composer toolbar).
+  // Idle with nothing to show → render nothing (the trigger lives in the
+  // plugin's composer-panel wrapper below the input).
   if (status === "idle") return null;
 
   const shell =

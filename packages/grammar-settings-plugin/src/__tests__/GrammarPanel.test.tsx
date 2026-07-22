@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ActiveSuggestion } from "../../hooks/useGrammarCheck.js";
-import { GrammarPanel } from "../chat/GrammarPanel.js";
+import type { ActiveSuggestion } from "../useGrammarCheck.js";
+import { GrammarPanel } from "../GrammarPanel.js";
 
 const SUGGESTIONS: ActiveSuggestion[] = [
   { id: "a", offset: 2, length: 3, original: "has", replacement: "have", kind: "grammar", message: "Agreement", stale: false },

@@ -8,6 +8,7 @@ export default defineConfig({
     environment: "jsdom",
     pool: "forks",
     maxWorkers: "50%",
+    setupFiles: ["./src/test-support/cleanup.ts"],
     globalSetup: ["@blackbelt-technology/pi-dashboard-shared/test-support/setup-home.ts"],
   },
 });

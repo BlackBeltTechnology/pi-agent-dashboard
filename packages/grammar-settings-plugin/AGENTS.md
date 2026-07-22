@@ -2,14 +2,17 @@
 
 First-party dashboard plugin for composer grammar/spell-check. Being made **fully
 plugin-contained** (change: `make-grammar-fully-plugin-contained`): the grammar CHECK route +
-backends now live HERE (server entry), not core. Client composer UI + config migration are later
-increments. Auto-discovered under `packages/*`. Original settings-only surface: change
-`add-grammar-settings-plugin`.
+backends (server entry) AND the composer UI (hook + panel, `composer-panel` slot claim) now live
+HERE, not core. Config migration to `plugins.grammar.*` is the remaining increment. Auto-discovered
+under `packages/*`. Original settings-only surface: change `add-grammar-settings-plugin`.
 
 | File | Purpose |
 |---|---|
-| `package.json` | Manifest `pi-dashboard-plugin` (id `grammar-settings`, priority 100). `client` = `./src/index.tsx` (one `settings-section`/`general` claim → `GrammarSettings`); `server` = `./src/server/index.ts` (owns `/api/grammar/*`). `i18nCatalog: catalog`. `fastify` devDep for route types. No `configSchema` yet (route reads core `config.grammar`; migration pending). See change: make-grammar-fully-plugin-contained. |
-| `src/index.tsx` | Client entry barrel. Re-exports `GrammarSettings` + `catalog` (names MUST match the manifest for the vite-plugin named-import generator). |
+| `package.json` | Manifest `pi-dashboard-plugin` (id `grammar-settings`, priority 100). `client` = `./src/index.tsx` (claims `settings-section`/`general` → `GrammarSettings` AND `composer-panel` → `GrammarComposerPanel`); `server` = `./src/server/index.ts` (owns `/api/grammar/*`). `i18nCatalog: catalog`. `fastify` devDep for route types. No `configSchema` yet (route reads core `config.grammar`; migration pending). See change: make-grammar-fully-plugin-contained. |
+| `src/index.tsx` | Client entry barrel. Re-exports `GrammarComposerPanel` + `GrammarSettings` + `catalog` (names MUST match the manifest claims for the vite-plugin named-import generator). |
+| `src/GrammarComposerPanel.tsx` | `composer-panel` slot component. Receives `{draft, sessionId?, sessionStatus?, onApplyText}`, drives `useGrammarCheck` (onDraftChange=onApplyText), renders the trigger (button + document ⌘G listener, gated on `enabled`) + `GrammarPanel`. The whole composer grammar surface, owned by the plugin. See change: make-grammar-fully-plugin-contained. |
+| `src/GrammarPanel.tsx` | Corrections panel (diff-highlighted original→replacement, summary, per-suggestion Accept/Dismiss, Apply-all, close). States idle→null/checking/error/done. Uses `useT()` (plugin i18n, English fallbacks). Moved from core client. |
+| `src/useGrammarCheck.ts` | Composer grammar hook. One-shot `GET /api/grammar/health` then manual (`checkNow`) + debounced-auto `POST /api/grammar/check` (relative fetch, same-origin). Aborts on keystroke/session-switch; skips auto while `streaming`/below `minChars`/`/`·`!` drafts. Offset-safe `applyAll`/`accept`/`dismiss`/`dismissPanel` via `onDraftChange`. Exports `ActiveSuggestion`, `GrammarStatus`. Moved from core client (dropped `apiBase`). |
 | `src/GrammarSettings.tsx` | Settings-section component. Controls for the full `GrammarConfig`. For `backend: llm`, ONE model picker via the `ui:model-selector` primitive fed by `GET /api/models`; the `provider/id` label splits back into core `llm.{provider,model}` on save. Loads via `GET /api/config` (`data.grammar`), persists a `{ grammar }` partial via `PUT /api/config`, re-GETs to surface clamping. LanguageTool reachability via `GET /api/grammar/health`. |
 | `src/i18n.ts` | `catalog` — unprefixed leaf keys, `hu` locale; English inline as `t(key, vars, English)`. Merged under `plugin.grammar-settings.*`. |
 | `src/server/index.ts` | **Server entry.** `registerPlugin(ctx)` mounts `/api/grammar/*` via `ctx.fastify` and runs the `llm` backend through `ctx.modelRuntime` (in-process registry + streamSimple; no model-proxy loopback). Reads core `config.grammar` per request (migration to `plugins.grammar.*` pending). See change: make-grammar-fully-plugin-contained. |
@@ -19,7 +22,10 @@ increments. Auto-discovered under `packages/*`. Original settings-only surface: 
 | `src/server/backends/languagetool.ts` | LanguageTool backend (offline). `checkWithLanguageTool` POSTs `<url>/v2/check`; pure `classifyIssue`/`mapMatches`/`applyCorrections`/`summarize`. Moved from core. |
 | `src/server/grammar-errors.ts` | `GrammarBackendError` (carries `GrammarErrorCode`). Moved from core. |
 | `src/server/abort.ts` | `withTimeoutSignal(timeoutMs, external?)` — compose timeout + abort. Moved from core. |
-| `vitest.config.ts` | jsdom + `@vitejs/plugin-react`; `globalSetup` = shared `setup-home.ts` (ephemeral HOME). Runs both the server backend tests and the React component tests. |
+| `vitest.config.ts` | jsdom + `@vitejs/plugin-react`; `globalSetup` = shared `setup-home.ts` (ephemeral HOME); `setupFiles` = `src/test-support/cleanup.ts`. Runs the server backend tests + the React component/hook tests. |
+| `src/test-support/cleanup.ts` | `afterEach(cleanup)` — unmount React trees between tests (Testing Library auto-cleanup needs vitest `globals:true`, unset here). |
+| `src/__tests__/GrammarPanel.test.tsx` | GrammarPanel render/interaction tests (states, apply-all/accept/dismiss). Moved from core client. |
+| `src/__tests__/useGrammarCheck.test.tsx` | Hook tests (health fetch, auto/manual check, abort, apply). Moved from core client (relative fetch). |
 | `src/__tests__/GrammarSettings.test.tsx` | Settings component tests (load/defaults/backend-conditional/save/clamp/health). Mocks `fetch`. |
 | `src/__tests__/manifest.test.ts` | Manifest/barrel wiring: single settings-section claim; barrel exports; asserts the `server` entry `./src/server/index.ts` (configSchema still absent). |
 | `src/__tests__/grammar-llm.test.ts` | `checkWithLlm` / `extractJsonObject` / `parseLlmResult` / `googleToOpenAiCompat` (rerouting unit + integration). Moved from core server tests. |

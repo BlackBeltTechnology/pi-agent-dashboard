@@ -4,8 +4,10 @@
  * checks against `POST /api/grammar/check`, and owns offset-safe apply of
  * corrections back into the controlled composer draft.
  *
- * The draft is owned by the parent (App) via `draft` / `onDraftChange`; this
- * hook never stores draft text itself. See change: add-composer-grammar-check.
+ * The draft is owned by the composer (via `draft` / `onDraftChange`); this
+ * hook never stores draft text itself. Fetches are relative to the dashboard
+ * origin (same-origin plugin). See changes: add-composer-grammar-check,
+ * make-grammar-fully-plugin-contained.
  */
 
 import type {
@@ -63,12 +65,10 @@ export interface UseGrammarCheckArgs {
   sessionId: string | undefined;
   sessionStatus: "idle" | "streaming" | "ended" | undefined;
   onDraftChange: (text: string) => void;
-  /** HTTP base for API calls (App owns it; passed explicitly, not via context). */
-  apiBase: string;
 }
 
 export function useGrammarCheck(args: UseGrammarCheckArgs): UseGrammarCheck {
-  const { draft, sessionId, sessionStatus, onDraftChange, apiBase } = args;
+  const { draft, sessionId, sessionStatus, onDraftChange } = args;
 
   const [health, setHealth] = useState<GrammarHealth>(DEFAULT_HEALTH);
   const [status, setStatus] = useState<GrammarStatus>("idle");
@@ -83,7 +83,7 @@ export function useGrammarCheck(args: UseGrammarCheckArgs): UseGrammarCheck {
   // One-shot config fetch.
   useEffect(() => {
     let active = true;
-    fetch(`${apiBase}/api/grammar/health`)
+    fetch("/api/grammar/health")
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => {
         if (active && body?.success && body.data) setHealth(body.data as GrammarHealth);
@@ -94,7 +94,7 @@ export function useGrammarCheck(args: UseGrammarCheckArgs): UseGrammarCheck {
     return () => {
       active = false;
     };
-  }, [apiBase]);
+  }, []);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -117,7 +117,7 @@ export function useGrammarCheck(args: UseGrammarCheckArgs): UseGrammarCheck {
       abortRef.current = controller;
       setStatus("checking");
       setError(null);
-      fetch(`${apiBase}/api/grammar/check`, {
+      fetch("/api/grammar/check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
@@ -141,7 +141,7 @@ export function useGrammarCheck(args: UseGrammarCheckArgs): UseGrammarCheck {
           setStatus("error");
         });
     },
-    [apiBase],
+    [],
   );
 
   const checkNow = useCallback(() => {
