@@ -28,6 +28,7 @@ describe("RealInvoiceEngine — pass-through", () => {
       review: async () => facadeResult,
       setup: async () => facadeResult,
       rules: async () => facadeResult,
+      ingest: async () => ({ results: [], landed: 0, skipped: 0, rejected: 0 }),
     };
     const engine = new RealInvoiceEngine(facade);
 

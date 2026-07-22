@@ -9,7 +9,12 @@
  *
  * See change: add-invoicebot-rest-plugin (Decision 0, risk "Fake drift").
  */
-import type { EngineResult, FlowRunSpec, InvoiceEngine } from "./port.js";
+import { createHash } from "node:crypto";
+import type { EngineResult, FlowRunSpec, IngestFile, IngestResult, InvoiceEngine } from "./port.js";
+
+/** Shared per-file cap (bytes) — the boundary and the engine enforce the same 20 MB. */
+const INGEST_MAX_BYTES = 20 * 1024 * 1024;
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 const INV_A = "a1b2c3d4"; // pending_approval
 const INV_B = "e5f6a7b8"; // partner_pending
@@ -256,6 +261,31 @@ export class FakeInvoiceEngine implements InvoiceEngine {
       default:
         return { content: [{ type: "text", text: `⛔ unknown action: "${args.action}"` }], details: { ok: false } };
     }
+  }
+
+  // Deterministic ingest simulation: magic-byte type gate + size cap + content-
+  // hash dedup (seen-set scoped to this instance). `cwd` accepted and ignored.
+  private readonly seen = new Set<string>();
+  async ingest(_cwd: string, files: IngestFile[]): Promise<IngestResult> {
+    const results = files.map((f) => this.classify(f));
+    return {
+      results,
+      landed: results.filter((o) => o.status === "landed").length,
+      skipped: results.filter((o) => o.status === "skipped").length,
+      rejected: results.filter((o) => o.status === "rejected").length,
+    };
+  }
+
+  private classify(file: IngestFile): { filename: string; hash: string; status: "landed" | "skipped" | "rejected"; reason?: string } {
+    const hash = createHash("sha256").update(file.bytes).digest("hex").slice(0, 16);
+    const base = { filename: file.filename, hash };
+    if (file.bytes.length > INGEST_MAX_BYTES) return { ...base, status: "rejected", reason: "too large" };
+    const isPdf = file.bytes.subarray(0, 5).toString("latin1") === "%PDF-";
+    const isPng = file.bytes.subarray(0, 8).equals(PNG_MAGIC);
+    if (!isPdf && !isPng) return { ...base, status: "rejected", reason: "unsupported type" };
+    if (this.seen.has(hash)) return { ...base, status: "skipped", reason: "duplicate" };
+    this.seen.add(hash);
+    return { ...base, status: "landed" };
   }
 
   private miss(keys: string): EngineResult {
