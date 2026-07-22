@@ -98,10 +98,3 @@
 
 > Deferred: `docs/architecture.md` grammar section still describes grammar as core — delegate a
 > DocScribe caveman-style rewrite (out of this session's scope).
-
-## 7. Validate
-
-- [ ] 7.1 Full suite green; `pnpm run lint`; `pnpm run build`.
-- [ ] 7.2 Perf: composer keystroke→render latency unchanged vs baseline (measure).
-- [ ] 7.3 Manual: enable grammar in Settings, verify check + apply-correction still work on both
-  `languagetool` and `google`(OpenAI-compat) backends.
