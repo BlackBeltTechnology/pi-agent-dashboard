@@ -142,4 +142,14 @@ describe("validateHermesConfig", () => {
     const r = validateHermesConfig({ correctionStrongPatterns: ["/don't do that/i", "^no\\b"] });
     expect(r.ok).toBe(true);
   });
+
+  it("accepts a valid sessionSearch object", () => {
+    expect(validateHermesConfig({ sessionSearch: { variant: "anchors" } }).ok).toBe(true);
+  });
+
+  it("rejects a sessionSearch object with extra keys", () => {
+    const r = validateHermesConfig({ sessionSearch: { variant: "legacy", extra: 1 } });
+    expect(r.ok).toBe(false);
+    expect(r.errors[0].field).toBe("sessionSearch");
+  });
 });

@@ -40,6 +40,14 @@ describe("readEffectiveConfig", () => {
     expect(eff.fields.nudgeInterval.isDefault).toBe(true);
     expect(eff.raw.llmModelOverride).toBe("anthropic/claude-haiku-4-5");
   });
+
+  it("treats a malformed file as present with all defaults", () => {
+    fs.writeFileSync(file, "{ not valid json ");
+    const eff = readEffectiveConfig(file);
+    expect(eff.exists).toBe(true);
+    expect(Object.values(eff.fields).every((f) => f.isDefault)).toBe(true);
+    expect(eff.fields.nudgeInterval.value).toBe(10);
+  });
 });
 
 describe("writeResolvedConfig", () => {

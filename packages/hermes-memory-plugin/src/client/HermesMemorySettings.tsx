@@ -38,10 +38,10 @@ export function HermesMemorySettings(): React.ReactElement {
   const [baseValues, setBaseValues] = useState<Record<string, unknown>>({});
   const [baseOverridden, setBaseOverridden] = useState<Set<string>>(new Set());
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     setLoadError(null);
     try {
-      const cfg = await getConfig();
+      const cfg = await getConfig("", signal);
       const v: Record<string, unknown> = {};
       const ov = new Set<string>();
       for (const key of KNOWN_KEYS) {
@@ -56,13 +56,26 @@ export function HermesMemorySettings(): React.ReactElement {
       setEffective(cfg);
       setSaveError(null);
     } catch (e) {
+      if (signal?.aborted) return;
       setLoadError(errMsg(e));
     }
   }, []);
 
   useEffect(() => {
-    void load();
+    const ac = new AbortController();
+    void load(ac.signal);
+    return () => ac.abort();
   }, [load]);
+
+  // Escape-to-close for the raw-JSON modal (keyboard dismissal).
+  useEffect(() => {
+    if (!showRaw) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowRaw(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showRaw]);
 
   const setField = useCallback((key: string, value: unknown) => {
     setValues((prev) => ({ ...prev, [key]: value }));

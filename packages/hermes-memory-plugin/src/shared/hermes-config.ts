@@ -173,6 +173,8 @@ function validateRegexArray(key: string, value: unknown): ValidationError | null
 
 function validateSessionSearch(key: string, value: unknown): ValidationError | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return err(key, `${key} must be an object`);
+  const extra = Object.keys(value as object).filter((k) => k !== "variant");
+  if (extra.length > 0) return err(key, `${key} has unknown keys: ${extra.join(", ")}`);
   const variant = (value as { variant?: unknown }).variant;
   return typeof variant === "string" && SESSION_SEARCH_VARIANTS.includes(variant)
     ? null
