@@ -78,6 +78,18 @@ export interface SetSessionTagsBrowserMessage {
   tags: string[];
 }
 
+/**
+ * Browser → server: strip a single user tag from every session that carries
+ * it. The server normalizes the inbound tag first; a blank/whitespace-only
+ * tag (normalizes to empty) is a no-op. Fan-out reuses the per-session
+ * normalize → update → broadcast path (one `session_updated` per changed
+ * session). Bridges never send this. See change: sidebar-tag-collapse-and-delete.
+ */
+export interface RemoveTagGloballyBrowserMessage {
+  type: "remove_tag_globally";
+  tag: string;
+}
+
 // ── Server → Browser ────────────────────────────────────────────────
 
 export interface SessionAddedMessage {
@@ -1610,6 +1622,7 @@ export type BrowserToServerMessage =
   | SetSessionDisplayPrefsBrowserMessage
   | SetSessionProcessDrawerBrowserMessage
   | SetSessionTagsBrowserMessage
+  | RemoveTagGloballyBrowserMessage
   | RecoveryDismissMessage
   | SubagentResyncRequestBrowserMessage
   | WatchFilesBrowserMessage;

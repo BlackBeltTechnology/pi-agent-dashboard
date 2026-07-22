@@ -34,7 +34,10 @@ beforeEach(() => {
       removeEventListener: vi.fn(),
     })),
   });
-  const store: Record<string, string> = {};
+  // The sidebar tag area is default-collapsed (change:
+  // sidebar-tag-collapse-and-delete). These tests exercise filter LOGIC, so
+  // pre-open the area to keep the filter chips rendered.
+  const store: Record<string, string> = { "sidebar.tagArea.open": "true" };
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => store[key] ?? null,
     setItem: (key: string, val: string) => { store[key] = val; },
