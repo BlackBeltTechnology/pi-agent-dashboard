@@ -28,24 +28,28 @@ export function RecoveryOfferHost({ onReopen, onDismiss }: {
   onDismiss: (sessionIds: string[]) => void;
 }) {
   const [offer, setOffer] = useState<RecoveryOffer | null>(null);
-  // Ticks to false once the liveness grace window closes, flipping Reopen from
-  // a non-actionable "verifying…" state to active. Guards the Class-2
-  // double-spawn race at the UI: a still-alive bridge may reattach and retract
-  // the candidate within the window, and reopening early would spawn a second
-  // pi for one sessionId. See change: fix-recovery-offer-bridge-liveness-gate.
-  const [verifying, setVerifying] = useState(false);
+  // Re-render trigger fired once the liveness grace window elapses. `verifying`
+  // itself is DERIVED synchronously from `graceUntil` vs `Date.now()` on every
+  // render (below) so there is no first-paint flash where Reopen is briefly
+  // actionable. This tick only schedules the flip at the deadline.
+  const [, bumpAfterGrace] = useState(0);
 
   useEffect(() => subscribeRecoveryOffer(setOffer), []);
 
+  const graceUntil = offer?.graceUntil;
+  // While the window is open Reopen is NON-actionable, guarding the Class-2
+  // double-spawn race at the UI: a still-alive bridge may reattach and retract
+  // the candidate, and reopening early would spawn a second pi for one
+  // sessionId. See change: fix-recovery-offer-bridge-liveness-gate.
+  const verifying = graceUntil !== undefined && Date.now() < graceUntil;
+
   useEffect(() => {
-    const until = offer?.graceUntil;
-    if (until === undefined) { setVerifying(false); return; }
-    const remaining = until - Date.now();
-    if (remaining <= 0) { setVerifying(false); return; }
-    setVerifying(true);
-    const id = setTimeout(() => setVerifying(false), remaining);
+    if (graceUntil === undefined) return;
+    const remaining = graceUntil - Date.now();
+    if (remaining <= 0) return;
+    const id = setTimeout(() => bumpAfterGrace((n) => n + 1), remaining);
     return () => clearTimeout(id);
-  }, [offer?.graceUntil]);
+  }, [graceUntil]);
 
   if (!offer) return null;
   const count = offer.candidates.length;

@@ -624,10 +624,16 @@ export function createBrowserGateway(
             handleListSessions(msg, ctx);
             break;
           case "resume_session":
-            // Reopen is a resolving action for any pending recovery offer:
-            // null the server-held offer so onConnect stops replaying it.
-            // See change: fix-recovery-offer-dismiss-and-phantom-reopen.
-            gateway.onRecoveryResolve?.();
+            // Reopen resolves a pending recovery offer (null it so onConnect
+            // stops replaying it) — but NOT when the resume will be refused
+            // because a candidate's liveness is still unresolved (grace window).
+            // Clearing it there would drop the offer for a genuinely-lost
+            // session the user can legitimately reopen once the window closes.
+            // See changes: fix-recovery-offer-dismiss-and-phantom-reopen,
+            //              fix-recovery-offer-bridge-liveness-gate.
+            if (!gateway.isRecoveryLivenessPending?.(msg.sessionId)) {
+              gateway.onRecoveryResolve?.();
+            }
             await handleResumeSession(msg, ctx);
             break;
           case "spawn_session":
