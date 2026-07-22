@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TagChip } from "../TagChip.js";
 import { TagEditor } from "../TagEditor.js";
+import { TagFilterGroup } from "../TagFilterGroup.js";
 import { TagStrip } from "../TagStrip.js";
 
 afterEach(() => cleanup());
@@ -86,6 +87,91 @@ describe("TagChip keyboard operability", () => {
     expect(btn.getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(btn);
     expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Sidebar filter overflow + destructive remove control.
+// See change: sidebar-tag-collapse-and-delete.
+describe("TagFilterGroup overflow cap", () => {
+  const tags10 = Array.from({ length: 10 }, (_, i) => `tag${i}`);
+  const tags13 = Array.from({ length: 13 }, (_, i) => `tag${i}`);
+
+  // E1: exactly at the cap → all 10 chips, NO +N more control.
+  it("E1 — at the cap shows all chips and no overflow control", () => {
+    const { getByLabelText, queryByTestId } = render(
+      <TagFilterGroup label="Your tags" tags={tags10} selected={new Set()} onToggle={() => {}} tone="user" cap={10} />,
+    );
+    for (const tag of tags10) expect(getByLabelText(`Filter by tag ${tag}`)).toBeTruthy();
+    expect(queryByTestId("tag-overflow-toggle")).toBeNull();
+  });
+
+  // E2: above the cap → 10 + `+3 more`; expand → all 13 + `show less`; collapse → back.
+  it("E2 — above the cap shows +N more, expands to all, and collapses back", () => {
+    const { getByTestId, queryByLabelText } = render(
+      <TagFilterGroup label="Your tags" tags={tags13} selected={new Set()} onToggle={() => {}} tone="user" cap={10} />,
+    );
+    const toggle = getByTestId("tag-overflow-toggle");
+    expect(toggle.textContent).toBe("+3 more");
+    // First render: 10 shown, 3 hidden.
+    expect(queryByLabelText("Filter by tag tag9")).toBeTruthy();
+    expect(queryByLabelText("Filter by tag tag10")).toBeNull();
+    // Expand → all 13 + show less.
+    fireEvent.click(toggle);
+    expect(getByTestId("tag-overflow-toggle").textContent).toBe("show less");
+    expect(queryByLabelText("Filter by tag tag12")).toBeTruthy();
+    // Collapse back → 10 + +3 more.
+    fireEvent.click(getByTestId("tag-overflow-toggle"));
+    expect(getByTestId("tag-overflow-toggle").textContent).toBe("+3 more");
+    expect(queryByLabelText("Filter by tag tag10")).toBeNull();
+  });
+});
+
+describe("TagChip filter remove control", () => {
+  // F2: the ✕ is a separate control — activating it fires onRemove, NOT onToggle.
+  it("F2 — remove is independent of the filter toggle", () => {
+    const onToggle = vi.fn();
+    const onRemove = vi.fn();
+    const { getByLabelText } = render(
+      <TagChip label="explore" variant="filter" tone="user" onToggle={onToggle} onRemove={onRemove} />,
+    );
+    const removeBtn = getByLabelText("Remove tag explore from all sessions");
+    fireEvent.click(removeBtn);
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(onToggle).not.toHaveBeenCalled();
+    // The toggle is still reachable and independent.
+    fireEvent.click(getByLabelText("Filter by tag explore"));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  // X2: the ✕ is independently keyboard-operable with an action+tag name.
+  it("X2 — remove control is keyboard-operable with an accessible name", () => {
+    const onRemove = vi.fn();
+    const { getByLabelText } = render(
+      <TagChip label="explore" variant="filter" tone="user" onToggle={() => {}} onRemove={onRemove} />,
+    );
+    const removeBtn = getByLabelText("Remove tag explore from all sessions");
+    removeBtn.focus();
+    expect(document.activeElement).toBe(removeBtn);
+    fireEvent.click(removeBtn); // Enter/Space on a focused <button> fires click in jsdom.
+    expect(onRemove).toHaveBeenCalledTimes(1);
+  });
+
+  // F4: phase (exec-tone) filter chips NEVER render the remove control.
+  it("F4 — phase (exec) chips have no remove control even when onRemove is passed", () => {
+    const onRemove = vi.fn();
+    const { queryByLabelText, getByLabelText } = render(
+      <TagChip label="apply" variant="filter" tone="exec" onToggle={() => {}} onRemove={onRemove} />,
+    );
+    expect(getByLabelText("Filter by phase apply")).toBeTruthy();
+    expect(queryByLabelText("Remove tag apply from all sessions")).toBeNull();
+  });
+
+  // F4 (group): a TagFilterGroup with tone="exec" renders no remove controls.
+  it("F4 — exec-tone filter group renders no remove controls", () => {
+    const { queryAllByLabelText } = render(
+      <TagFilterGroup label="Phase" tags={["apply", "archive"]} selected={new Set()} onToggle={() => {}} tone="exec" onRemove={() => {}} />,
+    );
+    expect(queryAllByLabelText(/from all sessions$/)).toHaveLength(0);
   });
 });
 

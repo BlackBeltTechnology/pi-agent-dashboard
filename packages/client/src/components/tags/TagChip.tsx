@@ -26,7 +26,12 @@ interface TagChipProps {
   selected?: boolean;
   /** For `filter`: toggle handler. */
   onToggle?: () => void;
-  /** For `user`: remove handler (renders a ✕ button). */
+  /**
+   * `user` variant: remove ✕ inside the editable strip.
+   * `filter` variant (user tone only): destructive global-delete ✕ rendered as
+   * a sibling of the toggle button (never nested). See change:
+   * sidebar-tag-collapse-and-delete.
+   */
   onRemove?: () => void;
 }
 
@@ -50,18 +55,39 @@ export function TagChip({ label, variant, tone = "user", selected, onToggle, onR
   const selRing = variant === "filter" && selected ? "outline outline-2 outline-offset-1 outline-current" : "";
 
   if (variant === "filter") {
-    return (
+    const toggleBtn = (
       <button
         type="button"
         onClick={onToggle}
         aria-pressed={!!selected}
         aria-label={`Filter by ${tone === "exec" ? "phase" : "tag"} ${label}`}
         style={style}
-        className={`${baseClass} ${execClass} ${selRing} cursor-pointer`}
+        className={`${baseClass} ${!onRemove ? selRing : ""} ${execClass} cursor-pointer`}
       >
         {display}
       </button>
     );
+    // Destructive global-delete ✕ (user-tone filter chips only). Wrap the
+    // toggle + ✕ in a single inline-flex unit so the ✕ never wraps to its own
+    // line, and re-home the `selected` ring onto the wrapper. The ✕ is a true
+    // sibling <button> — its click does NOT bubble to the toggle (no
+    // stopPropagation needed). See change: sidebar-tag-collapse-and-delete.
+    if (onRemove && tone === "user") {
+      return (
+        <span className={`inline-flex items-center rounded-full ${selRing}`}>
+          {toggleBtn}
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label={`Remove tag ${label} from all sessions`}
+            className="ml-0.5 flex min-h-[24px] min-w-[24px] cursor-pointer items-center justify-center rounded-full text-current opacity-50 hover:opacity-100 hover:text-[var(--accent-red,#f87171)] focus-ring"
+          >
+            ✕
+          </button>
+        </span>
+      );
+    }
+    return toggleBtn;
   }
 
   if (variant === "exec") {

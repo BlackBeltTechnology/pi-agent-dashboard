@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createMemorySessionManager, type SessionManager } from "../../session/memory-session-manager.js";
 import type { BrowserHandlerContext } from "../handler-context.js";
-import { handleAttachProposal, handleDetachProposal, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
+import { handleAttachProposal, handleDetachProposal, handleRemoveTagGlobally, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
 
 interface PiSent {
   sessionId: string;
@@ -235,6 +235,91 @@ describe("handleSetSessionTags", () => {
     expect(tags[0]).toBe("feature"); // trimmed + lowercased + deduped
     expect(tags.every((t) => t.length <= 32)).toBe(true); // truncated to MAX_TAG_LEN
     expect(broadcasts[0].updates.tags).toEqual(tags);
+  });
+});
+
+describe("handleRemoveTagGlobally", () => {
+  let mgr: SessionManager;
+  beforeEach(() => {
+    mgr = createMemorySessionManager();
+  });
+
+  // E3: 5 sessions, 3 carry `explore`, 2 do not.
+  it("E3 — strips the tag from every carrier, one broadcast each, non-carriers untouched", () => {
+    registerSession(mgr, "s1", { tags: ["explore", "backend"] });
+    registerSession(mgr, "s2", { tags: ["explore"] });
+    registerSession(mgr, "s3", { tags: ["frontend"] });
+    registerSession(mgr, "s4", { tags: ["explore", "api"] });
+    registerSession(mgr, "s5", { tags: [] });
+    const { ctx, broadcasts } = makeCtx(mgr);
+
+    handleRemoveTagGlobally({ type: "remove_tag_globally", tag: "explore" } as any, ctx);
+
+    expect(mgr.get("s1")!.tags).toEqual(["backend"]);
+    expect(mgr.get("s2")!.tags).toEqual([]);
+    expect(mgr.get("s4")!.tags).toEqual(["api"]);
+    // Non-carriers untouched.
+    expect(mgr.get("s3")!.tags).toEqual(["frontend"]);
+    expect(mgr.get("s5")!.tags).toEqual([]);
+    // Exactly one session_updated per carrier (3), none for non-carriers.
+    expect(broadcasts).toHaveLength(3);
+    expect(broadcasts.every((b) => b.type === "session_updated")).toBe(true);
+    expect(broadcasts.map((b) => b.sessionId).sort()).toEqual(["s1", "s2", "s4"]);
+    for (const b of broadcasts) {
+      expect((b.updates.tags as string[]).includes("explore")).toBe(false);
+    }
+  });
+
+  // E4: no session carries `ghost`.
+  it("E4 — removing a tag no session carries is a no-op", () => {
+    registerSession(mgr, "s1", { tags: ["explore"] });
+    registerSession(mgr, "s2", { tags: ["frontend"] });
+    const { ctx, broadcasts } = makeCtx(mgr);
+
+    handleRemoveTagGlobally({ type: "remove_tag_globally", tag: "ghost" } as any, ctx);
+
+    expect(mgr.get("s1")!.tags).toEqual(["explore"]);
+    expect(mgr.get("s2")!.tags).toEqual(["frontend"]);
+    expect(broadcasts).toEqual([]);
+  });
+
+  // E5: whitespace-only tag normalizes to empty.
+  it("E5 — blank tag normalizes empty ⇒ no-op", () => {
+    registerSession(mgr, "s1", { tags: ["explore"] });
+    const { ctx, broadcasts } = makeCtx(mgr);
+
+    handleRemoveTagGlobally({ type: "remove_tag_globally", tag: "   " } as any, ctx);
+
+    expect(mgr.get("s1")!.tags).toEqual(["explore"]);
+    expect(broadcasts).toEqual([]);
+  });
+
+  // E6: inbound `  Explore ` normalizes to `explore` before matching.
+  it("E6 — normalizes the inbound tag before matching", () => {
+    registerSession(mgr, "s1", { tags: ["explore", "backend"] });
+    registerSession(mgr, "s2", { tags: ["explore"] });
+    const { ctx, broadcasts } = makeCtx(mgr);
+
+    handleRemoveTagGlobally({ type: "remove_tag_globally", tag: "  Explore " } as any, ctx);
+
+    expect(mgr.get("s1")!.tags).toEqual(["backend"]);
+    expect(mgr.get("s2")!.tags).toEqual([]);
+    expect(broadcasts).toHaveLength(2);
+    expect(broadcasts.map((b) => b.sessionId).sort()).toEqual(["s1", "s2"]);
+  });
+
+  // X3: fresh listAll (reconnect snapshot) reflects the stripped tags.
+  it("X3 — a fresh listAll after the strip reflects the tag absent (reconnect replay)", () => {
+    registerSession(mgr, "s1", { tags: ["explore", "backend"] });
+    registerSession(mgr, "s2", { tags: ["explore"] });
+    const { ctx } = makeCtx(mgr);
+
+    handleRemoveTagGlobally({ type: "remove_tag_globally", tag: "explore" } as any, ctx);
+
+    // Simulate a reconnect snapshot: replay listAll and confirm no session
+    // still carries `explore`.
+    const replayed = mgr.listAll();
+    expect(replayed.every((s) => !(s.tags ?? []).includes("explore"))).toBe(true);
   });
 });
 

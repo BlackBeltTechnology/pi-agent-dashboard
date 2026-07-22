@@ -16,9 +16,11 @@ import { buildFolderHomeUrl } from "../../lib/nav/route-builders.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
   getCollapsedGroups,
+  getTagAreaOpen,
   pruneStaleCollapsedGroups,
   removeLegacyHiddenSessions,
   setCollapsedGroups,
+  setTagAreaOpen,
 } from "../../lib/session/session-filter-storage.js";
 import {
   type DirectoryGroup,
@@ -56,6 +58,7 @@ import { ThemeToggle } from "../settings/ThemeToggle.js";
 import { Toast, useToast } from "../primitives/Toast.js";
 import { TunnelButton } from "../connectivity/TunnelButton.js";
 import { allTagsInUse } from "../tags/all-tags.js";
+import { TagDeleteConfirmDialog } from "../tags/TagDeleteConfirmDialog.js";
 import { TagFilterGroup } from "../tags/TagFilterGroup.js";
 import { WorkspaceHeader } from "../workspace/WorkspaceHeader.js";
 import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
@@ -167,6 +170,12 @@ interface Props {
    */
   onSetProcessDrawer?: (sessionId: string, collapsed: boolean) => void;
   /**
+   * Strip a tag from every carrying session (server fan-out). Wired to the
+   * per-chip destructive ✕ in the sidebar tag filter, gated by a confirm
+   * dialog. See change: sidebar-tag-collapse-and-delete.
+   */
+  onRemoveTagGlobally?: (tag: string) => void;
+  /**
    * Per-session in-flight bash toolCalls for the SessionActivityBar.
    * See change: redesign-process-list-activity-bar.
    */
@@ -232,7 +241,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -614,6 +623,25 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     setSelectedTags(new Set());
     setSelectedPhases(new Set());
   }, []);
+
+  // Sidebar tag-area master collapse. Default collapsed (absent key ⇒ false).
+  // See change: sidebar-tag-collapse-and-delete.
+  const [tagAreaOpen, setTagAreaOpenState] = useState<boolean>(() => getTagAreaOpen());
+  const toggleTagArea = useCallback(() => {
+    setTagAreaOpenState((prev) => {
+      const next = !prev;
+      setTagAreaOpen(next);
+      return next;
+    });
+  }, []);
+  // Tag pending a global-delete confirm (null = dialog closed).
+  const [pendingDeleteTag, setPendingDeleteTag] = useState<string | null>(null);
+  // Carrying-session count for the confirm dialog blast-radius copy (task 6.3).
+  const deleteTagCount = useMemo(
+    () => (pendingDeleteTag == null ? 0 : sessions.filter((s) => (s.tags ?? []).includes(pendingDeleteTag)).length),
+    [pendingDeleteTag, sessions],
+  );
+  const activeFilterCount = selectedTags.size + selectedPhases.size;
 
   /**
    * Decide whether a folder should be visible given the active filters.
@@ -1322,41 +1350,93 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             {t("common.hidden", undefined, "Hidden")}
           </ToggleButton>
         </div>
-        {/* Tag + phase filter groups. Two SEPARATE selection sets (no user-tag
-            vs phase collision). Phase chips write no session state.
-            See change: add-session-tags. */}
+        {/* Master tag-area collapse. ONE header folds BOTH the user-tag group
+            and the read-only phase group (default collapsed, persisted). The
+            collapsed header signals `N tags · M phases` plus, when a filter is
+            active, a distinct active-selection badge + clear affordance so a
+            folded area never silently hides an active filter (D8). Phases stay
+            a distinct read-only sub-group (D9). Two SEPARATE selection sets
+            (no user-tag vs phase collision).
+            See change: add-session-tags · sidebar-tag-collapse-and-delete. */}
         {(allTags.length > 0 || phasesInUse.length > 0) && (
           <div className="px-3 pb-2" data-testid="tag-filter-bar">
-            <TagFilterGroup
-              label={t("sessionList.yourTags", undefined, "Your tags")}
-              tags={allTags}
-              selected={selectedTags}
-              onToggle={toggleSelectedTag}
-              tone="user"
-            />
-            <TagFilterGroup
-              label={t("sessionList.phaseReadOnly", undefined, "Phase (read-only)")}
-              tags={phasesInUse}
-              selected={selectedPhases}
-              onToggle={toggleSelectedPhase}
-              tone="exec"
-            />
-            {anyTagFilterActive && (
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={clearTagFilters}
-                  className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline"
-                  data-testid="clear-tag-filters"
+            <button
+              type="button"
+              onClick={toggleTagArea}
+              aria-expanded={tagAreaOpen}
+              className="flex w-full items-center gap-1.5 py-1 text-[10px] uppercase tracking-wide text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+              data-testid="tag-area-toggle"
+            >
+              <Icon path={tagAreaOpen ? mdiChevronDown : mdiChevronRight} size={0.55} className="shrink-0 motion-reduce:transition-none" />
+              <span className="font-medium">{t("sessionList.tags", undefined, "Tags")}</span>
+              <span className="text-[var(--text-muted)] normal-case tracking-normal" data-testid="tag-area-count">
+                {allTags.length} tag{allTags.length === 1 ? "" : "s"} · {phasesInUse.length} phase{phasesInUse.length === 1 ? "" : "s"}
+              </span>
+              {activeFilterCount > 0 && (
+                <span
+                  className="ml-auto rounded-full bg-[var(--accent-blue)]/15 px-1.5 py-0.5 text-[9px] font-semibold text-[var(--accent-blue)] normal-case tracking-normal"
+                  data-testid="tag-area-active-indicator"
                 >
-                  {t("sessionList.clearTags", undefined, "Clear tags")}
-                </button>
-                {!sessions.some(passesTagAxes) && (
-                  <span className="text-[10px] text-[var(--text-muted)] italic" data-testid="tag-filter-no-match">
-                    {t("sessionList.zeroMatch", undefined, "0 match")}
-                  </span>
+                  {activeFilterCount} active
+                </span>
+              )}
+            </button>
+            {/* Clear affordance reachable while collapsed (D8) — only when a
+                filter is active AND the area is folded. */}
+            {!tagAreaOpen && activeFilterCount > 0 && (
+              <button
+                type="button"
+                onClick={clearTagFilters}
+                className="mt-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline"
+                data-testid="clear-tag-filters-collapsed"
+              >
+                {t("sessionList.clearTags", undefined, "Clear tags")}
+              </button>
+            )}
+            {tagAreaOpen && (
+              <>
+                <TagFilterGroup
+                  label={t("sessionList.yourTags", undefined, "Your tags")}
+                  tags={allTags}
+                  selected={selectedTags}
+                  onToggle={toggleSelectedTag}
+                  tone="user"
+                  cap={10}
+                  onRemove={onRemoveTagGlobally ? (tag) => setPendingDeleteTag(tag) : undefined}
+                />
+                <TagFilterGroup
+                  label={t("sessionList.phaseReadOnly", undefined, "Phase (read-only)")}
+                  tags={phasesInUse}
+                  selected={selectedPhases}
+                  onToggle={toggleSelectedPhase}
+                  tone="exec"
+                />
+                {anyTagFilterActive && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={clearTagFilters}
+                      className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline"
+                      data-testid="clear-tag-filters"
+                    >
+                      {t("sessionList.clearTags", undefined, "Clear tags")}
+                    </button>
+                    {!sessions.some(passesTagAxes) && (
+                      <span className="text-[10px] text-[var(--text-muted)] italic" data-testid="tag-filter-no-match">
+                        {t("sessionList.zeroMatch", undefined, "0 match")}
+                      </span>
+                    )}
+                  </div>
                 )}
-              </div>
+              </>
+            )}
+            {pendingDeleteTag != null && onRemoveTagGlobally && (
+              <TagDeleteConfirmDialog
+                tag={pendingDeleteTag}
+                count={deleteTagCount}
+                onConfirm={() => onRemoveTagGlobally(pendingDeleteTag)}
+                onClose={() => setPendingDeleteTag(null)}
+              />
             )}
           </div>
         )}
