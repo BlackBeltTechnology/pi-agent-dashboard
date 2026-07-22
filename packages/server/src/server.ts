@@ -748,6 +748,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   browserGateway.onRecoveryResolve = () => {
     pendingRecoveryOffer = null;
   };
+  // The resume handler refuses a `continue` reopen while a candidate's liveness
+  // is still unresolved (grace window open), closing the Class-2 double-spawn
+  // race even for non-UI clients. Membership in `liveRecoveryCandidates` IS the
+  // pending signal: dead candidates leave when the window finalizes (map clear),
+  // reattached ones leave on retract. See change: fix-recovery-offer-bridge-liveness-gate.
+  browserGateway.isRecoveryLivenessPending = (sessionId: string) =>
+    liveRecoveryCandidates.has(sessionId);
+
+  // Epoch-ms deadline the ask-mode offer carries so the client can render a
+  // non-actionable "verifying…" state until Class-2 liveness is finalized.
+  // Set once at broadcast; reused when an offer is rebuilt on retract.
+  let recoveryGraceUntil: number | undefined;
 
   // Build a recovery_offer wire message from the eligible candidate set.
   // See change: fix-recovery-offer-bridge-liveness-gate.
@@ -763,6 +775,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         model: s.model,
         liveEpoch: s.liveEpoch,
       })),
+      graceUntil: recoveryGraceUntil,
     };
   }
 
@@ -2170,6 +2183,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       if (liveRecoveryCandidates.size > 0) {
         const mode = recoveryMode;
         if (mode === "ask") {
+          // Deadline until which Class-2 liveness is unresolved; the client keeps
+          // Reopen non-actionable until then. See change: fix-recovery-offer-bridge-liveness-gate.
+          recoveryGraceUntil = Date.now() + RECOVERY_REATTACH_GRACE_MS;
           pendingRecoveryOffer = buildRecoveryOffer([...liveRecoveryCandidates.values()]);
           recoveryOfferBroadcast = true;
           // Reaches any already-connected clients; onConnect replays to the rest.

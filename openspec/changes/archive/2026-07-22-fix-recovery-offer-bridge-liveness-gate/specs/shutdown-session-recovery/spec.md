@@ -71,6 +71,30 @@ Disk markers alone are insufficient because a plain server restart (`process.exi
 
 ## ADDED Requirements
 
+### Requirement: Reopen SHALL be non-actionable while a candidate's liveness is unresolved
+
+Because the bridge (Class-2) liveness channel resolves asynchronously, the `ask`-mode offer is broadcast immediately but a candidate's liveness may stay unresolved for a bounded grace window. During that window the offer SHALL be shown but Reopen SHALL NOT be actionable, so a still-alive session whose bridge is about to reattach cannot be reopened — reopening it would spawn a second pi for one sessionId and break message routing (the gateway session→connection map is last-write-wins). The offer message SHALL carry the grace deadline so a client (including one that connects mid-window) renders a non-actionable "verifying" state until it passes. The server SHALL additionally refuse a `continue` resume for a candidate whose liveness is still unresolved, closing the race for non-UI clients.
+
+#### Scenario: Offer is non-actionable during the grace window
+
+- **GIVEN** an `ask`-mode recovery offer broadcast on cold start
+- **WHEN** a client renders it before the grace deadline has passed
+- **THEN** the Reopen action SHALL be disabled (a "verifying" state) and Dismiss SHALL remain available
+- **AND** the offer message SHALL carry the grace deadline
+
+#### Scenario: Reopen becomes actionable once liveness is finalized
+
+- **GIVEN** an `ask`-mode offer whose grace window has passed with no bridge reattach
+- **WHEN** the client re-evaluates the offer
+- **THEN** Reopen SHALL be actionable and resume the candidate on click
+
+#### Scenario: Resume is refused while liveness is unresolved
+
+- **GIVEN** a candidate whose liveness is still unresolved within the grace window
+- **WHEN** a `resume_session` with `mode: "continue"` arrives for it
+- **THEN** the server SHALL refuse it (no pi spawned) and report a resume failure
+- **AND** once the window closes the same reopen SHALL succeed for a genuinely-lost candidate
+
 ### Requirement: Auto mode SHALL NOT resume a session proven alive
 
 In `auto` mode the server resumes candidates without prompting. The same liveness gate SHALL apply: a session proven alive by the keeper channel or the bridge-reattach channel SHALL NOT be auto-resumed, because a second `continue` spawn for a sessionId whose pi process is already alive double-registers the session and breaks message routing (the gateway session→connection map is last-write-wins).

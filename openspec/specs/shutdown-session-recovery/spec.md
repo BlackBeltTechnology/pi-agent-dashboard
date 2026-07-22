@@ -115,6 +115,30 @@ Disk markers alone are insufficient because a plain server restart (`process.exi
 - **WHEN** the server classifies sessions on cold start
 - **THEN** the session SHALL NOT be a recovery candidate
 
+### Requirement: Reopen SHALL be non-actionable while a candidate's liveness is unresolved
+
+Because the bridge (Class-2) liveness channel resolves asynchronously, the `ask`-mode offer is broadcast immediately but a candidate's liveness may stay unresolved for a bounded grace window. During that window the offer SHALL be shown but Reopen SHALL NOT be actionable, so a still-alive session whose bridge is about to reattach cannot be reopened — reopening it would spawn a second pi for one sessionId and break message routing (the gateway session→connection map is last-write-wins). The offer message SHALL carry the grace deadline so a client (including one that connects mid-window) renders a non-actionable "verifying" state until it passes. The server SHALL additionally refuse a `continue` resume for a candidate whose liveness is still unresolved, closing the race for non-UI clients.
+
+#### Scenario: Offer is non-actionable during the grace window
+
+- **GIVEN** an `ask`-mode recovery offer broadcast on cold start
+- **WHEN** a client renders it before the grace deadline has passed
+- **THEN** the Reopen action SHALL be disabled (a "verifying" state) and Dismiss SHALL remain available
+- **AND** the offer message SHALL carry the grace deadline
+
+#### Scenario: Reopen becomes actionable once liveness is finalized
+
+- **GIVEN** an `ask`-mode offer whose grace window has passed with no bridge reattach
+- **WHEN** the client re-evaluates the offer
+- **THEN** Reopen SHALL be actionable and resume the candidate on click
+
+#### Scenario: Resume is refused while liveness is unresolved
+
+- **GIVEN** a candidate whose liveness is still unresolved within the grace window
+- **WHEN** a `resume_session` with `mode: "continue"` arrives for it
+- **THEN** the server SHALL refuse it (no pi spawned) and report a resume failure
+- **AND** once the window closes the same reopen SHALL succeed for a genuinely-lost candidate
+
 ### Requirement: Recovery candidates SHALL be exempt from cold-start status normalization
 
 Recovery candidates SHALL be normalized to `ended` on cold start exactly like any other non-`ended` restored session, in ALL modes (`ask`, `auto`, `off`). No mode exempts a candidate from the force-`ended` normalization. A candidate SHALL NOT linger in a non-`ended` "reopened-looking" state before the user takes an explicit action. In `ask` mode the offer carries enough metadata (session file, cwd) to resume the candidate on explicit reopen; the resume flow re-hydrates the session independently of the pre-reopen status.

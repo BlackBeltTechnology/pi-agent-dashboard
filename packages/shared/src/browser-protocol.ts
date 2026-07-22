@@ -767,6 +767,15 @@ export interface RecoveryCandidate {
 export interface RecoveryOfferMessage {
   type: "recovery_offer";
   candidates: RecoveryCandidate[];
+  /**
+   * Epoch-ms deadline until which each candidate's process liveness is still
+   * being resolved (the Class-2 bridge-reattach grace window). While
+   * `Date.now() < graceUntil` the offer is shown but Reopen is NOT actionable —
+   * a still-alive bridge may reattach and retract the candidate, and reopening
+   * it early would double-spawn pi for one sessionId. Absent/past ⇒ liveness is
+   * finalized and Reopen is active. See change: fix-recovery-offer-bridge-liveness-gate.
+   */
+  graceUntil?: number;
 }
 
 /**
