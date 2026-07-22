@@ -147,3 +147,105 @@ function stringifyErr(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
 }
+
+// ---------------------------------------------------------------------------
+// Content-hash cache (context-seam path)
+//
+// A bounded in-memory LRU keyed by SHA-256 of the source bytes + policy, used
+// by the `context` handler so a repeated oversize historical image is fitted
+// once and served from memory on every later turn. Distinct from the temp-file
+// cache above (which stays dedicated to the `read`-path seam and writes files);
+// this one never touches the filesystem. Spec/Design: D3.
+// ---------------------------------------------------------------------------
+
+/** Default cache byte budget: ~64 MiB of resized image bytes. */
+export const DEFAULT_CONTENT_CACHE_BUDGET = 64 * 1024 * 1024;
+
+export interface ContentEntry {
+  /** base64-encoded resized image bytes. */
+  data: string;
+  /** mime type of the resized bytes (mime-derived output format). */
+  mimeType: string;
+}
+
+interface ContentPolicy {
+  maxEdge: number;
+  maxBytes: number;
+  quality: number;
+}
+
+/**
+ * Bounded, LRU content-hash cache. Keyed by SHA-256 of
+ * `${base64}|${mimeType}|${maxEdge}|${maxBytes}|${quality}` — `mimeType` is
+ * part of the key because the output format is mime-derived, so two blocks
+ * with identical bytes but different declared mime must not collide.
+ * Evicts least-recently-used entries once the summed resized-byte cost
+ * exceeds `byteBudget`.
+ */
+export class ContentCache {
+  private readonly map = new Map<string, { entry: ContentEntry; cost: number }>();
+  private currentBytes = 0;
+
+  constructor(private readonly byteBudget: number = DEFAULT_CONTENT_CACHE_BUDGET) {}
+
+  /** Content hash for a block under the given policy. */
+  keyFor(base64: string, mimeType: string, p: ContentPolicy): string {
+    const material = [base64, mimeType, String(p.maxEdge), String(p.maxBytes), String(p.quality)].join("|");
+    return createHash("sha256").update(material).digest("hex");
+  }
+
+  has(key: string): boolean {
+    return this.map.has(key);
+  }
+
+  /** Look up, refreshing LRU recency on a hit. */
+  get(key: string): ContentEntry | undefined {
+    const hit = this.map.get(key);
+    if (!hit) return undefined;
+    // Refresh recency: delete + re-insert moves the key to the newest slot.
+    this.map.delete(key);
+    this.map.set(key, hit);
+    return hit.entry;
+  }
+
+  /** Insert (or replace), then evict LRU entries until within budget. */
+  set(key: string, entry: ContentEntry): void {
+    const cost = estimateBase64Bytes(entry.data);
+    const existing = this.map.get(key);
+    if (existing) {
+      this.currentBytes -= existing.cost;
+      this.map.delete(key);
+    }
+    this.map.set(key, { entry, cost });
+    this.currentBytes += cost;
+    // Evict least-recently-used (Map iteration order = oldest first) until
+    // within budget. Keep at least the just-inserted entry.
+    for (const oldest of this.map.keys()) {
+      if (this.currentBytes <= this.byteBudget || this.map.size <= 1) break;
+      const victim = this.map.get(oldest);
+      if (!victim) break;
+      this.currentBytes -= victim.cost;
+      this.map.delete(oldest);
+    }
+  }
+
+  /** Number of cached entries (test observability). */
+  get size(): number {
+    return this.map.size;
+  }
+
+  /** Summed resized-byte cost of cached entries (test observability). */
+  get bytes(): number {
+    return this.currentBytes;
+  }
+}
+
+/** Decoded byte size of a base64 string (LRU cost accounting). */
+function estimateBase64Bytes(b64: string): number {
+  const len = b64.length;
+  if (len === 0) return 0;
+  let padding = 0;
+  if (b64.charCodeAt(len - 1) === 0x3d) padding++;
+  if (len > 1 && b64.charCodeAt(len - 2) === 0x3d) padding++;
+  return Math.floor((len * 3) / 4) - padding;
+}

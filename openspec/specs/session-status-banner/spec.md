@@ -6,7 +6,7 @@ Unified single-banner component (`SessionBanner`) for per-session retry/error/li
 ## Requirements
 ### Requirement: Single banner component with composed error-lifecycle surface
 
-The dashboard SHALL render exactly one banner component (`SessionBanner`) per selected session, mounted sticky above the `CommandInput` (between `ChatView` and `CommandInput`). The banner is a single **error-lifecycle surface** whose contents are derived from a single selector over `SessionState`. Two banner components SHALL NEVER be visible simultaneously for the same session, AND the surface SHALL render as ONE card (a single bordered element), NOT two stacked blocks.
+The dashboard SHALL render exactly one banner component (`SessionBanner`) per selected session, mounted sticky above the `CommandInput` (between `ChatView` and `CommandInput`). The banner is a single **error-lifecycle surface** whose contents are derived from a single selector over `SessionState`. Two banner components SHALL NEVER be visible simultaneously for the same session, AND the surface SHALL render as ONE card (a single bordered element), NOT two stacked blocks. The surface SHALL be rendered via the shared `InlineMessage` primitive with `severity="error"`, so its colors resolve from `--severity-error-*` theme tokens (NOT raw `red-500` literals); the in-flight retry indicator SHALL be the primitive's `animate` top accent-bar sweep.
 
 The surface composes an optional **error anchor** (from `lastError`) with an optional **live retry sub-line** (from `retryState`) WITHIN the same card body: the error message is the header row, the retry status is a sub-line beneath it, and a thin animated indicator on the same card conveys the retrying state. There SHALL NOT be a separate red card and a separate amber card for one failure.
 
@@ -26,6 +26,11 @@ The error anchor SHALL persist while a retry runs on top of it; the surface SHAL
 - **THEN** the surface SHALL render exactly ONE card element containing the error message "overloaded_error"
 - **AND** the SAME card SHALL contain the "retrying… (attempt 2)" sub-line
 - **AND** the surface SHALL NOT render two separate sibling card elements
+
+#### Scenario: Surface uses severity tokens via InlineMessage
+- **WHEN** the settled-error surface is rendered
+- **THEN** its background, border, and foreground SHALL resolve from `--severity-error-*` tokens through the shared `InlineMessage` primitive
+- **AND** the surface SHALL NOT apply raw `red-500`/`amber-500` color literals
 
 #### Scenario: Retrying-only when no terminal error yet
 - **WHEN** `SessionState.retryState` is set AND `SessionState.lastError` is undefined

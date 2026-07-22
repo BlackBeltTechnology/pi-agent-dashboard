@@ -118,6 +118,15 @@ export interface SessionMeta {
   kind?: "automation";
 
   /**
+   * Disposability marker mirror of `DashboardSession.lifecyclePolicy`.
+   * Persisted so a server restart never reclassifies an `"ephemeral"` session
+   * as `"durable"` (absent ⇒ durable) and lets it escape reaping forever.
+   * Restored by `sessionFromMeta` on cold start.
+   * See change: add-embed-session-lifecycle.
+   */
+  lifecyclePolicy?: "ephemeral" | "durable";
+
+  /**
    * Automation-run identity mirror of `DashboardSession.automationRun`.
    * Persisted so a run session restored on cold start keeps its automation
    * grouping + effective board visibility.

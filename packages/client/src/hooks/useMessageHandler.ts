@@ -16,15 +16,15 @@ import type { DiscoveredServerInfo } from "../components/connectivity/ServerSele
 import type { ToastVariant } from "../components/primitives/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
-import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
 import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
+import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 import { t } from "../lib/i18n/i18n.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
-import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
 import type { ReplayPersister } from "../lib/replay/replay-persist.js";
 import { inferPlatform, pathKey } from "../lib/session/session-grouping.js";
+import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
-import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
+import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
 
 /**
  * Rich spawn error detail stored per cwd.
@@ -715,8 +715,10 @@ export function useMessageHandler(
 
       case "recovery_offer":
         // Cold-start interrupted-session offer. Sticky top-right notification
-        // (no auto-timeout). See change: reopen-sessions-after-shutdown.
-        setRecoveryOffer(msg.candidates);
+        // (no auto-timeout). `graceUntil` gates Reopen actionability while
+        // Class-2 liveness resolves. See changes: reopen-sessions-after-shutdown,
+        // fix-recovery-offer-bridge-liveness-gate.
+        setRecoveryOffer(msg.candidates, msg.graceUntil);
         break;
 
       case "resume_result":

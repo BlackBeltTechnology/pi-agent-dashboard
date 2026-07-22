@@ -63,6 +63,9 @@ export const UI_PRIMITIVE_KEYS = {
   /** Reasoning / thinking block with collapsible content + elapsed-time badge.
    *  Matches the main chat view's thinking rendering. */
   thinkingBlock: "ui:thinking-block",
+  /** Monospace log/stderr inset panel with a labelled header, copy control
+   *  (always full text), and collapse/expand or `preview` (last-N-lines) mode. */
+  logBlock: "ui:log-block",
 } as const;
 
 /** Union of all valid UI primitive keys (literal-string narrowed). */
@@ -287,6 +290,21 @@ export interface UiPopoverProps {
  * here. TypeScript will fail builds that reference the new key without
  * matching registration in main.tsx.
  */
+/**
+ * Public prop signature for the log-block primitive. Mirrors `LogBlock` in
+ * the client primitives dir. Adding optional props is non-breaking.
+ */
+export interface UiLogBlockProps {
+  label: string;
+  text: string;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+  preview?: boolean;
+  previewLines?: number;
+  maxHeightClass?: string;
+  copyIcon?: string;
+}
+
 export interface UiPrimitiveMap {
   "ui:agent-card": ComponentType<UiAgentCardProps>;
   "ui:markdown-content": ComponentType<UiMarkdownContentProps>;
@@ -303,6 +321,7 @@ export interface UiPrimitiveMap {
   "ui:popover": ComponentType<UiPopoverProps>;
   "ui:tool-call-step": ComponentType<UiToolCallStepProps>;
   "ui:thinking-block": ComponentType<UiThinkingBlockProps>;
+  "ui:log-block": ComponentType<UiLogBlockProps>;
 }
 
 /**

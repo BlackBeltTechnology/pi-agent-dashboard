@@ -499,6 +499,20 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - UI via shell slots: sidebar-folder-section, command-route `/automation`, shell-overlay-route, session-card-badge, settings-section general.
 - See change: add-automation-plugin.
 
+### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`)
+
+New package `packages/hermes-memory-plugin` (client + server + shared). Settings-section plugin for the external `pi-hermes-memory` pi extension.
+
+- Two Fastify routes on shared instance (`ctx.fastify`): `GET /api/plugins/hermes-memory/config` + `PUT /api/plugins/hermes-memory/config`.
+- GET returns per `MemoryConfig` field: `{ value (on-disk else default), default, isDefault }` + `filePath` + `exists` + `raw`.
+- PUT validates browser body via `validateHermesConfig` (shared) BEFORE any write — unknown-key allowlist, type/enum/numeric-bound, `correction*Patterns` regex-compile. Invalid → 400, no write.
+- Write is atomic: tmp file in same dir + `fs.rename`, pretty 2-space JSON, `mkdir -p` parent. Full resolved config written on save (every field's effective value).
+- External-file contract: edits the exact file the extension loads — `PI_CODING_AGENT_DIR` (trimmed, `~`-expanded) else `<home>/.pi/agent`, then fixed `hermes-memory-config.json`. Filename never from request input (no path traversal).
+- No hermes API exists; plugin re-declares `MemoryConfig` + defaults in `src/shared/hermes-config.ts` (mirrors goal-plugin vs pi-goal-hermes). Drift risk accepted; source-version pin comment references pi-hermes-memory@0.8.1.
+- `requires.piExtensions: ["pi-hermes-memory"]` — section + routes active only when extension installed.
+- Runtime caveat: hermes reads config once at extension load → edits apply to newly started sessions only ("applies to new sessions" notice in the UI), not running ones.
+- Structured logging: path + field count on read/write success, failure reason on error, NEVER field values (config may hold model/provider hints).
+
 ### Bootstrap & First Run (R3, immutable bundle)
 
 pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashboard-server`. There is no runtime install pyramid. All three arms (Electron, standalone `npm i -g`, bridge) start ready.
@@ -2475,3 +2489,84 @@ Publish-channel contract: electron-builder writes `app-update.yml` into package 
 Draft-vs-published gate: production tags `vX.Y.Z` publish so electron-updater `/releases/latest` resolves them. Pre-release tags `-rc.N` stay drafts → invisible to stable channel. publish.yml metadata-presence assertion fails release when installer ships without its `latest*.yml`.
 
 See change: fix-electron-auto-update-pipeline.
+
+
+## Embed session lifecycle
+
+`SessionSource` gains `"embed"`. New type `LifecyclePolicy = "ephemeral" | "durable"`. `DashboardSession.lifecyclePolicy?` absent means `"durable"`. Read via `isEphemeral()`/`effectiveLifecyclePolicy()` (`packages/server/src/embed-lifecycle/session-lifecycle-policy.ts`), never compared raw.
+
+Only `ephemeral` sessions governed by reaper + caps. `durable` (human tui/dashboard) sessions keep forever-alive semantics. Persisted to `.meta.json` (`sessionToMeta`) + restored on cold start (`sessionFromMeta` in session-scanner.ts`) — restart never reclassifies ephemeral→durable.
+
+Producers set `ephemeral`: automation/flow-triggered spawns (event-wiring.ts automation-run arm). Interactive human spawns stay durable. Embed acquire path (future embed front) also sets ephemeral.
+
+### Configuration
+
+Config key `embedLifecycle` under `~/.pi/dashboard/config.json`. All default-inert, dormant when feature disabled. Defined in `packages/shared/src/config.ts` (`EmbedLifecycleConfig`, `DEFAULT_EMBED_LIFECYCLE`):
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Reaper/caps/acquire dormant |
+| `idleTimeoutSeconds` | 1800 | Quiescent idle threshold |
+| `hardCeilingSeconds` | 3600 | Max ephemeral session lifetime |
+| `graceWindowSeconds` | 30 | SIGTERM→SIGKILL grace |
+| `sweepIntervalSeconds` | 60 | Reaper sweep period |
+| `registerTimeoutSeconds` | 30 | Acquire register await timeout |
+| `maxActiveEmbedSessionsPerVisitor` | 5 | Per-visitor ephemeral cap |
+| `maxActiveEmbedSessionsGlobal` | 50 | Global ephemeral cap |
+
+### Quiescence + Reaper
+
+Source: `packages/server/src/embed-lifecycle/`. Quiescence at-rest derived from captured `agent_settled` timestamp (`lastSettledAt`) vs `agent_start` (`lastRunStartedAt`). NOT inferred from `status` — version-agnostic, no `piVersion` branch. Captured in event-wiring.ts via `captureLifecycleTimestamp`; cold-start seeded from session-file mtime.
+
+Core: pure `decideReap(signals, thresholds, now)` in quiescence.ts. Three gears:
+
+```mermaid
+flowchart LR
+    subgraph Gear1[Gear 1: Idle]
+        A1[Fully quiescent
++ past idle timeout] --> K1[killBySessionId]
+    end
+    subgraph Gear2[Gear 2: Stop-after-turn]
+        A2[Streaming
++ no watcher
++ empty queues
++ past idle] --> K2[stop_after_turn latch
+ends at turn_end]
+    end
+    subgraph Gear3[Gear 3: Phantom]
+        A3[Streaming past hard ceiling
++ ~0 CPU
++ no child
++ no watcher
++ no pending ask
++ empty queues] --> K3[Force-reap reason "phantom"
+via graceful ladder]
+    end
+
+    K1 -->|SIGTERM→grace→SIGKILL| D1[Lossless
+resumable]
+    K2 -->|skipped when queues non-empty| D2[Session
+resumable]
+    K3 -->|same graceful ladder| D3[Force
+reap]
+```
+
+Quiescence vetoes (any one blocks idle reap): active generation, currentTool, pending ask_user, followUp/steering queue, live pid-child, live terminal in cwd, active browser subscriber, within grace window.
+
+Liveness probe (liveness-probe.ts): bounded `ps` pid-tree + CPU sum. Unknown result (ps fail) → safe direction — never idle-reap on unknown child, never phantom on unknown CPU.
+
+### Acquire + Caps
+
+Shared layer, consumed by future embed front. `visitor-session-registry.ts`: idempotent `acquire(req)` keyed by `identityKey = visitorId + canonical cwd (realpath + case-normalized) + agent identity` (identity-key.ts). Ladder: reuse-live → resume-ended → spawn. Concurrent acquires coalesce onto one in-flight promise resolved on `session_register`. Bounded register timeout rejects + clears. Server owns key→sessionId, re-points across resume renumber. cwd validated vs allowlist (cwd-allowlist.ts, D11).
+
+Caps (caps.ts): `maxActiveEmbedSessionsPerVisitor` + `maxActiveEmbedSessionsGlobal`, count only ephemeral. At cap reclaim oldest quiescent, else `CapacityError` (nothing terminated). Global cap = hard security bound vs spoofed visitorIds.
+
+### Observability
+
+`/api/health` gains `embedLifecycle` field: active/idle ephemeral counts, reaped-by-reason (idle/stop-after-turn/phantom), capacityRejections, reuseHits/reuseMisses. Metrics via lifecycle-metrics.ts.
+
+### Wiring
+
+`createEmbedLifecycleController` (embed-lifecycle-controller.ts) constructed in server.ts. Reaper `start()`/`stop()` tied to server lifecycle. Dormant when `enabled: false`.
+
+See change: add-embed-session-lifecycle.

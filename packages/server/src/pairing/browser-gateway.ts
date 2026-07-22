@@ -10,14 +10,14 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
+import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
+import type { EventStore } from "../persistence/memory-event-store.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { SessionOrderManager } from "../session/session-order-manager.js";
 // PendingLoadManager removed — server loads sessions directly via DirectoryService
 import { createHeadlessPidRegistry, type HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
-import type { EventStore } from "../persistence/memory-event-store.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
-import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
-import type { PiGateway } from "../pi/pi-gateway.js";
-import type { PreferencesStore } from "../persistence/preferences-store.js";
-import type { SessionOrderManager } from "../session/session-order-manager.js";
 
 /**
  * Pure helper: build the per-cwd `openspec_update` messages a freshly
@@ -70,8 +70,8 @@ import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal
 import { handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
-import type { TerminalManager } from "../terminal/terminal-manager.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
+import type { TerminalManager } from "../terminal/terminal-manager.js";
 
 
 
@@ -94,6 +94,12 @@ export interface BrowserGateway {
   broadcastOpenSpecUpdate(cwd: string, dataSerialized: string): void;
   /** Get number of browser subscribers for a session */
   getSubscriberCount(sessionId: string): number;
+  /**
+   * Whether an unanswered interactive UI request (`ask_user`) is currently
+   * tracked for the session. Read by the embed-lifecycle reaper's quiescence
+   * gate. See change: add-embed-session-lifecycle.
+   */
+  hasPendingUiRequest(sessionId: string): boolean;
   /**
    * Per-hop dropped-frame counters for the diagnostics/health surface. A
    * server→browser frame is dropped when a browser socket's send buffer
@@ -143,6 +149,14 @@ export interface BrowserGateway {
    * See change: fix-recovery-offer-dismiss-and-phantom-reopen.
    */
   onRecoveryResolve?: () => void;
+  /**
+   * Predicate: true while a cold-start recovery candidate's process liveness is
+   * still unresolved (the Class-2 grace window). The server assigns this from
+   * its `liveRecoveryCandidates` set; the resume handler consults it to refuse
+   * a `continue` reopen that could double-spawn a still-alive session.
+   * See change: fix-recovery-offer-bridge-liveness-gate.
+   */
+  isRecoveryLivenessPending?: (sessionId: string) => boolean;
   /** Broadcast a message to all connected clients */
   broadcast(msg: ServerToBrowserMessage): void;
   /**
@@ -484,6 +498,7 @@ export function createBrowserGateway(
           pendingResumeIntents,
           pendingClientCorrelations,
           pendingWorktreeBaseRegistry,
+          isRecoveryLivenessPending: gateway.isRecoveryLivenessPending,
           sendTo, broadcast, getSubscribers, replayPendingUiRequests,
           broadcastEvent: gateway.broadcastEvent,
           trackUiRequest: trackUiRequest,
@@ -612,10 +627,16 @@ export function createBrowserGateway(
             handleListSessions(msg, ctx);
             break;
           case "resume_session":
-            // Reopen is a resolving action for any pending recovery offer:
-            // null the server-held offer so onConnect stops replaying it.
-            // See change: fix-recovery-offer-dismiss-and-phantom-reopen.
-            gateway.onRecoveryResolve?.();
+            // Reopen resolves a pending recovery offer (null it so onConnect
+            // stops replaying it) — but NOT when the resume will be refused
+            // because a candidate's liveness is still unresolved (grace window).
+            // Clearing it there would drop the offer for a genuinely-lost
+            // session the user can legitimately reopen once the window closes.
+            // See changes: fix-recovery-offer-dismiss-and-phantom-reopen,
+            //              fix-recovery-offer-bridge-liveness-gate.
+            if (!gateway.isRecoveryLivenessPending?.(msg.sessionId)) {
+              gateway.onRecoveryResolve?.();
+            }
             await handleResumeSession(msg, ctx);
             break;
           case "spawn_session":
@@ -970,6 +991,11 @@ export function createBrowserGateway(
 
     getSubscriberCount(sessionId: string): number {
       return getSubscribers(sessionId).length;
+    },
+
+    hasPendingUiRequest(sessionId: string): boolean {
+      const sessionMap = pendingUiRequests.get(sessionId);
+      return sessionMap !== undefined && sessionMap.size > 0;
     },
 
     getDroppedFrameStats() {

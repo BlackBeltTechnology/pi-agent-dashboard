@@ -9,9 +9,8 @@ import { useLocation } from "wouter";
 import { useFolderUrgencySort } from "../../hooks/useFolderUrgencySort.js";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../../lib/git/auto-init-worktree.js";
-import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { useI18n } from "../../lib/i18n/i18n.js";
+import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
+import { resolveWorkspaceFolderReorder, resolveWorkspaceReorder, sameTypeClosestCenter } from "../../lib/layout/sidebar-dnd.js";
 import { buildFolderHomeUrl } from "../../lib/nav/route-builders.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
@@ -32,36 +31,36 @@ import {
 } from "../../lib/session/session-grouping.js";
 import { selectedCardScrollFingerprint } from "../../lib/session/session-list-scroll.js";
 import { floatAskUserFirst } from "../../lib/session/session-status-visuals.js";
-import { resolveWorkspaceFolderReorder, resolveWorkspaceReorder, sameTypeClosestCenter } from "../../lib/layout/sidebar-dnd.js";
+import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
-import { AddToWorkspaceMenu } from "../workspace/AddToWorkspaceMenu.js";
-import { BranchSwitchDialog } from "../worktree/BranchSwitchDialog.js";
-import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
+import { TunnelButton } from "../connectivity/TunnelButton.js";
 import { FolderActionBar } from "../folder/FolderActionBar.js";
 import { FolderNeedsYouPill } from "../folder/FolderNeedsYouPill.js";
-import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
 import { FolderStatusRollup } from "../folder/FolderStatusRollup.js";
+import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { InstallButton } from "../packages/InstallButton.js";
-import { NewWorkspaceDialog } from "../workspace/NewWorkspaceDialog.js";
 import { PiLogo } from "../primitives/PiLogo.js";
+import { Toast, useToast } from "../primitives/Toast.js";
+import { ThemePicker } from "../settings/ThemePicker.js";
+import { ThemeToggle } from "../settings/ThemeToggle.js";
+import { allTagsInUse } from "../tags/all-tags.js";
+import { TagDeleteConfirmDialog } from "../tags/TagDeleteConfirmDialog.js";
+import { TagFilterGroup } from "../tags/TagFilterGroup.js";
+import { AddToWorkspaceMenu } from "../workspace/AddToWorkspaceMenu.js";
+import { NewWorkspaceDialog } from "../workspace/NewWorkspaceDialog.js";
 import { PinDirectoryDialog } from "../workspace/PinDirectoryDialog.js";
+import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
+import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
+import { WorkspaceHeader } from "../workspace/WorkspaceHeader.js";
+import { BranchSwitchDialog } from "../worktree/BranchSwitchDialog.js";
+import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
+import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
 import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
 import { branchCache, GroupGitInfo, SessionCard } from "./SessionCard.js";
 import { SortablePinnedGroup, useFolderDragHandle } from "./SortablePinnedGroup.js";
 import { SortableSessionCard } from "./SortableSessionCard.js";
-import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
-import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
 import { SpawnErrorBanner } from "./SpawnErrorBanner.js";
-import { ThemePicker } from "../settings/ThemePicker.js";
-import { ThemeToggle } from "../settings/ThemeToggle.js";
-import { Toast, useToast } from "../primitives/Toast.js";
-import { TunnelButton } from "../connectivity/TunnelButton.js";
-import { allTagsInUse } from "../tags/all-tags.js";
-import { TagDeleteConfirmDialog } from "../tags/TagDeleteConfirmDialog.js";
-import { TagFilterGroup } from "../tags/TagFilterGroup.js";
-import { WorkspaceHeader } from "../workspace/WorkspaceHeader.js";
-import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
 
 
 export interface ContextUsageInfo {
@@ -891,7 +890,16 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     const isCollapsed = isFolderCollapsed(group.cwd);
 
     return (
-      <div key={group.cwd} className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-[14px] p-1.5 shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]">
+      <div key={group.cwd} className="space-y-1">
+        <div className="relative overflow-hidden bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-[14px] p-1.5 shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]">
+        {/* Faint 3D half-open folder watermark — a static vector asset, behind
+            content, non-interactive, clipped to the card's rounded bounds
+            (design D2; Q2 resolved: centered on the card, anchoring the pill
+            grid). See change: redesign-directory-card. */}
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
+          <img src="/assets/folder-3d.svg" alt="" className="w-[188px] max-w-[70%] h-auto opacity-[0.13] saturate-[.85]" />
+        </div>
+        <div className="relative z-[1]">
         <div className="flex gap-1.5 px-1 py-1 min-h-[44px] md:min-h-0 rounded">
           {/* Left gutter — chevron at top, drag-handle column extending below */}
           <FolderDragGutter
@@ -1032,23 +1040,40 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               } : undefined}
             />
           </div>
-          {/* Plugin slot: sidebar-folder-section (additive, coexists with FolderOpenSpecSection) */}
-          <SidebarFolderSectionSlot folder={{ cwd: group.cwd }} />
-          {/* Render for both initialized (full section) and pending (spinner).
-              See change: fix-cold-boot-openspec-protocol. */}
-          {(openspecMap?.get(group.cwd)?.initialized || openspecMap?.get(group.cwd)?.pending) && (
-            <FolderOpenSpecSection
-              data={openspecMap.get(group.cwd)!}
-              cwd={group.cwd}
-              onRefresh={() => onOpenSpecRefresh?.(group.cwd)}
-              onOpenBoard={onOpenBoard}
-              onOpenSpecs={onOpenSpecs ? () => onOpenSpecs(group.cwd) : undefined}
-              onOpenArchive={onOpenArchive ? () => onOpenArchive(group.cwd) : undefined}
-            />
-          )}
-          {/* Elevated spawn buttons: full-width stacked, always visible
-              regardless of collapse state. Placed after OpenSpec section. */}
-          <div className="mt-1">
+          {/* Slot-pill grid: the plugin slot sections (Automations / Goals /
+              KB) + OpenSpec render as single-concern pills in a 2-col grid that
+              collapses to 1-col at mobile width. A section that renders null
+              (plugin disabled / not yet loaded) simply leaves no cell.
+              See change: redesign-directory-card. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+            <SidebarFolderSectionSlot folder={{ cwd: group.cwd }} />
+            {/* Render for both initialized (full section) and pending (spinner).
+                See change: fix-cold-boot-openspec-protocol. */}
+            {(openspecMap?.get(group.cwd)?.initialized || openspecMap?.get(group.cwd)?.pending) && (
+              <FolderOpenSpecSection
+                data={openspecMap.get(group.cwd)!}
+                cwd={group.cwd}
+                onRefresh={() => onOpenSpecRefresh?.(group.cwd)}
+                onOpenBoard={onOpenBoard}
+                onOpenSpecs={onOpenSpecs ? () => onOpenSpecs(group.cwd) : undefined}
+                onOpenArchive={onOpenArchive ? () => onOpenArchive(group.cwd) : undefined}
+              />
+            )}
+          </div>
+          </>)}
+
+          </div>{/* end content column */}
+        </div>
+        </div>{/* end content layer (relative z-1) */}
+        </div>{/* end bordered info card */}
+        {/* Detached Create tray — rendered OUTSIDE the bordered card as a
+            sibling below it, with a divider label; not part of the card
+            surface (design D3). See change: redesign-directory-card. */}
+        {!isCollapsed && (
+          <div>
+            <div className="relative text-center text-[9.5px] font-semibold tracking-[.1em] uppercase text-[var(--text-muted)] my-2 before:content-[''] before:absolute before:top-1/2 before:left-0 before:w-[38%] before:h-px before:bg-[var(--border-subtle)] after:content-[''] after:absolute after:top-1/2 after:right-0 after:w-[38%] after:h-px after:bg-[var(--border-subtle)]">
+              {t("sessionList.create", undefined, "Create")}
+            </div>
             <FolderSpawnButtons
               spawningDisabled={spawningCwds?.has(group.cwd)}
               // Show unless EVERY session in the folder is a confirmed non-git
@@ -1067,10 +1092,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               }}
             />
           </div>
-          </>)}
-
-          </div>{/* end content column */}
-        </div>
+        )}
         {/* Session + terminal cards — animated collapse */}
         <div className={`group-collapse ${isCollapsed ? "collapsed" : "expanded"}`}>
         <div className="space-y-1 pt-1">

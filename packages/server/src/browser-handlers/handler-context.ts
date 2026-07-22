@@ -2,24 +2,25 @@
  * Shared context for browser message handlers.
  * Each handler receives only what it needs via this context.
  */
-import type { WebSocket } from "ws";
+
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
-import type { EventStore } from "../persistence/memory-event-store.js";
-import type { PiGateway } from "../pi/pi-gateway.js";
-import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
-import type { SessionOrderManager } from "../session/session-order-manager.js";
-import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { WebSocket } from "ws";
 import type { DirectoryService } from "../directory-service.js";
-import type { TerminalManager } from "../terminal/terminal-manager.js";
-import type { HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
-import type { MetaPersistence } from "../persistence/meta-persistence.js";
-import type { PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import type { PendingAttachRegistry } from "../pending/pending-attach-registry.js";
-import type { PendingInitialPromptRegistry } from "../pending/pending-initial-prompt-registry.js";
-import type { PendingWorktreeBaseRegistry } from "../pending/pending-worktree-base-registry.js";
-import type { PendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
 import type { PendingClientCorrelations } from "../pending/pending-client-correlations.js";
+import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
+import type { PendingInitialPromptRegistry } from "../pending/pending-initial-prompt-registry.js";
+import type { PendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
+import type { PendingResumeRegistry } from "../pending/pending-resume-registry.js";
+import type { PendingWorktreeBaseRegistry } from "../pending/pending-worktree-base-registry.js";
+import type { EventStore } from "../persistence/memory-event-store.js";
+import type { MetaPersistence } from "../persistence/meta-persistence.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { SessionOrderManager } from "../session/session-order-manager.js";
+import type { HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
+import type { TerminalManager } from "../terminal/terminal-manager.js";
 
 export interface BrowserHandlerContext {
   ws: WebSocket;
@@ -76,6 +77,16 @@ export interface BrowserHandlerContext {
    * See change: spawn-correlation-token.
    */
   pendingClientCorrelations?: PendingClientCorrelations;
+  /**
+   * True while `sessionId` is an unresolved cold-start recovery candidate whose
+   * process liveness is still being determined (the Class-2 bridge-reattach
+   * grace window). A `continue` resume MUST be refused in this window: a
+   * surviving bridge may be about to reattach, and spawning now would
+   * double-register the session and break message routing. Finalized (dead)
+   * candidates leave the pending set when the window closes.
+   * See change: fix-recovery-offer-bridge-liveness-gate.
+   */
+  isRecoveryLivenessPending?(sessionId: string): boolean;
   /** Send message to a specific WebSocket */
   sendTo(ws: WebSocket, msg: ServerToBrowserMessage): void;
   /** Broadcast to all connected browsers */

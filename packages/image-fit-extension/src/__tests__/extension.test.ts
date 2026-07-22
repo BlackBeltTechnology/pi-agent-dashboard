@@ -6,13 +6,16 @@
  * packages/extension/src/__tests__/provider-register-reload.test.ts.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Jimp } from "jimp";
-import imageFitExtension from "../extension.js";
-import { ROOT_DIR } from "../cache.js";
+import { Jimp, JimpMime } from "jimp";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ContentCache, ROOT_DIR } from "../cache.js";
+import imageFitExtension, { fitContextMessages } from "../extension.js";
+import type { ImageFitConfig } from "../policy.js";
+import * as resize from "../resize.js";
+import { estimateBytesFromBase64 } from "../resize.js";
 
 type Handler = (event: any, ctx: any) => unknown;
 
@@ -308,5 +311,255 @@ describe("imageFitExtension", () => {
       const decoded = await Jimp.read(ev.input.path);
       expect(Math.max(decoded.width, decoded.height)).toBeLessThanOrEqual(400);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Second interception seam: the `context` event handler.
+// ---------------------------------------------------------------------------
+
+const CONFIG: ImageFitConfig = { disabled: false, maxEdge: 1568, maxBytes: 4 * 1024 * 1024, quality: 85 };
+
+async function encodeB64(
+  w: number,
+  h: number,
+  mime: (typeof JimpMime)[keyof typeof JimpMime],
+  noisy = false,
+): Promise<string> {
+  const img = new Jimp({ width: w, height: h, color: 0x3366ccff });
+  if (noisy) {
+    img.scan(0, 0, w, h, (x, y, idx) => {
+      img.bitmap.data[idx] = Math.floor(Math.random() * 256);
+      img.bitmap.data[idx + 1] = Math.floor(Math.random() * 256);
+      img.bitmap.data[idx + 2] = Math.floor(Math.random() * 256);
+      img.bitmap.data[idx + 3] = 255;
+    });
+  }
+  const buf = (await img.getBuffer(mime)) as unknown as Buffer;
+  return buf.toString("base64");
+}
+
+function imgBlock(data: string, mimeType = "image/png") {
+  return { type: "image", data, mimeType };
+}
+
+function msg(content: unknown, role = "user") {
+  return { role, content };
+}
+
+async function decodedMaxEdge(data: string): Promise<number> {
+  const img = await Jimp.fromBuffer(Buffer.from(data, "base64"));
+  return Math.max(img.width, img.height);
+}
+
+describe("imageFitExtension context seam", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+    delete process.env.PI_IMAGE_FIT_DISABLE;
+  });
+
+  // --- resize policy through the seam ---
+
+  it("E1: 1569×800 png (edge over) → resized, {messages} returned", async () => {
+    const data = await encodeB64(1569, 800, JimpMime.png);
+    const messages = [msg([imgBlock(data)])];
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBe(messages); // same reference returned on change
+    expect(await decodedMaxEdge((messages[0].content as any)[0].data)).toBeLessThanOrEqual(1568);
+  });
+
+  it("E2: exactly 1568×800 png (<4 MiB) → not resized, returns undefined", async () => {
+    const data = await encodeB64(1568, 800, JimpMime.png);
+    const messages = [msg([imgBlock(data)])];
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBeUndefined();
+    expect((messages[0].content as any)[0].data).toBe(data); // untouched
+  });
+
+  it("E3 (incident): 8956×5080 png ~<4 MiB → resized (dims checked, not byte-only)", async () => {
+    const data = await encodeB64(8956, 5080, JimpMime.png);
+    expect(estimateBytesFromBase64(data)).toBeLessThan(4 * 1024 * 1024); // bytes under
+    const messages = [msg([imgBlock(data)])];
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBe(messages);
+    expect(await decodedMaxEdge((messages[0].content as any)[0].data)).toBeLessThanOrEqual(1568);
+  }, 60000);
+
+  it("E4: ≤1568 px but >4 MiB decoded bytes → re-encoded smaller", async () => {
+    // A 1250×1250 BMP is uncompressed (~4.7 MiB) yet within the edge limit,
+    // so it must resize on the BYTE threshold; jpeg output shrinks it.
+    const data = await encodeB64(1250, 1250, JimpMime.bmp);
+    expect(estimateBytesFromBase64(data)).toBeGreaterThan(4 * 1024 * 1024);
+    const messages = [msg([imgBlock(data, "image/bmp")])];
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBe(messages);
+    const newData = (messages[0].content as any)[0].data;
+    expect(estimateBytesFromBase64(newData)).toBeLessThan(4 * 1024 * 1024);
+  });
+
+  // --- seam behaviour ---
+
+  it("E7: oversize image in a non-user/non-tool role → resized (role-agnostic)", async () => {
+    const data = await encodeB64(2000, 1200, JimpMime.png);
+    const messages = [msg([imgBlock(data)], "some-custom-role")];
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBe(messages);
+    expect(await decodedMaxEdge((messages[0].content as any)[0].data)).toBeLessThanOrEqual(1568);
+  });
+
+  it("E8: string content → skipped, no throw, no WARN", async () => {
+    const messages = [msg("just a plain string prompt")];
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("E9: multi-image turn → both oversize resized, small untouched, single result", async () => {
+    const over1 = await encodeB64(2000, 1200, JimpMime.png);
+    const over2 = await encodeB64(1800, 1600, JimpMime.png);
+    const small = await encodeB64(200, 100, JimpMime.png);
+    const messages = [msg([imgBlock(over1), imgBlock(over2), imgBlock(small)])];
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBe(messages);
+    const blocks = (messages[0].content as any) as { data: string }[];
+    expect(blocks[0].data).not.toBe(over1);
+    expect(blocks[1].data).not.toBe(over2);
+    expect(blocks[2].data).toBe(small); // within-limit untouched
+  });
+
+  it("E10: all image blocks within limits → returns undefined", async () => {
+    const small = await encodeB64(200, 100, JimpMime.png);
+    const messages = [msg([imgBlock(small)])];
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBeUndefined();
+  });
+
+  it("E11: text + tool-call blocks, no image → untouched, returns undefined", async () => {
+    const messages = [
+      msg([
+        { type: "text", text: "hello" },
+        { type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } },
+      ]),
+    ];
+    const before = structuredClone(messages);
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBeUndefined();
+    expect(messages).toEqual(before); // byte-identical
+  });
+
+  it("E12: PI_IMAGE_FIT_DISABLE=1 → context handler not registered", () => {
+    process.env.PI_IMAGE_FIT_DISABLE = "1";
+    const pi = makeFakePi();
+    imageFitExtension(pi as any);
+    expect(pi.handlers.has("context")).toBe(false);
+  });
+
+  it("E17: within-limit block → hash + cache-put spies NOT invoked", async () => {
+    const keyForSpy = vi.spyOn(ContentCache.prototype, "keyFor");
+    const setSpy = vi.spyOn(ContentCache.prototype, "set");
+    const resizeSpy = vi.spyOn(resize, "resizeBuffer");
+    const pi = makeFakePi();
+    imageFitExtension(pi as any);
+    const small = await encodeB64(200, 100, JimpMime.png);
+    const out = await pi.fire("context", { type: "context", messages: [msg([imgBlock(small)])] });
+    expect(out).toBeUndefined();
+    expect(keyForSpy).not.toHaveBeenCalled();
+    expect(setSpy).not.toHaveBeenCalled();
+    expect(resizeSpy).not.toHaveBeenCalled();
+  });
+
+  it("E18: loading from a transcript file → returned block fitted, file bytes unchanged", async () => {
+    const dir = path.join(os.tmpdir(), `pi-image-fit-e18-${process.pid}-${Date.now()}`);
+    await fs.mkdir(dir, { recursive: true });
+    const file = path.join(dir, "transcript.json");
+    try {
+      const data = await encodeB64(2000, 1200, JimpMime.png);
+      await fs.writeFile(file, JSON.stringify([msg([imgBlock(data)])]));
+      const bytesBefore = await fs.readFile(file);
+      const messages = JSON.parse(bytesBefore.toString("utf8"));
+      const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+      expect(out).toBeTruthy();
+      expect(await decodedMaxEdge(messages[0].content[0].data)).toBeLessThanOrEqual(1568);
+      const bytesAfter = await fs.readFile(file);
+      expect(bytesAfter.equals(bytesBefore)).toBe(true); // on-disk transcript untouched
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  // --- performance invariants ---
+
+  it("P1: within-limit block → zero jimp pixel decodes (header probe only)", async () => {
+    const probeSpy = vi.spyOn(resize, "probeDimsFromBuffer");
+    const resizeSpy = vi.spyOn(resize, "resizeBuffer");
+    const pi = makeFakePi();
+    imageFitExtension(pi as any);
+    const small = await encodeB64(200, 100, JimpMime.png);
+    const out = await pi.fire("context", { type: "context", messages: [msg([imgBlock(small)])] });
+    expect(out).toBeUndefined();
+    expect(probeSpy).not.toHaveBeenCalled();
+    expect(resizeSpy).not.toHaveBeenCalled();
+  });
+
+  it("P2: same oversize block across 3 turns → resizeBuffer runs once total", async () => {
+    const resizeSpy = vi.spyOn(resize, "resizeBuffer");
+    const pi = makeFakePi();
+    imageFitExtension(pi as any); // one extension instance → one shared cache
+    const data = await encodeB64(2000, 1200, JimpMime.png);
+    for (let turn = 0; turn < 3; turn++) {
+      // fresh block copy each turn (as pi re-copies the transcript)
+      await pi.fire("context", { type: "context", messages: [msg([imgBlock(data)])] });
+    }
+    expect(resizeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // --- fail-open (error handling) ---
+
+  it("X1: undecodable oversize block → unchanged, exactly one WARN, no throw", async () => {
+    const garbage = "A".repeat(6 * 1024 * 1024); // decodes to ~4.7 MiB of zeros
+    expect(estimateBytesFromBase64(garbage)).toBeGreaterThan(4 * 1024 * 1024);
+    const messages = [msg([imgBlock(garbage)])];
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBeUndefined(); // nothing changed
+    expect((messages[0].content as any)[0].data).toBe(garbage); // untouched
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("X2: one undecodable + one valid oversize → valid resized, bad passes through", async () => {
+    const garbage = "A".repeat(6 * 1024 * 1024);
+    const valid = await encodeB64(2000, 1200, JimpMime.png);
+    const messages = [msg([imgBlock(garbage), imgBlock(valid)])];
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBe(messages);
+    const blocks = (messages[0].content as any) as { data: string }[];
+    expect(blocks[0].data).toBe(garbage); // bad untouched
+    expect(blocks[1].data).not.toBe(valid); // valid resized
+    expect(await decodedMaxEdge(blocks[1].data)).toBeLessThanOrEqual(1568);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("X3: resizeBuffer throws for one block → that block unchanged + one WARN, sibling processed", async () => {
+    const a = await encodeB64(2000, 1200, JimpMime.png);
+    const b = await encodeB64(1800, 1600, JimpMime.png);
+    // First resize throws; subsequent calls fall through to the real impl.
+    const spy = vi.spyOn(resize, "resizeBuffer").mockRejectedValueOnce(new Error("encode boom"));
+    const messages = [msg([imgBlock(a), imgBlock(b)])];
+    const out = await fitContextMessages(messages, CONFIG, new ContentCache());
+    expect(out).toBe(messages);
+    const blocks = (messages[0].content as any) as { data: string }[];
+    expect(blocks[0].data).toBe(a); // resize threw → unchanged
+    expect(blocks[1].data).not.toBe(b); // sibling still processed
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 });
