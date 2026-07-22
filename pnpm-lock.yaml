@@ -142,6 +142,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-goal-plugin':
         specifier: ^0.6.1
         version: link:../goal-plugin
+      '@blackbelt-technology/pi-dashboard-hermes-memory-plugin':
+        specifier: ^0.6.1
+        version: link:../hermes-memory-plugin
       '@blackbelt-technology/pi-dashboard-kb-plugin':
         specifier: ^0.6.1
         version: link:../kb-plugin
