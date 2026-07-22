@@ -161,6 +161,20 @@ describe("Process Manager", () => {
       const managedCount = parts.filter(p => p === managedBin).length;
       expect(managedCount).toBe(1);
     });
+
+    // Caller-supplied env passthrough. See change: scope-session-toolset-by-profile.
+    it("places each caller extraEnv key in the returned env", () => {
+      const env = buildSpawnEnv({ PATH: "/usr/bin" }, {
+        extraEnv: { IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: "inv-42" },
+      });
+      expect(env.IB_TOOLSET).toBe("scoped-invoice");
+      expect(env.IB_INVOICE_ID).toBe("inv-42");
+    });
+
+    it("no extraEnv ⇒ env identical to a bare build (no-op)", () => {
+      const base = { PATH: "/usr/bin", FOO: "bar" };
+      expect(buildSpawnEnv(base, {})).toEqual(buildSpawnEnv(base));
+    });
   });
 
   describe("electronMode", () => {

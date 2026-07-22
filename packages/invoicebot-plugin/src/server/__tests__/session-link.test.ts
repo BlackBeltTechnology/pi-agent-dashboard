@@ -107,6 +107,25 @@ describe("spawn + runId correlation", () => {
   });
 });
 
+// Per-invoice scope env. See change: scope-session-toolset-by-profile.
+describe("per-invoice scope env", () => {
+  it("a bound invoiceId spawn carries IB_TOOLSET=scoped-invoice + IB_INVOICE_ID", async () => {
+    const link = createSessionLink(ctx.deps);
+    link.dispatchFlow({ cwd: CWD, flow: FLOW, invoiceId: "inv-42" });
+    await Promise.resolve();
+    expect(ctx.spawns).toHaveLength(1);
+    expect(ctx.spawns[0].env).toEqual({ IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: "inv-42" });
+  });
+
+  it("an unbound spawn (no invoiceId) carries no env — Ask session unchanged", async () => {
+    const link = createSessionLink(ctx.deps);
+    link.dispatchFlow({ cwd: CWD, flow: FLOW });
+    await Promise.resolve();
+    expect(ctx.spawns).toHaveLength(1);
+    expect(ctx.spawns[0].env).toBeUndefined();
+  });
+});
+
 describe("resolveSessionId", () => {
   it("returns the recorded link", async () => {
     ctx.addSession({ id: "sess-live", cwd: CWD, automationRun: { name: "invoicebot:process", runId: "r0" } });

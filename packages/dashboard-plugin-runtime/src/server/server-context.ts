@@ -121,6 +121,13 @@ export interface PluginSpawnOptions {
    * run's effective board visibility.
    */
   automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
+  /**
+   * Optional caller-supplied environment map forwarded into the spawned
+   * process env (folded beneath the guard env by the host). A plugin uses it
+   * to scope a per-invoice session's tool surface. Absent ⇒ unchanged. See
+   * change: scope-session-toolset-by-profile.
+   */
+  env?: Record<string, string>;
 }
 
 /** Result of a plugin session-spawn request. */

@@ -33,6 +33,8 @@ export interface SessionLinkDeps {
     model?: string;
     /** Mark the spawn guarded (built-in tools disabled + cwd registered). See change: constrain-agent-tool-surface. */
     guard?: boolean;
+    /** Caller-supplied spawn env; scopes the per-invoice session's tool surface. See change: scope-session-toolset-by-profile. */
+    env?: Record<string, string>;
     automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
   }) => Promise<{ success: boolean; message?: string; spawnToken?: string }>;
   emitEventToSession: (sessionId: string, eventType: string, data?: Record<string, unknown>) => boolean;
@@ -125,9 +127,19 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
       if (typeof t.unref === "function") t.unref();
     });
 
+    // Scope the tool surface to this one invoice — only when an invoice id is
+    // bound. An unbound spawn (the persistent "Ask"/Kérdezz session) carries no
+    // scope env and keeps the full surface. See change: scope-session-toolset-by-profile.
+    const scopeEnv = invoiceId ? { IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: invoiceId } : undefined;
+
     let spawn: { success: boolean; message?: string; spawnToken?: string };
     try {
-      spawn = await deps.spawnSession({ cwd, guard: true, automationRun: { name: flow.flowName, runId, visibility: "shown" } });
+      spawn = await deps.spawnSession({
+        cwd,
+        guard: true,
+        ...(scopeEnv ? { env: scopeEnv } : {}),
+        automationRun: { name: flow.flowName, runId, visibility: "shown" },
+      });
     } catch (err) {
       pendingByRunId.delete(runId);
       deps.logger.warn(`invoicebot spawnSession threw for ${flow.flowName}: ${err instanceof Error ? err.message : String(err)}`);

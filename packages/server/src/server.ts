@@ -80,6 +80,7 @@ import { createPiGateway, type PiGateway } from "./pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { createPreferencesStore, type PreferencesStore } from "./preferences-store.js";
 import { spawnPiSession } from "./process-manager.js";
+import { pluginSpawnToSessionOptions } from "./plugin-spawn-options.js";
 import { registerGuardedDir } from "./session-guard.js";
 import { applyReattachPolicy } from "./reattach-placement.js";
 import { reconcileSessionOrder } from "./reconcile-session-order.js";
@@ -1733,11 +1734,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // session on the generic path) are guarded too — origin ∪ cwd.
                 if (opts.guard) registerGuardedDir(opts.cwd);
                 try {
-                  const result = await spawnPiSession(opts.cwd, {
-                    strategy: "headless",
-                    ...(opts.model ? { model: opts.model } : {}),
-                    ...(opts.guard ? { guard: true } : {}),
-                  });
+                  const result = await spawnPiSession(opts.cwd, pluginSpawnToSessionOptions(opts));
                   if (result.process && result.pid) {
                     browserGateway.headlessPidRegistry.register(
                       result.pid,

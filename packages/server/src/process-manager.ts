@@ -129,6 +129,14 @@ export interface SessionOptions {
    * add-automation-plugin.
    */
   model?: string;
+  /**
+   * Optional caller-supplied environment map forwarded into the spawned
+   * process env. Folded BENEATH the resolved guard env (caller first, guard
+   * last) so the guard always wins on a key collision and a caller can never
+   * weaken it. Absent ⇒ env byte-identical to today. See change:
+   * scope-session-toolset-by-profile.
+   */
+  env?: Record<string, string>;
 }
 
 export interface SpawnResult {
@@ -425,6 +433,14 @@ export async function spawnPiSession(
     if (gf.noBuiltinTools) opts.noBuiltinTools = true;
     if (gf.loadExtensions?.length) opts.loadExtensions = [...(opts.loadExtensions ?? []), ...gf.loadExtensions];
     if (gf.env) opts.guardEnv = { ...(opts.guardEnv ?? {}), ...gf.env };
+  }
+
+  // Fold caller-supplied env BENEATH the guard env into the single extraEnv
+  // slot: caller first, guard last, so the guard wins on any key collision and
+  // can never be weakened by a caller-supplied value; distinct keys from both
+  // sources survive. See change: scope-session-toolset-by-profile.
+  if (opts.env && Object.keys(opts.env).length > 0) {
+    opts.guardEnv = { ...opts.env, ...(opts.guardEnv ?? {}) };
   }
 
   const mechanism = chooseMechanism(opts, opts?.electronMode ?? false);
