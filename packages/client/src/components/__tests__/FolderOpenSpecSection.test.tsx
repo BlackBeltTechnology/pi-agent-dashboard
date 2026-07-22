@@ -3,12 +3,12 @@
  * board. The inline accordion (change tree, group pills, search, DnD, session
  * rows) moved to OpenSpecBoardView. See change: redesign-openspec-board.
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
 
-import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 
 afterEach(() => cleanup());
 
@@ -27,10 +27,11 @@ const defaultProps = {
 };
 
 describe("FolderOpenSpecSection (navigation entry)", () => {
-  it("renders a single-line entry with the change count", () => {
+  it("renders a SlotPill entry with the change count", () => {
     render(<FolderOpenSpecSection {...defaultProps} />);
-    expect(screen.getByTestId("folder-openspec-open-board")).toBeTruthy();
-    expect(screen.getByText("OpenSpec (2)")).toBeTruthy();
+    const pill = screen.getByTestId("folder-openspec-open-board");
+    expect(pill.textContent).toContain("OpenSpec");
+    expect(screen.getByTestId("folder-openspec-count").textContent).toBe("2");
   });
 
   it("does not render an inline change tree", () => {
