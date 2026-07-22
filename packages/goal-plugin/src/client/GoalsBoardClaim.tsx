@@ -17,7 +17,7 @@ import type React from "react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { CreateGoalDialog } from "./CreateGoalDialog.js";
-import { deriveSnapshot } from "./goal-state.js";
+import { deriveSnapshot, fmtUsd, gaugePct, resolveGoalTurns } from "./goal-state.js";
 import { decodeFolderPath, deleteGoal, goalDetailUrl } from "./goals-api.js";
 import { statusMeta, useGoals } from "./useGoals.js";
 
@@ -48,20 +48,22 @@ function TurnRing({ used, max }: { used: number; max: number }): React.ReactElem
   );
 }
 
-/** Reactive live-turn rollup for a goal's driver session (task 5.3): ring +
- *  turns text + latest live verdict. */
-function GoalLiveProgress({ sessionId }: { sessionId?: string }): React.ReactElement | null {
-  const events = useSessionEvents(sessionId ?? "");
-  if (!sessionId) return null;
-  const snap = deriveSnapshot(events);
-  if (!snap) return null;
+/** Reactive turn rollup for a goal: ring + turns text + latest live verdict.
+ *  Live snapshot wins; when the driver has ended it falls back to the goal's
+ *  persisted `lastKnownTurnsUsed` so a completed goal's ring is not empty.
+ *  See change: fix-goal-detail-turns-and-spend. */
+function GoalLiveProgress({ goal }: { goal: GoalRecord }): React.ReactElement | null {
+  const events = useSessionEvents(goal.driverSessionId ?? "");
+  const snap = goal.driverSessionId ? deriveSnapshot(events) : null;
+  const { turnsUsed, maxTurns } = resolveGoalTurns(snap, goal);
+  if (turnsUsed === undefined) return null;
   return (
     <span className="inline-flex items-center gap-1" data-testid="goal-live-progress">
-      <TurnRing used={snap.turnsUsed} max={snap.maxTurns} />
+      <TurnRing used={turnsUsed} max={maxTurns ?? 0} />
       <span className="text-[10px] font-mono text-[var(--text-tertiary)]">
-        {snap.status === "paused" ? "⏸" : "●"} {snap.turnsUsed}/{snap.maxTurns}
+        {snap?.status === "paused" ? "⏸" : "●"} {turnsUsed}/{maxTurns ?? "—"}
       </span>
-      {snap.lastVerdict && (
+      {snap?.lastVerdict && (
         <span className="text-[9px] px-1 py-px rounded-full border border-[var(--border-subtle)] text-[var(--text-tertiary)]" data-testid="goal-card-verdict">
           {snap.lastVerdict}
         </span>
@@ -85,7 +87,7 @@ function GoalCard({ goal, onOpen, onDelete }: { goal: GoalRecord; onOpen: () => 
             <span className={`text-[10px] px-1.5 py-px rounded-full border ${meta.cls}`}>
               {meta.dot} {meta.label}
             </span>
-            <GoalLiveProgress sessionId={goal.driverSessionId} />
+            <GoalLiveProgress goal={goal} />
             {goal.criteria.length > 0 && (
               <span className="text-[10px] text-[var(--text-tertiary)]">
                 {t("criteriaCount", { done: doneCriteria, total: goal.criteria.length }, `${doneCriteria}/${goal.criteria.length} criteria`)}
@@ -97,12 +99,18 @@ function GoalCard({ goal, onOpen, onDelete }: { goal: GoalRecord; onOpen: () => 
               </span>
             )}
           </div>
-          {goal.budget?.maxSpendUsd !== undefined && (
+          {(goal.totalSpendUsd !== undefined || goal.budget?.maxSpendUsd !== undefined) && (
             <div className="mt-1.5" data-testid="goal-card-spend">
-              <div className="h-1 rounded bg-[var(--border-subtle)] overflow-hidden">
-                <div className="h-full bg-emerald-400/60" style={{ width: "0%" }} />
-              </div>
-              <span className="text-[9px] text-[var(--text-muted)]">{t("budgetAmount", { amount: goal.budget.maxSpendUsd }, `budget $${goal.budget.maxSpendUsd}`)}</span>
+              {goal.budget?.maxSpendUsd !== undefined && (
+                <div className="h-1 rounded bg-[var(--border-subtle)] overflow-hidden">
+                  <div className="h-full bg-emerald-400/60" style={{ width: `${gaugePct(goal.totalSpendUsd, goal.budget.maxSpendUsd)}%` }} />
+                </div>
+              )}
+              <span className="text-[9px] text-[var(--text-muted)]">
+                {goal.budget?.maxSpendUsd !== undefined
+                  ? `${fmtUsd(goal.totalSpendUsd)} / ${fmtUsd(goal.budget.maxSpendUsd)}`
+                  : `${fmtUsd(goal.totalSpendUsd)} · ${t("noCap", undefined, "no cap")}`}
+              </span>
             </div>
           )}
         </button>
