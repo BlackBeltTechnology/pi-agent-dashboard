@@ -205,6 +205,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         ],
         "client": "./src/index.tsx",
         "server": "./src/server/index.ts",
+        "configSchema": "./configSchema.json",
         "i18nCatalog": "catalog"
     },
     claims: [
