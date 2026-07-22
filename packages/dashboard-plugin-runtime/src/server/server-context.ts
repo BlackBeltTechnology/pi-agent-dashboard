@@ -187,6 +187,41 @@ export type ConsumeFn = <T = unknown>(name: string) => T | undefined;
  */
 export type ConsumeAllFn = <T = unknown>(prefix: string) => Array<{ key: string; value: T }>;
 
+/**
+ * OAuth/api_key-aware model resolver a plugin server entry can use through
+ * {@link PluginModelRuntime}. Structural mirror of the server's model-proxy
+ * registry so the runtime package needs no dependency on the server package.
+ */
+export interface PluginModelRegistry {
+  find(provider: string, modelId: string): Promise<unknown | null>;
+  getApiKeyAndHeaders(model: unknown): Promise<{ apiKey: string; headers: Record<string, string> }>;
+}
+
+/** Subset of pi-ai's streamSimple (as adapted by the server) a plugin consumes. */
+export type PluginStreamSimpleFn = (opts: {
+  model: unknown;
+  messages: unknown[];
+  system?: string;
+  maxTokens?: number;
+  temperature?: number;
+  apiKey?: string;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+}) => AsyncIterable<{ type?: string; message?: unknown; error?: { errorMessage?: string } }>;
+
+/**
+ * In-process model runtime seam. Lets a plugin `server` entry run completions
+ * through the dashboard's own registry + streamSimple (credentials resolved
+ * server-side via auth.json + providers.json) WITHOUT a loopback HTTP hop to
+ * the model proxy — the same seam `server.ts` hands core routes. Absent when
+ * the model proxy/registry is unavailable (plugin should degrade gracefully).
+ * See change: make-grammar-fully-plugin-contained.
+ */
+export interface PluginModelRuntime {
+  getModelRegistry(): Promise<PluginModelRegistry | null>;
+  streamSimple: PluginStreamSimpleFn;
+}
+
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
   fastify: FastifyInstance;
@@ -244,6 +279,11 @@ export interface ServerPluginContext {
   consumeAll: ConsumeAllFn;
   getPluginConfig<T = Record<string, unknown>>(): T;
   updatePluginConfig<T = Record<string, unknown>>(partial: Partial<T>): Promise<void>;
+  /**
+   * In-process model runtime (registry + streamSimple). Optional — absent when
+   * the model proxy is unavailable. See change: make-grammar-fully-plugin-contained.
+   */
+  modelRuntime?: PluginModelRuntime;
   logger: PluginLogger;
 }
 
@@ -267,6 +307,8 @@ export interface ServerContextDeps {
   consumeAll: ConsumeAllFn;
   getPluginConfig: (pluginId: string) => Record<string, unknown>;
   updatePluginConfig: (pluginId: string, partial: Record<string, unknown>) => Promise<void>;
+  /** In-process model runtime seam (optional). See change: make-grammar-fully-plugin-contained. */
+  modelRuntime?: PluginModelRuntime;
 }
 
 /**
@@ -304,6 +346,7 @@ export function createServerPluginContext(
       await deps.updatePluginConfig(pluginId, partial as Record<string, unknown>);
     },
 
+    modelRuntime: deps.modelRuntime,
     logger,
   };
 }

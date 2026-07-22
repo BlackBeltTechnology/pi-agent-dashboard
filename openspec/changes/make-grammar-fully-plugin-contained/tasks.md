@@ -18,12 +18,14 @@
   below the composer card (inert, no grammar reference). Typecheck + 246 runtime + 2005 client
   tests green.
 
-## 2. Enabler — model runtime in `ServerPluginContext` (core `dashboard-plugin-loader`)
+## 2. Enabler — model runtime in `ServerPluginContext` (core `dashboard-plugin-loader`) — DONE
 
-- [ ] 2.1 (TDD) Loader test: a `server`-entry plugin receives `ctx.modelRuntime` with
-  `getModelRegistry` + `streamSimple`; absent/degraded when the proxy is unavailable.
-- [ ] 2.2 Extend `ServerPluginContext` + wire the same `getModelRegistry`/`streamSimple` seam
-  `server.ts` passes to `registerGrammarRoutes` today.
+- [x] 2.1 (TDD) `server-context-model-runtime.test.ts`: an injected `modelRuntime` passes through
+  the context (registry.find works); absent when the host injects none (degraded mode).
+- [x] 2.2 Added `PluginModelRuntime`/`PluginModelRegistry`/`PluginStreamSimpleFn` +
+  `modelRuntime?` to `ServerPluginContext` + `ServerContextDeps`; `createServerPluginContext`
+  forwards it. `server.ts` wires it in the `createContext` deps, mirroring the grammar-route
+  adapter (`system`→`context.systemPrompt`). Typecheck clean; seam tests green.
 
 ## 3. Move server into the plugin
 

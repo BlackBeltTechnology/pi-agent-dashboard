@@ -1855,6 +1855,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 fs.renameSync(tmpFile, CONFIG_FILE);
                 browserGateway.broadcast({ type: 'plugin_config_update', id, config: merged } as any);
               },
+              // In-process model runtime seam for plugin server entries (e.g. the
+              // grammar plugin's llm backend) — mirrors the grammar-route wiring
+              // above; maps `system`→`context.systemPrompt` (pi-ai contract).
+              // See change: make-grammar-fully-plugin-contained.
+              modelRuntime: {
+                getModelRegistry: async () => {
+                  try {
+                    return await getModelRegistry();
+                  } catch {
+                    return null;
+                  }
+                },
+                streamSimple: (opts) => {
+                  const fn = getStreamSimpleFn();
+                  if (!fn) throw new Error("streamSimple not available");
+                  return fn(opts.model, { messages: opts.messages, systemPrompt: opts.system }, opts);
+                },
+              },
             },
             plugin.manifest.id,
           ),
