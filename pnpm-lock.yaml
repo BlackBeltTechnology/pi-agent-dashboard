@@ -552,6 +552,37 @@ importers:
         specifier: ^3.9.0
         version: 3.10.0(react@19.2.7)
 
+  packages/hermes-memory-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.6.1
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.6.1
+        version: link:../shared
+      '@mdi/js':
+        specifier: ^7.4.47
+        version: 7.4.47
+      '@mdi/react':
+        specifier: ^1.6.1
+        version: 1.6.1
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.17)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.7(react@19.2.7)
+      wouter:
+        specifier: ^3.9.0
+        version: 3.10.0(react@19.2.7)
+
   packages/image-fit-extension:
     dependencies:
       '@mariozechner/pi-coding-agent':
