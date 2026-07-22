@@ -2,6 +2,7 @@ import type { CommandInfo, FileEntry, ImageContent, ModelInfo, ViewTarget } from
 import { mdiAlertOctagon, mdiClipboardText, mdiConsole, mdiDotsHorizontal, mdiEyeOutline, mdiFile, mdiFileDocumentOutline, mdiFlag, mdiFlash, mdiFolder, mdiImageOutline, mdiPlaylistPlus, mdiPlus, mdiSendVariant, mdiSpellcheck, mdiStop, mdiStopCircleOutline, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useImagePaste } from "../../hooks/useImagePaste.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
@@ -1112,6 +1113,10 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           {actionButton}
         </div>
       </div>
+
+      {/* Plugin composer-panel slot (e.g. grammar). Inert until a plugin
+          claims it; receives the live draft as a read-only context. */}
+      <ComposerPanelSlot draft={text} />
 
       {/* Focus-revealed footer hint line + context-left indicator. */}
       {footerVisible && (

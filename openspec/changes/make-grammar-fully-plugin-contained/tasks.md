@@ -5,17 +5,18 @@
 
 ## 0. Preconditions
 
-- [ ] 0.1 Read `design.md` (coupling table + the 3 gaps).
-- [ ] 0.2 Green baseline: `pnpm run lint` + grammar suite (`grammar-*`, `config-grammar`,
+- [x] 0.1 Read `design.md` (coupling table + the 3 gaps).
+- [x] 0.2 Green baseline: `pnpm run lint` + grammar suite (`grammar-*`, `config-grammar`,
   `GrammarPanel`, `useGrammarCheck`, plugin `manifest`/`GrammarSettings`).
 
-## 1. Enabler — composer slot (core `dashboard-shell-slots`)
+## 1. Enabler — composer slot (core `dashboard-shell-slots`) — DONE
 
-- [ ] 1.1 (TDD) Slot-registry test: a claim for `composer-panel` renders below the composer input
-  and receives `{ draft, language? }`; no claim → nothing rendered (parity with today's inert
-  default-off).
-- [ ] 1.2 Add `composer-panel` to the slot id union + render it in `CommandInput.tsx`, passing the
-  read-only composer context. No grammar reference.
+- [x] 1.1 (TDD) `slot-consumers.test.tsx`: a `composer-panel` claim renders and receives
+  `{ draft, language }`; no claim → renders nothing. Plus `manifest-validator` accepts the slot.
+- [x] 1.2 Added `composer-panel` to `SlotId` + `SLOT_DEFINITIONS` + `SlotPropsMap`; added
+  `ComposerPanelSlot` consumer; `CommandInput.tsx` renders `<ComposerPanelSlot draft={text}/>`
+  below the composer card (inert, no grammar reference). Typecheck + 246 runtime + 2005 client
+  tests green.
 
 ## 2. Enabler — model runtime in `ServerPluginContext` (core `dashboard-plugin-loader`)
 

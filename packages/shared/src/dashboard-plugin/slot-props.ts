@@ -77,6 +77,13 @@ export interface SlotPropsMap {
     session: DashboardSession;
     pluginContext: AnyPluginContext;
   };
+  "composer-panel": {
+    /** The current chat composer input value (read-only). */
+    draft: string;
+    /** Optional language hint for the draft (e.g. "en"); undefined = auto. */
+    language?: string;
+    pluginContext: AnyPluginContext;
+  };
   "content-view": {
     session: DashboardSession;
     routeParams: Record<string, string>;

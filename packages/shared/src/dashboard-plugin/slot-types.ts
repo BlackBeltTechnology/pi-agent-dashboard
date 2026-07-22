@@ -16,6 +16,7 @@ export type SlotId =
   | "worktree-card-section"
   | "session-card-action-bar"
   | "workspace-action-bar"
+  | "composer-panel"
   | "shell-overlay-route"
   // (session-card-memory and session-card-flows are also react-only; declared below for ordering)
   | "content-inline-footer"
@@ -92,6 +93,11 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     multiplicity: "many",
     payloadTier: "react-only",
     description: "Action buttons inside the WORKSPACE subcard of a session card (git workspace tooling)",
+  },
+  "composer-panel": {
+    multiplicity: "many",
+    payloadTier: "react-only",
+    description: "Panel rendered below the chat composer input; receives a read-only { draft, language? } context. Slot component owns its own debounce/side-effects. See change: make-grammar-fully-plugin-contained.",
   },
   "content-view": {
     multiplicity: "one-active",

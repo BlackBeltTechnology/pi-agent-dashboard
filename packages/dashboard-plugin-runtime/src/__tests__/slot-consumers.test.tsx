@@ -4,6 +4,7 @@ import type React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { PluginContextProvider } from "../plugin-context.js";
 import {
+  ComposerPanelSlot,
   SessionCardBadgeSlot,
   SessionCardMemorySlot,
   SettingsSectionSlot,
@@ -357,5 +358,35 @@ describe("SessionCardMemorySlot with shouldRender", () => {
       </PluginContextProvider>,
     );
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("ComposerPanelSlot", () => {
+  it("renders a composer-panel claim and passes the read-only draft context", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "grammar",
+      priority: 100,
+      slot: "composer-panel",
+      Component: (props: Record<string, unknown>) => (
+        <span data-testid="panel">{`draft=${String(props.draft)} lang=${String(props.language)}`}</span>
+      ),
+    });
+    render(
+      <PluginContextProvider registry={registry}>
+        <ComposerPanelSlot draft="teh cat" language="en" />
+      </PluginContextProvider>,
+    );
+    expect(screen.getByTestId("panel").textContent).toBe("draft=teh cat lang=en");
+  });
+
+  it("renders nothing when no plugin claims composer-panel", () => {
+    const registry = createSlotRegistry();
+    const { container } = render(
+      <PluginContextProvider registry={registry}>
+        <ComposerPanelSlot draft="anything" />
+      </PluginContextProvider>,
+    );
+    expect(container.textContent).toBe("");
   });
 });
