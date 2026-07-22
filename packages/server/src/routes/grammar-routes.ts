@@ -16,7 +16,7 @@ import type {
   GrammarHealth,
 } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { LlmModelRegistry, LlmStreamFn } from "../grammar/backends/llm.js";
 import {
   checkGrammar as defaultCheckGrammar,
@@ -50,6 +50,23 @@ export interface GrammarRouteDeps {
   health?: typeof defaultGetGrammarHealth;
 }
 
+/**
+ * Opt this request out of Fastify's 10s per-socket connectionTimeout (the llm
+ * grammar backend, non-streaming, can take longer), restoring it on finish so
+ * a keep-alive socket doesn't carry an infinite timeout forward. Mirrors the
+ * long-running git worktree-init route.
+ */
+function relaxSocketTimeout(request: FastifyRequest, reply: FastifyReply): void {
+  const socket = request.raw.socket;
+  const prev = typeof socket?.timeout === "number" ? socket.timeout : undefined;
+  socket?.setTimeout?.(0);
+  if (typeof prev === "number") {
+    reply.raw.once("finish", () => {
+      if (socket && !socket.destroyed) socket.setTimeout(prev);
+    });
+  }
+}
+
 export function registerGrammarRoutes(fastify: FastifyInstance, deps: GrammarRouteDeps): void {
   const { networkGuard, getGrammarConfig } = deps;
   const check = deps.check ?? defaultCheckGrammar;
@@ -59,6 +76,7 @@ export function registerGrammarRoutes(fastify: FastifyInstance, deps: GrammarRou
     "/api/grammar/check",
     { preHandler: networkGuard },
     async (request, reply) => {
+      relaxSocketTimeout(request, reply);
       const config = getGrammarConfig();
       const text = typeof request.body?.text === "string" ? request.body.text : "";
       const language =
