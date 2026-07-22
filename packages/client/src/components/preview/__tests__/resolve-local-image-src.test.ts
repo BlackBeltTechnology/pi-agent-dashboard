@@ -48,6 +48,7 @@ describe("resolveLocalImageSrc", () => {
       "file:///x.png",
       "cid:part1",
       "mailto:a@b.c",
+      "C:/workspace/image.png", // Windows drive letter = 1-char URI scheme → left verbatim (null)
       "//cdn/x.png",
       "#frag",
     ]) {

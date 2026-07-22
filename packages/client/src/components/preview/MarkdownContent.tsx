@@ -315,6 +315,10 @@ function PiAssetImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
   const imageBase = useImageBase();
   const [lightboxSrc, setLightboxSrc] = React.useState<{ src: string; alt: string } | null>(null);
   const [failed, setFailed] = React.useState(false);
+  // react-markdown reuses this component by position across content re-parses,
+  // so reset the load-failure state whenever the src changes — otherwise a prior
+  // failure would flash the placeholder before the new image tries to load.
+  React.useEffect(() => setFailed(false), [props.src]);
   const { src, alt, className: incomingClass, onClick: _drop, ...rest } = props;
   const altText = typeof alt === "string" ? alt : "";
   const baseClass = `${incomingClass ?? ""} cursor-pointer`.trim();
