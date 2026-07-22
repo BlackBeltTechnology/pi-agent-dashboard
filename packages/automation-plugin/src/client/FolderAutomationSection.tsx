@@ -12,9 +12,9 @@
  * See change: add-automation-plugin, fix-automation-slot-parity-and-routing.
  */
 
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SlotPill, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
-import { mdiArrowRight, mdiRefresh } from "@mdi/js";
+import { mdiCogOutline, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useState } from "react";
@@ -59,49 +59,43 @@ export function FolderAutomationSection({
 
   return (
     <div data-testid="folder-automation-section" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center gap-1.5 mt-1">
-        <button
-          data-testid="folder-automation-open-board"
-          onClick={(e) => {
-            e.stopPropagation();
-            setLocation(`/folder/${encodeFolderPath(folder.cwd)}/automations`);
-          }}
-          className="flex items-center gap-1 text-[10px] font-semibold text-[var(--text-tertiary)] uppercase hover:text-blue-400"
-          title={t("openBoardTitle", undefined, "Open automation board")}
-        >
-          <span>
-            {t("automations", undefined, "Automations")} ({automations.length})
-            {invalid > 0 && (
-              <span className="ml-1 text-[var(--danger,#ef4444)]" title={t("invalidTitle", { count: invalid }, `${invalid} invalid`)}>
-                ⚠ {invalid}
-              </span>
-            )}
+      <SlotPill
+        glyph={mdiCogOutline}
+        accent="blue"
+        label={t("automations", undefined, "Automations")}
+        activateTestId="folder-automation-open-board"
+        activateTitle={t("openBoardTitle", undefined, "Open automation board")}
+        onActivate={() => setLocation(`/folder/${encodeFolderPath(folder.cwd)}/automations`)}
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setReloadKey((k) => k + 1); }}
+              className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-1"
+              title={t("refresh", undefined, "Refresh")}
+              data-testid="folder-automation-refresh"
+            >
+              <Icon path={mdiRefresh} size={0.5} />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setCreating(true); }}
+              className="text-[10px] px-1.5 py-0.5 rounded border text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300 hover:border-blue-500/70"
+              data-testid="folder-automation-new-btn"
+            >
+              {t("new", undefined, "+ New")}
+            </button>
+          </>
+        }
+      >
+        <span data-testid="folder-automation-count">{automations.length}</span>
+        <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{t("automationsUnit", undefined, "flows")}</span>
+        {invalid > 0 && (
+          <span className="text-[10px] font-extrabold text-amber-400" title={t("invalidTitle", { count: invalid }, `${invalid} invalid`)}>
+            ⚠ {invalid}
           </span>
-          <Icon path={mdiArrowRight} size={0.45} />
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setReloadKey((k) => k + 1);
-          }}
-          className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-          title={t("refresh", undefined, "Refresh")}
-          data-testid="folder-automation-refresh"
-        >
-          <Icon path={mdiRefresh} size={0.5} />
-        </button>
-        <span className="flex-1" />
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setCreating(true);
-          }}
-          className="text-[10px] px-1.5 py-0.5 rounded border text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300 hover:border-blue-500/70"
-          data-testid="folder-automation-new-btn"
-        >
-          {t("new", undefined, "+ New")}
-        </button>
-      </div>
+        )}
+      </SlotPill>
 
       {creating && (
         <CreateAutomationDialog

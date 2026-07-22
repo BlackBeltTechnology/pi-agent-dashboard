@@ -812,6 +812,12 @@ export interface GoalRecord {
   driverSessionId?: string;
   createdAt: number;
   updatedAt: number;
+  /** Total USD spend across this goal's linked sessions, **server-derived at
+   *  read time** (Σ `DashboardSession.cost` over `sessionIds`). Never persisted
+   *  to the goals file, never bridge-sent — same server-join convention as
+   *  `groupId`. Optional; absent on legacy records / pre-scan cold start.
+   *  See change: fix-goal-detail-turns-and-spend. */
+  totalSpendUsd?: number;
 }
 
 /** Shape of the on-disk goals file under the dashboard data dir.

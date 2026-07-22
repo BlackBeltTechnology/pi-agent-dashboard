@@ -6,17 +6,19 @@
  *
  * See change: sophisticate-goal-authoring-and-control.
  */
-import React from "react";
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
-import { Router } from "wouter";
-import { memoryLocation } from "wouter/memory-location";
+
 import {
   PluginContextProvider,
   setSender,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 
 type PluginActionMessage = { pluginId: string; sessionId: string | null; action: string; payload?: Record<string, unknown> };
+
 import type { GoalRecord } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GoalDetailClaim } from "../client/GoalDetailClaim.js";
 import { encodeFolderPath, goalsBoardUrl } from "../client/goals-api.js";
@@ -101,5 +103,36 @@ describe("GoalDetailClaim", () => {
     fireEvent.click(getByTestId("goal-detail-delete"));
     await new Promise((r) => setTimeout(r, 20));
     expect(deletes.length).toBe(0);
+  });
+
+  // Turns/spend fallback + display. No live snapshot (no goal_status events for
+  // the driver) → the gauges must read the persisted record.
+  // See change: fix-goal-detail-turns-and-spend.
+  it("F1: no live snapshot → turns gauge converges to persisted 1/3, never —/3", async () => {
+    const goal = goalFixture({ lastKnownTurnsUsed: 1, budget: { maxTurns: 3 } });
+    const { getByTestId } = renderDetail(goal);
+    await waitFor(() => getByTestId("goal-gauge-turns"));
+    expect(getByTestId("goal-gauge-turns").querySelector(".font-mono")?.textContent).toBe("1/3");
+  });
+
+  it("F3: totalSpendUsd 0.29, no cap → '$0.29 · no cap', no fill element", async () => {
+    const goal = goalFixture({ totalSpendUsd: 0.29 });
+    const { getByTestId } = renderDetail(goal);
+    await waitFor(() => getByTestId("goal-gauge-spend"));
+    const gauge = getByTestId("goal-gauge-spend");
+    expect(gauge.querySelector(".font-mono")?.textContent).toBe("$0.29 · no cap");
+    // No cap → the emerald fill element is not rendered.
+    expect(gauge.querySelector(".bg-emerald-400\\/70")).toBeNull();
+  });
+
+  it("F4: totalSpendUsd 0.29, cap 5 → '$0.29 / $5.00' + fill ≈6%", async () => {
+    const goal = goalFixture({ totalSpendUsd: 0.29, budget: { maxSpendUsd: 5 } });
+    const { getByTestId } = renderDetail(goal);
+    await waitFor(() => getByTestId("goal-gauge-spend"));
+    const gauge = getByTestId("goal-gauge-spend");
+    expect(gauge.querySelector(".font-mono")?.textContent).toBe("$0.29 / $5.00");
+    const fill = gauge.querySelector(".bg-emerald-400\\/70") as HTMLElement | null;
+    expect(fill).not.toBeNull();
+    expect(fill?.style.width).toBe("6%");
   });
 });

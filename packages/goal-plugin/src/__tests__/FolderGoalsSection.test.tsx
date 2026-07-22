@@ -6,9 +6,10 @@
  *
  * See change: add-goals-folder-page.
  */
+
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { FolderGoalsSection } from "../client/FolderGoalsSection.js";
@@ -37,15 +38,17 @@ function renderSlot(hook?: any) {
 }
 
 describe("FolderGoalsSection", () => {
-  it("renders Goals (N) once fetched", async () => {
+  it("renders the Goals pill with the fetched count", async () => {
     const { getByTestId } = renderSlot();
-    await waitFor(() => expect(getByTestId("folder-goals-open-board").textContent).toContain("Goals (2)"));
+    // SlotPill: uppercase "Goals" label + bold count in `folder-goals-count`.
+    await waitFor(() => expect(getByTestId("folder-goals-open-board").textContent).toContain("Goals"));
+    expect(getByTestId("folder-goals-count").textContent).toBe("2");
   });
 
   it("opens the goals board on click", async () => {
     const { hook, history } = memoryLocation({ path: "/", record: true });
     const { getByTestId } = renderSlot(hook);
-    await waitFor(() => expect(getByTestId("folder-goals-open-board").textContent).toContain("Goals (2)"));
+    await waitFor(() => expect(getByTestId("folder-goals-count").textContent).toBe("2"));
     fireEvent.click(getByTestId("folder-goals-open-board"));
     expect(history[history.length - 1]).toBe(goalsBoardUrl(cwd));
   });
