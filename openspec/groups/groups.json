@@ -201,11 +201,18 @@
     "fix-stacked-escape-closes-layers": "ui",
     "adopt-pnpm-for-dev-ci": "ui",
     "pdf-preview-continuous-scroll": "ui",
-    "shrink-client-index-chunk": "ui"
+    "shrink-client-index-chunk": "ui",
+    "sidebar-tag-collapse-and-delete": "ui",
+    "redesign-directory-card": "ui",
+    "image-fit-tool-result-images": "ui",
+    "fix-goal-detail-turns-and-spend": "ui",
+    "add-embed-session-lifecycle": "ui",
+    "add-hermes-memory-settings-plugin": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
-      "fix-pi-install-node26-and-omit-dev-build"
+      "fix-pi-install-node26-and-omit-dev-build",
+      "fix-markdown-preview-relative-images"
     ],
     "kowledge-base": [
       "add-lora-dataset-export-skill",
@@ -215,9 +222,12 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "adopt-pnpm-for-dev-ci",
-      "shrink-client-index-chunk",
-      "pdf-preview-continuous-scroll"
+      "sidebar-tag-collapse-and-delete",
+      "image-fit-tool-result-images",
+      "fix-goal-detail-turns-and-spend",
+      "add-embed-session-lifecycle",
+      "redesign-directory-card",
+      "add-hermes-memory-settings-plugin"
     ],
     "next-phase": [
       "add-codegraph-code-plane",
