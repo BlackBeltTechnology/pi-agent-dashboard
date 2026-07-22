@@ -21,6 +21,44 @@ No native binary deps — `jimp` only. No `electron-rebuild` step, no
 platform-specific prebuilt downloads. Pure JS install on every supported
 pi target.
 
+## Second seam: the `context` event (any-origin images)
+
+The `read`-tool seam above only covers images the agent opens through the
+built-in `read` tool. Images that enter a session as **message content** —
+`tool_result` screenshots (browser / MCP), user-pasted / attached images, and
+images already persisted in a transcript — never pass through `read`, so a
+second seam catches them.
+
+The extension also hooks `pi.on("context", ...)`, fired before every LLM call
+on a deep copy of the message list. For every message (regardless of role) it
+walks the content blocks and, for each oversize `ImageContent`
+(`{ type: "image", data, mimeType }`), resizes the bytes in-memory with jimp
+and replaces `data` + `mimeType`. Because it runs on the in-flight copy every
+turn, it also **rescues already-persisted oversize sessions on reload** — a
+case no creation-time hook can cover (e.g. a session poisoned by an 8956×5080
+browser screenshot that is under the byte limit but over the pixel limit).
+
+How it stays cheap on the per-turn hot path:
+
+- A **cheap header-probe gate** reads dimensions from the image header bytes
+  (PNG / JPEG / WEBP / GIF) and estimates size from the base64 length — no
+  full pixel decode. An image already within limits costs only this probe.
+- An oversize image is hashed (SHA-256 of
+  `base64|mimeType|maxEdge|maxBytes|quality`) and its resized bytes cached in
+  a **bounded in-memory LRU** (~64 MiB, evicted by byte budget). The same
+  historical image reappearing every turn is served from the cache — no
+  re-encode.
+
+The on-disk transcript is **never rewritten** — only pi's per-turn deep copy
+is mutated, so the request sent to the model is always within limits while the
+original bytes stay on disk. This seam reuses the same `PI_IMAGE_FIT_*`
+thresholds and honors `PI_IMAGE_FIT_DISABLE` (which disables both seams). Any
+per-block failure falls open (one `WARN`, block passed through unchanged) so a
+single bad image never blocks a turn.
+
+> **GIF animation:** an oversize `image/gif` is re-encoded to a static JPEG
+> (first frame only) — same trade-off as the `read`-path seam.
+
 ## Install
 
 ```bash
