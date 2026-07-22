@@ -6,7 +6,7 @@ import {
   type LanguageToolMatch,
   mapMatches,
   summarize,
-} from "../grammar/backends/languagetool.js";
+} from "../server/backends/languagetool.js";
 
 describe("classifyIssue", () => {
   it("maps LanguageTool issue types to coarse kinds", () => {

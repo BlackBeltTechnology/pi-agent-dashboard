@@ -1,7 +1,7 @@
 import type { GrammarConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { DEFAULT_GRAMMAR } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkGrammar } from "../grammar/grammar-service.js";
+import { checkGrammar } from "../server/grammar-service.js";
 
 function cfg(overrides: Partial<GrammarConfig> = {}): GrammarConfig {
   return {

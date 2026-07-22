@@ -27,13 +27,23 @@
   forwards it. `server.ts` wires it in the `createContext` deps, mirroring the grammar-route
   adapter (`system`→`context.systemPrompt`). Typecheck clean; seam tests green.
 
-## 3. Move server into the plugin
+## 3. Move server into the plugin — DONE
 
-- [ ] 3.1 Add a `server` entry to the plugin (`registerPlugin(ctx)`); move `grammar/backends/**`,
-  `grammar-service`, `grammar-routes` into the plugin; register `/api/grammar/*` via `ctx.fastify`.
-- [ ] 3.2 Relocate `grammar-{llm,languagetool,service,routes}` tests into the plugin; keep
-  `googleToOpenAiCompat` + OAuth/api_key resolution intact. Verify parity vs core route.
-- [ ] 3.3 Remove `registerGrammarRoutes` call + import from `server.ts`.
+- [x] 3.1 Added `server` entry (`src/server/index.ts` `registerPlugin(ctx)`); moved
+  `backends/{llm,languagetool}`, `grammar-service`, `grammar-errors`, `abort` into
+  `src/server/`; `mountGrammarRoutes` registers `/api/grammar/*` via `ctx.fastify` (auth-only,
+  no networkGuard — plugin-route convention) using `ctx.modelRuntime`. `convertOpenAIMessages`
+  replaced with an inline single-message builder (no plugin→server dep).
+- [x] 3.2 Relocated `grammar-{llm,languagetool,service,routes}` tests into the plugin
+  (`grammar-routes` adapted to `mountGrammarRoutes`); `googleToOpenAiCompat` + OAuth/api_key +
+  google-reroute intact. Plugin suite 55/55. Runtime-verified: `[plugin:grammar-settings]
+  grammar routes mounted` + a live google/gemini check returned 200.
+- [x] 3.3 Removed `registerGrammarRoutes` import + call from `server.ts`; deleted core
+  `server/src/grammar/**` + `routes/grammar-routes.ts`. Server suite green (only the pre-existing
+  env-flaky pi-gateway-bind-host fails). Typecheck clean.
+
+> Deferred to a DocScribe pass after increment 6: update `docs/architecture.md` grammar section
+> (still describes grammar as core).
 
 ## 4. Move client into the plugin
 

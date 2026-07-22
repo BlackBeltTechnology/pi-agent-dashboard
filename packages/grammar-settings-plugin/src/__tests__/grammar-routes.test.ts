@@ -2,9 +2,7 @@ import { DEFAULT_GRAMMAR } from "@blackbelt-technology/pi-dashboard-shared/confi
 import type { GrammarCheckResult } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
-import { registerGrammarRoutes } from "../routes/grammar-routes.js";
-
-const allowGuard = async () => {};
+import { mountGrammarRoutes } from "../server/routes.js";
 
 const okResult: GrammarCheckResult = {
   backend: "languagetool",
@@ -17,10 +15,9 @@ const okResult: GrammarCheckResult = {
   truncated: false,
 };
 
-function makeApp(over: Partial<Parameters<typeof registerGrammarRoutes>[1]> = {}) {
+function makeApp(over: Partial<Parameters<typeof mountGrammarRoutes>[1]> = {}) {
   const app = Fastify();
-  registerGrammarRoutes(app, {
-    networkGuard: allowGuard as any,
+  mountGrammarRoutes(app, {
     getGrammarConfig: () => ({ ...DEFAULT_GRAMMAR, languagetool: { ...DEFAULT_GRAMMAR.languagetool }, enabled: true }),
     check: async () => ({ ok: true, result: okResult }),
     health: async () => ({

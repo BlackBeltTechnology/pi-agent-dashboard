@@ -19,7 +19,6 @@ import type {
   GrammarIssueKind,
   GrammarSuggestion,
 } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
-import { convertOpenAIMessages } from "../../model-proxy/convert/index.js";
 import { withTimeoutSignal } from "../abort.js";
 import { GrammarBackendError } from "../grammar-errors.js";
 import { summarize } from "./languagetool.js";
@@ -284,12 +283,12 @@ export async function checkWithLlm(
   const streamModel = googleToOpenAiCompat(
     model as { api?: string; baseUrl?: string; compat?: Record<string, unknown> },
   );
-  // Reuse the canonical OpenAI→pi-ai message converter so the message shape
-  // matches what the model proxy sends; our grammar system prompt is separate.
+  // Single user message in pi-ai shape (a string content passes through as-is,
+  // matching the canonical OpenAI→pi-ai converter for this one-message case).
   // The draft is wrapped (userPrompt) so the model proofreads it instead of
   // obeying/answering it — the fix for intermittent backend_bad_response on
   // question/command drafts (common in non-prose repo sessions).
-  const { messages } = convertOpenAIMessages([{ role: "user", content: userPrompt(text) }]);
+  const messages = [{ role: "user", content: userPrompt(text), timestamp: Date.now() }];
 
   const { signal, done } = withTimeoutSignal(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, opts.signal);
   try {

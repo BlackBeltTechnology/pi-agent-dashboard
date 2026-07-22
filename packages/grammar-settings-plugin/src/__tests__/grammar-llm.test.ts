@@ -6,8 +6,8 @@ import {
   type LlmModelRegistry,
   type LlmStreamFn,
   parseLlmResult,
-} from "../grammar/backends/llm.js";
-import { GrammarBackendError } from "../grammar/grammar-errors.js";
+} from "../server/backends/llm.js";
+import { GrammarBackendError } from "../server/grammar-errors.js";
 
 /** A registry stub that resolves any model + fixed creds. */
 const okRegistry: LlmModelRegistry = {

@@ -18,6 +18,10 @@
     "./client": {
       "types": "./src/index.tsx",
       "default": "./src/index.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
     }
   },
   "files": [
@@ -32,6 +36,7 @@
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
+    "fastify": "^5.0.0",
     "react": "^19.0.0"
   },
   "pi-dashboard-plugin": {
@@ -40,6 +45,7 @@
     "i18nCatalog": "catalog",
     "priority": 100,
     "client": "./src/index.tsx",
+    "server": "./src/server/index.ts",
     "claims": [
       {
         "slot": "settings-section",

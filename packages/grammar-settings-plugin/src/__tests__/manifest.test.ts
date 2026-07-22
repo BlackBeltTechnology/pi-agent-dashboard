@@ -35,9 +35,13 @@ describe("grammar-settings manifest", () => {
     expect((barrel as Record<string, unknown>)[manifest.i18nCatalog]).toBeTypeOf("object");
   });
 
-  it("declares no server entry or configSchema (edits core config.grammar)", () => {
+  it("declares a server entry that owns the /api/grammar routes", () => {
+    // The grammar check route + backends now live in the plugin's server entry
+    // (no longer core). See change: make-grammar-fully-plugin-contained.
     const manifest = pkg["pi-dashboard-plugin"];
-    expect(manifest.server).toBeUndefined();
+    expect(manifest.server).toBe("./src/server/index.ts");
+    // configSchema still absent — config migration to plugins.grammar is a
+    // later increment; the route currently reads core config.grammar.
     expect(manifest.configSchema).toBeUndefined();
   });
 });

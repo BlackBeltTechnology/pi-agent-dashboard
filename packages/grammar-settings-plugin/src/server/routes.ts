@@ -1,12 +1,14 @@
 /**
- * Grammar/spell-check REST routes: `POST /api/grammar/check` and
- * `GET /api/grammar/health`. Both are auth-gated by the shared `networkGuard`
- * preHandler. The check route is a thin mapper over `checkGrammar`; it emits
- * one structured log line per invocation with NO draft text.
+ * Grammar/spell-check REST routes, mounted by the grammar plugin's server
+ * entry via `ctx.fastify`. `POST /api/grammar/check` + `GET /api/grammar/health`.
  *
- * Config is re-read per request (`getGrammarConfig`) so a settings backend
- * switch takes effect without a server restart.
- * See change: add-composer-grammar-check.
+ * Auth is enforced globally by the dashboard's auth `onRequest` hook (same as
+ * every plugin route, e.g. automation-plugin); this route intentionally does
+ * NOT re-apply the per-route `networkGuard` — matching the plugin-route
+ * convention. The check route is a thin mapper over `checkGrammar`; it emits
+ * one structured log line per invocation with NO draft text. Config is re-read
+ * per request so a settings change takes effect without a restart.
+ * See change: make-grammar-fully-plugin-contained.
  */
 
 import type { GrammarConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -17,13 +19,12 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { LlmModelRegistry, LlmStreamFn } from "../grammar/backends/llm.js";
+import type { LlmModelRegistry, LlmStreamFn } from "./backends/llm.js";
 import {
   checkGrammar as defaultCheckGrammar,
   getGrammarHealth as defaultGetGrammarHealth,
   type GrammarCheckOutcome,
-} from "../grammar/grammar-service.js";
-import type { NetworkGuard } from "./route-deps.js";
+} from "./grammar-service.js";
 
 const STATUS_BY_CODE: Record<GrammarErrorCode, number> = {
   grammar_disabled: 409,
@@ -35,13 +36,9 @@ const STATUS_BY_CODE: Record<GrammarErrorCode, number> = {
 };
 
 export interface GrammarRouteDeps {
-  networkGuard: NetworkGuard;
   /** Re-reads the resolved grammar config per request. */
   getGrammarConfig: () => GrammarConfig;
-  /**
-   * OAuth/api_key-aware model registry for the `llm` backend (from the model
-   * proxy singleton). Resolved lazily and only when the backend is `llm`.
-   */
+  /** OAuth/api_key-aware model registry for the `llm` backend (in-process). */
   getModelRegistry?: () => Promise<LlmModelRegistry | null>;
   /** pi-ai streamSimple adapter for the `llm` backend. */
   streamSimple?: LlmStreamFn;
@@ -53,8 +50,7 @@ export interface GrammarRouteDeps {
 /**
  * Opt this request out of Fastify's 10s per-socket connectionTimeout (the llm
  * grammar backend, non-streaming, can take longer), restoring it on finish so
- * a keep-alive socket doesn't carry an infinite timeout forward. Mirrors the
- * long-running git worktree-init route.
+ * a keep-alive socket doesn't carry an infinite timeout forward.
  */
 function relaxSocketTimeout(request: FastifyRequest, reply: FastifyReply): void {
   const socket = request.raw.socket;
@@ -67,14 +63,13 @@ function relaxSocketTimeout(request: FastifyRequest, reply: FastifyReply): void 
   }
 }
 
-export function registerGrammarRoutes(fastify: FastifyInstance, deps: GrammarRouteDeps): void {
-  const { networkGuard, getGrammarConfig } = deps;
+export function mountGrammarRoutes(fastify: FastifyInstance, deps: GrammarRouteDeps): void {
+  const { getGrammarConfig } = deps;
   const check = deps.check ?? defaultCheckGrammar;
   const health = deps.health ?? defaultGetGrammarHealth;
 
   fastify.post<{ Body: { text?: unknown; language?: unknown } }>(
     "/api/grammar/check",
-    { preHandler: networkGuard },
     async (request, reply) => {
       relaxSocketTimeout(request, reply);
       const config = getGrammarConfig();
@@ -97,7 +92,6 @@ export function registerGrammarRoutes(fastify: FastifyInstance, deps: GrammarRou
       try {
         outcome = await check({ text, language, config, registry, streamSimple: deps.streamSimple });
       } catch {
-        // checkGrammar never throws, but guard defensively.
         outcome = { ok: false, code: "backend_unreachable", message: "grammar backend failed" };
       }
 
@@ -128,7 +122,6 @@ export function registerGrammarRoutes(fastify: FastifyInstance, deps: GrammarRou
 
   fastify.get(
     "/api/grammar/health",
-    { preHandler: networkGuard },
     async (): Promise<ApiResponse<GrammarHealth>> => {
       const data = await health(getGrammarConfig());
       return { success: true, data };
