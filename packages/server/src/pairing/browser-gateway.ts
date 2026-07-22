@@ -95,6 +95,12 @@ export interface BrowserGateway {
   /** Get number of browser subscribers for a session */
   getSubscriberCount(sessionId: string): number;
   /**
+   * Whether an unanswered interactive UI request (`ask_user`) is currently
+   * tracked for the session. Read by the embed-lifecycle reaper's quiescence
+   * gate. See change: add-embed-session-lifecycle.
+   */
+  hasPendingUiRequest(sessionId: string): boolean;
+  /**
    * Per-hop dropped-frame counters for the diagnostics/health surface. A
    * server→browser frame is dropped when a browser socket's send buffer
    * crosses MAX_WS_BUFFER under back-pressure. See change:
@@ -967,6 +973,11 @@ export function createBrowserGateway(
 
     getSubscriberCount(sessionId: string): number {
       return getSubscribers(sessionId).length;
+    },
+
+    hasPendingUiRequest(sessionId: string): boolean {
+      const sessionMap = pendingUiRequests.get(sessionId);
+      return sessionMap !== undefined && sessionMap.size > 0;
     },
 
     getDroppedFrameStats() {

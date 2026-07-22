@@ -106,6 +106,7 @@ import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
+import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
@@ -1195,7 +1196,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   }, GOAL_BOOT_RECONCILE_DELAY_MS);
   bootReconcileTimer.unref?.();
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore });
+  // Embed-session-lifecycle: construct the reaper + observability metrics wired
+  // to the live server components. Dormant unless config.embedLifecycle.enabled
+  // (off by default) — construction/start is behavior-preserving on upgrade.
+  // Reclaims the automation-produced ephemeral sessions #383 is about; the
+  // acquire registry + caps are shared-layer modules the embed front constructs.
+  // See change: add-embed-session-lifecycle.
+  const embedLifecycle = createEmbedLifecycleController({
+    config: () => loadConfig().embedLifecycle,
+    listSessions: () => sessionManager.listAll(),
+    getSubscriberCount: (id) => browserGateway.getSubscriberCount(id),
+    listTerminalCwds: () => terminalManager.list().map((t) => t.cwd),
+    hasPendingUiRequest: (id) => browserGateway.hasPendingUiRequest(id),
+    killBySessionId: (id) => browserGateway.headlessPidRegistry.killBySessionId(id),
+    sendStopAfterTurn: (id) =>
+      piGateway.sendToSession(id, { type: "stop_after_turn", sessionId: id }),
+  });
+
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -2041,6 +2059,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       idleTimer.start();
+      // Start the embed-lifecycle reaper sweep (dormant unless the feature is
+      // enabled). See change: add-embed-session-lifecycle.
+      embedLifecycle.start();
 
       // Cold-start recovery offer. Gated by `reopenSessionsAfterShutdown`:
       //   off  → handled at classify time (candidates normalized to `ended`,
@@ -2118,6 +2139,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // Stop the dedicated ELD safety-net sampler + its histogram.
       // See change: attribute-openspec-poll-eventloop-stalls.
       try { eventLoopSampler.stop(); } catch { /* ignore */ }
+      // Stop the embed-lifecycle reaper sweep.
+      // See change: add-embed-session-lifecycle.
+      try { embedLifecycle.stop(); } catch { /* ignore */ }
       // Stop mDNS before closing
       try {
         if (mdnsBrowser) { mdnsBrowser.stop(); mdnsBrowser = null; }
