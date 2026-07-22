@@ -20,7 +20,7 @@ import type React from "react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { GOAL_PLUGIN_ID } from "../shared/goal-types.js";
-import { deriveSnapshot } from "./goal-state.js";
+import { deriveSnapshot, fmtUsd, gaugePct, resolveGoalTurns } from "./goal-state.js";
 import {
   decodeFolderPath,
   deleteGoal,
@@ -38,11 +38,6 @@ const STATUS_ACTIONS: { status: GoalRecordStatus; label: string }[] = [
   { status: "achieved", label: "Achieved" },
 ];
 
-/** Clamp a used/max ratio to a 0–100 width percent. */
-function gaugePct(used: number | undefined, max: number | undefined): number {
-  if (used === undefined || !max || max <= 0) return 0;
-  return Math.min(100, Math.round((used / max) * 100));
-}
 
 /** Palette for a verdict pill in the timeline. */
 function verdictCls(verdict: string): string {
@@ -159,6 +154,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
   }
 
   const meta = statusMeta(goal.status);
+  const { turnsUsed, maxTurns } = resolveGoalTurns(snap, goal);
 
   return (
     <div className="flex flex-col h-full overflow-hidden" data-testid="goal-detail-page">
@@ -208,19 +204,21 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
             <div data-testid="goal-gauge-turns">
               <div className="flex items-center justify-between text-[10px] text-[var(--text-tertiary)]">
                 <span>{t("turns", undefined, "Turns")}</span>
-                <span className="font-mono">{snap ? `${snap.turnsUsed}/${goal.budget?.maxTurns ?? snap.maxTurns}` : `—/${goal.budget?.maxTurns ?? "—"}`}</span>
+                <span className="font-mono">{`${turnsUsed ?? "—"}/${maxTurns ?? "—"}`}</span>
               </div>
               <div className="h-1.5 rounded bg-[var(--border-subtle)] overflow-hidden mt-0.5">
-                <div className="h-full bg-indigo-400" style={{ width: `${gaugePct(snap?.turnsUsed, goal.budget?.maxTurns ?? snap?.maxTurns)}%` }} />
+                <div className="h-full bg-indigo-400" style={{ width: `${gaugePct(turnsUsed, maxTurns)}%` }} />
               </div>
             </div>
             <div data-testid="goal-gauge-spend">
               <div className="flex items-center justify-between text-[10px] text-[var(--text-tertiary)]">
                 <span>{t("spend", undefined, "Spend")}</span>
-                <span className="font-mono">{goal.budget?.maxSpendUsd !== undefined ? t("capAmount", { amount: goal.budget.maxSpendUsd }, `cap $${goal.budget.maxSpendUsd}`) : t("noCap", undefined, "no cap")}</span>
+                <span className="font-mono">{goal.budget?.maxSpendUsd !== undefined ? `${fmtUsd(goal.totalSpendUsd)} / ${fmtUsd(goal.budget.maxSpendUsd)}` : `${fmtUsd(goal.totalSpendUsd)} · ${t("noCap", undefined, "no cap")}`}</span>
               </div>
               <div className="h-1.5 rounded bg-[var(--border-subtle)] overflow-hidden mt-0.5">
-                <div className="h-full bg-emerald-400/70" style={{ width: "0%" }} />
+                {goal.budget?.maxSpendUsd !== undefined && (
+                  <div className="h-full bg-emerald-400/70" style={{ width: `${gaugePct(goal.totalSpendUsd, goal.budget.maxSpendUsd)}%` }} />
+                )}
               </div>
             </div>
           </div>
