@@ -1370,14 +1370,18 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               <Icon path={tagAreaOpen ? mdiChevronDown : mdiChevronRight} size={0.55} className="shrink-0 motion-reduce:transition-none" />
               <span className="font-medium">{t("sessionList.tags", undefined, "Tags")}</span>
               <span className="text-[var(--text-muted)] normal-case tracking-normal" data-testid="tag-area-count">
-                {allTags.length} tag{allTags.length === 1 ? "" : "s"} · {phasesInUse.length} phase{phasesInUse.length === 1 ? "" : "s"}
+                {t(
+                  "sessionList.tagAreaCount",
+                  { tags: allTags.length, phases: phasesInUse.length },
+                  `${allTags.length} tag${allTags.length === 1 ? "" : "s"} · ${phasesInUse.length} phase${phasesInUse.length === 1 ? "" : "s"}`,
+                )}
               </span>
               {activeFilterCount > 0 && (
                 <span
                   className="ml-auto rounded-full bg-[var(--accent-blue)]/15 px-1.5 py-0.5 text-[9px] font-semibold text-[var(--accent-blue)] normal-case tracking-normal"
                   data-testid="tag-area-active-indicator"
                 >
-                  {activeFilterCount} active
+                  {t("sessionList.tagAreaActiveCount", { count: activeFilterCount }, `${activeFilterCount} active`)}
                 </span>
               )}
             </button>
@@ -1434,7 +1438,18 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               <TagDeleteConfirmDialog
                 tag={pendingDeleteTag}
                 count={deleteTagCount}
-                onConfirm={() => onRemoveTagGlobally(pendingDeleteTag)}
+                onConfirm={() => {
+                  onRemoveTagGlobally(pendingDeleteTag);
+                  // Drop the just-deleted tag from the active filter selection so a
+                  // now-nonexistent tag can't leave the list filtered to 0 with no
+                  // chip left to deselect (CodeRabbit #5).
+                  setSelectedTags((prev) => {
+                    if (!prev.has(pendingDeleteTag)) return prev;
+                    const next = new Set(prev);
+                    next.delete(pendingDeleteTag);
+                    return next;
+                  });
+                }}
                 onClose={() => setPendingDeleteTag(null)}
               />
             )}

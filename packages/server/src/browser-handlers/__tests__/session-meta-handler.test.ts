@@ -308,6 +308,18 @@ describe("handleRemoveTagGlobally", () => {
     expect(broadcasts.map((b) => b.sessionId).sort()).toEqual(["s1", "s2"]);
   });
 
+  // Untrusted payload: a non-string `tag` is a no-op (never reaches normalize).
+  it("non-string tag is a no-op (guards malformed WS payload)", () => {
+    registerSession(mgr, "s1", { tags: ["explore"] });
+    const { ctx, broadcasts } = makeCtx(mgr);
+
+    handleRemoveTagGlobally({ type: "remove_tag_globally", tag: null } as any, ctx);
+    handleRemoveTagGlobally({ type: "remove_tag_globally", tag: 42 } as any, ctx);
+
+    expect(mgr.get("s1")!.tags).toEqual(["explore"]);
+    expect(broadcasts).toEqual([]);
+  });
+
   // X3: fresh listAll (reconnect snapshot) reflects the stripped tags.
   it("X3 — a fresh listAll after the strip reflects the tag absent (reconnect replay)", () => {
     registerSession(mgr, "s1", { tags: ["explore", "backend"] });

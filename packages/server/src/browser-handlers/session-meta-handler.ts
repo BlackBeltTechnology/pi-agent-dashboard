@@ -86,6 +86,9 @@ export function handleRemoveTagGlobally(
   ctx: BrowserHandlerContext,
 ): void {
   const { sessionManager, broadcast } = ctx;
+  // Untrusted WS payload: guard non-string `tag` before normalize (`normalizeTags`
+  // calls `.trim()` — a malformed `null`/number would throw). See CodeRabbit #8.
+  if (typeof msg.tag !== "string") return;
   const target = normalizeTags([msg.tag])[0];
   if (!target) return;
   for (const session of sessionManager.listAll()) {
