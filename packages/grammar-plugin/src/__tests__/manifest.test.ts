@@ -15,10 +15,10 @@ const pkg = JSON.parse(
   readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json"), "utf8"),
 );
 
-describe("grammar-settings manifest", () => {
+describe("grammar manifest", () => {
   it("declares the settings-section + composer-panel claims", () => {
     const manifest = pkg["pi-dashboard-plugin"];
-    expect(manifest.id).toBe("grammar-settings");
+    expect(manifest.id).toBe("grammar");
     expect(manifest.claims).toHaveLength(2);
     expect(manifest.claims).toContainEqual({
       slot: "settings-section",

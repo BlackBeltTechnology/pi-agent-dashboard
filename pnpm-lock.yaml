@@ -142,6 +142,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-goal-plugin':
         specifier: ^0.6.1
         version: link:../goal-plugin
+      '@blackbelt-technology/pi-dashboard-grammar-plugin':
+        specifier: ^0.6.1
+        version: link:../grammar-plugin
       '@blackbelt-technology/pi-dashboard-hermes-memory-plugin':
         specifier: ^0.6.1
         version: link:../hermes-memory-plugin
@@ -555,7 +558,7 @@ importers:
         specifier: ^3.9.0
         version: 3.10.0(react@19.2.7)
 
-  packages/grammar-settings-plugin:
+  packages/grammar-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
         specifier: ^0.6.1

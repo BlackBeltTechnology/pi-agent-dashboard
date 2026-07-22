@@ -45,7 +45,7 @@ function wrap(children: React.ReactNode) {
   return withUiPrimitiveProvider(
     { "ui:model-selector": MockModelSelector },
     <PluginContextProvider registry={createSlotRegistry()} sessions={[]} send={() => {}}>
-      <CurrentPluginLayer pluginId="grammar-settings">{children}</CurrentPluginLayer>
+      <CurrentPluginLayer pluginId="grammar">{children}</CurrentPluginLayer>
     </PluginContextProvider>,
   );
 }

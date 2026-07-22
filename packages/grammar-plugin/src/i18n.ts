@@ -3,8 +3,8 @@
  *
  * The generated plugin registry imports the `catalog` named export (declared
  * as `i18nCatalog` in package.json's `pi-dashboard-plugin` manifest). The shell
- * merges it under `plugin.grammar-settings.*`. Component code resolves keys via
- * the scoped `useT()` hook, which auto-prefixes `plugin.grammar-settings.` and
+ * merges it under `plugin.grammar.*`. Component code resolves keys via
+ * the scoped `useT()` hook, which auto-prefixes `plugin.grammar.` and
  * degrades to the call-site English fallback when a key/locale is missing.
  *
  * English is NOT stored here — it lives inline as the `t(key, vars, English)`

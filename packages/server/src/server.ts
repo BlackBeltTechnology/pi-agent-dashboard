@@ -1030,7 +1030,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Composer grammar/spell check. Config re-read per request so a settings
   // backend switch takes effect without a restart. See change: add-composer-grammar-check.
   // Grammar routes moved into the grammar plugin's server entry
-  // (packages/grammar-settings-plugin/src/server), which registers
+  // (packages/grammar-plugin/src/server), which registers
   // /api/grammar/* via ctx.fastify + ctx.modelRuntime. See change:
   // make-grammar-fully-plugin-contained.
   registerOpenSpecRoutes(fastify, {

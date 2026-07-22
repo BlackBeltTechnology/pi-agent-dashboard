@@ -3,7 +3,7 @@
 import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, AutomationBadge, isAutomationRun, AutomationSettings, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
-import { GrammarSettings, GrammarComposerPanel, catalog as grammar_settings_catalog } from "@blackbelt-technology/pi-dashboard-grammar-settings-plugin";
+import { GrammarSettings, GrammarComposerPanel, catalog as grammar_catalog } from "@blackbelt-technology/pi-dashboard-grammar-plugin";
 import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
 import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackbelt-technology/pi-dashboard-kb-plugin";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
@@ -189,7 +189,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
-        "id": "grammar-settings",
+        "id": "grammar",
         "displayName": "Grammar & Spelling",
         "priority": 100,
         "claims": [
@@ -208,10 +208,10 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "i18nCatalog": "catalog"
     },
     claims: [
-      { pluginId: "grammar-settings", priority: 100, slot: "settings-section", tab: "general", Component: GrammarSettings },
-      { pluginId: "grammar-settings", priority: 100, slot: "composer-panel", Component: GrammarComposerPanel },
+      { pluginId: "grammar", priority: 100, slot: "settings-section", tab: "general", Component: GrammarSettings },
+      { pluginId: "grammar", priority: 100, slot: "composer-panel", Component: GrammarComposerPanel },
     ],
-    catalog: grammar_settings_catalog,
+    catalog: grammar_catalog,
   },
   {
     manifest: {
@@ -350,4 +350,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "1a0add1fa3f0d1aca56fe91c60909a581bdcbfbca82d892107ce6ffe2f920f5f";
+export const PLUGIN_REGISTRY_HASH = "362a4029fc18d609b3912b095b7d048aaf95c43cf153bcfee5a1cae542b92d89";

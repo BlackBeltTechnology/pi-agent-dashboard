@@ -66,13 +66,18 @@
 - [ ] 5.3 Remove `GrammarConfig`/`DEFAULT_GRAMMAR`/parser from `shared/src/config.ts`; keep
   `GrammarCheckResult`/`GrammarSuggestion` in shared (protocol types).
 
-## 6. Rename + finalize
+## 6. Rename + finalize — DONE (done BEFORE 5, so config migrates in ONE step)
 
-- [ ] 6.1 Rename package `grammar-settings-plugin` → `grammar-plugin`; update `BUNDLED_PLUGINS`,
-  `plugin-registry` generation, `bundled-plugins-complete` expectation.
-- [ ] 6.2 Guard test: no grammar-specific reference remains in `packages/server/src` or
-  `packages/client/src` outside the generic slot/context.
-- [ ] 6.3 Supersede `fix-grammar-settings-plugin-bundle` (note in its proposal).
+- [x] 6.1 Renamed package dir `grammar-settings-plugin` → `grammar-plugin`, npm name →
+  `@blackbelt-technology/pi-dashboard-grammar-plugin`, manifest id `grammar-settings` →
+  `grammar`. Updated `BUNDLED_PLUGINS`, regenerated `plugin-registry`, fixed id refs (manifest
+  test, i18n prefix, GrammarSettings label, test pluginId). **Also fixed a latent bug**: the
+  grammar plugin was never in `packages/client/package.json` deps (3rd omission from 717929eb)
+  — added it, which is why the workspace symlink now resolves. Runtime-verified: `[plugin:grammar]
+  Loaded plugin` + grammar check 200.
+- [ ] 6.2 Guard test: no grammar-specific reference remains in core (added in increment 5 once
+  config leaves `shared/config.ts`).
+- [ ] 6.3 Supersede `fix-grammar-settings-plugin-bundle` (note already in its proposal).
 
 ## 7. Validate
 

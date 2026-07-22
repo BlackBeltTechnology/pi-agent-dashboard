@@ -30,6 +30,7 @@
     "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin": "^0.6.1",
     "@blackbelt-technology/pi-dashboard-flows-plugin": "^0.6.1",
     "@blackbelt-technology/pi-dashboard-goal-plugin": "^0.6.1",
+    "@blackbelt-technology/pi-dashboard-grammar-plugin": "^0.6.1",
     "@blackbelt-technology/pi-dashboard-hermes-memory-plugin": "^0.6.1",
     "@blackbelt-technology/pi-dashboard-kb-plugin": "^0.6.1",
     "@blackbelt-technology/pi-dashboard-roles-plugin": "^0.6.1",

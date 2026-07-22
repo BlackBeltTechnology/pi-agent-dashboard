@@ -168,7 +168,7 @@ export function GrammarSettings(): React.ReactElement {
         <h3 style={{ fontSize: "13px", fontWeight: 600, margin: 0 }}>
           {t("heading", undefined, "Grammar & Spelling")}
         </h3>
-        <span style={{ fontSize: "10px", color: "#71717a" }}>grammar-settings</span>
+        <span style={{ fontSize: "10px", color: "#71717a" }}>grammar</span>
       </div>
 
       <p style={{ fontSize: "11px", color: "#a1a1aa", margin: "0 0 10px 0" }}>
