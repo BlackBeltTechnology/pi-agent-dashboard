@@ -18,6 +18,7 @@ import { CopyButton } from "../primitives/CopyButton.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { extractFrontmatter, FrontmatterProperties } from "./FrontmatterProperties.js";
 import { ImageLightbox } from "./ImageLightbox.js";
+import { type ImageBase, resolveLocalImageSrc } from "./resolve-local-image-src.js";
 import { MermaidBlock } from "./MermaidBlock.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
 import { FileLink } from "../tool-renderers/FileLink.js";
@@ -43,6 +44,26 @@ interface Props {
    * See change: improve-frontmatter-rendering.
    */
   frontmatter?: "hide" | "properties";
+  /**
+   * When provided, LOCAL image `src`s in the markdown are rewritten to
+   * `/api/file/raw?cwd=&path=` (resolved against `dir`) so on-disk previews of
+   * a `.md` display sibling/relative images instead of 404ing against the
+   * dashboard origin. Delivered to `PiAssetImg` via a memoized `ImageBaseContext`
+   * (not a per-render `components.img` closure). Omit (chat/thinking, and
+   * surfaces without a session cwd) to keep the verbatim fall-through.
+   * See change: fix-markdown-preview-relative-images.
+   */
+  imageBase?: ImageBase;
+}
+
+/**
+ * Ambient base for rewriting local markdown image srcs. `null` (default) →
+ * `PiAssetImg` leaves non-`pi-asset:` srcs verbatim, exactly today's chat path.
+ * See change: fix-markdown-preview-relative-images.
+ */
+const ImageBaseContext = React.createContext<ImageBase | null>(null);
+function useImageBase(): ImageBase | null {
+  return React.useContext(ImageBaseContext);
 }
 
 /**
@@ -291,7 +312,9 @@ function fixWideCharsInCodeBlocks(container: HTMLElement) {
  */
 function PiAssetImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
   const assets = useSessionAssets();
+  const imageBase = useImageBase();
   const [lightboxSrc, setLightboxSrc] = React.useState<{ src: string; alt: string } | null>(null);
+  const [failed, setFailed] = React.useState(false);
   const { src, alt, className: incomingClass, onClick: _drop, ...rest } = props;
   const altText = typeof alt === "string" ? alt : "";
   const baseClass = `${incomingClass ?? ""} cursor-pointer`.trim();
@@ -351,6 +374,49 @@ function PiAssetImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
     );
   }
 
+  // Local-image rewrite path (on-disk markdown previews that supply an
+  // imageBase). Runs AFTER the pi-asset branch, BEFORE the verbatim
+  // fall-through, and ONLY when a base is set. A non-local src resolves to
+  // null → falls through unchanged. See change:
+  // fix-markdown-preview-relative-images.
+  if (typeof src === "string" && imageBase) {
+    const rewritten = resolveLocalImageSrc(src, imageBase);
+    if (rewritten) {
+      // Swap-on-error (D3/S2): render the placeholder INSTEAD of the <img>
+      // (unmounting it) so the reserveStyle minHeight reservation dies with
+      // the img rather than leaking a blank 6rem gap. Neutral text — onError
+      // exposes no HTTP status, so 403/404/network are indistinguishable.
+      if (failed) {
+        return (
+          <span className="inline-block px-2 py-1 my-1 text-xs italic text-[var(--text-muted)] bg-[var(--bg-surface)] rounded border border-dashed border-[var(--border-secondary)]">
+            ⚠ {i18nT("preview.imageLoadFailed", undefined, "couldn’t load image")}
+          </span>
+        );
+      }
+      return (
+        <>
+          <img
+            {...rest}
+            src={rewritten}
+            alt={alt}
+            className={baseClass}
+            style={reserveStyle}
+            onLoad={releaseReserved}
+            onError={() => setFailed(true)}
+            onClick={(e) => openLightbox(e, rewritten)}
+          />
+          {lightboxSrc && (
+            <ImageLightbox
+              src={lightboxSrc.src}
+              alt={lightboxSrc.alt}
+              onClose={() => setLightboxSrc(null)}
+            />
+          )}
+        </>
+      );
+    }
+  }
+
   // Fall-through: external URL, blob, inline data:, fragment, etc. Render
   // a default <img> with click-to-open lightbox affordance using the
   // original src verbatim (the lightbox just renders <img src> — whatever
@@ -380,7 +446,7 @@ function PiAssetImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
   );
 }
 
-export const MarkdownContent = React.memo(function MarkdownContent({ content, context, frontmatter = "hide" }: Props) {
+export const MarkdownContent = React.memo(function MarkdownContent({ content, context, frontmatter = "hide", imageBase }: Props) {
   // ASCII table monospace fixer — disabled pending further refinement
   // const processedContent = useMemo(() => wrapAsciiTables(content), [content]);
   const processedContent = content;
@@ -398,9 +464,18 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
 
   const fm = frontmatter === "properties" ? extractFrontmatter(processedContent) : null;
 
+  // Memoize the context value on [cwd, dir] (D5) so a parent re-render passing a
+  // fresh inline `imageBase` object does not re-allocate the provider value and
+  // re-render every image.
+  const imageBaseValue = useMemo<ImageBase | null>(
+    () => (imageBase ? { cwd: imageBase.cwd, dir: imageBase.dir } : null),
+    [imageBase?.cwd, imageBase?.dir],
+  );
+
   return (
     <div ref={containerRef} className="markdown-content text-sm">
       {fm && <FrontmatterProperties raw={fm.raw} />}
+      <ImageBaseContext.Provider value={imageBaseValue}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath, remarkFrontmatter]}
         // Plugin order matters:
@@ -518,6 +593,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
       >
         {processedContent}
       </ReactMarkdown>
+      </ImageBaseContext.Provider>
     </div>
   );
 });
