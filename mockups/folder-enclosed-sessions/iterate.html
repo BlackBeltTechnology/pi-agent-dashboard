@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Enclosure — A/C refinements + hybrids</title>
+<style>
+  :root, [data-theme="light"] {
+    --page:#eef0f4; --card:#ffffff; --card-2:#f6f6f9; --tab:#eef0f7; --pocket:#f0f1f6;
+    --border:rgba(0,0,0,.09); --border-2:rgba(0,0,0,.14); --rim:rgba(255,255,255,.75); --shadow:rgba(0,0,0,.07);
+    --text-1:#1c1c22; --text-2:#4a4a55; --text-3:#8a8a95; --text-mut:#adadb6;
+    --blue:#3b6ef6; --indigo:#7c74f4; --cyan:#0e9db0; --purple:#a25df0;
+    --green:#2fa960; --orange:#e0791f; --amber:#c98a12; --red:#e5484d;
+  }
+  [data-theme="dark"] {
+    --page:#0d0d10; --card:#18181c; --card-2:#1f1f25; --tab:#24242c; --pocket:#121216;
+    --border:rgba(255,255,255,.09); --border-2:rgba(255,255,255,.15); --rim:rgba(255,255,255,.05); --shadow:rgba(0,0,0,.45);
+    --text-1:#e5e5e5; --text-2:#b0b0b0; --text-3:#808080; --text-mut:#585858;
+    --blue:#6b8afd; --indigo:#a5a1fb; --cyan:#38bec9; --purple:#c084fc;
+    --green:#4ade80; --orange:#fb923c; --amber:#fbbf24; --red:#f87171;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    background:var(--page); color:var(--text-1); padding:22px 20px 90px; -webkit-font-smoothing:antialiased; }
+  .toolbar { display:flex; gap:12px; align-items:center; max-width:1740px; margin:0 auto 6px; }
+  .toolbar h1 { font-size:15px; font-weight:700; margin:0; } .toolbar .sp { flex:1; }
+  .toolbar button { font:inherit; font-size:12px; font-weight:600; padding:6px 12px; border-radius:8px; border:1px solid var(--border-2); background:var(--card); color:var(--text-2); cursor:pointer; }
+  .lead { max-width:1740px; margin:6px auto 22px; font-size:12px; color:var(--text-3); line-height:1.5; }
+  .rail { display:flex; gap:30px; align-items:flex-start; max-width:1740px; margin:0 auto; flex-wrap:wrap; }
+  .col { width:392px; }
+  .col h2 { font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--text-3); margin:0 0 14px 2px; }
+  .col h2 .n { color:var(--text-mut); font-weight:600; text-transform:none; letter-spacing:0; }
+  .note { font-size:10.5px; color:var(--text-mut); margin:12px 2px 0; line-height:1.55; } .note b { color:var(--text-3); }
+
+  .fwrap { position:relative; padding-top:9px; }
+  .nub { position:absolute; top:0; left:14px; width:78px; height:12px; background:var(--card); border:1px solid var(--border); border-bottom:none; border-radius:8px 8px 0 0; }
+  .fcard { position:relative; background:var(--card); border:1px solid var(--border); border-radius:14px; box-shadow:inset 0 1px 0 var(--rim),0 2px 4px var(--shadow); padding:10px 12px; }
+  .hdr { display:flex; align-items:center; gap:7px; } .hdr .name { font-size:15px; font-weight:800; } .hdr .path { color:var(--text-3); font-size:12px; } .hdr .sp { flex:1; } .hdr .ic { color:var(--text-3); font-size:14px; }
+  .git { display:flex; align-items:center; gap:8px; font-size:12px; margin-top:7px; }
+  .git .branch,.git .commit { color:var(--blue); font-weight:600; }
+  .git .badge { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:999px; border:1px solid var(--orange); color:var(--orange); } .git .badge .dot { width:6px; height:6px; border-radius:50%; background:var(--orange); }
+  .git .init { margin-left:auto; font-size:11px; font-weight:700; color:var(--amber); border:1px solid color-mix(in srgb,var(--amber) 45%,transparent); border-radius:8px; padding:3px 8px; }
+  .git .gear { width:24px; height:24px; border-radius:7px; border:1px solid var(--border-2); color:var(--text-3); background:var(--card-2); display:inline-flex; align-items:center; justify-content:center; }
+  .pillgrid { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:10px; }
+  .pill { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:10px; border:1px solid var(--border); background:var(--card-2); min-width:0; }
+  .pill .g { width:24px; height:24px; border-radius:7px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:13px; }
+  .pill .m { display:flex; flex-direction:column; min-width:0; line-height:1.15; } .pill .l { font-size:8.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--text-3); } .pill .v { font-size:12px; font-weight:800; } .pill .v .u { font-size:9px; font-weight:600; color:var(--text-3); }
+  .pill.a .g{color:var(--blue);background:color-mix(in srgb,var(--blue) 12%,transparent)} .pill.go .g{color:var(--indigo);background:color-mix(in srgb,var(--indigo) 12%,transparent)} .pill.k .g{color:var(--cyan);background:color-mix(in srgb,var(--cyan) 12%,transparent)} .pill.s .g{color:var(--purple);background:color-mix(in srgb,var(--purple) 12%,transparent)}
+
+  .createlabel { text-align:center; font-size:9px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-mut); margin:11px 0 7px; position:relative; }
+  .createlabel::before,.createlabel::after{content:"";position:absolute;top:50%;width:32%;height:1px;background:var(--border)} .createlabel::before{left:0}.createlabel::after{right:0}
+  .create { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .sbtn { text-align:center; font-size:12.5px; font-weight:700; padding:10px; border-radius:11px; border:1px solid; }
+  .sbtn.g { color:var(--green); border-color:color-mix(in srgb,var(--green) 45%,transparent); background:color-mix(in srgb,var(--green) 7%,transparent); }
+  .sbtn.o { color:var(--orange); border-color:color-mix(in srgb,var(--orange) 45%,transparent); background:color-mix(in srgb,var(--orange) 7%,transparent); }
+
+  .scard { position:relative; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:9px 11px 10px 13px; box-shadow:0 1px 2px var(--shadow); overflow:hidden; }
+  .scard .spine { position:absolute; left:0; top:0; bottom:0; width:4px; }
+  .scard.sel { border-color:color-mix(in srgb,var(--blue) 55%,transparent); box-shadow:0 0 0 1px color-mix(in srgb,var(--blue) 40%,transparent),0 2px 6px var(--shadow); }
+  .srow1 { display:flex; align-items:center; gap:7px; } .srow1 .nm { font-size:14px; font-weight:800; } .srow1 .sp { flex:1; }
+  .srow1 .sdot { width:8px; height:8px; border-radius:50%; flex-shrink:0; display:none; }
+  .srow1 .chip { font-size:10px; font-weight:700; padding:2px 7px; border-radius:7px; border:1px solid; }
+  .chip.b{color:var(--blue);border-color:color-mix(in srgb,var(--blue) 40%,transparent)} .chip.g{color:var(--green);border-color:color-mix(in srgb,var(--green) 40%,transparent)} .chip.o{color:var(--orange);border-color:color-mix(in srgb,var(--orange) 40%,transparent)}
+  .smeta { font-size:11.5px; color:var(--text-2); margin-top:3px; } .smeta .mut { color:var(--text-3); }
+  .sstat { display:flex; align-items:center; margin-top:4px; font-size:11.5px; color:var(--text-3); }
+  .costbar { height:5px; width:120px; border-radius:3px; background:var(--card-2); overflow:hidden; margin-left:auto; margin-right:8px; } .costbar > i { display:block; height:100%; }
+  .sstat .cost { font-weight:700; color:var(--text-2); }
+  .ospanel { margin-top:9px; border:1px solid var(--border); border-radius:10px; padding:8px; background:var(--card-2); }
+  .ospanel .oslabel { text-align:center; font-size:8.5px; font-weight:800; letter-spacing:.08em; color:var(--text-3); margin-bottom:6px; }
+  .osrow { display:flex; gap:6px; flex-wrap:wrap; }
+  .osbtn { font-size:10.5px; font-weight:700; padding:4px 9px; border-radius:8px; border:1px solid var(--border-2); color:var(--text-2); background:var(--card); }
+  .osbtn.b{color:var(--blue);border-color:color-mix(in srgb,var(--blue) 40%,transparent)} .osbtn.c{color:var(--cyan);border-color:color-mix(in srgb,var(--cyan) 40%,transparent)}
+  .sessions { display:flex; flex-direction:column; gap:8px; margin-top:2px; }
+
+  /* ═════════ A′ — Enclosure + recessed pocket, cards keep surface ═════════ */
+  .A1 .fcard { border-radius:14px 14px 0 0; border-bottom:none; }
+  .A1 .folderbody { border:1px solid var(--border); border-top:none; border-radius:0 0 14px 14px; background:var(--pocket); padding:10px 12px 12px; box-shadow:inset 0 7px 8px -9px var(--shadow),0 2px 6px var(--shadow); }
+
+  /* ═════════ A″ — Files-in-folder rows (borderless, divider + status dot) ═════════ */
+  .A2 .fcard { border-radius:14px 14px 0 0; border-bottom:none; }
+  .A2 .folderbody { border:1px solid var(--border); border-top:none; border-radius:0 0 14px 14px; background:var(--card); padding:2px 12px 10px; box-shadow:0 2px 6px var(--shadow); }
+  .A2 .create { margin-top:10px; }
+  .A2 .scard { border:none; box-shadow:none; background:transparent; border-radius:0; padding:11px 2px 11px 4px; border-top:1px solid var(--border); }
+  .A2 .scard.sel { box-shadow:none; background:color-mix(in srgb,var(--blue) 6%,transparent); border-radius:8px; border-top:1px solid var(--border); }
+  .A2 .scard .spine { display:none; }
+  .A2 .srow1 .sdot { display:inline-block; }
+  .A2 .ospanel { background:var(--pocket); }
+
+  /* ═════════ C′ — Outer folder rail + indent, sessions lose own spine (dot instead) ═════════ */
+  .C1 { position:relative; }
+  .C1 .folderbody { position:relative; margin-left:14px; padding-left:14px; }
+  .C1 .folderbody::before { content:""; position:absolute; left:0; top:0; bottom:6px; width:4px; border-radius:4px; background:color-mix(in srgb,var(--blue) 45%,var(--border-2)); }
+  .C1 .scard .spine { display:none; }
+  .C1 .srow1 .sdot { display:inline-block; }
+
+  /* ═════════ H — Hybrid: opened-flap pocket (B + a fold cue) ═════════ */
+  .H .fcard { border-radius:14px 14px 0 0; border-bottom:none; }
+  .H .folderbody { position:relative; border:1px solid var(--border); border-top:none; border-radius:0 0 14px 14px; background:var(--pocket); padding:14px 12px 12px; }
+  .H .folderbody::before { content:""; position:absolute; left:10px; right:10px; top:0; height:8px; border-radius:0 0 10px 10px; background:linear-gradient(180deg, color-mix(in srgb,var(--card) 70%,transparent), transparent); box-shadow:0 3px 5px -3px var(--shadow); }
+</style>
+</head>
+<body data-theme="light">
+<div class="toolbar">
+  <h1>Enclosure — A/C refinements + hybrids</h1><span class="sp"></span>
+  <button onclick="document.body.dataset.theme=document.body.dataset.theme==='dark'?'light':'dark'">◑ Toggle theme</button>
+</div>
+<p class="lead">Refining the two directions you flagged: <b>A</b> (enclosed) and <b>C</b> (rail), plus hybrids that fix their weak spots — card-in-card heaviness (A) and the double-rail clash (C).</p>
+<div class="rail" id="rail"></div>
+
+<script>
+  const HEADER = `
+    <div class="fwrap"><div class="nub"></div>
+    <div class="fcard">
+      <div class="hdr"><span class="ic">▾</span><span class="path">/Users/robson/Project/</span><span class="name">pi-agent-dashboard</span><span class="sp"></span><span class="ic">⤢</span><span class="ic">×</span></div>
+      <div class="git"><span class="branch">⑂ develop</span><span class="badge"><span class="dot"></span>10</span><span class="commit">Commit</span><span class="init">⚙ Initialize</span><span class="gear">⚙</span></div>
+      <div class="pillgrid">
+        <div class="pill a"><span class="g">⚙</span><span class="m"><span class="l">Automations</span><span class="v">0 <span class="u">flows</span></span></span></div>
+        <div class="pill go"><span class="g">◎</span><span class="m"><span class="l">Goals</span><span class="v">0 <span class="u">active</span></span></span></div>
+        <div class="pill k"><span class="g">▤</span><span class="m"><span class="l">KB</span><span class="v">19.8k <span class="u">chunks</span></span></span></div>
+        <div class="pill s"><span class="g">▦</span><span class="m"><span class="l">OpenSpec</span><span class="v">58 <span class="u">changes</span></span></span></div>
+      </div>
+    </div></div>`;
+  const CREATE = `<div class="createlabel">Create</div><div class="create"><div class="sbtn g">＋ New Session</div><div class="sbtn o">⑂ New Worktree</div></div>`;
+  const SESS_SEL = `
+    <div class="scard sel"><div class="spine" style="background:var(--green)"></div>
+      <div class="srow1"><span class="sdot" style="background:var(--green)"></span><span class="nm">folder-card-tab-nub</span><span class="sp"></span><span class="chip b">⑂ Fork</span><span class="chip g">＋ Session</span><span class="chip o">⑂ Worktree</span></div>
+      <div class="smeta">anthropic/claude-opus-4-8 <span class="mut">(medium)</span></div>
+      <div class="sstat">Idle <span class="costbar"><i style="width:100%;background:var(--red)"></i></span><span class="cost">$14.29</span></div>
+      <div class="ospanel"><div class="oslabel">OPENSPEC · COMPLETE 8/8</div><div class="osrow"><span class="osbtn">⊘ Explore</span><span class="osbtn g">✓ Verify</span><span class="osbtn" style="color:var(--purple);border-color:color-mix(in srgb,var(--purple) 40%,transparent)">▤ Archive</span></div></div>
+    </div>`;
+  const SESS_2 = `
+    <div class="scard"><div class="spine" style="background:var(--green)"></div>
+      <div class="srow1"><span class="sdot" style="background:var(--green)"></span><span class="nm">pi-agent-dashboard</span><span class="sp"></span><span class="chip b">⑂ Fork</span><span class="chip g">＋ Session</span><span class="chip o">⑂ Worktree</span></div>
+      <div class="smeta">anthropic/claude-opus-4-8 <span class="mut">(medium)</span></div>
+      <div class="sstat">Idle <span class="costbar"><i style="width:22%;background:var(--green)"></i></span><span class="cost">$1.42</span></div>
+      <div class="ospanel"><div class="oslabel">OPENSPEC</div><div class="osrow"><span class="osbtn">📎 Attach change…</span><span class="osbtn b">＋ Change</span><span class="osbtn c">⊙ Propose</span><span class="osbtn c">⊘ Explore</span></div></div>
+    </div>`;
+  const SESSIONS = SESS_SEL + SESS_2;
+  const BODY = `<div class="folderbody">${CREATE}<div class="sessions">${SESSIONS}</div></div>`;
+
+  const FINAL = [
+    ["A′ — Enclosure + recessed pocket", "border wraps; cards keep their surface",
+      `<div class="A1">${HEADER}${BODY}</div>`,
+      "A's containment WITHOUT card-in-card: the folder border wraps everything, the body is a recessed pocket, and session cards keep their own surface + spine + selection ring so they stay legible. Reads as an open folder holding distinct files. Strong candidate."],
+    ["A″ — Files-in-folder rows", "inner cards become borderless rows + status dot",
+      `<div class="A2">${HEADER}${BODY}</div>`,
+      "Purest 'documents in a folder': sessions shed their border and become divider-separated rows with a leading status dot; selected row gets a soft tint instead of a ring. Very clean and compact, but you lose the strong per-card identity (spine, ring) — big behavioural change to SessionCard."],
+    ["C′ — Outer rail + indent", "single folder rail; sessions drop their own spine",
+      `<div class="C1">${HEADER}${BODY}</div>`,
+      "Fixes C's double-rail clash: ONE folder rail runs down an indented column; session cards drop their left spine and show status as a dot in the header instead. Light, no enclosure box, clearly 'in the folder'. Cost: retiring the session status spine app-wide."],
+    ["H — Opened-flap pocket", "B + a subtle fold cue at the top of the pocket",
+      `<div class="H">${HEADER}${BODY}</div>`,
+      "The soft pocket (B) plus a faint fold/shadow lip where the header meets the body — reads as an opened folder flap. Keeps cards fully distinct, minimal risk, strongest 'opened' cue without a hard inner border."],
+  ];
+
+  document.getElementById("rail").innerHTML = FINAL.map(([t,tag,html,note]) =>
+    `<div class="col"><h2>${t} <span class="n">· ${tag}</span></h2>${html}<p class="note"><b>${tag}.</b> ${note}</p></div>`
+  ).join("");
+</script>
+</body>
+</html>
