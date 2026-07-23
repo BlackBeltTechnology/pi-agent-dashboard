@@ -69,6 +69,22 @@ export function replayEntriesAsEvents(
       }
     }
 
+    // Persisted display-flagged custom message (CustomMessageEntry). Rebuild it
+    // through the same message_start + message_end pair the live path emits so
+    // the reducer produces one assistant-side row. A display:false entry is
+    // context-only and not shown. Distinct from type:"custom" (CustomEntry).
+    // See change: greet-as-assistant-message.
+    if (entry.type === "custom_message" && entry.display) {
+      const cm = {
+        role: "custom",
+        customType: entry.customType,
+        content: entry.content,
+        display: true,
+      };
+      messages.push(makeEvent(sessionId, "message_start", ts, { message: cm, entryId: entry.id }));
+      messages.push(makeEvent(sessionId, "message_end", ts, { message: cm, entryId: entry.id }));
+    }
+
     if (entry.type === "message" && entry.message) {
       const msg = entry.message;
 

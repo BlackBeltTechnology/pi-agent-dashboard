@@ -1440,6 +1440,42 @@ export function reduceEvent(
         // otherwise silently no-op the flush. See change:
         // fix-streaming-text-vs-interactive-ui-order.
         next.streamingTextFlushed = false;
+      } else if (msg?.role === "custom" && msg?.display) {
+        // Display-flagged custom session message (CustomMessage). Build ONE
+        // assistant-side row so it renders through the existing MessageBubble.
+        // Handled in its own branch — it never advances assistantInferenceSeq,
+        // touches streamingTextFlushed, or runs the streaming flush (those are
+        // exclusive to real assistant inferences). Built at message_end only;
+        // the matching message_start is a no-op. Idempotent across re-replay via
+        // a content-stable id. See change: greet-as-assistant-message.
+        const content = Array.isArray(msg.content)
+          ? msg.content
+              .filter((c: any) => c?.type === "text")
+              .map((c: any) => c.text)
+              .join("")
+          : String(msg.content ?? "");
+        const entryId = data.entryId as string | undefined;
+        const customId = `custom-${entryId ?? next.messages.length}`;
+        const existingIdx = next.messages.findLastIndex((m) => m.id === customId);
+        if (existingIdx !== -1) {
+          next.messages = [...next.messages];
+          next.messages[existingIdx] = {
+            ...next.messages[existingIdx],
+            content,
+            ...(entryId ? { entryId } : {}),
+          };
+        } else {
+          next.messages = [
+            ...next.messages,
+            {
+              id: customId,
+              role: "assistant",
+              content,
+              timestamp: event.timestamp,
+              ...(entryId ? { entryId } : {}),
+            },
+          ];
+        }
       }
       break;
     }
