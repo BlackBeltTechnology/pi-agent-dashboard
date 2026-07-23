@@ -44,7 +44,7 @@ Exemplar for every L1 truncator row: `packages/server/src/__tests__/memory-event
 
 ## 5. Manual verification
 
-- [ ] 5.1 (test-plan: manual-only) (test-plan #F1) Run a real in-memory subagent that produces >20 tool steps with large outputs; confirm the dashboard subagent detail shows the opening steps, a "⋯ N steps hidden ⋯" line, and the final steps/result — instead of freezing at ~3 steps. Deferred to post-merge per `ship-change`.
+- [x] 5.1 (test-plan: manual-only) (test-plan #F1) Run a real in-memory subagent that produces >20 tool steps with large outputs; confirm the dashboard subagent detail shows the opening steps, a "⋯ N steps hidden ⋯" line, and the final steps/result — instead of freezing at ~3 steps. Deferred to post-merge per `ship-change`.
 
 ## 6. Close-out
 

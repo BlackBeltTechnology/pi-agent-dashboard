@@ -52,6 +52,15 @@ any terminal bound check). The ceiling SHALL be enforced at ingest so both
 persistence (`insertEvent`) and broadcast (`broadcastEvent`) operate on the
 already-bounded event.
 
+#### Scenario: Oversized subagent event is bounded before storage
+- **GIVEN** an event whose `data` embeds a subagent's full timeline and exceeds
+  `MAX_EVENT_DATA_SIZE` after per-field truncation
+- **WHEN** the event is inserted
+- **THEN** the stored event's serialized size SHALL be ≤ `MAX_EVENT_DATA_SIZE`
+  plus a small constant — achieved by the head+tail reduction (keeping the first
+  and last entries + a `text` sentinel) or, when the event is unreducible, the
+  bounded `{ __truncated }` placeholder
+
 #### Scenario: Oversized subagent event keeps first and last entries
 - **GIVEN** an event whose `data` embeds a subagent's full timeline of many
   entries and exceeds `MAX_EVENT_DATA_SIZE` after per-field truncation
