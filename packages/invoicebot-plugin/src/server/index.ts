@@ -14,7 +14,7 @@
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { selectEngine } from "./engine/select.js";
 import { mountInvoiceBotRoutes } from "./routes.js";
-import { createSessionLink } from "./session-link.js";
+import { createSessionLink, recordedSessionIdsFromDetails } from "./session-link.js";
 
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("invoicebot-plugin server entry activated");
@@ -30,12 +30,17 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     getSession: (id) => ctx.sessionManager.getSession(id),
     listAll: () => ctx.sessionManager.listAll(),
     onEvent: (handler) => ctx.onEvent(handler),
+    resolveRecordedSessionIds: async (cwd, invoiceId) => {
+      const result = await engine.query(cwd, { view: "runs", invoice_id: invoiceId });
+      return recordedSessionIdsFromDetails(result.details);
+    },
     logger: { info: (m) => ctx.logger.info(m), warn: (m) => ctx.logger.warn(m) },
   });
 
   mountInvoiceBotRoutes(ctx.fastify, {
     engine,
     dispatchFlow: sessionLink.dispatchFlow,
+    ensureScopedSession: sessionLink.ensureScopedSession,
   });
 
   ctx.logger.info(`invoicebot-plugin routes mounted (engine binding: ${binding})`);

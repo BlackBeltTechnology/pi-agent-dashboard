@@ -42,6 +42,8 @@ let app: FastifyInstance;
 let calls: { method: string; cwd: string; args: any }[];
 let ensureCalls: string[];
 let dispatchCalls: { cwd: string; flow: FlowRunSpec; sessionId?: string; invoiceId?: string }[];
+let scopedCalls: { cwd: string; invoiceId: string }[];
+let scopedResult: string | undefined;
 let cwdA: string;
 let cwdB: string;
 
@@ -50,10 +52,16 @@ beforeEach(async () => {
   calls = rec.calls;
   ensureCalls = rec.ensureCalls;
   dispatchCalls = [];
+  scopedCalls = [];
+  scopedResult = "scoped-1";
   app = Fastify();
   mountInvoiceBotRoutes(app, {
     engine: rec.engine,
     dispatchFlow: async (a) => { dispatchCalls.push(a); return "sess-NEW"; },
+    ensureScopedSession: async (cwd, invoiceId) => {
+      scopedCalls.push({ cwd, invoiceId });
+      return scopedResult;
+    },
   });
   await app.ready();
   cwdA = mkdtempSync(join(tmpdir(), "ib-A-"));
@@ -119,6 +127,30 @@ describe("ensure-intake-automation on first touch", () => {
     const { status } = await post("query", { view: "pending" });
     expect(status).toBe(400);
     expect(ensureCalls).toHaveLength(0);
+  });
+});
+
+describe("scoped-session bootstrap", () => {
+  it("returns the ensured session id and runs workspace initialization", async () => {
+    const { status, json } = await post("scoped-session", { cwd: cwdA, invoice_id: "inv-42" });
+    expect(status).toBe(200);
+    expect(json).toEqual({ sessionId: "scoped-1" });
+    expect(scopedCalls).toEqual([{ cwd: cwdA, invoiceId: "inv-42" }]);
+    expect(ensureCalls).toEqual([cwdA]);
+  });
+
+  it("rejects malformed input with 400 without ensuring", async () => {
+    expect((await post("scoped-session", { invoice_id: "inv-42" })).status).toBe(400);
+    expect((await post("scoped-session", { cwd: cwdA, invoice_id: "" })).status).toBe(400);
+    expect((await post("scoped-session", { cwd: cwdA })).status).toBe(400);
+    expect(scopedCalls).toHaveLength(0);
+  });
+
+  it("returns 503 when no session can be produced", async () => {
+    scopedResult = undefined;
+    const { status, json } = await post("scoped-session", { cwd: cwdA, invoice_id: "inv-42" });
+    expect(status).toBe(503);
+    expect(json).toEqual({ error: "scoped session unavailable" });
   });
 });
 

@@ -12,6 +12,7 @@
  *   POST /api/plugins/invoicebot/upload  → multipart ingest of raw invoice bytes
  *   POST /api/plugins/invoicebot/automation → enable/disable a schedule automation
  *   GET  /api/plugins/invoicebot/automation → list schedule automations + state
+ *   POST /api/plugins/invoicebot/scoped-session → ensure a usable invoice-scoped chat session
  *
  * The plugin forwards `{ selector, ...args }` to the matching `InvoiceEngine`
  * port method and normalizes the tool result to `{ ok, text, data, sessionId?,
@@ -77,6 +78,8 @@ export interface InvoiceBotRouteDeps {
   engine: InvoiceEngine;
   /** Dispatch a flow into the workspace session; returns the sessionId/token. */
   dispatchFlow: (args: { cwd: string; flow: FlowRunSpec; sessionId?: string; invoiceId?: string }) => Promise<string | undefined>;
+  /** Bootstrap a usable invoice-scoped chat session. */
+  ensureScopedSession?: (cwd: string, invoiceId: string) => Promise<string | undefined>;
 }
 
 /** Consequential ops the client MUST confirm first (api-contract §10). */
@@ -145,6 +148,27 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
     if (typeof body.invoice_id === "string") args.invoiceId = body.invoice_id;
     return dispatchFlow(args);
   }
+
+  // ── /scoped-session — trusted chat bootstrap; conversation stays on /ws ──
+  fastify.post("/api/plugins/invoicebot/scoped-session", async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const cwdErr = badCwd(body.cwd);
+    if (cwdErr) { reply.code(400); return { error: cwdErr }; }
+    if (typeof body.invoice_id !== "string" || body.invoice_id.trim() === "") {
+      reply.code(400);
+      return { error: "invoice_id is required" };
+    }
+    const cwd = body.cwd as string;
+    try {
+      await ensureIntake(cwd);
+      const sessionId = await deps.ensureScopedSession?.(cwd, body.invoice_id);
+      if (sessionId) return { sessionId };
+    } catch (err) {
+      req.log.warn({ err }, "invoicebot scoped session bootstrap failed");
+    }
+    reply.code(503);
+    return { error: "scoped session unavailable" };
+  });
 
   // ── /query — reads (view) ──────────────────────────────────────────────────
   fastify.post("/api/plugins/invoicebot/query", async (req, reply) => {
