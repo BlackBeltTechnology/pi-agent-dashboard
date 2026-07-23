@@ -131,6 +131,31 @@ describe("SubagentDetailView", () => {
     expect(screen.queryByText(/\.md$/)).toBeNull();
   });
 
+  it("E16 — text sentinel renders as text on the client path (no error)", () => {
+    // The server's head+tail reducer elides the middle of an oversized subagent
+    // timeline into a { kind: "text", "⋯ N steps hidden ⋯" } sentinel. It must
+    // render as plain text on any client version — never an (unknown entry)
+    // error. See change: head-tail-truncate-subagent-event-timeline (D5).
+    const session = makeSession({
+      id: "a1",
+      type: "Explore",
+      description: "search",
+      status: "running",
+      displayName: "explorer",
+      entries: [
+        { kind: "tool", toolName: "Read", input: { file_path: "/a.ts" }, output: "x", ts: 1 },
+        { kind: "text", text: "⋯ 21 steps hidden ⋯", ts: 2 },
+        { kind: "tool", toolName: "Read", input: { file_path: "/z.ts" }, output: "y", ts: 3 },
+      ],
+    });
+    renderWithPrimitives(<SubagentDetailView session={session} agentId="a1" />);
+    expect(screen.getByText(/21 steps hidden/)).toBeTruthy();
+    expect(screen.queryByText(/unknown entry/i)).toBeNull();
+    // Non-empty guard still adopts entries: both tool rows render.
+    expect(screen.getByText("/a.ts")).toBeTruthy();
+    expect(screen.getByText("/z.ts")).toBeTruthy();
+  });
+
   it("row mode — single-line summary, no body", () => {
     const session = makeSession({
       id: "a1",
