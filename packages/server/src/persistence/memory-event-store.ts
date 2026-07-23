@@ -141,14 +141,24 @@ function isImageBlock(obj: object): boolean {
 const SKILL_ENVELOPE_RE =
   /^(<skill name="[^"]+" location="[^"]+">\n)([\s\S]*?)(\n<\/skill>)((?:\n\n[\s\S]+)?)$/;
 
-/** Cap a string to `maxSize`, appending a truncation marker when trimmed. */
-function capString(s: string, maxSize: number): string {
+/**
+ * Cap a string to `maxSize`, keeping BOTH its head and tail when trimmed.
+ * The generic branch keeps `floor(maxSize/2)` head + the remaining tail joined
+ * by a `\n…[N chars hidden]…\n` marker (N = original length − kept) — a 50/50
+ * split, the safe universal across tool outputs and errors. Exported so the
+ * subagent reducer can cap individual entry leaves.
+ * See change: head-tail-truncate-subagent-event-timeline (D2).
+ */
+export function capString(s: string, maxSize: number): string {
   if (s.length <= maxSize) return s;
   // Skill invocation envelope: naive mid-string truncation would sever the
   // closing </skill> tag, making the client's parseSkillBlock return null —
   // the message then renders as a wall of raw pseudo-HTML (or nothing).
   // Truncate the BODY only, keeping header + closing tag + trailing args
-  // intact so the envelope stays well-formed and parseable.
+  // intact so the envelope stays well-formed and parseable. This branch stays
+  // HEAD-ONLY on the body: head+tail on a skill body risks the client
+  // parseSkillBlock contract, and the branch already bounds the body while
+  // keeping the closing tag.
   // See change: bound-subagent-event-serialization (skill regression fix).
   const skill = s.match(SKILL_ENVELOPE_RE);
   if (skill) {
@@ -160,7 +170,10 @@ function capString(s: string, maxSize: number): string {
     }
     return s; // over maxSize only due to envelope overhead — leave intact
   }
-  return `${s.slice(0, maxSize)}\n…[truncated]`;
+  const head = Math.floor(maxSize / 2);
+  const tail = maxSize - head;
+  const hidden = s.length - maxSize;
+  return `${s.slice(0, head)}\n…[${hidden} chars hidden]…\n${s.slice(s.length - tail)}`;
 }
 
 /**
@@ -222,13 +235,56 @@ function truncateStrings(obj: unknown, maxSize: number, depth = 0): unknown {
 }
 
 /**
+ * Byte-accurate JSON-serialized length of a string (UTF-8 width + escape
+ * expansion), INCLUDING the two surrounding quotes. Only called on strings
+ * whose code-unit length is already known to be within the remaining budget
+ * (the caller short-circuits huge strings via the code-unit lower bound), so
+ * this scan is bounded by `cap`, never by the raw payload size.
+ * See change: head-tail-truncate-subagent-event-timeline (D8).
+ */
+function jsonStringByteSize(s: string): number {
+  let n = 2; // surrounding quotes
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0x22 || c === 0x5c) {
+      n += 2; // \" or \\
+    } else if (c < 0x20) {
+      // \b \t \n \f \r escape to 2 chars; other control chars to \u00XX (6).
+      n += c === 0x08 || c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d ? 2 : 6;
+    } else if (c < 0x80) {
+      n += 1;
+    } else if (c < 0x800) {
+      n += 2;
+    } else if (c >= 0xd800 && c <= 0xdbff) {
+      // High surrogate: a valid pair (one 4-byte UTF-8 sequence) ONLY when a low
+      // surrogate follows; otherwise ES2019+ JSON.stringify escapes the lone
+      // surrogate as \uXXXX (6 bytes) — count 6 so we never undercount.
+      const next = i + 1 < s.length ? s.charCodeAt(i + 1) : 0;
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        n += 4;
+        i++;
+      } else {
+        n += 6;
+      }
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      n += 6; // lone low surrogate → \uXXXX
+    } else {
+      n += 3;
+    }
+  }
+  return n;
+}
+
+/**
  * Bounded-cost check: does `value` serialize to more than `cap` bytes?
  * Early-exits the moment the running estimate crosses `cap`, so it NEVER
  * materializes the full serialization (that allocation is exactly the OOM we
  * are guarding against). Worst-case cost is O(cap), not O(payload).
- * The estimate approximates JSON byte length (ignores escape expansion); it is
- * a guard threshold, not an exact size. See change:
- * bound-subagent-event-serialization.
+ * The walk is BYTE-ACCURATE: each string counts its actual JSON byte length
+ * (UTF-8 + escapes) and a base64 image `data` counts at its REAL size, so the
+ * ceiling holds in actual bytes for escape/CJK/image-heavy input. A huge string
+ * is short-circuited via its code-unit lower bound (UTF-8 bytes ≥ UTF-16 units)
+ * so it is never scanned. See change: head-tail-truncate-subagent-event-timeline (D8).
  */
 interface SizeWalk {
   total: number;
@@ -255,15 +311,14 @@ function walkObjectSize(obj: Record<string, unknown>, w: SizeWalk): boolean {
   // pasted image (> cap base64) collapses to the {__truncated} placeholder and
   // vanishes from chat. Count a small constant instead of the raw bytes.
   // See change: bound-subagent-event-serialization (image regression fix).
-  const imageBlock = isImageBlock(obj);
+  // A base64 image `data` string used to be exempt (counted as 8 bytes), which
+  // let a multi-megabyte image escape the ceiling and then OOM the broadcast
+  // `JSON.stringify`. It now counts at its REAL byte size like any other string
+  // (short-circuited via the code-unit lower bound when huge).
+  // See change: head-tail-truncate-subagent-event-timeline (D8).
   for (const k of Object.keys(obj)) {
     w.total += k.length + 3; // "k":
     if (w.total > w.cap) return true;
-    if (imageBlock && k === "data" && typeof obj[k] === "string") {
-      w.total += 8; // stand-in for the preserved base64 payload
-      if (w.total > w.cap) return true;
-      continue;
-    }
     if (walkSize(obj[k], w)) return true;
     w.total += 1; // comma
   }
@@ -275,7 +330,14 @@ function walkSize(v: unknown, w: SizeWalk): boolean {
   if (w.total > w.cap) return true;
   switch (typeof v) {
     case "string":
-      w.total += v.length + 2; // surrounding quotes
+      // Code-unit lower bound: UTF-8 bytes ≥ UTF-16 code units. If even the
+      // lower bound crosses the cap, the actual byte count does too — short
+      // out WITHOUT scanning the (possibly multi-megabyte) string.
+      if (w.total + v.length > w.cap) {
+        w.total += v.length + 2;
+        return true;
+      }
+      w.total += jsonStringByteSize(v);
       return w.total > w.cap;
     case "number":
     case "boolean":
@@ -305,6 +367,288 @@ export function exceedsSerializedSize(value: unknown, cap: number): boolean {
 }
 
 /**
+ * Byte-accurate, BOUNDED serialized-size measurement. Returns the exact JSON
+ * byte length when `value` fits within `cap`, else `cap + 1` (an over-ceiling
+ * sentinel) — the walk early-exits and NEVER materializes a full
+ * `JSON.stringify`. Used by the subagent reducer for both the entries budget
+ * `E` and the terminal bound proof, and per-entry by the shrink loop.
+ * See change: head-tail-truncate-subagent-event-timeline (D8).
+ */
+export function measureBytes(value: unknown, cap: number): number {
+  const w: SizeWalk = { total: 0, cap, seen: new WeakSet<object>() };
+  walkSize(value, w);
+  return Math.min(w.total, cap + 1);
+}
+
+// ---- Subagent-timeline head+tail reduction ----
+// See change: head-tail-truncate-subagent-event-timeline.
+
+/** Non-`entries` string caps (D3/D7). */
+const PROMPT_CAP = 2_000;
+const DESC_CAP = 1_500;
+const CONTENT_CAP = 1_500;
+/** Head/tail entry retention + per-ENTRY byte-budget floors (D3). */
+const K_HEAD = 1;
+const K_TAIL = 4;
+const MID_FLOOR = 800;
+const ENTRY_FLOOR = 256;
+/** Reserve for the sentinel entry + per-field `…hidden…` markers (D3). */
+const MARKER_RESERVE = 300;
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+interface SubagentTimeline {
+  /** The resolved `details` object carrying `entries[]` (+ `description`). */
+  details: Record<string, unknown>;
+  /** The `entries[]` array reachable on `details`. */
+  entries: unknown[];
+  /** Whether `details` sits under `data.partialResult` (live) vs `data`. */
+  underPartialResult: boolean;
+}
+
+/**
+ * TYPE-scoped detector (D1). Returns the resolved `details` + its `entries[]`
+ * ONLY when the event is a subagent-carrying tool event — `data.toolName ===
+ * "Agent"`, OR eventType `tool_execution_update`/`tool_execution_end` with a
+ * `details.agentId` — AND an array sits at `data.partialResult.details.entries`
+ * (live) or `data.details.entries` (started/end). Shape alone (a bare array)
+ * MUST NOT match.
+ */
+function locateSubagentTimeline(event: DashboardEvent): SubagentTimeline | undefined {
+  const data = event.data as Record<string, unknown> | undefined;
+  if (!data || typeof data !== "object") return undefined;
+  const pr = data.partialResult as Record<string, unknown> | undefined;
+  let details: Record<string, unknown> | undefined;
+  let underPartialResult = false;
+  if (pr && typeof pr === "object" && pr.details && typeof pr.details === "object") {
+    details = pr.details as Record<string, unknown>;
+    underPartialResult = true;
+  } else if (data.details && typeof data.details === "object") {
+    details = data.details as Record<string, unknown>;
+  }
+  if (!details || !Array.isArray(details.entries)) return undefined;
+  const isAgentTool = data.toolName === "Agent";
+  const isUpdateOrEnd =
+    event.eventType === "tool_execution_update" || event.eventType === "tool_execution_end";
+  const hasAgentId = typeof details.agentId === "string";
+  if (!isAgentTool && !(isUpdateOrEnd && hasAgentId)) return undefined;
+  return { details, entries: details.entries as unknown[], underPartialResult };
+}
+
+/** Head+tail-cap every string reachable inside `content[*]`, recursing container blocks. */
+function capContentBlocks(blocks: unknown[], cap: number): void {
+  for (const b of blocks) {
+    if (!b || typeof b !== "object") continue;
+    const block = b as Record<string, unknown>;
+    if (typeof block.text === "string") block.text = capString(block.text, cap);
+    // Base64 image `data` is capped too — no image preservation on this path.
+    if (typeof block.data === "string") block.data = capString(block.data, cap);
+    if (Array.isArray(block.content)) capContentBlocks(block.content, cap);
+  }
+}
+
+/**
+ * Step 0 (D3): head+tail-cap ALL big non-`entries` strings on the CLONE —
+ * `args.prompt`, `details.description`, and every string inside
+ * `partialResult.content[*]` (both `.text` and image `.data`). After this no
+ * non-`entries` string exceeds its cap, so the envelope is provably bounded.
+ */
+function capLargeStrings(data: Record<string, unknown>, details: Record<string, unknown>): void {
+  const args = data.args as Record<string, unknown> | undefined;
+  if (args && typeof args.prompt === "string") args.prompt = capString(args.prompt, PROMPT_CAP);
+  if (typeof details.description === "string") {
+    details.description = capString(details.description, DESC_CAP);
+  }
+  const pr = data.partialResult as Record<string, unknown> | undefined;
+  if (pr && Array.isArray(pr.content)) capContentBlocks(pr.content, CONTENT_CAP);
+}
+
+interface LeafRef {
+  parent: Record<string, unknown> | unknown[];
+  key: string | number;
+  value: string;
+}
+
+/** One bounded walk returning the entry's CURRENTLY-largest string leaf, if any. */
+function findLargestStringLeaf(root: unknown): LeafRef | undefined {
+  let best: LeafRef | undefined;
+  const seen = new WeakSet<object>();
+  const stack: unknown[] = [root];
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || typeof node !== "object") continue;
+    if (seen.has(node)) continue;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) {
+        const v = node[i];
+        if (typeof v === "string") {
+          if (!best || v.length > best.value.length) best = { parent: node, key: i, value: v };
+        } else if (v && typeof v === "object") {
+          stack.push(v);
+        }
+      }
+    } else {
+      const obj = node as Record<string, unknown>;
+      for (const k of Object.keys(obj)) {
+        const v = obj[k];
+        if (typeof v === "string") {
+          if (!best || v.length > best.value.length) best = { parent: obj, key: k, value: v };
+        } else if (v && typeof v === "object") {
+          stack.push(v);
+        }
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * D3a: shrink one entry to a byte budget `B` by repeatedly head+tail-capping its
+ * CURRENTLY-largest string leaf at a shrinking cap, down to `ENTRY_FLOOR`. Bounds
+ * the ENTRY total regardless of leaf count and caps base64 leaves inside entries
+ * — never relies on a per-leaf `maxSize`. Mutates the (already-cloned) entry.
+ */
+export function shrinkEntryToBudget(entry: unknown, B: number): unknown {
+  if (!entry || typeof entry !== "object") return entry;
+  let guard = 0;
+  while (measureBytes(entry, B) > B && guard < 100_000) {
+    guard++;
+    const leaf = findLargestStringLeaf(entry);
+    if (!leaf || leaf.value.length <= ENTRY_FLOOR) break;
+    const newCap = Math.max(ENTRY_FLOOR, Math.floor(leaf.value.length / 2));
+    (leaf.parent as Record<string | number, unknown>)[leaf.key] = capString(leaf.value, newCap);
+  }
+  return entry;
+}
+
+/** Byte-bounded `{ __truncated }` placeholder built WITHOUT stringifying the original. */
+function truncatedPlaceholder(event: DashboardEvent, maxEventDataSize: number): DashboardEvent {
+  return {
+    ...event,
+    data: {
+      __truncated: true,
+      reason: "event data exceeded MAX_EVENT_DATA_SIZE",
+      thresholdBytes: maxEventDataSize,
+      eventType: event.eventType,
+    },
+  };
+}
+
+function entryTs(entry: unknown): number {
+  if (entry && typeof entry === "object" && typeof (entry as Record<string, unknown>).ts === "number") {
+    return (entry as Record<string, unknown>).ts as number;
+  }
+  return Date.now();
+}
+
+/**
+ * D3: reduce an over-ceiling subagent-timeline event, tail-weighted and
+ * final-protected, to `≤ ceiling` ACTUAL bytes. Returns a NEW event with the
+ * touched spine (`data`, `data.args`, resolved `details`, `details.entries`)
+ * cloned — NEVER mutates the in-flight `event`. Falls back to `{ __truncated }`
+ * when the event is unreducible (e.g. empty `entries[]` + oversized envelope).
+ * No `JSON.stringify` anywhere — all measurement is via `measureBytes`.
+ */
+export function reduceSubagentEvent(event: DashboardEvent, ceiling: number): DashboardEvent {
+  const origData = event.data as Record<string, unknown>;
+  const data: Record<string, unknown> = { ...origData };
+  if (data.args && typeof data.args === "object") data.args = { ...(data.args as object) };
+
+  // Resolve + clone the details spine on the CLONE.
+  const loc = locateSubagentTimeline(event);
+  if (!loc) return event; // defensive — caller only routes detected events
+  let details: Record<string, unknown>;
+  if (loc.underPartialResult) {
+    const prClone = { ...(data.partialResult as Record<string, unknown>) };
+    if (Array.isArray(prClone.content)) prClone.content = structuredClone(prClone.content);
+    details = { ...(prClone.details as object) } as Record<string, unknown>;
+    prClone.details = details;
+    data.partialResult = prClone;
+  } else {
+    details = { ...(data.details as object) } as Record<string, unknown>;
+    data.details = details;
+  }
+  const origEntries = loc.entries;
+
+  // Step 0: cap all big non-`entries` strings.
+  capLargeStrings(data, details);
+
+  // Compute the envelope budget with entries removed.
+  details.entries = [];
+  const envBytes = measureBytes(data, ceiling);
+  const E = ceiling - envBytes - MARKER_RESERVE;
+  const ENTRY_FINAL = clamp(Math.round(E * 0.45), 1_500, 6_000);
+
+  const n = origEntries.length;
+  let kHead = Math.min(K_HEAD, n);
+  let kTail = Math.min(K_TAIL, n - kHead);
+
+  // Decrement K_TAIL while the intermediate per-entry budget underflows MID_FLOOR.
+  while (kHead + kTail > 1) {
+    const kept = kHead + kTail;
+    const entryMid = (E - ENTRY_FINAL) / (kept - 1);
+    if (entryMid >= MID_FLOOR) break;
+    if (kTail > 1) kTail--;
+    else break;
+  }
+  const kept = kHead + kTail;
+  const ENTRY_MID = kept > 1 ? Math.max(ENTRY_FLOOR, Math.floor((E - ENTRY_FINAL) / (kept - 1))) : E;
+
+  // Build kept real entries (cloned) + a text sentinel for the dropped middle.
+  const head = origEntries.slice(0, kHead).map((e) => structuredClone(e));
+  const tail = kTail > 0 ? origEntries.slice(n - kTail).map((e) => structuredClone(e)) : [];
+  const keptReal = [...head, ...tail];
+  const hiddenCount = n - kHead - kTail;
+  const display: unknown[] = [...head];
+  if (hiddenCount > 0) {
+    display.push({
+      kind: "text",
+      text: `⋯ ${hiddenCount} steps hidden ⋯`,
+      ts: entryTs(origEntries[kHead]),
+    });
+  }
+  display.push(...tail);
+
+  // Shrink intermediate entries to ENTRY_MID, then the final entry to ENTRY_FINAL.
+  for (let i = 0; i < keptReal.length - 1; i++) shrinkEntryToBudget(keptReal[i], ENTRY_MID);
+  if (keptReal.length > 0) shrinkEntryToBudget(keptReal[keptReal.length - 1], ENTRY_FINAL);
+
+  details.entries = display;
+
+  // Terminal proof (byte-accurate, bounded). Shrink the largest kept entry
+  // toward ENTRY_FLOOR; if all are at the floor and still over, drop a tail
+  // entry; if nothing remains to shrink, fall back to the placeholder.
+  let guard = 0;
+  while (measureBytes(data, ceiling) > ceiling && guard < 200) {
+    guard++;
+    if (keptReal.length === 0) return truncatedPlaceholder(event, ceiling);
+    let largest = keptReal[0];
+    let largestBytes = measureBytes(largest, ceiling);
+    for (const e of keptReal) {
+      const b = measureBytes(e, ceiling);
+      if (b > largestBytes) {
+        largest = e;
+        largestBytes = b;
+      }
+    }
+    if (largestBytes <= ENTRY_FLOOR + 64) {
+      // Everything is already at the floor — drop the oldest kept entry.
+      const dropped = keptReal.shift();
+      const di = display.indexOf(dropped);
+      if (di !== -1) display.splice(di, 1);
+      if (keptReal.length === 0) return truncatedPlaceholder(event, ceiling);
+    } else {
+      shrinkEntryToBudget(largest, Math.max(ENTRY_FLOOR, Math.floor(largestBytes / 2)));
+    }
+  }
+  if (measureBytes(data, ceiling) > ceiling) return truncatedPlaceholder(event, ceiling);
+  return { ...event, data };
+}
+
+/**
  * Truncate large event data to bound memory usage per event. Applies a
  * per-field string cap (`maxStringSize`) and then a hard per-event total-size
  * ceiling (`maxEventDataSize`); an over-ceiling event's data is replaced with a
@@ -317,19 +661,21 @@ function createTruncator(maxStringSize: number, maxEventDataSize: number) {
   return (event: DashboardEvent): DashboardEvent => {
     const data = event.data;
     if (!data || typeof data !== "object") return event;
+    // Detect subagent-timeline events on the ORIGINAL event BEFORE the generic
+    // per-field pass, so the generic `obj.length > 20` array clobber can NEVER
+    // reach a detected `entries[]` regardless of `maxStringSize`. Over-ceiling
+    // → head+tail reduce; under-ceiling → store unchanged (skip generic pass).
+    // See change: head-tail-truncate-subagent-event-timeline (D1/D4).
+    if (sizePass && locateSubagentTimeline(event)) {
+      return exceedsSerializedSize(data, maxEventDataSize)
+        ? reduceSubagentEvent(event, maxEventDataSize)
+        : event;
+    }
     const truncated = stringPass
       ? (truncateStrings(data, maxStringSize) as Record<string, unknown>)
       : (data as Record<string, unknown>);
     if (sizePass && exceedsSerializedSize(truncated, maxEventDataSize)) {
-      return {
-        ...event,
-        data: {
-          __truncated: true,
-          reason: "event data exceeded MAX_EVENT_DATA_SIZE",
-          thresholdBytes: maxEventDataSize,
-          eventType: event.eventType,
-        },
-      };
+      return truncatedPlaceholder(event, maxEventDataSize);
     }
     return truncated !== data ? { ...event, data: truncated } : event;
   };

@@ -94,7 +94,7 @@ describe("SessionHeader back button", () => {
 });
 
 describe("Pi branding in SessionList", () => {
-  it("shows the app icon image (not π text) and no 'Sessions' label", async () => {
+  it("shows the app icon image (not π text) in the Home button", async () => {
     // Dynamic import to avoid issues — SessionList uses useLocation
     const { SessionList } = await import("../session/SessionList.js");
     const { hook, navigate } = memoryLocation({ path: "/", static: true });
@@ -117,9 +117,9 @@ describe("Pi branding in SessionList", () => {
     const svg = piButton.querySelector("svg[aria-label='Pi Dashboard']");
     expect(svg).toBeTruthy();
     expect(piButton.querySelector("img")).toBeNull();
-
-    // "Sessions" text should not appear
-    expect(screen.queryByText("Sessions")).toBeNull();
+    // Note: a per-folder "Sessions" divider is intended UI (SessionList encloses
+    // each folder's sessions under a labelled separator), so this test no longer
+    // asserts the absence of a "Sessions" label — only the Pi-branding invariant.
   });
 
   it("navigates to / when π is clicked", async () => {
