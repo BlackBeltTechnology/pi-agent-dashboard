@@ -173,7 +173,10 @@ export function strictDate(v: FmValue): string | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v).trim());
   if (!m) return null;
   const y = +m[1], mo = +m[2], d = +m[3];
-  const dt = new Date(Date.UTC(y, mo - 1, d));
+  // setUTCFullYear (not Date.UTC) so years 0000–0099 are NOT remapped to 1900–1999
+  // (JS legacy two-digit-year behavior) — keeps valid dates like 0001-01-01.
+  const dt = new Date(0);
+  dt.setUTCFullYear(y, mo - 1, d);
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d ? `${m[1]}-${m[2]}-${m[3]}` : null;
 }
 

@@ -93,6 +93,7 @@ describe("structural routing (buildMeta / buildProperties / strict typing)", () 
     expect(strictDate("2024-13-01")).toBeNull(); // impossible month
     expect(strictDate("2023-02-29")).toBeNull(); // non-leap-year Feb 29
     expect(strictDate("2024-02-29")).toBe("2024-02-29"); // leap year ok
+    expect(strictDate("0001-01-01")).toBe("0001-01-01"); // below-0100 year not remapped
   });
 
   it("E9: within-file array duplicates de-dup to a single property row", () => {
