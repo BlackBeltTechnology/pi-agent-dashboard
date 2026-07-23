@@ -14,7 +14,7 @@ produce the same output).
   the closing delimiter is used as the body to chunk
 - **AND** the parsed map is returned as `frontmatter`
 
-#### Scenario: Typed scalar, array, and block-list values
+#### Scenario: Scalar and array values
 - **WHEN** a value is an inline `[a, b]` array or a block list of `- item` lines
 - **THEN** it is parsed to a string array (elements trimmed, quotes stripped, empty
   dropped)

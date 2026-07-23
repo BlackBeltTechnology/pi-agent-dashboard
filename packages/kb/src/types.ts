@@ -46,6 +46,28 @@ export interface KbHit {
 /** A pluggable reranker: rescoring BM25 top-k. Default = none (no-op). */
 export type Reranker = (query: string, candidates: KbHit[]) => Promise<KbHit[]> | KbHit[];
 
+/** Structured frontmatter facet filter (add-kb-frontmatter-structural-indexing).
+ *  Values are always parameter-bound. `type` selects the range column for
+ *  gte/lte: number → value_num, date → value_date, string/omitted → value. */
+export interface Filter {
+  key: string;
+  op: "eq" | "in" | "gte" | "lte";
+  value?: string | number;
+  values?: Array<string | number>;
+  type?: "string" | "number" | "date";
+}
+
+/** A property row persisted for a file's facet frontmatter. */
+export interface StorePropertyRow {
+  root: string;
+  path: string;
+  key: string;
+  value: string; // normalized (lowercased/trimmed)
+  valueNum: number | null;
+  valueDate: string | null;
+  valueRaw: string;
+}
+
 export interface SearchOpts {
   limit?: number;
   root?: string;
@@ -61,6 +83,7 @@ export interface SearchOpts {
   reranker?: Reranker; // injected reranker; if absent, --rerank is a clean no-op
   queryExpansion?: "off" | "prf" | "synonym" | "agent";
   synonyms?: Record<string, string[]>; // curated glossary for synonym expansion
+  filters?: Filter[]; // structured frontmatter facet filters (opt-in; no-op when absent)
 }
 
 export interface FileState {
@@ -87,6 +110,14 @@ export interface KbStore {
   insertChunk(c: Chunk): void;
   addNode(n: GraphNode): void;
   addEdge(e: GraphEdge): void;
+  // frontmatter structural indexing (optional — additive backend capability)
+  insertProperty?(row: StorePropertyRow): void;
+  deletePropertiesByPath?(root: string, path: string): void;
+  facets?(keys: string[], opts?: { root?: string; filters?: Filter[] }): Record<string, Record<string, number>>;
+  getUserVersion?(): number;
+  setUserVersion?(v: number): void;
+  getMeta?(k: string): string | null;
+  setMeta?(k: string, v: string): void;
 
   // query
   search(query: string, opts?: SearchOpts): KbHit[];

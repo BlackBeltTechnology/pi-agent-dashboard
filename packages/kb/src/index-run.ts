@@ -13,7 +13,7 @@
 import { existsSync, readdirSync, unlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { type IndexOptions, type IndexStats, indexSource } from "./indexer.js";
-import { SqliteFtsStore } from "./sqlite-store.js";
+import { SCHEMA_VERSION, SqliteFtsStore } from "./sqlite-store.js";
 
 type StoreCounts = ReturnType<SqliteFtsStore["counts"]>;
 
@@ -27,6 +27,9 @@ export interface RunIndexAtomicOpts {
   indexOpts?: IndexOptions;
   /** Sources came from an explicit `--source` arg; a missing one is a user typo. */
   explicit?: boolean;
+  /** When set, participates in the schema-version reindex gate (design D6): a
+   *  changed facet-config hash forces a one-time full reindex. */
+  facetConfigHash?: string;
 }
 
 /** True if `pid` names a live process (existence probe via signal 0). EPERM =
@@ -92,11 +95,21 @@ export async function runIndexAtomic(opts: RunIndexAtomicOpts): Promise<IndexSta
 
   const store = new SqliteFtsStore(target);
   store.init();
+  // Schema-version / facet-config gate: a stale schema version or a changed
+  // facet-config hash forces a one-time full reindex so new structures populate.
+  let effOpts: IndexOptions = indexOpts ?? {};
+  if (preexisting) {
+    const ver = store.getUserVersion?.() ?? 0;
+    const storedHash = store.getMeta?.("facetConfigHash") ?? null;
+    if (ver < SCHEMA_VERSION || (opts.facetConfigHash != null && storedHash !== opts.facetConfigHash)) {
+      effOpts = { ...effOpts, force: true };
+    }
+  }
   let ok = false;
   try {
     const total: IndexStats = { scanned: 0, changed: 0, deleted: 0, chunks: 0 };
     for (const s of sources) {
-      const st = await indexSource(store, { root: s.id, dir: s.dir }, indexOpts ?? {});
+      const st = await indexSource(store, { root: s.id, dir: s.dir }, effOpts);
       total.scanned += st.scanned;
       total.changed += st.changed;
       total.deleted += st.deleted;
@@ -105,6 +118,9 @@ export async function runIndexAtomic(opts: RunIndexAtomicOpts): Promise<IndexSta
     // Read counts from the still-open store so callers never need a second
     // openStore() connection just to report them (keeps `index` off openStore).
     const counts = store.counts();
+    // Stamp the schema version + facet-config hash so the gate is satisfied next open.
+    store.setUserVersion?.(SCHEMA_VERSION);
+    if (opts.facetConfigHash != null) store.setMeta?.("facetConfigHash", opts.facetConfigHash);
     if (preexisting) store.close();
     else store.finalizeRename(dbPath);
     ok = true;

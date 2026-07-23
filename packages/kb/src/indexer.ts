@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { chunkMarkdown } from "./chunker.js";
+import { DEFAULT_FACET_KEYS, DEFAULT_SEARCHABLE_KEYS, type FacetKeyConfig, buildMeta, buildProperties } from "./frontmatter.js";
 import type { DocType, KbStore } from "./types.js";
 
 export interface IndexSource {
@@ -18,12 +19,14 @@ export interface IndexOptions {
   include?: string[]; // glob patterns to include
   exclude?: string[]; // glob patterns to exclude
   extensions?: string[]; // e.g. [".md"]
+  frontmatter?: { searchableKeys: string[]; facetKeys: FacetKeyConfig[] }; // structural indexing routing
 }
 export interface IndexStats {
   scanned: number;
   changed: number;
   deleted: number;
   chunks: number;
+  parseFailures?: number; // files whose frontmatter block was present but did not parse
   missing?: boolean; // source dir did not exist → skipped (degrade, not abort)
 }
 
@@ -128,7 +131,8 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
       }
       // changed → replace
       store.deleteByPath(src.root, rel);
-      const { chunks, wikilinks, mdLinks, frontmatter } = chunkMarkdown({ root: src.root, path: rel, text: buf.toString("utf8"), docType: docTypeOf(rel, includeSourceMd) });
+      const dt = docTypeOf(rel, includeSourceMd);
+      const { chunks, wikilinks, mdLinks, frontmatter, parseFailed } = chunkMarkdown({ root: src.root, path: rel, text: buf.toString("utf8"), docType: dt });
       // file node
       store.addNode({ type: "file", name: rel, path: rel });
       for (const c of chunks) {
@@ -154,6 +158,21 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
         store.addNode({ type: "tag", name: `tag:${tag}`, path: null });
         store.addEdge({ src: rel, dst: `tag:${tag}`, rel: "has_tag" });
       }
+      // frontmatter structural indexing: synthetic meta chunk + property rows
+      if (frontmatter && store.insertProperty) {
+        const fmCfg = opts.frontmatter ?? { searchableKeys: DEFAULT_SEARCHABLE_KEYS, facetKeys: DEFAULT_FACET_KEYS };
+        const { title, body: metaBody } = buildMeta(frontmatter, fmCfg.searchableKeys);
+        const metaText = [title ?? "", metaBody].join("\n").trim();
+        if (metaText) {
+          const heading = title ?? (rel.split("/").pop() ?? rel).replace(/\.(md|mdx|markdown)$/i, "");
+          store.insertChunk({ root: src.root, path: rel, chunkId: `${sha(rel).slice(0, 8)}:meta`, headingPath: heading, heading, level: 0, parentChunkId: null, docType: dt, body: metaBody, bodyHash: sha(metaText) });
+          stats.chunks++;
+        }
+        for (const row of buildProperties(frontmatter, fmCfg.facetKeys)) store.insertProperty({ root: src.root, path: rel, ...row });
+      }
+      // Mirror docType for EVERY file (facetable regardless of frontmatter presence).
+      store.insertProperty?.({ root: src.root, path: rel, key: "docType", value: dt, valueNum: null, valueDate: null, valueRaw: dt });
+      if (parseFailed) stats.parseFailures = (stats.parseFailures ?? 0) + 1;
       store.setFileState(src.root, rel, { mtimeMs: st.mtimeMs, sha256: hash }); // persist for incremental
       stats.changed++;
       stats.chunks += chunks.length;
