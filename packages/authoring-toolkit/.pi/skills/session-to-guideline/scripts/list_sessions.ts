@@ -9,27 +9,47 @@
  * newest first, with id, time, name, message count, and the first user prompt.
  */
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 
 const HOME = homedir();
 const SESS_ROOT = join(HOME, ".pi", "agent", "sessions");
 
-interface Args { cwd: string; limit: number; all: boolean; }
+interface Args { cwd: string; limit: number; all: boolean; worktrees: boolean; }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { cwd: process.cwd(), limit: 20, all: false };
+  const a: Args = { cwd: process.cwd(), limit: 20, all: false, worktrees: true };
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i];
     if (t === "--cwd") a.cwd = argv[++i];
     else if (t === "--limit") a.limit = parseInt(argv[++i], 10) || a.limit;
     else if (t === "--all") a.all = true;
+    else if (t === "--no-worktrees") a.worktrees = false;
+    else if (t === "--worktrees") a.worktrees = true;
   }
   return a;
 }
 
 const encodeCwd = (cwd: string): string =>
   "-" + cwd.replace(/\/+$/, "").replace(/\//g, "-") + "--";
+
+// Project root + every `.worktrees/*` worktree session dir (root recovered if cwd is a worktree).
+function projectSessionDirs(cwd: string, includeWorktrees: boolean): string[] {
+  const root = cwd.replace(/\/+$/, "").replace(/\/\.worktrees\/[^/]+.*$/, "");
+  const rootEnc = encodeCwd(root);
+  const rootDir = join(SESS_ROOT, rootEnc);
+  if (!includeWorktrees) return [rootDir];
+  const wtMark = rootEnc.slice(0, -2) + "-.worktrees-";
+  const dirs: string[] = [rootDir];
+  if (existsSync(SESS_ROOT)) {
+    for (const sub of readdirSync(SESS_ROOT)) {
+      if (sub === rootEnc || !sub.startsWith(wtMark)) continue;
+      const d = join(SESS_ROOT, sub);
+      try { if (statSync(d).isDirectory()) dirs.push(d); } catch { /* skip */ }
+    }
+  }
+  return dirs;
+}
 
 function listJsonl(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -84,7 +104,7 @@ function main(): void {
       }
     }
   } else {
-    files = listJsonl(join(SESS_ROOT, encodeCwd(args.cwd)));
+    files = projectSessionDirs(args.cwd, args.worktrees).flatMap(listJsonl);
   }
 
   files = files
@@ -105,7 +125,9 @@ function main(): void {
     const sid = basename(f).split("_").slice(1).join("_").replace(".jsonl", "");
     const { name, prompt, msgs } = firstPromptAndName(f);
     const label = name ?? (prompt.slice(0, 70) + (prompt.length > 70 ? "…" : ""));
-    console.log(`${String(i).padStart(2)}  ${when.padEnd(19)}  ${String(msgs).padStart(4)}  ${sid.slice(0, 8)}  ${label}`);
+    const wt = basename(dirname(f)).match(/-\.worktrees-(.+?)--$/);
+    const tag = wt ? `[wt:${wt[1]}] ` : "";
+    console.log(`${String(i).padStart(2)}  ${when.padEnd(19)}  ${String(msgs).padStart(4)}  ${sid.slice(0, 8)}  ${tag}${label}`);
   });
   console.log("\nPick with:  npx tsx scripts/extract_session.ts <id-or-'latest'> --cwd <dir>");
   console.log("  (use 'latest --index N' to pick the Nth-most-recent by the # column)");

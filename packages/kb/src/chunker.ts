@@ -2,6 +2,7 @@
 // Line-based with a fenced-code state machine; validated in the prototype
 // (research §2.5). mdast (unified/remark) is the documented refinement.
 import { createHash } from "node:crypto";
+import { type FmValue, parseFrontmatter } from "./frontmatter.js";
 import type { Chunk, DocType } from "./types.js";
 
 const MIN_CHUNK_CHARS = 100;
@@ -18,29 +19,15 @@ export interface ChunkInput {
 
 export interface ParseResult {
   chunks: Chunk[];
-  frontmatter: Record<string, unknown> | null;
+  frontmatter: Record<string, FmValue> | null;
   wikilinks: string[]; // [[name]] targets found anywhere in the file
   mdLinks: string[]; // [text](path.md) relative targets
-}
-
-function parseFrontmatter(text: string): { body: string; fm: Record<string, unknown> | null } {
-  if (!text.startsWith("---\n")) return { body: text, fm: null };
-  const end = text.indexOf("\n---", 4);
-  if (end === -1) return { body: text, fm: null };
-  const raw = text.slice(4, end);
-  const fm: Record<string, unknown> = {};
-  for (const line of raw.split("\n")) {
-    const m = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (!m) continue;
-    const [, k, v] = m;
-    fm[k] = v.startsWith("[") ? v.replace(/^\[|\]$/g, "").split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean) : v.replace(/^["']|["']$/g, "");
-  }
-  return { body: text.slice(end + 4), fm };
+  parseFailed: boolean; // frontmatter block present but a line did not parse
 }
 
 export function chunkMarkdown(input: ChunkInput): ParseResult {
   const docType: DocType = input.docType ?? "doc";
-  const { body: text, fm } = parseFrontmatter(input.text);
+  const { body: text, fm, parseFailed } = parseFrontmatter(input.text);
   const lines = text.split("\n");
   const fileTitle = input.path.split("/").pop()!.replace(/\.(md|mdx|markdown)$/i, "");
 
@@ -138,5 +125,5 @@ export function chunkMarkdown(input: ChunkInput): ParseResult {
   const wikilinks = [...input.text.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1].trim());
   const mdLinks = [...input.text.matchAll(/\]\(([^)]+\.mdx?)\)/g)].map((m) => m[1].trim());
 
-  return { chunks, frontmatter: fm, wikilinks, mdLinks };
+  return { chunks, frontmatter: fm, wikilinks, mdLinks, parseFailed };
 }
