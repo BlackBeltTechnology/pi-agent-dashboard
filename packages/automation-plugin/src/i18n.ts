@@ -59,6 +59,7 @@ export const catalog = {
     invalidTitle: "{count} 个无效",
     refresh: "刷新",
     new: "+ 新建",
+    automationsUnit: "任务",
     // Badge
     badgeTitleNamed: "自动化运行：{name}",
     badgeTitle: "自动化运行",
@@ -174,6 +175,7 @@ export const catalog = {
     invalidTitle: "{count} érvénytelen",
     refresh: "Frissítés",
     new: "+ Új",
+    automationsUnit: "feladatok",
     // Badge
     badgeTitleNamed: "Automatizálás futása: {name}",
     badgeTitle: "Automatizálás futása",

@@ -91,7 +91,7 @@ export function FolderAutomationSection({
         }
       >
         <span data-testid="folder-automation-count">{automations.length}</span>
-        <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{t("automationsUnit", undefined, "flows")}</span>
+        <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{t("automationsUnit", undefined, "tasks")}</span>
         {invalid > 0 && (
           <span className="text-[10px] font-extrabold text-amber-400" title={t("invalidTitle", { count: invalid }, `${invalid} invalid`)}>
             ⚠ {invalid}
