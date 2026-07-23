@@ -12,7 +12,7 @@ import { indexSource } from "./indexer.js";
 import { kbInit } from "./init.js";
 import { renderHits } from "./render.js";
 import { classifyRef, type ResolvedSource as RResolvedSource, resolveAll } from "./sources.js";
-import { SqliteFtsStore } from "./sqlite-store.js";
+import { SCHEMA_VERSION, SqliteFtsStore } from "./sqlite-store.js";
 import { defaultPromptTrust } from "./trust.js";
 import type { DocType, SearchOpts } from "./types.js";
 
@@ -71,11 +71,19 @@ function openStore(cfg: ResolvedConfig): SqliteFtsStore {
   return store;
 }
 async function runIndex(cfg: ResolvedConfig, store: SqliteFtsStore, sources: RResolvedSource[], force = false) {
+  // Apply the same schema-version / facet-config gate as runIndexAtomic so the
+  // auto-index-on-search path also picks up new structures after an upgrade or a
+  // frontmatter-config change (else the DB stays stale until an explicit `index`).
+  const hash = frontmatterConfigHash(cfg.frontmatter);
+  const stale = (store.getUserVersion?.() ?? 0) < SCHEMA_VERSION || (store.getMeta?.("facetConfigHash") ?? null) !== hash;
+  const eff = force || stale;
   let scanned = 0, changed = 0, deleted = 0, chunks = 0;
   for (const s of sources) {
-    const st = await indexSource(store, { root: s.id, dir: s.dir }, { force, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions, frontmatter: cfg.frontmatter });
+    const st = await indexSource(store, { root: s.id, dir: s.dir }, { force: eff, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions, frontmatter: cfg.frontmatter });
     scanned += st.scanned; changed += st.changed; deleted += st.deleted; chunks += st.chunks;
   }
+  store.setUserVersion?.(SCHEMA_VERSION);
+  store.setMeta?.("facetConfigHash", hash);
   return { scanned, changed, deleted, chunks };
 }
 

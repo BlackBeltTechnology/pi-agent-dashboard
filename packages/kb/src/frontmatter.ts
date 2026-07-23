@@ -156,17 +156,25 @@ export interface PropertyRow {
   valueRaw: string; // original, for display
 }
 
-/** Strict full-match numeric coercion; null when not a clean number. */
+/** Strict full-match numeric coercion; null when not a clean, finite number
+ *  (a very long digit string parses to Infinity — rejected). */
 export function strictNumber(v: FmValue): number | null {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v.trim())) return Number(v.trim());
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v.trim())) {
+    const n = Number(v.trim());
+    return Number.isFinite(n) ? n : null;
+  }
   return null;
 }
 
-/** Strict `YYYY-MM-DD` date; null otherwise (instants deferred — design D3). */
+/** Strict `YYYY-MM-DD` calendar date; null otherwise. Rejects impossible dates
+ *  (e.g. `2024-02-31`) via a UTC round-trip. Instants deferred — design D3. */
 export function strictDate(v: FmValue): string | null {
-  const s = String(v).trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v).trim());
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d ? `${m[1]}-${m[2]}-${m[3]}` : null;
 }
 
 /** Build the searchable meta pieces: title (→ heading) and the rest (→ body).

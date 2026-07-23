@@ -159,16 +159,19 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
         store.addEdge({ src: rel, dst: `tag:${tag}`, rel: "has_tag" });
       }
       // frontmatter structural indexing: synthetic meta chunk + property rows
-      if (frontmatter && store.insertProperty) {
+      if (frontmatter) {
         const fmCfg = opts.frontmatter ?? { searchableKeys: DEFAULT_SEARCHABLE_KEYS, facetKeys: DEFAULT_FACET_KEYS };
         const { title, body: metaBody } = buildMeta(frontmatter, fmCfg.searchableKeys);
         const metaText = [title ?? "", metaBody].join("\n").trim();
         if (metaText) {
+          // Searchable meta needs only insertChunk (required); it must NOT be
+          // gated on the optional insertProperty, or a chunk-capable store would
+          // silently lose title/description search.
           const heading = title ?? (rel.split("/").pop() ?? rel).replace(/\.(md|mdx|markdown)$/i, "");
           store.insertChunk({ root: src.root, path: rel, chunkId: `${sha(rel).slice(0, 8)}:meta`, headingPath: heading, heading, level: 0, parentChunkId: null, docType: dt, body: metaBody, bodyHash: sha(metaText) });
           stats.chunks++;
         }
-        for (const row of buildProperties(frontmatter, fmCfg.facetKeys)) store.insertProperty({ root: src.root, path: rel, ...row });
+        if (store.insertProperty) for (const row of buildProperties(frontmatter, fmCfg.facetKeys)) store.insertProperty({ root: src.root, path: rel, ...row });
       }
       // Mirror docType for EVERY file (facetable regardless of frontmatter presence).
       store.insertProperty?.({ root: src.root, path: rel, key: "docType", value: dt, valueNum: null, valueDate: null, valueRaw: dt });

@@ -107,13 +107,14 @@ export async function runIndexAtomic(opts: RunIndexAtomicOpts): Promise<IndexSta
   }
   let ok = false;
   try {
-    const total: IndexStats = { scanned: 0, changed: 0, deleted: 0, chunks: 0 };
+    const total: IndexStats = { scanned: 0, changed: 0, deleted: 0, chunks: 0, parseFailures: 0 };
     for (const s of sources) {
       const st = await indexSource(store, { root: s.id, dir: s.dir }, effOpts);
       total.scanned += st.scanned;
       total.changed += st.changed;
       total.deleted += st.deleted;
       total.chunks += st.chunks;
+      total.parseFailures = (total.parseFailures ?? 0) + (st.parseFailures ?? 0);
     }
     // Read counts from the still-open store so callers never need a second
     // openStore() connection just to report them (keeps `index` off openStore).

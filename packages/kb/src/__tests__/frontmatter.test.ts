@@ -86,6 +86,15 @@ describe("structural routing (buildMeta / buildProperties / strict typing)", () 
     expect(strictDate("nope")).toBeNull();
   });
 
+  it("E5b: strict typing rejects non-finite numbers and impossible calendar dates", () => {
+    expect(strictNumber("9".repeat(400))).toBeNull(); // parses to Infinity
+    expect(strictNumber(Number.POSITIVE_INFINITY as unknown as number)).toBeNull();
+    expect(strictDate("2024-02-31")).toBeNull(); // impossible day
+    expect(strictDate("2024-13-01")).toBeNull(); // impossible month
+    expect(strictDate("2023-02-29")).toBeNull(); // non-leap-year Feb 29
+    expect(strictDate("2024-02-29")).toBe("2024-02-29"); // leap year ok
+  });
+
   it("E9: within-file array duplicates de-dup to a single property row", () => {
     const rows = buildProperties({ tags: ["x", "x", "X"] }, [{ key: "tags" }]);
     expect(rows).toHaveLength(1);
