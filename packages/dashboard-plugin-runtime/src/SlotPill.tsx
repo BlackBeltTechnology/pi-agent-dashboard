@@ -21,6 +21,23 @@ import type { KeyboardEvent, ReactNode } from "react";
 
 export type SlotAccent = "blue" | "indigo" | "cyan" | "teal" | "purple" | "red";
 
+/**
+ * Body surface variant. `raised` (default) = opaque `--bg-secondary` + shadow,
+ * for sidebar folder cards. `flat` = translucent `color-mix(--bg-surface 50%)`
+ * with NO shadow, matching SessionSubcard so a folder section rendered inside a
+ * session card is visually consistent with its OPENSPEC/GIT/PROCESS siblings.
+ * See change: align-session-card-kb-slot-surface.
+ */
+export type SlotSurface = "raised" | "flat";
+
+// Only the body background + shadow differ between variants; border, radius,
+// hover-border, glyph chip, and the capsule legend are identical. Literal
+// strings so Tailwind JIT-compiles both.
+const SURFACE: Record<SlotSurface, string> = {
+  raised: "bg-[var(--bg-secondary)] shadow-[0_1px_2px_var(--shadow-card)]",
+  flat: "bg-[color-mix(in_srgb,var(--bg-surface)_50%,transparent)]",
+};
+
 // Static accent map — Tailwind cannot JIT-scan a dynamic `text-${accent}-400`,
 // so each accent resolves through a literal class string keyed off the union.
 const ACCENT: Record<SlotAccent, { icon: string; glyphBg: string; hoverBorder: string }> = {
@@ -50,6 +67,8 @@ export interface SlotPillProps {
   activateTestId?: string;
   /** Trailing action button cluster (section-owned; each stops propagation). */
   actions?: ReactNode;
+  /** Body surface variant (default `raised`). See {@link SlotSurface}. */
+  surface?: SlotSurface;
 }
 
 export function SlotPill({
@@ -61,6 +80,7 @@ export function SlotPill({
   activateTitle,
   activateTestId,
   actions,
+  surface = "raised",
 }: SlotPillProps) {
   const tone = ACCENT[accent];
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -78,7 +98,7 @@ export function SlotPill({
       onClick={(e) => { e.stopPropagation(); onActivate?.(); }}
       onKeyDown={onKeyDown}
       title={activateTitle}
-      className={`focus-ring group relative flex items-center gap-2 min-w-0 px-2.5 pt-2.5 pb-1.5 rounded-[11px] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] shadow-[0_1px_2px_var(--shadow-card)] cursor-pointer ${tone.hoverBorder}`}
+      className={`focus-ring group relative flex items-center gap-2 min-w-0 px-2.5 pt-2.5 pb-1.5 rounded-[11px] border border-[var(--border-subtle)] ${SURFACE[surface]} cursor-pointer ${tone.hoverBorder}`}
     >
       {/* Label as a capsule overhanging the top border — fieldset-legend style
           (matches SessionSubcard's titled panel). Centered on the full pill

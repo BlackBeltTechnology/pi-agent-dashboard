@@ -18,7 +18,7 @@
  */
 
 import { SlotPill, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
+import type { FolderDescriptor, SlotPlacement } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { mdiDatabaseOutline, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
@@ -39,7 +39,7 @@ export function deriveKbRowState(stats: KbStats | null): RowState | "loading" {
   return "populated";
 }
 
-export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React.ReactElement | null {
+export function FolderKbSection({ folder, placement = "sidebar" }: { folder: FolderDescriptor; placement?: SlotPlacement }): React.ReactElement | null {
   const t = useT();
   const cwd = folder?.cwd;
   const [, navigate] = useLocation();
@@ -117,6 +117,7 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
       onClick={(e) => e.stopPropagation()}
     >
       <SlotPill
+        surface={placement === "card" ? "flat" : "raised"}
         glyph={mdiDatabaseOutline}
         accent={state === "error" ? "red" : "cyan"}
         label={t("labelKbShort", undefined, "Knowledge base")}
