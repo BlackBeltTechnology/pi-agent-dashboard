@@ -919,6 +919,16 @@ describe("memory-event-store", () => {
       expect(m).toBeLessThanOrEqual(actual + 4);
       // A 5 MB field short-circuits to the cap+1 over-ceiling sentinel.
       expect(measureBytes({ big: "A".repeat(5_000_000) }, 1_000)).toBe(1_001);
+      // Lone surrogates escape to \uXXXX (6 bytes) — must never be undercounted.
+      for (const s of ["\ud800".repeat(50), "\udc00".repeat(50), `${"\ud800".repeat(50)}x`]) {
+        const m = measureBytes({ s }, 100_000);
+        expect(m).toBeGreaterThanOrEqual(Buffer.byteLength(JSON.stringify({ s })));
+      }
+      // A valid surrogate pair is still one 4-byte sequence, not two escapes.
+      const pair = { s: "\ud800\udc00".repeat(50) };
+      expect(measureBytes(pair, 100_000)).toBeGreaterThanOrEqual(
+        Buffer.byteLength(JSON.stringify(pair)),
+      );
     });
   });
 });

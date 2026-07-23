@@ -255,9 +255,19 @@ function jsonStringByteSize(s: string): number {
       n += 1;
     } else if (c < 0x800) {
       n += 2;
-    } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
-      n += 4; // surrogate pair → one 4-byte UTF-8 sequence
-      i++;
+    } else if (c >= 0xd800 && c <= 0xdbff) {
+      // High surrogate: a valid pair (one 4-byte UTF-8 sequence) ONLY when a low
+      // surrogate follows; otherwise ES2019+ JSON.stringify escapes the lone
+      // surrogate as \uXXXX (6 bytes) — count 6 so we never undercount.
+      const next = i + 1 < s.length ? s.charCodeAt(i + 1) : 0;
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        n += 4;
+        i++;
+      } else {
+        n += 6;
+      }
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      n += 6; // lone low surrogate → \uXXXX
     } else {
       n += 3;
     }
