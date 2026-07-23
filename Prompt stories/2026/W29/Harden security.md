@@ -1,3 +1,15 @@
+---
+session: 019f6886
+week: 2026/W29
+type: planning
+model: "@research"
+premium: true
+premium_reason: "created 0 skill(s) / 1 memory(ies); heavy steering (8 user prompts); large facts sheet (~13077 tok)"
+upgrade_status: done
+openspec_changes: [security-boundary-audit, add-universal-network-guard, sanitize-untrusted-rendered-content, fix-git-checkout-command-injection, harden-electron-renderer-boundary, harden-server-capability-bounds]
+proposal_excerpt: "The `security-hardening` discipline skill (STRIDE + OWASP + LLM Top-10) landed *after* most of the dashboard was built. The codebase was never swept against it as a whole. This change is an **audit**, not a feature: e…"
+---
+
 # How we did it: Harden Security — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was

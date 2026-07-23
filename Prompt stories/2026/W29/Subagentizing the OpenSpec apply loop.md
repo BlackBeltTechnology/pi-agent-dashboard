@@ -1,3 +1,13 @@
+---
+session: 019f6d24
+week: 2026/W29
+type: development
+model: "@research"
+premium: true
+premium_reason: "created 0 skill(s) / 8 memory(ies); heavy steering (21 user prompts); large facts sheet (~16885 tok)"
+upgrade_status: done
+---
+
 # How we did it: subagentizing the OpenSpec apply loop (and splitting code review two ways) — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was

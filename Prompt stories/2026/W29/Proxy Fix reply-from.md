@@ -1,3 +1,13 @@
+---
+session: 019f6b35
+week: 2026/W29
+type: development
+model: "@research"
+premium: false
+premium_reason: ""
+upgrade_status: n/a
+---
+
 # How we did it: Surgical regression fix for fastify reply-from — an AI collaboration guideline
 
 > A reusable playbook from a real pi session. Explains how to diagnose and fix a

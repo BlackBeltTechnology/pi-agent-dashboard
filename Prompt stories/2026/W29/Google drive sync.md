@@ -1,3 +1,15 @@
+---
+session: 019f688e
+week: 2026/W29
+type: planning
+model: "@research"
+premium: true
+premium_reason: "heavy steering (13 user prompts)"
+upgrade_status: done
+openspec_changes: [add-cloud-sync-connector, add-connector-layer]
+proposal_excerpt: "An LLM works best editing real files in a local folder. But the source-of-truth documents often live in a cloud file service (Google Drive, Dropbox, OneDrive/ SharePoint). Today there is no way to: mark a local direct…"
+---
+
 # How we did it: Designing a bidirectional cloud-sync connector — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was

@@ -1,3 +1,15 @@
+---
+session: 019f686b
+week: 2026/W29
+type: planning
+model: "@research"
+premium: true
+premium_reason: "heavy steering (9 user prompts)"
+upgrade_status: done
+openspec_changes: [bundle-python-runtime]
+proposal_excerpt: "Agent tool calls (and the bash tool calls they issue) increasingly need a working Python interpreter with runtime `pip install` capability, but the host machine's Python is absent, ancient, or unpredictable across all…"
+---
+
 # How we did it: Bundling an embedded Python runtime — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was

@@ -1,3 +1,15 @@
+---
+session: 019f6d5e
+week: 2026/W29
+type: planning
+model: "@research"
+premium: true
+premium_reason: "heavy steering (7 user prompts)"
+upgrade_status: done
+openspec_changes: [distill-hermes-memory-into-skills, distill-session-knowledge, inject-session-context-into-agent, memory-retrieval-injection, add-automatic-session-kb-index]
+proposal_excerpt: "The Hermes memory store (`~/.pi/agent/pi-hermes-memory/sessions.db`, `memories` table — ~279 rows today: ~258 `memory`, 14 `failure`, 7 `user`) consolidates into a ~50-line MD block that either injects wholesale or no…"
+---
+
 # How we did it: Integrate Hermes Memory into Skills — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains how to audit

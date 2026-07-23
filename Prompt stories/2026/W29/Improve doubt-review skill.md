@@ -1,3 +1,13 @@
+---
+session: 019f6d18
+week: 2026/W29
+type: documentation
+model: "@research"
+premium: false
+premium_reason: ""
+upgrade_status: n/a
+---
+
 # How we did it: Auto-run cross-model review in doubt-driven-review — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was asked, how it was built with the AI, what had to be steered, and how to reproduce the result faster next time.** Write for a future operator who has the same goal.

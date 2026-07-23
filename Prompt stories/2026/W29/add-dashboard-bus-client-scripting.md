@@ -1,3 +1,15 @@
+---
+session: 019f6c7a
+week: 2026/W29
+type: other
+model: "@research"
+premium: false
+premium_reason: ""
+upgrade_status: n/a
+openspec_changes: [add-dashboard-bus-client-scripting]
+proposal_excerpt: "The dashboard is fully driveable over HTTP — ~153 REST paths — and the bundled `pi-dashboard` skill teaches an LLM to control it by hand-writing `curl` against those paths. Two structural facts make the WebSocket bus…"
+---
+
 # How we did it: Clean up a stray OpenSpec duplicate — an AI collaboration guideline
 
 > A reusable playbook reconstructed from session `019f6c7a`. It explains how to

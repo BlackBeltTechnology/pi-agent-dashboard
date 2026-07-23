@@ -1,3 +1,15 @@
+---
+session: 019f6c93
+week: 2026/W29
+type: planning
+model: "@research"
+premium: true
+premium_reason: "heavy steering (5 user prompts)"
+upgrade_status: done
+openspec_changes: [non-disruptive-file-open, redesign-split-layout-controls, auto-canvas, editor-layout-modes]
+proposal_excerpt: "Opening a file is currently **disruptive** in two ways that fight the user:"
+---
+
 # How we did it: Non-disruptive file-open — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was

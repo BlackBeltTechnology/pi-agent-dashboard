@@ -1,3 +1,15 @@
+---
+session: 019f6810
+week: 2026/W29
+type: planning
+model: "@research"
+premium: true
+premium_reason: "created 0 skill(s) / 3 memory(ies); heavy steering (7 user prompts)"
+upgrade_status: done
+openspec_changes: [close-initialize-handoff-via-bus, distinguish-initialize-actions, add-automatic-session-kb-index, SHELVED-close-initialize-handoff-via-bus]
+proposal_excerpt: "`project-init` scaffolds a bare directory into a configured pi project: it writes `AGENTS.md`, `.pi/settings.json` (with a `worktreeInit` hook), prompts, and optionally seeds DOX / runs `openspec init`. When it finish…"
+---
+
 # How we did it: Multi-model proposal review — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was asked, how

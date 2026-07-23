@@ -1,3 +1,13 @@
+---
+session: 019f6d97
+week: 2026/W29
+type: other
+model: "@research"
+premium: true
+premium_reason: "created 0 skill(s) / 2 memory(ies)"
+upgrade_status: done
+---
+
 # How we did it: Upgrade the OpenSpec CLI (1.4.1 → 1.6.0) safely — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was

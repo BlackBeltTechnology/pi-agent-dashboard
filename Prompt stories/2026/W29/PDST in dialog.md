@@ -1,3 +1,15 @@
+---
+session: 019f6a01
+week: 2026/W29
+type: planning
+model: "@research"
+premium: false
+premium_reason: ""
+upgrade_status: n/a
+openspec_changes: [openspec-artifact-dialog-desktop]
+proposal_excerpt: "Clicking an OpenSpec artifact badge (**P**roposal / **D**esign / **S**pecs / **T**asks) today navigates to a URL-driven full-page overlay route (`overlay-url-routing`, `fix-openspec-artifact-tab-url-sync`). The full-p…"
+---
+
 # How we did it: Planning P/D/S/T artifact badges in a modal dialog — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was asked,

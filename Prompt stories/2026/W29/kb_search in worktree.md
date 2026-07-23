@@ -1,3 +1,13 @@
+---
+session: 019f6d89
+week: 2026/W29
+type: documentation
+model: "@research"
+premium: false
+premium_reason: ""
+upgrade_status: n/a
+---
+
 # How we did it: Reframe the docs-first gate for task executors — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was

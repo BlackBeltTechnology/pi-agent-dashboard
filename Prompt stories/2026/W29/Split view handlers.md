@@ -1,3 +1,15 @@
+---
+session: 019f6c8e
+week: 2026/W29
+type: development
+model: "@research"
+premium: true
+premium_reason: "heavy steering (9 user prompts); large facts sheet (~10270 tok)"
+upgrade_status: done
+openspec_changes: [redesign-split-layout-controls, accordion-workspace-folders, add-automatic-session-kb-index]
+proposal_excerpt: "The `split` workspace ships collapse controls that confuse users and break at narrow widths:"
+---
+
 # How we did it: Redesigning the split-view layout controls — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was

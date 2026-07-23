@@ -1,3 +1,15 @@
+---
+session: 019f6cdb
+week: 2026/W29
+type: planning
+model: "@research"
+premium: false
+premium_reason: ""
+upgrade_status: n/a
+openspec_changes: [enable-workspace-folder-home-page, add-directory-home-page]
+proposal_excerpt: "The directory home page (`/folder/:encodedCwd` → `DirectoryHomeView`) already exists, but workspace-owned folders cannot reach it. Two gates from the archived `add-directory-home-page` change block them:"
+---
+
 # How we did it: Directory view on directory-card select — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was

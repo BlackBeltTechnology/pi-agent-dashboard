@@ -1,3 +1,13 @@
+---
+session: 019f6dcb
+week: 2026/W29
+type: documentation
+model: "@research"
+premium: true
+premium_reason: "heavy steering (7 user prompts)"
+upgrade_status: done
+---
+
 # How we did it: Mining hermes memory into FAQ — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was

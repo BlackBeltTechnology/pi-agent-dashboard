@@ -35,13 +35,22 @@ Two layers:
 `~/.pi/agent/sessions/--<cwd-with-slashes-as-dashes>--/<timestamp>_<uuid>.jsonl`
 (JSONL tree; see the pi `session-format` docs). The scripts locate files for you.
 
+**Worktrees are included by default.** A project's OpenSpec work runs in `.worktrees/<name>`
+sub-checkouts, which get their own encoded session dir (`--<project>-.worktrees-<name>--`).
+Both scripts resolve a `--cwd` to the project root + every `.worktrees/*` worktree, so
+project-scoped listing/`latest` covers worktree sessions too (rows tagged `[wt:<name>]`).
+Pass `--no-worktrees` for the old root-only behavior. Running from *inside* a worktree still
+lists the whole project (the root is recovered by stripping `/.worktrees/<name>`).
+
 ## Procedure
 
 1. **Pick the session.** If the user didn't name one, list candidates:
    ```bash
-   npx tsx scripts/list_sessions.ts --cwd "$(pwd)" --limit 20      # this project
+   npx tsx scripts/list_sessions.ts --cwd "$(pwd)" --limit 20      # this project + its worktrees
+   npx tsx scripts/list_sessions.ts --cwd "$(pwd)" --no-worktrees  # project root only
    npx tsx scripts/list_sessions.ts --all --limit 30               # every project
    ```
+   Worktree rows are tagged `[wt:<name>]` so you can tell root work from worktree work.
    (`tsx` runs the `.ts` directly, no build step.)
    Show the table and confirm which one (by 8-char id or # index). The *current* live
    session is usually #0/`latest`; documenting a finished prior session gives a complete
@@ -75,14 +84,66 @@ Two layers:
    - Rewrite weak prompts into the stronger version the reader should use.
    - Quote sparingly; summarize tool activity into phases.
 
-5. **Write the deliverable.** Default location, unless the user says otherwise:
+5. **Write the deliverable** into the **weekly** folder. The bucket is the
+   `ISO week bucket` line from the facts sheet Metadata (`YYYY/Www`, ISO-8601 week of the
+   session start). Default location, unless the user says otherwise:
    ```
-   <cwd>/Prompt stories/<Topic>.md
+   <cwd>/Prompt stories/<YYYY>/W<WW>/<Topic>.md   # e.g. Prompt stories/2026/W30/Hermes memory pressure.md
    ```
-   (Do NOT write it inside a skill folder.) Name the file after the session name/topic.
-   When the write-up references images (storyboards, screenshots), link them with paths
-   relative to `Prompt stories/` (e.g. `../Projektek/<Project>/.../shot_01.png`) and verify
-   each resolves. Tell the user the path.
+   `mkdir -p` the week folder first. (Do NOT write it inside a skill folder.) Name the file
+   after the session name/topic. **Begin the file with the YAML frontmatter block** (see
+   `references/guideline-template.md`), filled from the facts sheet:
+   ```yaml
+   ---
+   session: <8-char id>
+   week: <YYYY/Www>
+   type: <development|planning|research|documentation|other>   # copy "Session type" verbatim
+   model: "@fast"           # ALWAYS quote — an @-prefixed role is INVALID YAML unquoted
+   premium: <true|false>          # copy the "Premium candidate" flag verbatim
+   premium_reason: "<reasons from the flag, or empty>"
+   upgrade_status: <pending|done|n/a>
+   # --- the next two ONLY when the facts sheet has an "OpenSpec changes" line ---
+   openspec_changes: [<change-name>, ...]
+   proposal_excerpt: "<the facts sheet 'Proposal excerpt' line, or omit if none>"
+   ---
+   ```
+   - **`model`** MUST be quoted (`"@fast"`, `"@research"`): a YAML plain scalar cannot start
+     with `@` (reserved indicator) — unquoted `model: @fast` makes the whole frontmatter
+     invalid. It is the model that generated THIS story. A subagent **cannot observe its own
+     runtime model**, so when spawning `SessionGuideline` the parent MUST state it in the
+     prompt (e.g. `generated-by: @fast`) and the subagent writes that verbatim. Getting this
+     wrong mis-routes the upgrade queue (a budget story stamped `@research` never gets
+     re-run). Inline (non-subagent) runs: use the model you are actually running as.
+   - **`type`** is classified deterministically by the extractor (`Session type` line:
+     code files → development, proposal/design/spec files → planning, research docs / many
+     searches + no code → research, docs → documentation, else other). Copy it; only override
+     if the narrative *clearly* contradicts the signal.
+   - **`openspec_changes` / `proposal_excerpt`** appear **only when a proposal is attached**
+     to the session (the extractor found `openspec/changes/<name>/` in the session's
+     files/commands and prints an `OpenSpec changes` line). Omit both fields entirely when
+     that line is absent — do not invent a proposal link.
+   When the write-up references images (storyboards, screenshots), link them relative to the
+   story file — from a week folder that is `../../Projektek/<Project>/.../shot_01.png` — and
+   verify each resolves. Tell the user the path.
+
+6. **Mark premium stories for later Opus upgrade.** Premium is decided **deterministically**
+   by the extractor — the facts sheet's `Premium candidate` flag is `yes` when the session
+   created a skill/memory, OR had ≥5 user prompts, OR produced a facts sheet ≥ ~10K tokens.
+   You do NOT judge it; you transcribe it. Set `upgrade_status`:
+   - `pending` — `premium: true` AND a **budget** model wrote this story (`@fast`/`@compact`);
+     it is a candidate for an Opus re-run.
+   - `done` — `@research`/Opus wrote it (already premium quality).
+   - `n/a` — `premium: false`.
+
+   When `upgrade_status: pending`, append one row to the queue index
+   `<cwd>/Prompt stories/_premium-queue.md` (create with the header if missing):
+   ```
+   | week | story | model | reason | status |
+   |------|-------|-------|--------|--------|
+   | 2026/W30 | 2026/W30/<Topic>.md | @fast | heavy steering (7 prompts) | pending |
+   ```
+   A later upgrade pass re-runs each `pending` story on `@research`/Opus, overwrites the
+   file, and flips both its `upgrade_status` and the queue row to `done`.
 
 ## Batch / past-session application (via the `SessionGuideline` subagent)
 
@@ -101,9 +162,19 @@ context and sessions don't accumulate there:
    a parent file on forked sessions) + an explicit output path. Each spawn runs BOTH layers
    in isolation (extract → synthesise) and returns only the written path + a short abstract:
    ```
-   Agent(subagent_type="SessionGuideline",
-         prompt="session JSONL <abs-path>; cwd <dir>; write to Prompt stories/<Topic>.md")
+   Agent(subagent_type="SessionGuideline", model="@fast",
+         prompt="session JSONL <abs-path>; cwd <dir>; generated-by: @fast; write to the weekly
+                 folder Prompt stories/<YYYY>/W<WW>/<Topic>.md (bucket from the facts sheet's
+                 ISO week line); add frontmatter; if premium+budget-model, queue it")
    ```
+   **Pass the model twice:** the `Agent(model=…)` param sets the runtime model, and
+   `generated-by: <same model>` in the prompt tells the subagent what to write into
+   `model:` (it cannot introspect its own model). Keep them identical.
+   ```
+   ```
+   For **bulk backfill on `@fast`**, each spawn writes into its week folder and self-marks
+   premium candidates (`upgrade_status: pending`) into `_premium-queue.md` — a later Opus
+   pass drains that queue. See steps 5–6.
 3. Collect the returned paths. Parallel batches are safe ONLY because step 2 uses a
    `mktemp` facts sheet per run — the old fixed `/tmp/session_facts.md` raced (concurrent
    spawns overwrote it, so every playbook got the same sheet). Verify no two outputs share
@@ -121,7 +192,8 @@ override per run.
 
 | Goal | Command |
 |------|---------|
-| Latest session in this project | `npx tsx scripts/extract_session.ts latest --cwd "$(pwd)"` |
+| Latest session in this project (+ worktrees) | `npx tsx scripts/extract_session.ts latest --cwd "$(pwd)"` |
+| Latest, project root only (no worktrees) | `npx tsx scripts/extract_session.ts latest --cwd "$(pwd)" --no-worktrees` |
 | 2nd-most-recent | `npx tsx scripts/extract_session.ts latest --cwd "$(pwd)" --index 1` |
 | A specific session by id | `npx tsx scripts/extract_session.ts 019ea8a9` |
 | A session in another project | `npx tsx scripts/extract_session.ts latest --cwd /path/to/other` |

@@ -1,3 +1,15 @@
+---
+session: 019f683c
+week: 2026/W29
+type: development
+model: "@research"
+premium: true
+premium_reason: "heavy steering (13 user prompts); large facts sheet (~13373 tok)"
+upgrade_status: done
+openspec_changes: [steer-agents-to-kb-tools, fix-kb-neighbors-get-cold-start, add-supervised-tool-approval]
+proposal_excerpt: "Agents underuse the `kb_*` tools despite an explicit \"Docs-First Gate\" in `AGENTS.md`. Measured over the last 20 main-repo sessions (1,079 tool calls):"
+---
+
 # How we did it: Improve KB usage — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was
