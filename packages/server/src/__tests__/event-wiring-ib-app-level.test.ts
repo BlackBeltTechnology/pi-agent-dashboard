@@ -62,6 +62,26 @@ function sendIbEvent(
   }));
 }
 
+function costPayload(final: boolean): Record<string, unknown> {
+  return {
+    invoice_id: "inv-cost-1",
+    currency: "USD",
+    total: 0.000321,
+    tokens: { input: 101, output: 17 },
+    perStep: [{
+      stepId: "extract",
+      agent: "ib-extractor",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      tokensIn: 101,
+      tokensOut: 17,
+      cost: 0.000321,
+    }],
+    updatedAt: "2026-07-23T12:00:00.000Z",
+    final,
+  };
+}
+
 describe("event-wiring: app-level ib_* domain-event rebroadcast", () => {
   let server: DashboardServer;
   let piPort: number;
@@ -106,6 +126,46 @@ describe("event-wiring: app-level ib_* domain-event rebroadcast", () => {
 
     session.close();
     browser.close();
+  });
+
+  it("rebroadcasts full cost accrual and freeze payloads without rounding", async () => {
+    const session = await connectSession(piPort, "ib-cost");
+    const unsubscribed = await connectBrowser(browserPort);
+    const subscribed = await connectBrowser(browserPort);
+    subscribed.ws.send(JSON.stringify({ type: "subscribe", sessionId: "ib-cost" }));
+    await wait(100);
+
+    const accrual = costPayload(false);
+    sendIbEvent(session, "ib-cost", "ib_invoice_cost_updated", accrual);
+    await wait(120);
+
+    const unsubscribedApp = unsubscribed.messages.filter((m) => m.type === "ib_domain_event");
+    expect(unsubscribedApp).toHaveLength(1);
+    expect(unsubscribedApp[0]).toEqual({
+      type: "ib_domain_event",
+      sessionId: "ib-cost",
+      event: { eventType: "ib_invoice_cost_updated", data: accrual },
+    });
+
+    const subscribedPerSession = subscribed.messages.filter(
+      (m) => m.type === "event" && m.sessionId === "ib-cost" &&
+        (m.event as Record<string, unknown>)?.eventType === "ib_invoice_cost_updated",
+    );
+    expect(subscribedPerSession).toHaveLength(1);
+    expect((subscribedPerSession[0].event as Record<string, unknown>).data).toEqual(accrual);
+    expect(subscribed.messages.filter((m) => m.type === "ib_domain_event")).toHaveLength(1);
+
+    const freeze = costPayload(true);
+    sendIbEvent(session, "ib-cost", "ib_invoice_cost_updated", freeze);
+    await wait(120);
+
+    const unsubscribedFrames = unsubscribed.messages.filter((m) => m.type === "ib_domain_event");
+    expect(unsubscribedFrames).toHaveLength(2);
+    expect((unsubscribedFrames[1].event as Record<string, unknown>).data).toEqual(freeze);
+
+    session.close();
+    unsubscribed.ws.close();
+    subscribed.ws.close();
   });
 
   // 4.2 — per-session stream still delivers to that session's subscribers (additive).

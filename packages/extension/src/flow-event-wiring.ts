@@ -49,6 +49,7 @@ export const SUBAGENT_EVENT_MAP: Record<string, string> = {
  *  See change: surface-invoice-domain-events-bridge. */
 export const IB_EVENT_MAP: Record<string, string> = {
   "ib:invoice-state-changed": "ib_invoice_state_changed",
+  "ib:invoice-cost-updated": "ib_invoice_cost_updated",
   "ib:approval-requested": "ib_approval_requested",
   "ib:approval-decided": "ib_approval_decided",
   "ib:connector-registered": "ib_connector_registered",

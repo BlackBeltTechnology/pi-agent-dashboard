@@ -40,6 +40,7 @@ function emitIntercept(
 /** The full lifecycle set this change adds coverage for. */
 const LIFECYCLE = [
   ["ib:invoice-state-changed", "ib_invoice_state_changed"],
+  ["ib:invoice-cost-updated", "ib_invoice_cost_updated"],
   ["ib:approval-requested", "ib_approval_requested"],
   ["ib:approval-decided", "ib_approval_decided"],
   ["ib:connector-registered", "ib_connector_registered"],
@@ -70,6 +71,60 @@ describe("surface-invoice-domain-events-bridge", () => {
     );
     // payload preserved verbatim (same reference contents)
     expect(send.mock.calls[0][0].event.data).toEqual(payload);
+  });
+
+  it("forwards the full cost payload without rounding or reshaping", () => {
+    const send = vi.fn();
+    const payload = {
+      invoice_id: "inv-cost-1",
+      currency: "USD",
+      total: 0.000321,
+      tokens: { input: 101, output: 17 },
+      perStep: [{
+        stepId: "extract",
+        agent: "ib-extractor",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        tokensIn: 101,
+        tokensOut: 17,
+        cost: 0.000321,
+      }],
+      updatedAt: "2026-07-23T12:00:00.000Z",
+      final: false,
+    };
+
+    emitIntercept(send, { sessionReady: true, active: true }, "ib:invoice-cost-updated", payload);
+
+    expect(send).toHaveBeenCalledWith({
+      type: "event_forward",
+      sessionId: "sess-1",
+      event: { eventType: "ib_invoice_cost_updated", timestamp: 0, data: payload },
+    });
+    expect(send.mock.calls[0][0].event.data).toEqual(payload);
+
+    const terminalPayload = { ...payload, final: true };
+    emitIntercept(send, { sessionReady: true, active: true }, "ib:invoice-cost-updated", terminalPayload);
+    expect(send.mock.calls[1][0].event.data).toEqual(terminalPayload);
+  });
+
+  it("preserves a cost step whose model is absent", () => {
+    const send = vi.fn();
+    const step = { stepId: "classify", tokensIn: 8, tokensOut: 2, cost: 0.000019 };
+    const payload = {
+      invoice_id: "inv-cost-2",
+      currency: "USD",
+      total: step.cost,
+      tokens: { input: step.tokensIn, output: step.tokensOut },
+      perStep: [step],
+      updatedAt: "2026-07-23T12:01:00.000Z",
+      final: false,
+    };
+
+    emitIntercept(send, { sessionReady: true, active: true }, "ib:invoice-cost-updated", payload);
+
+    const forwarded = send.mock.calls[0][0].event.data;
+    expect(forwarded).toEqual(payload);
+    expect(forwarded.perStep[0]).not.toHaveProperty("model");
   });
 
   // 2.2

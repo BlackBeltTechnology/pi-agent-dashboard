@@ -1,8 +1,5 @@
-# invoicebot-event-bridge Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-inline-consent-ui. Update Purpose after archive.
-## Requirements
 ### Requirement: Invoicebot domain events reach the browser with stable names
 
 InvoiceBot domain events (`ib:*`) emitted on the session event bus SHALL be
@@ -89,14 +86,3 @@ the map SHALL still pass through under its raw name (unchanged behaviour).
 
 - **WHEN** an `ib:*` event fires before the session is ready
 - **THEN** the bridge SHALL NOT forward the event
-
-### Requirement: Flow events preserve the flow discriminator
-
-Forwarded flow lifecycle events SHALL preserve the `flowName` discriminator so a
-consumer can distinguish one flow's run from another.
-
-#### Scenario: flow_started carries flowName
-
-- **WHEN** a `flow_started` protocol event is forwarded to the browser
-- **THEN** it SHALL carry `data.flowName` identifying which flow started
-
