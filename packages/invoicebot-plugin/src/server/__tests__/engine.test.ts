@@ -205,3 +205,10 @@ describe("FakeInvoiceEngine — ingest", () => {
     expect(r).toMatchObject({ landed: 0, skipped: 0, rejected: 1 });
   });
 });
+
+describe("FakeInvoiceEngine — ensureAutomation (no-op)", () => {
+  it("returns { automation: [] } and does not throw for any cwd", async () => {
+    const fake = new FakeInvoiceEngine();
+    await expect(fake.ensureAutomation(CWD)).resolves.toEqual({ automation: [] });
+  });
+});

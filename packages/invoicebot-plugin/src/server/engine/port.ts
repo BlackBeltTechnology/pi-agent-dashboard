@@ -67,6 +67,14 @@ export interface InvoiceEngine {
    * Returns a per-file outcome + aggregate counts; dispatches no flow.
    */
   ingest(cwd: string, files: IngestFile[]): Promise<IngestResult>;
+  /**
+   * Ensure the disabled `invoicebot-intake` drain automation exists for `cwd`.
+   * Idempotent + non-fatal; writes no flow, emits no events. Returns the
+   * absolute paths written (or the `"<name> (exists)"` marker). Called on first
+   * touch of a workspace so an upload-only workspace has a drain to enable.
+   * See change: ensure-intake-automation.
+   */
+  ensureAutomation(cwd: string): Promise<{ automation: string[] }>;
 }
 
 /** A tag every binding sets so plugin load can log which engine is active. */

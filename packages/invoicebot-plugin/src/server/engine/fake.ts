@@ -276,6 +276,12 @@ export class FakeInvoiceEngine implements InvoiceEngine {
     };
   }
 
+  // No-op: the Fake owns no filesystem. Keeps the faux gate + engine-less
+  // CI/worktree green while the routes exercise the ensure seam.
+  async ensureAutomation(_cwd: string): Promise<{ automation: string[] }> {
+    return { automation: [] };
+  }
+
   private classify(file: IngestFile): { filename: string; hash: string; status: "landed" | "skipped" | "rejected"; reason?: string } {
     const hash = createHash("sha256").update(file.bytes).digest("hex").slice(0, 16);
     const base = { filename: file.filename, hash };

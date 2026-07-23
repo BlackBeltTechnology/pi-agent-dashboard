@@ -13,7 +13,9 @@ import { mountInvoiceBotRoutes } from "../routes.js";
 
 const noop = async (): Promise<EngineResult> => ({ content: [{ type: "text", text: "" }], details: {} });
 const noIngest = async () => ({ results: [], landed: 0, skipped: 0, rejected: 0 });
-const engine: InvoiceEngine = { query: noop, review: noop, setup: noop, rules: noop, ingest: noIngest };
+const ensureCalls: string[] = [];
+const ensureAutomation = async (c: string) => { ensureCalls.push(c); return { automation: [] }; };
+const engine: InvoiceEngine = { query: noop, review: noop, setup: noop, rules: noop, ingest: noIngest, ensureAutomation };
 
 let app: FastifyInstance;
 let cwd: string;
@@ -22,6 +24,7 @@ let blobsDir: string;
 const PDF_BYTES = "%PDF-1.4\n".padEnd(300, "x");
 
 beforeEach(async () => {
+  ensureCalls.length = 0;
   app = Fastify();
   mountInvoiceBotRoutes(app, { engine, dispatchFlow: async () => undefined });
   await app.ready();
@@ -43,6 +46,14 @@ function get(handle: string, headers: Record<string, string> = {}, c: string = c
   const url = `/api/plugins/invoicebot/blob?cwd=${encodeURIComponent(c)}&handle=${encodeURIComponent(handle)}`;
   return app.inject({ method: "GET", url, headers });
 }
+
+describe("blob route — excluded from ensure-intake-automation", () => {
+  it("a blob GET does NOT invoke ensureAutomation", async () => {
+    const res = await get("h_invoice.pdf");
+    expect(res.statusCode).toBe(200);
+    expect(ensureCalls).toHaveLength(0);
+  });
+});
 
 describe("blob route — content types + headers (3.1)", () => {
   it("serves a PDF inline with nosniff + Accept-Ranges", async () => {

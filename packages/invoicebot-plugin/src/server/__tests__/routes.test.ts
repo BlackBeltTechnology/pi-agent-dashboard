@@ -31,12 +31,16 @@ function makeRecorder() {
     calls.push({ method: "ingest", cwd, args: files });
     return { results: [], landed: 0, skipped: 0, rejected: 0 };
   };
-  const engine: InvoiceEngine = { query: mk("query"), review: mk("review"), setup: mk("setup"), rules: mk("rules"), ingest };
-  return { engine, calls };
+  // Recorded separately so the strict `calls` assertions above stay unaffected.
+  const ensureCalls: string[] = [];
+  const ensureAutomation = async (cwd: string) => { ensureCalls.push(cwd); return { automation: [] }; };
+  const engine: InvoiceEngine = { query: mk("query"), review: mk("review"), setup: mk("setup"), rules: mk("rules"), ingest, ensureAutomation };
+  return { engine, calls, ensureCalls };
 }
 
 let app: FastifyInstance;
 let calls: { method: string; cwd: string; args: any }[];
+let ensureCalls: string[];
 let dispatchCalls: { cwd: string; flow: FlowRunSpec; sessionId?: string; invoiceId?: string }[];
 let cwdA: string;
 let cwdB: string;
@@ -44,6 +48,7 @@ let cwdB: string;
 beforeEach(async () => {
   const rec = makeRecorder();
   calls = rec.calls;
+  ensureCalls = rec.ensureCalls;
   dispatchCalls = [];
   app = Fastify();
   mountInvoiceBotRoutes(app, {
@@ -96,6 +101,24 @@ describe("cwd + selector validation", () => {
     const { status } = await post("review", { cwd: cwdA });
     expect(status).toBe(400);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("ensure-intake-automation on first touch", () => {
+  it.each([
+    ["query", { view: "pending" }],
+    ["review", { action: "note", target_kind: "invoice", target_id: "x", author: "a", text: "t" }],
+    ["setup", { action: "cadence", which: "process", cron: "* * * * *" }],
+    ["rules", { action: "approve", id: "r1" }],
+  ])("%s ensures the intake scaffold with the request cwd", async (path, extra) => {
+    await post(path, { cwd: cwdA, ...extra });
+    expect(ensureCalls).toEqual([cwdA]);
+  });
+
+  it("invalid cwd → 400 and does NOT ensure", async () => {
+    const { status } = await post("query", { view: "pending" });
+    expect(status).toBe(400);
+    expect(ensureCalls).toHaveLength(0);
   });
 });
 

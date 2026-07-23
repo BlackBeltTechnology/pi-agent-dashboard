@@ -29,6 +29,7 @@ describe("RealInvoiceEngine — pass-through", () => {
       setup: async () => facadeResult,
       rules: async () => facadeResult,
       ingest: async () => ({ results: [], landed: 0, skipped: 0, rejected: 0 }),
+      ensureIntakeAutomation: async () => ({ automation: [] }),
     };
     const engine = new RealInvoiceEngine(facade);
 
@@ -38,5 +39,23 @@ describe("RealInvoiceEngine — pass-through", () => {
     expect((r.details as any).summary).toMatchObject({ net: 15000, vat: 4050 });
     expect((r.details as any).items[0].cost).toEqual({ total: 0.42, currency: "USD" });
     expect((r.details as any).items[1]).not.toHaveProperty("cost");
+  });
+
+  it("ensureAutomation delegates to the facade's ensureIntakeAutomation(cwd)", async () => {
+    const seen: string[] = [];
+    const facade = {
+      query: async () => ({ content: [], details: {} }) as EngineResult,
+      review: async () => ({ content: [], details: {} }) as EngineResult,
+      setup: async () => ({ content: [], details: {} }) as EngineResult,
+      rules: async () => ({ content: [], details: {} }) as EngineResult,
+      ingest: async () => ({ results: [], landed: 0, skipped: 0, rejected: 0 }),
+      ensureIntakeAutomation: async (cwd: string) => { seen.push(cwd); return { automation: [`${cwd}/.pi/automation/invoicebot-intake/automation.yaml`] }; },
+    };
+    const engine = new RealInvoiceEngine(facade);
+
+    const r = await engine.ensureAutomation(CWD);
+
+    expect(seen).toEqual([CWD]);
+    expect(r.automation).toEqual([`${CWD}/.pi/automation/invoicebot-intake/automation.yaml`]);
   });
 });

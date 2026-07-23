@@ -126,6 +126,14 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
     limits: { fileSize: UPLOAD_MAX_BYTES, files: UPLOAD_MAX_FILES },
   });
 
+  // Ensure the disabled `invoicebot-intake` drain automation exists for this
+  // workspace on first touch. Idempotent + non-fatal in the engine. Single
+  // choke point so the covered-route set (every workspace-touching handler,
+  // NOT /blob) cannot drift. See change: ensure-intake-automation.
+  async function ensureIntake(cwd: string): Promise<void> {
+    await engine.ensureAutomation(cwd);
+  }
+
   /** Dispatch the captured flow (if any) into the workspace session; returns the sessionId. */
   async function dispatchIfFlow(body: Record<string, unknown>, result: EngineResult): Promise<string | undefined> {
     if (!result.flow) return undefined;
@@ -143,6 +151,7 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
     const body = (req.body ?? {}) as Record<string, unknown>;
     const cwdErr = badCwd(body.cwd);
     if (cwdErr) { reply.code(400); return { error: cwdErr }; }
+    await ensureIntake(body.cwd as string);
     if (typeof body.view !== "string" || body.view.trim() === "") { reply.code(400); return { error: "view is required" }; }
     const result = await engine.query(body.cwd as string, body as { view: string });
     return normalize(result);
@@ -153,6 +162,7 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
     const body = (req.body ?? {}) as Record<string, unknown>;
     const cwdErr = badCwd(body.cwd);
     if (cwdErr) { reply.code(400); return { error: cwdErr }; }
+    await ensureIntake(body.cwd as string);
     if (typeof body.action !== "string" || body.action.trim() === "") { reply.code(400); return { error: "action is required" }; }
     const result = await engine.review(body.cwd as string, body as { action: string });
     const sessionId = await dispatchIfFlow(body, result);
@@ -164,6 +174,7 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
     const body = (req.body ?? {}) as Record<string, unknown>;
     const cwdErr = badCwd(body.cwd);
     if (cwdErr) { reply.code(400); return { error: cwdErr }; }
+    await ensureIntake(body.cwd as string);
     if (typeof body.action !== "string" || body.action.trim() === "") { reply.code(400); return { error: "action is required" }; }
     const result = await engine.setup(body.cwd as string, body as { action: string });
     return normalize(result, { consequential: isConsequential("setup", body) });
@@ -221,6 +232,7 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
     const body = (req.body ?? {}) as Record<string, unknown>;
     const cwdErr = badCwd(body.cwd);
     if (cwdErr) { reply.code(400); return { error: cwdErr }; }
+    await ensureIntake(body.cwd as string);
     const nameErr = badAutomationName(body.name);
     if (nameErr) { reply.code(400); return { error: nameErr }; }
     if (typeof body.enabled !== "boolean") { reply.code(400); return { error: "enabled must be a boolean" }; }
@@ -245,6 +257,7 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
     const q = (req.query ?? {}) as Record<string, unknown>;
     const cwdErr = badCwd(q.cwd);
     if (cwdErr) { reply.code(400); return { error: cwdErr }; }
+    await ensureIntake(q.cwd as string);
     const automations = listInvoicebotAutomations(q.cwd as string);
     return { automations };
   });
@@ -286,6 +299,7 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
     if (cwdErr) { reply.code(400); return { error: cwdErr }; }
     if (!sawFilePart) { reply.code(400); return { error: "no file parts" }; }
 
+    await ensureIntake(cwd as string);
     const ingest = await engine.ingest(cwd as string, files);
     const merged = {
       results: [...ingest.results, ...boundaryRejected],
@@ -305,6 +319,7 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
     const body = (req.body ?? {}) as Record<string, unknown>;
     const cwdErr = badCwd(body.cwd);
     if (cwdErr) { reply.code(400); return { error: cwdErr }; }
+    await ensureIntake(body.cwd as string);
     if (typeof body.action !== "string" || body.action.trim() === "") { reply.code(400); return { error: "action is required" }; }
     const result = await engine.rules(body.cwd as string, body as { action: string });
     const sessionId = await dispatchIfFlow(body, result);

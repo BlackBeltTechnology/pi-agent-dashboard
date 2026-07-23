@@ -21,6 +21,7 @@ interface InvoiceFacade {
   setup(cwd: string, args: { action: string; [k: string]: unknown }): Promise<EngineResult>;
   rules(cwd: string, args: { action: string; [k: string]: unknown }): Promise<EngineResult>;
   ingest(cwd: string, files: IngestFile[]): Promise<IngestResult>;
+  ensureIntakeAutomation(cwd: string): Promise<{ automation: string[] }>;
 }
 
 export class RealInvoiceEngine implements InvoiceEngine {
@@ -39,6 +40,9 @@ export class RealInvoiceEngine implements InvoiceEngine {
   }
   ingest(cwd: string, files: IngestFile[]): Promise<IngestResult> {
     return this.facade.ingest(cwd, files);
+  }
+  ensureAutomation(cwd: string): Promise<{ automation: string[] }> {
+    return this.facade.ensureIntakeAutomation(cwd);
   }
 }
 

@@ -53,7 +53,8 @@ function writeAutomation(cwd: string, name: string, yaml: string): string {
 function makeStubEngine(): InvoiceEngine {
   const mk = () => async (): Promise<EngineResult> => ({ content: [{ type: "text", text: "" }], details: { ok: true } });
   const ingest = async () => ({ results: [], landed: 0, skipped: 0, rejected: 0 });
-  return { query: mk(), review: mk(), setup: mk(), rules: mk(), ingest };
+  const ensureAutomation = async () => ({ automation: [] });
+  return { query: mk(), review: mk(), setup: mk(), rules: mk(), ingest, ensureAutomation };
 }
 
 let cwd: string;
