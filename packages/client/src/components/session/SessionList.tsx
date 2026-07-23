@@ -1079,7 +1079,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               collapses to 1-col at mobile width. A section that renders null
               (plugin disabled / not yet loaded) simply leaves no cell.
               See change: redesign-directory-card. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-3 mt-3">
             <SidebarFolderSectionSlot folder={{ cwd: group.cwd }} />
             {/* Render for both initialized (full section) and pending (spinner).
                 See change: fix-cold-boot-openspec-protocol. */}

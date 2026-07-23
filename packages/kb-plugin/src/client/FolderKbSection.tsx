@@ -119,7 +119,7 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
       <SlotPill
         glyph={mdiDatabaseOutline}
         accent={state === "error" ? "red" : "cyan"}
-        label={t("labelKbShort", undefined, "KB")}
+        label={t("labelKbShort", undefined, "Knowledge base")}
         activateTestId="folder-kb-open-settings"
         activateTitle={labelTitle}
         onActivate={() => navigate(kbSettingsUrl(cwd))}

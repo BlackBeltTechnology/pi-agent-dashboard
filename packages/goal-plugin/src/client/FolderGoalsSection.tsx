@@ -53,10 +53,12 @@ export function FolderGoalsSection({ folder }: { folder: FolderDescriptor }): Re
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setCreating((v) => !v); }}
-              className="text-[10px] px-1.5 py-0.5 rounded border text-indigo-400 border-indigo-500/40 bg-indigo-500/5 hover:text-indigo-300 hover:border-indigo-500/70"
+              className="text-[10px] px-1 py-0.5 rounded border text-indigo-400 border-indigo-500/40 bg-indigo-500/5 hover:text-indigo-300 hover:border-indigo-500/70"
               data-testid="folder-goal-new-btn"
+              title={t("goalButton", undefined, "New goal")}
+              aria-label={t("goalButton", undefined, "New goal")}
             >
-              <Icon path={mdiPlus} size={0.4} className="inline mr-0.5" />{t("goalButton", undefined, "Goal")}
+              <Icon path={mdiPlus} size={0.5} />
             </button>
           </>
         }

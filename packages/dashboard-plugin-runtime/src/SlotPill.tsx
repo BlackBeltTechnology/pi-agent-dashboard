@@ -1,12 +1,13 @@
 /**
  * SlotPill — the shared single-concern directory-card slot pill.
  *
- * One presentational chip for every folder slot (Automations / Goals / KB /
- * OpenSpec): a slot-colored leading glyph, an uppercase micro-label, a bold
- * count/value line (with an optional inline state marker), and an optional
- * trailing action cluster. The whole pill is one click target performing the
- * slot's primary navigation; trailing action buttons stop propagation so they
- * fire their own handlers.
+ * One presentational chip for every folder slot (Automations / Goals /
+ * Knowledge base / OpenSpec): a capsule label overhanging the top border
+ * (fieldset-legend style, centered so long labels never truncate), a
+ * slot-colored leading glyph, a bold count/value line (with an optional inline
+ * state marker), and an optional trailing action cluster. The whole pill is one
+ * click target performing the slot's primary navigation; trailing action
+ * buttons stop propagation so they fire their own handlers.
  *
  * Exported from `dashboard-plugin-runtime` (design D1) so all four folder
  * sections — living in separate plugin packages — share one source without a
@@ -77,18 +78,20 @@ export function SlotPill({
       onClick={(e) => { e.stopPropagation(); onActivate?.(); }}
       onKeyDown={onKeyDown}
       title={activateTitle}
-      className={`focus-ring group flex items-center gap-2 min-w-0 px-2.5 py-1.5 rounded-[11px] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] shadow-[0_1px_2px_var(--shadow-card)] cursor-pointer ${tone.hoverBorder}`}
+      className={`focus-ring group relative flex items-center gap-2 min-w-0 px-2.5 pt-2.5 pb-1.5 rounded-[11px] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] shadow-[0_1px_2px_var(--shadow-card)] cursor-pointer ${tone.hoverBorder}`}
     >
+      {/* Label as a capsule overhanging the top border — fieldset-legend style
+          (matches SessionSubcard's titled panel). Centered on the full pill
+          width, so long labels (e.g. "Knowledge base") never truncate as they
+          did inline. See change: slot-pill-capsule-label. */}
+      <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 max-w-[calc(100%-12px)] truncate px-1.5 py-px rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[9px] font-semibold tracking-wider uppercase text-[var(--text-secondary)] leading-none">
+        {label}
+      </span>
       <span className={`shrink-0 w-[26px] h-[26px] rounded-lg flex items-center justify-center ${tone.glyphBg} ${tone.icon}`}>
         <Icon path={glyph} size={0.62} />
       </span>
-      <span className="flex flex-col min-w-0 flex-1 leading-tight">
-        <span className="text-[10px] font-extrabold tracking-wider uppercase text-[var(--text-secondary)] truncate">
-          {label}
-        </span>
-        <span className="text-[13px] font-extrabold text-[var(--text-primary)] flex items-baseline gap-1.5 min-w-0">
-          {children}
-        </span>
+      <span className="text-[13px] font-extrabold text-[var(--text-primary)] flex items-baseline gap-1.5 min-w-0 flex-1 leading-tight">
+        {children}
       </span>
       {actions && (
         <span className="shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
