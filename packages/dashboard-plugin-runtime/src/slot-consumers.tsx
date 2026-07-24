@@ -116,7 +116,7 @@ export function WorktreeCardSectionSlot({ folder }: { folder: FolderDescriptor }
   return (
     <>
       {claims.map(c =>
-        renderClaim(c as Parameters<typeof renderClaim>[0], "worktree-card-section", { folder }),
+        renderClaim(c as Parameters<typeof renderClaim>[0], "worktree-card-section", { folder, placement: "card" }),
       )}
     </>
   );

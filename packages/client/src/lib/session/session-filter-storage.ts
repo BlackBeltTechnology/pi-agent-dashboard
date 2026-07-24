@@ -1,6 +1,7 @@
 const LEGACY_HIDDEN_KEY = "dashboard:hiddenSessions";
 const ACTIVE_ONLY_KEY = "dashboard:activeOnly";
 const COLLAPSED_GROUPS_KEY = "dashboard:collapsedGroups";
+const TAG_AREA_OPEN_KEY = "sidebar.tagArea.open";
 
 function getStorage(): Storage {
   return window.localStorage;
@@ -41,6 +42,24 @@ export function getCollapsedGroups(): Set<string> {
 
 export function setCollapsedGroups(cwds: Set<string>): void {
   getStorage().setItem(COLLAPSED_GROUPS_KEY, JSON.stringify([...cwds]));
+}
+
+/**
+ * Sidebar tag-area master-collapse state. Absent ⇒ collapsed (default).
+ * See change: sidebar-tag-collapse-and-delete.
+ */
+export function getTagAreaOpen(): boolean {
+  try {
+    return getStorage().getItem(TAG_AREA_OPEN_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setTagAreaOpen(open: boolean): void {
+  try {
+    getStorage().setItem(TAG_AREA_OPEN_KEY, String(open));
+  } catch { /* ignore */ }
 }
 
 /**

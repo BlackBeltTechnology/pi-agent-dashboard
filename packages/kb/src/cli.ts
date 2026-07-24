@@ -4,7 +4,7 @@
 // Shipped bin builds to dist/cli.js (build step deferred).
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { loadConfig, type ResolvedConfig, type ResolvedSource } from "./config.js";
+import { frontmatterConfigHash, loadConfig, type ResolvedConfig, type ResolvedSource } from "./config.js";
 import { agentsChain, doxInit, doxLint } from "./dox.js";
 import { evaluate, type GoldenItem } from "./eval.js";
 import { runIndexAtomic } from "./index-run.js";
@@ -12,7 +12,7 @@ import { indexSource } from "./indexer.js";
 import { kbInit } from "./init.js";
 import { renderHits } from "./render.js";
 import { classifyRef, type ResolvedSource as RResolvedSource, resolveAll } from "./sources.js";
-import { SqliteFtsStore } from "./sqlite-store.js";
+import { SCHEMA_VERSION, SqliteFtsStore } from "./sqlite-store.js";
 import { defaultPromptTrust } from "./trust.js";
 import type { DocType, SearchOpts } from "./types.js";
 
@@ -71,11 +71,19 @@ function openStore(cfg: ResolvedConfig): SqliteFtsStore {
   return store;
 }
 async function runIndex(cfg: ResolvedConfig, store: SqliteFtsStore, sources: RResolvedSource[], force = false) {
+  // Apply the same schema-version / facet-config gate as runIndexAtomic so the
+  // auto-index-on-search path also picks up new structures after an upgrade or a
+  // frontmatter-config change (else the DB stays stale until an explicit `index`).
+  const hash = frontmatterConfigHash(cfg.frontmatter);
+  const stale = (store.getUserVersion?.() ?? 0) < SCHEMA_VERSION || (store.getMeta?.("facetConfigHash") ?? null) !== hash;
+  const eff = force || stale;
   let scanned = 0, changed = 0, deleted = 0, chunks = 0;
   for (const s of sources) {
-    const st = await indexSource(store, { root: s.id, dir: s.dir }, { force, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions });
+    const st = await indexSource(store, { root: s.id, dir: s.dir }, { force: eff, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions, frontmatter: cfg.frontmatter });
     scanned += st.scanned; changed += st.changed; deleted += st.deleted; chunks += st.chunks;
   }
+  store.setUserVersion?.(SCHEMA_VERSION);
+  store.setMeta?.("facetConfigHash", hash);
   return { scanned, changed, deleted, chunks };
 }
 
@@ -188,7 +196,8 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
     const s = await runIndexAtomic({
       dbPath: cfg.dbAbsPath,
       sources: sources.map((x) => ({ id: x.id, dir: x.dir })),
-      indexOpts: { force: !!flags.force, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions },
+      indexOpts: { force: !!flags.force, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions, frontmatter: cfg.frontmatter },
+      facetConfigHash: frontmatterConfigHash(cfg.frontmatter),
       explicit,
     });
     console.log(`indexed ${s.scanned} files (${s.changed} changed, ${s.deleted} deleted, ${s.chunks} chunks) in ${(performance.now() - t).toFixed(0)}ms`);

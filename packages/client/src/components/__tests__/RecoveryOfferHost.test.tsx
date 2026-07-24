@@ -5,14 +5,15 @@
  * session is resumed (bus cleared).
  * See change: fix-recovery-offer-dismiss-and-phantom-reopen (task 4.3).
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, act, fireEvent, cleanup } from "@testing-library/react";
-import { RecoveryOfferHost } from "../session/RecoveryOfferHost.js";
+
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  setRecoveryOffer,
-  clearRecoveryOffer,
   __resetRecoveryOfferBusForTests,
+  clearRecoveryOffer,
+  setRecoveryOffer,
 } from "../../lib/state/recovery-offer-bus.js";
+import { RecoveryOfferHost } from "../session/RecoveryOfferHost.js";
 
 describe("RecoveryOfferHost", () => {
   beforeEach(() => {
@@ -84,6 +85,29 @@ describe("RecoveryOfferHost", () => {
     expect(queryByTestId("recovery-offer-host")).not.toBeNull();
     act(() => { clearRecoveryOffer(); }); // mirrors resume_result success path
     expect(queryByTestId("recovery-offer-host")).toBeNull();
+  });
+
+  // Class-2 grace window: while liveness is unresolved (graceUntil in the
+  // future) Reopen is NON-actionable so a still-alive session cannot be
+  // double-spawned; after the window it enables.
+  // See change: fix-recovery-offer-bridge-liveness-gate.
+  it("keeps Reopen non-actionable during the liveness grace window, then enables it", () => {
+    const onReopen = vi.fn();
+    const { getByTestId } = render(<RecoveryOfferHost onReopen={onReopen} onDismiss={() => {}} />);
+    act(() => {
+      setRecoveryOffer([{ sessionId: "a" }], Date.now() + 2500);
+    });
+    const reopen = getByTestId("recovery-offer-reopen") as HTMLButtonElement;
+    // Disabled + verifying hint; a click must NOT reopen (no double-spawn).
+    expect(reopen.disabled).toBe(true);
+    expect(getByTestId("recovery-offer-host").textContent).toContain("Checking if still running");
+    fireEvent.click(reopen);
+    expect(onReopen).not.toHaveBeenCalled();
+    // Window closes → Reopen becomes actionable.
+    act(() => { vi.advanceTimersByTime(2500); });
+    expect((getByTestId("recovery-offer-reopen") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(getByTestId("recovery-offer-reopen"));
+    expect(onReopen).toHaveBeenCalledWith(["a"]);
   });
 
   // Undefined custom properties resolve to the empty string, painting a

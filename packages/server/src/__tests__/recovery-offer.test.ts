@@ -6,19 +6,18 @@
  * Plus the zero-candidate no-offer case.
  * See change: reopen-sessions-after-shutdown (task 5.1).
  */
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { WebSocket } from "ws";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
-import path from "node:path";
-import os from "node:os";
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WebSocket } from "ws";
 
 function seedCandidate(sessionsDir: string, id: string, live: boolean): void {
   const cwdDir = path.join(sessionsDir, "proj");
   mkdirSync(cwdDir, { recursive: true });
   const jsonl = path.join(cwdDir, `2026-06-30T10-00-00-000Z_${id}.jsonl`);
-  writeFileSync(jsonl, JSON.stringify({ type: "session", id, cwd: cwdDir }) + "\n");
+  writeFileSync(jsonl, `${JSON.stringify({ type: "session", id, cwd: cwdDir })}\n`);
   writeFileSync(jsonl.replace(/\.jsonl$/, ".meta.json"), JSON.stringify({
     source: "cli", cwd: cwdDir, status: "streaming",
     startedAt: Date.now(), cachedAt: Date.now() + 60_000, live,
@@ -189,4 +188,40 @@ describe("cold-start recovery offer", () => {
     const msgs = await connectAndCollect(port);
     expect(msgs.filter((m) => m.type === "recovery_offer")).toHaveLength(0);
   });
+
+  // A reopen attempted while a candidate's liveness is still unresolved (grace
+  // window open) is REFUSED (no double-spawn) AND must NOT clear the held offer
+  // — the user can legitimately reopen once the window closes / on reconnect.
+  // See change: fix-recovery-offer-bridge-liveness-gate.
+  it("ask mode: resume during the grace window is refused and does NOT drop the offer", async () => {
+    writeConfig("ask");
+    const id = "a11ce111-2222-3333-4444-555555555555";
+    seedCandidate(sessionsDir, id, true);
+    const port = await boot();
+
+    // First client: receive the offer (carries a future graceUntil), then try
+    // to reopen immediately — inside the window.
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const msgs: Record<string, unknown>[] = [];
+    await new Promise<void>((resolve) => {
+      ws.on("open", () => {
+        ws.on("message", (raw) => { try { msgs.push(JSON.parse(raw.toString())); } catch {} });
+        setTimeout(() => {
+          ws.send(JSON.stringify({ type: "resume_session", sessionId: id, mode: "continue" }));
+          setTimeout(resolve, 150);
+        }, 100);
+      });
+    });
+    ws.close();
+
+    const offer = msgs.find((m) => m.type === "recovery_offer");
+    expect(offer).toBeTruthy();
+    expect(typeof (offer as any).graceUntil).toBe("number");
+    // Reopen refused while liveness is unresolved (no pi spawned).
+    const result = msgs.find((m) => m.type === "resume_result") as any;
+    expect(result?.success).toBe(false);
+    // The held offer survived the refused reopen → a later client still sees it.
+    const second = await connectAndCollect(port);
+    expect(second.filter((m) => m.type === "recovery_offer")).toHaveLength(1);
+  }, 15_000);
 });

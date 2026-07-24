@@ -38,6 +38,14 @@ function renderSlot(hook?: unknown) {
   );
 }
 
+function renderSlotPlacement(placement?: "sidebar" | "card") {
+  return render(
+    <Router>
+      <FolderKbSection folder={{ cwd }} placement={placement} />
+    </Router>,
+  );
+}
+
 describe("deriveKbRowState (ordered)", () => {
   it("error wins over not-indexed even when chunks:0", () => {
     expect(deriveKbRowState(stats({ chunks: 0, indexed: false, jobStatus: "error" }))).toBe("error");
@@ -197,6 +205,24 @@ describe("FolderKbSection render", () => {
     // The row NEVER reverts to "not-indexed" (Index now) between click and settle.
     expect(seen.has("not-indexed")).toBe(false);
     expect(seen.has("indexing")).toBe(true);
+  });
+
+  it("placement=card forwards the flat surface to SlotPill", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockStats(stats());
+    const { getByTestId } = renderSlotPlacement("card");
+    await waitFor(() => expect(getByTestId("folder-kb-open-settings")).toBeTruthy());
+    const pill = getByTestId("folder-kb-open-settings");
+    expect(pill.className).toContain("bg-[color-mix(in_srgb,var(--bg-surface)_50%,transparent)]");
+    expect(pill.className).not.toMatch(/shadow-/);
+  });
+
+  it("default placement (sidebar) forwards the raised surface", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockStats(stats());
+    const { getByTestId } = renderSlotPlacement();
+    await waitFor(() => expect(getByTestId("folder-kb-open-settings")).toBeTruthy());
+    const pill = getByTestId("folder-kb-open-settings");
+    expect(pill.className).toContain("bg-[var(--bg-secondary)]");
+    expect(pill.className).toContain("shadow-[0_1px_2px_var(--shadow-card)]");
   });
 
   it("count opens the KB settings overlay on click", async () => {

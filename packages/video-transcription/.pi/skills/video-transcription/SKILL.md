@@ -29,6 +29,15 @@ Examples:
 - `/transcribe /path/to/recordings` — transcribe files in a specific directory
 - `pi-transcribe "~/Movies/May 28 at 4-04 PM.m4a" "~/Movies/Feb 2 at 5-05 PM.m4a"` — transcribe specific files
 - `MAX_CHUNK_HOURS=4 pi-transcribe ~/Movies` — change the long-recording chunk size (default 4.5h)
+- `TRANSCRIBE_CONCURRENCY=4 pi-transcribe ~/Movies` — change how many files transcribe in parallel (default 8)
+
+## Parallel processing
+
+Files transcribe through a bounded worker pool: up to `TRANSCRIBE_CONCURRENCY`
+files (default 8) are in flight at once, overlapping the Soniox wait that
+dominates each file's wall-clock time. Files are dispatched oldest-first but may
+complete in any order. Set `TRANSCRIBE_CONCURRENCY=1` for serial, deterministic
+behavior. The value is clamped to `1`–`100` (100 = the Soniox pending-job cap).
 
 ## Execution
 
@@ -66,3 +75,4 @@ be small in size yet still exceed 5 h, so the guard probes duration via ffprobe.
 | `SONIOX_API_KEY` | _(required)_ | Soniox API key. |
 | `MAX_CHUNK_HOURS` | `4.5` | Chunk size for recordings over the 5 h duration limit. |
 | `MAX_AUDIO_MB` | `200` | Reserved size guard; `0` disables. |
+| `TRANSCRIBE_CONCURRENCY` | `8` | Files transcribed in parallel. Clamped to `1`–`100`; `1` = serial. |

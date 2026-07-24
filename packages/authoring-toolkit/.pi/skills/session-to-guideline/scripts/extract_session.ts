@@ -27,7 +27,7 @@
  *     --include-thinking  reserved (assistant reasoning omitted by default)
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 
 const HOME = homedir();
@@ -45,6 +45,7 @@ interface Args {
   maxCmd: number;
   maxCmds: number;
   includeThinking: boolean;
+  worktrees: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -56,6 +57,7 @@ function parseArgs(argv: string[]): Args {
     maxCmd: 200,
     maxCmds: 60,
     includeThinking: false,
+    worktrees: true,
   };
   const positionals: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -70,6 +72,8 @@ function parseArgs(argv: string[]): Args {
       case "--max-cmd": a.maxCmd = parseInt(next(), 10) || a.maxCmd; break;
       case "--max-cmds": a.maxCmds = parseInt(next(), 10) || a.maxCmds; break;
       case "--include-thinking": a.includeThinking = true; break;
+      case "--worktrees": a.worktrees = true; break;
+      case "--no-worktrees": a.worktrees = false; break;
       default:
         if (t.startsWith("--")) { /* ignore unknown flag */ }
         else positionals.push(t);
@@ -98,18 +102,37 @@ function listJsonl(dir: string): string[] {
     .map((f) => join(dir, f));
 }
 
-function findSession(selector: string, cwd: string, index: number): string {
+// Session dirs for the project owning `cwd`: the project root + every `.worktrees/*` worktree.
+// If `cwd` is itself a worktree, the root is recovered by stripping `/.worktrees/<name>`.
+function projectSessionDirs(cwd: string, includeWorktrees = true): string[] {
+  const root = cwd.replace(/\/+$/, "").replace(/\/\.worktrees\/[^/]+.*$/, "");
+  const rootEnc = encodeCwd(root);
+  const rootDir = join(SESS_ROOT, rootEnc);
+  if (!includeWorktrees) return [rootDir];
+  const wtMark = rootEnc.slice(0, -2) + "-.worktrees-";   // strip trailing "--"
+  const dirs: string[] = [rootDir];
+  if (existsSync(SESS_ROOT)) {
+    for (const sub of readdirSync(SESS_ROOT)) {
+      if (sub === rootEnc || !sub.startsWith(wtMark)) continue;
+      const d = join(SESS_ROOT, sub);
+      try { if (statSync(d).isDirectory()) dirs.push(d); } catch { /* skip */ }
+    }
+  }
+  return dirs;
+}
+
+function findSession(selector: string, cwd: string, index: number, worktrees = true): string {
   // 1) explicit existing path
   if (selector && existsSync(selector) && statSync(selector).isFile()) return selector;
 
-  // 2) latest / . -> most recent for cwd
+  // 2) latest / . -> most recent across the project (root + worktrees unless --no-worktrees)
   if (["latest", ".", ""].includes(selector)) {
-    const d = join(SESS_ROOT, encodeCwd(cwd));
-    const files = listJsonl(d)
+    const dirs = projectSessionDirs(cwd, worktrees);
+    const files = dirs.flatMap(listJsonl)
       .map((f) => ({ f, mt: statSync(f).mtimeMs }))
       .sort((a, b) => b.mt - a.mt)
       .map((x) => x.f);
-    if (!files.length) die(`No sessions found for cwd ${cwd}\n  (looked in ${d})`);
+    if (!files.length) die(`No sessions found for project of ${cwd}\n  (looked in ${dirs.length} dir(s))`);
     if (index >= files.length) die(`--index ${index} out of range; only ${files.length} sessions for ${cwd}`);
     return files[index];
   }
@@ -198,6 +221,113 @@ function tsToIso(ts?: number): string {
 function trunc(s: string, n: number): string {
   s = (s ?? "").trim();
   return s.length <= n ? s : s.slice(0, n).trimEnd() + " …[truncated]";
+}
+
+// ISO-8601 week bucket "YYYY/Www" from the session start (facts sheet -> story folder).
+function isoWeekBucket(started: string | null): string {
+  if (!started) return "unknown";
+  const m = started.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return "unknown";
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  const day = (d.getUTCDay() + 6) % 7;          // Mon=0
+  d.setUTCDate(d.getUTCDate() - day + 3);       // nearest Thursday
+  const firstThu = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const week = 1 + Math.round(
+    ((d.getTime() - firstThu.getTime()) / 864e5 - 3 + ((firstThu.getUTCDay() + 6) % 7)) / 7,
+  );
+  return `${d.getUTCFullYear()}/W${String(week).padStart(2, "0")}`;
+}
+
+// ---------- session type + attached OpenSpec proposals (deterministic) ----------
+
+const CODE_RE =
+  /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|c|cc|cpp|h|hpp|rb|php|swift|kt|scala|sh|bash|css|scss|less|html|vue|svelte|sql)$/i;
+
+// Change names the session actually touched. files written/edited rank first (worked on),
+// then read/bash/searches/cwd (merely referenced). Empty => no proposal attached.
+function detectOpenspecChanges(d: FactData): string[] {
+  const re = /openspec\/changes\/(?:archive\/)?([A-Za-z0-9][A-Za-z0-9._-]+?)\//g;
+  const primary = new Set<string>();
+  const related = new Set<string>();
+  // archived changes live under archive/<YYYY-MM-DD-name>/ — normalize to the bare change name
+  // so the active and archived paths of the same change dedupe to one entry.
+  const norm = (n: string): string => n.replace(/^\d{4}-\d{2}-\d{2}-/, "");
+  const scan = (s: string, set: Set<string>): void => {
+    if (!s) return;
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(s))) if (m[1] !== "archive") set.add(norm(m[1]));
+  };
+  for (const p of [...d.files_written, ...d.files_edited]) scan(p, primary);
+  for (const p of d.files_read) scan(p, related);
+  for (const b of d.bash) scan(b.cmd, related);
+  for (const s of d.searches) scan(typeof s.q === "string" ? s.q : JSON.stringify(s.q), related);
+  scan(d.cwd ?? "", related);
+  const out: string[] = [...primary];
+  for (const n of related) if (!primary.has(n)) out.push(n);
+  return out.slice(0, 6);
+}
+
+function findProposal(cwd: string | null, name: string): string | null {
+  const bases: string[] = [];
+  let c = cwd || process.cwd();
+  for (let i = 0; i < 6 && c; i++) { bases.push(c); const p = dirname(c); if (p === c) break; c = p; }
+  bases.push(process.cwd());
+  for (const b of bases) {
+    const direct = join(b, "openspec", "changes", name, "proposal.md");
+    if (existsSync(direct)) return direct;
+    const arch = join(b, "openspec", "changes", "archive");
+    try {
+      if (existsSync(arch)) {
+        for (const dir of readdirSync(arch)) {
+          if (dir.includes(name)) {
+            const p = join(arch, dir, "proposal.md");
+            if (existsSync(p)) return p;
+          }
+        }
+      }
+    } catch { /* unreadable archive dir */ }
+  }
+  return null;
+}
+
+// First real paragraph of the proposal's `## Why` (fallback: whole doc), one line, <=220 chars.
+function proposalExcerpt(file: string): string | null {
+  let t: string;
+  try { t = readFileSync(file, "utf8"); } catch { return null; }
+  const why = t.match(/\n##\s+Why\s*\n([\s\S]*?)(?=\n##\s|$)/i);
+  const body = why ? why[1] : t;
+  const para = body.split(/\n\s*\n/).map((s) => s.trim())
+    .find((s) => s && !s.startsWith(">") && !s.startsWith("#"));
+  if (!para) return null;
+  let ex = para.replace(/\s+/g, " ").trim();
+  if (ex.length > 220) ex = ex.slice(0, 217).trimEnd() + "…";
+  return ex;
+}
+
+function classifySessionType(d: FactData, osc: string[]): { type: string; reasons: string } {
+  const wr = [...d.files_written, ...d.files_edited];
+  const code = wr.filter((p) => CODE_RE.test(p)).length;
+  const planning = wr.filter((p) =>
+    /(proposal|design)\.md$/i.test(p) || /openspec\/changes\/[^/]+\/specs?\//i.test(p)).length;
+  const researchDocs = wr.filter((p) => /docs\/research\//i.test(p)).length;
+  const docs = wr.filter((p) => /\.mdx?$/i.test(p) && !/openspec\//i.test(p)).length;
+  const searches = d.searches.length;
+  const tests = d.bash.filter((b) =>
+    /\b(npm|pnpm|yarn)\s+(run\s+)?test|vitest|pytest|jest|go test|cargo test\b/i.test(b.cmd)).length;
+  const reasons: string[] = [];
+  let type: string;
+  if (planning > 0 && code <= 2) { type = "planning"; reasons.push(`${planning} spec/proposal file(s)`); }
+  else if (researchDocs > 0 || (searches >= 3 && code === 0)) {
+    type = "research";
+    reasons.push(researchDocs ? `${researchDocs} research doc(s)` : `${searches} searches, no code`);
+  } else if (code > 0) {
+    type = "development";
+    reasons.push(`${code} code file(s)${tests ? ", tests run" : ""}`);
+  } else if (docs > 0) { type = "documentation"; reasons.push(`${docs} doc file(s)`); }
+  else { type = "other"; reasons.push("no dominant signal"); }
+  if (osc.length && type !== "planning") reasons.push(`openspec: ${osc[0]}`);
+  return { type, reasons: reasons.join("; ") };
 }
 
 // ---------- extraction ----------
@@ -362,6 +492,17 @@ function renderMd(d: FactData, args: Args): string {
   if (d.session_name) L.push(`- **Name:** ${d.session_name}`);
   L.push(`- **Working dir:** \`${d.cwd}\``);
   L.push(`- **Started / ended:** ${d.started} → ${d.ended}  (${d.duration})`);
+  L.push(`- **ISO week bucket:** ${isoWeekBucket(d.started)}`);
+  const osc = detectOpenspecChanges(d);
+  const cls = classifySessionType(d, osc);
+  L.push(`- **Session type:** ${cls.type}${cls.reasons ? ` — ${cls.reasons}` : ""}`);
+  if (osc.length) {
+    L.push(`- **OpenSpec changes:** ${osc.join(", ")}`);
+    const pf = findProposal(d.cwd, osc[0]);
+    const ex = pf ? proposalExcerpt(pf) : null;
+    if (ex) L.push(`- **Proposal excerpt:** ${ex}`);
+  }
+  L.push("@@PREMIUM@@");
   if (d.models.length) L.push(`- **Model(s):** ${d.models.join(", ")}`);
   if (d.thinking_levels.length) L.push(`- **Thinking level(s):** ${d.thinking_levels.join(", ")}`);
   const c = d.counts;
@@ -456,14 +597,26 @@ function renderMd(d: FactData, args: Args): string {
       if (txt) L.push(`**[${n.time}]** ${txt}\n`);
     }
   }
-  return L.join("\n");
+
+  // Deterministic premium-candidate flag — copied verbatim into the story frontmatter,
+  // so premium detection does NOT depend on a weak model's judgment.
+  const sheet = L.join("\n");
+  const reasons: string[] = [];
+  if (d.skills.length || d.memories.length)
+    reasons.push(`created ${d.skills.length} skill(s) / ${d.memories.length} memory(ies)`);
+  if (d.counts.user >= 5) reasons.push(`heavy steering (${d.counts.user} user prompts)`);
+  const sheetTok = Math.round(sheet.length / 4);
+  if (sheetTok >= 10000) reasons.push(`large facts sheet (~${sheetTok} tok)`);
+  const premiumLine = `- **Premium candidate:** ${reasons.length ? "yes" : "no"}` +
+    (reasons.length ? ` — ${reasons.join("; ")}` : "");
+  return sheet.replace("@@PREMIUM@@", premiumLine);
 }
 
 // ---------- main ----------
 
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
-  const path = findSession(args.selector, args.cwd, args.index);
+  const path = findSession(args.selector, args.cwd, args.index, args.worktrees);
   const { header, entries } = loadEntries(path);
   const chain = activePath(entries);
   const data = extract(header, chain);

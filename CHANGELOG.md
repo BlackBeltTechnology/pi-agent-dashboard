@@ -18,6 +18,17 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- Subagent live timeline no longer freezes after ~3 steps. An oversized subagent
+  event (its payload embeds the full running timeline) used to trip the per-event
+  size ceiling and get dropped wholesale, so the client stopped updating the
+  subagent detail. Such events are now reduced head+tail — keeping the opening
+  steps, a "⋯ N steps hidden ⋯" marker, and the final steps/result — instead of
+  being replaced by a truncation placeholder. Server-only (the marker is a plain
+  text entry that renders on any client). Event-size accounting is now
+  byte-accurate (UTF-8 width + JSON escape expansion, real base64-image size),
+  which also fixes a latent image-bearing broadcast OOM where an oversized image
+  message previously escaped the ceiling.
+
 ## [0.6.1] - 2026-07-20
 
 Completes the partial `0.6.0` release. `0.6.0` published 31 of 32 npm packages but

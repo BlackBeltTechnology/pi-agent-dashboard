@@ -212,6 +212,19 @@ export interface DashboardServer {
   sessionOrderManager: SessionOrderManager;
 }
 
+/**
+ * Recovery reattach grace window (ms). After cold start, a recovery candidate
+ * whose bridge re-registers (comes alive) within this window is a survivor of a
+ * plain restart — not a genuine loss — so it is retracted from the offer and its
+ * on-disk liveness marker consumed. Keeper-carried sessions are gated
+ * synchronously at broadcast time; this window covers non-keeper (tmux / TUI /
+ * mDNS-discovery) bridges whose liveness is only revealed on async reattach.
+ * Sized above typical mDNS-discovery + WS-reconnect latency. In `auto` mode the
+ * resume itself is deferred by this window so a reattaching session is never
+ * double-spawned. See change: fix-recovery-offer-bridge-liveness-gate.
+ */
+const RECOVERY_REATTACH_GRACE_MS = 2500;
+
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
@@ -329,12 +342,36 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log(`[dashboard] Session scan: ${scanResult.sessions.length} sessions, ${scanResult.cacheUpdates} cache updates`);
   }
 
+  // Liveness-gated recovery (change: fix-recovery-offer-bridge-liveness-gate).
+  // Candidates still eligible to be OFFERED (`ask`) or RESUMED (`auto`), keyed
+  // by sessionId. Disk-only classification (`recoveryCandidates`) cannot tell a
+  // plain restart (process survived) from a crash (process gone). A candidate is
+  // removed from this map — and its on-disk marker consumed — the moment a
+  // process-carrier proves it alive: synchronously by the keeper reclaim
+  // (Class 1, in `start()`) or asynchronously when its bridge comes alive within
+  // `RECOVERY_REATTACH_GRACE_MS` (Class 2, via the `onChange` retract check
+  // below). After the grace window the map is finalized (cleared).
+  const liveRecoveryCandidates = new Map<string, DashboardSession>(
+    recoveryCandidates.map((c) => [c.id, c]),
+  );
+  let recoveryOfferBroadcast = false;
+  let recoveryGraceTimer: ReturnType<typeof setTimeout> | undefined;
+
   // Save per-session .meta.json on any change. The meta payload is an EXPLICIT
   // field enumeration (`sessionToMeta`) written as a FULL overwrite — omitting a
   // field there wipes it on the next unrelated save. See change: add-session-tags.
   sessionManager.onChange = (sessionId: string, ctx) => {
     const session = sessionManager.get(sessionId);
     if (!session?.sessionFile) return;
+    // Class 2 liveness gate (change: fix-recovery-offer-bridge-liveness-gate).
+    // A pending recovery candidate that comes alive (its bridge reattached /
+    // process re-registered) is a plain-restart survivor, not a loss. Retract
+    // it: drop from the eligible set, consume its marker, and rebuild an
+    // already-broadcast offer. Keyed on the ended→alive fact, not
+    // `registerReason` — tmux/TUI/mDNS bridges re-register without one.
+    if (session.status !== "ended" && liveRecoveryCandidates.has(sessionId)) {
+      retractRecoveryCandidate(sessionId, "bridge-reattach");
+    }
     metaPersistence.save(session.sessionFile, sessionToMeta(session));
     // Order-map key for this session: the RESOLVED group path (parent repo
     // for worktree sessions), the same key the client reads.
@@ -711,6 +748,62 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   browserGateway.onRecoveryResolve = () => {
     pendingRecoveryOffer = null;
   };
+  // The resume handler refuses a `continue` reopen while a candidate's liveness
+  // is still unresolved (grace window open), closing the Class-2 double-spawn
+  // race even for non-UI clients. Membership in `liveRecoveryCandidates` IS the
+  // pending signal: dead candidates leave when the window finalizes (map clear),
+  // reattached ones leave on retract. See change: fix-recovery-offer-bridge-liveness-gate.
+  browserGateway.isRecoveryLivenessPending = (sessionId: string) =>
+    liveRecoveryCandidates.has(sessionId);
+
+  // Epoch-ms deadline the ask-mode offer carries so the client can render a
+  // non-actionable "verifying…" state until Class-2 liveness is finalized.
+  // Set once at broadcast; reused when an offer is rebuilt on retract.
+  let recoveryGraceUntil: number | undefined;
+
+  // Build a recovery_offer wire message from the eligible candidate set.
+  // See change: fix-recovery-offer-bridge-liveness-gate.
+  function buildRecoveryOffer(
+    candidates: DashboardSession[],
+  ): import("@blackbelt-technology/pi-dashboard-shared/browser-protocol.js").RecoveryOfferMessage {
+    return {
+      type: "recovery_offer",
+      candidates: candidates.map((s) => ({
+        sessionId: s.id,
+        name: s.name,
+        cwd: s.cwd,
+        model: s.model,
+        liveEpoch: s.liveEpoch,
+      })),
+      graceUntil: recoveryGraceUntil,
+    };
+  }
+
+  // Retract a still-pending recovery candidate proven alive (keeper reclaim or
+  // bridge reattach). Idempotent: no-op once the candidate has left the eligible
+  // set (already retracted, or the grace window finalized the map). Consumes the
+  // on-disk liveness marker exactly like dismiss / clean stop, so a later cold
+  // boot with no NEW unclean shutdown does not re-offer it. When an offer was
+  // already broadcast, the held/replayed offer is rebuilt so a client connecting
+  // afterward never sees the retracted candidate.
+  // See change: fix-recovery-offer-bridge-liveness-gate.
+  function retractRecoveryCandidate(sessionId: string, reason: string): void {
+    const cand = liveRecoveryCandidates.get(sessionId);
+    if (!cand) return;
+    liveRecoveryCandidates.delete(sessionId);
+    if (cand.sessionFile) metaPersistence.setLiveness(cand.sessionFile, { live: false });
+    console.info(
+      `[recovery] retracted candidate ${sessionId} (${reason}); ${liveRecoveryCandidates.size} still pending`,
+    );
+    if (!recoveryOfferBroadcast) return;
+    if (liveRecoveryCandidates.size === 0) {
+      pendingRecoveryOffer = null;
+      browserGateway.broadcastToAll(buildRecoveryOffer([]));
+    } else {
+      pendingRecoveryOffer = buildRecoveryOffer([...liveRecoveryCandidates.values()]);
+      browserGateway.broadcastToAll(pendingRecoveryOffer);
+    }
+  }
 
   // Plugin pi-message dispatch registry + raw-event subscribers.
   // Populated by ServerPluginContext.registerPiHandler / onEvent (see the
@@ -1614,7 +1707,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       try {
         const { getKeeperManager } = await import("./spawn-process/process-manager.js");
         browserGateway.headlessPidRegistry.setKeeperWriter(getKeeperManager());
-        await browserGateway.headlessPidRegistry.cleanupKeeperOrphans();
+        const keeperAliveIds = await browserGateway.headlessPidRegistry.cleanupKeeperOrphans();
+        // Class 1 synchronous liveness gate: a candidate whose keeper+pi the
+        // reclaim found alive was never lost — drop it before the offer is
+        // built and consume its marker. Runs before the broadcast below.
+        // See change: fix-recovery-offer-bridge-liveness-gate.
+        for (const id of keeperAliveIds) {
+          if (liveRecoveryCandidates.has(id)) {
+            retractRecoveryCandidate(id, "keeper-alive");
+          }
+        }
       } catch (err) {
         console.warn("[dashboard] keeper-manager wire-up failed (RPC dispatch disabled):", err);
       }
@@ -2065,25 +2167,27 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
       // Cold-start recovery offer. Gated by `reopenSessionsAfterShutdown`:
       //   off  → handled at classify time (candidates normalized to `ended`,
-      //          so `recoveryCandidates` is empty here — this block is skipped)
+      //          so `liveRecoveryCandidates` is empty here — this block is skipped)
       //   ask  → broadcast one recovery offer to all connected clients
       //   auto → resume every candidate via the existing resume flow
       // Concurrent acceptances are deduped by `pendingResumeIntents`
       // (last-write-wins) so a session spawns at most once.
+      //
+      // Liveness gate (change: fix-recovery-offer-bridge-liveness-gate): the
+      // Class 1 keeper-alive candidates were already removed from
+      // `liveRecoveryCandidates` above; the remaining set is offered/resumed.
+      // A late bridge reattach within `RECOVERY_REATTACH_GRACE_MS` retracts a
+      // candidate (Class 2, via the onChange check); after the window the map
+      // is finalized so a legitimate offer for a genuine loss is never revoked.
       // See change: reopen-sessions-after-shutdown.
-      if (recoveryCandidates.length > 0) {
+      if (liveRecoveryCandidates.size > 0) {
         const mode = recoveryMode;
         if (mode === "ask") {
-          pendingRecoveryOffer = {
-            type: "recovery_offer",
-            candidates: recoveryCandidates.map((s) => ({
-              sessionId: s.id,
-              name: s.name,
-              cwd: s.cwd,
-              model: s.model,
-              liveEpoch: s.liveEpoch,
-            })),
-          };
+          // Deadline until which Class-2 liveness is unresolved; the client keeps
+          // Reopen non-actionable until then. See change: fix-recovery-offer-bridge-liveness-gate.
+          recoveryGraceUntil = Date.now() + RECOVERY_REATTACH_GRACE_MS;
+          pendingRecoveryOffer = buildRecoveryOffer([...liveRecoveryCandidates.values()]);
+          recoveryOfferBroadcast = true;
           // Reaches any already-connected clients; onConnect replays to the rest.
           browserGateway.broadcastToAll(pendingRecoveryOffer);
           // Consume each offered candidate's on-disk liveness sentinel so the
@@ -2098,35 +2202,51 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // resumed session's next activity (event-wiring). Mirrors the
           // marker clears in `recovery_dismiss` and clean `stop()`.
           // See change: fix-recovery-offer-dismiss-and-phantom-reopen.
-          for (const cand of recoveryCandidates) {
+          for (const cand of liveRecoveryCandidates.values()) {
             if (cand.sessionFile) metaPersistence.setLiveness(cand.sessionFile, { live: false });
           }
+          // Stop retracting once the grace window closes: a reattach after this
+          // must NOT revoke a legitimate offer for a genuine loss.
+          recoveryGraceTimer = setTimeout(() => { liveRecoveryCandidates.clear(); }, RECOVERY_REATTACH_GRACE_MS);
+          recoveryGraceTimer.unref?.();
         } else if (mode === "auto") {
-          const resumeConfig = loadConfig();
-          for (const cand of recoveryCandidates) {
-            if (!cand.sessionFile) continue;
-            // Tag the resume intent so the ended→alive reattach branch keeps
-            // the slot; dedupes concurrent acceptances. Mirrors the core of
-            // handleResumeSession (no ws at cold start).
-            pendingResumeIntents.record(cand.id, "keep");
-            const result = await spawnPiSession(cand.cwd, {
-              sessionFile: cand.sessionFile,
-              mode: "continue",
-              strategy: resumeConfig.spawnStrategy,
-            });
-            if (result.process && result.pid) {
-              browserGateway.headlessPidRegistry.register(
-                result.pid,
-                cand.cwd,
-                result.process,
-                result.spawnToken,
-                keeperOptsFromSpawnResult(result),
-              );
-            }
-            if (result.dashboardSpawned && result.success) {
-              pendingDashboardSpawns.set(cand.cwd, (pendingDashboardSpawns.get(cand.cwd) ?? 0) + 1);
-            }
-          }
+          // Defer the resume by the grace window so a session whose bridge
+          // reattaches (Class 2) is retracted before we spawn — a second
+          // `continue` for an already-alive sessionId double-registers it and
+          // breaks message routing. Keeper-alive candidates (Class 1) were
+          // already excluded above.
+          recoveryGraceTimer = setTimeout(() => {
+            void (async () => {
+              const resumeConfig = loadConfig();
+              const survivors = [...liveRecoveryCandidates.values()];
+              liveRecoveryCandidates.clear();
+              for (const cand of survivors) {
+                if (!cand.sessionFile) continue;
+                // Tag the resume intent so the ended→alive reattach branch keeps
+                // the slot; dedupes concurrent acceptances. Mirrors the core of
+                // handleResumeSession (no ws at cold start).
+                pendingResumeIntents.record(cand.id, "keep");
+                const result = await spawnPiSession(cand.cwd, {
+                  sessionFile: cand.sessionFile,
+                  mode: "continue",
+                  strategy: resumeConfig.spawnStrategy,
+                });
+                if (result.process && result.pid) {
+                  browserGateway.headlessPidRegistry.register(
+                    result.pid,
+                    cand.cwd,
+                    result.process,
+                    result.spawnToken,
+                    keeperOptsFromSpawnResult(result),
+                  );
+                }
+                if (result.dashboardSpawned && result.success) {
+                  pendingDashboardSpawns.set(cand.cwd, (pendingDashboardSpawns.get(cand.cwd) ?? 0) + 1);
+                }
+              }
+            })();
+          }, RECOVERY_REATTACH_GRACE_MS);
+          recoveryGraceTimer.unref?.();
         }
         // mode === "off": no-op.
       }
@@ -2165,6 +2285,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // timers) so a create/stop cycle in one process leaves no stale timer.
       // See change: add-goal-session-supervisor.
       clearTimeout(bootReconcileTimer);
+      // Cancel the recovery grace timer (ask: finalize-clear; auto: deferred
+      // resume) so a create/stop cycle leaves no stale timer / late spawn.
+      // See change: fix-recovery-offer-bridge-liveness-gate.
+      if (recoveryGraceTimer) clearTimeout(recoveryGraceTimer);
       goalSupervisor?.dispose();
       pendingForkRegistry.dispose();
       preferencesStore.flush();

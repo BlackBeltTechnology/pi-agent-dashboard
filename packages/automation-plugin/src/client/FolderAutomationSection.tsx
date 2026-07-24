@@ -14,7 +14,7 @@
 
 import { SlotPill, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
-import { mdiCogOutline, mdiRefresh } from "@mdi/js";
+import { mdiCogOutline, mdiPlus, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useState } from "react";
@@ -80,16 +80,18 @@ export function FolderAutomationSection({
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setCreating(true); }}
-              className="text-[10px] px-1.5 py-0.5 rounded border text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300 hover:border-blue-500/70"
+              className="text-[10px] px-1 py-0.5 rounded border text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300 hover:border-blue-500/70"
               data-testid="folder-automation-new-btn"
+              title={t("new", undefined, "New automation")}
+              aria-label={t("new", undefined, "New automation")}
             >
-              {t("new", undefined, "+ New")}
+              <Icon path={mdiPlus} size={0.5} />
             </button>
           </>
         }
       >
         <span data-testid="folder-automation-count">{automations.length}</span>
-        <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{t("automationsUnit", undefined, "flows")}</span>
+        <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{t("automationsUnit", undefined, "tasks")}</span>
         {invalid > 0 && (
           <span className="text-[10px] font-extrabold text-amber-400" title={t("invalidTitle", { count: invalid }, `${invalid} invalid`)}>
             ⚠ {invalid}

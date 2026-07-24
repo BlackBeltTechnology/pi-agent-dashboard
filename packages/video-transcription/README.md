@@ -54,6 +54,7 @@ skipped when a sibling `.srt` already exists (idempotent). Output `.mp3`
 | `SONIOX_API_KEY` | _(required)_ | Soniox API key. |
 | `MAX_CHUNK_HOURS` | `4.5` | Chunk size for recordings over the Soniox 5 h duration limit. |
 | `MAX_AUDIO_MB` | `200` | Reserved size guard; `0` disables. |
+| `TRANSCRIBE_CONCURRENCY` | `8` | Files transcribed in parallel via a worker pool. Clamped to `1`–`100` (100 = Soniox pending-job cap); `1` = serial. |
 
 ## Long recordings (>5 h)
 

@@ -42,7 +42,9 @@ describe("FolderAutomationSection", () => {
     expect(board.textContent).toContain("Automations");
     expect(getByTestId("folder-automation-count").textContent).toBe("2");
     expect(getByTestId("folder-automation-refresh")).toBeTruthy();
-    expect(getByTestId("folder-automation-new-btn").textContent).toContain("+ New");
+    // Compact create action is now an icon-only "+" button (change: slot-pill-capsule-label).
+    expect(getByTestId("folder-automation-new-btn")).toBeTruthy();
+    expect(getByTestId("folder-automation-new-btn").getAttribute("aria-label")).toContain("automation");
   });
 
   it("still renders (count 0) when the folder has no automations, as the create entry point", async () => {

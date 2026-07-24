@@ -2,9 +2,7 @@
 
 ## Purpose
 Provide a layered `knowledge_base.json` configuration for the KB — built-in defaults overridden by a global file, then by a project file, with deep-merge fill-in of nested option groups and shape validation. Scaffold and gitignore that config on `kb init`.
-
 ## Requirements
-
 ### Requirement: Layered configuration resolution
 The KB SHALL resolve its effective configuration by layering three sources in precedence order: built-in defaults (lowest), the global file `~/.pi/dashboard/knowledge_base.json`, then the project file `.pi/dashboard/knowledge_base.json` (highest). The resolved config SHALL record its origin as `project`, `global`, or `defaults` based on the highest layer that supplied a file.
 
@@ -101,3 +99,30 @@ For a project (non-global) init, `kb init` SHALL add the resolved `dbPath` to th
 #### Scenario: DB outside project
 - **WHEN** the resolved `dbPath` is outside the working directory
 - **THEN** no project gitignore entry is added
+
+### Requirement: Frontmatter facet configuration
+Configuration SHALL define the frontmatter structural-indexing behavior: the list
+of searchable keys, the whitelist of facet keys with an optional declared type
+(string default, or numeric/date), and optional per-doc-type overrides. Defaults
+SHALL keep behavior a superset of today (existing `tags → has_tag` unchanged) and
+SHALL be validated like other config groups.
+
+#### Scenario: Default searchable and facet keys
+- **WHEN** no frontmatter config is provided
+- **THEN** the searchable keys default to `title, description, aliases, keywords`
+  and `tags` is faceted, with existing tag→graph behavior preserved
+
+#### Scenario: Declared facet type
+- **WHEN** a facet key is configured with type `date` or `number`
+- **THEN** matching values are coerced into `value_date`/`value_num` for range use,
+  and all other keys remain string-typed
+
+#### Scenario: Facet-config hash participates in the reindex gate
+- **WHEN** the frontmatter facet configuration changes
+- **THEN** the stored facet-config hash differs and a full reindex is forced so
+  property rows reflect the new configuration
+
+#### Scenario: Invalid frontmatter config rejected
+- **WHEN** the frontmatter config declares an unknown type or a malformed key list
+- **THEN** configuration validation fails with a descriptive error
+
