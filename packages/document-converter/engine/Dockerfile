@@ -44,7 +44,11 @@ RUN npm install -g @mermaid-js/mermaid-cli @the-focus-ai/nano-banana \
          /opt/chrome-headless-shell
 
 # --- Python engine deps (docling pulls OCR/ML model libs) ---
-RUN pip install \
+# CPU-only torch FIRST: the default torch wheel bundles ~3.4GB of CUDA/triton
+# GPU libs that are dead weight in this CPU-only container. Installing the CPU
+# build up front satisfies docling/easyocr's torch dep without the nvidia stack.
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision \
+ && pip install \
       "docling" \
       "python-docx>=1.0.0" "python-pptx>=0.6.23" "openpyxl>=3.1" \
       "pypandoc>=1.11" "Pillow>=10.0.0" \
