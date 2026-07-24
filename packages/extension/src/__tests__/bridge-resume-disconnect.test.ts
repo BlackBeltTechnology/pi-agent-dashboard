@@ -59,8 +59,20 @@ class FakeWebSocket {
   }
 }
 
-/** Poll window: let the async onopen fire + buffer flush settle. */
-const settle = () => new Promise((r) => setTimeout(r, 5));
+/**
+ * Bounded, non-throwing poll for connection convergence. The socket opens
+ * asynchronously via onopen (spec: "poll `connection.isConnected` rather than
+ * read it synchronously at handler return"), so we poll up to `timeoutMs`
+ * instead of relying on a fixed delay. Returns whether or not it converged; the
+ * caller's `expect(conn.isConnected)` makes the actual assertion (so the #X1
+ * red repro still fails cleanly instead of throwing a timeout).
+ */
+async function waitForConnected(conn: ConnectionManager, timeoutMs = 500): Promise<void> {
+  const start = Date.now();
+  while (!conn.isConnected && Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 1));
+  }
+}
 
 function makeConnection(): ConnectionManager {
   return new ConnectionManager({
@@ -154,7 +166,7 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
       try {
         // Session A live.
         conn.connect();
-        await settle();
+        await waitForConnected(conn);
         expect(conn.isConnected).toBe(true);
 
         // session_shutdown(reason) — full disconnect completes first.
@@ -169,7 +181,7 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
           () => conn.connect(),
         ]);
 
-        await settle();
+        await waitForConnected(conn);
         expect(conn.isConnected).toBe(true);
         const last = FakeWebSocket.instances.at(-1);
         expect(registeredFor(last, "B")).toBe(true);
@@ -186,7 +198,7 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
     const conn = makeConnection();
     try {
       conn.connect();
-      await settle();
+      await waitForConnected(conn);
       expect(conn.isConnected).toBe(true);
 
       await shutdownThenDisconnect(conn, "A");
@@ -203,7 +215,7 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
         () => conn.connect(),
       ]);
 
-      await settle();
+      await waitForConnected(conn);
       // Pre-fix: handleSessionChange throws at `cwd: ctx.cwd`, safe() swallows
       // it, connect() is skipped, and the socket stays terminally closed.
       expect(conn.isConnected).toBe(true);
@@ -220,7 +232,7 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
     const conn = makeConnection();
     try {
       conn.connect();
-      await settle();
+      await waitForConnected(conn);
       expect(conn.isConnected).toBe(true);
 
       // session_shutdown(reason: "reload") → state.cleanup disconnects.
@@ -231,7 +243,7 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
       // Reload re-init: connect() + re-register.
       conn.connect();
       conn.send({ type: "session_register", sessionId: "A" });
-      await settle();
+      await waitForConnected(conn);
       expect(conn.isConnected).toBe(true);
       expect(registeredFor(FakeWebSocket.instances.at(-1), "A")).toBe(true);
     } finally {
@@ -244,7 +256,7 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
     FakeWebSocket.instances = [];
     const conn = makeConnection();
     conn.connect();
-    await settle();
+    await waitForConnected(conn);
 
     const timers = { metrics: true, heartbeat: true, gitPoll: true };
     const subagentBufferReset = vi.fn();
@@ -271,7 +283,7 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
       FakeWebSocket.instances = [];
       const conn = makeConnection();
       conn.connect();
-      await settle();
+      await waitForConnected(conn);
 
       const timers = { metrics: true, heartbeat: true, gitPoll: true };
       const subagentBufferReset = vi.fn();
