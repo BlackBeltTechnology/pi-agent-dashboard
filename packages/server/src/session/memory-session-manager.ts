@@ -97,6 +97,10 @@ export function createMemorySessionManager(): SessionManager {
           cost: existing.cost,
           // Preserve user-set openspec assignment (not polled, set via dashboard UI)
           attachedProposal: existing.attachedProposal,
+          // Preserve user-owned tags across a bridge reattach (not polled, set via
+          // dashboard UI). Without this the reattach onChange save wipes them from
+          // disk. See change: fix-tags-lost-on-bridge-reattach.
+          tags: existing.tags,
           // Preserve context usage until bridge sends fresh data
           contextTokens: existing.contextTokens,
           contextWindow: existing.contextWindow,
