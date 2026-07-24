@@ -6,6 +6,499 @@ it (re-run on Opus, overwrite the story, flip `upgrade_status` + the row to `don
 
 | week | story | model | reason | status |
 |------|-------|-------|--------|--------|
+| 2026/W14 | 2026/W14/2919def6.md | @fast | heavy steering (24 user prompts); large facts sheet (~15383 tok) | pending |
+| 2026/W14 | 2026/W14/2b097921.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W14 | 2026/W14/80282a65.md | @fast | heavy steering (14 user prompts) | pending |
+| 2026/W14 | 2026/W14/862924b3.md | @fast | heavy steering (14 user prompts) | pending |
+| 2026/W14 | 2026/W14/chat-refresh-button.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W14 | 2026/W14/Check @tintinweb pi-subagents.md | @fast | heavy steering (37 user prompts); large facts sheet (~15180 tok) | pending |
+| 2026/W14 | 2026/W14/da7d08cf.md | @fast | heavy steering (29 user prompts); large facts sheet (~11442 tok) | pending |
+| 2026/W14 | 2026/W14/Debug.md | @fast | heavy steering (15 user prompts) | pending |
+| 2026/W14 | 2026/W14/Emit all events.md | @fast | heavy steering (23 user prompts); large facts sheet (~11628 tok) | pending |
+| 2026/W14 | 2026/W14/f522b9fe.md | @fast | heavy steering (61 user prompts); large facts sheet (~24275 tok) | pending |
+| 2026/W15 | 2026/W15/0eebe00c.md | @fast | heavy steering (13 user prompts) | pending |
+| 2026/W15 | 2026/W15/1b9f3270.md | @fast | heavy steering (23 user prompts); large facts sheet (~13065 tok) | pending |
+| 2026/W15 | 2026/W15/1ce646b4.md | @fast | yes — heavy steering (6 user prompts) | pending |
+| 2026/W15 | 2026/W15/33a96272.md | @fast | heavy steering (94 user prompts); large facts sheet (~38333 tok) | pending |
+| 2026/W15 | 2026/W15/3940ba54.md | @fast | heavy steering (13 user prompts) | pending |
+| 2026/W15 | 2026/W15/3c0aa63e.md | @fast | heavy steering (19 user prompts); large facts sheet (~12597 tok) | pending |
+| 2026/W15 | 2026/W15/4f238dc9.md | @fast | yes — heavy steering (37 user prompts); large facts sheet (~12590 tok) | pending |
+| 2026/W15 | 2026/W15/526325c2.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W15 | 2026/W15/58bba9a5.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W15 | 2026/W15/717ae02d.md | @fast | heavy steering (12 user prompts) | pending |
+| 2026/W15 | 2026/W15/720f635a.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W15 | 2026/W15/73ea720a.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W15 | 2026/W15/7e9dabea.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W15 | 2026/W15/7fd1473e.md | @fast | heavy steering (8 user prompts); large facts sheet (~10122 tok) | pending |
+| 2026/W15 | 2026/W15/81421b84.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W15 | 2026/W15/butterfly-token-chart.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W15 | 2026/W15/cross-platform-qa-vms.md | @fast | heavy steering (14 user prompts) | pending |
+| 2026/W15 | 2026/W15/d7e376d7.md | @fast | heavy steering (24 user prompts); large facts sheet (~14445 tok) | pending |
+| 2026/W15 | 2026/W15/dd705648.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W15 | 2026/W15/ebba6e24.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W15 | 2026/W17/cross-platform-qa-vms.md | @fast | heavy steering (14 user prompts) | pending |
+| 2026/W16 | 2026/W16/019da4d2.md | @fast | yes — heavy steering (29 user prompts); large facts sheet (~18092 tok) | pending |
+| 2026/W16 | 2026/W16/019da528.md | @fast | heavy steering (26 user prompts); large facts sheet (~10334 tok) | pending |
+| 2026/W16 | 2026/W16/019da6e7.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W16 | 2026/W16/0f57c415.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W16 | 2026/W16/10b0fb6b.md | @fast | heavy steering (16 user prompts) | pending |
+| 2026/W16 | 2026/W16/141d49e7.md | @fast | heavy steering (8 user prompts); large facts sheet (~12307 tok) | pending |
+| 2026/W16 | 2026/W16/15271575.md | @fast | heavy steering (19 user prompts) | pending |
+| 2026/W16 | 2026/W16/1da36bb9.md | @fast | heavy steering (11 user prompts); large facts sheet (~20020 tok) | pending |
+| 2026/W16 | 2026/W16/74660709.md | @fast | heavy steering (14 user prompts) | pending |
+| 2026/W16 | 2026/W16/8b7ad644.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W16 | 2026/W16/978b91f2.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W16 | 2026/W16/add-editor-pid-registry.md | @fast | heavy steering (13 user prompts); large facts sheet (~10364 tok) | pending |
+| 2026/W16 | 2026/W16/add-release-notes.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W16 | 2026/W16/b6abda91.md | @fast | heavy steering (23 user prompts) | pending |
+| 2026/W16 | 2026/W16/c01eda70.md | @fast | heavy steering (13 user prompts) | pending |
+| 2026/W16 | 2026/W16/explore-dialog-image-paste-remove-terminal-button.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W16 | 2026/W16/f64a36c9.md | @fast | heavy steering (14 user prompts); large facts sheet (~10267 tok) | pending |
+| 2026/W16 | 2026/W16/improve-path-picker.md | @fast | heavy steering (21 user prompts); large facts sheet (~12329 tok) | pending |
+| 2026/W16 | 2026/W16/Pi and package update.md | @fast | heavy steering (14 user prompts) | pending |
+| 2026/W17 | 2026/W17/019da8bc.md | @fast | heavy steering (12 user prompts) | pending |
+| 2026/W17 | 2026/W17/019da8c8.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W17 | 2026/W17/019da8fc.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W17 | 2026/W17/add-extension-ui-decorations.md | @fast | heavy steering (10 user prompts); large facts sheet (~11564 tok) | pending |
+| 2026/W17 | 2026/W17/dashboard-openspec-card-state-and-actions.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W17 | 2026/W17/dashboard-plugin-architecture.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W17 | 2026/W17/extract-flows-as-plugin.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W17 | 2026/W17/improve-path-picker.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W18 | 2026/W18/019dd02f.md | @fast | heavy steering (14 user prompts) | pending |
+| 2026/W18 | 2026/W18/019dd035.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W18 | 2026/W18/019dd05c.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W18 | 2026/W18/019dd0bf.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W18 | 2026/W18/019de042.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W18 | 2026/W18/019de05f.md | @fast | heavy steering (12 user prompts) | pending |
+| 2026/W18 | 2026/W18/019de107.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W18 | 2026/W18/019de1f5.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W18 | 2026/W18/019de212.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W18 | 2026/W18/019de22f.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W18 | 2026/W18/019de29b.md | @fast | heavy steering (20 user prompts); large facts sheet (~15528 tok) | pending |
+| 2026/W18 | 2026/W18/019de2ae.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W18 | 2026/W18/019de7fa.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W18 | 2026/W18/019de837.md | @fast | heavy steering (14 user prompts) | pending |
+| 2026/W18 | 2026/W18/019de976.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W18 | 2026/W18/019dea03.md | @fast | heavy steering (14 user prompts) | pending |
+| 2026/W18 | 2026/W18/019dea5e.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W18 | 2026/W18/019dea61.md | @fast | yes — heavy steering (29 user prompts); large facts sheet (~13144 tok) | pending |
+| 2026/W18 | 2026/W18/019deaf4.md | @fast | heavy steering (23 user prompts); large facts sheet (~13225 tok) | pending |
+| 2026/W18 | 2026/W18/019dedab.md | @fast | heavy steering (13 user prompts) | pending |
+| 2026/W18 | 2026/W18/019dee02.md | @fast | heavy steering (12 user prompts) | pending |
+| 2026/W18 | 2026/W18/019dee5c.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W18 | 2026/W18/019dee98.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W18 | 2026/W18/019deeb6.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W18 | 2026/W18/019deeec.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W18 | 2026/W18/019def24.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W18 | 2026/W18/019def76.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W18 | 2026/W18/019def7e.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W18 | 2026/W18/019defb4.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W18 | 2026/W18/add-jj-workspace-plugin.md | @fast | heavy steering (19 user prompts); large facts sheet (~10234 tok) | pending |
+| 2026/W18 | 2026/W18/add-shadow-gitignore.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W18 | 2026/W18/embed-managed-node-runtime.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W18 | 2026/W18/fix-chat-scroll-race-during-replay.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W18 | 2026/W18/fix-extension-slash-commands-in-dashboard.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W18 | 2026/W18/fix-openspec-flag-rename-bug.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W18 | 2026/W18/PI proxy capabilities.md | @fast | heavy steering (12 user prompts) | pending |
+| 2026/W18 | 2026/W18/Release.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W18 | 2026/W18/resume-button-in-session-header.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W18 | 2026/W18/rich-diff-in-chat (019de0a2).md | @fast | heavy steering (16 user prompts) | pending |
+| 2026/W18 | 2026/W18/Search theme fix for code block.md | @fast | heavy steering (14 user prompts) | pending |
+| 2026/W19 | 2026/W18/019df00e.md | @fast | heavy steering (17 user prompts) | pending |
+| 2026/W19 | 2026/W18/JJ Usage.md | @fast | heavy steering (13 user prompts) | pending |
+| 2026/W19 | 2026/W18/wire-plugin-registry-into-shell.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W19 | 2026/W19/019df081.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W19 | 2026/W19/019df0aa.md | @fast | yes — heavy steering (14 user prompts) | pending |
+| 2026/W19 | 2026/W19/019dfac6.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W19 | 2026/W19/019e0410.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W19 | 2026/W19/019e08cb.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W19 | 2026/W19/019e0964.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W19 | 2026/W19/019e098f.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W19 | 2026/W19/019e09b8.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W19 | 2026/W19/019e0e28.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W19 | 2026/W19/019e0eeb.md | @fast | heavy steering (18 user prompts); large facts sheet (~10393 tok) | pending |
+| 2026/W19 | 2026/W19/019e0f85.md | @fast | heavy steering (14 user prompts); large facts sheet (~10259 tok) | pending |
+| 2026/W19 | 2026/W19/019e11d8.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W19 | 2026/W19/add-dashboard-model-proxy.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W19 | 2026/W19/add-dashboard-slash-commands.md | @fast | heavy steering (14 user prompts); large facts sheet (~11116 tok) | pending |
+| 2026/W19 | 2026/W19/add-openspec-change-grouping (019e0463).md | @fast | heavy steering (14 user prompts); large facts sheet (~13461 tok) | pending |
+| 2026/W19 | 2026/W19/add-rpc-stdin-dispatch-with-keeper-sidecar (019e1307).md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W19 | 2026/W19/add-rpc-stdin-dispatch-with-keeper-sidecar (019e1377).md | @fast | heavy steering (14 user prompts); large facts sheet (~10443 tok) | pending |
+| 2026/W19 | 2026/W19/consolidate-platform-handlers.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W19 | 2026/W19/electron-wizard-smart-detection.md | @fast | heavy steering (19 user prompts) | pending |
+| 2026/W19 | 2026/W19/honcho-dashboard-plugin (019e04b4).md | @fast | heavy steering (16 user prompts); large facts sheet (~14457 tok) | pending |
+| 2026/W19 | 2026/W19/honcho-dashboard-plugin (019e0f81).md | @fast | heavy steering (15 user prompts) | pending |
+| 2026/W19 | 2026/W19/inject-session-context-into-agent.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W19 | 2026/W19/replace-tsx-with-jiti.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W19 | 2026/W19/simplify-electron-bootstrap-derived-state.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W19 | 2026/W19/spawn-failure-diagnostics.md | @fast | heavy steering (58 user prompts); large facts sheet (~29265 tok) | pending |
+| 2026/W19 | 2026/W19/unify-opsx-colon-hyphen-aliases.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W19 | 2026/W19/unify-server-launch-ts-loader.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W20 | 2026/W20/019e1e48.md | @fast | heavy steering (13 user prompts); large facts sheet (~10056 tok) | pending |
+| 2026/W20 | 2026/W20/019e2d55.md | @fast | heavy steering (18 user prompts); large facts sheet (~10345 tok) | pending |
+| 2026/W20 | 2026/W20/019e2d98.md | @fast | heavy steering (18 user prompts); large facts sheet (~10152 tok) | pending |
+| 2026/W20 | 2026/W20/019e2d9c.md | @fast | heavy steering (19 user prompts); large facts sheet (~10790 tok) | pending |
+| 2026/W20 | 2026/W20/019e2da0.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W20 | 2026/W20/019e316f.md | @fast | heavy steering (16 user prompts) | pending |
+| 2026/W20 | 2026/W20/019e3184.md | @fast | heavy steering (15 user prompts) | pending |
+| 2026/W20 | 2026/W20/019e31e3.md | @fast | heavy steering (23 user prompts); large facts sheet (~12264 tok) | pending |
+| 2026/W20 | 2026/W20/019e3233.md | @fast | heavy steering (16 user prompts); large facts sheet (~11670 tok) | pending |
+| 2026/W20 | 2026/W20/019e35c7.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W20 | 2026/W20/019e3718.md | @fast | heavy steering (17 user prompts); large facts sheet (~15601 tok) | pending |
+| 2026/W21 | 2026/W21/019e3888.md | @fast | heavy steering (20 user prompts) | pending |
+| 2026/W21 | 2026/W21/019e3c55.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W21 | 2026/W21/019e41ff.md | @fast | heavy steering (18 user prompts); large facts sheet (~10276 tok) | pending |
+| 2026/W21 | 2026/W21/eliminate-electron-runtime-install.md | @fast | heavy steering (30 user prompts); large facts sheet (~16208 tok) | pending |
+| 2026/W22 | 2026/W21/019e5c28.md | @fast | yes — heavy steering (18 user prompts) | pending |
+| 2026/W22 | 2026/W22/019e5e59.md | @fast | yes — heavy steering (14 user prompts); large facts sheet (~10656 tok) | pending |
+| 2026/W22 | 2026/W22/019e5ed5.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W22 | 2026/W22/019e5f6a.md | @fast | created 1 skill(s) / 3 memory(ies); heavy steering (13 user prompts); large facts sheet (~12541 tok) | pending |
+| 2026/W22 | 2026/W22/019e6043.md | @fast | heavy steering (28 user prompts); large facts sheet (~19926 tok) | pending |
+| 2026/W22 | 2026/W22/019e6074.md | @fast | heavy steering (28 user prompts); large facts sheet (~21276 tok) | pending |
+| 2026/W22 | 2026/W22/019e6094.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W22 | 2026/W22/019e6635.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W22 | 2026/W22/019e66c6.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W22 | 2026/W22/019e6b9f.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W22 | 2026/W22/019e6fd7.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W22 | 2026/W22/019e71dd.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W22 | 2026/W22/019e751c.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W22 | 2026/W22/019e75d1.md | @fast | heavy steering (11 user prompts); large facts sheet (~11849 tok) | pending |
+| 2026/W22 | 2026/W22/019e7851.md | @fast | heavy steering (12 user prompts) | pending |
+| 2026/W22 | 2026/W22/019e79ee.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W22 | 2026/W22/019e7d0c.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (12 user prompts); large facts sheet (~12163 tok) | pending |
+| 2026/W22 | 2026/W22/add editor keeper sidecar.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W22 | 2026/W22/add-dynamic-pwa-manifest-naming.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W22 | 2026/W22/add-editor-keeper-sidecar.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W22 | 2026/W22/add-worktree-lifecycle-actions.md | @fast | heavy steering (14 user prompts); large facts sheet (~11212 tok) | pending |
+| 2026/W22 | 2026/W22/auto-fill-branch-from-proposal-in-worktree-dialog.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W22 | 2026/W22/Automatic image resize.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W22 | 2026/W22/bump-pi-compat-to-0-76 (019e6b54).md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W22 | 2026/W22/bump-pi-compat-to-0-76.md | @fast | heavy steering (16 user prompts) | pending |
+| 2026/W22 | 2026/W22/bump-pi-compat-to-0-78.md | @fast | heavy steering (9 user prompts); large facts sheet (~11153 tok) | pending |
+| 2026/W22 | 2026/W22/bump-pi-compat-to-0.75.md | @fast | heavy steering (22 user prompts); large facts sheet (~13062 tok) | pending |
+| 2026/W22 | 2026/W22/configurable-chat-display.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W22 | 2026/W22/eliminate-electron-runtime-install.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W22 | 2026/W22/fix-changed-files-desktop-route.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W22 | 2026/W22/fix-editor-settings-persistence.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W22 | 2026/W22/fix-jj-workspace-root-probe (019e6695).md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W22 | 2026/W22/fix-jj-workspace-root-probe.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W22 | 2026/W22/fix-keeper-kill-escalation.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W22 | 2026/W22/fix-wizard-occluded-by-splash (019e61ab).md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W22 | 2026/W22/gate publish on smoke and tests.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W22 | 2026/W22/gate-publish-on-smoke-and-tests (019e6c49).md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W22 | 2026/W22/gate-publish-on-smoke-and-tests.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W22 | 2026/W22/Images in markdown.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W22 | 2026/W22/linkify-tool-output.md | @fast | heavy steering (16 user prompts) | pending |
+| 2026/W22 | 2026/W22/openspec-worktree-spawn-button (019e6c08).md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W22 | 2026/W22/openspec-worktree-spawn-button.md | @fast | heavy steering (12 user prompts) | pending |
+| 2026/W22 | 2026/W22/pi-image-fit-extension.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W22 | 2026/W22/pr 49 login shell sigtstp.md | @fast | yes — heavy steering (8 user prompts) | pending |
+| 2026/W22 | 2026/W22/redesign-session-card-and-composer.md | @fast | heavy steering (22 user prompts); large facts sheet (~12641 tok) | pending |
+| 2026/W22 | 2026/W22/render-file-previews.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W22 | 2026/W22/ship-browser-skill-and-electron-cdp.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W22 | 2026/W22/show-full-tool-call-args.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W22 | 2026/W22/unify-tool-renderer-code-font-size.md | @fast | heavy steering (15 user prompts) | pending |
+| 2026/W22 | 2026/W22/Update to pi 0.78.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W23 | 2026/W23/019e89d5.md | @fast | heavy steering (11 user prompts); large facts sheet (~14917 tok) | pending |
+| 2026/W23 | 2026/W23/019e89d7.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W23 | 2026/W23/019e89f8.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W23 | 2026/W23/019e8a52.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W23 | 2026/W23/019e9448.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W23 | 2026/W23/019e94ff.md | @fast | heavy steering (13 user prompts) | pending |
+| 2026/W23 | 2026/W23/019e950d.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W23 | 2026/W23/019e9e95.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W23 | 2026/W23/019e9eaa.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W23 | 2026/W23/add ctx tool renderer.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W23 | 2026/W23/add-ask-user-input-multiline-paste.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (9 user prompts); large facts sheet (~14225 tok) | pending |
+| 2026/W23 | 2026/W23/add-ctx-tool-renderer.md | @fast | created 0 skill(s) / 1 memory(ies) | pending |
+| 2026/W23 | 2026/W23/add-inline-terminal-card.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (8 user prompts); large facts sheet (~12049 tok) | pending |
+| 2026/W23 | 2026/W23/add-worktree-spawn-placeholder-card.md | @fast | yes — heavy steering (6 user prompts) | pending |
+| 2026/W23 | 2026/W23/auto-hide-headless-worker-sessions.md | @fast | heavy steering (9 user prompts); large facts sheet (~11642 tok) | pending |
+| 2026/W23 | 2026/W23/classify-process-list-entries.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W23 | 2026/W23/Elevate directory visually.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W23 | 2026/W23/elevate-dashboard-add-buttons.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W23 | 2026/W23/fix-file-mention-search-ranking.md | @fast | heavy steering (12 user prompts) | pending |
+| 2026/W23 | 2026/W23/Fixing PR #85.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W23 | 2026/W23/generalize-worktree-init-hook.md | @fast | heavy steering (12 user prompts); large facts sheet (~12526 tok) | pending |
+| 2026/W23 | 2026/W23/Hermes.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W23 | 2026/W23/parallelize-test-suite.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (8 user prompts); large facts sheet (~12630 tok) | pending |
+| 2026/W23 | 2026/W23/redesign-ask-user-question-cards.md | @fast | yes — created 0 skill(s) / 1 memory(ies) | pending |
+| 2026/W23 | 2026/W23/relocate-view-menu-to-status-bar.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (12 user prompts) | pending |
+| 2026/W23 | 2026/W23/session-card-plus-session-button.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (18 user prompts); large facts sheet (~13349 tok) | pending |
+| 2026/W23 | 2026/W23/unify-dialog-system.md | @fast | created 1 skill(s) / 1 memory(ies); heavy steering (8 user prompts); large facts sheet (~11459 tok) | pending |
+| 2026/W23 | 2026/W23/unify-file-link-openability.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (11 user prompts); large facts sheet (~11934 tok) | pending |
+| 2026/W23 | 2026/W23/wire-tool-renderer-slot.md | @fast | heavy steering (25 user prompts); large facts sheet (~16843 tok) | pending |
+| 2026/W23 | 2026/W23/worktree-checkout-existing-branch.md | @fast | yes — heavy steering (8 user prompts); large facts sheet (~13056 tok) | pending |
+| 2026/W24 | 2026/W24/019ea7e6.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W24 | 2026/W24/019ec564.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W24 | 2026/W24/019ec57c.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W24 | 2026/W24/019ec78e.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W24 | 2026/W24/Add Simplified Chinese localization.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W24 | 2026/W24/add-async-action-feedback.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W24 | 2026/W24/add-board-drag-visual-feedback.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W24 | 2026/W24/add-faux-model-integration-tests.md | @fast | created 0 skill(s) / 2 memory(ies); large facts sheet (~10487 tok) | pending |
+| 2026/W24 | 2026/W24/add-goal-continuation-plugin.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (14 user prompts); large facts sheet (~15800 tok) | pending |
+| 2026/W24 | 2026/W24/add-image-fit-recommended-extension (019ebda1).md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W24 | 2026/W24/add-image-fit-recommended-extension.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W24 | 2026/W24/add-session-closing-indicator.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W24 | 2026/W24/embed-git-bash-on-windows.md | @fast | yes — created 0 skill(s) / 1 memory(ies); heavy steering (9 user prompts); large facts sheet (~15216 tok) | pending |
+| 2026/W24 | 2026/W24/emit-openspec-pending-from-poll.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W24 | 2026/W24/Fix placeholder card.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W24 | 2026/W24/fix-editor-settings-persistence.md | @fast | heavy steering (9 user prompts); large facts sheet (~12378 tok) | pending |
+| 2026/W24 | 2026/W24/fix-mobile-back-depth-aware.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W24 | 2026/W24/fix-openspec-board-mobile-scroll.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W24 | 2026/W24/fix-openspec-worktree-cwd-keying (019ec402).md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W24 | 2026/W24/fix-popover-viewport-flip.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W24 | 2026/W24/fix-spawn-token-env-leak.md | @fast | yes — heavy steering (7 user prompts) | pending |
+| 2026/W24 | 2026/W24/ISOLated environment.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W24 | 2026/W24/linkify-any-text-extension.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W24 | 2026/W24/optimize-openspec-poll-derive-artifacts-locally.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W24 | 2026/W24/redesign-openspec-board.md | @fast | yes — created 0 skill(s) / 1 memory(ies); heavy steering (6 user prompts); large facts sheet (~10669 tok) | pending |
+| 2026/W24 | 2026/W24/register-bash-and-tool-install-help.md | @fast | yes — heavy steering (9 user prompts); large facts sheet (~13271 tok) | pending |
+| 2026/W24 | 2026/W24/replace-proposal-dialog-with-race-handling.md | @fast | heavy steering (5 user prompts); large facts sheet (~10564 tok) | pending |
+| 2026/W24 | 2026/W24/resolve-global-prompt-templates-from-dashboard (019ec38d).md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W24 | 2026/W24/resolve-global-prompt-templates-from-dashboard.md | @fast | created 0 skill(s) / 4 memory(ies); heavy steering (10 user prompts); large facts sheet (~17257 tok) | pending |
+| 2026/W24 | 2026/W24/restore-windows-nsis-installer.md | @fast | heavy steering (20 user prompts); large facts sheet (~18524 tok) | pending |
+| 2026/W24 | 2026/W24/Session ordering refactor.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W24 | 2026/W24/simplify-session-card-ordering.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (9 user prompts) | pending |
+| 2026/W24 | 2026/W24/stepper-compact-done-letters.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W24 | 2026/W24/surface-input-streaming-behavior.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W25 | 2026/W25/019eccee.md | @fast | created 0 skill(s) / 4 memory(ies); heavy steering (16 user prompts) | pending |
+| 2026/W25 | 2026/W25/019ecd7b.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W25 | 2026/W25/019edd67.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W25 | 2026/W25/019eec2d.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W25 | 2026/W25/add-automation-plugin.md | @fast | created 0 skill(s) / 1 memory(ies); large facts sheet (~14262 tok) | pending |
+| 2026/W25 | 2026/W25/add-goals-folder-page.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (5 user prompts); large facts sheet (~10937 tok) | pending |
+| 2026/W25 | 2026/W25/add-ws-broadcast-load-harness.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W26 | 2026/W26/019ef144.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W26 | 2026/W26/019ef229.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W26 | 2026/W26/019ef36b.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (28 user prompts); large facts sheet (~18932 tok) | pending |
+| 2026/W26 | 2026/W26/019ef446.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (6 user prompts) | pending |
+| 2026/W26 | 2026/W26/019ef49e.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W26 | 2026/W26/019ef4b3.md | @fast | created 0 skill(s) / 2 memory(ies) | pending |
+| 2026/W26 | 2026/W26/019ef50e.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W26 | 2026/W26/019ef5ae.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W26 | 2026/W26/019ef5c8.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (7 user prompts) | pending |
+| 2026/W26 | 2026/W26/019ef661.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W26 | 2026/W26/019ef6a2.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (7 user prompts); large facts sheet (~10200 tok) | pending |
+| 2026/W26 | 2026/W26/019ef6b7.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W26 | 2026/W26/019ef6d8.md | @fast | heavy steering (17 user prompts); large facts sheet (~10198 tok) | pending |
+| 2026/W26 | 2026/W26/019efbf7.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (11 user prompts); large facts sheet (~15263 tok) | pending |
+| 2026/W26 | 2026/W26/019f0593.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W26 | 2026/W26/019f05a5.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W26 | 2026/W26/019f096c.md | @fast | heavy steering (13 user prompts) | pending |
+| 2026/W26 | 2026/W26/019f09c4.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W26 | 2026/W26/019f0b1a.md | @fast | created 0 skill(s) / 1 memory(ies) | pending |
+| 2026/W26 | 2026/W26/019f0db4.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W26 | 2026/W26/Adapt skills.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W26 | 2026/W26/add-authoring-skills.md | @fast | large facts sheet (~11544 tok) | pending |
+| 2026/W26 | 2026/W26/add-code-quality-skill.md | @fast | yes — large facts sheet (~10040 tok) | pending |
+| 2026/W26 | 2026/W26/add-coderabbit-review-gate.md | @fast | heavy steering (5 user prompts); large facts sheet (~15321 tok) | pending |
+| 2026/W26 | 2026/W26/add-dashboard-slash-commands.md | @fast | heavy steering (5 user prompts); large facts sheet (~14018 tok) | pending |
+| 2026/W26 | 2026/W26/add-markdown-knowledge-base (019ef46a).md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (9 user prompts) | pending |
+| 2026/W26 | 2026/W26/add-markdown-knowledge-base.md | @fast | large facts sheet (~15085 tok) | pending |
+| 2026/W26 | 2026/W26/add-playwright-e2e.md | @fast | created 0 skill(s) / 1 memory(ies) | pending |
+| 2026/W26 | 2026/W26/C4.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W26 | 2026/W26/distill-session-knowledge.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W26 | 2026/W26/document-converter.md | @fast | created 0 skill(s) / 1 memory(ies); large facts sheet (~11536 tok) | pending |
+| 2026/W26 | 2026/W26/fix-automation-result-capture.md | @fast | created 0 skill(s) / 1 memory(ies) | pending |
+| 2026/W26 | 2026/W26/fix-file-preview-survives-message-churn.md | @fast | created 0 skill(s) / 2 memory(ies); large facts sheet (~10153 tok) | pending |
+| 2026/W26 | 2026/W26/Improve UX.md | @fast | yes — created 0 skill(s) / 3 memory(ies); heavy steering (12 user prompts) | pending |
+| 2026/W26 | 2026/W26/inject-session-context-into-agent.md | @fast | yes — heavy steering (7 user prompts); large facts sheet (~14795 tok) | pending |
+| 2026/W26 | 2026/W26/inline-agent-screenshot-artifacts.md | @fast | large facts sheet (~13978 tok) | pending |
+| 2026/W26 | 2026/W26/redesign-automation-editor-and-board.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W26 | 2026/W26/redesign-goal-create-dialog.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W26 | 2026/W26/restore windows nsis installer.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W26 | 2026/W26/selectable-tool-output-links.md | @fast | heavy steering (8 user prompts); large facts sheet (~10788 tok) | pending |
+| 2026/W26 | 2026/W26/Teste-skill.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W26 | 2026/W26/throttle-idle-ui-animations.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (9 user prompts); large facts sheet (~11841 tok) | pending |
+| 2026/W26 | 2026/W26/Update to Node 24.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W27 | 2026/W26/019f1046.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W27 | 2026/W26/fix-doctor-windows-launch-test.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W27 | 2026/W26/fix-electron-auto-update-pipeline.md | @fast | yes — heavy steering (9 user prompts); large facts sheet (~15327 tok) | pending |
+| 2026/W27 | 2026/W26/fix-stale-bundled-server-cache.md | @fast | yes — heavy steering (8 user prompts); large facts sheet (~10590 tok) | pending |
+| 2026/W27 | 2026/W26/replace-wmic-with-powershell.md | @fast | heavy steering (6 user prompts); large facts sheet (~11527 tok) | pending |
+| 2026/W27 | 2026/W26/skip-affected-bundled-node.md | @fast | yes — heavy steering (8 user prompts); large facts sheet (~11847 tok) | pending |
+| 2026/W27 | 2026/W27/019f156f.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f15a1.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f1667.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2479.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (8 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f24ab.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f24ce.md | @fast | heavy steering (12 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2549.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2871.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2887.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2898.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2954.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (9 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2962.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f29ea.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2a02.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2a25.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2a28.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (15 user prompts); large facts sheet (~12993 tok) | pending |
+| 2026/W27 | 2026/W27/019f2c61.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2c69.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2e3a.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f2edb.md | @fast | heavy steering (17 user prompts); large facts sheet (~11080 tok) | pending |
+| 2026/W27 | 2026/W27/019f3381.md | @fast | yes — heavy steering (11 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f3400.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f340c.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W27 | 2026/W27/019f3418.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W27 | 2026/W27/add-internal-monaco-editor-pane.md | @fast | heavy steering (10 user prompts); large facts sheet (~16016 tok) | pending |
+| 2026/W27 | 2026/W27/add-kb-folder-slot.md | @fast | heavy steering (6 user prompts); large facts sheet (~16929 tok) | pending |
+| 2026/W27 | 2026/W27/add-server-keypair-pairing.md | @fast | created 0 skill(s) / 2 memory(ies); large facts sheet (~12509 tok) | pending |
+| 2026/W27 | 2026/W27/adopt-pi-071-072-073-features.md | @fast | yes — heavy steering (10 user prompts); large facts sheet (~16840 tok) | pending |
+| 2026/W27 | 2026/W27/attribute-openspec-poll-eventloop-stalls (019f2af0).md | @fast | large facts sheet (~13177 tok) | pending |
+| 2026/W27 | 2026/W27/auto-launch-first-run-skip-welcome (019f2e2d).md | @fast | heavy steering (8 user prompts); large facts sheet (~12652 tok) | pending |
+| 2026/W27 | 2026/W27/auto-launch-first-run-skip-welcome.md | @fast | yes — heavy steering (9 user prompts) | pending |
+| 2026/W27 | 2026/W27/bundle-disciplines-in-project-init.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (12 user prompts); large facts sheet (~15394 tok) | pending |
+| 2026/W27 | 2026/W27/directory-settings-page-and-scoped-md-editing.md | @fast | heavy steering (8 user prompts); large facts sheet (~15745 tok) | pending |
+| 2026/W27 | 2026/W27/electron-attach-ownership-fixes (019f2e21).md | @fast | yes — created 0 skill(s) / 2 memory(ies); heavy steering (22 user prompts); large facts sheet (~25623 tok) | pending |
+| 2026/W27 | 2026/W27/electron-attach-ownership-fixes.md | @fast | heavy steering (14 user prompts) | pending |
+| 2026/W27 | 2026/W27/filter-oauth-incompatible-models.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (6 user prompts); large facts sheet (~14837 tok) | pending |
+| 2026/W27 | 2026/W27/fix-bridge-server-start-diagnostics.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W27 | 2026/W27/fix-dox-lint-false-positives.md | @fast | heavy steering (7 user prompts); large facts sheet (~11060 tok) | pending |
+| 2026/W27 | 2026/W27/fix-openspec-config-read-bundled-node (019f2eae).md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W27 | 2026/W27/fix-openspec-config-read-bundled-node.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W27 | 2026/W27/fix-parallel-e2e-docker-collisions.md | @fast | heavy steering (6 user prompts); large facts sheet (~10107 tok) | pending |
+| 2026/W27 | 2026/W27/fix-thinking-level-supported-projection.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (6 user prompts); large facts sheet (~11313 tok) | pending |
+| 2026/W27 | 2026/W27/flag-package-source-overrides.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W27 | 2026/W27/Improve installed extension locations.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W27 | 2026/W27/improve-content-editor.md | @fast | created 0 skill(s) / 1 memory(ies); large facts sheet (~18601 tok) | pending |
+| 2026/W27 | 2026/W27/migrate-file-index-to-agents-tree (019f259f).md | @fast | large facts sheet (~12921 tok) | pending |
+| 2026/W27 | 2026/W27/migrate-file-index-to-agents-tree (019f277b).md | @fast | heavy steering (7 user prompts); large facts sheet (~12818 tok) | pending |
+| 2026/W27 | 2026/W27/modernize-pi-version-handling.md | @fast | heavy steering (6 user prompts); large facts sheet (~11926 tok) | pending |
+| 2026/W27 | 2026/W27/optimistic-prompt-progress.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (5 user prompts); large facts sheet (~14196 tok) | pending |
+| 2026/W27 | 2026/W27/project-init-skill-and-profiles (019f2866).md | @fast | heavy steering (7 user prompts); large facts sheet (~13480 tok) | pending |
+| 2026/W27 | 2026/W27/project-init-skill-and-profiles.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W27 | 2026/W27/reduce-session-replay-traffic.md | @fast | heavy steering (8 user prompts); large facts sheet (~18417 tok) | pending |
+| 2026/W27 | 2026/W27/remove-vestigial-tsconfig-references.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W27 | 2026/W27/reopen-sessions-after-shutdown.md | @fast | heavy steering (6 user prompts); large facts sheet (~12901 tok) | pending |
+| 2026/W27 | 2026/W27/split-editor-workspace.md | @fast | created 0 skill(s) / 2 memory(ies); large facts sheet (~17659 tok) | pending |
+| 2026/W27 | 2026/W27/unify-error-retry-lifecycle (019f144e).md | @fast | heavy steering (7 user prompts); large facts sheet (~13709 tok) | pending |
+| 2026/W28 | 2026/W27/019f3461.md | @fast | yes — heavy steering (7 user prompts) | pending |
+| 2026/W28 | 2026/W27/Empty providers.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W28 | 2026/W28/019f3b38.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (6 user prompts) | pending |
+| 2026/W28 | 2026/W28/019f3cf1.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W28 | 2026/W28/019f3dfc.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (5 user prompts) | pending |
+| 2026/W28 | 2026/W28/019f3eab.md | @fast | heavy steering (13 user prompts) | pending |
+| 2026/W28 | 2026/W28/019f4346.md | @fast | heavy steering (16 user prompts); large facts sheet (~13886 tok) | pending |
+| 2026/W28 | 2026/W28/019f43e4.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W28 | 2026/W28/019f4428.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W28 | 2026/W28/019f44b4.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (7 user prompts); large facts sheet (~10907 tok) | pending |
+| 2026/W28 | 2026/W28/019f4db3.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W28 | 2026/W28/019f53c4.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W28 | 2026/W28/019f53dc.md | @fast | created 0 skill(s) / 2 memory(ies) | pending |
+| 2026/W28 | 2026/W28/019f53de.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W28 | 2026/W28/019f5406.md | @fast | created 0 skill(s) / 1 memory(ies) | pending |
+| 2026/W28 | 2026/W28/add-custom-roles-ui.md | @fast | created 0 skill(s) / 1 memory(ies); large facts sheet (~11692 tok) | pending |
+| 2026/W28 | 2026/W28/add-embeddable-chat-view.md | @fast | heavy steering (9 user prompts); large facts sheet (~14988 tok) | pending |
+| 2026/W28 | 2026/W28/add-flow-plugin-e2e-tests.md | @fast | large facts sheet (~17576 tok) | pending |
+| 2026/W28 | 2026/W28/enhance-tool-call-grouping.md | @fast | heavy steering (6 user prompts); large facts sheet (~12152 tok) | pending |
+| 2026/W28 | 2026/W28/fix-chat-scroll-to-top-estimate-drift.md | @fast | heavy steering (9 user prompts); large facts sheet (~12002 tok) | pending |
+| 2026/W28 | 2026/W28/fix-local-electron-dmg-build.md | @fast | development session — created 0 skills / 1 memory; end-to-end apply→build→test→ship with real DMG validation | pending |
+| 2026/W28 | 2026/W28/fix-remote-connect-cors-gates.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (5 user prompts); large facts sheet (~10794 tok) | pending |
+| 2026/W28 | 2026/W28/fix-stuck-tool-card-on-dropped-event (019f4412).md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W28 | 2026/W28/fix-stuck-tool-card-on-dropped-event.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W28 | 2026/W28/fix-stuck-tool-card-superseded-heal.md | @fast | heavy steering (7 user prompts); large facts sheet (~12721 tok) | pending |
+| 2026/W28 | 2026/W28/fix-table-copy-empty-clipboard.md | @fast | created 0 skill(s) / 1 memory(ies); large facts sheet (~10542 tok) | pending |
+| 2026/W28 | 2026/W28/fix-virtualized-image-row-measurement.md | @fast | yes — created 0 skill(s) / 3 memory(ies) | pending |
+| 2026/W28 | 2026/W28/Install invoice-bot extension.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (8 user prompts) | pending |
+| 2026/W28 | 2026/W28/InvoiceBot REST API.md | @fast | heavy steering (21 user prompts); large facts sheet (~14316 tok) | pending |
+| 2026/W28 | 2026/W28/REBUILD AND DEPLOY.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W28 | 2026/W28/reduce-chat-render-cpu-umbrella (019f5361).md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W28 | 2026/W28/reduce-chat-render-cpu-umbrella.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (5 user prompts); large facts sheet (~12451 tok) | pending |
+| 2026/W28 | 2026/W28/virtualize-chat-transcript-tanstack.md | @fast | created 0 skill(s) / 3 memory(ies); heavy steering (6 user prompts); large facts sheet (~15009 tok) | pending |
+| 2026/W29 | 2026/W28/add-gateway-qr-network-selector.md | @fast | large facts sheet (~10292 tok) | pending |
+| 2026/W29 | 2026/W28/chat-copy-fidelity-intercept.md | @fast | created 0 skill(s) / 1 memory(ies) | pending |
+| 2026/W29 | 2026/W28/make-pairing-qr-camera-scannable.md | @fast | created 0 skill(s) / 2 memory(ies); large facts sheet (~10930 tok) | pending |
+| 2026/W29 | 2026/W28/simplify-error-retry-single-card.md | @fast | yes — created 0 skill(s) / 2 memory(ies); large facts sheet (~11738 tok) | pending |
+| 2026/W29 | 2026/W29/019f58ea.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f5957.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (9 user prompts); large facts sheet (~11861 tok) | pending |
+| 2026/W29 | 2026/W29/019f5a9c.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f5aa6.md | @fast | yes — created 0 skill(s) / 2 memory(ies); heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f5ac6.md | @fast | heavy steering (10 user prompts); large facts sheet (~10445 tok) | pending |
+| 2026/W29 | 2026/W29/019f5aca.md | @fast | heavy steering (15 user prompts); large facts sheet (~10213 tok) | pending |
+| 2026/W29 | 2026/W29/019f5b2d.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (11 user prompts); large facts sheet (~12493 tok) | pending |
+| 2026/W29 | 2026/W29/019f5b59.md | @fast | heavy steering (12 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f5b71.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (7 user prompts); large facts sheet (~11265 tok) | pending |
+| 2026/W29 | 2026/W29/019f5b87.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f5baa.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f5be9.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f5c2e.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f5cde.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (6 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f5ce0.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f608f.md | @fast | large facts sheet (~10245 tok) | pending |
+| 2026/W29 | 2026/W29/019f610f.md | @fast | heavy steering (11 user prompts); large facts sheet (~11030 tok) | pending |
+| 2026/W29 | 2026/W29/019f6182.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f61f9.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f6230.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f623d.md | @fast | created 0 skill(s) / 2 memory(ies) | pending |
+| 2026/W29 | 2026/W29/019f6243.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f628b.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f62c7.md | @fast | yes — created 0 skill(s) / 1 memory(ies) | pending |
+| 2026/W29 | 2026/W29/019f62d2.md | @fast | heavy steering (18 user prompts); large facts sheet (~12320 tok) | pending |
+| 2026/W29 | 2026/W29/019f62d5.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f62f7.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f659e.md | @fast | heavy steering (9 user prompts); large facts sheet (~10809 tok) | pending |
+| 2026/W29 | 2026/W29/019f6768.md | @fast | heavy steering (8 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f6771.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f67e3.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f6f15.md | @fast | heavy steering (18 user prompts); large facts sheet (~15136 tok) | pending |
+| 2026/W29 | 2026/W29/019f7097.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f71ae.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f71d3.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f71d4.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f72a3.md | @fast | yes — created 0 skill(s) / 2 memory(ies); heavy steering (9 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f74d7.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (7 user prompts); large facts sheet (~12383 tok) | pending |
+| 2026/W29 | 2026/W29/019f7bfb.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W29 | 2026/W29/019f7c1e.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (22 user prompts); large facts sheet (~11676 tok) | pending |
 | 2026/W29 | 2026/W29/Add Change Summary Table.md | @fast | created 2 memories; heavy steering (5 user prompts); large facts sheet (~14898 tok) | pending |
-| 2026/W29 | 2026/W29/Harden Kb Index Failure Atomicity.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W29 | 2026/W29/add-auto-session-naming.md | @fast | large facts sheet (~10513 tok) | pending |
+| 2026/W29 | 2026/W29/add-goal-session-supervisor.md | @fast | created 0 skill(s) / 1 memory(ies); large facts sheet (~10732 tok) | pending |
+| 2026/W29 | 2026/W29/add-session-uncommitted-indicator-and-commit.md | @fast | large facts sheet (~14632 tok) | pending |
+| 2026/W29 | 2026/W29/auto-canvas.md | @fast | created 0 skill(s) / 1 memory(ies); large facts sheet (~15106 tok) | pending |
 | 2026/W29 | 2026/W29/Collapse Diff File Tree.md | @fast | heavy steering (6 user prompts); large facts sheet (~12341 tok) | pending |
+| 2026/W29 | 2026/W29/Consolidate proposals.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/copy-file-path.md | @fast | created 0 skill(s) / 1 memory(ies) | pending |
+| 2026/W29 | 2026/W29/elevate-scenario-design-to-eng-disciplines (019f5d55).md | @fast | yes — created 0 skill(s) / 2 memory(ies) | pending |
+| 2026/W29 | 2026/W29/extract-distill-session-knowledge-package.md | @fast | created 0 skill(s) / 2 memory(ies) | pending |
+| 2026/W29 | 2026/W29/fix-list-models-empty-on-unhydrated-registry.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/fix-session-diff-open-nongit-and-preview.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/focus-driven-folder-compaction.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W29 | 2026/W29/fold-oversized-agents-directories.md | @fast | yes — created 0 skill(s) / 3 memory(ies); large facts sheet (~17056 tok) | pending |
+| 2026/W29 | 2026/W29/friendlier-worktree-init.md | @fast | heavy steering (5 user prompts); large facts sheet (~14371 tok) | pending |
+| 2026/W29 | 2026/W29/Gemini Access.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W29 | 2026/W29/Harden Kb Index Failure Atomicity.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W29 | 2026/W29/make-all-ui-text-i18n.md | @fast | created 0 skill(s) / 1 memory(ies); large facts sheet (~11572 tok) | pending |
+| 2026/W29 | 2026/W29/non-disruptive-file-open.md | @fast | created 0 skill(s) / 2 memory(ies); large facts sheet (~10608 tok) | pending |
+| 2026/W29 | 2026/W29/redesign-prompt-input.md | @fast | large facts sheet (~10832 tok) | pending |
+| 2026/W29 | 2026/W29/resolve-subagent-inspector-by-session-id.md | @fast | yes — large facts sheet (~11564 tok) | pending |
+| 2026/W29 | 2026/W29/Reverse openspec generation.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (15 user prompts); large facts sheet (~23492 tok) | pending |
+| 2026/W29 | 2026/W29/ship-it-fix.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W29 | 2026/W29/Split Unsplit button fix.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W29 | 2026/W29/stable-process-line.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W29 | 2026/W29/unify-message-severity-colors.md | @fast | created 0 skill(s) / 1 memory(ies); large facts sheet (~13537 tok) | pending |
+| 2026/W30 | 2026/W29/019f7cb9.md | @fast | heavy steering (12 user prompts) | pending |
+| 2026/W30 | 2026/W29/019f7cc9.md | @fast | heavy steering (9 user prompts) | pending |
+| 2026/W30 | 2026/W30/019f7ff5.md | @fast | yes — created 0 skill(s) / 2 memory(ies); heavy steering (15 user prompts); large facts sheet (~19395 tok) | pending |
+| 2026/W30 | 2026/W30/019f805f.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W30 | 2026/W30/019f859a.md | @fast | heavy steering (12 user prompts); large facts sheet (~12390 tok) | pending |
+| 2026/W30 | 2026/W30/019f8604.md | @fast | heavy steering (16 user prompts); large facts sheet (~11389 tok) | pending |
+| 2026/W30 | 2026/W30/019f863d.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W30 | 2026/W30/019f86b3.md | @fast | heavy steering (13 user prompts) | pending |
+| 2026/W30 | 2026/W30/019f8735.md | @fast | heavy steering (5 user prompts) | pending |
+| 2026/W30 | 2026/W30/019f8b71.md | @fast | heavy steering (7 user prompts); large facts sheet (~10620 tok) | pending |
+| 2026/W30 | 2026/W30/019f8eb7.md | @fast | heavy steering (10 user prompts); large facts sheet (~10047 tok) | pending |
+| 2026/W30 | 2026/W30/019f8f13.md | @fast | heavy steering (10 user prompts) | pending |
+| 2026/W30 | 2026/W30/019f8f39.md | @fast | heavy steering (7 user prompts); large facts sheet (~10494 tok) | pending |
+| 2026/W30 | 2026/W30/adopt-pnpm-for-dev-ci.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (7 user prompts); large facts sheet (~16880 tok) | pending |
+| 2026/W30 | 2026/W30/Collapsable tags.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W30 | 2026/W30/Eliminate direct haiku reference.md | @fast | heavy steering (11 user prompts) | pending |
+| 2026/W30 | 2026/W30/extend-pi-image-fix.md | @fast | heavy steering (7 user prompts) | pending |
+| 2026/W30 | 2026/W30/openspec CLI missing.md | @fast | created 0 skill(s) / 1 memory(ies); heavy steering (9 user prompts); large facts sheet (~11820 tok) | pending |
+| 2026/W30 | 2026/W30/Parallel transscribe.md | @fast | heavy steering (6 user prompts) | pending |
+| 2026/W30 | 2026/W30/Prepare release 0.6.0 (019f7d18).md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (5 user prompts); large facts sheet (~17824 tok) | pending |
+| 2026/W30 | 2026/W30/Prepare release 0.6.0.md | @fast | large facts sheet (~15696 tok) | pending |
+| 2026/W30 | 2026/W30/sidebar-tag-collapse-and-delete.md | @fast | large facts sheet (~10235 tok) | pending |
+| 2026/W30 | 2026/W30/Subagent log missing.md | @fast | created 0 skill(s) / 2 memory(ies); heavy steering (8 user prompts) | pending |
+| 2026/W30 | 2026/W30/Tets goal.md | @fast | created 0 skill(s) / 4 memory(ies); heavy steering (5 user prompts) | pending |
