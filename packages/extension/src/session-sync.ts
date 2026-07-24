@@ -10,7 +10,7 @@ import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import * as minimatchNS from "minimatch";
 import type { BridgeContext } from "./bridge-context.js";
-import { extractFirstMessage, filterHiddenCommands, getCurrentModelString } from "./bridge-context.js";
+import { extractFirstMessage, filterHiddenCommands, getCurrentModelString, safeCwd } from "./bridge-context.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
 import { detectSessionSource } from "./source-detector.js";
 import { detectIsGitRepo, gatherGitInfo } from "./vcs-info.js";
@@ -226,10 +226,15 @@ export function handleSessionChange(
   // dashboardSpawned from the capture-once boolean (token already scrubbed).
   // See change: fix-spawn-token-env-leak.
   const dashboardSpawned = bc.dashboardSpawned;
+  // ctx.cwd is a guarded getter that throws once the session is replaced
+  // (new/fork/resume). Reading it un-guarded here would abort session_start
+  // before connection.connect() runs — the #393 permanent disconnect.
+  // See change: fix-bridge-resume-disconnect.
+  const cwd = safeCwd(ctx);
   bc.connection.send({
     type: "session_register",
     sessionId: bc.sessionId,
-    cwd: ctx.cwd,
+    cwd,
     name: bc.lastSessionName || undefined,
     source: detectSessionSource(bc.cachedHasUI, bc.lastSessionFile),
     model: bc.lastModel,
@@ -242,14 +247,14 @@ export function handleSessionChange(
     pid: process.pid,
     registerReason: "spawn",
     // See change: gate-session-worktree-button-on-git.
-    isGitRepo: detectIsGitRepo(ctx.cwd),
+    isGitRepo: detectIsGitRepo(cwd),
   });
 
   replaySessionEntries(bc);
   bc.connection.send({ type: "replay_complete", sessionId: bc.sessionId });
 
   // Send git info
-  const gitInfo = gatherGitInfo(ctx.cwd);
+  const gitInfo = gatherGitInfo(cwd);
   if (gitInfo) {
     bc.lastGitBranch = gitInfo.gitBranch;
     bc.lastGitPrNumber = gitInfo.gitPrNumber;
