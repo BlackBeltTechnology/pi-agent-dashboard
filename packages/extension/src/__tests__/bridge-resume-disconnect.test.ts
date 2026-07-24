@@ -86,13 +86,17 @@ function makeConnection(): ConnectionManager {
  * Mirror the bridge's `session_start` handler ordering under `safe()`: run the
  * steps in sequence; a throw in any step abandons the remaining steps (exactly
  * what `safe()` does — it catches the rejection at the handler boundary, so the
- * body after the throw never executes).
+ * body after the throw never executes). Returns the caught error (or undefined
+ * when every step ran) so callers can distinguish the expected abort from an
+ * unexpected setup/cleanup failure.
  */
-function runSessionStartUnderSafe(steps: Array<() => void>): void {
+function runSessionStartUnderSafe(steps: Array<() => void>): Error | undefined {
   try {
     for (const step of steps) step();
-  } catch {
+    return undefined;
+  } catch (err) {
     /* safe() swallows — remaining steps (incl. connection.connect()) are skipped */
+    return err as Error;
   }
 }
 
@@ -133,16 +137,24 @@ function makeBc(connection: ConnectionManager, sessionId: string, ctx: any) {
   } as any;
 }
 
-function registeredFor(ws: FakeWebSocket | undefined, sessionId: string): boolean {
-  if (!ws) return false;
-  return ws.sent.some((s) => {
+function registerFrameFor(
+  ws: FakeWebSocket | undefined,
+  sessionId: string,
+): { cwd?: unknown } | undefined {
+  if (!ws) return undefined;
+  for (const s of ws.sent) {
     try {
       const m = JSON.parse(s);
-      return m.type === "session_register" && m.sessionId === sessionId;
+      if (m.type === "session_register" && m.sessionId === sessionId) return m;
     } catch {
-      return false;
+      /* skip non-JSON */
     }
-  });
+  }
+  return undefined;
+}
+
+function registeredFor(ws: FakeWebSocket | undefined, sessionId: string): boolean {
+  return registerFrameFor(ws, sessionId) !== undefined;
 }
 
 /** Model a session_shutdown that ends by disconnecting (replacement reason). */
@@ -176,15 +188,17 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
         // session_start(reason) for B: handleSessionChange BEFORE connect().
         const ctxB = makeCtx("B", dir);
         const bc = makeBc(conn, "A", ctxB);
-        runSessionStartUnderSafe([
+        const err = runSessionStartUnderSafe([
           () => handleSessionChange(bc, ctxB, () => []),
           () => conn.connect(),
         ]);
+        expect(err).toBeUndefined(); // no throw on the happy path
 
         await waitForConnected(conn);
         expect(conn.isConnected).toBe(true);
         const last = FakeWebSocket.instances.at(-1);
-        expect(registeredFor(last, "B")).toBe(true);
+        // Registered for B with the real ctx.cwd (a valid string dir).
+        expect(registerFrameFor(last, "B")?.cwd).toBe(dir);
       } finally {
         conn.disconnect();
         rmSync(dir, { recursive: true, force: true });
@@ -210,17 +224,21 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
       };
       const ctxB = makeCtx("B", throwingCwd);
       const bc = makeBc(conn, "A", ctxB);
-      runSessionStartUnderSafe([
+      const err = runSessionStartUnderSafe([
         () => handleSessionChange(bc, ctxB, () => []),
         () => conn.connect(),
       ]);
+      // After the fix, safeCwd swallows the getter throw, so handleSessionChange
+      // runs to completion — no error abandons the body before connect().
+      expect(err).toBeUndefined();
 
       await waitForConnected(conn);
       // Pre-fix: handleSessionChange throws at `cwd: ctx.cwd`, safe() swallows
       // it, connect() is skipped, and the socket stays terminally closed.
       expect(conn.isConnected).toBe(true);
       const last = FakeWebSocket.instances.at(-1);
-      expect(registeredFor(last, "B")).toBe(true);
+      // Registered for B, and safeCwd fell back to process.cwd() on the throw.
+      expect(registerFrameFor(last, "B")?.cwd).toBe(process.cwd());
     } finally {
       conn.disconnect();
     }
@@ -298,12 +316,13 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
       conn.disconnect();
 
       // A subsequent session_start step throws — must not undo the cleanup.
-      runSessionStartUnderSafe([
+      const err = runSessionStartUnderSafe([
         () => {
           throw new Error("later session_start step boom");
         },
         () => conn.connect(),
       ]);
+      expect(err?.message).toBe("later session_start step boom"); // the deliberate throw surfaced
 
       expect(timers).toEqual({ metrics: false, heartbeat: false, gitPoll: false });
       expect(subagentBufferReset).toHaveBeenCalledTimes(1);
