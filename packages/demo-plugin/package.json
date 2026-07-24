@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/demo-plugin",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Demo plugin — runtime fixture only. SHALL NOT ship in production builds.",
   "type": "module",
@@ -30,6 +30,6 @@
     ]
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.6.1"
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0"
   }
 }
