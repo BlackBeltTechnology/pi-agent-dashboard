@@ -1,10 +1,15 @@
-import React, { useState, useRef, useEffect } from "react";
+import { mdiHeadLightbulb } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
-import { Icon } from "@mdi/react";
-import { mdiHeadLightbulb } from "@mdi/js";
 
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+// Canonical render order. `max` is opt-in: it only renders when the model's
+// `supportedLevels` explicitly includes it (a max-capable session runtime +
+// native `thinkingLevelMap.max`). The undefined/empty FALLBACK stays the six
+// levels below `max` — see `FALLBACK_LEVELS`. See change: honor-native-models-json-metadata.
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const FALLBACK_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 
 interface Props {
   current?: string;
@@ -20,7 +25,7 @@ interface Props {
 export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Props) {
   const levelsToRender = supportedLevels?.length
     ? THINKING_LEVELS.filter((l) => supportedLevels.includes(l))
-    : THINKING_LEVELS;
+    : FALLBACK_LEVELS;
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);

@@ -72,3 +72,55 @@ supports it).
 - **WHEN** the bridge pushes `models_list`
 - **THEN** the `ModelInfo` for `newapi/glm-5.2` SHALL carry `supportedThinkingLevels` derived from the native `thinkingLevelMap`
 - **AND** the web `ThinkingLevelSelector` SHALL render exactly those levels
+
+#### Scenario: Enrichment applied via session_start re-registration pass
+
+- **WHEN** a pi session starts with a `proxy` provider in `providers.json` that advertises `cc/claude-opus-4-7` in its `/v1/models` response
+- **AND** `entry.api` is `"anthropic-messages"`
+- **AND** pi's model registry has a `find` method that returns Opus 4.7 metadata for `("anthropic", "claude-opus-4-7")`
+- **THEN** `activate()` SHALL first register the provider with fallback defaults (no registry yet available)
+- **AND** the `session_start` handler SHALL then capture `ctx.modelRegistry` and re-register the provider
+- **AND** the second `pi.registerProvider(...)` call SHALL carry a model descriptor with `contextWindow: 1_000_000`, `maxTokens: 128_000`, `reasoning: true`, and the registry's cost object
+
+#### Scenario: Currently-selected model is re-snapshotted after re-registration
+
+- **WHEN** the session's `ctx.model` is `{ provider: "proxy", id: "cc/claude-opus-4-7", reasoning: false, … }` at `session_start` (the fallback-defaults snapshot taken during `activate()`)
+- **AND** the re-registration pass updates the `proxy` provider's registry entry with enriched metadata (`reasoning: true`, `contextWindow: 1_000_000`, …)
+- **THEN** the `session_start` handler SHALL call `ctx.modelRegistry.find("proxy", "cc/claude-opus-4-7")` and pass the result to `pi.setModel(refreshed)`
+- **AND** pi's `agent.state.model.reasoning` SHALL become `true` after this call
+- **AND** subsequent calls to `pi.setThinkingLevel("high")` SHALL no longer clamp to `"off"`
+
+#### Scenario: Re-setModel failure does not abort session_start
+
+- **WHEN** `pi.setModel(refreshed)` throws (e.g., auth missing for the refreshed model)
+- **THEN** the `session_start` handler SHALL catch the error, log it via `console.error`, and continue with the rest of its work (setting `currentSessionProvider` / `currentSessionModelId`, emitting warnings for missing API keys)
+- **AND** the session SHALL still be usable — just with the pre-enrichment model snapshot still in place
+
+#### Scenario: Enrichment falls back when registry capture has not happened
+
+- **WHEN** no `session_start` event has fired (e.g., the extension was just activated and pi has not yet started a session)
+- **AND** a provider advertises `cc/claude-opus-4-7` under `api: "anthropic-messages"`
+- **THEN** `registerEntry()` SHALL still call `pi.registerProvider(...)` successfully
+- **AND** the synthesized model descriptor SHALL use the `anthropic-messages` fallback defaults (200k ctx, 64k maxTok, no reasoning, zero cost, `["text","image"]` input)
+
+#### Scenario: Enrichment applied on credentials_updated hot-reload
+
+- **WHEN** a user adds a new provider to `providers.json` whose `/v1/models` response includes `claude-opus-4-7`
+- **AND** the server broadcasts `credentials_updated`
+- **AND** the bridge's `reloadProviders` flow calls `registerEntry()` for the new provider
+- **AND** the registry is available at this point
+- **THEN** the synthesized model SHALL have `contextWindow: 1_000_000` (not `200_000`)
+
+#### Scenario: Unknown model on a custom provider still registers successfully
+
+- **WHEN** a proxy advertises a model id that the registry does not know
+- **AND** `entry.api` is `"openai-completions"`
+- **THEN** `registerEntry()` SHALL still call `pi.registerProvider(...)` with the fallback defaults `{ contextWindow: 128_000, maxTokens: 16_384, reasoning: false, cost: zero, input: ["text","image"] }`
+- **AND** the model SHALL be selectable in the dashboard's model picker
+
+#### Scenario: No registry match does not throw
+
+- **WHEN** every discovered id from a provider misses the registry
+- **THEN** `registerEntry()` SHALL complete successfully without throwing
+- **AND** every model SHALL be registered with fallback defaults
+

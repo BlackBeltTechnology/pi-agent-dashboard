@@ -79,13 +79,20 @@ as a fallback; `max` SHALL never appear in the fallback set.
 - **WHEN** a model has `reasoning: false`
 - **THEN** `supportedThinkingLevels` SHALL be `["off"]`
 
-#### Scenario: Reasoning model with no map supports all levels except xhigh and max
+#### Scenario: Reasoning model with no map supports all levels except xhigh
 
 - **WHEN** a model has `reasoning: true` and no `thinkingLevelMap`
-- **THEN** `supportedThinkingLevels` SHALL be `["off", "minimal", "low", "medium", "high"]` (`xhigh` and `max` excluded because each is supported only when declared with an explicit non-null `thinkingLevelMap` entry)
+- **THEN** `supportedThinkingLevels` SHALL be `["off", "minimal", "low", "medium", "high"]` (`xhigh` and `max` both excluded because each is supported only when declared with an explicit non-null `thinkingLevelMap` entry)
 
 #### Scenario: Model without thinking metadata falls back to all six
 
 - **WHEN** the model object has neither a `reasoning` flag nor a `thinkingLevelMap` (pre-0.72 pi)
 - **THEN** `supportedThinkingLevels` SHALL be undefined
 - **AND** the `ThinkingLevelSelector` SHALL render the default six canonical levels (no `max`)
+
+#### Scenario: Filtering never removes models from the model list
+
+- **WHEN** models carry differing `supportedThinkingLevels`
+- **THEN** all available models SHALL still appear in the model selector
+  regardless of their `supportedThinkingLevels` (the filter applies only to the
+  thinking-level dropdown, never to the model list)
