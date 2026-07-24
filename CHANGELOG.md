@@ -12,7 +12,30 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- Custom-provider models now honor the native capability metadata authored in
+  `~/.pi/agent/models.json` (the standard Pi nested `providers.<name>.models[]`
+  format). Both registry paths — the bridge extension that feeds pi sessions +
+  the web thinking-level selector, and the dashboard server behind
+  `GET /api/models` + proxy routing — read the native file via one shared reader
+  and merge it with live `/v1/models` discovery: native `contextWindow`,
+  `maxTokens`, `reasoning`, `thinkingLevelMap`, `compat`, `input`, and `cost`
+  win over the api-typed fallback floors; routing stays from discovery. A
+  user-authored model absent from `/v1/models` (or when discovery is down) still
+  surfaces. `GET /api/models` gains the raw `thinkingLevelMap` (additive) and
+  never emits `compat` or credentials. The web selector gains an opt-in,
+  runtime-gated `max` thinking level (shown only when the session's pi advertises
+  `max` AND the model's `thinkingLevelMap.max` is declared).
+
 ### Changed
+
+- **Native `models.json` capability metadata now wins over a top-level duplicate.**
+  Installs that previously set custom-model capabilities via a top-level
+  `models.json` array/`{models:[]}` entry duplicating a discovered `provider/id`
+  will now see the native nested `providers.<name>.models[]` entry take
+  precedence on overlap (nested wins). `models.json` remains read-only; editing
+  it needs a refresh trigger (server) or session restart (extension) to take
+  effect — no live hot-reload. A custom `models.json` entry authored under a
+  built-in provider name does NOT override the built-in model.
 
 - Bumped pinned pi (`@earendil-works/pi-coding-agent`) 0.80.10 → 0.81.1 across the server dependency, Dockerfile global install, and `verify-release-deps` floor. Lifted `piCompatibility.recommended` 0.78.0 → 0.81.1 to track the upstream line (soft upgrade hint); `piCompatibility.minimum` stays 0.78.0 (broad support floor — no blocking error for 0.78.x–0.80.x). 0.81.0 added full provider extensions + Qwen Token Plan providers (auto-surface via the derived provider catalogue — no bridge change); 0.81.1 restored the default stream fallback for extensions on the pre-0.81 agent-core API. No breaking-change entries in the range.
 
