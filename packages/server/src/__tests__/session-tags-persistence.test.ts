@@ -82,4 +82,33 @@ describe("session tags persistence", () => {
     const restored = result.sessions.find((s) => s.id === "tag-id");
     expect(restored?.tags).toEqual(["docs"]);
   });
+
+  it("preserves tags across a bridge reattach (register with registerReason=reattach)", () => {
+    mgr.update("tag-id", { tags: ["feature"] });
+    metaPersistence.flushAll();
+    expect(readSessionMeta(sessionFile)?.tags).toEqual(["feature"]);
+
+    // Simulate reboot-resume: the pi session's bridge reattaches and re-registers.
+    mgr.register({
+      id: "tag-id",
+      cwd: "/test/cwd",
+      source: "tui",
+      startedAt: 1000,
+      sessionFile,
+      registerReason: "reattach",
+    });
+
+    // In-memory survival: the reattach carry-over must keep user-owned tags.
+    expect(mgr.get("tag-id")?.tags).toEqual(["feature"]);
+
+    // Disk survival: the reattach onChange full-overwrite save must not wipe them.
+    metaPersistence.flushAll();
+    expect(readSessionMeta(sessionFile)?.tags).toEqual(["feature"]);
+  });
+
+  it("leaves tags undefined on a genuine first register (no prior record)", () => {
+    const fresh = createMemorySessionManager();
+    const s = fresh.register({ id: "fresh-id", cwd: "/test/cwd", source: "tui", startedAt: 2000 });
+    expect(s.tags).toBeUndefined();
+  });
 });
