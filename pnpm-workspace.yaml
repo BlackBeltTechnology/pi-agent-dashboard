@@ -61,17 +61,17 @@ ignoredBuiltDependencies:
   - sharp
 
 allowBuilds:
-  '@fission-ai/openspec': set this to true or false
-  '@google/genai': set this to true or false
-  electron: set this to true or false
-  esbuild: set this to true or false
-  fs-xattr: set this to true or false
-  koffi: set this to true or false
-  macos-alias: set this to true or false
-  node-pty: set this to true or false
-  phantomjs-prebuilt: set this to true or false
-  protobufjs: set this to true or false
-  sharp: set this to true or false
+  '@fission-ai/openspec': true
+  '@google/genai': true
+  electron: true
+  esbuild: true
+  fs-xattr: true
+  koffi: true
+  macos-alias: true
+  node-pty: true
+  phantomjs-prebuilt: true
+  protobufjs: true
+  sharp: true
 
 minimumReleaseAgeExclude:
   - '@earendil-works/pi-agent-core@0.81.1'
