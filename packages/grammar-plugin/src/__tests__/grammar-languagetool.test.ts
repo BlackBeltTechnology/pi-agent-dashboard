@@ -135,4 +135,28 @@ describe("checkWithLanguageTool", () => {
     globalThis.fetch = vi.fn(async () => new Response("nope", { status: 500 })) as any;
     await expect(checkWithLanguageTool("hi there", { url: "http://lt:8081", language: "auto" })).rejects.toThrow();
   });
+
+  it("disables UPPERCASE_SENTENCE_START by default (capitalizeFirstWord off)", async () => {
+    const captured: { body?: string } = {};
+    globalThis.fetch = vi.fn(async (_url: any, init: any) => {
+      captured.body = String(init.body);
+      return new Response(JSON.stringify({ matches: [] }), { status: 200 });
+    }) as any;
+    await checkWithLanguageTool("hello there", { url: "http://lt:8081", language: "auto" });
+    expect(captured.body).toContain("disabledRules=UPPERCASE_SENTENCE_START");
+  });
+
+  it("keeps the sentence-start rule enabled when capitalizeFirstWord is true", async () => {
+    const captured: { body?: string } = {};
+    globalThis.fetch = vi.fn(async (_url: any, init: any) => {
+      captured.body = String(init.body);
+      return new Response(JSON.stringify({ matches: [] }), { status: 200 });
+    }) as any;
+    await checkWithLanguageTool("hello there", {
+      url: "http://lt:8081",
+      language: "auto",
+      capitalizeFirstWord: true,
+    });
+    expect(captured.body).not.toContain("disabledRules");
+  });
 });

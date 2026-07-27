@@ -115,6 +115,17 @@ describe("useGrammarCheck", () => {
     expect(f.checkCalls().length).toBe(1);
   });
 
+  it("clears the panel when the draft is emptied (e.g. after Send)", async () => {
+    installFetch();
+    const { result, rerender } = render({ draft: "I has a apple" });
+    await waitFor(() => expect(result.current.status).toBe("done"));
+    expect(result.current.suggestions.length).toBeGreaterThan(0);
+    // Send resets the composer draft to "" → the panel must clear.
+    rerender({ draft: "", sessionStatus: "idle" });
+    await waitFor(() => expect(result.current.status).toBe("idle"));
+    expect(result.current.suggestions).toHaveLength(0);
+  });
+
   it("applyAll replaces the draft with correctedText and clears the panel", async () => {
     installFetch();
     const onDraftChange = vi.fn();

@@ -16,11 +16,11 @@
  * See change: add-grammar-settings-plugin.
  */
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { GrammarConfig } from "./grammar-config.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
+import type { GrammarConfig } from "./grammar-config.js";
 
 /**
  * Disabled-default fallback, used only before the first GET resolves or when the
@@ -37,6 +37,7 @@ const FALLBACK_GRAMMAR: GrammarConfig = {
   minChars: 12,
   maxChars: 4000,
   language: "auto",
+  capitalizeFirstWord: false,
   languagetool: { url: "http://localhost:8081" },
 };
 
@@ -200,6 +201,16 @@ export function GrammarSettings(): React.ReactElement {
             onChange={(e) => setDraft({ ...draft, autoCheck: e.target.checked })}
           />
           {t("autoCheck", undefined, "Auto-check while typing")}
+        </label>
+
+        <label style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+          <input
+            type="checkbox"
+            data-testid="grammar-capitalize"
+            checked={draft.capitalizeFirstWord}
+            onChange={(e) => setDraft({ ...draft, capitalizeFirstWord: e.target.checked })}
+          />
+          {t("capitalizeFirstWord", undefined, "Capitalize sentence starts")}
         </label>
 
         <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>

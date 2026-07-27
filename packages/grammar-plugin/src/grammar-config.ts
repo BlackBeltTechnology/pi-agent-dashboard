@@ -22,6 +22,13 @@ export interface GrammarConfig {
   maxChars: number;
   /** Language passed to the backend. Default `"auto"` (e.g. `"en-US"`, `"hu-HU"`). */
   language: string;
+  /**
+   * Whether the checker may correct sentence-start capitalization. Default
+   * `false` — the checker never touches lowercase sentence starts unless the
+   * user opts in (LLM: prompt instruction; LanguageTool: disables the
+   * `UPPERCASE_SENTENCE_START` rule). See change: add-grammar-capitalize-toggle.
+   */
+  capitalizeFirstWord: boolean;
   /** LanguageTool backend server. Default `http://localhost:8081`. */
   languagetool: { url: string };
   /** LLM backend provider/model. Only set when configured. */
@@ -36,6 +43,7 @@ export const DEFAULT_GRAMMAR: GrammarConfig = {
   minChars: 12,
   maxChars: 4000,
   language: "auto",
+  capitalizeFirstWord: false,
   languagetool: { url: "http://localhost:8081" },
 };
 
@@ -78,6 +86,8 @@ export function parseGrammarConfig(raw: unknown): GrammarConfig {
     minChars: clampNumber(r.minChars, d.minChars, 1, 500),
     maxChars: clampNumber(r.maxChars, d.maxChars, 100, 20000),
     language: typeof r.language === "string" && r.language.trim() ? r.language : d.language,
+    capitalizeFirstWord:
+      typeof r.capitalizeFirstWord === "boolean" ? r.capitalizeFirstWord : d.capitalizeFirstWord,
     languagetool: { url },
     ...(llm ? { llm } : {}),
   };

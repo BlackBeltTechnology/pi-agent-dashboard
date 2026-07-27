@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ActiveSuggestion } from "../useGrammarCheck.js";
 import { GrammarPanel } from "../GrammarPanel.js";
+import type { ActiveSuggestion } from "../useGrammarCheck.js";
 
 const SUGGESTIONS: ActiveSuggestion[] = [
   { id: "a", offset: 2, length: 3, original: "has", replacement: "have", kind: "grammar", message: "Agreement", stale: false },
@@ -54,6 +54,30 @@ describe("GrammarPanel", () => {
     expect(screen.getAllByTestId("grammar-suggestion")).toHaveLength(2);
     expect(screen.getByText("has")).toBeTruthy();
     expect(screen.getByText("have")).toBeTruthy();
+  });
+
+  it("renders a word-level inline diff, highlighting only the changed words", () => {
+    const longEdit: ActiveSuggestion[] = [
+      {
+        id: "c",
+        offset: 0,
+        length: 40,
+        original: "I think we should consider using the new approach here",
+        replacement: "I think we should consider adopting the new approach here",
+        kind: "style",
+        message: "Word choice",
+        stale: false,
+      },
+    ];
+    render(<GrammarPanel {...baseProps()} suggestions={longEdit} />);
+    const diff = screen.getByTestId("grammar-diff");
+    // Unchanged span stays neutral (no strike / no accent classes).
+    expect(diff.textContent).toContain("the new approach here");
+    // Only the changed words carry the highlight classes.
+    const removed = screen.getByText("using");
+    expect(removed.className).toContain("line-through");
+    const added = screen.getByText("adopting");
+    expect(added.className).toContain("accent-green");
   });
 
   it("apply-all triggers the callback", () => {

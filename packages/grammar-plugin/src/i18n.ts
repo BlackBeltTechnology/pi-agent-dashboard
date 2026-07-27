@@ -19,6 +19,7 @@ export const catalog = {
     desc: "A szerkesztő nyelvhelyesség-ellenőrzőjének beállításai. Az ellenőrzés a szerveren fut a kiválasztott háttérrel.",
     enabled: "Bekapcsolva",
     autoCheck: "Automatikus ellenőrzés gépelés közben",
+    capitalizeFirstWord: "Mondatkezdő nagybetűsítés",
     backend: "Háttér",
     backendLanguagetool: "LanguageTool (helyi, offline)",
     backendLlm: "LLM (konfigurált szolgáltató)",

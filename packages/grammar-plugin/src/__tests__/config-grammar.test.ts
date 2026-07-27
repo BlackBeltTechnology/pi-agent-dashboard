@@ -12,6 +12,7 @@ describe("parseGrammarConfig", () => {
     expect(g.minChars).toBe(12);
     expect(g.maxChars).toBe(4000);
     expect(g.language).toBe("auto");
+    expect(g.capitalizeFirstWord).toBe(false);
     expect(g.languagetool.url).toBe("http://localhost:8081");
     expect(g.llm).toBeUndefined();
   });
@@ -66,6 +67,11 @@ describe("parseGrammarConfig", () => {
     const g = parseGrammarConfig({ enabled: true, nonsense: 42 });
     expect(g.enabled).toBe(true);
     expect((g as unknown as Record<string, unknown>).nonsense).toBeUndefined();
+  });
+
+  it("parses capitalizeFirstWord and ignores non-boolean values", () => {
+    expect(parseGrammarConfig({ capitalizeFirstWord: true }).capitalizeFirstWord).toBe(true);
+    expect(parseGrammarConfig({ capitalizeFirstWord: "yes" }).capitalizeFirstWord).toBe(false);
   });
 
   it("defaults languagetool.url when blank", () => {

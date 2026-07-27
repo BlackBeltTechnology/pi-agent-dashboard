@@ -9,12 +9,12 @@
  * See change: add-composer-grammar-check.
  */
 
-import type { GrammarConfig } from "../grammar-config.js";
 import type {
   GrammarCheckResult,
   GrammarErrorCode,
   GrammarHealth,
 } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
+import type { GrammarConfig } from "../grammar-config.js";
 import { checkWithLanguageTool } from "./backends/languagetool.js";
 import { checkWithLlm, type LlmModelRegistry, type LlmStreamFn } from "./backends/llm.js";
 import { GrammarBackendError } from "./grammar-errors.js";
@@ -59,6 +59,7 @@ export async function checkGrammar(args: CheckGrammarArgs): Promise<GrammarCheck
         provider: config.llm?.provider,
         model: config.llm?.model,
         language,
+        capitalizeFirstWord: config.capitalizeFirstWord,
         registry: args.registry,
         streamSimple: args.streamSimple,
         signal: args.signal,
@@ -67,6 +68,7 @@ export async function checkGrammar(args: CheckGrammarArgs): Promise<GrammarCheck
       result = await checkWithLanguageTool(text, {
         url: config.languagetool.url,
         language,
+        capitalizeFirstWord: config.capitalizeFirstWord,
         signal: args.signal,
       });
     }

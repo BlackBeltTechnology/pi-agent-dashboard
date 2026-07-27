@@ -23,6 +23,20 @@ function doneStream(text: string): LlmStreamFn {
     })();
 }
 
+/** Like `doneStream`, but records the `system` prompt passed to streamSimple. */
+function capturingStream(text: string): { fn: LlmStreamFn; captured: { system?: string } } {
+  const captured: { system?: string } = {};
+  const fn: LlmStreamFn = (opts: { system?: string }) => {
+    captured.system = opts.system;
+    return (async function* () {
+      yield { type: "done", message: { content: [{ type: "text", text }] } };
+    })();
+  };
+  return { fn, captured };
+}
+
+const EMPTY_RESULT = '{"correctedText":"x","suggestions":[],"summary":""}';
+
 describe("extractJsonObject", () => {
   it("parses a bare JSON object", () => {
     expect(extractJsonObject('{"a":1}')).toEqual({ a: 1 });
@@ -134,6 +148,31 @@ describe("checkWithLlm (registry + streamSimple)", () => {
       streamSimple: doneStream(json),
     });
     expect(res.suggestions[0]?.kind).toBe("style");
+  });
+
+  it("suppresses sentence-start capitalization by default (prompt instruction)", async () => {
+    const { fn, captured } = capturingStream(EMPTY_RESULT);
+    await checkWithLlm("hello world", {
+      provider: "anthropic",
+      model: "claude-x",
+      language: "en-US",
+      registry: okRegistry,
+      streamSimple: fn,
+    });
+    expect(captured.system).toContain("Do NOT change the capitalization");
+  });
+
+  it("omits the capitalization instruction when capitalizeFirstWord is true", async () => {
+    const { fn, captured } = capturingStream(EMPTY_RESULT);
+    await checkWithLlm("hello world", {
+      provider: "anthropic",
+      model: "claude-x",
+      language: "en-US",
+      capitalizeFirstWord: true,
+      registry: okRegistry,
+      streamSimple: fn,
+    });
+    expect(captured.system).not.toContain("Do NOT change the capitalization");
   });
 
   it("throws backend_unconfigured when the model runtime is unavailable", async () => {

@@ -113,11 +113,21 @@ export function summarize(suggestions: GrammarSuggestion[]): string {
  */
 export async function checkWithLanguageTool(
   text: string,
-  opts: { url: string; language: string; signal?: AbortSignal; timeoutMs?: number },
+  opts: {
+    url: string;
+    language: string;
+    /** Allow sentence-start capitalization corrections. Default `false`. */
+    capitalizeFirstWord?: boolean;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  },
 ): Promise<GrammarCheckResult> {
   const base = opts.url.replace(/\/+$/, "");
   const { signal, done } = withTimeoutSignal(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, opts.signal);
   const body = new URLSearchParams({ text, language: opts.language || "auto" });
+  // When sentence-start capitalization is opt-out (default), disable the LT rule
+  // so lowercase sentence starts are never flagged. See change: add-grammar-capitalize-toggle.
+  if (!opts.capitalizeFirstWord) body.append("disabledRules", "UPPERCASE_SENTENCE_START");
   try {
     const response = await fetch(`${base}/v2/check`, {
       method: "POST",

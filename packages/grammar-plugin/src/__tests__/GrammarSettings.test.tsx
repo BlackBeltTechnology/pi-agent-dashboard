@@ -59,6 +59,7 @@ function baseGrammar(overrides: Partial<GrammarConfig> = {}): GrammarConfig {
     minChars: 12,
     maxChars: 4000,
     language: "auto",
+    capitalizeFirstWord: false,
     languagetool: { url: "http://localhost:8081" },
     ...overrides,
   };

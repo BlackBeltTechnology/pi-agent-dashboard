@@ -110,6 +110,15 @@ export function useGrammarCheck(args: UseGrammarCheckArgs): UseGrammarCheck {
     reset();
   }, [sessionId, reset]);
 
+  // An empty composer has nothing to correct: clear the panel (and abort any
+  // in-flight check) once the draft is blank. This is what fires after Send
+  // (which resets the draft to "") so stale corrections don't linger, and it
+  // also covers a manual clear. Guarded on `status` so it is a no-op — and
+  // never loops — once already idle.
+  useEffect(() => {
+    if (status !== "idle" && draft.trim() === "") reset();
+  }, [draft, status, reset]);
+
   const runCheck = useCallback(
     (text: string) => {
       abortRef.current?.abort();

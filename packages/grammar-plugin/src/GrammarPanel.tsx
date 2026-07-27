@@ -6,10 +6,11 @@
  * itself stays a plain textarea. See change: add-composer-grammar-check.
  */
 
-import type { GrammarErrorCode } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { GrammarErrorCode } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import { mdiCheck, mdiClose, mdiSpellcheck } from "@mdi/js";
 import Icon from "@mdi/react";
+import { type DiffSegmentType, diffTokens } from "./grammar-diff.js";
 import type { ActiveSuggestion, GrammarStatus } from "./useGrammarCheck.js";
 
 interface Props {
@@ -133,8 +134,7 @@ export function GrammarPanel({
           >
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <span className="line-through text-[var(--accent-red)] break-words">{s.original}</span>
-                <span className="text-[var(--accent-green)] break-words">{s.replacement}</span>
+                <SuggestionDiff original={s.original} replacement={s.replacement} />
                 <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{s.kind}</span>
               </div>
               {s.message && (
@@ -170,6 +170,29 @@ export function GrammarPanel({
         ))}
       </ul>
     </div>
+  );
+}
+
+const DIFF_SEG_CLASS: Record<DiffSegmentType, string> = {
+  equal: "text-[var(--text-secondary)]",
+  delete: "line-through text-[var(--accent-red)]",
+  insert: "text-[var(--accent-green)]",
+};
+
+/**
+ * Inline word-level diff of a single correction. Unchanged words render
+ * neutral so the eye jumps straight to the deletion (struck red) and the
+ * insertion (green) — the fix stays scannable even in a long sentence.
+ */
+function SuggestionDiff({ original, replacement }: { original: string; replacement: string }) {
+  return (
+    <span data-testid="grammar-diff" className="break-words">
+      {diffTokens(original, replacement).map((seg, i) => (
+        <span key={i} className={DIFF_SEG_CLASS[seg.type]}>
+          {seg.value}
+        </span>
+      ))}
+    </span>
   );
 }
 
