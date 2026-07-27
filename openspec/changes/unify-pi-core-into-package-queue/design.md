@@ -4,17 +4,20 @@
 
 The dashboard tracks three kinds of long-running package operations:
 
-| Kind | Server endpoint | Server class | Client state owner today | Survives unmount? |
-|---|---|---|---|---|
-| Extension install/remove/update | `POST /api/packages/{install,remove,update}` | `PackageManagerWrapper.run` | `packageQueue` (module singleton) | ✓ |
-| Move | `POST /api/packages/move` | `PackageManagerWrapper.move` | `moveTracker` (module singleton) | ✓ |
-| Pi-core update | `POST /api/pi-core/update` | `PiCoreUpdater.update` | **`UnifiedPackagesSection` `useState`** | ✗ |
+| Kind | Server endpoint | Server class | Client state owner today | Rides `packageQueue`? | Retries 409? | Survives unmount? |
+|---|---|---|---|---|---|---|
+| Extension install/remove/update | `POST /api/packages/{install,remove,update}` | `PackageManagerWrapper.run` | `packageQueue` (module singleton) | ✓ | ✓ once | ✓ |
+| Move | `POST /api/packages/move` | `PackageManagerWrapper.move` | `moveTracker` (`lib/nav/move-tracker.ts`) | ✗ | ✗ **never** | ✓ |
+| Reset-to-npm | `POST /api/packages/reset-to-npm` | `PackageManagerWrapper.reset` | `moveTracker` (`kind: "reset"`) | ✗ | ✗ **never** | ✓ |
+| Pi-core update | `POST /api/pi-core/update` | `PiCoreUpdater.update` | **`UnifiedPackagesSection` `useState`** | ✗ | ✗ **never** | ✗ |
 
-All three share the same server-side busy lock: `PackageManagerWrapper.busy` is checked by `run` (extension), `move`, and `runExclusive` (pi-core). The lock is global and source-agnostic. Two ops cannot run concurrently regardless of kind.
+All four share the same server-side busy lock: `PackageManagerWrapper.busy` is checked by `run` (extension, `:275`), `move` (`:305`), `reset` (`:348`), and `runExclusive` (pi-core, `:258`). The lock is global and source-agnostic. Two ops cannot run concurrently regardless of kind; the loser gets `PackageOperationInProgressError` (`:810`) → HTTP 409.
+
+**Only one of the four op classes both queues and retries.** The other three POST immediately and surface a raw 409 to the user. This change fixes the pi-core row of that table; move and reset are addressed by a follow-up (see Non-goals) but are recorded here because they are the *same defect*, not a separate one.
 
 The asymmetry is purely on the client. Pi-core was added before the queue existed and the state ended up in component-local `useState`. The screenshot bug — *"button reverts to enabled with red 409 error after navigating away and back"* — is the direct consequence: unmount discards `useState`, the queue/server stays busy, and the next click 409s.
 
-A narrower fix (a parallel `pi-core-update-tracker.ts` mirroring `move-tracker.ts`) would address the screenshot bug without addressing the cross-domain 409 class (extension install during pi-core update → 409 → confusing red error on the wrong-looking row, and vice versa). This change addresses both by routing pi-core through `packageQueue`.
+A narrower fix (a parallel `pi-core-update-tracker.ts` mirroring `move-tracker.ts`) would address the screenshot bug without addressing the cross-domain 409 class (extension install during pi-core update → 409 → confusing red error on the wrong-looking row, and vice versa). This change addresses the screenshot bug by routing pi-core through `packageQueue`, and the cross-domain class by disabling lock-taking controls while any operation runs (D9). Routing pi-core through the queue is *not on its own* sufficient for the cross-domain case — it stops the Core group from initiating a conflict, but every extension row can still fire one.
 
 ## Goals / Non-goals
 
@@ -25,13 +28,21 @@ A narrower fix (a parallel `pi-core-update-tracker.ts` mirroring `move-tracker.t
 3. Cross-domain 409s are eliminated: an extension install enqueued while pi-core is updating is automatically queued, not POSTed-then-409'd.
 4. There is exactly **one** module-level state machine for "single-flight package operations" on the client.
 5. The change is reversible — pure client refactor with no protocol or server changes.
+6. **No enabled button can produce a 409.** Any control whose action would take the server busy lock is disabled while *any* operation is running — not merely while its own row's operation is running. This closes the gap that makes the bug user-visible (D9).
 
 ### Non-goals
 
-- Bringing `moveTracker` into the queue. Moves are `moveId`-keyed, multi-phase, and have partial-success semantics. They don't fit the source-keyed model and there's no bug-fix justification for the refactor.
+- **Bringing `moveTracker` (move + reset-to-npm) into the queue.** Deferred, but *not* for lack of justification — an earlier draft of this design claimed "there's no bug-fix justification for the refactor" and that claim is **false**. `move` and `reset-to-npm` bypass `packageQueue` entirely (`packages-api.ts:56` / `:113`, invoked directly by `usePackageOperations.move` / `.resetToNpm`), take the same busy lock, and have **no 409 retry whatsoever** — strictly worse than extension ops and failing in exactly the way pi-core does. They register into `moveTracker` only on a successful POST; a 409 leaves no queued work behind at all.
+
+  The real reason to defer is scope and shape, not absence of a bug: moves are `moveId`-keyed, multi-phase, and carry partial-success semantics (install OK / remove failed), so they do not fit the source-keyed `statusFor(source)` contract without a second identity axis. Folding them in alongside the pi-core migration would roughly double this change's surface and couple two independent refactors.
+
+  **Mitigation in the interim**: Goal 6 / D9 disables move and reset controls while any operation is running, so the *user-visible* 409 disappears for all four op classes even though only pi-core is migrated. A follow-up change should complete the unification.
+- Making the queue durable across a hard page reload or shared across browser clients. See the multi-client note under R5.
 - Server-side reload debouncing. With "Update All" splitting into N enqueues, each pi-core update triggers its own session reload. Documented as a trade-off; if it becomes a UX issue, a follow-up change can add a debounce window inside `PackageManagerWrapper`.
 - Resuming "is updating?" state after a hard page reload. Same rationale as the previous design draft — the queue is in-memory and rehydration would require a new server endpoint we're not adding.
 - Unifying the WebSocket dispatch channels (`pi-core-event` and `pi-package-event`). The two event shapes are different; the channel boundary acts as a useful pre-filter at the message-handler routing layer.
+- **A global "Update All" button that updates core + extensions + Node + git refs + model catalogs in one action.** This change is the *prerequisite* for it (see "Forward design: Update All as a queue fill" below) but does not ship it. D3's "Update All" is scoped to the Core sub-group only, which is existing behaviour being migrated — not a new feature.
+- Adding `kind: "git-ref"` or `kind: "models"` arms. This change introduces the discriminator with exactly two values. The extension points are designed for (D7) but not built.
 
 ## Decisions
 
@@ -112,6 +123,82 @@ The same pattern is already used by `move`, which has its own typed helper (`mov
 
 **Why preserve the per-row error display**: it's the existing UX pattern, established for extension rows. Migrating pi-core onto the same hook automatically gives pi-core the same error rendering. No new design surface.
 
+### D7. `kind` is an open union, deliberately sized for future operation classes
+
+**Decision**: `kind` is introduced with two values (`"extension" | "pi-core"`), but `postOperation`'s dispatch is written as an exhaustive `switch` on `kind` rather than an `if (kind === "pi-core")` special-case. Adding a third operation class is then a new `case` plus a new endpoint — no restructuring.
+
+**Why this matters now**: three further operation classes are already specified or identified elsewhere, and all of them share the same server busy lock, meaning all of them *must* eventually ride this queue or they will reproduce exactly the 409 bug this change fixes:
+
+| Future `kind` | Endpoint | Source of the requirement |
+|---|---|---|
+| `"node"` | `POST /api/pi-core/update-node` | change: `manage-node-runtime-updates` |
+| `"git-ref"` | *(none yet)* — reconcile a pinned git package's checkout | gap vs `pi update --extensions`; see D8 |
+| `"models"` | *(none yet)* — refresh model catalogs | gap vs `pi update --models`; see D8 |
+
+**Why not add them in this change**: two of the three have no server endpoint yet, and `"node"` belongs to a separate in-flight change. Introducing unused union members would be speculative. The `switch` shape is the entire forward investment — it costs nothing and prevents the next author from bolting on a second special-case.
+
+### D8. The dashboard does NOT delegate to the pi CLI's `pi update --all`
+
+**Decision**: The dashboard keeps updating packages by invoking `npm install <pkg>@latest` at a *specific resolved install location* (`packages/server/src/pi/pi-core-updater.ts`). It does not shell out to `pi update --all` / `--extensions` / `--models`, even though that command family exists and nominally covers more ground.
+
+**Why this is recorded here**: this queue is the dashboard's update engine. Anyone extending it (especially for the `"git-ref"` and `"models"` arms in D7, which are *precisely* the capabilities `pi update --all` already has) will ask "why not just call the CLI?" The answer is structural, not incidental.
+
+**Why not**: `pi update --all` acts on whichever `pi` binary is invoked. There is no single canonical `pi` on a given machine — `ToolRegistry` (`packages/shared/src/tool-registry/definitions.ts`) resolves `pi` through an ordered chain, and the doctor skill's `pi-resolution` module exists specifically because a machine routinely has several installs at once (override, bundled server `node_modules`, `~/.pi-dashboard` managed, npm-global, nvm-global, `PATH`, bundled-Electron resources).
+
+Three concrete consequences:
+
+1. **Ambiguous target.** `--all` updates the install belonging to the binary that ran. That is not necessarily the install a given pi *session* is running. The user would see "updated" while their session's bytes are untouched.
+2. **Not always a runnable CLI.** Several resolution strategies (`bareImportCliStrategy`, `managedModuleStrategy`) yield a *module directory*, not a `pi` executable. Invoking the CLI means reconstructing `[node, <dir>/dist/index.js, update, --all]` — and `--all` then reconciles against *that* install's settings scope, not a scope the dashboard chose.
+3. **Loss of determinism.** The current updater knows exactly which bytes it replaces because it targets a resolved location explicitly. `--all` delegates that decision to the invoked pi's own settings resolution, which the dashboard cannot observe or constrain.
+
+The dashboard's job is to manage *all* of a machine's pi installs coherently; `pi update --all` is inherently single-install. The capability gaps it would have covered (git-ref reconciliation, model-catalog refresh) are therefore closed **natively, per-location**, as new `kind` arms per D7 — not by delegation.
+
+**Reversibility**: this is a design stance, not code. If pi ever exposes a location-targeted update (`pi update --all --prefix <dir>` or equivalent), the `"git-ref"`/`"models"` arms could be reimplemented as CLI invocations behind the same `kind` dispatch, with no change to the queue contract.
+
+### D9. Every lock-taking control is disabled while *any* operation is running
+
+**Decision**: Row and group controls gate on `packageQueue.isAnyRunning()` (plus `moveTracker` activity), not on whether the running op is their own. Concretely, `UnifiedPackagesSection` today computes:
+
+```ts
+const busy = operations.runningSource === opSource;   // :282 — own source only
+// … and for the Core group:
+disabled={coreUpdating.size > 0}                       // :389 — core state only
+```
+
+Both are too narrow. The consequences are directly user-visible and are the reason the defect reads as "everything fails":
+
+| While this runs… | …these stay clickable | Result on click |
+|---|---|---|
+| pi-core update | every extension Install / Update / Remove row button | 409 → red error on an idle-looking row |
+| extension op | Core group "Update All" | 409 → red error under the Core group |
+| any op | Move / Reset-to-npm controls | 409, and **no retry** (see Non-goals) |
+
+**Decision detail**: keep `busy` (own-source) as the signal for *spinner + progress text*, and introduce a separate `locked` (any-op-running) signal for *disabled*. Conflating them would either spin every row at once or leave rows enabled.
+
+**Why this belongs in this change rather than a follow-up**: the queue migration alone makes concurrent ops *impossible to initiate from the Core group*, but leaves every extension row still able to fire one. Shipping the migration without D9 fixes the reported reproduction while leaving the wider 409 class intact — the user would still find a clickable button that errors. Goal 3 is only met with D9. `isAnyRunning()` is already being added (see Open questions); D9 is what consumes it.
+
+**Trade-off**: a long pi-core update disables the entire packages UI for its duration. That is honest — the server genuinely cannot accept another operation — and is strictly better than an enabled button that fails. Tooltips should explain *why* a control is disabled rather than leaving it inert and unexplained.
+
+### D10. Pi-core completion must clear only the packages it completed
+
+**Decision**: pi-core completion handling clears per-package state keyed by name, never the whole collection.
+
+**The latent defect**: today the WS handler does
+
+```ts
+} else if (msg?.type === "pi_core_update_complete") {
+    setCoreUpdating(new Set());     // :119 — clears ALL
+    setCoreProgress(new Map());     // :120 — clears ALL
+```
+
+This is *currently correct by accident*: `doCoreUpdate(packages)` sends one batch POST for every selected package, so exactly one `pi_core_update_complete` arrives carrying `results[]` for all of them. Clearing everything is right when there is only ever one in-flight batch.
+
+**D3 breaks that assumption.** Splitting "Update All" into N single-name enqueues means N sequential POSTs and N completion events. Under the current handler, the *first* completion would wipe the spinner and progress state for the packages still queued or running — rows would look idle while work continued, which is the same false-idle illusion as the original screenshot bug.
+
+Routing pi-core through `packageQueue` fixes this structurally, because the queue keys state per source (`pi-core:<name>`) and `completeRunning` only transitions the running op. The requirement is recorded as an explicit decision so the migration is not implemented in a way that reintroduces collection-wide clearing, and so the accompanying test asserts it: with two core packages enqueued, the first completion must leave the second's row busy.
+
+**Also**: `setCoreErrors(errs)` replaces the error map wholesale on every completion, so an error from package 1 vanishes when package 2 completes. Per-source error state in the queue resolves this for free.
+
 ## Risks / Trade-offs
 
 ### R1. N session reloads on "Update All"
@@ -146,14 +233,52 @@ The `usePiCoreVersions` hook independently consumes the same WS event for its ow
 
 This is actually less surprising than today: today the pi-core component never retries, so a transient 409 always surfaces as an error. After this change, transient 409s may auto-recover.
 
+**Note on retry sizing**: `RETRY_BACKOFF_MS` (500 ms) with `retries < 1` is sized for a *millisecond-scale* race between two nearly-simultaneous POSTs. It is **not** sized to outwait a real operation. A pi-core `npm install` holds the busy lock for 5–30 s, so an extension op enqueued during one exhausts its single retry long before the lock frees. This is why the current bug manifests as a hard failure rather than a delay — and why the fix must be *serialization in one FIFO*, not a longer retry. Once every operation class rides the queue (D7), two concurrent POSTs become impossible **from within a single client**, and the retry policy degrades to a safety net for the cases the client FIFO cannot see.
+
+**Multi-client caveat — the FIFO is per-client, the lock is global.** `PackageManagerWrapper.busy` is a plain boolean that *rejects* rather than *queues* (`:258`). `packageQueue` is a browser-module singleton, so two dashboard clients — two browser tabs, or a browser tab plus the Electron window — each run an independent FIFO with no knowledge of the other. They will still 409 each other, and the retry-once policy remains the only mitigation (and remains undersized against a multi-minute core update). Serializing across clients would require the queue to live server-side, which this change does not do. So the accurate claim is: **this change eliminates self-inflicted 409s, not all 409s.** D9 narrows the remaining window further by disabling controls while any op is running, but cannot close it — client B has no way to know client A started an operation until its own POST is rejected.
+
+## Forward design: "Update All" as a queue fill
+
+This change does not implement a global Update All (see Non-goals), but it determines the shape of the one that follows, so the layering is recorded here.
+
+Once every operation class rides `packageQueue` (D7), a global "Update All" is **not a new execution engine**. It is a *producer*: enumerate what is updatable, `enqueue()` one op per item, and let the existing FIFO drain them serially under the single server busy lock.
+
+```mermaid
+flowchart TD
+    A["User clicks Update All"] --> B["ENUMERATE updatable items"]
+    B --> B1["GET /api/pi-core/status<br/>→ core pkgs w/ updateAvailable"]
+    B --> B2["GET /api/packages/installed<br/>→ extensions w/ newer version"]
+    B --> B3["node runtime updateAvailable<br/>(manage-node-runtime-updates)"]
+    B --> B4["git pkgs w/ drifted checkout<br/>(kind: git-ref)"]
+    B --> B5["stale model catalogs<br/>(kind: models)"]
+    B1 & B2 & B3 & B4 & B5 --> C["FILL packageQueue — enqueue() per item"]
+    C --> D{{"FIFO drain — single-flight"}}
+    D --> E1["item 1 → POST + progress"]
+    E1 --> E2["item 2 → POST + progress"]
+    E2 --> E3["item N …"]
+    E3 --> F["refetch status<br/>+ session reload if core changed"]
+```
+
+**Why this change is a hard prerequisite**: filling the queue today would 409 on every core item, because pi-core bypasses the queue entirely (`UnifiedPackagesSection.tsx` — raw `fetch` to `/api/pi-core/update`). The fill only becomes safe once dispatch is unified. Ordering is therefore forced: unify first (this change), then fill, then add the `"git-ref"`/`"models"` arms.
+
+**Ordering hazard the follow-up must resolve**: a successful pi-core update triggers a session reload. If the client holding the in-memory queue is itself reloaded mid-drain, every remaining queued item is silently orphaned — a strictly worse failure than today's visible 409. Two candidate resolutions, to be decided by the follow-up:
+
+1. **Order core/node last** in the fill, so a reload can only orphan an empty tail. Cheap, entirely client-side, but fragile — it encodes a correctness requirement as an array sort order.
+2. **Move the queue server-side.** Removes the reload hazard and the "state lost on unmount" class of bug at its root, at the cost of a new endpoint plus a queue-state WS projection. Note this change already fixes unmount-survival via the module singleton; a reload-survival requirement is what would justify going further.
+
+**Enumeration freshness** is the other open axis: a fill-time snapshot can go stale mid-drain (e.g. a core bump changes an extension's acceptable peer range). Re-checking per item before its POST is more correct but makes the queue depth a moving target in the UI.
+
 ## Migration plan
 
 1. **Extend `packageQueue` with `kind` + `pi-core` dispatch**. All existing tests pass with `kind` defaulted to `"extension"`. New unit tests cover the pi-core dispatch arm.
 2. **Add `coreUpdate` to `usePackageOperations`**. New hook test covers the path.
-3. **Refactor `UnifiedPackagesSection`**. Snapshot the rendered output before/after to confirm no visual regression. Add a component-level integration test that simulates "click Update → unmount → remount → row still busy".
-4. **Manual verification of the screenshot reproduction**.
+3. **Refactor `UnifiedPackagesSection`**. Snapshot the rendered output before/after to confirm no visual regression. Add a component-level integration test that simulates "click Update → unmount → remount → row still busy". Delete the collection-wide clearing in the `pi_core_update_complete` handler per D10.
+4. **Wire D9's `locked` signal**. Separate `busy` (own-source, drives spinner) from `locked` (any-op-running, drives `disabled`) across extension rows, the Core group button, and the move/reset controls. Add tooltips explaining why a control is disabled.
+5. **Manual verification of the screenshot reproduction**, plus the cross-domain case: start a pi-core update, confirm every extension row's action button is disabled rather than clickable-then-409.
 
-Total implementation surface: ~150 LoC added to `packageQueue` + hook, ~80 LoC removed from `UnifiedPackagesSection`. Net: smaller component, larger queue, simpler overall architecture.
+Total implementation surface: ~150 LoC added to `packageQueue` + hook, ~80 LoC removed from `UnifiedPackagesSection`, ~40 LoC of gating changes for D9. Net: smaller component, larger queue, simpler overall architecture.
+
+Note that D9 touches move/reset controls even though move/reset are not migrated into the queue — that is deliberate (see Non-goals): it removes the user-visible 409 for those paths without refactoring their state ownership.
 
 No protocol changes. No settings file migrations. Reversible by `git revert`.
 
@@ -162,3 +287,6 @@ No protocol changes. No settings file migrations. Reversible by `git revert`.
 - **Should `coreUpdate` accept a `scope` parameter?** Pi-core packages always live in a single scope (either npm-global or `~/.pi-dashboard/`), determined server-side from `pkg.installSource`. The client never picks a scope for pi-core updates. Decision: **no** — `coreUpdate(name)` takes only the name; scope is implicit (`"global"`).
 - **Should the existing `usePackageOperations(scope, cwd, onComplete)` signature be extended for pi-core?** No. Pi-core has no per-cwd notion. The existing hook signature works as-is; we just add a method.
 - **Should `isAnyRunning()` be exposed on the queue's public API as part of this change?** Yes — once pi-core is in the queue, `isAnyRunning()` correctly says yes during pi-core updates, which is needed by any future cross-domain UI lock. Adding it is one line; not adding it leaves the cross-domain lock as a follow-up. Decision: **add it**, with no consumer changes in this proposal. The follow-up that disables every package button while any op is running can land separately, gated by this primitive.
+- **Should the global "Update All" fill live in the client or the server?** Deferred to the follow-up. The reload hazard (see "Forward design") is the deciding factor: client-side fill is simpler and reuses everything this change builds, but cannot survive the session reload that a core update triggers. Recording the question here so the follow-up does not default to the client fill without confronting it.
+- **Do `"git-ref"` and `"models"` ops need per-row UI, or are they invisible maintenance steps?** Unknown. They have no natural "row" in `UnifiedPackagesSection` the way a package does — a git-ref reconcile targets an existing package row, while a model-catalog refresh targets nothing visible. If they surface in the queue's per-source state without a row to render them, `statusFor` gains keys no component reads. Worth settling before the arms are added, not now.
+- **Does closing the git-ref/models gaps require new server endpoints, or can they extend existing ones?** Open. D8 commits to implementing them natively rather than via `pi update`, but not to their surface shape. Both are plausibly `POST /api/packages/reconcile` and `POST /api/models/refresh`; neither exists today.
