@@ -1888,10 +1888,12 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
 
 /**
  * Folder header left gutter — chevron at top, drag-handle column extending
- * the full height of the header content. The chevron itself remains a
- * click-to-toggle button (pointer events stop propagation so the surrounding
- * drag listener doesn't compete on click). The empty space below the chevron
- * is the drag zone, mirroring the SessionCard gutter pattern.
+ * the full height of the header content. Both the chevron AND the column
+ * below it are drag handles: pointerdown bubbles to this div's dnd-kit
+ * listeners, and the PointerSensor's 5px activation distance means a plain
+ * click still toggles collapse while a drag (>5px) reorders — so collapsed
+ * folders stay reorderable via their always-visible chevron. Mirrors the
+ * SessionCard gutter pattern.
  */
 function FolderDragGutter({
   isCollapsed,
@@ -1910,8 +1912,7 @@ function FolderDragGutter({
     >
       <button
         onClick={(e) => { e.stopPropagation(); onToggle(); }}
-        onPointerDown={(e) => e.stopPropagation()}
-        className="inline-flex items-center justify-center cursor-pointer hover:text-[var(--text-secondary)]"
+        className="inline-flex items-center justify-center cursor-grab active:cursor-grabbing hover:text-[var(--text-secondary)]"
         title={isCollapsed ? "Expand folder" : "Collapse folder"}
         data-testid="folder-toggle-btn"
       >
