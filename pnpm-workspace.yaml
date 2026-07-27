@@ -69,7 +69,7 @@ allowBuilds:
   koffi: true
   macos-alias: true
   node-pty: true
-  phantomjs-prebuilt: true
+  phantomjs-prebuilt: false
   protobufjs: true
   sharp: true
 
