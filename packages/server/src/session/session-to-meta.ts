@@ -62,6 +62,12 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // full .meta.json overwrite (not a merge) — omitting it wipes tags on the
     // next unrelated save. See change: add-session-tags.
     tags: session.tags,
+    // Persist the disposability marker. MUST be listed here because this save
+    // does a full .meta.json overwrite (not a merge) — omitting it wipes the
+    // marker, so a restart would reclassify an ephemeral session as durable
+    // (absent ⇒ durable) and it would escape reaping forever.
+    // See change: add-embed-session-lifecycle.
+    lifecyclePolicy: session.lifecyclePolicy,
     cachedAt: Date.now(),
   };
 }

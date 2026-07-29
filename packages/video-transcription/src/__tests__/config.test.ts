@@ -76,4 +76,33 @@ describe("loadConfig", () => {
     expect(cfg.maxChunkHours).toBe(4.5);
     expect(cfg.maxAudioMb).toBe(200);
   });
+
+  const concurrency = (raw?: string) =>
+    loadConfig({
+      env: raw === undefined ? { SONIOX_API_KEY: "k" } : { SONIOX_API_KEY: "k", TRANSCRIBE_CONCURRENCY: raw },
+      cwd: dir,
+      skillDir: dir,
+    }).concurrency;
+
+  it("defaults concurrency to 8 when unset", () => {
+    expect(concurrency()).toBe(8);
+  });
+
+  it("parses a valid positive integer concurrency", () => {
+    expect(concurrency("4")).toBe(4);
+  });
+
+  it("falls back to the default for zero, negative, or non-numeric concurrency", () => {
+    expect(concurrency("0")).toBe(8);
+    expect(concurrency("-2")).toBe(8);
+    expect(concurrency("abc")).toBe(8);
+  });
+
+  it("clamps concurrency above the Soniox pending cap to 100", () => {
+    expect(concurrency("250")).toBe(100);
+  });
+
+  it("truncates a fractional concurrency value", () => {
+    expect(concurrency("3.9")).toBe(3);
+  });
 });

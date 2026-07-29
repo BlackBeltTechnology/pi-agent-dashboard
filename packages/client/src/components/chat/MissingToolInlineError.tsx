@@ -7,13 +7,14 @@
  * scrolls the matching row into view, and opens its `[Install ▾]`
  * dropdown.
  *
- * See change: register-bash-and-tool-install-help.
+ * Rendered via the shared `InlineMessage` compact/warning variant.
+ * See change: register-bash-and-tool-install-help; redesign-directory-card.
  */
-import React from "react";
-import { useLocation } from "wouter";
-import { Icon } from "@mdi/react";
 import { mdiAlertCircleOutline, mdiArrowRight } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import { useLocation } from "wouter";
 import { requestToolInstall } from "../../lib/package/tool-install-deeplink.js";
+import { InlineMessage } from "../primitives/InlineMessage.js";
 
 export function MissingToolInlineError({ toolName }: { toolName: string }) {
   const [, navigate] = useLocation();
@@ -26,21 +27,28 @@ export function MissingToolInlineError({ toolName }: { toolName: string }) {
   };
 
   return (
-    <div
-      data-testid="missing-tool-inline-error"
-      className="flex items-center gap-2 text-xs text-amber-500 border border-amber-500/40 rounded px-2 py-1 my-1"
-    >
-      <Icon path={mdiAlertCircleOutline} size={0.6} />
-      <span className="text-[var(--text-secondary)]">
-        <span className="font-mono">{toolName}</span> not found.
-      </span>
-      <button
-        onClick={onInstall}
-        className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 border border-amber-500/40 rounded hover:bg-amber-500/10"
-        title={`Install ${toolName} via Settings → Tools`}
-      >
-        Install {toolName} <Icon path={mdiArrowRight} size={0.5} />
-      </button>
+    <div className="my-1">
+      <InlineMessage
+        severity="warning"
+        variant="compact"
+        icon={mdiAlertCircleOutline}
+        testId="missing-tool-inline-error"
+        title={
+          <>
+            <span className="font-mono">{toolName}</span> not found
+          </>
+        }
+        actions={
+          <button
+            type="button"
+            onClick={onInstall}
+            className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border border-current"
+            title={`Install ${toolName} via Settings → Tools`}
+          >
+            Install {toolName} <Icon path={mdiArrowRight} size={0.5} />
+          </button>
+        }
+      />
     </div>
   );
 }

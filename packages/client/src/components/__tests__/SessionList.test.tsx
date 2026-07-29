@@ -123,8 +123,9 @@ describe("SessionList elevated spawn buttons", () => {
         </ThemeProvider>
       </TestRouter>,
     );
-    // Starts collapsed: spawn button hidden along with the other slots.
-    expect(container.querySelector(".group-collapse.collapsed")).toBeTruthy();
+    // Starts collapsed: the enclosed folder body (Create tray + sessions) is
+    // not rendered at all, so the spawn button is absent (change: folder-card-enclosure).
+    expect(container.querySelector('[data-testid="folder-body-/my/project"]')).toBeNull();
     expect(screen.queryByTestId("folder-spawn-session-btn")).toBeNull();
     // Expand via the header toggle.
     fireEvent.click(screen.getByTestId("folder-toggle-btn"));
@@ -148,6 +149,46 @@ describe("SessionList elevated spawn buttons", () => {
       </TestRouter>,
     );
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+  });
+
+  it("encloses the Create tray inside the folder body (change: folder-card-enclosure)", () => {
+    const { container } = render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/my/project" })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    const body = container.querySelector('[data-testid="folder-body-/my/project"]');
+    expect(body).toBeTruthy();
+    // The Create tray spawn button is a descendant of the enclosed folder body,
+    // not a detached sibling below the card.
+    expect(body?.querySelector('[data-testid="folder-spawn-session-btn"]')).toBeTruthy();
+  });
+
+  it("tints a top-level folder but not a workspace-grouped one (change: folder-card-enclosure)", () => {
+    const { container } = render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            pinnedDirectories={["/root/proj"]}
+            workspaces={[{ id: "ws1", name: "WS", folders: ["/ws/proj"], collapsed: false }]}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    // Top-level (non-workspace) folder body carries the accent-tinted inline
+    // background (color-mix on --accent-blue); a workspace folder does not.
+    const rootBody = container.querySelector('[data-testid="folder-body-/root/proj"]') as HTMLElement | null;
+    expect(rootBody).toBeTruthy();
+    expect(rootBody?.getAttribute("style") ?? "").toContain("--accent-blue");
   });
 });
 

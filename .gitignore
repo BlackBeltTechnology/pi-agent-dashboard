@@ -42,3 +42,4 @@ doc-example/
 # kb knowledge base index
 /.pi/dashboard/kb/index.db
 .reverse-spec-scratch/
+/package-lock.json

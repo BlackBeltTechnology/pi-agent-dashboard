@@ -23,6 +23,15 @@ export interface RegistryModel {
   contextWindow?: number;
   maxTokens?: number;
   cost?: unknown;
+  /**
+   * Raw native per-model thinking-level override table (pi 0.72+). Passed
+   * through verbatim for agent consumers; the server derives NO
+   * `supportedThinkingLevels` (the sole derivation lives in the bridge
+   * extension). `compat` is intentionally NOT in this interface — it is
+   * carried on the registry model for proxy routing but never projected here.
+   * See change: honor-native-models-json-metadata.
+   */
+  thinkingLevelMap?: Record<string, unknown>;
 }
 
 type ExcludedReason = null | "no-credential" | "oauth-incompatible";
@@ -47,6 +56,7 @@ function toRow(m: RegistryModel, excludedReason?: ExcludedReason) {
     ...(m.input ? { input: m.input } : {}),
     ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}),
     ...(m.maxTokens ? { maxTokens: m.maxTokens } : {}),
+    ...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
     ...(m.cost ? { cost: m.cost } : {}),
     ...(excludedReason !== undefined ? { excludedReason } : {}),
   };

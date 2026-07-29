@@ -27,39 +27,37 @@ import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
-import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
-import { createCommitDraftRelay } from "./commit-draft-relay.js";
-import { writeConfigPartial } from "./config-api.js";
 import { isCorsOriginAllowed } from "./auth/cors-origin.js";
 import { registerCsp, resolveCspMode } from "./auth/csp.js";
+import { ensureServerIdentity } from "./auth/identity.js";
+import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
+import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
+import { mintSpawnToken } from "./auth/spawn-token.js";
+import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
+import { createCommitDraftRelay } from "./commit-draft-relay.js";
+import { writeConfigPartial } from "./config-api.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
 import { wireEvents } from "./event-wiring.js";
-import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
-import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
+import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
+import { decorateGoalsWithSpend } from "./goal/decorate-goals-spend.js";
 import { decideBudgetHalt } from "./goal/goal-budget-guard.js";
 import { buildGoalReprime, primeGoalSession } from "./goal/goal-session-primer.js";
 import { createGoalStatusProjector } from "./goal/goal-status-projector.js";
 import { createGoalStore } from "./goal/goal-store.js";
 import { createGoalSupervisor, type GoalDriverSpawnRequest, type GoalSupervisor } from "./goal/goal-supervisor.js";
 import { createGoalVerdictAccumulator } from "./goal/goal-verdict-accumulator.js";
-import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
-import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
-import { ensureServerIdentity } from "./auth/identity.js";
-import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
-import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
-import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
-import { createMemoryEventStore, type EventStore } from "./persistence/memory-event-store.js";
-import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
-import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
-import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
+import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
+import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
+import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
 import { PackageManagerWrapper } from "./package/package-manager-wrapper.js";
+import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager } from "./pairing/pairing.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
@@ -71,15 +69,14 @@ import { createPendingGoalLinkRegistry } from "./pending/pending-goal-link-regis
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
+import { createMemoryEventStore, type EventStore } from "./persistence/memory-event-store.js";
+import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
+import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
+import { createPreferencesStore, type PreferencesStore } from "./persistence/preferences-store.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway, type PiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
-import { createPreferencesStore, type PreferencesStore } from "./persistence/preferences-store.js";
-import { spawnPiSession } from "./spawn-process/process-manager.js";
-import { applyReattachPolicy } from "./session/reattach-placement.js";
-import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
-import { resolveOrderKey } from "./session/resolve-order-key.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
@@ -111,23 +108,29 @@ import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
+import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { registerTranslateRoutes } from "./routes/translate-routes.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
+import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
+import { applyReattachPolicy } from "./session/reattach-placement.js";
+import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
+import { resolveOrderKey } from "./session/resolve-order-key.js";
 import { registerSessionApi } from "./session/session-api.js";
 import { discoverAndBroadcastSessions } from "./session/session-bootstrap.js";
 import { createSessionOrderManager, type SessionOrderManager } from "./session/session-order-manager.js";
 import { scanAllSessions } from "./session/session-scanner.js";
 import { sessionToMeta } from "./session/session-to-meta.js";
-import { mintSpawnToken } from "./auth/spawn-token.js";
+import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
+import { createIdleTimer } from "./spawn-process/idle-timer.js";
+import { spawnPiSession } from "./spawn-process/process-manager.js";
+import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, type TerminalManager } from "./terminal/terminal-manager.js";
 import { createTranslateBridgeDispatcher } from "./translate-via-bridge.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
-import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
-import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
 
 export interface ServerConfig {
   port: number;
@@ -213,6 +216,19 @@ export interface DashboardServer {
    */
   sessionOrderManager: SessionOrderManager;
 }
+
+/**
+ * Recovery reattach grace window (ms). After cold start, a recovery candidate
+ * whose bridge re-registers (comes alive) within this window is a survivor of a
+ * plain restart — not a genuine loss — so it is retracted from the offer and its
+ * on-disk liveness marker consumed. Keeper-carried sessions are gated
+ * synchronously at broadcast time; this window covers non-keeper (tmux / TUI /
+ * mDNS-discovery) bridges whose liveness is only revealed on async reattach.
+ * Sized above typical mDNS-discovery + WS-reconnect latency. In `auto` mode the
+ * resume itself is deferred by this window so a reattaching session is never
+ * double-spawned. See change: fix-recovery-offer-bridge-liveness-gate.
+ */
+const RECOVERY_REATTACH_GRACE_MS = 2500;
 
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
@@ -331,12 +347,36 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log(`[dashboard] Session scan: ${scanResult.sessions.length} sessions, ${scanResult.cacheUpdates} cache updates`);
   }
 
+  // Liveness-gated recovery (change: fix-recovery-offer-bridge-liveness-gate).
+  // Candidates still eligible to be OFFERED (`ask`) or RESUMED (`auto`), keyed
+  // by sessionId. Disk-only classification (`recoveryCandidates`) cannot tell a
+  // plain restart (process survived) from a crash (process gone). A candidate is
+  // removed from this map — and its on-disk marker consumed — the moment a
+  // process-carrier proves it alive: synchronously by the keeper reclaim
+  // (Class 1, in `start()`) or asynchronously when its bridge comes alive within
+  // `RECOVERY_REATTACH_GRACE_MS` (Class 2, via the `onChange` retract check
+  // below). After the grace window the map is finalized (cleared).
+  const liveRecoveryCandidates = new Map<string, DashboardSession>(
+    recoveryCandidates.map((c) => [c.id, c]),
+  );
+  let recoveryOfferBroadcast = false;
+  let recoveryGraceTimer: ReturnType<typeof setTimeout> | undefined;
+
   // Save per-session .meta.json on any change. The meta payload is an EXPLICIT
   // field enumeration (`sessionToMeta`) written as a FULL overwrite — omitting a
   // field there wipes it on the next unrelated save. See change: add-session-tags.
   sessionManager.onChange = (sessionId: string, ctx) => {
     const session = sessionManager.get(sessionId);
     if (!session?.sessionFile) return;
+    // Class 2 liveness gate (change: fix-recovery-offer-bridge-liveness-gate).
+    // A pending recovery candidate that comes alive (its bridge reattached /
+    // process re-registered) is a plain-restart survivor, not a loss. Retract
+    // it: drop from the eligible set, consume its marker, and rebuild an
+    // already-broadcast offer. Keyed on the ended→alive fact, not
+    // `registerReason` — tmux/TUI/mDNS bridges re-register without one.
+    if (session.status !== "ended" && liveRecoveryCandidates.has(sessionId)) {
+      retractRecoveryCandidate(sessionId, "bridge-reattach");
+    }
     metaPersistence.save(session.sessionFile, sessionToMeta(session));
     // Order-map key for this session: the RESOLVED group path (parent repo
     // for worktree sessions), the same key the client reads.
@@ -714,6 +754,62 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   browserGateway.onRecoveryResolve = () => {
     pendingRecoveryOffer = null;
   };
+  // The resume handler refuses a `continue` reopen while a candidate's liveness
+  // is still unresolved (grace window open), closing the Class-2 double-spawn
+  // race even for non-UI clients. Membership in `liveRecoveryCandidates` IS the
+  // pending signal: dead candidates leave when the window finalizes (map clear),
+  // reattached ones leave on retract. See change: fix-recovery-offer-bridge-liveness-gate.
+  browserGateway.isRecoveryLivenessPending = (sessionId: string) =>
+    liveRecoveryCandidates.has(sessionId);
+
+  // Epoch-ms deadline the ask-mode offer carries so the client can render a
+  // non-actionable "verifying…" state until Class-2 liveness is finalized.
+  // Set once at broadcast; reused when an offer is rebuilt on retract.
+  let recoveryGraceUntil: number | undefined;
+
+  // Build a recovery_offer wire message from the eligible candidate set.
+  // See change: fix-recovery-offer-bridge-liveness-gate.
+  function buildRecoveryOffer(
+    candidates: DashboardSession[],
+  ): import("@blackbelt-technology/pi-dashboard-shared/browser-protocol.js").RecoveryOfferMessage {
+    return {
+      type: "recovery_offer",
+      candidates: candidates.map((s) => ({
+        sessionId: s.id,
+        name: s.name,
+        cwd: s.cwd,
+        model: s.model,
+        liveEpoch: s.liveEpoch,
+      })),
+      graceUntil: recoveryGraceUntil,
+    };
+  }
+
+  // Retract a still-pending recovery candidate proven alive (keeper reclaim or
+  // bridge reattach). Idempotent: no-op once the candidate has left the eligible
+  // set (already retracted, or the grace window finalized the map). Consumes the
+  // on-disk liveness marker exactly like dismiss / clean stop, so a later cold
+  // boot with no NEW unclean shutdown does not re-offer it. When an offer was
+  // already broadcast, the held/replayed offer is rebuilt so a client connecting
+  // afterward never sees the retracted candidate.
+  // See change: fix-recovery-offer-bridge-liveness-gate.
+  function retractRecoveryCandidate(sessionId: string, reason: string): void {
+    const cand = liveRecoveryCandidates.get(sessionId);
+    if (!cand) return;
+    liveRecoveryCandidates.delete(sessionId);
+    if (cand.sessionFile) metaPersistence.setLiveness(cand.sessionFile, { live: false });
+    console.info(
+      `[recovery] retracted candidate ${sessionId} (${reason}); ${liveRecoveryCandidates.size} still pending`,
+    );
+    if (!recoveryOfferBroadcast) return;
+    if (liveRecoveryCandidates.size === 0) {
+      pendingRecoveryOffer = null;
+      browserGateway.broadcastToAll(buildRecoveryOffer([]));
+    } else {
+      pendingRecoveryOffer = buildRecoveryOffer([...liveRecoveryCandidates.values()]);
+      browserGateway.broadcastToAll(pendingRecoveryOffer);
+    }
+  }
 
   // Plugin pi-message dispatch registry + raw-event subscribers.
   // Populated by ServerPluginContext.registerPiHandler / onEvent (see the
@@ -1072,7 +1168,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Folder-scoped goals: broadcast on mutation + REST surface.
   // See change: add-goals-folder-page.
   goalStore.subscribe((cwd, payload) => {
-    browserGateway.broadcastToAll({ type: "goals_update", cwd, goals: payload.goals });
+    // Decorate with read-time spend so the WS path is not a raw second delivery
+    // path. See change: fix-goal-detail-turns-and-spend.
+    browserGateway.broadcastToAll({ type: "goals_update", cwd, goals: decorateGoalsWithSpend(payload.goals, sessionManager) });
   });
   // Stamp/clear goalId on a session: in-memory + .meta.json + broadcast.
   const applyGoalIdToSession = (sessionId: string, goalId: string | null): void => {
@@ -1201,7 +1299,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   }, GOAL_BOOT_RECONCILE_DELAY_MS);
   bootReconcileTimer.unref?.();
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore });
+  // Embed-session-lifecycle: construct the reaper + observability metrics wired
+  // to the live server components. Dormant unless config.embedLifecycle.enabled
+  // (off by default) — construction/start is behavior-preserving on upgrade.
+  // Reclaims the automation-produced ephemeral sessions #383 is about; the
+  // acquire registry + caps are shared-layer modules the embed front constructs.
+  // See change: add-embed-session-lifecycle.
+  const embedLifecycle = createEmbedLifecycleController({
+    config: () => loadConfig().embedLifecycle,
+    listSessions: () => sessionManager.listAll(),
+    getSubscriberCount: (id) => browserGateway.getSubscriberCount(id),
+    listTerminalCwds: () => terminalManager.list().map((t) => t.cwd),
+    hasPendingUiRequest: (id) => browserGateway.hasPendingUiRequest(id),
+    killBySessionId: (id) => browserGateway.headlessPidRegistry.killBySessionId(id),
+    sendStopAfterTurn: (id) =>
+      piGateway.sendToSession(id, { type: "stop_after_turn", sessionId: id }),
+  });
+
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -1606,7 +1721,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       try {
         const { getKeeperManager } = await import("./spawn-process/process-manager.js");
         browserGateway.headlessPidRegistry.setKeeperWriter(getKeeperManager());
-        await browserGateway.headlessPidRegistry.cleanupKeeperOrphans();
+        const keeperAliveIds = await browserGateway.headlessPidRegistry.cleanupKeeperOrphans();
+        // Class 1 synchronous liveness gate: a candidate whose keeper+pi the
+        // reclaim found alive was never lost — drop it before the offer is
+        // built and consume its marker. Runs before the broadcast below.
+        // See change: fix-recovery-offer-bridge-liveness-gate.
+        for (const id of keeperAliveIds) {
+          if (liveRecoveryCandidates.has(id)) {
+            retractRecoveryCandidate(id, "keeper-alive");
+          }
+        }
       } catch (err) {
         console.warn("[dashboard] keeper-manager wire-up failed (RPC dispatch disabled):", err);
       }
@@ -2089,28 +2213,33 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       idleTimer.start();
+      // Start the embed-lifecycle reaper sweep (dormant unless the feature is
+      // enabled). See change: add-embed-session-lifecycle.
+      embedLifecycle.start();
 
       // Cold-start recovery offer. Gated by `reopenSessionsAfterShutdown`:
       //   off  → handled at classify time (candidates normalized to `ended`,
-      //          so `recoveryCandidates` is empty here — this block is skipped)
+      //          so `liveRecoveryCandidates` is empty here — this block is skipped)
       //   ask  → broadcast one recovery offer to all connected clients
       //   auto → resume every candidate via the existing resume flow
       // Concurrent acceptances are deduped by `pendingResumeIntents`
       // (last-write-wins) so a session spawns at most once.
+      //
+      // Liveness gate (change: fix-recovery-offer-bridge-liveness-gate): the
+      // Class 1 keeper-alive candidates were already removed from
+      // `liveRecoveryCandidates` above; the remaining set is offered/resumed.
+      // A late bridge reattach within `RECOVERY_REATTACH_GRACE_MS` retracts a
+      // candidate (Class 2, via the onChange check); after the window the map
+      // is finalized so a legitimate offer for a genuine loss is never revoked.
       // See change: reopen-sessions-after-shutdown.
-      if (recoveryCandidates.length > 0) {
+      if (liveRecoveryCandidates.size > 0) {
         const mode = recoveryMode;
         if (mode === "ask") {
-          pendingRecoveryOffer = {
-            type: "recovery_offer",
-            candidates: recoveryCandidates.map((s) => ({
-              sessionId: s.id,
-              name: s.name,
-              cwd: s.cwd,
-              model: s.model,
-              liveEpoch: s.liveEpoch,
-            })),
-          };
+          // Deadline until which Class-2 liveness is unresolved; the client keeps
+          // Reopen non-actionable until then. See change: fix-recovery-offer-bridge-liveness-gate.
+          recoveryGraceUntil = Date.now() + RECOVERY_REATTACH_GRACE_MS;
+          pendingRecoveryOffer = buildRecoveryOffer([...liveRecoveryCandidates.values()]);
+          recoveryOfferBroadcast = true;
           // Reaches any already-connected clients; onConnect replays to the rest.
           browserGateway.broadcastToAll(pendingRecoveryOffer);
           // Consume each offered candidate's on-disk liveness sentinel so the
@@ -2125,35 +2254,51 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // resumed session's next activity (event-wiring). Mirrors the
           // marker clears in `recovery_dismiss` and clean `stop()`.
           // See change: fix-recovery-offer-dismiss-and-phantom-reopen.
-          for (const cand of recoveryCandidates) {
+          for (const cand of liveRecoveryCandidates.values()) {
             if (cand.sessionFile) metaPersistence.setLiveness(cand.sessionFile, { live: false });
           }
+          // Stop retracting once the grace window closes: a reattach after this
+          // must NOT revoke a legitimate offer for a genuine loss.
+          recoveryGraceTimer = setTimeout(() => { liveRecoveryCandidates.clear(); }, RECOVERY_REATTACH_GRACE_MS);
+          recoveryGraceTimer.unref?.();
         } else if (mode === "auto") {
-          const resumeConfig = loadConfig();
-          for (const cand of recoveryCandidates) {
-            if (!cand.sessionFile) continue;
-            // Tag the resume intent so the ended→alive reattach branch keeps
-            // the slot; dedupes concurrent acceptances. Mirrors the core of
-            // handleResumeSession (no ws at cold start).
-            pendingResumeIntents.record(cand.id, "keep");
-            const result = await spawnPiSession(cand.cwd, {
-              sessionFile: cand.sessionFile,
-              mode: "continue",
-              strategy: resumeConfig.spawnStrategy,
-            });
-            if (result.process && result.pid) {
-              browserGateway.headlessPidRegistry.register(
-                result.pid,
-                cand.cwd,
-                result.process,
-                result.spawnToken,
-                keeperOptsFromSpawnResult(result),
-              );
-            }
-            if (result.dashboardSpawned && result.success) {
-              pendingDashboardSpawns.set(cand.cwd, (pendingDashboardSpawns.get(cand.cwd) ?? 0) + 1);
-            }
-          }
+          // Defer the resume by the grace window so a session whose bridge
+          // reattaches (Class 2) is retracted before we spawn — a second
+          // `continue` for an already-alive sessionId double-registers it and
+          // breaks message routing. Keeper-alive candidates (Class 1) were
+          // already excluded above.
+          recoveryGraceTimer = setTimeout(() => {
+            void (async () => {
+              const resumeConfig = loadConfig();
+              const survivors = [...liveRecoveryCandidates.values()];
+              liveRecoveryCandidates.clear();
+              for (const cand of survivors) {
+                if (!cand.sessionFile) continue;
+                // Tag the resume intent so the ended→alive reattach branch keeps
+                // the slot; dedupes concurrent acceptances. Mirrors the core of
+                // handleResumeSession (no ws at cold start).
+                pendingResumeIntents.record(cand.id, "keep");
+                const result = await spawnPiSession(cand.cwd, {
+                  sessionFile: cand.sessionFile,
+                  mode: "continue",
+                  strategy: resumeConfig.spawnStrategy,
+                });
+                if (result.process && result.pid) {
+                  browserGateway.headlessPidRegistry.register(
+                    result.pid,
+                    cand.cwd,
+                    result.process,
+                    result.spawnToken,
+                    keeperOptsFromSpawnResult(result),
+                  );
+                }
+                if (result.dashboardSpawned && result.success) {
+                  pendingDashboardSpawns.set(cand.cwd, (pendingDashboardSpawns.get(cand.cwd) ?? 0) + 1);
+                }
+              }
+            })();
+          }, RECOVERY_REATTACH_GRACE_MS);
+          recoveryGraceTimer.unref?.();
         }
         // mode === "off": no-op.
       }
@@ -2166,6 +2311,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // Stop the dedicated ELD safety-net sampler + its histogram.
       // See change: attribute-openspec-poll-eventloop-stalls.
       try { eventLoopSampler.stop(); } catch { /* ignore */ }
+      // Stop the embed-lifecycle reaper sweep.
+      // See change: add-embed-session-lifecycle.
+      try { embedLifecycle.stop(); } catch { /* ignore */ }
       // Stop mDNS before closing
       try {
         if (mdnsBrowser) { mdnsBrowser.stop(); mdnsBrowser = null; }
@@ -2189,6 +2337,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // timers) so a create/stop cycle in one process leaves no stale timer.
       // See change: add-goal-session-supervisor.
       clearTimeout(bootReconcileTimer);
+      // Cancel the recovery grace timer (ask: finalize-clear; auto: deferred
+      // resume) so a create/stop cycle leaves no stale timer / late spawn.
+      // See change: fix-recovery-offer-bridge-liveness-gate.
+      if (recoveryGraceTimer) clearTimeout(recoveryGraceTimer);
       goalSupervisor?.dispose();
       pendingForkRegistry.dispose();
       preferencesStore.flush();

@@ -15,6 +15,7 @@ import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
 import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
 import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js";
 import type { DirectoryService } from "./directory-service.js";
+import { captureLifecycleTimestamp } from "./embed-lifecycle/lifecycle-event-capture.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
 import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
@@ -465,9 +466,14 @@ export function wireEvents(deps: EventWiringDeps): void {
     if (pendingAutomationRunRegistry) {
       const stamp = pendingAutomationRunRegistry.consume(cwd);
       if (stamp) {
+        // Automation/flow-triggered spawns are machine-fronted → mark them
+        // `ephemeral` so the lifecycle reaper/caps have real producers. Human
+        // dashboard/TUI spawns never reach this arm, so they stay durable.
+        // See change: add-embed-session-lifecycle.
         sessionManager.update(sessionId, {
           kind: "automation",
           automationRun: stamp,
+          lifecyclePolicy: "ephemeral",
         });
         const session = sessionManager.get(sessionId);
         if (session?.sessionFile) {
@@ -475,6 +481,7 @@ export function wireEvents(deps: EventWiringDeps): void {
             mergeSessionMeta(session.sessionFile, {
               kind: "automation",
               automationRun: stamp,
+              lifecyclePolicy: "ephemeral",
             });
           } catch (err) {
             console.warn(
@@ -486,6 +493,7 @@ export function wireEvents(deps: EventWiringDeps): void {
         browserGateway.broadcastSessionUpdated(sessionId, {
           kind: "automation",
           automationRun: stamp,
+          lifecyclePolicy: "ephemeral",
         });
       }
     }
@@ -826,6 +834,18 @@ export function wireEvents(deps: EventWiringDeps): void {
           lastActivityBroadcastAt.set(sessionId, now);
           browserGateway.broadcastSessionUpdated(sessionId, { lastActivityAt: now });
         }
+      }
+
+      // Capture the lifecycle run-boundary timestamps (`agent_start` →
+      // lastRunStartedAt, bridge-normalized `agent_settled` → lastSettledAt) so
+      // the disabled-by-default reaper's quiescence gate can read a version-
+      // agnostic "at rest" signal instead of an inferred `status` (D3). Passive:
+      // feeds only the reaper; no runtime behavior change when the feature is
+      // off. Skipped during replay so historical events do not reclassify a
+      // live session. See change: add-embed-session-lifecycle.
+      if (!replayingSessions.has(sessionId)) {
+        const lifecycleTs = captureLifecycleTimestamp(msg.event.eventType, Date.now());
+        if (lifecycleTs) sessionManager.update(sessionId, lifecycleTs);
       }
 
       // Auto-canvas accumulation (change: auto-canvas). Mirrors the replay +

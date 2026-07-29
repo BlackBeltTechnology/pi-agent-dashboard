@@ -1705,6 +1705,46 @@ export function reduceEvent(
               ...(text != null ? { result: truncateOutputForDisplay(text) } : {}),
               ...(details ? { toolDetails: details } : {}),
             };
+
+            // Durable live hydration of the subagent inspector map. The Agent
+            // tool's partial `details` carry the full running snapshot
+            // (entries[], status, tokens…) on every ~250ms tick and ride this
+            // DURABLE message channel, which survives the WS back-pressure /
+            // bridge-not-ready loss that silently drops the ephemeral
+            // `subagent_*` event_forward frames. Mirror the tool_execution_end
+            // backfill (below) so the map is fed live from this channel too,
+            // not only at completion — otherwise expand/popout shows "Subagent
+            // not found" for the whole run under load. Self-selecting: only the
+            // Agent tool's details carry `agentId`.
+            // See change: fix-subagent-live-detail-durable-hydration.
+            const liveAgentId =
+              next.messages[idx].toolName === "Agent" && details && typeof details.agentId === "string"
+                ? (details.agentId as string)
+                : undefined;
+            if (liveAgentId) {
+              next.subagents = new Map(next.subagents);
+              const existingSub = next.subagents.get(liveAgentId);
+              const isTerminal = existingSub?.status === "completed" || existingSub?.status === "failed";
+              const tokensUsage = details!.tokensUsage as SubagentState["tokens"] | undefined;
+              const patch: Partial<SubagentState> = {
+                // Never regress a terminal state a late/reordered partial races.
+                ...(isTerminal ? {} : { status: "running" }),
+                ...(tokensUsage !== undefined ? { tokens: tokensUsage } : {}),
+                ...readSubagentDetails(details),
+              };
+              const merged: SubagentState = {
+                id: liveAgentId,
+                type:
+                  existingSub?.type ??
+                  (typeof details!.subagentType === "string" ? (details!.subagentType as string) : "unknown"),
+                description:
+                  existingSub?.description ??
+                  (typeof details!.description === "string" ? (details!.description as string) : ""),
+                ...existingSub,
+                ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)),
+              } as SubagentState;
+              setSubagentState(next.subagents, merged);
+            }
           } else {
             // Plain string partialResult (standard tools)
             next.messages[idx] = {

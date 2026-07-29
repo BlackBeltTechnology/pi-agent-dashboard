@@ -1,3 +1,16 @@
+---
+session: <8-char id>
+week: <YYYY/Www>
+type: <development|planning|research|documentation|other>   # copy facts sheet "Session type"
+model: "@fast"   # ALWAYS quote: an @-prefixed role is INVALID YAML unquoted (e.g. "@fast", "@research")
+premium: <true|false>          # copy the facts sheet "Premium candidate" flag verbatim
+premium_reason: "<reasons, or empty>"
+upgrade_status: <pending|done|n/a>   # pending = budget model + premium -> re-run on Opus
+# openspec_changes / proposal_excerpt: ONLY when the facts sheet has an "OpenSpec changes" line
+openspec_changes: [<change-name>, ...]
+proposal_excerpt: "<facts sheet 'Proposal excerpt', or omit both fields if none>"
+---
+
 # How we did it: <Task title> — an AI collaboration guideline
 
 > A reusable playbook reconstructed from a real pi session. It explains **what was

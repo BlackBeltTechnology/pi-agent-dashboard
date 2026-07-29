@@ -26,9 +26,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { flattenModelsJson, type NativeModelEntry } from "@blackbelt-technology/pi-dashboard-shared/models-json-reader.js";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { lookupRole, loadRoleConfig } from "./role-manager.js";
+import { loadRoleConfig, lookupRole } from "./role-manager.js";
 
 // -- Types ----------------------------------------------------------------
 
@@ -54,6 +55,15 @@ export interface ModelMetadata {
    * verified capability). See change: enrich-model-selector-capabilities-favorites.
    */
   metadataSource: "catalog" | "fallback";
+  /**
+   * Native per-model thinking-level override table + opaque request-formatting
+   * hints, present only when the metadata came from the user-authored native
+   * `~/.pi/agent/models.json`. Carried through `pi.registerProvider` so pi's
+   * clamp + request formatting operate on true native capabilities.
+   * See change: honor-native-models-json-metadata.
+   */
+  thinkingLevelMap?: Record<string, unknown>;
+  compat?: Record<string, unknown>;
 }
 
 /**
@@ -185,6 +195,101 @@ export function enrichModelMetadata(
   };
 }
 
+// -- Native models.json metadata (user-authored) --------------------------
+//
+// A native Pi install can attach rich capability metadata to a custom-provider
+// model in `~/.pi/agent/models.json` (`providers.<name>.models[]` with
+// `contextWindow`, `maxTokens`, `reasoning`, `thinkingLevelMap`, `compat`,
+// `input`, `cost`). That native metadata is the AUTHORITY for a matching
+// `provider/id` — it wins over the api-typed enrichment fallback so the session
+// and the web thinking-level selector see the true capabilities.
+// See change: honor-native-models-json-metadata.
+
+function nativeModelsPath(): string {
+  return join(homedir(), ".pi", "agent", "models.json");
+}
+
+/**
+ * Read + flatten the user-authored `~/.pi/agent/models.json` via the shared
+ * reader. Read-only and defensive: a missing/invalid file yields `[]` (a syntax
+ * error is warned, not thrown), so the enrichment fallback chain still applies.
+ */
+function loadNativeModels(): NativeModelEntry[] {
+  const path = nativeModelsPath();
+  if (!existsSync(path)) return [];
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf-8"));
+  } catch (err: any) {
+    console.warn(`[dashboard] models.json parse failed: ${err?.message ?? String(err)}`);
+    return [];
+  }
+  return flattenModelsJson(raw);
+}
+
+/** Turn a native `models.json` entry into `ModelMetadata`, filling gaps with api-typed floors. */
+function metadataFromNative(native: NativeModelEntry, api?: string): ModelMetadata {
+  const resolvedApi = api && api in FALLBACK_DEFAULTS ? api : "openai-completions";
+  const fb = FALLBACK_DEFAULTS[resolvedApi] ?? FALLBACK_DEFAULTS["openai-completions"];
+  return {
+    contextWindow: native.contextWindow ?? fb.contextWindow,
+    maxTokens: native.maxTokens ?? fb.maxTokens,
+    reasoning: native.reasoning ?? fb.reasoning,
+    cost: native.cost
+      ? {
+          input: native.cost.input,
+          output: native.cost.output,
+          cacheRead: native.cost.cacheRead ?? 0,
+          cacheWrite: native.cost.cacheWrite ?? 0,
+        }
+      : { ...fb.cost },
+    input: (native.input as InputModality[] | undefined) ?? [...DEFAULT_INPUT],
+    metadataSource: "catalog",
+    ...(native.thinkingLevelMap ? { thinkingLevelMap: native.thinkingLevelMap } : {}),
+    ...(native.compat ? { compat: native.compat } : {}),
+  };
+}
+
+/**
+ * Resolve a discovered/authored model id to metadata in precedence order,
+ * first hit wins: (1) the native `models.json` entry for `name/id`; (2) the
+ * session registry's own `find(name, id)` for the custom provider name; (3) the
+ * api-typed `enrichModelMetadata` fallback (which itself probes built-in
+ * candidate catalogs). Only path 1 supplies `thinkingLevelMap`/`compat`.
+ * See change: honor-native-models-json-metadata (D-E1).
+ */
+function resolveMetadata(
+  name: string,
+  id: string,
+  api: string | undefined,
+  probe: CatalogProbe | null,
+  native: NativeModelEntry | undefined,
+): ModelMetadata {
+  // Path 1: native user-authored models.json.
+  if (native) return metadataFromNative(native, api);
+  // Path 2: the session registry's own entry for the custom provider name.
+  if (probe) {
+    let hit: ReturnType<CatalogProbe> | undefined;
+    try {
+      hit = probe(name, id);
+    } catch {
+      hit = undefined;
+    }
+    if (hit) {
+      return {
+        contextWindow: hit.contextWindow,
+        maxTokens: hit.maxTokens,
+        reasoning: hit.reasoning,
+        cost: hit.cost,
+        input: [...hit.input] as InputModality[],
+        metadataSource: "catalog",
+      };
+    }
+  }
+  // Path 3: api-typed enrichment fallback (built-in candidate probe → floors).
+  return enrichModelMetadata(id, api, probe);
+}
+
 // -- Config path ----------------------------------------------------------
 
 // Resolved lazily so HOME can be changed in tests.
@@ -203,8 +308,10 @@ const lastRegistered = new Map<string, ProviderEntry>();
 // See change: enrich-model-selector-capabilities-favorites.
 const enrichmentSource = new Map<string, "catalog" | "fallback">();
 
-// Canonical thinking-level order pi uses (EXTENDED_THINKING_LEVELS).
-const EXTENDED_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+// Canonical thinking-level order. Extends pi 0.75.5's EXTENDED_THINKING_LEVELS
+// (off..xhigh) with the opt-in, runtime-gated `max` tier (reachable on newer
+// session runtimes, e.g. pi 0.80.10). See change: honor-native-models-json-metadata.
+const EXTENDED_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 /**
  * Mirror of pi's `getSupportedThinkingLevels` (from @earendil-works/pi-ai) —
@@ -220,17 +327,41 @@ const EXTENDED_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xh
  * `xhigh` is supported only when declared with a non-null entry.
  * See change: fix-thinking-level-supported-projection.
  */
-function deriveSupportedThinkingLevels(
+export function deriveSupportedThinkingLevels(
   reasoning: boolean,
   thinkingLevelMap: Record<string, unknown> | null | undefined,
+  maxSupported: boolean,
 ): string[] {
   if (!reasoning) return ["off"];
   return EXTENDED_THINKING_LEVELS.filter((level) => {
     const mapped = thinkingLevelMap?.[level];
     if (mapped === null) return false;
     if (level === "xhigh") return mapped !== undefined;
+    // `max` is fail-CLOSED: opt-in (declared non-null) AND the session runtime
+    // must advertise `max`. Without this explicit branch, appending `max` to
+    // the list would fail OPEN (`undefined !== null` is true).
+    if (level === "max") return maxSupported && mapped != null;
     return true;
   });
+}
+
+// Whether the SESSION's pi runtime advertises `max` in its canonical
+// thinking-level set. Probed lazily from the runtime's own
+// `getSupportedThinkingLevels` (pi 0.75.5 has no `max`; 0.80.10 does). Fails
+// CLOSED (false) when the runtime helper is unavailable or the probe throws.
+// See change: honor-native-models-json-metadata (D-E3 / §3b.1).
+let _maxRuntimeSupported: boolean | null = null;
+function getMaxSupported(): boolean {
+  if (_maxRuntimeSupported !== null) return _maxRuntimeSupported;
+  const fn = _piAiModule?.getSupportedThinkingLevels;
+  if (typeof fn !== "function") return false; // not loaded yet — fail closed, don't cache
+  try {
+    const levels = fn({ reasoning: true, thinkingLevelMap: { max: "max" } });
+    _maxRuntimeSupported = Array.isArray(levels) && levels.includes("max");
+  } catch {
+    _maxRuntimeSupported = false;
+  }
+  return _maxRuntimeSupported;
 }
 
 /**
@@ -262,7 +393,7 @@ export function toModelInfo(m: any): {
     typeof m?.reasoning === "boolean" ||
     (m?.thinkingLevelMap != null && typeof m.thinkingLevelMap === "object");
   const supportedThinkingLevels = hasThinkingMetadata
-    ? deriveSupportedThinkingLevels(m?.reasoning === true, m?.thinkingLevelMap)
+    ? deriveSupportedThinkingLevels(m?.reasoning === true, m?.thinkingLevelMap, getMaxSupported())
     : undefined;
   return {
     provider,
@@ -439,6 +570,14 @@ export function getCustomProviderNames(): Set<string> {
 type PiAiHelpers = {
   findEnvKeys?: (id: string) => string[] | undefined;
   getEnvApiKey?: (id: string) => string | undefined;
+  /**
+   * The session runtime's own thinking-level clamp rule. Probed to detect
+   * whether this pi advertises `max` in its canonical set. See getMaxSupported.
+   */
+  getSupportedThinkingLevels?: (model: {
+    reasoning?: boolean;
+    thinkingLevelMap?: Record<string, unknown>;
+  }) => string[];
 };
 
 export function _buildProviderCatalogue(
@@ -528,7 +667,11 @@ async function loadPiAi(): Promise<PiAiHelpers> {
   _piAiLoadAttempted = true;
   try {
     const mod: any = await import("@earendil-works/pi-ai");
-    _piAiModule = { findEnvKeys: mod.findEnvKeys, getEnvApiKey: mod.getEnvApiKey };
+    _piAiModule = {
+      findEnvKeys: mod.findEnvKeys,
+      getEnvApiKey: mod.getEnvApiKey,
+      getSupportedThinkingLevels: mod.getSupportedThinkingLevels,
+    };
     return _piAiModule;
   } catch {
     return {};
@@ -641,33 +784,45 @@ async function registerEntry(pi: ExtensionAPI, name: string, entry: ProviderEntr
 
   const discovered = await discoverModels(entry.baseUrl, entry.apiKey);
 
-  // Metadata (contextWindow, maxTokens, reasoning, cost, input) is resolved
-  // via pi's `modelRegistry.find(provider, id)` when the registry is
-  // reachable, with api-appropriate fallbacks otherwise — the previous
-  // hardcoded 200k / 16k / $0 / no-reasoning was silently wrong for
+  // Native user-authored `~/.pi/agent/models.json` entries for THIS provider
+  // (read-only). These are the capability AUTHORITY — native metadata wins over
+  // the api-typed enrichment fallback for a matching id. See change:
+  // honor-native-models-json-metadata.
+  const nativeForProvider = new Map<string, NativeModelEntry>();
+  for (const e of loadNativeModels()) {
+    if (e.provider === name) nativeForProvider.set(e.id, e);
+  }
+
+  // Metadata precedence per id: native models.json → registry probe
+  // (`find(provider, id)`) → api-typed `enrichModelMetadata` fallback. The
+  // former hardcoded 200k / 16k / $0 / no-reasoning was silently wrong for
   // Opus 4.6+/Sonnet 4.6+/GPT-5/Gemini-2.x proxied via OpenAI-compatible
-  // endpoints. See enrichModelMetadata above, and change:
-  // enrich-custom-provider-model-metadata.
+  // endpoints. See resolveMetadata above, and changes:
+  // enrich-custom-provider-model-metadata, honor-native-models-json-metadata.
   const registry = getModelRegistry();
   const probe: CatalogProbe | null =
     registry && typeof registry.find === "function"
       ? (provider, modelId) => registry.find(provider, modelId) ?? null
       : null;
 
-  const models = discovered.map((m) => {
-    const meta = enrichModelMetadata(m.id, entry.api, probe);
-    const merged = {
-      ...meta,
-      reasoning: m.reasoning ?? meta.reasoning,
-      thinkingLevelMap: m.thinkingLevelMap ?? meta.thinkingLevelMap,
-      contextWindow: m.contextWindow ?? meta.contextWindow,
-      maxTokens: m.maxTokens ?? meta.maxTokens,
-      input: m.input ?? meta.input,
-    };
+  // Register the UNION of discovered ids and user-authored native ids, so a
+  // model authored under `providers.<name>.models[]` but absent from
+  // `/v1/models` (or when `/v1/models` is unreachable) still reaches the
+  // session and the web UI — matching the server path (AC5).
+  const unionIds: string[] = [];
+  const seenIds = new Set<string>();
+  for (const id of [...discovered.map((d) => d.id), ...nativeForProvider.keys()]) {
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+    unionIds.push(id);
+  }
+
+  const models = unionIds.map((id) => {
+    const meta = resolveMetadata(name, id, entry.api, probe, nativeForProvider.get(id));
     // Record enrichment confidence so models_list push sites can flag
     // assumed-vs-verified capabilities. Keyed by the registered provider name.
-    enrichmentSource.set(`${name}/${m.id}`, meta.metadataSource);
-    return { id: m.id, name: m.id, ...merged };
+    enrichmentSource.set(`${name}/${id}`, meta.metadataSource);
+    return { id, name: id, ...meta };
   });
 
   pi.registerProvider(name, {
@@ -680,7 +835,7 @@ async function registerEntry(pi: ExtensionAPI, name: string, entry: ProviderEntr
   // Notify bridge directly (same package — no cross-package event needed)
   onProvidersChanged?.();
 
-  return discovered.length;
+  return models.length;
 }
 
 /**

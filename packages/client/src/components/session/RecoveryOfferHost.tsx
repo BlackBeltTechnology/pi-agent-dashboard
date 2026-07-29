@@ -9,7 +9,7 @@
  * upstream via the bus.
  * See change: fix-recovery-offer-dismiss-and-phantom-reopen.
  */
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
   clearRecoveryOffer,
@@ -28,13 +28,34 @@ export function RecoveryOfferHost({ onReopen, onDismiss }: {
   onDismiss: (sessionIds: string[]) => void;
 }) {
   const [offer, setOffer] = useState<RecoveryOffer | null>(null);
+  // Re-render trigger fired once the liveness grace window elapses. `verifying`
+  // itself is DERIVED synchronously from `graceUntil` vs `Date.now()` on every
+  // render (below) so there is no first-paint flash where Reopen is briefly
+  // actionable. This tick only schedules the flip at the deadline.
+  const [, bumpAfterGrace] = useState(0);
 
   useEffect(() => subscribeRecoveryOffer(setOffer), []);
+
+  const graceUntil = offer?.graceUntil;
+  // While the window is open Reopen is NON-actionable, guarding the Class-2
+  // double-spawn race at the UI: a still-alive bridge may reattach and retract
+  // the candidate, and reopening early would spawn a second pi for one
+  // sessionId. See change: fix-recovery-offer-bridge-liveness-gate.
+  const verifying = graceUntil !== undefined && Date.now() < graceUntil;
+
+  useEffect(() => {
+    if (graceUntil === undefined) return;
+    const remaining = graceUntil - Date.now();
+    if (remaining <= 0) return;
+    const id = setTimeout(() => bumpAfterGrace((n) => n + 1), remaining);
+    return () => clearTimeout(id);
+  }, [graceUntil]);
 
   if (!offer) return null;
   const count = offer.candidates.length;
 
   const handleReopen = () => {
+    if (verifying) return;
     onReopen(offer.candidates.map((c) => c.sessionId));
     clearRecoveryOffer();
   };
@@ -58,15 +79,29 @@ export function RecoveryOfferHost({ onReopen, onDismiss }: {
         aria-atomic="true"
         className="pointer-events-auto flex items-center gap-3 px-3 py-2 bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm rounded-xl shadow-lg border border-[var(--border-primary)] max-w-sm"
       >
-        <span className="flex-none w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
+        <span
+          className={`flex-none w-2 h-2 rounded-full bg-amber-500${verifying ? " animate-pulse" : ""}`}
+          aria-hidden="true"
+        />
         <span className="flex-1 whitespace-nowrap font-medium">
           {i18nT("session.reopenNSessions", { count }, `Reopen ${count} session${count === 1 ? "" : "s"}?`)}
+          {verifying && (
+            <span className="block font-normal text-xs text-[var(--text-muted)]">
+              {i18nT("session.recoveryVerifying", undefined, "Checking if still running…")}
+            </span>
+          )}
         </span>
         <button
           type="button"
           onClick={handleReopen}
+          disabled={verifying}
+          aria-disabled={verifying}
           data-testid="recovery-offer-reopen"
-          className="flex-none px-3 py-1 rounded-lg bg-[var(--accent-primary)] text-white font-medium hover:opacity-90"
+          className={
+            verifying
+              ? "flex-none px-3 py-1 rounded-lg bg-[var(--bg-surface)] text-[var(--text-muted)] border border-[var(--border-secondary)] font-medium cursor-not-allowed"
+              : "flex-none px-3 py-1 rounded-lg bg-[var(--accent-primary)] text-white font-medium hover:opacity-90"
+          }
         >
           {i18nT("common.reopen", undefined, "Reopen")}
         </button>

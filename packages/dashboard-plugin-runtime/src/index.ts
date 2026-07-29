@@ -31,6 +31,8 @@ export {
   useT,
 } from "./plugin-context.js";
 export * from "./prompt-component-registry.js";
+export type { SlotAccent, SlotPillProps, SlotSurface } from "./SlotPill.js";
+export { SlotPill } from "./SlotPill.js";
 export {
   __resetSessionDataStoreForTests,
   clearSessionData,

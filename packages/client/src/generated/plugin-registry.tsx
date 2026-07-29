@@ -4,6 +4,7 @@ import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, Automat
 import { CouncilControl, FolderCouncilSection, FolderCouncilBoard, CouncilBoard, CouncilBadgeClaim, hasCouncilStatus, CouncilSettings } from "../../../pi-openspec-council/src/client/index";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
+import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
 import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackbelt-technology/pi-dashboard-kb-plugin";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
@@ -240,6 +241,33 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "hermes-memory",
+        "displayName": "Hermes Memory",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "HermesMemorySettings",
+                "tab": "general"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./src/configSchema.json",
+        "i18nCatalog": "catalog",
+        "requires": {
+            "piExtensions": [
+                "pi-hermes-memory"
+            ]
+        }
+    },
+    claims: [
+      { pluginId: "hermes-memory", priority: 100, slot: "settings-section", tab: "general", Component: HermesMemorySettings },
+    ],
+    catalog: hermes_memory_catalog,
+  },
+  {
+    manifest: {
         "id": "kb",
         "displayName": "Knowledge Base",
         "priority": 100,
@@ -348,4 +376,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "f04b69d518ae0a189caa1d4dc20bacc216391996a99997dbdc8c1eb9df1a0201";
+export const PLUGIN_REGISTRY_HASH = "c9549ae5b2504df8a5d46efd76fd09ed140584c861d74dc381dcfbe2556c3f38";

@@ -465,6 +465,14 @@ export function useSessionActions(deps: SessionActionDeps) {
     send({ type: "set_session_tags", sessionId, tags });
   }, [send, setSessions]);
 
+  // Global tag delete: strip a tag from every carrying session server-side.
+  // No optimistic write — the server fans out one `session_updated` per changed
+  // session (derived-union tags rebroadcast). See change:
+  // sidebar-tag-collapse-and-delete.
+  const removeTagGlobally = useCallback((tag: string) => {
+    send({ type: "remove_tag_globally", tag });
+  }, [send]);
+
   const handleCreateTerminal = useCallback((cwd: string) => {
     pendingTerminalCwdRef.current = cwd;
     send({ type: "create_terminal", cwd });
@@ -518,7 +526,7 @@ export function useSessionActions(deps: SessionActionDeps) {
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
-    handleHideSession, handleUnhideSession, handleSetSessionTags,
+    handleHideSession, handleUnhideSession, handleSetSessionTags, removeTagGlobally,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
     handleListFiles,

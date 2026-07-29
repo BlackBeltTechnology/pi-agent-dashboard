@@ -217,8 +217,14 @@ export interface HeadlessPidRegistry {
    * registry entry doesn't yet exist are skipped (the bridge will
    * register them on connect). No-op when no `keeperManager` was injected.
    * See change: add-rpc-stdin-dispatch-with-keeper-sidecar (Phase 6).
+   *
+   * Returns the sessionIds of the keepers found alive (keeper PID + pi PID
+   * both live) so the caller can gate cold-start recovery: a session with a
+   * live reclaimed keeper was never lost and must NOT be offered for reopen.
+   * Empty when the scan was skipped (no keeper writer / unsafe test HOME) or
+   * no live keepers exist. See change: fix-recovery-offer-bridge-liveness-gate.
    */
-  cleanupKeeperOrphans(): Promise<void>;
+  cleanupKeeperOrphans(): Promise<string[]>;
   /**
    * Inject the keeper writer / discoverer after construction. Necessary
    * because `browser-gateway.ts` constructs the registry before the
@@ -500,12 +506,12 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       return keeperWriter.writeRpcToSockPath(entry.keeperSockPath, line);
     },
 
-    async cleanupKeeperOrphans(): Promise<void> {
+    async cleanupKeeperOrphans(): Promise<string[]> {
       if (isUnsafeTestHomeScan()) {
         console.warn("[headless-pid-registry] cleanupKeeperOrphans() blocked: running under vitest with real HOME");
-        return;
+        return [];
       }
-      if (!keeperWriter) return;
+      if (!keeperWriter) return [];
       // KeeperManager.discoverExistingKeepers does the heavy lifting:
       // unlinks stale sockets, SIGTERMs orphans whose pi child is dead.
       // The registry only needs to know about live pairs so it can
@@ -525,8 +531,12 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
             persist();
           }
         }
+        // Report the live keeper sessionIds so cold-start recovery can gate on
+        // them. See change: fix-recovery-offer-bridge-liveness-gate.
+        return live.map((k) => k.sessionId);
       } catch (err) {
         console.warn("[headless-pid-registry] cleanupKeeperOrphans failed", err);
+        return [];
       }
     },
 

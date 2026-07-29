@@ -39,6 +39,10 @@ export interface CustomModelEntry {
   contextWindow?: number;
   maxTokens?: number;
   reasoning?: boolean;
+  /** Native per-model thinking-level override table (pi 0.72+). See change: honor-native-models-json-metadata. */
+  thinkingLevelMap?: Record<string, unknown>;
+  /** Opaque runtime request-formatting hints. Carried for proxy routing; NEVER emitted over /api/models. See change: honor-native-models-json-metadata. */
+  compat?: Record<string, unknown>;
   cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   input?: string[];
   headers?: Record<string, string>;
@@ -185,39 +189,61 @@ export class InternalRegistry {
       }
     }
 
-    // 2. Custom-provider models. Two sources, both keyed by providers.json:
-    //    - discovered models (live `/v1/models` fetch, Approach C — fills the
-    //      former no-op loop so the server matches every pi session)
-    //    - any user-authored models.json entries (read-only; never written)
+    // 2. Custom-provider models — field-level outer join on `provider/id`.
+    //    Routing (`baseUrl`, `api`, `oauthCompatible`) comes from live
+    //    `/v1/models` discovery; capabilities (`contextWindow`, `maxTokens`,
+    //    `reasoning`, `thinkingLevelMap`, `compat`, `input`, `cost`) come from
+    //    the user-authored native `models.json` and WIN on overlap. Native-only
+    //    entries still surface (outer join, routing from providers.json);
+    //    discovered-only entries keep their api-typed fallback floors. A native
+    //    `models.json` entry NEVER overrides `oauthCompatible` (the native
+    //    format has no such field — defaulting it true would bypass the
+    //    OAuth-incompat filter). See change: honor-native-models-json-metadata.
     const customProviders = this.deps.readProviders();
-    const customModels = [...this.discoveredCustomModels, ...this.deps.readModels()];
-    for (const cm of customModels) {
-      // Look up base URL from custom providers if available
-      const providerEntry = customProviders[cm.provider];
-      const baseUrl = cm.baseUrl || providerEntry?.baseUrl || "";
-      const api = cm.api || providerEntry?.api || "openai-completions";
+    const discoveredByKey = new Map<string, CustomModelEntry>();
+    for (const d of this.discoveredCustomModels) discoveredByKey.set(`${d.provider}/${d.id}`, d);
+    const nativeByKey = new Map<string, CustomModelEntry>();
+    for (const n of this.deps.readModels()) nativeByKey.set(`${n.provider}/${n.id}`, n);
 
+    for (const key of new Set([...discoveredByKey.keys(), ...nativeByKey.keys()])) {
+      const routing = discoveredByKey.get(key); // discovery = routing authority (+ fallback floors)
+      const caps = nativeByKey.get(key); // native models.json = capabilities (win)
+      const base = (routing ?? caps) as CustomModelEntry;
+      const provider = base.provider;
+      const id = base.id;
+      const providerEntry = customProviders[provider];
+      const baseUrl = routing?.baseUrl || providerEntry?.baseUrl || caps?.baseUrl || "";
+      const api = routing?.api || providerEntry?.api || caps?.api || "openai-completions";
+
+      const headers = caps?.headers ?? routing?.headers;
       const model: any = {
-        id: cm.id,
-        name: cm.id,
+        id,
+        name: id,
         api,
-        provider: cm.provider,
+        provider,
         baseUrl,
-        reasoning: cm.reasoning ?? false,
-        input: cm.input ?? ["text"],
-        cost: cm.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: cm.contextWindow ?? 128000,
-        maxTokens: cm.maxTokens ?? 8192,
-        oauthCompatible: cm.oauthCompatible ?? true,
-        ...(cm.headers ? { headers: cm.headers } : {}),
+        reasoning: caps?.reasoning ?? routing?.reasoning ?? false,
+        input: caps?.input ?? routing?.input ?? ["text"],
+        cost: caps?.cost ?? routing?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: caps?.contextWindow ?? routing?.contextWindow ?? 128000,
+        maxTokens: caps?.maxTokens ?? routing?.maxTokens ?? 8192,
+        // oauthCompatible is a ROUTING field: from discovery when the model was
+        // discovered, else the native-only entry's own value (default true).
+        // Never taken from native to override a discovered value.
+        oauthCompatible: routing ? (routing.oauthCompatible ?? true) : (caps?.oauthCompatible ?? true),
+        ...(caps?.thinkingLevelMap ? { thinkingLevelMap: caps.thinkingLevelMap } : {}),
+        ...(caps?.compat ? { compat: caps.compat } : {}),
+        ...(headers ? { headers } : {}),
       };
       models.push(model);
     }
 
     // Dedup by fully-qualified `provider/id`, keeping the FIRST occurrence.
-    // Push order above encodes precedence: built-in → discovered-custom →
-    // models.json. Guarantees at most one entry per fqid and makes `find`
-    // deterministic by design. See change: fix-and-prefer-model-proxy-resolution.
+    // Push order above encodes precedence: built-in → merged-custom (each
+    // custom fqid already unique post-merge). Guarantees at most one entry per
+    // fqid and makes `find` deterministic by design, so a custom `models.json`
+    // entry authored under a built-in provider name never overrides the
+    // built-in. See change: fix-and-prefer-model-proxy-resolution.
     const seen = new Set<string>();
     const deduped: any[] = [];
     for (const m of models) {

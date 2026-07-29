@@ -31,9 +31,6 @@ beforeEach(() => {
 function renderBar(overrides: Partial<React.ComponentProps<typeof FolderActionBar>> = {}) {
   const props: React.ComponentProps<typeof FolderActionBar> = {
     cwd: "/repo",
-    terminalCount: 0,
-    onOpenTerminals: () => {},
-    onOpenEditor: () => {},
     onOpenPiResources: () => {},
     ...overrides,
   };
@@ -53,9 +50,14 @@ describe("FolderActionBar — spawn buttons relocated", () => {
     expect(screen.queryByTestId("folder-spawn-worktree-btn")).toBeNull();
   });
 
-  it("still renders the Terminals button", () => {
-    renderBar({ terminalCount: 3 });
-    expect(screen.getByText(/Terminals\(3\)/)).toBeTruthy();
+  it("does NOT render the Terminals button (removed — reachable from Directory home / ChatView)", () => {
+    renderBar();
+    expect(screen.queryByText(/Terminals\(/)).toBeNull();
+  });
+
+  it("does NOT render the Editor button (removed — reachable from Directory home / ChatView)", () => {
+    renderBar();
+    expect(screen.queryByText(/Editor/)).toBeNull();
   });
 });
 

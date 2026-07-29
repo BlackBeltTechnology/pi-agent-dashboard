@@ -17,9 +17,9 @@
  * add-kb-folder-slot.
  */
 
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
-import { mdiArrowRight, mdiRefresh } from "@mdi/js";
+import { SlotPill, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { FolderDescriptor, SlotPlacement } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
+import { mdiDatabaseOutline, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useLocation } from "wouter";
@@ -39,7 +39,7 @@ export function deriveKbRowState(stats: KbStats | null): RowState | "loading" {
   return "populated";
 }
 
-export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React.ReactElement | null {
+export function FolderKbSection({ folder, placement = "sidebar" }: { folder: FolderDescriptor; placement?: SlotPlacement }): React.ReactElement | null {
   const t = useT();
   const cwd = folder?.cwd;
   const [, navigate] = useLocation();
@@ -63,24 +63,52 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
   const chunks = stats?.chunks ?? 0;
   const files = stats?.files ?? 0;
   const countTip = t("countTip", { files, chunks }, `${files} files · ${chunks} chunks`);
-  const openSettings = (e: React.MouseEvent): void => {
-    e.stopPropagation();
-    navigate(kbSettingsUrl(cwd));
-  };
   const doReindex = (e: React.MouseEvent): void => {
     e.stopPropagation();
     reindex();
   };
 
-  // Label content per state; the label itself is ALWAYS the settings link.
-  const labelTone =
-    state === "error" ? "text-red-400"
-    : state === "indexing" || state === "not-indexed" ? "text-teal-400"
-    : "text-[var(--text-tertiary)]";
+  // The pill itself is ALWAYS the settings link; state drives the tooltip.
   const labelTitle =
     state === "error" ? (clientError ?? stats?.lastError ?? t("titleErrorFallback", undefined, "Reindex failed — open KB settings"))
     : state === "not-indexed" ? t("titleNotIndexed", undefined, "Not indexed — open KB settings to define sources")
     : t("titlePopulated", { tip: countTip }, `${countTip} — open KB settings`);
+
+  const trailing =
+    state === "error" ? (
+      <button
+        type="button"
+        onClick={doReindex}
+        data-testid="folder-kb-retry"
+        className="text-[10px] px-1.5 py-0.5 rounded border text-red-400 border-red-500/40 bg-red-500/5 hover:border-red-500/70"
+      >
+        <Icon path={mdiRefresh} size={0.4} className="inline mr-0.5" />{t("retry", undefined, "Retry")}
+      </button>
+    ) : state === "indexing" ? (
+      <Icon path={mdiRefresh} size={0.5} className="text-teal-400 animate-spin" />
+    ) : state === "not-indexed" ? (
+      <button
+        type="button"
+        onClick={doReindex}
+        disabled={busy}
+        data-testid="folder-kb-index-now"
+        className="text-[10px] px-1.5 py-0.5 rounded border text-teal-300 border-teal-500/40 bg-teal-500/5 hover:border-teal-500/70 disabled:opacity-50 disabled:cursor-not-allowed"
+        title={t("titleBuildKb", undefined, "Build the KB for this folder")}
+      >
+        {t("indexNow", undefined, "Index now")}
+      </button>
+    ) : (
+      <button
+        type="button"
+        onClick={doReindex}
+        disabled={busy}
+        data-testid="folder-kb-reindex"
+        className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-1 disabled:opacity-50 disabled:cursor-not-allowed"
+        title={state === "stale" ? t("titleReindexStale", { count: stats?.staleCount ?? 0 }, `Reindex ${stats?.staleCount} changed files`) : t("titleReindexNow", undefined, "Reindex now")}
+      >
+        <Icon path={mdiRefresh} size={0.5} />
+      </button>
+    );
 
   return (
     <div
@@ -88,69 +116,39 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
       data-state={state}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center gap-1.5 mt-1">
-        <button
-          onClick={openSettings}
-          data-testid="folder-kb-open-settings"
-          className={`flex items-center gap-1 text-[10px] font-semibold uppercase hover:text-indigo-400 ${labelTone}`}
-          title={labelTitle}
-        >
-          <span data-testid="folder-kb-count">
-            {state === "error" ? (
-              t("labelIndexFailed", undefined, "KB · index failed")
-            ) : state === "indexing" ? (
-              <>{t("labelIndexing", undefined, "KB · indexing…")} <span className="tabular-nums">{files.toLocaleString()}</span> {t("labelFiles", undefined, "files")}</>
-            ) : state === "not-indexed" ? (
-              t("labelNotIndexed", undefined, "KB · not indexed")
-            ) : (
-              <>
-                {t("labelKbPrefix", undefined, "KB ·")} <span className="text-[var(--text-secondary)] tabular-nums">{chunks.toLocaleString()}</span> {t("labelChunks", undefined, "chunks")}
-                {state === "stale" && (
-                  <>
-                    {" · "}
-                    <span className="text-amber-400 font-bold" data-testid="folder-kb-stale">
-                      {t("labelStale", { count: stats?.staleCount ?? 0 }, `${stats?.staleCount} stale`)}
-                    </span>
-                  </>
-                )}
-              </>
-            )}
-          </span>
-          <Icon path={mdiArrowRight} size={0.45} />
-        </button>
-        <span className="flex-1" />
-        {state === "error" ? (
-          <button
-            onClick={doReindex}
-            data-testid="folder-kb-retry"
-            className="text-[10px] px-1.5 py-0.5 rounded border text-red-400 border-red-500/40 bg-red-500/5 hover:border-red-500/70"
-          >
-            <Icon path={mdiRefresh} size={0.4} className="inline mr-0.5" />{t("retry", undefined, "Retry")}
-          </button>
-        ) : state === "indexing" ? (
-          <Icon path={mdiRefresh} size={0.5} className="text-teal-400 animate-spin" />
-        ) : state === "not-indexed" ? (
-          <button
-            onClick={doReindex}
-            disabled={busy}
-            data-testid="folder-kb-index-now"
-            className="text-[10px] px-1.5 py-0.5 rounded border text-teal-300 border-teal-500/40 bg-teal-500/5 hover:border-teal-500/70 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={t("titleBuildKb", undefined, "Build the KB for this folder")}
-          >
-            {t("indexNow", undefined, "Index now")}
-          </button>
-        ) : (
-          <button
-            onClick={doReindex}
-            disabled={busy}
-            data-testid="folder-kb-reindex"
-            className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed"
-            title={state === "stale" ? t("titleReindexStale", { count: stats?.staleCount ?? 0 }, `Reindex ${stats?.staleCount} changed files`) : t("titleReindexNow", undefined, "Reindex now")}
-          >
-            <Icon path={mdiRefresh} size={0.5} />
-          </button>
-        )}
-      </div>
+      <SlotPill
+        surface={placement === "card" ? "flat" : "raised"}
+        glyph={mdiDatabaseOutline}
+        accent={state === "error" ? "red" : "cyan"}
+        label={t("labelKbShort", undefined, "Knowledge base")}
+        activateTestId="folder-kb-open-settings"
+        activateTitle={labelTitle}
+        onActivate={() => navigate(kbSettingsUrl(cwd))}
+        actions={trailing}
+      >
+        <span data-testid="folder-kb-count" className="flex items-baseline gap-1.5 min-w-0">
+          {state === "error" ? (
+            <span className="text-red-400">{t("labelIndexFailedShort", undefined, "index failed")}</span>
+          ) : state === "indexing" ? (
+            <>
+              <span className="text-teal-400">{t("labelIndexingShort", undefined, "indexing…")}</span>
+              <span className="tabular-nums text-[10px] font-semibold text-[var(--text-tertiary)]">{files.toLocaleString()} {t("labelFiles", undefined, "files")}</span>
+            </>
+          ) : state === "not-indexed" ? (
+            <span className="text-teal-400">{t("labelNotIndexedShort", undefined, "not indexed")}</span>
+          ) : (
+            <>
+              <span className="tabular-nums">{chunks.toLocaleString()}</span>
+              <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{t("labelChunks", undefined, "chunks")}</span>
+              {state === "stale" && (
+                <span className="text-[10px] font-extrabold text-amber-400" data-testid="folder-kb-stale">
+                  ⚠ {t("labelStale", { count: stats?.staleCount ?? 0 }, `${stats?.staleCount} stale`)}
+                </span>
+              )}
+            </>
+          )}
+        </span>
+      </SlotPill>
     </div>
   );
 }

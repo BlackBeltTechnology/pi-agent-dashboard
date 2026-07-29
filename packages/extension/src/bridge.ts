@@ -27,7 +27,7 @@ import {
 import { registerAskUserTool } from "./ask-user-tool.js";
 import { type AutoNamer, createAutoNamer, type StreamSimpleFn } from "./auto-session-namer.js";
 import type { BridgeContext } from "./bridge-context.js";
-import { extractFirstAssistantReply, extractFirstMessage, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession } from "./bridge-context.js";
+import { extractFirstAssistantReply, extractFirstMessage, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { registerCanvasTool } from "./canvas-tool.js";
 import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
@@ -2403,10 +2403,15 @@ function initBridge(pi: ExtensionAPI) {
     // register so server can re-stamp source after restart. Derived from the
     // capture-once boolean (token may already be scrubbed). See change:
     // fix-spawn-token-env-leak.
+    // ctx.cwd is the guarded getter that throws once the session is replaced.
+    // Read it once, defensively — a throw here would skip session_register +
+    // the heartbeat/git timers, leaving a resumed session dead in the UI.
+    // See change: fix-bridge-resume-disconnect.
+    const startCwd = safeCwd(ctx);
     connection.send({
       type: "session_register",
       sessionId,
-      cwd: ctx.cwd,
+      cwd: startCwd,
       name: lastSessionName || undefined,
       source: detectSessionSource(cachedHasUI, sessionFile),
       model: initialModel,
@@ -2418,7 +2423,7 @@ function initBridge(pi: ExtensionAPI) {
       ...(dashboardSpawned ? { dashboardSpawned: true } : {}),
       // Tri-state git-repo signal, computed at register time (authority).
       // See change: gate-session-worktree-button-on-git.
-      isGitRepo: detectIsGitRepo(ctx.cwd),
+      isGitRepo: detectIsGitRepo(startCwd),
       // Fact-forwarding: server decides auto-hide. See change:
       // auto-hide-headless-worker-sessions.
       ...buildVisibilityRegisterFields(cachedHasUI, process.env),
@@ -2578,8 +2583,8 @@ function initBridge(pi: ExtensionAPI) {
     }).catch(() => { stopSpinner(); });
 
     // Send initial git info + the session's pi version
-    sendGitInfoIfChanged(ctx.cwd);
-    sendCwdMissingIfChanged(ctx.cwd);
+    sendGitInfoIfChanged(startCwd);
+    sendCwdMissingIfChanged(startCwd);
     sendPiVersionIfChanged();
 
     // Start metrics monitor and heartbeat
@@ -2670,7 +2675,10 @@ function initBridge(pi: ExtensionAPI) {
   // Caches ctx.cwd (the throwing getter) and clears any prior timer first.
   function startGitPollTimer(ctx: any) {
     if (gitPollTimer) clearInterval(gitPollTimer);
-    cachedCwd = ctx.cwd;
+    // safeCwd: startGitPollTimer runs inside handleSessionChange BEFORE
+    // connection.connect(); an un-guarded ctx.cwd throw here skips connect()
+    // (#393). See change: fix-bridge-resume-disconnect.
+    cachedCwd = safeCwd(ctx);
     gitPollTimer = setInterval(() => runGitPollTick({
       isActive,
       cachedCwd: () => cachedCwd,

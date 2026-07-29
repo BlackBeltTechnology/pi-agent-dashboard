@@ -78,6 +78,18 @@ export interface SetSessionTagsBrowserMessage {
   tags: string[];
 }
 
+/**
+ * Browser → server: strip a single user tag from every session that carries
+ * it. The server normalizes the inbound tag first; a blank/whitespace-only
+ * tag (normalizes to empty) is a no-op. Fan-out reuses the per-session
+ * normalize → update → broadcast path (one `session_updated` per changed
+ * session). Bridges never send this. See change: sidebar-tag-collapse-and-delete.
+ */
+export interface RemoveTagGloballyBrowserMessage {
+  type: "remove_tag_globally";
+  tag: string;
+}
+
 // ── Server → Browser ────────────────────────────────────────────────
 
 export interface SessionAddedMessage {
@@ -811,6 +823,15 @@ export interface RecoveryCandidate {
 export interface RecoveryOfferMessage {
   type: "recovery_offer";
   candidates: RecoveryCandidate[];
+  /**
+   * Epoch-ms deadline until which each candidate's process liveness is still
+   * being resolved (the Class-2 bridge-reattach grace window). While
+   * `Date.now() < graceUntil` the offer is shown but Reopen is NOT actionable —
+   * a still-alive bridge may reattach and retract the candidate, and reopening
+   * it early would double-spawn pi for one sessionId. Absent/past ⇒ liveness is
+   * finalized and Reopen is active. See change: fix-recovery-offer-bridge-liveness-gate.
+   */
+  graceUntil?: number;
 }
 
 /**
@@ -1687,6 +1708,7 @@ export type BrowserToServerMessage =
   | SetSessionDisplayPrefsBrowserMessage
   | SetSessionProcessDrawerBrowserMessage
   | SetSessionTagsBrowserMessage
+  | RemoveTagGloballyBrowserMessage
   | RecoveryDismissMessage
   | SubagentResyncRequestBrowserMessage
   | WatchFilesBrowserMessage;

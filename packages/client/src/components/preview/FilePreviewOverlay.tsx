@@ -8,6 +8,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import { dirname } from "./resolve-local-image-src.js";
 import { AsciiDocPreview } from "./AsciiDocPreview.js";
 import { DocxPreview } from "./DocxPreview.js";
 import { EmlPreview } from "./EmlPreview.js";
@@ -20,6 +21,8 @@ import { detectLanguage } from "../tool-renderers/lang-detect.js";
 const TARGET_LINE_ID = "file-preview-target-line";
 
 const BACKDROP_ID = "file-preview-backdrop";
+
+const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
 const MD_EXTS = new Set(["md", "mdx"]);
@@ -243,7 +246,11 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
               </div>
             )}
             {!error && !isImage && content !== null && isMd && (
-              <MarkdownContent content={content} frontmatter="properties" />
+              <MarkdownContent
+                content={content}
+                frontmatter="properties"
+                imageBase={{ cwd, dir: absOf(cwd, dirname(path)) }}
+              />
             )}
             {!error && !isImage && content !== null && !isMd && language && (
               <SyntaxHighlighter

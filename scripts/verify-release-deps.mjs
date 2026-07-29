@@ -58,9 +58,10 @@ const RULES = [
     evidence:
       "eliminate-electron-runtime-install task 1.1.a — pi lifted from " +
       "optional peer to regular dep so `npm install` resolves it for the " +
-      "standalone + Electron arms. Floor tracks the deliberate pi bump in " +
-      "commit 8646f1c4c (chore(deps): bump pi to 0.80.10).",
-    minVersion: "0.80.10",
+      "standalone + Electron arms. Floor tracks the deliberate pi bump to " +
+      "0.81.1 (0.81.0 full provider extensions + Qwen Token Plan providers; " +
+      "0.81.1 restored pre-0.81 agent-core stream fallback).",
+    minVersion: "0.81.1",
   },
   {
     pkgPath: "packages/server/package.json",

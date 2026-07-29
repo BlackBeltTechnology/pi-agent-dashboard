@@ -486,9 +486,11 @@ describe("HeadlessPidRegistry: keeper mode", () => {
     expect(ok).toBe(true);
   });
 
-  it("cleanupKeeperOrphans no-op when no keeper writer", async () => {
+  it("cleanupKeeperOrphans no-op (empty live set) when no keeper writer", async () => {
     const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
-    await expect(registry.cleanupKeeperOrphans()).resolves.toBeUndefined();
+    // Returns the live keeper sessionIds; empty with no writer.
+    // See change: fix-recovery-offer-bridge-liveness-gate.
+    await expect(registry.cleanupKeeperOrphans()).resolves.toEqual([]);
   });
 
   it("persist round-trips keeper fields so linkByPid via piPid works after restart", async () => {
@@ -574,7 +576,9 @@ describe("HeadlessPidRegistry: keeper mode", () => {
     // Pre-existing entry with the same PID (would happen after
     // cleanupOrphans reclaim of a long-lived keeper from disk).
     registry.register(4242, "/proj", mockProcess());
-    await registry.cleanupKeeperOrphans();
+    // Returns the live keeper sessionIds so cold-start recovery can gate on
+    // them. See change: fix-recovery-offer-bridge-liveness-gate.
+    await expect(registry.cleanupKeeperOrphans()).resolves.toEqual(["transport-1"]);
     // Verify writer was consulted and entry got keeper info via
     // observable side-effect: writeRpc now succeeds for that entry.
     registry.linkSession("S_attached", "/proj");
