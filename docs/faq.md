@@ -2444,6 +2444,20 @@ Cross-refs:
 - packages/client/src/lib/worktree-init-store.ts
 - packages/client/src/components/WorktreeInitChip.tsx
 
+## Why does Directory Initialize fail with `corepack: command not found`?
+
+Hook runs under bundled stripped Node; that Node omits corepack (`download-node.sh` removes `lib/node_modules/corepack`).
+
+Old hook: `corepack enable &&` aborted whole `&&`-chain before `pnpm install`; gate stayed open; run re-fired forever.
+
+Fix: `command -v corepack >/dev/null 2>&1 && corepack enable; pnpm install && …`. Corepack best-effort; absent → falls through to on-PATH `pnpm@11.15.1`; present (Docker/CI) → still runs.
+
+See change: harden-worktree-init-corepack.
+
+Cross-refs:
+- `.pi/settings.json`
+- `packages/electron/scripts/download-node.sh`
+
 ## Why does `openspec change new` fail with "unknown command"?
 
 Command order wrong. CLI v1.3.1 takes `openspec new change <name>`, not `openspec change new`.

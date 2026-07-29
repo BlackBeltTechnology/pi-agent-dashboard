@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Root (non-workspace) folder — distinction</title>
+<style>
+  /* Rosé Pine Dawn (the warm theme from the screenshot) — worst case for blending */
+  [data-theme="dawn"] {
+    --bg-primary:#faf4ed; --bg-secondary:#fffaf3; --bg-tertiary:#f2e9e1;
+    --text-primary:#575279; --text-secondary:#797593; --text-muted:#b5afba;
+    --border-subtle:rgba(0,0,0,0.06); --border-secondary:#dfdad9; --border-primary:#f2e9e1;
+    --shadow-card:rgba(0,0,0,0.08); --elevation-rim:rgba(255,255,255,0.9); --accent-blue:#286983;
+  }
+  /* Studio light — to confirm the fix also works where blending isn't a problem */
+  [data-theme="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+    --text-primary:#1a1a1a; --text-secondary:#4a4a4a; --text-muted:#aaaaaa;
+    --border-subtle:rgba(0,0,0,0.06); --border-secondary:#e2e2e2; --border-primary:#ededed;
+    --shadow-card:rgba(0,0,0,0.08); --elevation-rim:rgba(255,255,255,0.9); --accent-blue:#3b82f6;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; background:var(--bg-secondary); color:var(--text-primary); padding:22px 20px 80px; -webkit-font-smoothing:antialiased; }
+  .toolbar { display:flex; gap:12px; align-items:center; max-width:1500px; margin:0 auto 8px; }
+  .toolbar h1 { font-size:15px; font-weight:700; margin:0; } .toolbar .sp { flex:1; }
+  .toolbar button { font:inherit; font-size:12px; font-weight:600; padding:6px 12px; border-radius:8px; border:1px solid var(--border-subtle); background:var(--bg-primary); color:var(--text-secondary); cursor:pointer; }
+  .lead { max-width:1500px; margin:6px auto 20px; font-size:12px; color:var(--text-muted); line-height:1.5; } .lead b { color:var(--text-secondary); }
+  .rail { display:flex; gap:30px; align-items:flex-start; max-width:1500px; margin:0 auto; flex-wrap:wrap; }
+  .col { width:360px; }
+  .col h3 { font-size:11px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted); margin:0 0 12px 2px; }
+  .note { font-size:10.5px; color:var(--text-muted); margin:10px 2px 0; line-height:1.5; } .note b { color:var(--text-secondary); }
+  /* the sidebar "stage" cards render on, to reveal the boundary problem */
+  .stage { background:var(--bg-secondary); padding:16px 14px; border-radius:12px; }
+  .hidden { text-align:center; font-size:12px; color:var(--text-muted); margin-top:14px; }
+
+  /* collapsed root folder header (matches the screenshot) */
+  .folder { position:relative; background:var(--bg-primary); border:1px solid var(--border-subtle); border-radius:14px; padding:12px 14px; box-shadow:inset 0 1px 0 var(--elevation-rim),0 2px 4px var(--shadow-card); }
+  .row { display:flex; align-items:center; gap:10px; }
+  .chev { width:26px; height:26px; border-radius:8px; border:1px solid var(--accent-blue); color:var(--accent-blue); display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; }
+  .fico { color:var(--text-secondary); font-size:15px; } .path { color:var(--text-secondary); font-size:13px; } .name { font-size:18px; font-weight:800; } .count { color:var(--text-muted); font-size:12px; } .sp { flex:1; }
+  .ic { color:var(--text-muted); font-size:15px; } .ws { font-size:11px; font-weight:700; color:var(--text-muted); } .pin { color:#c98a12; font-size:15px; }
+
+  /* ── distinction treatments (root folders only) ── */
+  /* B — stronger defined border */
+  .b-border .folder { border:1px solid var(--border-secondary); }
+  /* C — accent-tinted surface (theme-robust: mixes accent into the surface) */
+  .c-tint .folder { background:color-mix(in srgb, var(--accent-blue) 5%, var(--bg-primary)); border-color:color-mix(in srgb, var(--accent-blue) 22%, var(--border-secondary)); }
+  /* D — elevated (stronger shadow, reads as floating above the page) */
+  .d-elev .folder { box-shadow:inset 0 1px 0 var(--elevation-rim),0 6px 16px -4px var(--shadow-card),0 2px 4px var(--shadow-card); border-color:var(--border-secondary); }
+  /* E — left folder edge accent bar */
+  .e-edge .folder { padding-left:16px; }
+  .e-edge .folder::before { content:""; position:absolute; left:0; top:10px; bottom:10px; width:4px; border-radius:0 4px 4px 0; background:color-mix(in srgb, var(--accent-blue) 50%, transparent); }
+</style>
+</head>
+<body data-theme="dawn">
+<div class="toolbar">
+  <h1>Root (non-workspace) folder — distinction</h1><span class="sp"></span>
+  <button onclick="document.body.dataset.theme=document.body.dataset.theme==='dawn'?'light':'dawn'">◑ Toggle: Dawn / Studio-light</button>
+</div>
+<p class="lead">A top-level folder (not inside a workspace) rendered on the sidebar. <b>Current</b> blends into the page in warm themes; the rest add a theme-robust boundary. Toggle to confirm each still works in studio-light.</p>
+<div class="rail" id="rail"></div>
+
+<script>
+  const FOLDER = `
+    <div class="folder">
+      <div class="row">
+        <span class="chev">›</span>
+        <span class="fico">🖿</span><span class="path">/Users/robson/</span><span class="name">abevjava</span><span class="count">(0)</span>
+        <span class="sp"></span>
+        <span class="ic">☰</span><span class="ic" style="margin-left:6px">⤢</span>
+        <span class="ws" style="margin-left:10px">+ws</span><span class="pin" style="margin-left:8px">📌</span>
+      </div>
+    </div>`;
+  const stage = (cls) => `<div class="stage ${cls}">${FOLDER}<div class="hidden">614 hidden</div></div>`;
+
+  const V = [
+    ["A — Current (blends)", "", "Today: --bg-primary card + 6% border on a near-identical sidebar. In warm themes the boundary is nearly invisible (your screenshot)."],
+    ["B — Defined border", "b-border", "Swap the 6% --border-subtle for the theme's solid --border-secondary. Colorless, fully theme-robust, minimal — just makes the outline actually visible."],
+    ["C — Accent-tinted surface", "c-tint", "Mix ~5% of the theme accent into the folder surface + a tinted border. A real 'different color' that adapts to every theme's accent. Closest to your suggestion."],
+    ["D — Elevated", "d-elev", "Lift the folder with a stronger drop shadow so it floats above the page. Reads as a distinct object regardless of bg colors."],
+    ["E — Left folder edge", "e-edge", "A short accent bar on the left edge — a 'folder spine'. Cheap, unmistakable, and echoes the folder metaphor."],
+  ];
+  document.getElementById("rail").innerHTML = V.map(([t,cls,note]) =>
+    `<div class="col"><h3>${t}</h3>${stage(cls)}<p class="note">${note}</p></div>`).join("");
+</script>
+</body>
+</html>
