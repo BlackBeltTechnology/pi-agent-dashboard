@@ -154,24 +154,27 @@ The `packages/server/package.json` `piCompatibility` block SHALL declare a `reco
 
 The legacy offline-cache (`packages/electron/offline-packages.json`) was removed under change `eliminate-electron-runtime-install`; bundled-extension peer-deps are now the sole pin surface that must move in lockstep with `piCompatibility.minimum`.
 
-#### Scenario: Recommended tracks earendil 0.78 line
+`recommended` MAY move ahead of `minimum` to track the current upstream line without raising the hard floor: a runtime pin bump lifts `recommended` to the pinned version while `minimum` stays at the broadly-supported floor, so older-pi users see a soft upgrade hint but no blocking error.
 
-- **WHEN** the latest published `@earendil-works/pi-coding-agent` is `0.78.0`
-- **AND** every bundled-extension `package.json` declares peer-dep `@earendil-works/pi-coding-agent` at `>=0.78.0` (or `^0.78.0`)
-- **THEN** `piCompatibility.minimum` SHALL be `"0.78.0"`
-- **AND** `piCompatibility.recommended` SHALL be `"0.78.0"`
+#### Scenario: Recommended tracks the current earendil line while floor stays broad
 
-#### Scenario: Recommended moves ahead of floor when a 0.78 patch ships
+- **WHEN** the pinned/latest `@earendil-works/pi-coding-agent` runtime is `0.81.1`
+- **AND** the bundled-extension peer-deps still permit the broad support floor (`>=0.75.0` / `^0.75.0`)
+- **THEN** `piCompatibility.recommended` SHALL be `"0.81.1"`
+- **AND** `piCompatibility.minimum` SHALL stay `"0.78.0"`
+- **AND** users on `0.78.x`–`0.80.x` SHALL see `upgradeRecommended: true` but no `compatibility.error`
 
-- **WHEN** `@earendil-works/pi-coding-agent@0.78.1` is published
+#### Scenario: Recommended moves ahead of floor when a patch ships
+
+- **WHEN** a newer `@earendil-works/pi-coding-agent` patch is published
 - **AND** the dashboard wants to surface the soft upgrade hint without raising the hard floor
-- **THEN** `piCompatibility.recommended` MAY be lifted to `"0.78.1"` while `piCompatibility.minimum` stays at `"0.78.0"`
-- **AND** users on `0.78.0` SHALL see `upgradeRecommended: true` but no `compatibility.error`
+- **THEN** `piCompatibility.recommended` MAY be lifted to that patch while `piCompatibility.minimum` stays at the broad floor
+- **AND** users below `recommended` SHALL see `upgradeRecommended: true` but no `compatibility.error`
 
 #### Scenario: Recommended tracks earendil when both forks publish in lockstep
 
-- **WHEN** both `@earendil-works/pi-coding-agent` and `@mariozechner/pi-coding-agent` publish `0.78.0`
-- **THEN** `piCompatibility.recommended` MAY be set to `"0.78.0"` and the dashboard SHALL accept either fork at that version
+- **WHEN** both `@earendil-works/pi-coding-agent` and `@mariozechner/pi-coding-agent` publish the recommended version
+- **THEN** `piCompatibility.recommended` MAY be set to that version and the dashboard SHALL accept either fork at that version
 
 #### Scenario: Recommended version drives the upgrade hint
 
