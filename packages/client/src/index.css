@@ -258,6 +258,60 @@ body {
 .markdown-content td:not(:last-child) { border-right: 1px solid var(--border-primary); }
 
 .markdown-content pre { margin: 0.5em 0; border-radius: 0.375rem; overflow-x: auto; -webkit-overflow-scrolling: touch; font-family: 'SF Mono', 'Menlo', 'Monaco', 'Cascadia Code', 'Consolas', 'Courier New', monospace !important; }
+
+/* Pencil design export — dashboard sidebar visual system.
+   Scope the light, high-clarity workspace skin to the folder/session surface so
+   chat, editor, and plugin-owned panes retain their independent theme contract.
+   Source: `PI Dashboard — Redesign` (`dqXIK`) in pi-dashboard.pen. */
+.dashboard-redesign {
+  --bg-primary: #ffffff;
+  --bg-secondary: #fbfcfd;
+  --bg-tertiary: #ffffff;
+  --bg-surface: #fbfcfd;
+  --bg-hover: #f3f6fa;
+  --bg-selected: #eaf2ff;
+  --border-primary: #e7eaee;
+  --border-secondary: #d6dbe1;
+  --border-subtle: #e7eaee;
+  --text-primary: #0e1420;
+  --text-secondary: #5a6472;
+  --text-tertiary: #98a1ae;
+  --text-muted: #98a1ae;
+  --accent-primary: #2b7fff;
+  --accent-blue: #2b7fff;
+  --accent-green: #059669;
+  --accent-orange: #ea7a0c;
+  --accent-purple: #7c6bff;
+  --status-idle: #059669;
+  --status-working: #d97706;
+  --shadow-card: rgba(14, 20, 32, 0.06);
+  --elevation-rim: transparent;
+  background: #f7f8fa;
+  color: #0e1420;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.dashboard-redesign .dashboard-card {
+  border-color: #e7eaee;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(14, 20, 32, 0.05), 0 8px 20px rgba(14, 20, 32, 0.025);
+}
+
+/* Folder Tools is a compact panel in the Pencil design, not a stack of
+   independently inset mini-cards. Every contribution therefore owns the
+   complete available row width and shares the same neutral hover surface. */
+.dashboard-redesign [data-testid="folder-tools-menu"] {
+  background: #ffffff;
+  border-color: #e7eaee;
+}
+
+.dashboard-redesign [data-testid="folder-tools-menu"] [role="button"] {
+  width: 100%;
+}
+
+.dashboard-redesign [data-testid="folder-tools-menu"] [role="button"]:hover {
+  background: #f7f8fa;
+}
 .markdown-content pre *,
 .markdown-content pre code,
 .markdown-content pre span { font-family: inherit !important; }

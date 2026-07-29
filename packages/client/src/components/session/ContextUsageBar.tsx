@@ -8,6 +8,8 @@ interface Props {
   contextWindow: number | undefined;
   /** Compact inline mode: fixed width, no percentage text */
   compact?: boolean;
+  /** Keep compact context geometry stable beside other session footer metadata. */
+  fixedCompactWidth?: boolean;
   /**
    * Compaction metadata from the most recent `session_compact` (pi
    * 0.79.8/0.79.10+). When present with a `reason`, a small badge renders
@@ -23,15 +25,15 @@ function getBarColor(pct: number): string {
   return "bg-green-500";
 }
 
-export function ContextUsageBar({ tokens, contextWindow, compact, compaction }: Props) {
+export function ContextUsageBar({ tokens, contextWindow, compact, fixedCompactWidth = false, compaction }: Props) {
   const hasData = tokens != null && contextWindow != null && contextWindow > 0;
   const pct = hasData ? Math.min(100, (tokens / contextWindow) * 100) : 0;
   const badge = deriveCompactionBadge(compaction);
 
   return (
-    <div className={compact ? "flex items-center w-16" : "flex items-center gap-2"} data-testid="context-usage-bar">
+    <div className={compact ? `flex items-center gap-2 ${fixedCompactWidth ? "min-w-0" : "flex-1"}` : "flex items-center gap-2"} data-testid="context-usage-bar">
       <div
-        className="h-1.5 flex-1 rounded-full bg-gray-300 dark:bg-gray-600 overflow-hidden"
+        className={`${compact ? "h-1" : "h-1.5"} ${fixedCompactWidth ? "w-24 shrink-0" : "flex-1"} overflow-hidden rounded-full bg-[var(--border-primary)]`}
         title={hasData ? `${Math.round(pct)}% context used (${tokens.toLocaleString()} / ${contextWindow.toLocaleString()})` : "No context data"}
       >
         {hasData && (
@@ -45,6 +47,11 @@ export function ContextUsageBar({ tokens, contextWindow, compact, compaction }: 
       {hasData && !compact && (
         <span className="text-[10px] text-[var(--text-tertiary)] tabular-nums" data-testid="context-usage-pct">
           {Math.round(pct)}%
+        </span>
+      )}
+      {hasData && compact && (
+        <span className="shrink-0 font-mono text-[9px] font-medium text-[var(--text-secondary)] tabular-nums">
+          {Math.round(tokens / 1000)}k/{Math.round(contextWindow / 1000)}k
         </span>
       )}
       {badge && (

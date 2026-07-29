@@ -56,7 +56,7 @@ export function FolderEditorView({
       onTerminalTitle={onTerminalTitle}
     >
       <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, height: "100%" }}>
-        <EditorPane />
+        <EditorPane revealTreeOnMount />
       </div>
     </SplitWorkspaceProvider>
   );

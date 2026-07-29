@@ -33,6 +33,10 @@ interface Props {
    * See change: project-init-skill-and-profiles, distinguish-initialize-actions.
    */
   onInitializeProject?: (cwd: string) => void;
+  /** When false, Set up project is rendered by the folder tools menu instead. */
+  showProjectInit?: boolean;
+  /** When false, Directory Settings is rendered by the folder tools menu instead. */
+  showDirectorySettings?: boolean;
   onOpenPiResources: () => void;
 }
 
@@ -41,6 +45,8 @@ export function FolderActionBar({
   brokenSessionCount,
   onCleanUpBroken,
   onInitializeProject,
+  showProjectInit = true,
+  showDirectorySettings = true,
   onOpenPiResources,
 }: Props) {
   const showCleanUp = (brokenSessionCount ?? 0) > 0 && !!onCleanUpBroken;
@@ -55,7 +61,7 @@ export function FolderActionBar({
           - ProjectInitButton: indigo "Set up project" scaffold, state ① only.
           - WorktreeInitButton: amber "Initialize" hook runner, state ② only.
           State ③ (configured, no hook) renders neither. */}
-      <ProjectInitButton cwd={cwd} status={initStatus} onInitializeProject={onInitializeProject} />
+      {showProjectInit && <ProjectInitButton cwd={cwd} status={initStatus} onInitializeProject={onInitializeProject} />}
       <WorktreeInitButton cwd={cwd} status={initStatus} onStatusChange={refetchInitStatus} />
 
       {showCleanUp && (
@@ -83,14 +89,14 @@ export function FolderActionBar({
       )}
 
       {/* Directory Settings — right-aligned. See change: directory-settings-page-and-scoped-md-editing. */}
-      <button
+      {showDirectorySettings && <button
         onClick={(e) => { e.stopPropagation(); onOpenPiResources(); }}
         className="focus-ring text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-purple-400 hover:border-purple-500/50"
         title={i18nT("folders.directorySettings", undefined, "Directory Settings")}
         aria-label={i18nT("folders.directorySettings", undefined, "Directory Settings")}
       >
         <Icon path={mdiCog} size={0.5} />
-      </button>
+      </button>}
     </div>
   );
 }

@@ -14,7 +14,7 @@
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiClose, mdiConsoleLine, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { useRailWidth } from "../../lib/layout/rail-width.js";
@@ -34,7 +34,7 @@ import { TabActions, type TabActionTarget } from "./TabActions.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
-export function EditorPane() {
+export function EditorPane({ revealTreeOnMount = false }: { revealTreeOnMount?: boolean }) {
   const { t } = useI18n();
   const {
     sessionId,
@@ -61,6 +61,11 @@ export function EditorPane() {
     [terminal.terminals],
   );
   const [treeVisible, setTreeVisible] = useTreeVisible(sessionId);
+  // Folder-level editor navigation is an explicit user request to browse
+  // files. Session/LLM editor panes keep their independently persisted state.
+  useLayoutEffect(() => {
+    if (revealTreeOnMount) setTreeVisible(true);
+  }, [revealTreeOnMount, setTreeVisible]);
   // Rail-local `this session only` (D3 — NOT lifted to context; that would
   // break the FileDiffView takeover, which renders DiffFileTree outside the
   // SplitWorkspaceProvider). Shared by the summary bar + the tree's other-

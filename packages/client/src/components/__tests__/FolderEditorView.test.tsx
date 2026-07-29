@@ -33,7 +33,7 @@ describe("FolderEditorView", () => {
   it("mounts the internal editor pane rooted at the folder cwd", () => {
     render(<FolderEditorView cwd="/proj" />);
     // The EditorPane's discoverable rail toggle proves the internal pane mounted.
-    expect(screen.getByTestId("tree-toggle")).toBeTruthy();
+    expect(screen.getByTestId("tree-toggle")).toHaveAttribute("aria-pressed", "true");
     // No external code-server iframe.
     expect(document.querySelector("iframe")).toBeNull();
   });

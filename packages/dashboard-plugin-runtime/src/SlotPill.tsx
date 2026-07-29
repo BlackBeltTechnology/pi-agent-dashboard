@@ -28,7 +28,7 @@ export type SlotAccent = "blue" | "indigo" | "cyan" | "teal" | "purple" | "red";
  * session card is visually consistent with its OPENSPEC/GIT/PROCESS siblings.
  * See change: align-session-card-kb-slot-surface.
  */
-export type SlotSurface = "raised" | "flat";
+export type SlotSurface = "raised" | "flat" | "menu";
 
 // Only the body background + shadow differ between variants; border, radius,
 // hover-border, glyph chip, and the capsule legend are identical. Literal
@@ -36,6 +36,7 @@ export type SlotSurface = "raised" | "flat";
 const SURFACE: Record<SlotSurface, string> = {
   raised: "bg-[var(--bg-secondary)] shadow-[0_1px_2px_var(--shadow-card)]",
   flat: "bg-[color-mix(in_srgb,var(--bg-surface)_50%,transparent)]",
+  menu: "bg-transparent hover:bg-[var(--bg-hover)]",
 };
 
 // Static accent map — Tailwind cannot JIT-scan a dynamic `text-${accent}-400`,
@@ -98,21 +99,29 @@ export function SlotPill({
       onClick={(e) => { e.stopPropagation(); onActivate?.(); }}
       onKeyDown={onKeyDown}
       title={activateTitle}
-      className={`focus-ring group relative flex items-center gap-2 min-w-0 px-2.5 pt-2.5 pb-1.5 rounded-[11px] border border-[var(--border-subtle)] ${SURFACE[surface]} cursor-pointer ${tone.hoverBorder}`}
+      className={`focus-ring group relative flex min-w-0 items-center ${surface === "menu" ? "w-full gap-[10px] rounded-[6px] border-transparent p-2" : "gap-2 px-2.5 pt-2.5 pb-1.5 rounded-[11px] border border-[var(--border-subtle)]"} ${SURFACE[surface]} cursor-pointer ${tone.hoverBorder}`}
     >
-      {/* Label as a capsule overhanging the top border — fieldset-legend style
+      {surface !== "menu" && <>{/* Label as a capsule overhanging the top border — fieldset-legend style
           (matches SessionSubcard's titled panel). Centered on the full pill
           width, so long labels (e.g. "Knowledge base") never truncate as they
           did inline. See change: slot-pill-capsule-label. */}
       <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 max-w-[calc(100%-12px)] truncate px-1.5 py-px rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[9px] font-semibold tracking-wider uppercase text-[var(--text-secondary)] leading-none">
         {label}
       </span>
-      <span className={`shrink-0 w-[26px] h-[26px] rounded-lg flex items-center justify-center ${tone.glyphBg} ${tone.icon}`}>
-        <Icon path={glyph} size={0.62} />
+      </>}
+      <span className={`shrink-0 flex items-center justify-center ${surface === "menu" ? "h-4 w-4" : `h-[26px] w-[26px] rounded-lg ${tone.glyphBg}`} ${tone.icon}`}>
+        <Icon path={glyph} size={surface === "menu" ? 0.52 : 0.62} />
       </span>
-      <span className="text-[13px] font-extrabold text-[var(--text-primary)] flex items-baseline gap-1.5 min-w-0 flex-1 leading-tight">
-        {children}
-      </span>
+      {surface === "menu" ? (
+        <span className="flex min-w-0 flex-1 flex-col gap-px">
+          <span className="truncate text-[12px] font-medium text-[var(--text-primary)]">{label}</span>
+          <span className="flex items-baseline gap-1 truncate font-mono text-[9px] font-normal text-[var(--text-muted)]">{children}</span>
+        </span>
+      ) : (
+        <span className="text-[13px] font-extrabold text-[var(--text-primary)] flex items-baseline gap-1.5 min-w-0 flex-1 leading-tight">
+          {children}
+        </span>
+      )}
       {actions && (
         <span className="shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
           {actions}

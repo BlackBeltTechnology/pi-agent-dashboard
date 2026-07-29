@@ -1,11 +1,11 @@
-import { mdiAlertOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPin, mdiPinOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
+import { mdiAlertOutline, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiDotsHorizontal, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPin, mdiPinOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { getApiBase } from "../../lib/api/api-context.js";
 import {
   deriveDotColorWithFlags,
   deriveIconStatusColor,
-  deriveRailBgColor,
   deriveStatusShape,
   getCardPulseClass,
   getCardStripeFxClass,
@@ -28,7 +28,7 @@ export const statusColors = statusColorsExt;
 export const sourceBadgeColors = sourceBadgeColorsExt;
 
 import { SessionCardActionBarSlot, SessionCardBadgeSlot, SessionCardFlowsSlot, SessionCardMemorySlot, useHasWidgetBarPrompt, useSlotHasClaimsForSession, WorktreeCardSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { CommandInfo, DashboardSession, GitStatus, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { deriveChangeState, type CommandInfo, type DashboardSession, type GitStatus, type ImageContent, type OpenSpecChange, type OpenSpecData, type OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import type { InflightBashTool } from "../../hooks/useInflightBashTools.js";
@@ -49,6 +49,7 @@ import { CollapseSummary } from "../chat/collapse-summary.js";
 import { GitDirtyPill } from "../worktree/GitDirtyPill.js";
 import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
 import { OpenSpecActivityBadge } from "../openspec/OpenSpecActivityBadge.js";
+import { deriveStepperState, type NodeId } from "../openspec/OpenSpecStepper.js";
 import { type ProcessEntry, ProcessList } from "../terminal/ProcessList.js";
 import { formatElapsed, SessionActivityBar, truncateCommand } from "./SessionActivityBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
@@ -58,14 +59,16 @@ import { useSessionCardDragHandle } from "./SortableSessionCard.js";
 import { TagStrip } from "../tags/TagStrip.js";
 import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
 
-export function ActivityIndicator({ session }: { session: DashboardSession }) {
+export function ActivityIndicator({ session, compact = false }: { session: DashboardSession; compact?: boolean }) {
   // Suppress chat-routed indicators when a widget-bar slot owns the prompt.
   // Plugin-agnostic via the `placement` primitive. See change:
   // fix-flows-plugin-polish (B1).
   const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
 
+  const compactClass = compact ? "font-mono text-[8px] font-semibold uppercase tracking-[0.5px] leading-none" : "";
+
   if (session.resuming) {
-    return <span className="text-yellow-400">{i18nT("common.resuming", undefined, "Resuming…")}</span>;
+    return <span className={`text-yellow-400 ${compactClass}`}>{i18nT("common.resuming", undefined, "Resuming…")}</span>;
   }
 
   if (session.status === "ended") return null;
@@ -73,24 +76,105 @@ export function ActivityIndicator({ session }: { session: DashboardSession }) {
   if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) {
     // Blocked-on-you: distinct "Needs you" label + needs-you color + icon.
     // See change: improve-dashboard-attention-routing.
-    return <span className="text-[var(--status-needs-you)] truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> {i18nT("common.needsYou", undefined, "Needs you")}</span>;
+    return <span className={`text-[var(--status-needs-you)] truncate inline-flex items-center gap-0.5 ${compactClass}`}><Icon path={mdiCommentQuestion} size={0.5} /> {i18nT("common.needsYou", undefined, "Needs you")}</span>;
   }
 
   if (session.currentTool) {
-    return <span className="text-[var(--status-working)] truncate inline-flex items-center gap-0.5"><Icon path={mdiFlash} size={0.5} /> {session.currentTool}</span>;
+    return <span className={`text-[var(--status-working)] truncate inline-flex items-center gap-0.5 ${compactClass}`}><Icon path={mdiFlash} size={0.5} /> {session.currentTool}</span>;
   }
 
   if (session.status === "streaming") {
-    return <span className="text-[var(--status-working)]">{i18nT("session.thinking", undefined, "Thinking…")}</span>;
+    return <span className={`text-[var(--status-working)] ${compactClass}`}>{i18nT("session.thinking", undefined, "Thinking…")}</span>;
   }
 
   if (session.status === "idle" || session.status === "active") {
     // Turn-finished passive state: distinct "Idle" label, never "Waiting for
     // input". See change: improve-dashboard-attention-routing.
-    return <span className="text-[var(--text-tertiary)]">{i18nT("status.idle", undefined, "Idle")}</span>;
+    return <span className={`text-[var(--text-tertiary)] ${compactClass}`}>{i18nT("status.idle", undefined, "Idle")}</span>;
   }
 
   return null;
+}
+
+// The compact Pencil card has one dedicated progress row. OpenSpec owns that
+// row whenever the session is attached to a change; context capacity remains
+// a useful fallback only for ordinary sessions.
+const COMPACT_OPENSPEC_PHASE_FALLBACK: Record<string, { index: number; label: string }> = {
+  explore: { index: 1, label: "Explore" },
+  onboard: { index: 1, label: "Explore" },
+  new: { index: 2, label: "Proposal" },
+  continue: { index: 2, label: "Proposal" },
+  ff: { index: 4, label: "Specs" },
+  "sync-specs": { index: 4, label: "Specs" },
+  apply: { index: 6, label: "Apply" },
+  verify: { index: 6, label: "Apply" },
+  archive: { index: 7, label: "Archive" },
+};
+
+const COMPACT_OPENSPEC_NODES: Array<{ id: NodeId; label: string }> = [
+  { id: "explore", label: "Explore" },
+  { id: "proposal", label: "Proposal" },
+  { id: "design", label: "Design" },
+  { id: "specs", label: "Specs" },
+  { id: "tasks", label: "Tasks" },
+  { id: "apply", label: "Apply" },
+  { id: "archive", label: "Archive" },
+];
+
+function deriveCompactOpenSpecStage(change: OpenSpecChange | undefined, attached: string | null, phase?: string) {
+  if (!change) return phase ? COMPACT_OPENSPEC_PHASE_FALLBACK[phase] : undefined;
+  const states = deriveStepperState({
+    attached,
+    artifacts: change.artifacts,
+    completedTasks: change.completedTasks,
+    totalTasks: change.totalTasks,
+    changeState: deriveChangeState(change),
+    hasAnyChanges: true,
+  });
+  const current = COMPACT_OPENSPEC_NODES.findIndex((node) => states[node.id] === "current");
+  const lastDone = COMPACT_OPENSPEC_NODES.findLastIndex((node) => states[node.id] === "done");
+  const index = current >= 0 ? current : Math.max(0, lastDone);
+  return { index: index + 1, label: COMPACT_OPENSPEC_NODES[index]!.label };
+}
+
+function CompactOpenSpecProgress({ phase, changeName, change, changesLoaded, contextUsage, cost }: {
+  phase?: string;
+  changeName?: string;
+  change?: OpenSpecChange;
+  changesLoaded: boolean;
+  contextUsage?: ContextUsageInfo;
+  cost?: number;
+}) {
+  const step = deriveCompactOpenSpecStage(change, changeName ?? null, phase);
+  const pendingLabel = changesLoaded ? "Pending" : "Loading";
+  const index = step?.index ?? 0;
+  const label = step?.label ?? pendingLabel;
+  const tokens = contextUsage?.tokens;
+  const contextWindow = contextUsage?.contextWindow;
+  const hasContext = tokens != null && contextWindow != null && contextWindow > 0;
+  const taskProgress = change && change.totalTasks > 0 && (label === "Tasks" || change.status === "complete")
+    ? `${change.completedTasks}/${change.totalTasks}`
+    : null;
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2" data-testid="session-card-compact-openspec" title={`${changeName ?? "OpenSpec"} · ${label}`}>
+      <div className="h-1 w-24 shrink-0 overflow-hidden rounded-full bg-[var(--border-primary)]">
+        <div
+          className={`h-full rounded-full bg-[var(--accent-orange)] ${step ? "" : "animate-pulse"}`}
+          style={{ width: step ? `${(index / 7) * 100}%` : "18%" }}
+        />
+      </div>
+      <span className="shrink-0 font-mono text-[9px] font-medium text-[var(--text-secondary)] tabular-nums">
+        {hasContext ? `${Math.round(tokens / 1000)}k/${Math.round(contextWindow / 1000)}k` : "—"}
+      </span>
+      {cost != null && cost > 0 && (
+        <span className="shrink-0 font-mono text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">${cost.toFixed(2)}</span>
+      )}
+      <span className="shrink-0 font-mono text-[8px] font-semibold uppercase tracking-[0.5px] text-[var(--accent-orange)]">
+        {label}{taskProgress ? ` ${taskProgress}` : ""}
+      </span>
+    </div>
+  );
 }
 
 /**
@@ -233,9 +317,11 @@ interface GroupGitInfoProps {
    * add-session-uncommitted-indicator-and-commit.
    */
   folderStatus?: GitStatus;
+  /** Keep the compact project Git row informational; Commit moves to Tools. */
+  showCommitAction?: boolean;
 }
 
-export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folderStatus }: GroupGitInfoProps) {
+export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folderStatus, showCommitAction = true }: GroupGitInfoProps) {
   // Folder status: prefer the explicit folder-head value, else any same-cwd
   // session's broadcast (all share one tree → identical). One on-demand read
   // per cwd erases staleness; no per-session redundancy.
@@ -355,7 +441,7 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
       {showFolderPill && (
         <GitDirtyPill status={dirtyStatus} onClick={() => openCommitDialog(cwd, anySessionId)} />
       )}
-      {showFolderPill && (dirtyStatus?.dirtyCount ?? 0) > 0 && (
+      {showCommitAction && showFolderPill && (dirtyStatus?.dirtyCount ?? 0) > 0 && (
         <button
           type="button"
           data-testid="group-commit-btn"
@@ -518,6 +604,35 @@ export function SessionCard({
   const dragHandleProps = useSessionCardDragHandle();
   const isSelected = selectedId === session.id;
   const [isRenaming, setIsRenaming] = useState(false);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
+  const sessionActionsRef = useRef<HTMLDivElement>(null);
+  const sessionActionsPopupRef = useRef<HTMLDivElement>(null);
+
+  // Selection owns the default density: opening a session exposes its detail
+  // stack, while selecting another session (or clearing the selection) folds
+  // this card back to the compact board view. The chevron still remains a
+  // local override while this card stays selected.
+  useEffect(() => {
+    setDetailsExpanded(isSelected);
+  }, [isSelected]);
+
+  useEffect(() => {
+    if (!sessionActionsOpen) return;
+    const closeWhenOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!sessionActionsRef.current?.contains(target) && !sessionActionsPopupRef.current?.contains(target)) setSessionActionsOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSessionActionsOpen(false);
+    };
+    document.addEventListener("mousedown", closeWhenOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeWhenOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [sessionActionsOpen]);
   const canRename = session.status !== "ended" && !!onRename;
   const isAlive = session.status !== "ended";
   const isMobile = useMobile();
@@ -543,6 +658,11 @@ export function SessionCard({
   // OPENSPEC subcard. See change: redesign-session-card-and-composer
   // (config-driven-workflow).
   const openspecConfig = useOpenSpecConfig(session.cwd);
+  const compactOpenSpecChangeName = session.openspecChange ?? session.attachedProposal ?? undefined;
+  const compactOpenSpecChange = compactOpenSpecChangeName
+    ? openspecChanges?.find((change) => change.name === compactOpenSpecChangeName)
+    : undefined;
+  const hasCompactOpenSpec = Boolean(compactOpenSpecChangeName || session.openspecPhase);
   // Source-icon text color mirrors the dot's status color so the icon
   // doubles as a status indicator. See `deriveIconStatusColor` for ended /
   // arbitrary-bg-token defenses.
@@ -556,7 +676,6 @@ export function SessionCard({
   // mosaic shape is carved by an SVG mask asset; the gutter element's
   // background-color supplies the colour. Selected cards use the brighter
   // -400 shade. See change: add-session-card-status-mosaic-rail.
-  const railBgClass = deriveRailBgColor(session, { hasError, isRetrying, hasWidgetBarPrompt, hasNotice }, isSelected);
 
   function handleConfirmRename(name: string) {
     setIsRenaming(false);
@@ -690,8 +809,11 @@ export function SessionCard({
     <li
       ref={hasAnimatedFx ? cardFxRef : undefined}
       data-session-id={session.id}
-      onClick={() => onSelect(session.id)}
-      className={`relative isolate px-2 py-2 cursor-pointer rounded-xl shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)] border hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)] hover:-translate-y-0.5 transition-all duration-200 ${
+      onClick={() => {
+        onSelect(session.id);
+        setDetailsExpanded(true);
+      }}
+        className={`dashboard-card relative isolate w-full max-w-[420px] cursor-pointer rounded-[10px] border p-[14px] hover:shadow-[0_3px_10px_rgba(14,20,32,0.09)] hover:-translate-y-px transition-all duration-200 ${sessionActionsOpen ? "z-[70]" : "z-0"} ${
         isSelected
           ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30 card-selected-ring"
           : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
@@ -702,242 +824,139 @@ export function SessionCard({
       {isSelected ? <div className="card-glow-fx" aria-hidden="true" /> : null}
       {stripeFxClass ? <div className={`card-stripes-fx ${stripeFxClass}`} aria-hidden="true" /> : null}
       {isSelected ? <div className="card-ring-fx" aria-hidden="true" /> : null}
-      <div className="flex gap-1.5">
-      {/* Left gutter: a status-tinted capsule rail with a circular icon chip
-          at the top. The rail is a 6px-wide rounded vertical bar centered in
-          a 20px-wide gutter, capped above and below the chip. The icon sits
-          in its own circular chip with an opaque dark backing so it reads
-          clearly. Doubles as drag handle when dragHandleProps is provided.
-          See change: add-session-card-status-mosaic-rail. */}
+      <div className="flex gap-2.5">
+      {/* The compact reference uses one quiet status dot. It is still the
+          drag handle, but no longer consumes a tall decorative rail. */}
       <div
         {...(dragHandleProps ?? {})}
-        className={`relative flex flex-col items-center flex-shrink-0 w-5 pt-2 pb-2 ${dragHandleProps ? "cursor-grab active:cursor-grabbing" : ""}`}
+        className={`flex h-5 w-2 shrink-0 items-center justify-center ${dragHandleProps ? "cursor-grab active:cursor-grabbing" : ""}`}
         onClick={(e) => { if (dragHandleProps) e.stopPropagation(); }}
         title={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
         data-testid={dragHandleProps ? "drag-handle-session" : undefined}
-        data-rail-bg={railBgClass}
       >
-        {/* Capsule rail: 6 px wide, centered, rounded-full both ends. Starts
-            below the icon chip (top-7 = 28 px = pt-2 + chip h-4 + ~4 px
-            gap) so the chip and the bar do not visually run into each other. */}
         <span
-          aria-hidden="true"
-          className={`pointer-events-none absolute left-1/2 top-7 bottom-2 -translate-x-1/2 w-1.5 rounded-full ${railBgClass}`}
-        />
-        {/* Icon chip: opaque tertiary surface so the icon stays clear of the
-            colored rail behind it. */}
-        <span
-          className={`relative z-10 inline-flex items-center justify-center w-4 h-4 rounded-full bg-[var(--bg-tertiary)] shadow-sm ${iconStatusColor}`}
+          className={`h-2 w-2 rounded-full ${dotColor}`}
           data-testid="session-status-icon"
           data-status-shape={statusShape}
-        >
-          <Icon path={sourceIcons[session.source] ?? mdiConsoleLine} size={0.45} />
-          <StatusShapeBadge shape={statusShape} colorClass={iconStatusColor} />
-        </span>
+        />
       </div>
       {/* Card content */}
-      <div className="flex-1 min-w-0">
-      {/* Line 1: name + time */}
-      <div className="flex items-center gap-2">
-        {isRenaming ? (
-          <InlineRenameInput
-            currentName={getSessionDisplayName(session)}
-            onConfirm={handleConfirmRename}
-            onCancel={() => setIsRenaming(false)}
-            className="flex-1"
-          />
-        ) : (
-          <span
-            className={`text-sm font-semibold truncate flex-1 ${canRename ? "cursor-text" : ""}`}
-            onDoubleClick={(e) => {
-              if (canRename) {
-                e.stopPropagation();
-                setIsRenaming(true);
-              }
-            }}
-          >
-            {getSessionDisplayName(session)}
-          </span>
-        )}
-        {canRename && !isRenaming && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }}
-            className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5 flex-shrink-0"
-            title={i18nT("session.renameSession", undefined, "Rename session")}
-          >
-            <Icon path={mdiPencilOutline} size={0.45} />
-          </button>
-        )}
-        <span
-          className="text-[10px] text-[var(--text-muted)]"
-          title={i18nT("session.startedAtTime", { time: new Date(session.startedAt).toLocaleString() }, "Started {time}")}
-        >
-          {formatRelativeTime(now - selectBadgeTimestamp(session))}
-        </span>
-        {/* Pin-to-tab-bar toggle. See change: session-tab-bar. */}
-        {onTogglePinTab && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onTogglePinTab(session.id); }}
-            className={`p-0.5 flex-shrink-0 ${isPinnedTab ? "text-[var(--accent-primary)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]"}`}
-            title={isPinnedTab ? i18nT("session.unpinFromTabBar", undefined, "Unpin from tab bar") : i18nT("session.pinToTabBar", undefined, "Pin to tab bar")}
-            data-testid="session-pin-tab-btn"
-            aria-pressed={!!isPinnedTab}
-          >
-            <Icon path={isPinnedTab ? mdiPin : mdiPinOutline} size={0.45} />
-          </button>
-        )}
-        {/* Hide/unhide button */}
-        {isHidden ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); onUnhide(session.id); }}
-            className="text-[var(--text-tertiary)] hover:text-green-400 p-0.5 flex-shrink-0"
-            title={i18nT("session.showSession", undefined, "Show session")}
-            data-testid="session-unhide-btn"
-          >
-            <Icon path={mdiEyeOutline} size={0.45} />
-          </button>
-        ) : (
-          <button
-            onClick={(e) => { e.stopPropagation(); onHide(session.id); }}
-            className="text-[var(--text-tertiary)] hover:text-[var(--text-muted)] p-0.5 flex-shrink-0"
-            title={i18nT("session.hideSession", undefined, "Hide session")}
-            data-testid="session-hide-btn"
-          >
-            <Icon path={mdiEyeOffOutline} size={0.45} />
-          </button>
-        )}
-        {isAlive && onShutdown && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (session.closing) return;
-              if (session.status === "streaming") {
-                if (!window.confirm(i18nT("session.exitWhileRunningConfirm", undefined, "Session is currently running. Exit anyway?"))) return;
-              }
-              onShutdown(session.id);
-            }}
-            disabled={session.closing}
-            className="text-[var(--text-muted)] hover:text-red-400 p-0.5 flex-shrink-0 disabled:cursor-default disabled:hover:text-[var(--text-muted)]"
-            title={session.closing ? i18nT("session.closing", undefined, "Closing…") : i18nT("session.exitPiSession", undefined, "Exit pi session")}
-            data-testid="session-close-btn"
-          >
-            <Icon path={session.closing ? mdiLoading : mdiClose} size={0.5} className={session.closing ? "animate-spin" : undefined} />
-          </button>
-        )}
-      </div>
-
-      {/* Line 2: model + thinking level + source/fork right-aligned */}
-      <div className="flex items-center mt-0.5 gap-1.5">
-        {session.model && (
-          <span className="text-xs text-[var(--text-tertiary)] truncate">
-            {session.model}{session.thinkingLevel ? ` (${session.thinkingLevel})` : ""}
-          </span>
-        )}
-        <span className="flex-1" />
-        {onResume && session.sessionFile && (
-          <>
-            {(!isAlive || isHidden) && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onResume("continue"); }}
-                disabled={session.resuming || session.cwdMissing === true}
-                className="text-[9px] px-1 py-px rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-                title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.resumeTitle", undefined, "Resume session (continue same session)")}
+      <div className="flex flex-1 min-w-0 flex-col gap-2">
+      {/* Row 1: reference-style title column plus compact right actions. */}
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="flex h-[31px] min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex h-[17px] min-w-0 items-center gap-1">
+            {isRenaming ? (
+              <InlineRenameInput
+                currentName={getSessionDisplayName(session)}
+                onConfirm={handleConfirmRename}
+                onCancel={() => setIsRenaming(false)}
+                className="flex-1"
+              />
+            ) : (
+              <span
+                className={`truncate text-[13px] font-semibold leading-[17px] ${canRename ? "cursor-text" : ""}`}
+                onDoubleClick={(e) => {
+                  if (canRename) {
+                    e.stopPropagation();
+                    setIsRenaming(true);
+                  }
+                }}
               >
-                <Icon path={mdiPlayCircleOutline} size={0.35} className="inline mr-px" />{i18nT("session.resume", undefined, "Resume")}
+                {getSessionDisplayName(session)}
+              </span>
+            )}
+            {canRename && !isRenaming && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }}
+                className="focus-ring shrink-0 rounded p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                title={i18nT("session.renameSession", undefined, "Rename session")}
+              >
+                <Icon path={mdiPencilOutline} size={0.42} />
               </button>
             )}
-            <button
-              onClick={(e) => { e.stopPropagation(); onResume("fork"); }}
-              disabled={session.resuming || session.cwdMissing === true}
-              className="text-[9px] px-1 py-px rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-              title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.forkTitle", undefined, "Fork session (new session from this point)")}
-            >
-              <Icon path={mdiSourceFork} size={0.35} className="inline mr-px" />{i18nT("session.fork", undefined, "Fork")}
-            </button>
-          </>
-        )}
-        {/* +Session — clean sibling spawn. Always visible (no ended/sessionFile
-            gate, unlike Fork/Resume above). Inherits cwd + attachedProposal.
-            See change: session-card-plus-session-button. */}
-        {onSpawnSibling && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onSpawnSibling(session); }}
-            disabled={!!session.cwdMissing}
-            className="text-[9px] px-1 py-px rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.spawnSiblingTitle", undefined, "+Session clean sibling in same folder")}
-            data-testid="session-card-spawn-sibling"
-          >
-            <Icon path={mdiPlus} size={0.35} className="inline mr-px" />{i18nT("session.session", undefined, "Session")}
-          </button>
-        )}
-        {/* +Worktree — create git worktree (if needed) + spawn session inside
-            it via WorktreeSpawnDialog. Gated upstream by gitWorktreeEnabled.
-            Hidden when the session is ALREADY a worktree session
-            (`session.gitWorktree` set) — spawning a worktree from inside a
-            worktree is redundant. Also hidden ONLY when the cwd is a
-            confirmed non-git directory (`isGitRepo === false`); `true` and
-            `undefined` (unknown / probe-timed-out / legacy) keep the button
-            so a real repo never loses it. NOT gated on `gitBranch` — that is
-            a data-arrival signal (absent during the register race, on probe
-            failure, and after restart for cold sessions).
-            See changes: session-card-plus-session-button,
-            gate-session-worktree-button-on-git. */}
-        {onSpawnWorktree && !session.gitWorktree && session.isGitRepo !== false && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onSpawnWorktree(session); }}
-            disabled={!!session.cwdMissing}
-            className="text-[9px] px-1 py-px rounded border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.spawnWorktreeTitle", undefined, "Create git worktree + spawn session inside it")}
-            data-testid="session-card-spawn-worktree"
-          >
-            <Icon path={mdiSourceBranchPlus} size={0.35} className="inline mr-px" />{i18nT("worktree.worktree", undefined, "Worktree")}
-          </button>
-        )}
-      </div>
-
-      {/* Line 3: activity (left) | context bar + cost (right) */}
-      <div className="flex items-center mt-0.5 text-[11px] gap-2">
-        <ActivityIndicator session={session} />
-        <span className="flex-1" />
-        {prefs.contextUsageBar && (
-          <ContextUsageBar
-            tokens={contextUsage?.tokens ?? null}
-            contextWindow={contextUsage?.contextWindow}
-            compaction={contextUsage?.compaction}
-            compact
-          />
-        )}
-        {session.cost != null && session.cost > 0 && (
-          <span className="text-[var(--text-tertiary)] flex-shrink-0">${session.cost.toFixed(2)}</span>
-        )}
-      </div>
-
-      {/* OpenSpec activity badge */}
-      {(session.openspecPhase || session.openspecChange) ? (
-        <OpenSpecActivityBadge
-          phase={session.openspecPhase ?? undefined}
-          changeName={session.openspecChange ?? undefined}
-          completedTasks={
-            session.openspecChange
-              ? openspecChanges?.find((c) => c.name === session.openspecChange)?.completedTasks
-              : undefined
-          }
-          totalTasks={
-            session.openspecChange
-              ? openspecChanges?.find((c) => c.name === session.openspecChange)?.totalTasks
-              : undefined
-          }
-        />
-      ) : null}
-
-      {/* Compact read-only tag strip: user chips + `+N` overflow + read-only
-          phase pseudo-tag (openspecPhase only). See change: add-session-tags. */}
-      {((session.tags?.length ?? 0) > 0 || session.openspecPhase) ? (
-        <div className="mt-1 px-1">
-          <TagStrip tags={session.tags ?? []} phase={session.openspecPhase} />
+          </div>
+          <div className="flex h-3 min-w-0 items-center gap-2">
+            <ActivityIndicator session={session} compact />
+            {session.model && (
+              <span className="truncate font-mono text-[9px] leading-3 text-[var(--text-muted)]">
+                {session.model}{session.thinkingLevel ? ` (${session.thinkingLevel})` : ""}
+              </span>
+            )}
+          </div>
         </div>
-      ) : null}
+        <div className="flex h-6 shrink-0 items-center gap-2">
+          <SessionCardActionsMenu
+            ref={sessionActionsRef}
+            popupRef={sessionActionsPopupRef}
+            open={sessionActionsOpen}
+            onOpenChange={setSessionActionsOpen}
+            session={session}
+            isAlive={isAlive}
+            isHidden={isHidden}
+            isPinnedTab={isPinnedTab}
+            onResume={onResume}
+            onSpawnSibling={onSpawnSibling}
+            onSpawnWorktree={onSpawnWorktree}
+            onTogglePinTab={onTogglePinTab}
+            onHide={onHide}
+            onUnhide={onUnhide}
+            onShutdown={onShutdown}
+          />
+          <button
+            type="button"
+            data-testid="session-card-details-toggle"
+            aria-expanded={detailsExpanded}
+            aria-controls={`session-card-details-${session.id}`}
+            aria-label={detailsExpanded
+              ? i18nT("session.hideDetails", undefined, "Hide details")
+              : i18nT("session.showDetails", undefined, "Show details")}
+            title={detailsExpanded
+              ? i18nT("session.hideDetails", undefined, "Hide details")
+              : i18nT("session.showDetails", undefined, "Show details")}
+            onClick={(e) => { e.stopPropagation(); setDetailsExpanded((expanded) => !expanded); }}
+            className="focus-ring inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            <Icon path={detailsExpanded ? mdiChevronUp : mdiChevronDown} size={0.45} />
+          </button>
+        </div>
+      </div>
 
+      {/* Row 2: the sole compact footer, matching Pencil's thin progress row. */}
+      {(hasCompactOpenSpec || prefs.contextUsageBar || (session.cost ?? 0) > 0) && <div className="flex min-h-1 items-center gap-2">
+        {hasCompactOpenSpec ? (
+          <CompactOpenSpecProgress
+            phase={session.openspecPhase ?? undefined}
+            changeName={compactOpenSpecChangeName}
+            change={compactOpenSpecChange}
+            changesLoaded={openspecChanges !== undefined}
+            contextUsage={contextUsage}
+            cost={session.cost}
+          />
+        ) : prefs.contextUsageBar ? (
+          <>
+            <ContextUsageBar
+              tokens={contextUsage?.tokens ?? null}
+              contextWindow={contextUsage?.contextWindow}
+              compaction={contextUsage?.compaction}
+              compact
+              fixedCompactWidth
+            />
+            {session.cost != null && session.cost > 0 && (
+              <span className="shrink-0 font-mono text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">${session.cost.toFixed(2)}</span>
+            )}
+          </>
+        ) : session.cost != null && session.cost > 0 ? (
+          <span className="shrink-0 font-mono text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">${session.cost.toFixed(2)}</span>
+        ) : null}
+      </div>}
+
+      <div
+        id={`session-card-details-${session.id}`}
+        data-testid="session-card-details"
+        hidden={!detailsExpanded}
+        className=""
+      >
       {/* Subcard stack — see change: redesign-session-card-subcards.
           Flow activity badge has been removed from the shell — it is now
           rendered via SessionCardBadgeSlot (inside WorkspaceSubcard below)
@@ -960,7 +979,7 @@ export function SessionCard({
             ? true
             : Boolean(openspecInitialized) || Boolean(openspecPending)
       ) && (
-        <SessionSubcard title={i18nT("session.subcardOpenspec", undefined, "OPENSPEC")}>
+        <div>
           <SessionOpenSpecActions
             session={session}
             changes={openspecChanges}
@@ -975,7 +994,7 @@ export function SessionCard({
             openspecConfig={openspecConfig}
             /* See change: redesign-session-card-and-composer (config-driven-workflow). */
           />
-        </SessionSubcard>
+        </div>
       )}
 
       {/* WORKTREE folder-scoped sections (KB row) — only for worktree
@@ -1020,9 +1039,10 @@ export function SessionCard({
       {/* MEMORY subcard — plugin slot only */}
       <MemorySubcard session={session} />
 
-      {/* Plugin slot: session-card-action-bar — generic card footer.
-          Kept rendered for future generic plugins. */}
+      {/* Generic plugin actions stay content-sized; plugin-owned folder tools
+          must claim sidebar-folder-section instead of inflating every session. */}
       <SessionCardActionBarSlot session={session} />
+      </div>
       </div>{/* end card content */}
       </div>{/* end flex row */}
     </li>
@@ -1034,6 +1054,183 @@ export function SessionCard({
 // downstream doesn't churn. See change: redesign-process-list-activity-bar.
 const EMPTY_BASH_TOOLS: readonly InflightBashTool[] = [];
 const EMPTY_PROCESSES: readonly ProcessEntry[] = [];
+
+/**
+ * Compact-card overflow actions. This intentionally mirrors the folder's
+ * `⋯` pattern: the session's creation and lifecycle controls remain available
+ * without becoming a second, wrapping row in every card.
+ */
+const SessionCardActionsMenu = React.forwardRef<HTMLDivElement, {
+  popupRef: React.RefObject<HTMLDivElement | null>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  session: DashboardSession;
+  isAlive: boolean;
+  isHidden: boolean;
+  isPinnedTab?: boolean;
+  onResume?: (mode: "continue" | "fork") => void;
+  onSpawnSibling?: (session: DashboardSession) => void;
+  onSpawnWorktree?: (session: DashboardSession) => void;
+  onTogglePinTab?: (sessionId: string) => void;
+  onHide: (sessionId: string) => void;
+  onUnhide: (sessionId: string) => void;
+  onShutdown?: (sessionId: string) => void;
+}>(({
+  open,
+  popupRef,
+  onOpenChange,
+  session,
+  isAlive,
+  isHidden,
+  isPinnedTab,
+  onResume,
+  onSpawnSibling,
+  onSpawnWorktree,
+  onTogglePinTab,
+  onHide,
+  onUnhide,
+  onShutdown,
+}, ref) => {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [popupPosition, setPopupPosition] = useState({ top: 8, left: 8, maxHeight: 0 });
+  const disabled = session.resuming || session.cwdMissing === true;
+  const hasWorktreeAction = !!onSpawnWorktree && !session.gitWorktree && session.isGitRepo !== false;
+  const run = (action: () => void) => {
+    action();
+    onOpenChange(false);
+  };
+
+  const placePopup = () => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const margin = 8;
+    const gap = 6;
+    const width = 190;
+    const maxHeight = Math.max(120, window.innerHeight - margin * 2);
+    const popupHeight = Math.min(popupRef.current?.offsetHeight ?? maxHeight, maxHeight);
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const openAbove = popupHeight > spaceBelow && rect.top - margin > spaceBelow;
+    const desiredTop = openAbove ? rect.top - gap - popupHeight : rect.bottom + gap;
+    setPopupPosition({
+      top: Math.max(margin, Math.min(desiredTop, window.innerHeight - margin - popupHeight)),
+      left: Math.max(margin, Math.min(rect.right - width, window.innerWidth - margin - width)),
+      maxHeight,
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    placePopup();
+    if (typeof ResizeObserver === "undefined" || !popupRef.current) return;
+    const observer = new ResizeObserver(placePopup);
+    observer.observe(popupRef.current);
+    return () => observer.disconnect();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const reposition = () => placePopup();
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [open]);
+  const MenuItem = ({ icon, label, onClick, tone = "neutral", disabled: itemDisabled = false, testId }: {
+    icon: string;
+    label: string;
+    onClick: () => void;
+    tone?: "neutral" | "green" | "blue" | "orange" | "danger";
+    disabled?: boolean;
+    testId?: string;
+  }) => {
+    const colors = {
+      neutral: "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+      green: "text-green-500 hover:bg-green-500/10",
+      blue: "text-blue-500 hover:bg-blue-500/10",
+      orange: "text-orange-500 hover:bg-orange-500/10",
+      danger: "text-red-400 hover:bg-red-500/10",
+    }[tone];
+    return (
+      <button
+        type="button"
+        role="menuitem"
+        disabled={itemDisabled}
+        data-testid={testId}
+        onClick={(event) => { event.stopPropagation(); run(onClick); }}
+        className={`focus-ring flex w-full items-center gap-2 rounded-[5px] px-2 py-1.5 text-left text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-45 ${colors}`}
+      >
+        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[var(--bg-tertiary)]">
+          <Icon path={icon} size={0.45} />
+        </span>
+        <span className="min-w-0 truncate">{label}</span>
+      </button>
+    );
+  };
+
+  return (
+    <div ref={ref} className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
+      <button
+        ref={triggerRef}
+        type="button"
+        data-testid="session-card-actions-trigger"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Session actions"
+        title="Session actions"
+        onClick={() => onOpenChange(!open)}
+        className="focus-ring inline-flex h-6 w-6 items-center justify-center rounded-[6px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+      >
+        <Icon path={mdiDotsHorizontal} size={0.48} />
+      </button>
+      {open && typeof document !== "undefined" && createPortal(
+        <div
+          ref={popupRef}
+          role="menu"
+          data-testid="session-card-actions-menu"
+          style={{ top: popupPosition.top, left: popupPosition.left, maxHeight: popupPosition.maxHeight || undefined }}
+          className="fixed z-[100] w-[190px] overflow-y-auto rounded-[9px] border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-1.5 shadow-[0_12px_28px_rgba(14,20,32,0.18)]"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="px-2 pb-1 pt-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">Session actions</div>
+          {onResume && session.sessionFile && !isAlive && (
+            <MenuItem icon={mdiPlayCircleOutline} label={i18nT("session.resume", undefined, "Resume")} tone="green" disabled={disabled} onClick={() => onResume("continue")} />
+          )}
+          {onResume && session.sessionFile && (
+            <MenuItem icon={mdiSourceFork} label={i18nT("session.fork", undefined, "Fork session")} tone="blue" disabled={disabled} onClick={() => onResume("fork")} testId="session-card-fork" />
+          )}
+          {onSpawnSibling && (
+            <MenuItem icon={mdiPlus} label={i18nT("session.newSession2", undefined, "New session")} tone="green" disabled={disabled} onClick={() => onSpawnSibling(session)} testId="session-card-spawn-sibling" />
+          )}
+          {hasWorktreeAction && onSpawnWorktree && (
+            <MenuItem icon={mdiSourceBranchPlus} label={i18nT("session.newWorktree", undefined, "New worktree")} tone="orange" disabled={disabled} onClick={() => onSpawnWorktree(session)} testId="session-card-spawn-worktree" />
+          )}
+          {(onResume || onSpawnSibling || hasWorktreeAction) && <div className="my-1 border-t border-[var(--border-subtle)]" />}
+          {onTogglePinTab && (
+            <MenuItem icon={isPinnedTab ? mdiPin : mdiPinOutline} label={isPinnedTab ? i18nT("session.unpinFromTabBar", undefined, "Unpin from tab bar") : i18nT("session.pinToTabBar", undefined, "Pin to tab bar")} onClick={() => onTogglePinTab(session.id)} testId="session-pin-tab-btn" />
+          )}
+          <MenuItem icon={isHidden ? mdiEyeOutline : mdiEyeOffOutline} label={isHidden ? i18nT("session.showSession", undefined, "Show session") : i18nT("session.hideSession", undefined, "Hide session")} onClick={() => isHidden ? onUnhide(session.id) : onHide(session.id)} testId={isHidden ? "session-unhide-btn" : "session-hide-btn"} />
+          {isAlive && onShutdown && (
+            <MenuItem
+              icon={session.closing ? mdiLoading : mdiClose}
+              label={session.closing ? i18nT("session.closing", undefined, "Closing…") : i18nT("session.exitPiSession", undefined, "Exit pi session")}
+              tone="danger"
+              disabled={session.closing}
+              testId="session-close-btn"
+              onClick={() => {
+                if (session.status === "streaming" && !window.confirm(i18nT("session.exitWhileRunningConfirm", undefined, "Session is currently running. Exit anyway?"))) return;
+                onShutdown(session.id);
+              }}
+            />
+          )}
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+});
+SessionCardActionsMenu.displayName = "SessionCardActionsMenu";
 
 /**
  * useDrawerExpansion — resolves the background-processes drawer's

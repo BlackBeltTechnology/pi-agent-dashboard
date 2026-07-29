@@ -29,7 +29,7 @@ export interface FolderDescriptor {
  * folder card (raised pill); `card` = inside a session card (flat pill matching
  * the SessionSubcard panels). See change: align-session-card-kb-slot-surface.
  */
-export type SlotPlacement = "sidebar" | "card";
+export type SlotPlacement = "sidebar" | "card" | "menu";
 
 /**
  * Image payload forwarded to `tool-renderer` plugins. Structural mirror of the

@@ -75,6 +75,12 @@ export default defineConfig({
     alias: {
       "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
       "@blackbelt-technology/pi-dashboard-client-utils": path.resolve(__dirname, "../client-utils/src"),
+      // Symlinked dashboard plugins resolve dependencies from their own repo
+      // root. Point MDI imports at this host workspace so plugin folder slots
+      // share the same icon runtime as the client instead of requiring every
+      // external plugin checkout to carry a duplicate install.
+      "@mdi/js": path.resolve(__dirname, "../../node_modules/@mdi/js"),
+      "@mdi/react": path.resolve(__dirname, "../../node_modules/@mdi/react"),
     },
   },
   build: {

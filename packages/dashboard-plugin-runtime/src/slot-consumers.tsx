@@ -20,7 +20,7 @@ import { CurrentPluginLayer, useSlotRegistryOrNull } from "./plugin-context.js";
 import { useShellSessionOrNull } from "./shell-sessions-context.js";
 import { SlotErrorBoundary } from "./slot-error-boundary.js";
 import type { FolderDescriptor } from "./slot-registry.js";
-import { forActionId, forFolder, forSession, forSessionRendered, forTab, forToolName, type SlotRegistry } from "./slot-registry.js";
+import { forActionId, forFolder, forSession, forSessionRendered, forTab, forToolName, type FolderDescriptor, type SlotRegistry } from "./slot-registry.js";
 
 /**
  * Returns true when at least one plugin claim exists for `slotId` AND matches
@@ -39,6 +39,13 @@ export function useSlotHasClaimsForSession(slotId: SlotId, session: DashboardSes
   const registry = useSlotRegistryOrNull();
   if (!registry) return false;
   return forSessionRendered(registry.getClaims(slotId), session).length > 0;
+}
+
+/** Returns whether an enabled folder-scoped slot claim applies to this folder. */
+export function useSlotHasClaimsForFolder(slotId: SlotId, folder: FolderDescriptor): boolean {
+  const registry = useSlotRegistryOrNull();
+  if (!registry) return false;
+  return forFolder(registry.getClaims(slotId), folder).length > 0;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -86,15 +93,19 @@ function renderIntent(
 
 // ── Slot consumers ────────────────────────────────────────────────────────────
 
-export function SidebarFolderSectionSlot({ folder }: { folder: FolderDescriptor }) {
+export function SidebarFolderSectionSlot({ folder, placement }: { folder: FolderDescriptor; placement?: SlotPlacement }) {
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const claims = forFolder(registry.getClaims("sidebar-folder-section"), folder);
   if (!claims.length) return null;
+  const menuOrder: Record<string, number> = { kb: 0, council: 1 };
+  const orderedClaims = placement === "menu"
+    ? [...claims].sort((a, b) => (menuOrder[a.pluginId] ?? 2) - (menuOrder[b.pluginId] ?? 2))
+    : claims;
   return (
     <>
-      {claims.map(c =>
-        renderClaim(c as Parameters<typeof renderClaim>[0], "sidebar-folder-section", { folder }),
+      {orderedClaims.map(c =>
+        renderClaim(c as Parameters<typeof renderClaim>[0], "sidebar-folder-section", { folder, placement }),
       )}
     </>
   );

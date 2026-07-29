@@ -125,7 +125,6 @@ import { sessionToMeta } from "./session/session-to-meta.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { spawnPiSession } from "./spawn-process/process-manager.js";
-import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, type TerminalManager } from "./terminal/terminal-manager.js";
 import { createTranslateBridgeDispatcher } from "./translate-via-bridge.js";

@@ -1,6 +1,7 @@
 import { SlotPill } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { SlotPlacement } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiArchiveOutline, mdiClipboardTextOutline, mdiFileDocumentOutline, mdiRefresh } from "@mdi/js";
+import { mdiArchiveOutline, mdiClipboardTextOutline, mdiFileDocumentOutline, mdiPackageVariant, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -22,21 +23,32 @@ interface Props {
   onOpenSpecs?: () => void;
   /** Open the archive browser overlay. */
   onOpenArchive?: () => void;
+  placement?: SlotPlacement;
 }
 
-export function FolderOpenSpecSection({ data, cwd, onRefresh, onOpenBoard, onOpenSpecs, onOpenArchive }: Props) {
+export function FolderOpenSpecSection({ data, cwd, onRefresh, onOpenBoard, onOpenSpecs, onOpenArchive, placement = "sidebar" }: Props) {
+  const isMenu = placement === "menu";
+  const menuLabel = i18nT("openspec.changes", undefined, "OpenSpec Changes");
   // Pending state (cold boot) — show a spinner placeholder.
   if (!data.initialized && data.pending) {
     return (
       <div data-testid="folder-openspec-section-pending" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-1.5 mt-1">
-          <span
-            className="inline-block h-2.5 w-2.5 rounded-full border border-[var(--text-tertiary)] border-t-transparent animate-spin"
-            data-testid="folder-openspec-pending-spinner"
-            aria-label={i18nT("openspec.openspecLoading", undefined, "OpenSpec loading")}
-          />
-          <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase">{i18nT("openspec.openspec", undefined, "OpenSpec")}</span>
-        </div>
+        <SlotPill
+          surface={placement === "sidebar" ? "raised" : placement === "menu" ? "menu" : "flat"}
+          glyph={isMenu ? mdiPackageVariant : mdiClipboardTextOutline}
+          accent="purple"
+          label={isMenu ? menuLabel : i18nT("openspec.openspec", undefined, "OpenSpec")}
+          actions={
+            <span
+              className="inline-block h-3.5 w-3.5 rounded-full border-2 border-purple-400/30 border-t-purple-400 animate-spin"
+              data-testid="folder-openspec-pending-spinner"
+              role="status"
+              aria-label={i18nT("openspec.openspecLoading", undefined, "OpenSpec loading")}
+            />
+          }
+        >
+          <span>{i18nT("openspec.openspecLoading", undefined, "Loading changes…")}</span>
+        </SlotPill>
       </div>
     );
   }
@@ -48,13 +60,14 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onOpenBoard, onOpe
   return (
     <div data-testid="folder-openspec-section" onClick={(e) => e.stopPropagation()}>
       <SlotPill
-        glyph={mdiClipboardTextOutline}
+        surface={placement === "sidebar" ? "raised" : placement === "menu" ? "menu" : "flat"}
+        glyph={isMenu ? mdiPackageVariant : mdiClipboardTextOutline}
         accent="purple"
-        label={i18nT("openspec.openspec", undefined, "OpenSpec")}
+        label={isMenu ? menuLabel : i18nT("openspec.openspec", undefined, "OpenSpec")}
         activateTestId="folder-openspec-open-board"
         activateTitle={i18nT("openspec.openOpenspecBoard", undefined, "Open OpenSpec board")}
         onActivate={() => onOpenBoard?.(cwd)}
-        actions={
+        actions={!isMenu ? (
           <>
             <button
               type="button"
@@ -90,7 +103,7 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onOpenBoard, onOpe
               </button>
             )}
           </>
-        }
+        ) : undefined}
       >
         <span data-testid="folder-openspec-count">{count}</span>
         <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{i18nT("openspec.changesUnit", undefined, "changes")}</span>

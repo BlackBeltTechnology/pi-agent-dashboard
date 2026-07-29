@@ -117,7 +117,7 @@ export function FolderKbSection({ folder, placement = "sidebar" }: { folder: Fol
       onClick={(e) => e.stopPropagation()}
     >
       <SlotPill
-        surface={placement === "card" ? "flat" : "raised"}
+        surface={placement === "sidebar" ? "raised" : placement === "menu" ? "menu" : "flat"}
         glyph={mdiDatabaseOutline}
         accent={state === "error" ? "red" : "cyan"}
         label={t("labelKbShort", undefined, "Knowledge base")}

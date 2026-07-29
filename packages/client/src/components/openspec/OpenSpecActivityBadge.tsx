@@ -45,11 +45,14 @@ export function OpenSpecActivityBadge({
   changeName,
   completedTasks,
   totalTasks,
+  compact = false,
 }: {
   phase?: OpenSpecPhase;
   changeName?: string;
   completedTasks?: number;
   totalTasks?: number;
+  /** A no-indent summary line for a compact SessionCard shell. */
+  compact?: boolean;
 }) {
   const { t } = useI18n();
   const label = phase
@@ -59,7 +62,7 @@ export function OpenSpecActivityBadge({
   const hasProgress = totalTasks != null && totalTasks > 0;
 
   return (
-    <div className={`text-[11px] mt-0.5 ml-4 flex items-center gap-1 ${color}`}>
+    <div className={`${compact ? "min-w-0" : "mt-0.5 ml-4"} flex items-center gap-1 text-[10px] ${color}`}>
       <Icon path={mdiClipboardTextOutline} size={0.45} />
       <span className="truncate">
         {label}

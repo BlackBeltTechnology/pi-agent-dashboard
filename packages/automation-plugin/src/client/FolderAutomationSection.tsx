@@ -13,7 +13,7 @@
  */
 
 import { SlotPill, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
+import type { FolderDescriptor, SlotPlacement } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { mdiCogOutline, mdiPlus, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
@@ -26,8 +26,10 @@ import { encodeFolderPath } from "./folder-encoding.js";
 
 export function FolderAutomationSection({
   folder,
+  placement = "sidebar",
 }: {
   folder: FolderDescriptor;
+  placement?: SlotPlacement;
 }): React.ReactElement | null {
   const [automations, setAutomations] = useState<DiscoveredAutomation[] | null>(null);
   const [creating, setCreating] = useState(false);
@@ -60,6 +62,7 @@ export function FolderAutomationSection({
   return (
     <div data-testid="folder-automation-section" onClick={(e) => e.stopPropagation()}>
       <SlotPill
+        surface={placement === "sidebar" ? "raised" : placement === "menu" ? "menu" : "flat"}
         glyph={mdiCogOutline}
         accent="blue"
         label={t("automations", undefined, "Automations")}

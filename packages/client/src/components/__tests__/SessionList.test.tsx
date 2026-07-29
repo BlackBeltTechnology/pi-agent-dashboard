@@ -170,6 +170,27 @@ describe("SessionList elevated spawn buttons", () => {
     expect(body?.querySelector('[data-testid="folder-spawn-session-btn"]')).toBeTruthy();
   });
 
+  it("moves the add-to-workspace action from +ws into Project Tools", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/my/project" })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            workspaces={[{ id: "ws1", name: "Workspace", folders: [], collapsed: false }]}
+            onCreateWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+
+    expect(screen.queryByText("+ws")).toBeNull();
+    fireEvent.click(screen.getByTestId("folder-tools-trigger"));
+    expect(screen.getByTestId("add-to-workspace-btn-/my/project")).toBeTruthy();
+    expect(screen.getByText("Add to workspace")).toBeTruthy();
+  });
+
   it("tints a top-level folder but not a workspace-grouped one (change: folder-card-enclosure)", () => {
     const { container } = render(
       <TestRouter>
@@ -607,15 +628,15 @@ describe("SessionList folder-home open affordance", () => {
 
   it("renders the open affordance on a pinned row", () => {
     const { cwd } = renderPinned();
-    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
+    expect(screen.getByTestId(`folder-open-editor-${cwd}`)).toBeTruthy();
   });
 
-  it("navigates to /folder/<enc> and leaves the folder expanded (collapse not toggled)", () => {
+  it("navigates to /folder/<enc>/editor and leaves the folder expanded (collapse not toggled)", () => {
     const { cwd } = renderPinned();
     // Expanded row shows the spawn/action bar; collapsing would hide it.
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
-    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
-    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+    fireEvent.click(screen.getByTestId(`folder-open-editor-${cwd}`));
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}/editor`);
     // stopPropagation kept the collapse toggle from firing: still expanded.
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
   });
@@ -667,15 +688,15 @@ describe("SessionList workspace-folder open affordance (enable-workspace-folder-
 
   it("F3: an unpinned workspace-folder row shows the open affordance", () => {
     const { cwd } = renderWorkspaceFolder();
-    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
+    expect(screen.getByTestId(`folder-open-editor-${cwd}`)).toBeTruthy();
   });
 
-  it("F4: activating the affordance navigates to /folder/<enc> without toggling collapse", () => {
+  it("F4: activating the affordance navigates to /folder/<enc>/editor without toggling collapse", () => {
     const { cwd } = renderWorkspaceFolder();
     // Expanded row shows the spawn/action bar; collapsing would hide it.
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
-    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
-    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+    fireEvent.click(screen.getByTestId(`folder-open-editor-${cwd}`));
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}/editor`);
     // stopPropagation kept the collapse toggle from firing: still expanded.
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
   });
@@ -697,8 +718,8 @@ describe("SessionList workspace-folder open affordance (enable-workspace-folder-
         </ThemeProvider>
       </Router>,
     );
-    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
-    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
-    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+    expect(screen.getByTestId(`folder-open-editor-${cwd}`)).toBeTruthy();
+    fireEvent.click(screen.getByTestId(`folder-open-editor-${cwd}`));
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}/editor`);
   });
 });

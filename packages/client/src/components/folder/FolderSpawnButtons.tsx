@@ -15,6 +15,7 @@
 
 import { mdiPlus, mdiSourceBranchPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
+import type { ReactNode } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 interface Props {
@@ -27,6 +28,8 @@ interface Props {
   showWorktree: boolean;
   onSpawnSession: () => void;
   onSpawnWorktree?: () => void;
+  /** Optional compact overflow action shown beside the primary creation controls. */
+  overflow?: ReactNode;
 }
 
 export function FolderSpawnButtons({
@@ -34,18 +37,19 @@ export function FolderSpawnButtons({
   showWorktree,
   onSpawnSession,
   onSpawnWorktree,
+  overflow,
 }: Props) {
   return (
-    <div className={`grid grid-cols-1 gap-2 ${showWorktree ? "sm:grid-cols-2" : ""}`}>
+    <div className={`grid grid-cols-1 items-center gap-2 ${overflow ? (showWorktree ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" : "sm:grid-cols-[minmax(0,1fr)_auto]") : (showWorktree ? "sm:grid-cols-2" : "")}`}>
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onSpawnSession(); }}
         disabled={spawningDisabled}
         data-testid="folder-spawn-session-btn"
-        className={`focus-ring w-full text-[13px] font-bold px-3 py-2.5 min-h-[44px] sm:min-h-0 rounded-xl border flex items-center justify-center gap-1.5 ${
+        className={`focus-ring flex w-full min-h-[44px] items-center justify-center gap-[5px] rounded-[6px] border px-[10px] py-2 text-[11px] font-semibold leading-none sm:min-h-0 ${
           spawningDisabled
             ? "border-[var(--border-secondary)] text-[var(--text-secondary)] opacity-50 cursor-not-allowed"
-            : "text-green-400 border-green-500/45 bg-green-500/5 hover:text-green-300 hover:bg-green-500/10"
+            : "border-[var(--border-primary)] bg-[#E7F6F0] text-[#047857] hover:bg-[#D8F0E5]"
         }`}
         title={i18nT("session.newPiSession", undefined, "New pi session")}
       >
@@ -57,12 +61,13 @@ export function FolderSpawnButtons({
           type="button"
           onClick={(e) => { e.stopPropagation(); onSpawnWorktree!(); }}
           data-testid="folder-spawn-worktree-btn"
-          className="focus-ring w-full text-[13px] font-bold px-3 py-2.5 min-h-[44px] sm:min-h-0 rounded-xl border flex items-center justify-center gap-1.5 text-orange-400 border-orange-500/45 bg-orange-500/5 hover:text-orange-300 hover:bg-orange-500/10"
+          className="focus-ring flex w-full min-h-[44px] items-center justify-center gap-[5px] rounded-[6px] border border-[var(--border-primary)] bg-[#FDF0E4] px-[10px] py-2 text-[11px] font-semibold leading-none text-[#B45309] hover:bg-[#F9E4D0] sm:min-h-0"
           title={i18nT("git.newPiSessionInAGit", undefined, "New pi session in a git worktree")}
         >
           <Icon path={mdiSourceBranchPlus} size={0.6} /> {i18nT("worktree.newWorktree2", undefined, "New Worktree")}
         </button>
       )}
+      {overflow}
     </div>
   );
 }

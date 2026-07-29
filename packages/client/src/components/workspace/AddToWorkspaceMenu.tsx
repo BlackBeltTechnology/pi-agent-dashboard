@@ -16,6 +16,8 @@ interface Props {
   onNewWorkspace: () => void;
   onRemoveFromWorkspace: () => void;
   onClose: () => void;
+  /** Embed the choices in an existing viewport-safe menu instead of opening another popover. */
+  inline?: boolean;
 }
 
 export function AddToWorkspaceMenu({
@@ -25,6 +27,7 @@ export function AddToWorkspaceMenu({
   onNewWorkspace,
   onRemoveFromWorkspace,
   onClose,
+  inline = false,
 }: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -47,7 +50,7 @@ export function AddToWorkspaceMenu({
   return (
     <div
       ref={rootRef}
-      className="absolute right-0 mt-1 w-48 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded shadow-lg z-50 py-1"
+      className={`${inline ? "mt-1 w-full" : "absolute right-0 mt-1 w-48 shadow-lg z-50"} bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded py-1`}
       data-testid="add-to-workspace-menu"
     >
       {workspaces.length === 0 && (

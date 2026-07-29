@@ -114,6 +114,78 @@ describe("SessionCard", () => {
     expect(onSelect).toHaveBeenCalledWith("test-session");
   });
 
+  it("expands details when selected and lets the chevron collapse without selecting", () => {
+    const onSelect = vi.fn();
+    const { container } = render(<SessionCard session={makeSession()} {...defaultProps} onSelect={onSelect} />);
+
+    const toggle = screen.getByTestId("session-card-details-toggle");
+    const details = screen.getByTestId("session-card-details");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(details.hasAttribute("hidden")).toBe(true);
+
+    fireEvent.click(container.firstChild as HTMLElement);
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(details.hasAttribute("hidden")).toBe(false);
+    expect(onSelect).toHaveBeenCalledWith("test-session");
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(details.hasAttribute("hidden")).toBe(true);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses selection as the card-density default and compacts again when deselected", () => {
+    const session = makeSession();
+    const { rerender } = render(<SessionCard session={session} {...defaultProps} selectedId={session.id} />);
+
+    expect(screen.getByTestId("session-card-details-toggle").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("session-card-details").hasAttribute("hidden")).toBe(false);
+
+    rerender(<SessionCard session={session} {...defaultProps} selectedId={undefined} />);
+
+    expect(screen.getByTestId("session-card-details-toggle").getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByTestId("session-card-details").hasAttribute("hidden")).toBe(true);
+  });
+
+  it("keeps an attached OpenSpec step visible in compact mode", () => {
+    const change = {
+      name: "add-folder-tools-menu",
+      status: "in-progress" as const,
+      completedTasks: 3,
+      totalTasks: 8,
+      artifacts: [
+        { id: "proposal", status: "done" as const },
+        { id: "design", status: "done" as const },
+        { id: "specs", status: "done" as const },
+      ],
+    };
+    render(
+      <SessionCard
+        session={makeSession({ attachedProposal: "add-folder-tools-menu", openspecPhase: undefined, openspecChange: undefined })}
+        openspecChanges={[change]}
+        {...defaultProps}
+      />,
+    );
+
+    expect(screen.getByTestId("session-card-compact-openspec").textContent).toContain("—");
+    expect(screen.getByTestId("session-card-compact-openspec").textContent).toContain("Tasks 3/8");
+    expect(screen.queryByTestId("context-usage-bar")).toBeNull();
+  });
+
+  it("shows a pending OpenSpec row instead of context while attached proposal data is loading", () => {
+    render(
+      <SessionCard
+        session={makeSession({ attachedProposal: "not-loaded-yet", openspecPhase: undefined, openspecChange: undefined })}
+        openspecChanges={undefined}
+        {...defaultProps}
+      />,
+    );
+
+    expect(screen.getByTestId("session-card-compact-openspec").textContent).toContain("Loading");
+    expect(screen.queryByTestId("context-usage-bar")).toBeNull();
+  });
+
   it("should show cost when present", () => {
     const session = makeSession({ cost: 0.42 });
     render(<SessionCard session={session} {...defaultProps} />);

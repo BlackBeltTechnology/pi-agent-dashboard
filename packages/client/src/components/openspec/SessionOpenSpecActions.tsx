@@ -25,10 +25,9 @@ import { GroupedAttachDialog } from "../workspace/GroupedAttachDialog.js";
 // and replace the standalone letters button. See change:
 // redesign-session-card-and-composer (stepper-click-to-open).
 import { NewChangeDialog } from "./NewChangeDialog.js";
-import { OpenSpecStepper } from "./OpenSpecStepper.js";
+import { deriveStepperState, type NodeId } from "./OpenSpecStepper.js";
 import { ProposeDialog } from "./ProposeDialog.js";
 import { SearchableSelectDialog, type SelectOption } from "../primitives/SearchableSelectDialog.js";
-import { StatePill } from "../session/StatePill.js";
 import { TasksPopover } from "../session/TasksPopover.js";
 
 /**
@@ -39,13 +38,13 @@ import { TasksPopover } from "../session/TasksPopover.js";
 type BtnVariant = "primary" | "success" | "info" | "warn" | "accent" | "danger" | "neutral";
 
 const SIDECARD_VARIANT_CLASSES: Record<BtnVariant, string> = {
-  primary: "text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300 hover:border-blue-500/70",
-  success: "text-green-400 border-green-500/40 bg-green-500/5 hover:text-green-300 hover:border-green-500/70",
-  info:    "text-cyan-400 border-cyan-500/40 bg-cyan-500/5 hover:text-cyan-300 hover:border-cyan-500/70",
-  warn:    "text-orange-400 border-orange-500/40 bg-orange-500/5 hover:text-orange-300 hover:border-orange-500/70",
-  accent:  "text-purple-400 border-purple-500/40 bg-purple-500/5 hover:text-purple-300 hover:border-purple-500/70",
-  danger:  "text-red-400 border-red-500/40 bg-red-500/5 hover:text-red-300 hover:border-red-500/70",
-  neutral: "text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-blue-400 hover:border-blue-500/50",
+  primary: "text-[var(--accent-primary)]",
+  success: "text-[var(--accent-green)]",
+  info:    "text-cyan-700",
+  warn:    "text-[var(--accent-orange)]",
+  accent:  "text-[var(--accent-purple)]",
+  danger:  "text-red-700",
+  neutral: "text-[var(--text-secondary)]",
 };
 
 function ActionButton({ label, icon, onClick, testId, disabled, title, variant = "neutral" }: { label: string; icon?: string; onClick: () => void; testId?: string; disabled?: boolean; title?: string; variant?: BtnVariant }) {
@@ -56,10 +55,98 @@ function ActionButton({ label, icon, onClick, testId, disabled, title, variant =
       title={title}
       data-testid={testId}
       data-variant={variant}
-      className={`text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-40 disabled:cursor-not-allowed ${SIDECARD_VARIANT_CLASSES[variant]}`}
+      className={`focus-ring rounded-[6px] border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-1.5 text-[11px] font-medium leading-none hover:bg-[var(--bg-secondary)] disabled:cursor-not-allowed disabled:opacity-40 ${SIDECARD_VARIANT_CLASSES[variant]}`}
     >
       {icon && <Icon path={icon} size={0.4} className="inline mr-0.5" />}{label}
     </button>
+  );
+}
+
+const PIPELINE_STAGES: Array<{ id: NodeId; label: string }> = [
+  { id: "explore", label: "Explore" },
+  { id: "proposal", label: "Proposal" },
+  { id: "design", label: "Design" },
+  { id: "specs", label: "Specs" },
+  { id: "tasks", label: "Tasks" },
+  { id: "apply", label: "Apply" },
+  { id: "archive", label: "Archive" },
+];
+
+function SessionOpenSpecPipeline({
+  change,
+  attached,
+  hasAnyChanges,
+  onReadArtifact,
+  onOpenTasks,
+  onDetach,
+}: {
+  change: OpenSpecChange;
+  attached: string;
+  hasAnyChanges: boolean;
+  onReadArtifact?: (changeName: string, artifactId: string) => void;
+  onOpenTasks?: () => void;
+  onDetach: () => void;
+}) {
+  const states = deriveStepperState({
+    attached,
+    artifacts: change.artifacts,
+    completedTasks: change.completedTasks,
+    totalTasks: change.totalTasks,
+    changeState: deriveChangeState(change),
+    hasAnyChanges,
+  });
+
+  return (
+    <div className="rounded-[6px] border border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--bg-surface)_50%,transparent)] p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="font-mono text-[8px] font-medium uppercase tracking-[0.5px] text-[var(--text-tertiary)]">OpenSpec pipeline</span>
+        <span className="flex items-center gap-2">
+          <span className="font-mono text-[9px] font-medium text-[var(--text-secondary)]">{change.completedTasks}/{change.totalTasks} tasks</span>
+          <button
+            type="button"
+            className="focus-ring text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            onClick={(event) => { event.stopPropagation(); onDetach(); }}
+            title={i18nT("common.detach", undefined, "Detach")}
+            aria-label={i18nT("common.detach", undefined, "Detach")}
+            data-testid="detach-btn"
+          >
+            <Icon path={mdiLinkOff} size={0.46} />
+          </button>
+        </span>
+      </div>
+      <div className="grid grid-cols-7 gap-1" data-testid="openspec-session-pipeline">
+        {PIPELINE_STAGES.map(({ id, label }) => {
+          const state = states[id];
+          const completed = state === "done";
+          const current = state === "current";
+          const clickable = (id === "proposal" || id === "design" || id === "specs")
+            ? Boolean(onReadArtifact)
+            : id === "tasks" && Boolean(onOpenTasks);
+          const onClick = () => {
+            if (id === "tasks") onOpenTasks?.();
+            else if (id === "proposal" || id === "design" || id === "specs") onReadArtifact?.(change.name, id);
+          };
+          return (
+            <button
+              key={id}
+              type="button"
+              disabled={!clickable}
+              onClick={(event) => { event.stopPropagation(); onClick(); }}
+              className={`focus-ring min-w-0 rounded-[4px] border px-0.5 py-1 text-center font-mono text-[7px] font-semibold uppercase leading-none ${
+                completed
+                  ? "border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-600 dark:text-emerald-400"
+                  : current
+                    ? "border-orange-500/50 bg-orange-500/[0.08] text-orange-600 dark:text-orange-400"
+                    : "border-[var(--border-subtle)] bg-transparent text-[var(--text-secondary)]"
+              } ${clickable ? "cursor-pointer hover:border-blue-500/50" : "cursor-default"}`}
+              title={id === "tasks" ? `${change.completedTasks}/${change.totalTasks} tasks` : label}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -370,42 +457,21 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
 
   const stepperHasAnyChanges = changes.length > 0;
   return (
-    <div className="mt-1 space-y-1" data-testid="session-openspec-actions">
-      {/* Line 1: badge + state pill + detach + artifact letters right-aligned */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px]" data-testid="attached-badge"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" /><span className="text-blue-400">{attached}</span></span>
-        <StatePill state={state} />
-        <ActionButton label={i18nT("common.detach", undefined, "Detach")} icon={mdiLinkOff} onClick={onDetach} testId="detach-btn" />
-        <span className="flex-1" />
-      </div>
-      {/* OpenSpec stepper — nodes are clickable for artifact + tasks open.
-          See change: redesign-session-card-and-composer (stepper-click-to-open). */}
-      <OpenSpecStepper
-        variant="sidebar"
+    <div className="mt-1 space-y-2" data-testid="session-openspec-actions">
+      <SessionOpenSpecPipeline
         change={change}
         attached={attached}
         hasAnyChanges={stepperHasAnyChanges}
         onReadArtifact={onReadArtifact}
         onOpenTasks={hasParseableTasks ? () => setTasksOpen(true) : undefined}
+        onDetach={onDetach}
       />
-      {/* Line 2: action buttons driven by ChangeState */}
       {!isEnded && (() => {
         const actionsDisabled = session.status === "streaming";
         const tips = buildOpenSpecTooltips({ attached, state, streaming: actionsDisabled });
         const archiveEnabled = !actionsDisabled && state === ChangeState.COMPLETE;
         return (
-          <div className="flex items-center gap-1 flex-wrap">
-            {wf("explore") && (
-              <ActionButton
-                label={i18nT("common.explore", undefined, "Explore")}
-                icon={mdiCompassOutline}
-                onClick={() => setExploreOpen(true)}
-                testId="explore-btn"
-                disabled={true /* attached path always disables Explore */}
-                title={actionsDisabled ? i18nT("session.sessionIsStreaming", undefined, "Session is streaming") : tips.explore}
-                variant="info"
-              />
-            )}
+          <div className="flex items-center gap-1.5">
             {state === ChangeState.PLANNING && (
               <>
                 {wf("continue") && <ActionButton label={i18nT("common.continue", undefined, "Continue")} icon={mdiChevronRight} onClick={() => onSendPrompt(`/skill:openspec-continue-change ${attached}`)} testId="continue-btn" disabled={actionsDisabled} variant="neutral" />}
@@ -429,13 +495,6 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
                 variant="accent"
               />
             )}
-            {/* close Verify-only branch */}
-            {/* Standalone Tasks button removed — the stepper's Tasks node is
-                clickable and opens the same TasksPopover. Redundant button
-                deleted per user feedback. See change:
-                redesign-session-card-and-composer (cleanup-pass). */}
-            {/* Archive anyway promoted from single-item overflow menu to a
-                plain button. A menu with one item is meaningless. */}
             {showArchiveAnyway && (
               <ActionButton
                 label={i18nT("openspec.archiveAnyway", undefined, "Archive anyway")}
