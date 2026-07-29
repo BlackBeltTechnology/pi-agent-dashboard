@@ -1,6 +1,6 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { foldReplayBuffer } from "../event-reducer.js";
+import { foldReplayBuffer } from "../chat/event-reducer.js";
 
 function event(eventType: string, data: Record<string, unknown> = {}): DashboardEvent {
   return { eventType, timestamp: 1, data };

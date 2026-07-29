@@ -17,7 +17,7 @@
 import type { FastifyInstance } from "fastify";
 import type { NetworkGuard } from "./route-deps.js";
 import { completeWithProvider } from "../provider-completion.js";
-import { readProvidersFromDisk } from "../provider-probe.js";
+import { readProvidersFromDisk } from "../package/provider-probe.js";
 import type { TranslateBridgeDispatcher } from "../translate-via-bridge.js";
 
 // System prompt anchors a "translation engine" role so smaller chat-tuned

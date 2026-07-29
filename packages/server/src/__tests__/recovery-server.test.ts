@@ -5,6 +5,7 @@ import {
   isModuleNotFoundError,
   detectInstallLayout,
   suggestedReinstallCommand,
+  resolveMonorepoRoot,
   buildRecoveryHtml,
   startRecoveryServer,
 } from "../lifecycle/recovery-server.js";
@@ -85,6 +86,16 @@ describe("suggestedReinstallCommand", () => {
   });
   it("returns repo-root install for monorepo", () => {
     expect(suggestedReinstallCommand("monorepo")).toMatch(/repo root/);
+  });
+});
+
+describe("resolveMonorepoRoot", () => {
+  it("resolves the repository root from the source CLI path", () => {
+    expect(resolveMonorepoRoot(`${process.cwd()}/packages/server/src/cli.ts`)).toBe(process.cwd());
+  });
+
+  it("returns undefined when the candidate root has no package manifest", () => {
+    expect(resolveMonorepoRoot("/tmp/no-repo/packages/server/src/cli.ts")).toBeUndefined();
   });
 });
 

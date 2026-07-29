@@ -78,6 +78,16 @@ interface Props {
    */
   loadingHistory?: boolean;
   /**
+   * Tail-first scroll-up pagination (change: tail-first-session-loading).
+   * `hasOlder` — older history exists below the loaded window (gates the
+   * scroll-up trigger). `loadingOlder` — a `load_older` request is in flight
+   * (renders the slim top-of-transcript loading row, single-flight). `onLoadOlder`
+   * — fired when the user scrolls near the top; parent sends the request.
+   */
+  hasOlder?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: (sessionId: string) => void;
+  /**
    * Client-only signal: the user manually collapsed the LIVE streaming
    * reasoning block. Sets `streamingThinkingCollapsed` on the session state so
    * the collapse survives the streaming→committed swap (committed block stays
@@ -238,7 +248,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, hasOlder, loadingOlder, onLoadOlder, onCollapseStreamingThinking }, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // True when the user wants the chat to chase new content. Flips to false on
   // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on
@@ -559,11 +569,32 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       // selected row is not scrolled out of its overscan band. stickToBottomRef
       // is NOT cleared — follow resumes on collapse.
       if (grew && stickToBottomRef.current && !isSelectingRef.current) el.scrollTop = el.scrollHeight;
-      // Ascending: re-target index 0 whenever a measurement grows the total
-      // size (an above-viewport row mounting/measuring, INCLUDING the async
-      // image-load remeasure). scrollToIndex is bounded to maxAttempts frames,
-      // so without this a late remeasure would leave the view off index 0.
-      if (ascendingRef.current) {
+      // Older-page prepend restore (change: tail-first-session-loading). When
+      // `load_older` prepends rows ABOVE the viewport, keep the row the user was
+      // reading at its original viewport offset instead of jumping to the top
+      // of the freshly-loaded block. Re-pin on every measurement change (older
+      // rows mount with estimated sizes, then re-measure and shift the anchor)
+      // until the deadline; reading the current virtual items resolves the
+      // anchor's live index after the prepend.
+      const pin = prependAnchorRef.current;
+      if (pin) {
+        if (Date.now() > pin.until) {
+          prependAnchorRef.current = null;
+        } else {
+          const row = virtualizer.getVirtualItems().find((vi) => String(vi.key) === pin.key);
+          if (row) {
+            const target = row.start + pin.offset;
+            if (Math.abs(el.scrollTop - target) > 1) el.scrollTop = target;
+          }
+          // If the anchor row is not currently mounted the layout effect's
+          // `scrollToIndex` is still driving it into view; the next onChange
+          // (after it mounts) re-pins precisely, so nothing to do here.
+        }
+      } else if (ascendingRef.current) {
+        // Ascending: re-target index 0 whenever a measurement grows the total
+        // size (an above-viewport row mounting/measuring, INCLUDING the async
+        // image-load remeasure). scrollToIndex is bounded to maxAttempts frames,
+        // so without this a late remeasure would leave the view off index 0.
         if (el.scrollTop <= 0) ascendingRef.current = false;
         else if (grew) virtualizer.scrollToIndex(0, { align: "start" });
       }
@@ -616,11 +647,31 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     ascendingRef.current = false;
   }, []);
 
+  // Prepend-anchor bookkeeping (change: tail-first-session-loading). Declared
+  // before handleScroll so the scroll callback can stash the top anchor.
+  const prevRowCountRef = useRef(displayRows.length);
+  // Anchor of the top-visible row captured on every scroll: its stable key, the
+  // intra-row pixel offset, and its display-row index at capture time. Used to
+  // detect + correct an older-page prepend (rows inserted ABOVE the viewport).
+  const anchorBeforePrependRef = useRef<{ key: string; offset: number; index: number } | null>(null);
+  // Active prepend-restore target. While set, the virtualizer `onChange`
+  // re-pins the anchor row on every measurement-driven size change (older rows
+  // mount with estimated heights, then re-measure and shift the anchor down),
+  // until the deadline elapses. See change: tail-first-session-loading.
+  const prependAnchorRef = useRef<{ key: string; offset: number; until: number } | null>(null);
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
     const nearTop = el.scrollTop <= SCROLL_THRESHOLD;
+    // Tail-first scroll-up pagination (change: tail-first-session-loading): when
+    // the user reaches near the top and older history exists, ask the parent to
+    // fetch the previous window. Single-flight is enforced by the parent;
+    // `loadingOlder` short-circuits here to avoid spamming while in flight.
+    if (nearTop && hasOlder && !loadingOlder && sessionId && onLoadOlder) {
+      onLoadOlder(sessionId);
+    }
     if (descendingRef.current) {
       // In-flight descent: hold the pin through intermediate (not-yet-bottom)
       // scroll events; clear the latch on arrival.
@@ -650,8 +701,44 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         offset: anchor ? el.scrollTop - anchor.start : el.scrollTop,
         nearBottom,
       });
+      // Keep the prepend-anchor fresh so the older-page restore lands correctly.
+      // Skip while a prepend restore is in flight so our own scrollTop writes
+      // don't clobber the captured pre-prepend position.
+      if (anchor && !prependAnchorRef.current) {
+        anchorBeforePrependRef.current = { key: String(anchor.key), offset: el.scrollTop - anchor.start, index: anchor.index };
+      }
     }
-  }, [sessionId, virtualizer]);
+  }, [sessionId, virtualizer, hasOlder, loadingOlder, onLoadOlder]);
+
+  // Detect an older-page prepend and arm the restore (change: tail-first-
+  // session-loading). When `load_older` inserts rows ABOVE the viewport,
+  // `displayRows` grows and the captured anchor row's index shifts forward.
+  // We arm `prependAnchorRef` so the virtualizer `onChange` re-pins that row at
+  // its original viewport offset across the async re-measure of the newly
+  // mounted (estimated-height) older rows. Runs pre-paint so the jump to the
+  // top of the loaded block is never shown.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed on row-count growth; reads current-render closures.
+  useLayoutEffect(() => {
+    const grew = displayRows.length > prevRowCountRef.current;
+    const prev = prevRowCountRef.current;
+    prevRowCountRef.current = displayRows.length;
+    if (!grew || prev === 0) return; // initial mount / append-only → nothing to restore
+    // A bottom-pinned view (following live output) must never be yanked up.
+    if (stickToBottomRef.current) return;
+    const anchor = anchorBeforePrependRef.current;
+    if (!anchor) return;
+    const idx = displayRows.findIndex((r, i) => virtualRowKey(r, i) === anchor.key);
+    // Only treat as a prepend when the anchor moved DOWN (rows inserted above).
+    if (idx <= anchor.index) return;
+    prependAnchorRef.current = { key: anchor.key, offset: anchor.offset, until: Date.now() + 1200 };
+    // Kick an immediate re-pin; `onChange` continues it through re-measure.
+    virtualizer.scrollToIndex(idx, { align: "start" });
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      const row = virtualizer.getVirtualItems().find((vi) => String(vi.key) === anchor.key);
+      if (el && row) el.scrollTop = row.start + anchor.offset;
+    });
+  }, [displayRows]);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -778,6 +865,16 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         each synchronous measurement correction and race the next, reintroducing
         the scroll-to-top drift. See change: fix-chat-scroll-to-top-estimate-drift. */}
     <div ref={scrollRef} onScroll={handleScroll} onCopy={handleCopy} onWheel={cancelDescent} onTouchMove={cancelDescent} style={{ overflowAnchor: "none" }} data-testid="chat-scroll-container" className={`chat-cv h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"}`}>
+      {/* Slim "loading older…" row (change: tail-first-session-loading). Covers
+          scroll-up pagination feedback; distinct from the full-screen initial
+          history skeleton (loadingHistory). Renders outside the virtual spacer
+          so it does not perturb row measurement. */}
+      {loadingOlder ? (
+        <div data-testid="chat-loading-older" className="chat-cv-skip flex items-center justify-center gap-2 py-2 text-xs text-[var(--text-tertiary)]">
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          <span>{i18nT("session.loadingOlder", undefined, "Loading older messages…")}</span>
+        </div>
+      ) : null}
       {/* Windowed historical rows (TanStack Virtual): only viewport + overscan
           are mounted. The spacer reserves getTotalSize(); each row is absolutely
           positioned + re-measured on mount. chat-cv-skip keeps Step A's

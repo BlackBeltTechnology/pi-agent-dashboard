@@ -13,7 +13,7 @@ import {
   type ProbeApi,
   resolveProbeApiKey,
   readProvidersFromDisk,
-} from "./provider-probe.js";
+} from "./package/provider-probe.js";
 import {
   buildCompletionRequest,
   extractCompletionText,

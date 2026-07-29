@@ -3,7 +3,7 @@
  * See change: tail-first-session-loading.
  */
 import { describe, expect, it } from "vitest";
-import type { StoredEvent } from "../../memory-event-store.js";
+import type { StoredEvent } from "../../persistence/memory-event-store.js";
 import { selectWindow, TAIL_WINDOW_EVENTS } from "../select-window.js";
 
 /** Build a stored event with a given seq + type (default a neutral event). */

@@ -86,7 +86,7 @@ import { registerFileRoutes } from "./routes/file-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGoalRoutes } from "./routes/goal-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
-import { addWorktree, readHead, removeWorktree } from "./git-operations.js";
+import { addWorktree, readHead, removeWorktree } from "./git-worktree/git-operations.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
 import { registerManifestRoute } from "./routes/manifest-route.js";

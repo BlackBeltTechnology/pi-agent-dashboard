@@ -30,7 +30,7 @@ import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
-import { HiddenModelsSection } from "./HiddenModelsSection.js";
+import { HiddenModelsSection } from "../HiddenModelsSection.js";
 import { ModelSelector } from "./ModelSelector.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";

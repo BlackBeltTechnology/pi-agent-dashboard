@@ -15,7 +15,7 @@
  * `2 × budget`; if no safe cut exists within the cap, the window starts at the
  * cap boundary and the client drops the leading orphan span fragments.
  */
-import type { StoredEvent } from "../memory-event-store.js";
+import type { StoredEvent } from "../persistence/memory-event-store.js";
 
 /** Default tail-window budget in events. Tuned via the measurement task. */
 export const TAIL_WINDOW_EVENTS = 200;

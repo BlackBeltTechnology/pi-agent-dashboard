@@ -81,6 +81,8 @@ export interface MessageHandlerSetters {
   setPinnedDirsLoaded: React.Dispatch<React.SetStateAction<boolean>>;
   /** Favorite model labels, synced via `favorite_models_updated`. See change: enrich-model-selector-capabilities-favorites. */
   setFavoriteModels: React.Dispatch<React.SetStateAction<string[]>>;
+  /** Pinned session ids for the desktop tab bar, synced via `pinned_sessions_updated`. See change: session-tab-bar. */
+  setPinnedSessions: React.Dispatch<React.SetStateAction<string[]>>;
   /** folder-workspaces: full workspace list, kept in sync via `workspaces_updated`. */
   setWorkspaces: React.Dispatch<React.SetStateAction<import("@blackbelt-technology/pi-dashboard-shared/browser-protocol.js").Workspace[]>>;
   /** Flipped true on the first `workspaces_updated` (sent on modern connect).
@@ -180,7 +182,7 @@ export function useMessageHandler(
   const {
     setSessions, setSessionStates, setSessionCommands,
     setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
-    setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setWorkspacesLoaded, setTerminals,
+    setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setPinnedSessions, setWorkspaces, setWorkspacesLoaded, setTerminals,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setLoadingHistory, setCanvasMap, setForceKillResetSignals,
   } = setters;
@@ -1002,6 +1004,9 @@ export function useMessageHandler(
       case "favorite_models_updated":
         setFavoriteModels(msg.labels);
         break;
+      case "pinned_sessions_updated":
+        setPinnedSessions(msg.sessionIds);
+        break;
 
       case "workspaces_updated":
         // folder-workspaces: server sends full snapshot on subscribe and
@@ -1240,5 +1245,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setWorkspacesLoaded, setTerminals, setDiscoveredServers, setLoadingHistory, setCanvasMap, setForceKillResetSignals, showToast, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister, setHasOlder, setOldestLoadedSeq, flushLiveEvents, scheduleLiveFlush]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setPinnedSessions, setWorkspaces, setWorkspacesLoaded, setTerminals, setDiscoveredServers, setLoadingHistory, setCanvasMap, setForceKillResetSignals, showToast, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister, setHasOlder, setOldestLoadedSeq, flushLiveEvents, scheduleLiveFlush]);
 }

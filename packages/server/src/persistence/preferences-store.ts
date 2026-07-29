@@ -34,6 +34,11 @@ interface PreferencesData {
    * See change: enrich-model-selector-capabilities-favorites.
    */
   favoriteModels?: string[];
+  /**
+   * User-pinned session ids shown in the desktop tab bar. Ordered, deduped.
+   * Absent in legacy files → defaults to `[]`. See change: session-tab-bar.
+   */
+  pinnedSessions?: string[];
   workspaces?: Workspace[];
   /**
    * Global chat-display preferences. `undefined` means "never seeded" —
@@ -90,6 +95,14 @@ export interface PreferencesStore {
   addFavoriteModel(label: string): void;
   /** Remove label if present. No-op when absent. */
   removeFavoriteModel(label: string): void;
+  // ── pinned sessions (session-tab-bar) ─────────────────────────
+  getPinnedSessions(): string[];
+  /** Append id if absent (dedupe). No-op when already present. */
+  pinSession(sessionId: string): void;
+  /** Remove id if present. No-op when absent. */
+  unpinSession(sessionId: string): void;
+  /** Replace the pinned-session order. */
+  reorderPinnedSessions(sessionIds: string[]): void;
   // ── folder-workspaces ────────────────────────────────────────────
   getWorkspaces(): Workspace[];
   /** Returns the created workspace, or null on invalid name. */
@@ -275,6 +288,10 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
   let favoriteModels: string[] = dedupePreserveOrder(
     Array.isArray(data.favoriteModels) ? data.favoriteModels.filter((l) => typeof l === "string") : [],
   );
+  // Pinned session ids for the desktop tab bar. See change: session-tab-bar.
+  let pinnedSessions: string[] = dedupePreserveOrder(
+    Array.isArray(data.pinnedSessions) ? data.pinnedSessions.filter((s) => typeof s === "string") : [],
+  );
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let dirty =
     data.pinSeeded !== true ||
@@ -295,7 +312,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
       debounceTimer = null;
       if (dirty) {
         dirty = false;
-        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers } satisfies PreferencesData);
+        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, pinnedSessions, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers } satisfies PreferencesData);
       }
     }, DEBOUNCE_MS);
   }
@@ -307,7 +324,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
     }
     if (dirty) {
       dirty = false;
-      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers } satisfies PreferencesData);
+      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, pinnedSessions, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers } satisfies PreferencesData);
     }
   }
 
@@ -384,6 +401,30 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
       const idx = favoriteModels.indexOf(label);
       if (idx === -1) return;
       favoriteModels.splice(idx, 1);
+      scheduleSave();
+    },
+
+    // ── pinned sessions (session-tab-bar) ─────────────────────
+
+    getPinnedSessions(): string[] {
+      return [...pinnedSessions];
+    },
+
+    pinSession(sessionId: string): void {
+      if (pinnedSessions.includes(sessionId)) return;
+      pinnedSessions.push(sessionId);
+      scheduleSave();
+    },
+
+    unpinSession(sessionId: string): void {
+      const idx = pinnedSessions.indexOf(sessionId);
+      if (idx === -1) return;
+      pinnedSessions.splice(idx, 1);
+      scheduleSave();
+    },
+
+    reorderPinnedSessions(sessionIds: string[]): void {
+      pinnedSessions = dedupePreserveOrder(sessionIds);
       scheduleSave();
     },
 

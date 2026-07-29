@@ -2,7 +2,7 @@
  * Client-side fetch helper for `POST /api/translate`.
  * Translates user text to English using a configured custom LLM provider.
  */
-import { getApiBase } from "./api-context.js";
+import { getApiBase } from "./api/api-context.js";
 
 export interface TranslateInput {
   provider: string;

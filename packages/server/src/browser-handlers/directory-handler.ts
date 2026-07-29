@@ -93,6 +93,39 @@ export function handleReorderPinnedDirs(
   }
 }
 
+// ── pinned sessions (session-tab-bar) ─────────────────────
+//
+// Session ids are opaque (not filesystem paths) — no canonicalization.
+// Each handler broadcasts the full ordered list, mirroring the
+// favorite-model + pinned-dir handlers above.
+
+export function handlePinSession(
+  msg: Extract<BrowserToServerMessage, { type: "pin_session" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (!ctx.preferencesStore) return;
+  ctx.preferencesStore.pinSession(msg.sessionId);
+  ctx.broadcast({ type: "pinned_sessions_updated", sessionIds: ctx.preferencesStore.getPinnedSessions() });
+}
+
+export function handleUnpinSession(
+  msg: Extract<BrowserToServerMessage, { type: "unpin_session" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (!ctx.preferencesStore) return;
+  ctx.preferencesStore.unpinSession(msg.sessionId);
+  ctx.broadcast({ type: "pinned_sessions_updated", sessionIds: ctx.preferencesStore.getPinnedSessions() });
+}
+
+export function handleReorderPinnedSessions(
+  msg: Extract<BrowserToServerMessage, { type: "reorder_pinned_sessions" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (!ctx.preferencesStore) return;
+  ctx.preferencesStore.reorderPinnedSessions(msg.sessionIds);
+  ctx.broadcast({ type: "pinned_sessions_updated", sessionIds: ctx.preferencesStore.getPinnedSessions() });
+}
+
 // ── folder-workspaces handlers ──────────────────────────────────
 //
 // Each handler dispatches to PreferencesStore which returns true on

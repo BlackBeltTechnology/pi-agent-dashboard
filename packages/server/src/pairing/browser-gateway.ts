@@ -63,7 +63,7 @@ export function buildOpenSpecConnectSnapshot(
   return out;
 }
 
-import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
+import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handlePinSession, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderPinnedSessions, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory, handleUnpinSession } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
@@ -450,6 +450,12 @@ export function createBrowserGateway(
       if (typeof preferencesStore.getFavoriteModels === "function") {
         sendTo(ws, { type: "favorite_models_updated", labels: preferencesStore.getFavoriteModels() });
       }
+      // Send pinned-session snapshot on connect. Guarded with `typeof` so
+      // old PreferencesStore stubs in tests don't crash.
+      // See change: session-tab-bar.
+      if (typeof preferencesStore.getPinnedSessions === "function") {
+        sendTo(ws, { type: "pinned_sessions_updated", sessionIds: preferencesStore.getPinnedSessions() });
+      }
       // Send current workspaces snapshot. See change: folder-workspaces.
       // Guarded with `typeof` so old PreferencesStore stubs in tests that
       // predate workspaces still work — they simply get no workspace snapshot.
@@ -675,6 +681,15 @@ export function createBrowserGateway(
             break;
           case "unfavorite_model":
             handleUnfavoriteModel(msg, ctx);
+            break;
+          case "pin_session":
+            handlePinSession(msg, ctx);
+            break;
+          case "unpin_session":
+            handleUnpinSession(msg, ctx);
+            break;
+          case "reorder_pinned_sessions":
+            handleReorderPinnedSessions(msg, ctx);
             break;
           case "create_workspace":
             handleCreateWorkspace(msg, ctx);

@@ -421,6 +421,16 @@ export interface FavoriteModelsUpdatedMessage {
   labels: string[];
 }
 
+/**
+ * Server → browser broadcast of the full pinned-session id list after any
+ * pin/unpin/reorder mutation. Ordered, deduped. Drives the desktop session
+ * tab bar. Mirrors `favorite_models_updated`. See change: session-tab-bar.
+ */
+export interface PinnedSessionsUpdatedMessage {
+  type: "pinned_sessions_updated";
+  sessionIds: string[];
+}
+
 // ── Workspaces (folder-workspaces) ───────────────────────────────────
 
 /**
@@ -859,6 +869,7 @@ export type ServerToBrowserMessage =
   | SessionsSnapshotMessage
   | PinnedDirsUpdatedMessage
   | FavoriteModelsUpdatedMessage
+  | PinnedSessionsUpdatedMessage
   | WorkspacesUpdatedMessage
   | TerminalAddedMessage
   | TerminalRemovedMessage
@@ -1348,6 +1359,27 @@ export interface ReorderPinnedDirsMessage {
   paths: string[];
 }
 
+/**
+ * Browser → server: pin a session to the desktop tab bar. Appended to the
+ * ordered pinned-session list (dedupe). See change: session-tab-bar.
+ */
+export interface PinSessionMessage {
+  type: "pin_session";
+  sessionId: string;
+}
+
+/** Browser → server: remove a session from the tab bar. */
+export interface UnpinSessionMessage {
+  type: "unpin_session";
+  sessionId: string;
+}
+
+/** Browser → server: replace the pinned-session order (drag-to-reorder). */
+export interface ReorderPinnedSessionsMessage {
+  type: "reorder_pinned_sessions";
+  sessionIds: string[];
+}
+
 // ── Workspace mutation messages (browser → server) ───────────────────
 // See change: folder-workspaces. Verb-first to match pin_directory family.
 
@@ -1612,6 +1644,9 @@ export type BrowserToServerMessage =
   | FavoriteModelMessage
   | UnfavoriteModelMessage
   | ReorderPinnedDirsMessage
+  | PinSessionMessage
+  | UnpinSessionMessage
+  | ReorderPinnedSessionsMessage
   | CreateWorkspaceMessage
   | RenameWorkspaceMessage
   | DeleteWorkspaceMessage

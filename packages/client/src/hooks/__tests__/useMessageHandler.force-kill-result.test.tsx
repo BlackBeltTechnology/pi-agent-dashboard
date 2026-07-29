@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useMessageHandler } from "../useMessageHandler.js";
-import { createInitialState } from "../../lib/event-reducer.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 
 function setup() {

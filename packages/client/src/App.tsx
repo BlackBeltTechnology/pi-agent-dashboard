@@ -34,6 +34,7 @@ import { PreviewOverlayView } from "./components/preview/PreviewOverlayView.js";
 import { QueuePanel } from "./components/session/QueuePanel.js";
 import { RecoveryOfferHost } from "./components/session/RecoveryOfferHost.js";
 import { ResizableSidebar } from "./components/shell/ResizableSidebar.js";
+import { SessionTabBar } from "./components/shell/SessionTabBar.js";
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { SessionBanner } from "./components/session/SessionBanner.js";
 import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
@@ -554,6 +555,9 @@ export default function App() {
   // `favorite_models_updated`; cold-loaded from GET /api/favorite-models.
   // See change: enrich-model-selector-capabilities-favorites.
   const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
+  // Pinned session ids for the desktop tab bar, server-persisted. Synced via
+  // `pinned_sessions_updated` (also sent on connect). See change: session-tab-bar.
+  const [pinnedSessions, setPinnedSessions] = useState<string[]>([]);
   // folder-workspaces: full workspace list, kept in sync via workspaces_updated broadcast.
   const [workspaces, setWorkspaces] = useState<import("@blackbelt-technology/pi-dashboard-shared/browser-protocol.js").Workspace[]>([]);
   // Flipped true on the first `workspaces_updated`. Pinned dirs and workspaces
@@ -785,7 +789,7 @@ export default function App() {
   }, []);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setWorkspacesLoaded, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setCanvasMap, setForceKillResetSignals },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setPinnedSessions, setWorkspaces, setWorkspacesLoaded, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setCanvasMap, setForceKillResetSignals },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current, setHasOlder, setOldestLoadedSeq, showToast },
   );
 
@@ -1423,6 +1427,8 @@ export default function App() {
       onResumeKeepPosition={handleResumeSessionKeepPosition}
       onHideSession={handleHideSession}
       onUnhideSession={handleUnhideSession}
+      pinnedSessions={pinnedSessions}
+      onToggleSessionPin={(id) => send({ type: pinnedSessions.includes(id) ? "unpin_session" : "pin_session", sessionId: id })}
       onSpawnSession={handleSpawnSession}
       spawningCwds={spawningCwds}
       addSpawningCwd={addSpawningCwd}
@@ -1545,7 +1551,7 @@ export default function App() {
   );
 
   const sessionDetail = selectedId ? (
-    <div className="flex-1 flex flex-col min-w-0 h-full">
+    <div className="flex-1 flex flex-col min-w-0 min-h-0">
       {connectionBanner}
       <SessionHeader
         session={sessions.get(selectedId)}
@@ -2122,6 +2128,13 @@ export default function App() {
               <InstallBanner canInstall={installPrompt.canInstall} isIOS={installPrompt.isIOS} isInstalled={installPrompt.isInstalled} prompt={installPrompt.prompt} />
               <MissingRequiredBanner />
               {connectionBanner}
+              <SessionTabBar
+                pinnedSessions={pinnedSessions}
+                sessions={sessions}
+                selectedId={selectedId}
+                onSelect={(id) => navigate(`/session/${id}`)}
+                onUnpin={(id) => send({ type: "unpin_session", sessionId: id })}
+              />
               {sessionList}
             </div>
           }
@@ -2243,6 +2256,13 @@ export default function App() {
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {connectionBanner}
+        <SessionTabBar
+          pinnedSessions={pinnedSessions}
+          sessions={sessions}
+          selectedId={selectedId}
+          onSelect={(id) => navigate(`/session/${id}`)}
+          onUnpin={(id) => send({ type: "unpin_session", sessionId: id })}
+        />
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {/* Folder-scoped editor pane (hosts terminal tabs via the keep-alive
             TerminalPaneLayer — single <TerminalView> mount per id). See change:

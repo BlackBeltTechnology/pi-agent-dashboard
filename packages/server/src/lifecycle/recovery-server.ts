@@ -104,6 +104,16 @@ export function suggestedReinstallCommand(layout: ReturnType<typeof detectInstal
 }
 
 /**
+ * Resolve the workspace root for a source-tree CLI entry point. Recovery is
+ * often launched by Pi from an arbitrary working directory, so relying on
+ * `process.cwd()` would run the installer in the wrong project.
+ */
+export function resolveMonorepoRoot(scriptPath: string): string | undefined {
+  const root = path.resolve(path.dirname(scriptPath), "../../..");
+  return fs.existsSync(path.join(root, "package.json")) ? root : undefined;
+}
+
+/**
  * Build the HTML page served at `/`. Pure function — exported for testing.
  */
 export function buildRecoveryHtml(info: RecoveryInfo): string {
@@ -197,6 +207,7 @@ export function buildRecoveryHtml(info: RecoveryInfo): string {
  */
 function runReinstall(
   layout: ReturnType<typeof detectInstallLayout>,
+  scriptPath: string,
   onLine: (s: string) => void,
 ): Promise<number> {
   return new Promise((resolve) => {
@@ -210,7 +221,11 @@ function runReinstall(
       args = ["install", "-g", "@blackbelt-technology/pi-agent-dashboard"];
     }
     onLine(`> ${cmd} ${args.join(" ")}`);
-    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], shell: false });
+    const child = spawn(cmd, args, {
+      cwd: layout === "monorepo" ? resolveMonorepoRoot(scriptPath) : undefined,
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
+    });
     child.stdout?.on("data", (b: Buffer) => onLine(b.toString("utf8").trimEnd()));
     child.stderr?.on("data", (b: Buffer) => onLine(b.toString("utf8").trimEnd()));
     child.on("error", (e: Error) => {
@@ -324,7 +339,7 @@ export async function startRecoveryServer(info: RecoveryInfo): Promise<number> {
     if (req.method === "POST" && url === "/api/recovery/reinstall") {
       // Stream isn't easy via simple text response; just buffer and return.
       const lines: string[] = [];
-      runReinstall(layout, (s) => {
+      runReinstall(layout, scriptPath, (s) => {
         lines.push(s);
         console.log("[recovery-install] " + s);
       }).then((code) => {

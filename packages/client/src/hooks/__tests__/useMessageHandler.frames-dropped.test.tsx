@@ -9,7 +9,7 @@
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { SessionState } from "../../lib/event-reducer.js";
+import type { SessionState } from "../../lib/chat/event-reducer.js";
 import { useMessageHandler } from "../useMessageHandler.js";
 
 function setup(subscribed: string[] = []) {

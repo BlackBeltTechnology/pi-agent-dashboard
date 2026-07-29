@@ -91,9 +91,12 @@ function uniquePgids(children: ChildProcessInfo[]): number[] {
 }
 
 function defaultKillGroup(pgid: number, signal: AbortWatchdogSignal): void {
-  if (signal === "SIGTERM" || process.platform === "win32") {
+  if (signal === "SIGTERM") {
     killProcessByPgid(pgid);
     return;
   }
+  // `killPidWithGroup` is platform-aware: it targets `pid` on Windows (no POSIX
+  // process groups) and `-pid` elsewhere, so no branch is needed here. Keeping
+  // one would also violate no-direct-platform-branch.test.ts.
   killPidWithGroup(pgid, "SIGKILL");
 }

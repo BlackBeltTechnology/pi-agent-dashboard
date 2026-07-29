@@ -92,6 +92,51 @@ describe("preferences-store", () => {
     store.dispose();
   });
 
+  // ── pinned sessions (session-tab-bar) ──────────────────────────────────
+  describe("pinnedSessions", () => {
+    it("defaults to empty when the field is absent", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.getPinnedSessions()).toEqual([]);
+      store.dispose();
+    });
+
+    it("pins, unpins, and dedupes in insertion order", () => {
+      const store = createPreferencesStore(filePath);
+      store.pinSession("s1");
+      store.pinSession("s2");
+      store.pinSession("s1"); // dedupe no-op
+      expect(store.getPinnedSessions()).toEqual(["s1", "s2"]);
+      store.unpinSession("s1");
+      expect(store.getPinnedSessions()).toEqual(["s2"]);
+      store.dispose();
+    });
+
+    it("reorders the pinned-session list", () => {
+      const store = createPreferencesStore(filePath);
+      store.pinSession("s1");
+      store.pinSession("s2");
+      store.reorderPinnedSessions(["s2", "s1"]);
+      expect(store.getPinnedSessions()).toEqual(["s2", "s1"]);
+      store.dispose();
+    });
+
+    it("persists to preferences.json on debounce", () => {
+      const store = createPreferencesStore(filePath);
+      store.pinSession("s1");
+      vi.advanceTimersByTime(1000);
+      const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      expect(data.pinnedSessions).toEqual(["s1"]);
+      store.dispose();
+    });
+
+    it("loads a persisted list", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ pinnedSessions: ["a", "b"] }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getPinnedSessions()).toEqual(["a", "b"]);
+      store.dispose();
+    });
+  });
+
   // ── PI_DASHBOARD_PIN_DIRS first-run seeding (docker-packaging) ──────────
   describe("PI_DASHBOARD_PIN_DIRS seeding", () => {
     let prevEnv: string | undefined;

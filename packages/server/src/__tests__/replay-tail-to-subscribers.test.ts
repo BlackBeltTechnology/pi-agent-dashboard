@@ -11,10 +11,10 @@
 
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
-import { createBrowserGateway } from "../browser-gateway.js";
+import { createBrowserGateway } from "../pairing/browser-gateway.js";
 import { TAIL_WINDOW_EVENTS } from "../browser-handlers/select-window.js";
-import { createMemoryEventStore } from "../memory-event-store.js";
-import { createMemorySessionManager } from "../memory-session-manager.js";
+import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import type { PiGateway } from "../pi-gateway.js";
 import { createDrainingWs } from "./helpers/draining-ws.js";
 

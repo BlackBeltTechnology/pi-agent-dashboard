@@ -5,11 +5,12 @@
  */
 import fs from "node:fs";
 import os from "node:os";
-import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { getManagedNodeBinary } from "@blackbelt-technology/pi-dashboard-shared/platform/managed-node-path.js";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import {
   EarlyExitError,
@@ -141,15 +142,16 @@ function getNodeVersion(nodeBin: string): string | null {
 }
 
 function candidateNodeBins(baseEnv: NodeJS.ProcessEnv): string[] {
-  const candidates = [
-    baseEnv.PI_DASHBOARD_NODE_BIN,
-    path.join(os.homedir(), ".pi-dashboard", "node", "bin", process.platform === "win32" ? "node.exe" : "node"),
-  ];
+  // Platform-specific binary naming is owned by shared/platform (enforced by
+  // no-direct-platform-branch.test.ts); `getManagedNodeBinary` resolves the
+  // managed `~/.pi-dashboard/node` runtime for the host platform.
+  const nodeBinName = path.basename(getManagedNodeBinary());
+  const candidates = [baseEnv.PI_DASHBOARD_NODE_BIN, getManagedNodeBinary()];
 
   const nvmVersionsDir = path.join(os.homedir(), ".nvm", "versions", "node");
   try {
     for (const entry of fs.readdirSync(nvmVersionsDir)) {
-      candidates.push(path.join(nvmVersionsDir, entry, "bin", process.platform === "win32" ? "node.exe" : "node"));
+      candidates.push(path.join(nvmVersionsDir, entry, "bin", nodeBinName));
     }
   } catch {
     // nvm is optional.

@@ -12,7 +12,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { PiGateway } from "./pi-gateway.js";
+import type { PiGateway } from "./pi/pi-gateway.js";
 import type {
   TranslateResponseMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";

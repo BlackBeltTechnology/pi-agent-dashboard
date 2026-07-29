@@ -1,4 +1,4 @@
-import { mdiAlertOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
+import { mdiAlertOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPin, mdiPinOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
@@ -381,6 +381,8 @@ export function SessionCard({
   allSessions,
   onHide,
   onUnhide,
+  isPinnedTab,
+  onTogglePinTab,
   contextUsage,
   openspecChanges,
   openspecInitialized,
@@ -421,6 +423,10 @@ export function SessionCard({
   allSessions?: DashboardSession[];
   onHide: (id: string) => void;
   onUnhide: (id: string) => void;
+  /** Whether this session is pinned to the desktop tab bar. See change: session-tab-bar. */
+  isPinnedTab?: boolean;
+  /** Toggle this session's tab-bar pin. Absent → pin button hidden. See change: session-tab-bar. */
+  onTogglePinTab?: (id: string) => void;
   contextUsage?: ContextUsageInfo;
   openspecChanges?: OpenSpecChange[];
   /**
@@ -768,6 +774,18 @@ export function SessionCard({
         >
           {formatRelativeTime(now - selectBadgeTimestamp(session))}
         </span>
+        {/* Pin-to-tab-bar toggle. See change: session-tab-bar. */}
+        {onTogglePinTab && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onTogglePinTab(session.id); }}
+            className={`p-0.5 flex-shrink-0 ${isPinnedTab ? "text-[var(--accent-primary)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]"}`}
+            title={isPinnedTab ? i18nT("session.unpinFromTabBar", undefined, "Unpin from tab bar") : i18nT("session.pinToTabBar", undefined, "Pin to tab bar")}
+            data-testid="session-pin-tab-btn"
+            aria-pressed={!!isPinnedTab}
+          >
+            <Icon path={isPinnedTab ? mdiPin : mdiPinOutline} size={0.45} />
+          </button>
+        )}
         {/* Hide/unhide button */}
         {isHidden ? (
           <button
