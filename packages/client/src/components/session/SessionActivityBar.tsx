@@ -33,7 +33,7 @@ export const MAX_VISIBLE = 2;
 
 /** Tooltip copy for the stop button. Single source of truth for the
  *  literal string referenced from session-activity-bar/spec.md. */
-export const STOP_TOOLTIP = "Stop this tool (lets the agent continue)";
+export const STOP_TOOLTIP = "Stop current turn";
 
 export function formatElapsed(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));

@@ -157,20 +157,20 @@ function CompactOpenSpecProgress({ phase, changeName, change, changesLoaded, con
     : null;
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2" data-testid="session-card-compact-openspec" title={`${changeName ?? "OpenSpec"} · ${label}`}>
-      <div className="h-1 w-24 shrink-0 overflow-hidden rounded-full bg-[var(--border-primary)]">
+    <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden" data-testid="session-card-compact-openspec" title={`${changeName ?? "OpenSpec"} · ${label}`}>
+      <div className="h-1 min-w-10 flex-1 overflow-hidden rounded-full bg-[var(--border-primary)] sm:w-24 sm:flex-none">
         <div
           className={`h-full rounded-full bg-[var(--accent-orange)] ${step ? "" : "animate-pulse"}`}
           style={{ width: step ? `${(index / 7) * 100}%` : "18%" }}
         />
       </div>
-      <span className="shrink-0 font-mono text-[9px] font-medium text-[var(--text-secondary)] tabular-nums">
+      <span className="hidden shrink-0 font-mono text-[9px] font-medium text-[var(--text-secondary)] tabular-nums min-[360px]:inline">
         {hasContext ? `${Math.round(tokens / 1000)}k/${Math.round(contextWindow / 1000)}k` : "—"}
       </span>
       {cost != null && cost > 0 && (
         <span className="shrink-0 font-mono text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">${cost.toFixed(2)}</span>
       )}
-      <span className="shrink-0 font-mono text-[8px] font-semibold uppercase tracking-[0.5px] text-[var(--accent-orange)]">
+      <span className="min-w-0 shrink truncate font-mono text-[8px] font-semibold uppercase tracking-[0.5px] text-[var(--accent-orange)]">
         {label}{taskProgress ? ` ${taskProgress}` : ""}
       </span>
     </div>
@@ -682,125 +682,80 @@ export function SessionCard({
     onRename?.(name);
   }
 
-  // Simplified mobile card
+  // Mobile keeps the same two-block information hierarchy as the Pencil
+  // compact card. The whole card is the 44px+ navigation target, so tiny
+  // desktop-only action buttons are unnecessary in the list view.
   if (isMobile) {
     return (
       <li
         ref={hasAnimatedFx ? cardFxRef : undefined}
         data-session-id={session.id}
+        data-testid="session-card-mobile"
         onClick={() => onSelect(session.id)}
-        className={`relative isolate px-4 py-3 cursor-pointer rounded-xl shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)] border hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)] transition-all duration-200 ${
+        className={`dashboard-card relative isolate w-full cursor-pointer rounded-[10px] border p-[14px] transition-all duration-200 ${
           isSelected ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30" : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
         } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${pulseClass}`}
       >
         {stripeFxClass ? <div className={`card-stripes-fx ${stripeFxClass}`} aria-hidden="true" /> : null}
-        {/* Line 1: source icon (colored by status) + name + age */}
-        <div className="flex items-center gap-2">
-          <span
-            className={`relative flex-shrink-0 ${iconStatusColor}`}
-            title={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
-            data-testid="session-status-icon"
-            data-status-shape={statusShape}
-          >
-            <Icon path={sourceIcons[session.source] ?? mdiConsoleLine} size={0.5} />
-            <StatusShapeBadge shape={statusShape} colorClass={iconStatusColor} />
-          </span>
-          <span className="text-sm font-semibold truncate flex-1">
-            {getSessionDisplayName(session)}
-          </span>
-          <span
-            className="text-[11px] text-[var(--text-muted)] flex-shrink-0"
-            title={i18nT("session.startedAtTime", { time: new Date(session.startedAt).toLocaleString() }, "Started {time}")}
-          >
-            {formatRelativeTime(now - selectBadgeTimestamp(session))}
-          </span>
-        </div>
-
-        {/* Line 2: model + activity (left) | context bar + cost (right) */}
-        <div className="flex items-center mt-1 gap-2 text-[12px]">
-          {session.model && (
-            <span className="text-[var(--text-tertiary)] truncate">
-              {session.model}
-            </span>
-          )}
-          <ActivityIndicator session={session} />
-          {/* Pi-native queue count badge — sum of steering + follow-up depth.
-              Hidden when both queues empty. See change: add-followup-edit-and-steer-cancel. */}
-          {(() => {
-            const totalQueued = (session.pendingQueues?.steering.length ?? 0) + (session.pendingQueues?.followUp.length ?? 0);
-            if (totalQueued === 0) return null;
-            return (
+        <div className="flex min-w-0 gap-2.5">
+          <div className="flex h-5 w-2 shrink-0 items-center justify-center">
+            <span className={`h-2 w-2 rounded-full ${dotColor}`} data-testid="session-status-icon" data-status-shape={statusShape} />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-[31px] min-w-0 flex-1 flex-col gap-0.5">
+                <div className="flex h-[17px] min-w-0 items-center gap-1">
+                  <span className="truncate text-[13px] font-semibold leading-[17px] text-[var(--text-primary)]">
+                    {getSessionDisplayName(session)}
+                  </span>
+                </div>
+                <div className="flex h-3 min-w-0 items-center gap-2">
+                  <ActivityIndicator session={session} compact />
+                  {session.model && (
+                    <span className="truncate font-mono text-[9px] leading-3 text-[var(--text-muted)]">
+                      {session.model}{session.thinkingLevel ? ` (${session.thinkingLevel})` : ""}
+                    </span>
+                  )}
+                </div>
+              </div>
               <span
-                data-testid="queue-count-badge"
-                className="flex-shrink-0 inline-flex items-center px-1.5 py-0 text-[10px] rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30"
-                title={i18nT("session.queuedMessages", { count: totalQueued }, `${totalQueued} queued message${totalQueued === 1 ? "" : "s"}`)}
+                className="shrink-0 font-mono text-[9px] text-[var(--text-muted)]"
+                title={i18nT("session.startedAtTime", { time: new Date(session.startedAt).toLocaleString() }, "Started {time}")}
               >
-                {totalQueued}
+                {formatRelativeTime(now - selectBadgeTimestamp(session))}
               </span>
-            );
-          })()}
-          <span className="flex-1" />
-          {prefs.contextUsageBar && (
-            <ContextUsageBar
-              tokens={contextUsage?.tokens ?? null}
-              contextWindow={contextUsage?.contextWindow}
-              compaction={contextUsage?.compaction}
-              compact
-            />
-          )}
-          {session.cost != null && session.cost > 0 && (
-            <span className="text-[var(--text-tertiary)] flex-shrink-0">${session.cost.toFixed(2)}</span>
-          )}
-        </div>
+            </div>
 
-        {/* Mobile attached-proposal chip (read-only) — see change: */}
-        {/* fix-mobile-attach-proposal-display. Coexists with OpenSpecActivityBadge */}
-        {/* below (which reads openspecPhase/openspecChange, not attachedProposal). */}
-        {/* Mirror in SessionHeader.tsx → MobileHeader (mobile-header-attached-chip). */}
-        {session.attachedProposal && (
-          <div
-            className="mt-1 flex items-center gap-1 text-[11px] text-blue-400"
-            data-testid="mobile-card-attached-chip"
-            title={i18nT("session.attachedProposal", { proposal: session.attachedProposal }, "Attached: {proposal}")}
-          >
-            <Icon path={mdiPaperclip} size={0.4} />
-            <span className="truncate">{session.attachedProposal}</span>
+            {(hasCompactOpenSpec || prefs.contextUsageBar || (session.cost ?? 0) > 0) && (
+              <div className="flex min-w-0 items-center gap-2">
+                {hasCompactOpenSpec ? (
+                  <CompactOpenSpecProgress
+                    phase={session.openspecPhase ?? undefined}
+                    changeName={compactOpenSpecChangeName}
+                    change={compactOpenSpecChange}
+                    changesLoaded={openspecChanges !== undefined}
+                    contextUsage={contextUsage}
+                    cost={session.cost}
+                  />
+                ) : prefs.contextUsageBar ? (
+                  <>
+                    <ContextUsageBar
+                      tokens={contextUsage?.tokens ?? null}
+                      contextWindow={contextUsage?.contextWindow}
+                      compaction={contextUsage?.compaction}
+                      compact
+                    />
+                    {session.cost != null && session.cost > 0 && (
+                      <span className="shrink-0 font-mono text-[9px] font-semibold text-emerald-600 tabular-nums dark:text-emerald-400">${session.cost.toFixed(2)}</span>
+                    )}
+                  </>
+                ) : session.cost != null && session.cost > 0 ? (
+                  <span className="shrink-0 font-mono text-[9px] font-semibold text-emerald-600 tabular-nums dark:text-emerald-400">${session.cost.toFixed(2)}</span>
+                ) : null}
+              </div>
+            )}
           </div>
-        )}
-        {/* OpenSpec activity badge */}
-        {(session.openspecPhase || session.openspecChange) ? (
-          <OpenSpecActivityBadge
-            phase={session.openspecPhase ?? undefined}
-            changeName={session.openspecChange ?? undefined}
-            completedTasks={
-              session.openspecChange
-                ? openspecChanges?.find((c) => c.name === session.openspecChange)?.completedTasks
-                : undefined
-            }
-            totalTasks={
-              session.openspecChange
-                ? openspecChanges?.find((c) => c.name === session.openspecChange)?.totalTasks
-                : undefined
-            }
-          />
-        ) : null}
-        {/* Compact read-only tag strip: user chips + `+N` overflow + read-only
-            phase pseudo-tag (openspecPhase only). See change: add-session-tags. */}
-        {((session.tags?.length ?? 0) > 0 || session.openspecPhase) ? (
-          <div className="mt-1">
-            <TagStrip tags={session.tags ?? []} phase={session.openspecPhase} />
-          </div>
-        ) : null}
-        {/* PROCESS subcard (mobile compact) — activity bar + drawer.
-            See change: redesign-process-list-activity-bar. */}
-        <MobileProcessSubcard
-          activity={inflightBashTools ?? EMPTY_BASH_TOOLS}
-          processes={processes ?? EMPTY_PROCESSES}
-          onKill={onKillProcess}
-          onAbortTool={onAbortTool}
-          now={now}
-          onNavigateToSession={onSelect}
-        />
+        </div>
       </li>
     );
   }
@@ -950,6 +905,10 @@ export function SessionCard({
           <span className="shrink-0 font-mono text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">${session.cost.toFixed(2)}</span>
         ) : null}
       </div>}
+
+      {inflightBashTools && inflightBashTools.length > 0 && onAbortTool ? (
+        <SessionActivityBar tools={inflightBashTools} onAbort={onAbortTool} now={now} />
+      ) : null}
 
       <div
         id={`session-card-details-${session.id}`}
@@ -1353,9 +1312,6 @@ function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collaps
       </CollapseSummary>
       {expanded && (hasActivity || hasProcesses) ? (
         <div className="mt-1.5 space-y-0.5" data-testid="process-expanded-body">
-          {hasActivity && onAbortTool ? (
-            <SessionActivityBar tools={[...activity]} onAbort={onAbortTool} now={now} />
-          ) : null}
           {hasProcesses && onKill ? (
             <ProcessList processes={[...processes]} onKill={onKill} onNavigateToSession={onNavigateToSession} />
           ) : null}

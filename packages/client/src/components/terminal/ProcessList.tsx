@@ -11,7 +11,7 @@
  *
  * Tooltip discipline:
  *   - drawer ✕  → "Force-kill process tree"   (this file)
- *   - activity bar ⏹ → "Stop this tool (lets the agent continue)" (SessionActivityBar)
+ *   - activity bar ⏹ → "Stop current turn" (SessionActivityBar)
  *
  * Rows-only: the component renders its process rows + `+N more processes`
  * overflow tail whenever mounted. The standalone `⚠ N` summary row and the

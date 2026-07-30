@@ -1461,6 +1461,7 @@ export default function App() {
       onSetWorkspaceCollapsed={(id, collapsed) => send({ type: "set_workspace_collapsed", id, collapsed })}
       onAddFolderToWorkspace={(id, path) => send({ type: "add_folder_to_workspace", id, path })}
       onRemoveFolderFromWorkspace={(id, path) => send({ type: "remove_folder_from_workspace", id, path })}
+      onCreateTerminal={handleCreateTerminal}
       onKillTerminal={handleKillTerminal}
       onRenameTerminal={handleRenameTerminal}
       onCollapseSidebar={sidebar.toggleCollapse}

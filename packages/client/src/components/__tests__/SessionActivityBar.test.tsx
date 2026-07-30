@@ -31,6 +31,10 @@ describe("SessionActivityBar (redesign-process-list-activity-bar)", () => {
     expect(getByTitle(STOP_TOOLTIP)).toBeTruthy();
   });
 
+  it("describes cancellation of the current turn, not an individual tool", () => {
+    expect(STOP_TOOLTIP).toBe("Stop current turn");
+  });
+
   it("renders up to MAX_VISIBLE rows without overflow chip", () => {
     const tools = Array.from({ length: MAX_VISIBLE }, (_, i) => mk(`tc-${i}`, `cmd-${i}`, NOW - i * 1000));
     const { container, queryByTestId } = render(

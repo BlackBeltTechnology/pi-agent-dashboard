@@ -4,6 +4,7 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useMobile } from "../../hooks/useMobile.js";
 import { useSessionActions } from "../../hooks/useSessionActions.js";
 import { DisplayPrefsProvider } from "../../lib/state/DisplayPrefsContext.js";
 import { branchCache, GroupGitInfo, SessionCard } from "../session/SessionCard.js";
@@ -12,7 +13,10 @@ vi.mock("../../hooks/useMobile.js", () => ({
   useMobile: vi.fn(() => false),
 }));
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(false);
+});
 
 function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSession {
   return {
@@ -452,7 +456,6 @@ describe("SessionCard", () => {
   });
 
   it("should render compact context bar inline on mobile card", async () => {
-    const { useMobile } = await import("../../hooks/useMobile.js");
     (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     const session = makeSession({ status: "streaming", cost: 2.0, model: "claude-4" });
@@ -466,44 +469,36 @@ describe("SessionCard", () => {
 
     const bar = screen.getByTestId("context-usage-bar");
     const row = bar.parentElement!;
-    // Cost and model in the same row
     expect(row.textContent).toContain("$2.00");
-    expect(row.textContent).toContain("claude-4");
-    // Bar is compact
-    expect(bar.className).toContain("w-16");
+    expect(screen.getByTestId("session-card-mobile").textContent).toContain("claude-4");
+    expect(bar.className).toContain("flex-1");
     expect(screen.queryByTestId("context-usage-pct")).toBeNull();
-
-    // Restore
-    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
   // ── mobile attached-proposal chip ───────────────────────────────
   // See change: fix-mobile-attach-proposal-display.
 
-  it("renders mobile-card-attached-chip on mobile when attachedProposal is set", async () => {
-    const { useMobile } = await import("../../hooks/useMobile.js");
+  it("renders attached proposal in the sole mobile progress row", async () => {
     (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     const session = makeSession({ attachedProposal: "add-auth" });
     render(<SessionCard session={session} {...defaultProps} />);
 
-    const chip = screen.getByTestId("mobile-card-attached-chip");
-    expect(chip.textContent).toContain("add-auth");
-
-    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    const progress = screen.getByTestId("session-card-compact-openspec");
+    expect(progress.getAttribute("title")).toContain("add-auth");
+    expect(screen.queryByTestId("mobile-card-attached-chip")).toBeNull();
   });
 
   // ── mobile PROCESS subcard ─────────────────────────────────────────────────────────
   // See change: redesign-process-list-activity-bar (task 4).
 
-  it("mobile: activity bar full-width rows; drawer collapses to a chip", async () => {
-    const { useMobile } = await import("../../hooks/useMobile.js");
+  it("mobile: process controls stay out of the compact navigation card", async () => {
     (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     const session = makeSession();
     const proc = { pid: 1, pgid: 1, command: "vitest --watch", elapsedMs: 60_000 } as any;
     const bashTool = { toolCallId: "tc-1", command: "npm test", startedAt: Date.now() - 5000 };
-    const { getByTestId } = render(
+    const { queryByTestId } = render(
       <SessionCard
         session={session}
         {...defaultProps}
@@ -513,15 +508,11 @@ describe("SessionCard", () => {
         onAbortTool={() => {}}
       />,
     );
-    expect(getByTestId("session-activity-bar")).toBeTruthy();
-    const chip = getByTestId("background-drawer-chip");
-    expect(chip.textContent).toContain("1");
-
-    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    expect(queryByTestId("session-activity-bar")).toBeNull();
+    expect(queryByTestId("background-drawer-chip")).toBeNull();
   });
 
-  it("mobile: tapping chip opens sheet with full process list", async () => {
-    const { useMobile } = await import("../../hooks/useMobile.js");
+  it("mobile: compact card remains one navigation target with background processes", async () => {
     (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     const session = makeSession();
@@ -536,16 +527,12 @@ describe("SessionCard", () => {
         onAbortTool={() => {}}
       />,
     );
+    expect(getByTestId("session-card-mobile")).toBeTruthy();
+    expect(queryByTestId("background-drawer-chip")).toBeNull();
     expect(queryByTestId("background-drawer-sheet")).toBeNull();
-    fireEvent.click(getByTestId("background-drawer-chip"));
-    const sheet = getByTestId("background-drawer-sheet");
-    expect(sheet.textContent).toContain("vitest --watch");
-
-    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
   it("does NOT render mobile-card-attached-chip when attachedProposal is null/undefined", async () => {
-    const { useMobile } = await import("../../hooks/useMobile.js");
     (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     const sessionA = makeSession({ attachedProposal: null });
@@ -557,11 +544,9 @@ describe("SessionCard", () => {
     render(<SessionCard session={sessionB} {...defaultProps} />);
     expect(screen.queryByTestId("mobile-card-attached-chip")).toBeNull();
 
-    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it("renders mobile attached chip and OpenSpecActivityBadge simultaneously (different facts)", async () => {
-    const { useMobile } = await import("../../hooks/useMobile.js");
+  it("renders one mobile OpenSpec progress row when multiple association fields exist", async () => {
     (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     const session = makeSession({
@@ -571,11 +556,9 @@ describe("SessionCard", () => {
     } as Partial<DashboardSession>);
     render(<SessionCard session={session} {...defaultProps} />);
 
-    expect(screen.getByTestId("mobile-card-attached-chip").textContent).toContain("add-auth");
-    // OpenSpecActivityBadge renders its phase + change name; assert it's distinct.
-    expect(screen.getByText(/fix-bug/)).toBeDefined();
-
-    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    const progress = screen.getByTestId("session-card-compact-openspec");
+    expect(progress.getAttribute("title")).toContain("fix-bug");
+    expect(screen.queryByTestId("mobile-card-attached-chip")).toBeNull();
   });
 });
 
@@ -789,9 +772,9 @@ describe("SessionCard subcard structure", () => {
       expect(line.getAttribute("aria-expanded")).toBe("false");
       expect(line.textContent).toContain("npm test");
       expect(getByTestId("process-counts-pill").textContent).toContain("1 running");
-      // Collapsed → no expanded body, no per-tool rows.
+      // Activity Stop remains reachable while the process drawer is collapsed.
       expect(queryByTestId("process-expanded-body")).toBeNull();
-      expect(queryByTestId("session-activity-bar")).toBeNull();
+      expect(queryByTestId("session-activity-bar")).toBeTruthy();
     });
 
     it("OrphansOnly collapsed: line reads N background processes, no pill", () => {

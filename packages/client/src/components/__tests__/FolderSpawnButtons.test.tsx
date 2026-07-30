@@ -39,6 +39,18 @@ describe("FolderSpawnButtons", () => {
     expect(screen.getByTestId("folder-spawn-worktree-btn")).toBeTruthy();
   });
 
+  it("keeps both create actions and overflow in one mobile row", () => {
+    const { container } = renderButtons({
+      showWorktree: true,
+      onSpawnWorktree: () => {},
+      overflow: <button type="button">Tools</button>,
+    });
+    const grid = container.firstElementChild as HTMLElement;
+    expect(grid.className).toContain("grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px]");
+    expect(screen.getByTestId("folder-spawn-session-btn").className).toContain("min-h-[44px]");
+    expect(screen.getByTestId("folder-spawn-worktree-btn").className).toContain("min-h-[44px]");
+  });
+
   it("disables the session button when spawningDisabled", () => {
     renderButtons({ spawningDisabled: true });
     expect(screen.getByTestId("folder-spawn-session-btn").hasAttribute("disabled")).toBe(true);

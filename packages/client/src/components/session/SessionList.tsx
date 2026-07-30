@@ -1,7 +1,7 @@
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCodeBraces, mdiCog, mdiConsoleLine, mdiContentCopy, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
+import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCodeBraces, mdiCog, mdiContentCopy, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -160,8 +160,8 @@ interface Props {
   onSetWorkspaceCollapsed?: (id: string, collapsed: boolean) => void;
   onAddFolderToWorkspace?: (id: string, path: string) => void;
   onRemoveFolderFromWorkspace?: (id: string, path: string) => void;
-  // onKillTerminal/onRenameTerminal are pre-existing unused props (terminals
-  // moved to the editor pane); left as-is, out of scope for this change.
+  /** Opens a terminal tab in the folder-scoped editor. */
+  onCreateTerminal?: (cwd: string) => void;
   onKillTerminal?: (terminalId: string) => void;
   onRenameTerminal?: (terminalId: string, title: string) => void;
   onCollapseSidebar?: () => void;

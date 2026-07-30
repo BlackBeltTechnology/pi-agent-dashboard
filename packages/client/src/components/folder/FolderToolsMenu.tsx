@@ -34,7 +34,7 @@ export function FolderToolsMenu({ cwd, hasOpenSpec, children, compact = false, o
     if (!rect) return;
     const margin = 8;
     const gap = 8;
-    const width = 240;
+    const width = Math.min(240, window.innerWidth - margin * 2);
     const maxHeight = Math.max(120, window.innerHeight - margin * 2);
     const popupHeight = Math.min(popupRef.current?.offsetHeight ?? maxHeight, maxHeight);
     const spaceBelow = window.innerHeight - rect.bottom - margin;
@@ -96,7 +96,7 @@ export function FolderToolsMenu({ cwd, hasOpenSpec, children, compact = false, o
         aria-label={i18nT("sessionList.folderTools", undefined, "Folder tools")}
         title={i18nT("sessionList.folderTools", undefined, "Folder tools")}
         className={compact
-          ? "focus-ring inline-flex h-[34px] w-9 items-center justify-center rounded-[6px] border border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
+          ? "focus-ring inline-flex h-11 w-11 items-center justify-center rounded-[6px] border border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors sm:h-[34px] sm:w-9"
           : "focus-ring w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"}
       >
         <Icon path={mdiDotsHorizontal} size={0.55} />
@@ -109,7 +109,7 @@ export function FolderToolsMenu({ cwd, hasOpenSpec, children, compact = false, o
           role="menu"
           data-testid="folder-tools-menu"
           style={{ top: popupPosition.top, left: popupPosition.left, maxHeight: popupPosition.maxHeight || undefined }}
-          className="fixed z-[100] flex w-[240px] flex-col gap-[2px] overflow-y-auto rounded-[10px] border border-[var(--border-secondary)] bg-[var(--bg-primary)] p-[6px] shadow-[0_4px_8px_rgba(14,20,32,0.08),0_12px_24px_rgba(14,20,32,0.06)]"
+          className="fixed z-[100] flex w-[calc(100vw-16px)] max-w-[240px] flex-col gap-[2px] overflow-y-auto rounded-[10px] border border-[var(--border-secondary)] bg-[var(--bg-primary)] p-[6px] shadow-[0_4px_8px_rgba(14,20,32,0.08),0_12px_24px_rgba(14,20,32,0.06)]"
           onClick={(event) => event.stopPropagation()}
         >
           <FolderToolsContents

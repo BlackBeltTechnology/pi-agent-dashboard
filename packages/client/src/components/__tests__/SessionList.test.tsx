@@ -606,7 +606,7 @@ describe("SessionList folder-home open affordance", () => {
     return <span data-testid="loc">{loc}</span>;
   }
 
-  function renderPinned() {
+  function renderPinned(onCreateTerminal?: (cwd: string) => void) {
     const cwd = "/home/user/project";
     const { hook } = memoryLocation({ path: "/" });
     render(
@@ -619,6 +619,7 @@ describe("SessionList folder-home open affordance", () => {
             pinnedDirectories={[cwd]}
             onUnpinDirectory={() => {}}
             onSpawnSession={() => {}}
+            onCreateTerminal={onCreateTerminal}
           />
         </ThemeProvider>
       </Router>,
@@ -639,6 +640,12 @@ describe("SessionList folder-home open affordance", () => {
     expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}/editor`);
     // stopPropagation kept the collapse toggle from firing: still expanded.
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+  });
+
+  it("omits the redundant Open Terminal affordance", () => {
+    const { cwd } = renderPinned(vi.fn());
+    expect(screen.queryByTestId(`folder-open-terminal-${cwd}`)).toBeNull();
+    expect(screen.getByTestId(`folder-open-editor-${cwd}`)).toBeTruthy();
   });
 
   // directory-card-clickable-select: the whole header row is clickable to open

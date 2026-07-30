@@ -40,7 +40,7 @@ export function FolderSpawnButtons({
   overflow,
 }: Props) {
   return (
-    <div className={`grid grid-cols-1 items-center gap-2 ${overflow ? (showWorktree ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" : "sm:grid-cols-[minmax(0,1fr)_auto]") : (showWorktree ? "sm:grid-cols-2" : "")}`}>
+    <div className={`grid items-center gap-2 ${overflow ? (showWorktree ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_44px] sm:grid-cols-[minmax(0,1fr)_auto]") : (showWorktree ? "grid-cols-2" : "grid-cols-1")}`}>
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onSpawnSession(); }}
