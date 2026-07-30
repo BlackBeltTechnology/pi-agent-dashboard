@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseJsonc } from "@blackbelt-technology/pi-dashboard-shared/jsonc.js";
 import { flattenModelsJson } from "@blackbelt-technology/pi-dashboard-shared/models-json-reader.js";
 import { getDefaultRegistry, ModuleResolutionError } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { readAuthJson } from "../auth/provider-auth-storage.js";
@@ -42,7 +43,9 @@ export function readModels(): CustomModelEntry[] {
   if (!existsSync(MODELS_PATH)) return [];
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(MODELS_PATH, "utf-8"));
+    // JSONC, not JSON: pi's own loader strips comments before parsing, so a
+    // commented models.json is a supported authoring format. See jsonc.ts.
+    raw = parseJsonc(readFileSync(MODELS_PATH, "utf-8"));
   } catch (err) {
     // A syntax error is no longer silent — warn so a broken file is diagnosable.
     console.warn(`[model-proxy] models.json parse failed: ${(err as Error).message}`);

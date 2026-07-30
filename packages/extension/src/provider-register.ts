@@ -26,6 +26,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { parseJsonc } from "@blackbelt-technology/pi-dashboard-shared/jsonc.js";
 import { flattenModelsJson, type NativeModelEntry } from "@blackbelt-technology/pi-dashboard-shared/models-json-reader.js";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -219,7 +220,9 @@ function loadNativeModels(): NativeModelEntry[] {
   if (!existsSync(path)) return [];
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(path, "utf-8"));
+    // JSONC, not JSON: pi's own loader strips comments before parsing, so a
+    // commented models.json is a supported authoring format. See jsonc.ts.
+    raw = parseJsonc(readFileSync(path, "utf-8"));
   } catch (err: any) {
     console.warn(`[dashboard] models.json parse failed: ${err?.message ?? String(err)}`);
     return [];
