@@ -145,6 +145,7 @@ describe("handleForceKill", () => {
     await handleForceKill({ type: "force_kill", sessionId: "sess-1" }, ctx);
 
     expect(killProcessTreeSpy).not.toHaveBeenCalled();
+    expect(ctx.piGateway.closeSession).not.toHaveBeenCalled();
     expect(ctx.sessionManager.update).not.toHaveBeenCalled();
     const result = ctx.sent.find((m: any) => m.type === "force_kill_result");
     expect(result.success).toBe(false);
@@ -153,7 +154,7 @@ describe("handleForceKill", () => {
 
   it("no-PID: recovers the process via findPidByMarker and tree-kills it", async () => {
     findPidByMarkerSpy.mockReturnValue([54321]);
-    const ctx = createMockContext({ pid: undefined });
+    const ctx = createMockContext({ pid: undefined, source: "dashboard" });
 
     await handleForceKill({ type: "force_kill", sessionId: "sess-1" }, ctx);
 
@@ -168,12 +169,23 @@ describe("handleForceKill", () => {
 
     await handleForceKill({ type: "force_kill", sessionId: "sess-1" }, ctx);
 
-    expect(ctx.piGateway.closeSession).toHaveBeenCalledWith("sess-1");
+    expect(ctx.piGateway.closeSession).not.toHaveBeenCalled();
     expect(killProcessTreeSpy).not.toHaveBeenCalled();
     expect(ctx.sessionManager.update).not.toHaveBeenCalled();
     const result = ctx.sent.find((m: any) => m.type === "force_kill_result");
     expect(result.success).toBe(false);
     expect(result.message).toMatch(/not found|still be running/i);
+  });
+
+  it("does not discover a terminal session by marker", async () => {
+    findPidByMarkerSpy.mockReturnValue([54321]);
+    const ctx = createMockContext({ pid: undefined, source: "tui" });
+
+    await handleForceKill({ type: "force_kill", sessionId: "sess-1" }, ctx);
+
+    expect(findPidByMarkerSpy).not.toHaveBeenCalled();
+    expect(killProcessTreeSpy).not.toHaveBeenCalled();
+    expect(ctx.piGateway.closeSession).not.toHaveBeenCalled();
   });
 
   it("verify-before-stamp: survivor keeps status and reports failure", async () => {
@@ -250,7 +262,7 @@ describe("handleForceKill", () => {
     expect(ctx.piGateway.closeSession).not.toHaveBeenCalled();
   });
 
-  it("always closes the bridge WebSocket when session exists", async () => {
+  it("closes the bridge WebSocket only after resolving a safe target", async () => {
     const ctx = createMockContext({ pid: 12345 });
 
     await handleForceKill({ type: "force_kill", sessionId: "sess-1" }, ctx);

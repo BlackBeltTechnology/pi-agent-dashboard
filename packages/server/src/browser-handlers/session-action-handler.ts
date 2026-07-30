@@ -712,13 +712,10 @@ export async function handleForceKill(
     return;
   }
 
-  // Force-close the bridge WebSocket regardless of PID availability
-  piGateway.closeSession(msg.sessionId);
-
-  // Resolve the target PID: session-registered, else marker search.
-  // See change: fix-stuck-session-stop-escalation (design D3).
+  // Terminal sessions must supply an authoritative PID. Marker lookup remains
+  // only for dashboard-spawned sessions registered by older bridges.
   let pid = session?.pid;
-  if (!pid) {
+  if (!pid && session.source === "dashboard") {
     const found = findPidByMarker(msg.sessionId);
     pid = found[0];
   }
@@ -737,6 +734,9 @@ export async function handleForceKill(
     fail(pid, "pid_reused", "PID no longer looks like a pi process (recycled?) — kill aborted");
     return;
   }
+
+  // Keep a usable bridge connected when target resolution or validation fails.
+  piGateway.closeSession(msg.sessionId);
 
   // Tree kill (design D1): POSIX group-kills every descendant process group
   // (pi spawns bash tools detached in their own groups); Windows keeps the

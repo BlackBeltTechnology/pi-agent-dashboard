@@ -22,6 +22,21 @@ describe("memory-session-manager", () => {
     expect(sm.get("nonexistent")).toBeUndefined();
   });
 
+  it("refreshes the registered bridge PID on reattach", () => {
+    const sm = createMemorySessionManager();
+    sm.register({ id: "s1", cwd: "/tmp", source: "tui", pid: 101 });
+
+    const session = sm.register({
+      id: "s1",
+      cwd: "/tmp",
+      source: "tui",
+      pid: 202,
+      registerReason: "reattach",
+    });
+
+    expect(session.pid).toBe(202);
+  });
+
   it("unregisters session", () => {
     const sm = createMemorySessionManager();
     sm.register({ id: "s1", cwd: "/tmp", source: "tui" });
