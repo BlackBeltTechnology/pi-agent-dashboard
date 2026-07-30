@@ -67,16 +67,19 @@ hook. No hard-coded display strings SHALL remain in the component.
 
 The `GrammarSettings` component SHALL expose controls for the full grammar config shape
 (`enabled`, `autoCheck`, `backend` (`languagetool` | `llm`), `debounceMs`, `minChars`, `maxChars`,
-`language`, `languagetool.url`, and a SINGLE model picker when `backend === "llm"`). Values SHALL
-be read from and written to the plugin config namespace `plugins.grammar.*` (validated by the
-plugin `configSchema`), NOT the core `config.grammar` block.
+`language`, `languagetool.url`, a SINGLE model picker when `backend === "llm"`, and
+`correctionView` (`redline` | `list`, default `redline`) as a segmented **Correction view**
+control). Values SHALL be read from and written to the plugin config namespace
+`plugins.grammar.*` (validated by the plugin `configSchema`), NOT the core `config.grammar`
+block.
 
 #### Scenario: Current values load from the plugin config
 - **WHEN** the section mounts
 - **THEN** it SHALL issue `GET /api/config` and populate every control from `data.plugins.grammar`
 - **AND** if absent it SHALL show the disabled defaults (`enabled: false`,
   `backend: "languagetool"`, `autoCheck: true`, `debounceMs: 1200`, `minChars: 12`,
-  `maxChars: 4000`, `language: "auto"`, `languagetool.url: "http://localhost:8081"`)
+  `maxChars: 4000`, `language: "auto"`, `languagetool.url: "http://localhost:8081"`,
+  `correctionView: "redline"`)
 
 #### Scenario: A single model selector is used for the llm backend
 - **WHEN** `backend` is `languagetool`
@@ -84,6 +87,12 @@ plugin `configSchema`), NOT the core `config.grammar` block.
 - **WHEN** `backend` is `llm`
 - **THEN** a single model picker SHALL be shown (the `ui:model-selector` primitive fed by
   `GET /api/models`), with NO separate free-text `provider`/`model` fields
+
+#### Scenario: Correction view control persists redline vs list
+- **WHEN** the user sets **Correction view** to `list` (or `redline`) and clicks Save
+- **THEN** the value SHALL be written as `plugins.grammar.correctionView` via
+  `POST /api/config/plugins/grammar`
+- **AND** a subsequent `GET /api/grammar/health` SHALL report the saved `correctionView`
 
 #### Scenario: Save persists via the plugin config endpoint
 - **WHEN** the user edits controls and clicks Save

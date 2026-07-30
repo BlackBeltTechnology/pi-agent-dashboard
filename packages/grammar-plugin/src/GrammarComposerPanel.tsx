@@ -11,6 +11,7 @@ import { mdiSpellcheck } from "@mdi/js";
 import Icon from "@mdi/react";
 import { useEffect } from "react";
 import { GrammarPanel } from "./GrammarPanel.js";
+import { GrammarRedlinePanel } from "./GrammarRedlinePanel.js";
 import { useGrammarCheck } from "./useGrammarCheck.js";
 
 export interface GrammarComposerPanelProps {
@@ -69,17 +70,32 @@ export function GrammarComposerPanel({
           </button>
         </div>
       )}
-      <GrammarPanel
-        status={grammar.status}
-        error={grammar.error}
-        suggestions={grammar.suggestions}
-        summary={grammar.summary}
-        truncated={grammar.truncated}
-        onApplyAll={grammar.applyAll}
-        onAccept={grammar.accept}
-        onDismiss={grammar.dismiss}
-        onDismissPanel={grammar.dismissPanel}
-      />
+      {grammar.correctionView === "redline" ? (
+        <GrammarRedlinePanel
+          draft={draft}
+          status={grammar.status}
+          error={grammar.error}
+          suggestions={grammar.suggestions}
+          summary={grammar.summary}
+          truncated={grammar.truncated}
+          onApplyAll={grammar.applyAll}
+          onAccept={grammar.accept}
+          onDismiss={grammar.dismiss}
+          onDismissPanel={grammar.dismissPanel}
+        />
+      ) : (
+        <GrammarPanel
+          status={grammar.status}
+          error={grammar.error}
+          suggestions={grammar.suggestions}
+          summary={grammar.summary}
+          truncated={grammar.truncated}
+          onApplyAll={grammar.applyAll}
+          onAccept={grammar.accept}
+          onDismiss={grammar.dismiss}
+          onDismissPanel={grammar.dismissPanel}
+        />
+      )}
     </div>
   );
 }

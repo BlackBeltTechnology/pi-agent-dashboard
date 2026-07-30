@@ -37,6 +37,7 @@ const FALLBACK_GRAMMAR: GrammarConfig = {
   minChars: 12,
   maxChars: 4000,
   language: "auto",
+  correctionView: "redline",
   capitalizeFirstWord: false,
   languagetool: { url: "http://localhost:8081" },
 };
@@ -201,6 +202,25 @@ export function GrammarSettings(): React.ReactElement {
             onChange={(e) => setDraft({ ...draft, autoCheck: e.target.checked })}
           />
           {t("autoCheck", undefined, "Auto-check while typing")}
+        </label>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          {t("correctionView", undefined, "Correction view")}
+          <select
+            data-testid="grammar-correction-view"
+            value={draft.correctionView}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                correctionView: e.target.value as GrammarConfig["correctionView"],
+              })
+            }
+          >
+            <option value="redline">
+              {t("correctionViewRedline", undefined, "Redline (inline)")}
+            </option>
+            <option value="list">{t("correctionViewList", undefined, "List")}</option>
+          </select>
         </label>
 
         <label style={{ display: "flex", gap: "6px", alignItems: "center" }}>

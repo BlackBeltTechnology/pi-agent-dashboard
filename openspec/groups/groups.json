@@ -207,7 +207,8 @@
     "image-fit-tool-result-images": "ui",
     "fix-goal-detail-turns-and-spend": "ui",
     "add-embed-session-lifecycle": "ui",
-    "add-hermes-memory-settings-plugin": "ui"
+    "add-hermes-memory-settings-plugin": "ui",
+    "fix-grammar-llm-swallowed-corrections": "separate-functions-to-plugins"
   },
   "changeOrder": {
     "__ungrouped__": [

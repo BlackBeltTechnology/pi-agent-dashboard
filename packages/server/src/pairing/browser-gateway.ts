@@ -10,14 +10,14 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
+import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
+import type { EventStore } from "../persistence/memory-event-store.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { SessionOrderManager } from "../session/session-order-manager.js";
 // PendingLoadManager removed — server loads sessions directly via DirectoryService
 import { createHeadlessPidRegistry, type HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
-import type { EventStore } from "../persistence/memory-event-store.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
-import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
-import type { PiGateway } from "../pi/pi-gateway.js";
-import type { PreferencesStore } from "../persistence/preferences-store.js";
-import type { SessionOrderManager } from "../session/session-order-manager.js";
 
 /**
  * Pure helper: build the per-cwd `openspec_update` messages a freshly
@@ -70,8 +70,8 @@ import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal
 import { handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
-import type { TerminalManager } from "../terminal/terminal-manager.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
+import type { TerminalManager } from "../terminal/terminal-manager.js";
 
 
 

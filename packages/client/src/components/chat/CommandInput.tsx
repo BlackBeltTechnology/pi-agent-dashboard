@@ -1,14 +1,14 @@
+import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { CommandInfo, FileEntry, ImageContent, ModelInfo, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlertOctagon, mdiClipboardText, mdiConsole, mdiDotsHorizontal, mdiEyeOutline, mdiFile, mdiFileDocumentOutline, mdiFlag, mdiFlash, mdiFolder, mdiImageOutline, mdiPlaylistPlus, mdiPlus, mdiSendVariant, mdiStop, mdiStopCircleOutline, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useImagePaste } from "../../hooks/useImagePaste.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
-import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import type { ChatMessage } from "../../lib/chat/event-reducer.js";
-import { extractRecentUrls } from "../../lib/preview/extract-urls.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { extractRecentUrls } from "../../lib/preview/extract-urls.js";
+import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { ImagePreviewStrip } from "../preview/ImagePreviewStrip.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";

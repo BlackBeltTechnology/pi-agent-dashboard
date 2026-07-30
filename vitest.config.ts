@@ -32,6 +32,7 @@ export default defineConfig({
       "packages/roles-plugin",
       "packages/subagents-plugin",
       "packages/goal-plugin",
+      "packages/grammar-plugin",
       "scripts",
       // NOTE: packages/electron is intentionally NOT included here — it has
       // pre-existing orphaned tests that depend on ambient PATH/mocks never

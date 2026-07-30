@@ -2,9 +2,10 @@
 // `kb agents <path>` nearest-applicable chain (design §6d). Pure-local,
 // deterministic, no LLM/embedding. The detect-don't-write rule: `dox init`
 // and `--fix` only fill PATH columns / prune orphans; the LLM authors purposes.
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, appendFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+
 import { createHash } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { KbStore } from "./types.js";
 
 // delta ②: exclude worktree checkouts, archived openspec proposals, and doc-example noise.

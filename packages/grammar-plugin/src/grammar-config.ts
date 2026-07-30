@@ -5,7 +5,10 @@
  * `parseGrammarConfig` stays the clamp/validation authority the server route +
  * settings UI both use. See change: make-grammar-fully-plugin-contained.
  */
-import type { GrammarBackendKind } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
+import type {
+  GrammarBackendKind,
+  GrammarCorrectionView,
+} from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 
 export interface GrammarConfig {
   /** Master gate. Default `false` — feature is fully invisible when off. */
@@ -22,6 +25,11 @@ export interface GrammarConfig {
   maxChars: number;
   /** Language passed to the backend. Default `"auto"` (e.g. `"en-US"`, `"hu-HU"`). */
   language: string;
+  /**
+   * Which corrections presentation the composer renders: inline `redline`
+   * (default) or the stacked `list`. See change: add-grammar-compact-view.
+   */
+  correctionView: GrammarCorrectionView;
   /**
    * Whether the checker may correct sentence-start capitalization. Default
    * `false` — the checker never touches lowercase sentence starts unless the
@@ -43,6 +51,7 @@ export const DEFAULT_GRAMMAR: GrammarConfig = {
   minChars: 12,
   maxChars: 4000,
   language: "auto",
+  correctionView: "redline",
   capitalizeFirstWord: false,
   languagetool: { url: "http://localhost:8081" },
 };
@@ -63,6 +72,7 @@ export function parseGrammarConfig(raw: unknown): GrammarConfig {
   const r = raw as Record<string, unknown>;
   const backend: GrammarBackendKind =
     r.backend === "llm" || r.backend === "languagetool" ? r.backend : d.backend;
+  const correctionView: GrammarCorrectionView = r.correctionView === "list" ? "list" : d.correctionView;
   const lt = r.languagetool as { url?: unknown } | undefined;
   const url =
     typeof lt?.url === "string" && lt.url.trim() ? (lt.url as string) : d.languagetool.url;
@@ -86,6 +96,7 @@ export function parseGrammarConfig(raw: unknown): GrammarConfig {
     minChars: clampNumber(r.minChars, d.minChars, 1, 500),
     maxChars: clampNumber(r.maxChars, d.maxChars, 100, 20000),
     language: typeof r.language === "string" && r.language.trim() ? r.language : d.language,
+    correctionView,
     capitalizeFirstWord:
       typeof r.capitalizeFirstWord === "boolean" ? r.capitalizeFirstWord : d.capitalizeFirstWord,
     languagetool: { url },

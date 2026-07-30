@@ -10,6 +10,7 @@
     "minChars": { "type": "integer", "minimum": 1, "maximum": 500, "default": 12 },
     "maxChars": { "type": "integer", "minimum": 100, "maximum": 20000, "default": 4000 },
     "language": { "type": "string", "default": "auto" },
+    "correctionView": { "enum": ["redline", "list"], "default": "redline" },
     "capitalizeFirstWord": { "type": "boolean", "default": false },
     "languagetool": {
       "type": "object",

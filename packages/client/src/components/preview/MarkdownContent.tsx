@@ -8,22 +8,22 @@ import rehypeRaw from "rehype-raw";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { tokenize } from "../../lib/chat/linkify-tool-output.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { wrapAsciiTables } from "../../lib/preview/wrap-ascii-tables.js";
 import { useSessionAssets } from "../../lib/session/SessionAssetsContext.js";
 import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
 import { useLoopbackLinkOpen } from "../../lib/use-loopback-link-open.js";
-import { wrapAsciiTables } from "../../lib/preview/wrap-ascii-tables.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
-import { extractFrontmatter, FrontmatterProperties } from "./FrontmatterProperties.js";
-import { ImageLightbox } from "./ImageLightbox.js";
-import { type ImageBase, resolveLocalImageSrc } from "./resolve-local-image-src.js";
-import { MermaidBlock } from "./MermaidBlock.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
 import { FileLink } from "../tool-renderers/FileLink.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 import { UrlLink } from "../tool-renderers/UrlLink.js";
+import { extractFrontmatter, FrontmatterProperties } from "./FrontmatterProperties.js";
+import { ImageLightbox } from "./ImageLightbox.js";
+import { MermaidBlock } from "./MermaidBlock.js";
+import { type ImageBase, resolveLocalImageSrc } from "./resolve-local-image-src.js";
 
 interface Props {
   content: string;

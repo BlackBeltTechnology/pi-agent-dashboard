@@ -14,12 +14,12 @@ import {
   PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
-import type { GrammarConfig } from "../grammar-config.js";
 import type { UiModelSelectorProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GrammarSettings } from "../GrammarSettings.js";
+import type { GrammarConfig } from "../grammar-config.js";
 
 /** Mock `ui:model-selector`: one button per model, emitting the `provider/id` label. */
 function MockModelSelector({ models, current, onSelect }: UiModelSelectorProps) {
@@ -59,6 +59,7 @@ function baseGrammar(overrides: Partial<GrammarConfig> = {}): GrammarConfig {
     minChars: 12,
     maxChars: 4000,
     language: "auto",
+    correctionView: "redline",
     capitalizeFirstWord: false,
     languagetool: { url: "http://localhost:8081" },
     ...overrides,
@@ -231,6 +232,18 @@ describe("GrammarSettings", () => {
     await waitFor(() =>
       expect((getByTestId("grammar-debounce") as HTMLInputElement).value).toBe("300"),
     );
+  });
+
+  it("loads and saves the correction view (redline | list)", async () => {
+    const { putBodies } = installFetch({ grammar: baseGrammar({ correctionView: "redline" }) });
+    const { getByTestId } = render(wrap(<GrammarSettings />));
+    await waitFor(() =>
+      expect((getByTestId("grammar-correction-view") as HTMLSelectElement).value).toBe("redline"),
+    );
+    fireEvent.change(getByTestId("grammar-correction-view"), { target: { value: "list" } });
+    fireEvent.click(getByTestId("grammar-save"));
+    await waitFor(() => expect(putBodies.length).toBe(1));
+    expect(putBodies[0].correctionView).toBe("list");
   });
 
   it("shows a reachable indicator when LanguageTool health is reachable", async () => {

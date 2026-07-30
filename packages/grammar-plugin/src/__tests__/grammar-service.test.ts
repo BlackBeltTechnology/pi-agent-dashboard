@@ -1,6 +1,6 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GrammarConfig } from "../grammar-config.js";
 import { DEFAULT_GRAMMAR } from "../grammar-config.js";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkGrammar } from "../server/grammar-service.js";
 
 function cfg(overrides: Partial<GrammarConfig> = {}): GrammarConfig {

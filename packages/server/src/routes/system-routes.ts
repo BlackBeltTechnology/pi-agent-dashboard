@@ -20,17 +20,16 @@ import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/
 import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
+import { localhostGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
 import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
+import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
+import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
 import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
 import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
-import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
-import { systemOpenCapability } from "../system-open-capability.js";
-import { localhostGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
-import type { MetaPersistence } from "../persistence/meta-persistence.js";
 import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
+import type { MetaPersistence } from "../persistence/meta-persistence.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 import {
   type BootstrapCompatibility,
@@ -38,10 +37,11 @@ import {
   readCurrentPiVersion,
   readPiCompatibility,
 } from "../pi/pi-version-skew.js";
-import type { PreferencesStore } from "../persistence/preferences-store.js";
-import { spawnRestart } from "../spawn-process/restart-helper.js";
 import type { ServerConfig } from "../server.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
+import { systemOpenCapability } from "../system-open-capability.js";
 import { createTunnel, deleteTunnel, ensureReservedName, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";

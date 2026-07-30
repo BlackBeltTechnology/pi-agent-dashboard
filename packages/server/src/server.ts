@@ -38,6 +38,7 @@ import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { writeConfigPartial } from "./config-api.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
+import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
@@ -106,7 +107,6 @@ import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
-import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";

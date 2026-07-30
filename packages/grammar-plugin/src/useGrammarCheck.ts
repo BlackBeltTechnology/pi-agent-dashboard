@@ -12,6 +12,7 @@
 
 import type {
   GrammarCheckResult,
+  GrammarCorrectionView,
   GrammarErrorCode,
   GrammarHealth,
   GrammarSuggestion,
@@ -27,6 +28,8 @@ export interface ActiveSuggestion extends GrammarSuggestion {
 
 export interface UseGrammarCheck {
   enabled: boolean;
+  /** Which corrections presentation the composer should render. */
+  correctionView: GrammarCorrectionView;
   status: GrammarStatus;
   error: GrammarErrorCode | null;
   /** Corrections not yet applied/dismissed, annotated with staleness. */
@@ -52,6 +55,7 @@ const DEFAULT_HEALTH: GrammarHealth = {
   debounceMs: 1200,
   minChars: 12,
   language: "auto",
+  correctionView: "redline",
 };
 
 /** Slash commands and `!`/`!!` shell inputs are not prose — never auto-checked. */
@@ -218,6 +222,7 @@ export function useGrammarCheck(args: UseGrammarCheckArgs): UseGrammarCheck {
 
   return {
     enabled: health.enabled,
+    correctionView: health.correctionView,
     status,
     error,
     suggestions,

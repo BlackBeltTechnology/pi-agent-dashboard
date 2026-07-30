@@ -12,6 +12,13 @@
 
 export type GrammarBackendKind = "llm" | "languagetool";
 
+/**
+ * Which presentation the composer corrections panel uses: the default inline
+ * `redline` (whole draft on one line, changes in place) or the stacked `list`.
+ * See change: add-grammar-compact-view.
+ */
+export type GrammarCorrectionView = "redline" | "list";
+
 export type GrammarIssueKind = "spelling" | "grammar" | "style" | "punctuation";
 
 export interface GrammarSuggestion {
@@ -62,6 +69,8 @@ export interface GrammarHealth {
   debounceMs: number;
   minChars: number;
   language: string;
+  /** Which corrections presentation the composer should render. */
+  correctionView: GrammarCorrectionView;
   languagetool?: { url: string; reachable: boolean };
 }
 

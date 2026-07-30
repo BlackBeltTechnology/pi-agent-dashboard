@@ -8,8 +8,6 @@ const SUGGESTIONS: ActiveSuggestion[] = [
   { id: "b", offset: 8, length: 7, original: "a apple", replacement: "an apple", kind: "grammar", message: "Article", stale: true },
 ];
 
-const noop = () => {};
-
 function baseProps() {
   return {
     status: "done" as const,
@@ -56,28 +54,17 @@ describe("GrammarPanel", () => {
     expect(screen.getByText("have")).toBeTruthy();
   });
 
-  it("renders a word-level inline diff, highlighting only the changed words", () => {
-    const longEdit: ActiveSuggestion[] = [
-      {
-        id: "c",
-        offset: 0,
-        length: 40,
-        original: "I think we should consider using the new approach here",
-        replacement: "I think we should consider adopting the new approach here",
-        kind: "style",
-        message: "Word choice",
-        stale: false,
-      },
-    ];
-    render(<GrammarPanel {...baseProps()} suggestions={longEdit} />);
-    const diff = screen.getByTestId("grammar-diff");
-    // Unchanged span stays neutral (no strike / no accent classes).
-    expect(diff.textContent).toContain("the new approach here");
-    // Only the changed words carry the highlight classes.
-    const removed = screen.getByText("using");
-    expect(removed.className).toContain("line-through");
-    const added = screen.getByText("adopting");
-    expect(added.className).toContain("accent-green");
+  it("renders each suggestion as before → after with a kind pill and message (L2)", () => {
+    render(<GrammarPanel {...baseProps()} />);
+    const before = screen.getByText("has");
+    expect(before.className).toContain("line-through");
+    expect(before.className).toContain("accent-red");
+    const after = screen.getByText("have");
+    expect(after.className).toContain("accent-green");
+    // kind pill (both suggestions are `grammar`) + per-suggestion message.
+    expect(screen.getAllByText("grammar")).toHaveLength(2);
+    expect(screen.getByText("Agreement")).toBeTruthy();
+    expect(screen.getByText("Article")).toBeTruthy();
   });
 
   it("apply-all triggers the callback", () => {

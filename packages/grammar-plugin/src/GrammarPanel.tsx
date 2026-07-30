@@ -1,16 +1,19 @@
 /**
- * Corrections panel rendered directly above the composer (sibling to
- * QueuePanel in App). Shows diff-highlighted corrections + a grammar summary,
- * with per-suggestion Accept/Dismiss and an Apply-all action. A `<textarea>`
- * cannot style substrings, so all highlighting lives here — the composer
- * itself stays a plain textarea. See change: add-composer-grammar-check.
+ * Corrections panel — the `list` presentation (selected by
+ * `plugins.grammar.correctionView === "list"`). Renders each suggestion as an
+ * aligned **before → after** row carrying the `kind` (a coloured pill) and the
+ * `message`, with per-row Accept / Dismiss and a panel-level Apply-all. The
+ * default presentation is the inline {@link GrammarRedlinePanel}; this stacked
+ * view is the alternative. A `<textarea>` cannot style substrings, so all
+ * highlighting lives here. See changes: add-composer-grammar-check,
+ * add-grammar-compact-view.
  */
 
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { GrammarErrorCode } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import { mdiCheck, mdiClose, mdiSpellcheck } from "@mdi/js";
 import Icon from "@mdi/react";
-import { type DiffSegmentType, diffTokens } from "./grammar-diff.js";
+import { errorMessage, KIND_COLOR_VAR, PANEL_SHELL, PanelCloseButton } from "./grammar-panel-chrome.js";
 import type { ActiveSuggestion, GrammarStatus } from "./useGrammarCheck.js";
 
 interface Props {
@@ -23,21 +26,6 @@ interface Props {
   onAccept: (id: string) => void;
   onDismiss: (id: string) => void;
   onDismissPanel: () => void;
-}
-
-function errorMessage(t: ReturnType<typeof useT>, code: GrammarErrorCode): string {
-  switch (code) {
-    case "backend_unreachable":
-      return t("grammar.err.unreachable", undefined, "Grammar backend unreachable. Check the LanguageTool server or provider.");
-    case "backend_timeout":
-      return t("grammar.err.timeout", undefined, "Grammar check timed out.");
-    case "backend_unconfigured":
-      return t("grammar.err.unconfigured", undefined, "Grammar backend is not configured.");
-    case "backend_bad_response":
-      return t("grammar.err.badResponse", undefined, "Grammar backend returned an unexpected response.");
-    default:
-      return t("grammar.err.generic", undefined, "Grammar check failed.");
-  }
 }
 
 export function GrammarPanel({
@@ -53,16 +41,11 @@ export function GrammarPanel({
 }: Props) {
   const t = useT();
 
-  // Idle with nothing to show → render nothing (the trigger lives in the
-  // plugin's composer-panel wrapper below the input).
   if (status === "idle") return null;
-
-  const shell =
-    "border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]/40 px-3 py-2 flex flex-col gap-2 text-sm";
 
   if (status === "checking") {
     return (
-      <div data-testid="grammar-panel" className={shell}>
+      <div data-testid="grammar-panel" className={PANEL_SHELL}>
         <span className="text-[var(--text-muted)]">
           {t("grammar.checking", undefined, "Checking grammar…")}
         </span>
@@ -72,7 +55,7 @@ export function GrammarPanel({
 
   if (status === "error") {
     return (
-      <div data-testid="grammar-panel" className={shell}>
+      <div data-testid="grammar-panel" className={PANEL_SHELL}>
         <div className="flex items-center gap-2">
           <span className="text-[var(--severity-error-fg)] flex-1">
             {errorMessage(t, error ?? "backend_unreachable")}
@@ -86,7 +69,7 @@ export function GrammarPanel({
   // status === "done"
   if (suggestions.length === 0) {
     return (
-      <div data-testid="grammar-panel" className={shell}>
+      <div data-testid="grammar-panel" className={PANEL_SHELL}>
         <div className="flex items-center gap-2">
           <Icon path={mdiSpellcheck} size={0.7} className="text-[var(--accent-green)]" />
           <span className="text-[var(--text-secondary)] flex-1">
@@ -99,7 +82,7 @@ export function GrammarPanel({
   }
 
   return (
-    <div data-testid="grammar-panel" className={shell}>
+    <div data-testid="grammar-panel" className={PANEL_SHELL}>
       {/* Header: summary + apply-all + close. */}
       <div className="flex items-center gap-2">
         <Icon path={mdiSpellcheck} size={0.7} className="text-[var(--accent-primary)]" />
@@ -124,23 +107,25 @@ export function GrammarPanel({
         </span>
       )}
 
-      {/* Suggestion list. */}
-      <ul className="flex flex-col gap-1.5">
+      {/* Aligned before → after grid: the L2 layout. */}
+      <div
+        className="grid items-center gap-x-3 gap-y-0.5"
+        style={{ gridTemplateColumns: "1fr auto 1fr auto auto auto" }}
+      >
         {suggestions.map((s) => (
-          <li
-            key={s.id}
-            data-testid="grammar-suggestion"
-            className="flex items-start gap-2 rounded-md bg-[var(--bg-primary)]/40 px-2 py-1.5"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <SuggestionDiff original={s.original} replacement={s.replacement} />
-                <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{s.kind}</span>
-              </div>
-              {s.message && (
-                <div className="text-[11px] text-[var(--text-muted)] truncate">{s.message}</div>
-              )}
-            </div>
+          <div key={s.id} data-testid="grammar-suggestion" style={{ display: "contents" }}>
+            <span className="text-right break-words line-through text-[var(--accent-red)]">{s.original}</span>
+            <span className="text-[var(--text-muted)]">→</span>
+            <span className="break-words text-[var(--accent-green)]">{s.replacement}</span>
+            <span
+              className="justify-self-start text-[9.5px] uppercase tracking-wide rounded px-1.5 py-px text-[var(--text-secondary)]"
+              style={{
+                background: `color-mix(in srgb, ${KIND_COLOR_VAR[s.kind]} 20%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${KIND_COLOR_VAR[s.kind]} 45%, transparent)`,
+              }}
+            >
+              {s.kind}
+            </span>
             <button
               type="button"
               data-testid="grammar-accept"
@@ -166,47 +151,14 @@ export function GrammarPanel({
             >
               <Icon path={mdiClose} size={0.7} />
             </button>
-          </li>
+            {s.message && (
+              <span className="text-[11px] text-[var(--text-muted)]" style={{ gridColumn: "1 / -1" }}>
+                {s.message}
+              </span>
+            )}
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
-  );
-}
-
-const DIFF_SEG_CLASS: Record<DiffSegmentType, string> = {
-  equal: "text-[var(--text-secondary)]",
-  delete: "line-through text-[var(--accent-red)]",
-  insert: "text-[var(--accent-green)]",
-};
-
-/**
- * Inline word-level diff of a single correction. Unchanged words render
- * neutral so the eye jumps straight to the deletion (struck red) and the
- * insertion (green) — the fix stays scannable even in a long sentence.
- */
-function SuggestionDiff({ original, replacement }: { original: string; replacement: string }) {
-  return (
-    <span data-testid="grammar-diff" className="break-words">
-      {diffTokens(original, replacement).map((seg, i) => (
-        <span key={i} className={DIFF_SEG_CLASS[seg.type]}>
-          {seg.value}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-function PanelCloseButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      data-testid="grammar-panel-close"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      className="focus-ring inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-    >
-      <Icon path={mdiClose} size={0.7} />
-    </button>
   );
 }

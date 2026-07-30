@@ -199,12 +199,25 @@ function mapRawSuggestion(
   };
 }
 
+/**
+ * Strip an echoed `<text>…</text>` wrapper the model was told to omit but
+ * sometimes includes anyway. Only removes a single balanced leading/trailing
+ * pair (with optional surrounding whitespace/newlines); leaves the content —
+ * including any inner `<text>` mentions — untouched. Prevents both a corrupted
+ * apply (tags leaking into the draft) and a spurious "text changed" when the
+ * ONLY difference is the wrapper.
+ */
+export function stripTextTags(s: string): string {
+  const m = s.match(/^\s*<text>\r?\n?([\s\S]*?)\r?\n?<\/text>\s*$/i);
+  return m ? m[1] : s;
+}
+
 export function parseLlmResult(raw: unknown, text: string, language: string): GrammarCheckResult {
   if (!raw || typeof raw !== "object") {
     throw new GrammarBackendError("backend_bad_response", "LLM response was not an object");
   }
   const r = raw as RawResult;
-  const correctedText = typeof r.correctedText === "string" ? r.correctedText : text;
+  const correctedText = stripTextTags(typeof r.correctedText === "string" ? r.correctedText : text);
   const suggestions: GrammarSuggestion[] = [];
   let cursor = 0;
   if (Array.isArray(r.suggestions)) {
@@ -213,6 +226,25 @@ export function parseLlmResult(raw: unknown, text: string, language: string): Gr
       if (!mapped) return;
       suggestions.push(mapped.suggestion);
       cursor = mapped.nextCursor;
+    });
+  }
+  // Safety net for the observable bug where LLM mode reported "no issues" on a
+  // clearly-corrected draft: the model changed the text (`correctedText`
+  // differs) but every itemized suggestion was omitted or dropped above
+  // (`original` not an exact substring — normalized quotes/whitespace, or an
+  // empty `suggestions` array). Surface a single whole-text correction so the
+  // change is always visible + applyable and never silently swallowed. The
+  // trimmed compare ignores pure trailing-whitespace diffs (genuinely no
+  // change), and we only synthesize when the input was non-empty.
+  if (suggestions.length === 0 && text.length > 0 && correctedText.trim() !== text.trim()) {
+    suggestions.push({
+      id: `0:${text.length}:whole`,
+      offset: 0,
+      length: text.length,
+      original: text,
+      replacement: correctedText,
+      kind: "grammar",
+      message: "Suggested rewrite",
     });
   }
   const summary =

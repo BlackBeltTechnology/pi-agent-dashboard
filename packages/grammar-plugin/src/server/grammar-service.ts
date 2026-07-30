@@ -97,6 +97,7 @@ export async function getGrammarHealth(
     debounceMs: config.debounceMs,
     minChars: config.minChars,
     language: config.language,
+    correctionView: config.correctionView,
   };
   if (config.backend === "languagetool") {
     const url = config.languagetool.url;

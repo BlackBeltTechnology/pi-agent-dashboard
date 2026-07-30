@@ -13,10 +13,10 @@
  * See change: make-grammar-fully-plugin-contained.
  */
 import { readFileSync } from "node:fs";
-import { CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import type { LlmModelRegistry, LlmStreamFn } from "./backends/llm.js";
+import { CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { parseGrammarConfig } from "../grammar-config.js";
+import type { LlmModelRegistry, LlmStreamFn } from "./backends/llm.js";
 import { mountGrammarRoutes } from "./routes.js";
 
 /**

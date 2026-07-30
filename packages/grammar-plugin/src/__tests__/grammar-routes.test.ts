@@ -1,7 +1,7 @@
-import { DEFAULT_GRAMMAR } from "../grammar-config.js";
 import type { GrammarCheckResult } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_GRAMMAR } from "../grammar-config.js";
 import { mountGrammarRoutes } from "../server/routes.js";
 
 const okResult: GrammarCheckResult = {
@@ -27,6 +27,7 @@ function makeApp(over: Partial<Parameters<typeof mountGrammarRoutes>[1]> = {}) {
       debounceMs: 1200,
       minChars: 12,
       language: "auto",
+      correctionView: "redline",
       languagetool: { url: "http://localhost:8081", reachable: true },
     }),
     ...over,

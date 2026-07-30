@@ -11,7 +11,6 @@
  * See change: make-grammar-fully-plugin-contained.
  */
 
-import type { GrammarConfig } from "../grammar-config.js";
 import type {
   GrammarCheckResult,
   GrammarErrorCode,
@@ -19,6 +18,7 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { GrammarConfig } from "../grammar-config.js";
 import type { LlmModelRegistry, LlmStreamFn } from "./backends/llm.js";
 import {
   checkGrammar as defaultCheckGrammar,

@@ -13,6 +13,7 @@ describe("parseGrammarConfig", () => {
     expect(g.maxChars).toBe(4000);
     expect(g.language).toBe("auto");
     expect(g.capitalizeFirstWord).toBe(false);
+    expect(g.correctionView).toBe("redline");
     expect(g.languagetool.url).toBe("http://localhost:8081");
     expect(g.llm).toBeUndefined();
   });
@@ -72,6 +73,19 @@ describe("parseGrammarConfig", () => {
   it("parses capitalizeFirstWord and ignores non-boolean values", () => {
     expect(parseGrammarConfig({ capitalizeFirstWord: true }).capitalizeFirstWord).toBe(true);
     expect(parseGrammarConfig({ capitalizeFirstWord: "yes" }).capitalizeFirstWord).toBe(false);
+  });
+
+  it("defaults correctionView to redline and preserves a valid value", () => {
+    expect(parseGrammarConfig(undefined).correctionView).toBe("redline");
+    expect(parseGrammarConfig({}).correctionView).toBe("redline");
+    expect(parseGrammarConfig({ correctionView: "list" }).correctionView).toBe("list");
+    expect(parseGrammarConfig({ correctionView: "redline" }).correctionView).toBe("redline");
+  });
+
+  it("clamps an invalid correctionView to redline", () => {
+    expect(parseGrammarConfig({ correctionView: "fancy" }).correctionView).toBe("redline");
+    expect(parseGrammarConfig({ correctionView: 42 }).correctionView).toBe("redline");
+    expect(parseGrammarConfig({ correctionView: null }).correctionView).toBe("redline");
   });
 
   it("defaults languagetool.url when blank", () => {

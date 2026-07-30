@@ -10,6 +10,7 @@ const HEALTH: GrammarHealth = {
   debounceMs: 20,
   minChars: 5,
   language: "auto",
+  correctionView: "redline",
 };
 
 const RESULT: GrammarCheckResult = {
@@ -61,6 +62,13 @@ describe("useGrammarCheck", () => {
     installFetch();
     const { result } = render({ draft: "" });
     await waitFor(() => expect(result.current.enabled).toBe(true));
+    expect(result.current.correctionView).toBe("redline");
+  });
+
+  it("surfaces correctionView from health", async () => {
+    installFetch({ health: { correctionView: "list" } });
+    const { result } = render({ draft: "" });
+    await waitFor(() => expect(result.current.correctionView).toBe("list"));
   });
 
   it("stays disabled when the health endpoint reports disabled", async () => {

@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Grammar corrections — final design</title>
+<style>
+  :root {
+    --bg-primary: #0a0a0a; --bg-secondary: #141414; --bg-tertiary: #1e1e1e; --bg-surface: #2a2a2a;
+    --bg-hover: rgba(255,255,255,0.06);
+    --text-primary: #e5e5e5; --text-secondary: #b0b0b0; --text-tertiary: #808080; --text-muted: #585858;
+    --border-primary: #252525; --border-secondary: #333333;
+    --accent-blue: #3b82f6; --accent-green: #22c55e; --accent-yellow: #eab308; --accent-red: #ef4444;
+    --accent-purple: #a855f7; --accent-orange: #f97316; --accent-primary: #3b82f6;
+    --elevation-rim: rgba(255,255,255,0.10);
+  }
+  [data-theme="light"] {
+    --bg-primary: #ffffff; --bg-secondary: #fafafa; --bg-tertiary: #f0f0f0; --bg-surface: #e0e0e0;
+    --bg-hover: rgba(0,0,0,0.04);
+    --text-primary: #1a1a1a; --text-secondary: #444444; --text-tertiary: #777777; --text-muted: #aaaaaa;
+    --border-primary: #e0e0e0; --border-secondary: #cccccc;
+    --accent-primary: #2563eb;
+    --elevation-rim: rgba(255,255,255,0.9);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg-primary); color: var(--text-secondary);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.5;
+    padding: 24px 16px 120px; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  header.page { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
+  header.page h1 { font-size: 18px; color: var(--text-primary); margin: 0; font-weight: 650; }
+  header.page p { margin: 4px 0 0; color: var(--text-muted); font-size: 12.5px; flex-basis: 100%; }
+  .toggle-theme { margin-left: auto; border: 1px solid var(--border-secondary); background: var(--bg-tertiary);
+    color: var(--text-secondary); border-radius: 8px; padding: 6px 12px; font-size: 12.5px; cursor: pointer; }
+  .toggle-theme:hover { background: var(--bg-hover); }
+
+  .group-title { margin: 30px 0 4px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--text-tertiary); font-weight: 700; border-bottom: 1px solid var(--border-primary); padding-bottom: 6px; }
+  section.variant { margin-top: 18px; }
+  .v-label { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .v-label .tag { font-size: 10.5px; letter-spacing: .04em; font-weight: 700; color: var(--bg-primary);
+    background: var(--accent-primary); border-radius: 5px; padding: 2px 7px; }
+  .v-label .tag.alt { background: var(--text-tertiary); }
+  .v-label h2 { font-size: 14px; color: var(--text-primary); margin: 0; font-weight: 600; }
+  .v-label .note { color: var(--text-muted); font-size: 12px; }
+
+  .composer-stack { border: 1px solid var(--border-primary); border-radius: 12px; overflow: hidden;
+    background: var(--bg-secondary); box-shadow: inset 0 1px 0 var(--elevation-rim); }
+  .panel { border-bottom: 1px solid var(--border-primary);
+    background: color-mix(in srgb, var(--bg-secondary) 60%, transparent); padding: 8px 12px;
+    display: flex; flex-direction: column; gap: 8px; }
+  .panel-head { display: flex; align-items: center; gap: 8px; }
+  .panel-head .ico { color: var(--accent-primary); font-size: 14px; }
+  .summary { color: var(--text-secondary); flex: 1; font-size: 13px; }
+  .btn-apply-all { display: inline-flex; align-items: center; gap: 5px; border: none; cursor: pointer;
+    background: var(--accent-primary); color: #fff; font-weight: 600; font-size: 12px; border-radius: 7px; padding: 5px 10px; }
+  .btn-apply-all:hover { opacity: .9; }
+  .btn-close { width: 26px; height: 26px; border: none; background: transparent; color: var(--text-secondary);
+    border-radius: 7px; cursor: pointer; font-size: 15px; }
+  .btn-close:hover { background: var(--bg-hover); }
+  .field { margin: 0; padding: 9px 12px; color: var(--text-primary); background: var(--bg-tertiary);
+    font-size: 13px; white-space: pre-wrap; border-top: 1px solid var(--border-primary); }
+  .field b { color: var(--text-muted); font-weight: 500; font-size: 11px; }
+
+  /* segmented mode toggle: Redline · Compact · Original · Corrected */
+  .segmented { display: inline-flex; align-self: flex-start; border: 1px solid var(--border-secondary);
+    border-radius: 8px; overflow: hidden; }
+  .segmented button { border: none; background: transparent; color: var(--text-secondary); font-size: 11.5px;
+    padding: 4px 11px; cursor: pointer; }
+  .segmented button + button { border-left: 1px solid var(--border-secondary); }
+  .segmented button.active { background: var(--accent-primary); color: #fff; }
+  .segmented button:not(.active):hover { background: var(--bg-hover); }
+
+  .redline { font-size: 13.5px; line-height: 2.3; color: var(--text-secondary); }
+  .redline.plain .was { color: var(--accent-red); }
+  .redline.plain .now { color: var(--accent-green); }
+
+  .footer { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-muted);
+    padding-top: 4px; border-top: 1px dashed var(--border-primary); flex-wrap: wrap; }
+  .footer .count { color: var(--text-secondary); }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--text-muted); }
+  .legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+  .rbtn { border: none; border-radius: 6px; cursor: pointer; background: transparent; font-size: 13px; padding: 2px 6px; }
+  .rbtn.ok { color: var(--accent-green); } .rbtn.no { color: var(--text-secondary); } .rbtn:hover { background: var(--bg-hover); }
+
+  /* ── Redline (default) = dotted + always-on hint ── */
+  .peek .chg { position: relative; cursor: pointer; border-bottom: 1.5px dotted var(--kind); }
+  .peek .chg:hover { background: var(--bg-hover); }
+  .peek .chg:focus { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+  .peek .ghost { color: color-mix(in srgb, var(--accent-green) 70%, var(--text-muted)); font-size: 12px; margin: 0 2px 0 3px; }
+  .peek .ghost .arr { color: var(--text-muted); }
+  .peek .chg.applied { border-bottom: none; color: var(--text-primary); }
+  .peek .chg.applied + .ghost { display: none; }
+
+  /* ── Compact = squiggle (spell-check feel) ── */
+  .sq .chg { position: relative; cursor: pointer; text-decoration: underline wavy var(--kind);
+    text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+  .sq .chg:hover .pop, .sq .chg:focus .pop { display: inline-flex; }
+  .sq .chg:focus { outline: none; }
+  .sq .chg.applied { text-decoration: none; color: var(--text-primary); }
+  .sq .chg.rejected { text-decoration: none; color: var(--text-muted); }
+  .pop { position: absolute; left: 50%; transform: translateX(-50%); top: -34px; display: none; align-items: center;
+    gap: 6px; white-space: nowrap; background: var(--bg-surface); border: 1px solid var(--border-secondary);
+    border-radius: 8px; padding: 3px 7px; box-shadow: 0 6px 16px rgba(0,0,0,.4); z-index: 5; font-size: 12px; }
+  .pop .now { color: var(--accent-green); font-weight: 600; }
+  .pop button { border: none; border-radius: 5px; background: transparent; cursor: pointer; font-size: 12px; padding: 2px 6px; }
+  .pop .apply { color: var(--accent-green); } .pop .ignore { color: var(--text-secondary); }
+  .pop button:hover { background: var(--bg-hover); }
+
+  /* ── List view L2 + full metadata ── */
+  .l2m { display: grid; grid-template-columns: 1fr auto 1fr auto auto auto; gap: 3px 12px; align-items: center; }
+  .l2m .before { color: var(--accent-red); text-decoration: line-through; text-align: right; }
+  .l2m .arrow { color: var(--text-muted); }
+  .l2m .after { color: var(--accent-green); }
+  .l2m .kindtag { justify-self: start; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--text-secondary); background: color-mix(in srgb, var(--kind) 20%, transparent);
+    border: 1px solid color-mix(in srgb, var(--kind) 45%, transparent); border-radius: 4px; padding: 1px 6px; }
+  .l2m .msg { grid-column: 1 / -1; font-size: 11.5px; color: var(--text-muted); padding-left: 2px; }
+  .l2m .msg::before { content: "↳ "; color: var(--border-secondary); }
+  .l2m .sep { grid-column: 1 / -1; height: 1px; background: var(--border-primary); opacity: .55; margin: 3px 0; }
+
+  .caption { font-size: 12px; color: var(--text-muted); margin-top: 12px; }
+  .caption b { color: var(--text-tertiary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <h1>Grammar corrections — final design</h1>
+    <button class="toggle-theme" id="themeBtn">◐ Light / dark</button>
+    <p>Top-level setting <b>plugins.grammar.correctionView</b> switches the panel between the inline <b>redline</b> family (below) and the <b>list</b> view. Draft: <em>"i beleive their are alot of things that dont work good."</em></p>
+  </header>
+
+  <div class="group-title">correctionView: redline &nbsp;— inline panel (default)</div>
+
+  <section class="variant" data-variant="RL" data-family="redline">
+    <div class="v-label"><span class="tag">default</span><h2>Inline redline</h2>
+      <span class="note">modes: <b>Redline</b> (default · dotted + always-on hint) · <b>Compact</b> (squiggle) · Original · Corrected · <b>remembered</b></span></div>
+    <div class="composer-stack"><div class="panel">
+      <div class="panel-head"><span class="ico">✎</span><span class="summary"></span><button class="btn-apply-all">✓ Apply all</button><button class="btn-close">✕</button></div>
+      <div class="segmented">
+        <button data-mode="redline" class="active">Redline</button>
+        <button data-mode="compact">Compact</button>
+        <button data-mode="original">Original</button>
+        <button data-mode="corrected">Corrected</button>
+      </div>
+      <div class="redline peek"></div>
+      <div class="footer"><span class="count"></span><span class="legend"></span></div>
+    </div><p class="field"></p></div>
+  </section>
+
+  <div class="group-title">correctionView: list &nbsp;— stacked panel</div>
+
+  <section class="variant" data-variant="L2M" data-family="list">
+    <div class="v-label"><span class="tag alt">alt</span><h2>Before → after + kind + message</h2><span class="note">aligned columns carrying every field</span></div>
+    <div class="composer-stack"><div class="panel">
+      <div class="panel-head"><span class="ico">✎</span><span class="summary"></span><button class="btn-apply-all">✓ Apply all</button><button class="btn-close">✕</button></div>
+      <div class="l2m"></div>
+    </div></div>
+  </section>
+
+  <p class="caption"><b>Redline mode</b> (default): your text with issues dotted-underlined by kind and the fix shown inline as a green ghost — nothing hides behind hover. <b>Compact mode</b>: a denser wavy squiggle; hover/focus a word for a popover with Apply / Ignore. <b>Original / Corrected</b>: read-only before/after previews. Kind colors: spelling·red, grammar·blue, punctuation·orange, style·purple. Per-change apply AND Apply all in every mode. <b>The chosen mode is remembered</b> and restored next time (reload this page to see it stick).</p>
+</div>
+
+<script>
+  const KIND_COLOR = { spelling: "var(--accent-red)", grammar: "var(--accent-blue)", punctuation: "var(--accent-orange)", style: "var(--accent-purple)" };
+  const makeParts = () => ([
+    { t: "chg", id: "s0", del: "i", ins: "I", kind: "grammar", msg: "Capitalize the sentence start" },
+    { t: "txt", v: " " },
+    { t: "chg", id: "s1", del: "beleive", ins: "believe", kind: "spelling", msg: "Misspelling of \u201cbelieve\u201d" },
+    { t: "txt", v: " " },
+    { t: "chg", id: "s2", del: "their", ins: "there", kind: "grammar", msg: "Wrong word: their vs there" },
+    { t: "txt", v: " are " },
+    { t: "chg", id: "s3", del: "alot", ins: "a lot", kind: "spelling", msg: "\u201calot\u201d should be two words" },
+    { t: "txt", v: " of things that " },
+    { t: "chg", id: "s4", del: "dont", ins: "don't", kind: "punctuation", msg: "Missing apostrophe" },
+    { t: "txt", v: " " },
+    { t: "chg", id: "s5", del: "work good", ins: "work well", kind: "style", msg: "Use the adverb \u201cwell\u201d" },
+    { t: "txt", v: "." },
+  ]);
+  const SUMMARY = "2 spelling · 2 grammar · 1 punctuation · 1 style";
+  const LEGEND = `<span><span class="dot" style="background:var(--accent-red)"></span>spelling</span>
+    <span><span class="dot" style="background:var(--accent-blue)"></span>grammar</span>
+    <span><span class="dot" style="background:var(--accent-orange)"></span>punctuation</span>
+    <span><span class="dot" style="background:var(--accent-purple)"></span>style</span>`;
+  const changes = (v) => v.parts.filter((p) => p.t === "chg");
+  const RENDER = { redline: renderPeek, compact: renderSquiggle, original: renderPlain, corrected: renderPlain };
+
+  const views = {};
+  document.querySelectorAll("section.variant").forEach((sec) => {
+    const id = sec.dataset.variant;
+    const family = sec.dataset.family;
+    // Remember the last mode the user picked (persists across reloads).
+    const startMode = family === "redline" ? (localStorage.getItem("grammar.correctionMode") || "redline") : "redline";
+    const v = views[id] = { sec, id, family, parts: makeParts(), status: {}, mode: startMode };
+    for (const p of changes(v)) v.status[p.id] = "open";
+    sec.querySelector(".summary").textContent = SUMMARY;
+    const lg = sec.querySelector(".legend"); if (lg) lg.innerHTML = LEGEND;
+    sec.querySelector(".btn-apply-all").addEventListener("click", () => applyAll(id));
+    sec.querySelector(".btn-close").addEventListener("click", () => { sec.querySelector(".panel").style.display = "none"; });
+    sec.querySelectorAll(".segmented button").forEach((b) => {
+      b.classList.toggle("active", b.dataset.mode === startMode);
+      b.addEventListener("click", () => {
+        v.mode = b.dataset.mode;
+        localStorage.setItem("grammar.correctionMode", b.dataset.mode);
+        sec.querySelectorAll(".segmented button").forEach((x) => x.classList.toggle("active", x === b));
+        render(id);
+      });
+    });
+    render(id);
+  });
+
+  function draftText(v) { return v.parts.map((p) => p.t === "txt" ? p.v : (v.status[p.id] === "applied" ? p.ins : p.del)).join(""); }
+  function set(id, sid, d) { views[id].status[sid] = d; render(id); }
+  function applyAll(id) { const v = views[id]; for (const k in v.status) if (v.status[k] !== "applied") v.status[k] = "applied"; render(id); }
+
+  function render(id) {
+    const v = views[id];
+    const fld = v.sec.querySelector(".field");
+    if (fld) fld.innerHTML = "<b>composer →</b> " + draftText(v);
+    if (v.family === "redline") RENDER[v.mode](v);
+    else renderL2M(v);
+    const applied = Object.values(v.status).filter((s) => s === "applied").length;
+    const total = changes(v).length;
+    const cnt = v.sec.querySelector(".count"); if (cnt) cnt.textContent = `${applied} of ${total} applied`;
+    const remaining = Object.values(v.status).filter((s) => s === "open").length;
+    v.sec.querySelector(".summary").textContent = remaining ? SUMMARY : "All changes resolved";
+    v.sec.querySelector(".btn-apply-all").style.display = (applied < total) ? "" : "none";
+  }
+  function host(v, cls) { const h = v.sec.querySelector(cls); h.innerHTML = ""; return h; }
+
+  function renderPlain(v) {
+    const h = v.sec.querySelector(".redline"); h.className = "redline plain"; h.innerHTML = "";
+    for (const p of v.parts) {
+      if (p.t === "txt") { h.appendChild(document.createTextNode(p.v)); continue; }
+      const s = document.createElement("span");
+      s.className = v.mode === "original" ? "was" : "now";
+      s.textContent = v.mode === "original" ? p.del : p.ins;
+      h.appendChild(s);
+    }
+  }
+
+  function renderPeek(v) {
+    const h = v.sec.querySelector(".redline"); h.className = "redline peek"; h.innerHTML = "";
+    for (const p of v.parts) {
+      if (p.t === "txt") { h.appendChild(document.createTextNode(p.v)); continue; }
+      const st = v.status[p.id];
+      const s = document.createElement("span"); s.tabIndex = 0; s.title = p.msg;
+      s.className = "chg" + (st === "applied" ? " applied" : "");
+      s.style.setProperty("--kind", KIND_COLOR[p.kind]);
+      s.textContent = st === "applied" ? p.ins : p.del;
+      if (st !== "applied") s.onclick = () => set("RL", p.id, "applied");
+      h.appendChild(s);
+      if (st !== "applied") {
+        const g = document.createElement("span"); g.className = "ghost";
+        g.innerHTML = `<span class="arr">→</span> ${p.ins}`;
+        h.appendChild(g);
+      }
+    }
+  }
+
+  function renderSquiggle(v) {
+    const h = v.sec.querySelector(".redline"); h.className = "redline sq"; h.innerHTML = "";
+    for (const p of v.parts) {
+      if (p.t === "txt") { h.appendChild(document.createTextNode(p.v)); continue; }
+      const st = v.status[p.id];
+      const s = document.createElement("span"); s.tabIndex = 0;
+      s.className = "chg" + (st !== "open" ? " " + st : "");
+      s.style.setProperty("--kind", KIND_COLOR[p.kind]);
+      s.textContent = st === "applied" ? p.ins : p.del;
+      if (st === "open") {
+        const pop = document.createElement("span"); pop.className = "pop";
+        pop.innerHTML = `<span class="now">${p.ins}</span><button class="apply">✓ Apply</button><button class="ignore">✕ Ignore</button>`;
+        pop.querySelector(".apply").onclick = (e) => { e.stopPropagation(); set("RL", p.id, "applied"); };
+        pop.querySelector(".ignore").onclick = (e) => { e.stopPropagation(); set("RL", p.id, "rejected"); };
+        s.appendChild(pop);
+      }
+      h.appendChild(s);
+    }
+  }
+
+  function renderL2M(v) {
+    const h = host(v, ".l2m");
+    const list = changes(v).filter((p) => v.status[p.id] === "open");
+    list.forEach((p, i) => {
+      const c = KIND_COLOR[p.kind];
+      const frag = document.createElement("template");
+      frag.innerHTML = `
+        <span class="before">${p.del}</span><span class="arrow">→</span><span class="after">${p.ins}</span>
+        <span class="kindtag" style="--kind:${c}">${p.kind}</span>
+        <button class="rbtn ok">✓</button><button class="rbtn no">✕</button>
+        <span class="msg">${p.msg}</span>` + (i < list.length - 1 ? `<span class="sep"></span>` : "");
+      [...frag.content.childNodes].forEach((n) => h.appendChild(n));
+      const btns = h.querySelectorAll(".rbtn");
+      btns[btns.length - 2].onclick = () => set("L2M", p.id, "applied");
+      btns[btns.length - 1].onclick = () => set("L2M", p.id, "rejected");
+    });
+    if (!list.length) h.innerHTML = '<span class="msg" style="color:var(--text-muted)">All changes resolved</span>';
+  }
+
+  document.getElementById("themeBtn").addEventListener("click", () => {
+    const html = document.documentElement;
+    html.dataset.theme = html.dataset.theme === "dark" ? "light" : "dark";
+  });
+</script>
+</body>
+</html>
