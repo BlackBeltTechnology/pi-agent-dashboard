@@ -81,6 +81,7 @@ describe("sendStateSync", () => {
     const sent = (bc as any)._sent;
     const registerMsg = sent.find((m: any) => m.type === "session_register");
     expect(registerMsg.registerReason).toBe("reattach");
+    expect(registerMsg.pid).toBe(process.pid);
     expect(bc.hasRegisteredOnce).toBe(true);
   });
 
@@ -201,6 +202,7 @@ describe("handleSessionChange", () => {
     expect(registerMsg).toBeDefined();
     expect(registerMsg.sessionId).toBe("sess-new");
     expect(registerMsg.registerReason).toBe("spawn");
+    expect(registerMsg.pid).toBe(process.pid);
   });
 });
 

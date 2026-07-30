@@ -91,6 +91,23 @@ describe("AbortWatchdog", () => {
     expect(killGroup).not.toHaveBeenCalled();
   });
 
+  it("disposes timers during bridge reconnect cleanup", () => {
+    const killGroup = vi.fn();
+    const wd = new AbortWatchdog({
+      delayMs: 10_000,
+      isLatchActive: () => true,
+      isStreaming: () => true,
+      scanChildren: () => [child(200)],
+      killGroup,
+    });
+
+    wd.arm("s1");
+    wd.dispose();
+    vi.advanceTimersByTime(12_000);
+
+    expect(killGroup).not.toHaveBeenCalled();
+  });
+
   it("fires at most once per arm", () => {
     const killGroup = vi.fn();
     const wd = new AbortWatchdog({

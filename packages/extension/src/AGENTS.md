@@ -23,6 +23,7 @@ Files in this directory. One row per source file.
 | `event-forwarder.ts` | Map pi event objects to `event_forward` protocol messages. Exports `mapEventToProtocol`. → see `event-forwarder.ts.AGENTS.md` |
 | `flow-event-wiring.ts` | Register pi-flows + pi-subagents event listeners on `pi.events`. → see `flow-event-wiring.ts.AGENTS.md` |
 | `git-link-builder.ts` | Parse SSH/HTTPS remote URLs into branch + PR links. Exports `parseRemoteUrl`, `detectPlatform`,… → see `git-link-builder.ts.AGENTS.md` |
+| `isolated-nested-tools.ts` | Opt-in dashboard-owned isolated `Agent`/`doubt` tools. Exports `registerIsolatedNestedTools`, `isolatedNestedToolsEnabled`, `resolveModelRef`. |
 | `commit-draft.ts` | Pure AI-draft fallback ladder (no pi-SDK coupling). Exports `draftCommitMessage(deps)` → `{message, source}`,… → see `commit-draft.ts.AGENTS.md` |
 | `commit-draft-agent.ts` | pi-SDK-coupled half of AI-draft. Exports `buildSessionContextText(ctx, maxChars)` (compacts… → see `commit-draft-agent.ts.AGENTS.md` |
 | `git-poll.ts` | Exports `runGitPollTick(deps)` + `GitPollDeps` interface. Pure git + name/model poll-tick body. → see `git-poll.ts.AGENTS.md` |
@@ -32,6 +33,8 @@ Files in this directory. One row per source file.
 | `multiselect-decode.ts` | Pure helper decoding `PromptResponse` into `string[] | undefined`. → see `multiselect-decode.ts.AGENTS.md` |
 | `multiselect-list.ts` | TUI multi-select component implementing pi-tui `ComponentLike`. Exports `MultiSelectList`, `ComponentLike`. → see `multiselect-list.ts.AGENTS.md` |
 | `multiselect-polyfill.ts` | Polyfill `ctx.ui.multiselect`. Exports `polyfillMultiselect`, `PolyfillCtx`. → see `multiselect-polyfill.ts.AGENTS.md` |
+| `nested-process-supervisor.ts` | One-process-per-run nested tool supervisor. Fails no-progress runs after 90s; worker active-tool heartbeats preserve quiet builds; cooperative abort, SIGTERM→SIGKILL escalation. → see `nested-process-supervisor.ts.AGENTS.md` |
+| `nested-process-worker.mjs` | IPC worker entry. Runs one exported pi SDK session, streams events plus active-tool heartbeats, exits after result/error or parent PID death. |
 | `openspec-cli-shim.ts` | Provision bare `openspec` in-session: shim pinned CLI onto `process.env.PATH` at bridge init (fail-soft). Exports `provisionOpenspecCli`,… → see `openspec-cli-shim.ts.AGENTS.md` |
 | `process-metrics.ts` | Lightweight process metrics collector for bridge heartbeats. → see `process-metrics.ts.AGENTS.md` |
 | `process-scanner.ts` | Detect child processes of a pi session. Exports `getOwnPgid`, `captureChildPgids`, `scanTrackedProcesses`,… → see `process-scanner.ts.AGENTS.md` |
@@ -43,6 +46,7 @@ Files in this directory. One row per source file.
 | `retry-tracker.ts` | Pure helper class `RetryTracker` synthesizes `auto_retry_start` / `auto_retry_end` by OBSERVING pi's own… → see `retry-tracker.ts.AGENTS.md` |
 | `role-manager.ts` | Manages session model roles. Registers six `roles:*` handlers… → see `role-manager.ts.AGENTS.md` |
 | `role-model-tools.ts` | Agent-facing tools registered via `pi.registerTool` (capability agent-role-model-tools). → see `role-model-tools.ts.AGENTS.md` |
+| `runtime-cancellation-compat.ts` | Dashboard-owned pi runtime adapter: session retry abort + bounded post-abort tool settlement. → see `runtime-cancellation-compat.ts.AGENTS.md` |
 | `server-auto-start.ts` | Auto-start orchestration: discover dashboard via mDNS → health-check fallback → spawn server process. → see `server-auto-start.ts.AGENTS.md` |
 | `server-launcher.ts` | Spawns dashboard server as detached process via shared `launchDashboardServer`. → see `server-launcher.ts.AGENTS.md` |
 | `server-probe.ts` | TCP port probe. Exports `isPortOpen(port)` — 1s timeout localhost connect, resolves `true` on connect else `false`. Detects running dashboard server. |

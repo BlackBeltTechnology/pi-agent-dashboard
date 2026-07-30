@@ -14,11 +14,13 @@ import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdn
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import type { FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { AgentSession, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Loader } from "@earendil-works/pi-tui";
 import { AbortLatch } from "./abort-latch.js";
+import { AbortWatchdog } from "./abort-watchdog.js";
 import { nativeAgentSettledSupported, settleFollowUp } from "./agent-settled.js";
 import { isUnderArtifactRoot, resolveArtifactRoots } from "./artifact-roots.js";
+import { registerIsolatedNestedTools } from "./isolated-nested-tools.js";
 import {
   MAX_PER_MESSAGE_BYTES as ATTACH_MAX_PER_MESSAGE_BYTES,
   cleanupAttachmentsForSession,
@@ -53,6 +55,7 @@ import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { RetryTracker } from "./retry-tracker.js";
+import { installRuntimeCancellationCompat } from "./runtime-cancellation-compat.js";
 import { activate as activateRoleManager, lookupRole } from "./role-manager.js";
 import { registerRoleModelTools } from "./role-model-tools.js";
 import { autoStartServer } from "./server-auto-start.js";
@@ -77,6 +80,8 @@ const GIT_POLL_INTERVAL = 30_000;
 // running. See change: tighten-process-list-ux.
 const PROCESS_SCAN_INTERVAL = process.platform === "win32" ? 10_000 : 5_000; // platform-branch-ok: top-level cadence tuning; Windows uses costly PowerShell Get-CimInstance
 const PROCESS_MIN_ELAPSED_MS = process.platform === "win32" ? 30_000 : 5_000; // platform-branch-ok: matches PROCESS_SCAN_INTERVAL's Windows-safe defaults
+
+installRuntimeCancellationCompat(AgentSession);
 
 
 
@@ -325,6 +330,16 @@ function initBridge(pi: ExtensionAPI) {
   // on every observed resumption of the aborted turn. See change:
   // unify-error-retry-lifecycle (design D3b).
   const abortLatch = new AbortLatch();
+  const abortWatchdog = new AbortWatchdog({
+    isLatchActive: (id) => abortLatch.isActive(id),
+    isStreaming: () => getBridgeState().isAgentStreaming === true,
+    scanChildren: () => scanChildProcesses(
+      process.pid,
+      trackedPgids,
+      0,
+      { excludedPgids: selfSpawnedPgids },
+    ),
+  });
 
   // Subagent live-detail reliability: retain subagent frames emitted while the
   // bridge is not ready (buffer-and-flush on re-register, D1) and keep the
@@ -1194,6 +1209,7 @@ function initBridge(pi: ExtensionAPI) {
       // turn. Cleared on the next user prompt (noteUserPrompt) or terminal
       // agent_end. See change: unify-error-retry-lifecycle.
       abortLatch.request(sessionId);
+      abortWatchdog.arm(sessionId);
       if (cachedCtx?.abort) {
         cachedCtx.abort();
       }
@@ -1518,9 +1534,11 @@ function initBridge(pi: ExtensionAPI) {
         // never fires from a real event (pi does not emit it) — the synth path
         // below handles it. See change: adopt-pi-074-080-features (A.1).
         getBridgeState().isAgentStreaming = false;
+        abortWatchdog.disarm(sessionId);
       }
       if (eventType === "agent_end") {
         getBridgeState().isAgentStreaming = false;
+        abortWatchdog.disarm(sessionId);
         // Abort latch settle: the turn terminally ended — clear the latch so a
         // later, unrelated turn is not aborted. See change:
         // unify-error-retry-lifecycle.
@@ -2084,6 +2102,11 @@ function initBridge(pi: ExtensionAPI) {
     // See change: add-agent-role-model-tools.
     registerRoleModelTools(pi, { getRegistry: () => cachedModelRegistry });
 
+    // Opt-in isolated replacements register at session_start, after package
+    // extensions loaded. That makes the local definitions authoritative only
+    // when explicitly requested, while the published tools stay the default.
+    registerIsolatedNestedTools(pi);
+
     // Extract session file/dir early — needed for source detection and UI proxy
     const sessionFile = ctx.sessionManager.getSessionFile?.() ?? undefined;
     const sessionDir = ctx.sessionManager.getSessionDir?.() ?? undefined;
@@ -2420,6 +2443,7 @@ function initBridge(pi: ExtensionAPI) {
       sessionDir,
       firstMessage,
       eventCount,
+      pid: process.pid,
       ...(dashboardSpawned ? { dashboardSpawned: true } : {}),
       // Tri-state git-repo signal, computed at register time (authority).
       // See change: gate-session-worktree-button-on-git.
@@ -2717,6 +2741,7 @@ function initBridge(pi: ExtensionAPI) {
   pi.on("session_shutdown", safe(async () => {
     if (!isActive()) return;
     getBridgeState().isAgentStreaming = false;
+    abortWatchdog.disarm(sessionId);
     stopMetricsMonitor();
     if (heartbeatTimer) {
       clearInterval(heartbeatTimer);
@@ -2773,6 +2798,7 @@ function initBridge(pi: ExtensionAPI) {
     s.hasUI = cachedHasUI;
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
     if (gitPollTimer) { clearInterval(gitPollTimer); gitPollTimer = null; }
+    abortWatchdog.dispose();
 
     // Dev build & restart: rebuild client and stop server before reload
     if (config.devBuildOnReload) {
