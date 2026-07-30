@@ -16,6 +16,15 @@ import { buildNodeImportArgvParts, toFileUrl, shouldUrlWrapEntry } from "@blackb
 import os from "node:os";
 import path from "node:path";
 
+/**
+ * V8 old-space ceiling (MB) stamped onto the restarted server when the
+ * inherited env carries none. Kept in step with the bridge's
+ * `DEFAULT_SERVER_MAX_OLD_SPACE_MB` (packages/extension/src/server-launcher.ts);
+ * duplicated rather than imported so the server never depends on the extension
+ * package at runtime.
+ */
+const SERVER_MAX_OLD_SPACE_MB = 8192;
+
 export interface RestartParams {
   /** Absolute path to the server CLI (typically process.argv[1]) */
   cliPath: string;
@@ -101,6 +110,7 @@ const LOG_PATH = ${JSON.stringify(logPath)};
 const PID_PATH = ${JSON.stringify(pidPath)};
 const HEALTH_DEADLINE_MS = ${healthDeadlineMs};
 const HEALTH_ITERATIONS = ${healthIterations};
+const SERVER_MAX_OLD_SPACE_MB = ${SERVER_MAX_OLD_SPACE_MB};
 
 function log(msg) {
   try {
@@ -175,8 +185,19 @@ async function killPriorDaemon() {
     await sleep(500);
   }
 
-  // 2. Spawn new server
-  const child = spawn(EXEC, ARGS, { detached: true, stdio: "ignore", env: process.env });
+  // 2. Spawn new server.
+  //    Heap headroom must survive a restart: the orchestrator inherits the
+  //    dying server's env, so a server started without a max-old-space pin
+  //    perpetuated the default ~4 GB ceiling on every restart. A busy instance
+  //    then GC-thrashes near the limit and blocks the event loop long enough
+  //    that session_register / WS attach never completes (sessions "load
+  //    forever"). Mirrors buildSpawnEnv; never overrides a user-set value.
+  const env = { ...process.env };
+  if (!/--max[-_]old[-_]space[-_]size/.test(env.NODE_OPTIONS || "")) {
+    env.NODE_OPTIONS = (env.NODE_OPTIONS ? env.NODE_OPTIONS + " " : "") +
+      "--max-old-space-size=" + SERVER_MAX_OLD_SPACE_MB;
+  }
+  const child = spawn(EXEC, ARGS, { detached: true, stdio: "ignore", env });
   child.unref();
 
   // 3. Poll health (deadline mode-aware: 15s prod / 60s dev). See change:

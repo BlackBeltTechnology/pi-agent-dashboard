@@ -220,4 +220,25 @@ describe("buildOrchestratorScript", () => {
       expect(args[args.indexOf("--port") + 1]).toBe("8001");
     });
   });
+
+  // A restart inherits the dying server's env. When that server started with no
+  // `--max-old-space-size`, every restart perpetuated the default ~4 GB ceiling;
+  // a busy instance then GC-thrashed near the limit and blocked the event loop
+  // long enough that session_register / WS attach never completed.
+  describe("heap headroom survives a restart", () => {
+    it("stamps --max-old-space-size onto the spawned server when the inherited env has none", () => {
+      const script = buildOrchestratorScript(baseParams);
+      expect(script).toMatch(/SERVER_MAX_OLD_SPACE_MB\s*=\s*\d+/);
+      // The flag is applied to the env handed to the server spawn, not to the
+      // orchestrator itself.
+      expect(script).toMatch(/NODE_OPTIONS[\s\S]*--max-old-space-size/);
+      expect(script).toMatch(/spawn\(EXEC, ARGS, \{[^}]*env \}/);
+    });
+
+    it("never overrides a user-supplied --max-old-space-size", () => {
+      const script = buildOrchestratorScript(baseParams);
+      // Guard regex must be present so an existing pin short-circuits the stamp.
+      expect(script).toMatch(/--max\[-_\]old\[-_\]space\[-_\]size/);
+    });
+  });
 });
