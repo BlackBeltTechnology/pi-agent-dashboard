@@ -43,3 +43,11 @@ doc-example/
 /.pi/dashboard/kb/index.db
 .reverse-spec-scratch/
 /package-lock.json
+
+# Chrome/Node performance traces dropped in the repo root. These run to hundreds
+# of MB (one 465 MB capture already had to be purged from history after GitHub
+# rejected the push on its 100 MB file limit), and they are throwaway captures.
+/Trace-*.json
+
+# Local design scratch: pencil reference export + one-off mockup captures.
+/.pencil-redesign-reference.html
