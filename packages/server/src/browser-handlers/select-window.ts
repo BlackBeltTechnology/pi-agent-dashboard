@@ -27,6 +27,40 @@ export interface WindowResult {
   hasOlder: boolean;
 }
 
+/** Streaming snapshot event: carries the full accumulated message each time. */
+const MSG_UPDATE = "message_update";
+
+/**
+ * Collapse each consecutive run of `message_update` events down to its LAST
+ * member.
+ *
+ * A live `message_update` carries the FULL accumulated message, not a delta, so
+ * one long assistant turn emits thousands of snapshots whose bytes grow
+ * quadratically. For rendering HISTORY only the final snapshot matters: the
+ * disk cold-load path (`state-replay.ts`) already emits exactly one
+ * `message_update` per assistant message before its `message_end`, and that
+ * shape is known to render correctly. Compaction reproduces it, which is what
+ * makes the warm (in-memory) replay stop being ~20x worse than the cold path.
+ *
+ * Run-scoped on purpose: the collapse never crosses a non-update event, so
+ * message and tool spans keep their order and `computeSafeBoundaries` still
+ * sees every span open/close marker.
+ *
+ * See issue #399.
+ */
+export function compactStreamingSnapshots(events: StoredEvent[]): StoredEvent[] {
+  const out: StoredEvent[] = [];
+  for (let i = 0; i < events.length; i++) {
+    const isUpdate = events[i].event.eventType === MSG_UPDATE;
+    // Keep an update only when it ends its run (next event is not an update).
+    if (isUpdate && i + 1 < events.length && events[i + 1].event.eventType === MSG_UPDATE) {
+      continue;
+    }
+    out.push(events[i]);
+  }
+  return out;
+}
+
 /** Events that open/close a message span. */
 const MSG_OPEN = "message_start";
 const MSG_CLOSE = "message_end";
@@ -69,8 +103,17 @@ export function selectWindow(
   beforeSeq: number | undefined,
   budget: number = TAIL_WINDOW_EVENTS,
 ): WindowResult {
-  const pool =
+  const rawPool =
     beforeSeq === undefined ? events : events.filter((e) => e.seq < beforeSeq);
+  // Drop redundant streaming snapshots BEFORE the budget is applied, so the
+  // window spends its 200 events on real history instead of ~93% duplicate
+  // message snapshots. See issue #399.
+  const pool = compactStreamingSnapshots(rawPool);
+  // `hasOlder` is derived from seq > 1, so it must be judged against the
+  // UNCOMPACTED boundary: if compaction dropped a leading snapshot that was
+  // seq 1, the session is still complete and must not advertise a page that
+  // does not exist.
+  const poolStartSeq = rawPool.length > 0 ? rawPool[0].seq : 0;
 
   // `hasOlder` means "real history precedes this window". Derive it from the
   // window's first event reaching seq 1, NOT from a positive slice offset:
@@ -82,7 +125,7 @@ export function selectWindow(
 
   // Whole pool fits within budget → window covers everything available.
   if (pool.length <= budget) {
-    return { events: pool.slice(), hasOlder: pool.length > 0 && olderExists(pool[0].seq) };
+    return { events: pool.slice(), hasOlder: pool.length > 0 && olderExists(poolStartSeq) };
   }
 
   const capFloor = Math.max(0, pool.length - 2 * budget);
