@@ -46,6 +46,15 @@ describe("GrammarPanel", () => {
     expect(screen.getByText(/no issues found/i)).toBeTruthy();
   });
 
+  it("gives Apply-all a darkened accent background so white text clears WCAG-AA", () => {
+    render(<GrammarPanel {...baseProps()} />);
+    const btn = screen.getByTestId("grammar-apply-all");
+    // Raw --accent-primary is only 3.68:1 against white in the default theme;
+    // the darkened mix lifts it over 4.5:1.
+    expect(btn.getAttribute("style") ?? "").toContain("color-mix");
+    expect(btn.className).not.toContain("bg-[var(--accent-primary)]");
+  });
+
   it("renders the summary and both suggestions", () => {
     render(<GrammarPanel {...baseProps()} />);
     expect(screen.getByTestId("grammar-summary").textContent).toBe("2 grammar");

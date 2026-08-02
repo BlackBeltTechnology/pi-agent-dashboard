@@ -13,7 +13,13 @@ import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { GrammarErrorCode } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import { mdiCheck, mdiClose, mdiSpellcheck } from "@mdi/js";
 import Icon from "@mdi/react";
-import { errorMessage, KIND_COLOR_VAR, PANEL_SHELL, PanelCloseButton } from "./grammar-panel-chrome.js";
+import {
+  ACCENT_BUTTON_BG,
+  errorMessage,
+  KIND_COLOR_VAR,
+  PANEL_SHELL,
+  PanelCloseButton,
+} from "./grammar-panel-chrome.js";
 import type { ActiveSuggestion, GrammarStatus } from "./useGrammarCheck.js";
 
 interface Props {
@@ -93,7 +99,8 @@ export function GrammarPanel({
           type="button"
           data-testid="grammar-apply-all"
           onClick={onApplyAll}
-          className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-[var(--accent-primary)] text-white hover:opacity-90"
+          style={{ background: ACCENT_BUTTON_BG }}
+          className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-white hover:opacity-90"
         >
           <Icon path={mdiCheck} size={0.6} />
           {t("grammar.applyAll", undefined, "Apply all")}
@@ -118,7 +125,7 @@ export function GrammarPanel({
             <span className="text-[var(--text-muted)]">→</span>
             <span className="break-words text-[var(--accent-green)]">{s.replacement}</span>
             <span
-              className="justify-self-start text-[9.5px] uppercase tracking-wide rounded px-1.5 py-px text-[var(--text-secondary)]"
+              className="justify-self-start text-[11px] uppercase tracking-wide rounded-md px-1.5 py-px text-[var(--text-secondary)]"
               style={{
                 background: `color-mix(in srgb, ${KIND_COLOR_VAR[s.kind]} 20%, transparent)`,
                 border: `1px solid color-mix(in srgb, ${KIND_COLOR_VAR[s.kind]} 45%, transparent)`,

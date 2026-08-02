@@ -261,4 +261,51 @@ describe("GrammarSettings", () => {
       expect(getByTestId("grammar-lt-health").getAttribute("data-reachable")).toBe("false"),
     );
   });
+
+  it("uses theme tokens for every color (no hardcoded hex/rgba/hsl literals)", async () => {
+    installFetch({ grammar: baseGrammar(), reachable: true });
+    const { getByTestId } = render(wrap(<GrammarSettings />));
+    await waitFor(() => expect(getByTestId("grammar-lt-health")).toBeTruthy());
+    // Make the form dirty so the "unsaved" marker also renders and is scanned.
+    fireEvent.change(getByTestId("grammar-debounce"), { target: { value: "2000" } });
+    await waitFor(() => expect(getByTestId("grammar-dirty")).toBeTruthy());
+
+    const section = getByTestId("grammar-settings");
+    const literal = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsl\(/;
+    const offenders = Array.from(section.querySelectorAll<HTMLElement>("[style]"))
+      .map((el) => el.getAttribute("style") ?? "")
+      .filter((s) => literal.test(s));
+    expect(offenders).toEqual([]);
+
+    // Status + unsaved markers read from the semantic severity tokens.
+    expect(getByTestId("grammar-lt-health").getAttribute("style")).toContain(
+      "var(--severity-success-fg)",
+    );
+    expect(getByTestId("grammar-dirty").getAttribute("style")).toContain(
+      "var(--severity-warning-fg)",
+    );
+  });
+
+  it("gives every interactive control the shared focus-ring affordance", async () => {
+    installFetch({ grammar: baseGrammar() });
+    const { getByTestId } = render(wrap(<GrammarSettings />));
+    await waitFor(() => expect(getByTestId("grammar-save")).toBeTruthy());
+    for (const id of [
+      "grammar-enabled",
+      "grammar-autocheck",
+      "grammar-capitalize",
+      "grammar-correction-view",
+      "grammar-backend",
+      "grammar-debounce",
+      "grammar-minchars",
+      "grammar-maxchars",
+      "grammar-language",
+      "grammar-lt-url",
+      "grammar-lt-test",
+      "grammar-save",
+      "grammar-reload",
+    ]) {
+      expect(getByTestId(id).classList.contains("focus-ring")).toBe(true);
+    }
+  });
 });

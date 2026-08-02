@@ -18,6 +18,8 @@
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiCircle } from "@mdi/js";
+import Icon from "@mdi/react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import type { GrammarConfig } from "./grammar-config.js";
@@ -155,7 +157,7 @@ export function GrammarSettings(): React.ReactElement {
       data-testid="grammar-settings"
       style={{
         padding: "12px",
-        border: "1px solid rgba(82, 82, 91, 0.5)",
+        border: "1px solid var(--border-primary)",
         borderRadius: "6px",
         marginBottom: "12px",
         fontSize: "12px",
@@ -172,10 +174,10 @@ export function GrammarSettings(): React.ReactElement {
         <h3 style={{ fontSize: "13px", fontWeight: 600, margin: 0 }}>
           {t("heading", undefined, "Grammar & Spelling")}
         </h3>
-        <span style={{ fontSize: "10px", color: "#71717a" }}>grammar</span>
+        <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>grammar</span>
       </div>
 
-      <p style={{ fontSize: "11px", color: "#a1a1aa", margin: "0 0 10px 0" }}>
+      <p style={{ fontSize: "11px", color: "var(--text-secondary)", margin: "0 0 10px 0" }}>
         {t(
           "desc",
           undefined,
@@ -187,6 +189,7 @@ export function GrammarSettings(): React.ReactElement {
         <label style={{ display: "flex", gap: "6px", alignItems: "center" }}>
           <input
             type="checkbox"
+            className="focus-ring"
             data-testid="grammar-enabled"
             checked={draft.enabled}
             onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
@@ -197,6 +200,7 @@ export function GrammarSettings(): React.ReactElement {
         <label style={{ display: "flex", gap: "6px", alignItems: "center" }}>
           <input
             type="checkbox"
+            className="focus-ring"
             data-testid="grammar-autocheck"
             checked={draft.autoCheck}
             onChange={(e) => setDraft({ ...draft, autoCheck: e.target.checked })}
@@ -207,6 +211,7 @@ export function GrammarSettings(): React.ReactElement {
         <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
           {t("correctionView", undefined, "Correction view")}
           <select
+            className="focus-ring"
             data-testid="grammar-correction-view"
             value={draft.correctionView}
             onChange={(e) =>
@@ -226,6 +231,7 @@ export function GrammarSettings(): React.ReactElement {
         <label style={{ display: "flex", gap: "6px", alignItems: "center" }}>
           <input
             type="checkbox"
+            className="focus-ring"
             data-testid="grammar-capitalize"
             checked={draft.capitalizeFirstWord}
             onChange={(e) => setDraft({ ...draft, capitalizeFirstWord: e.target.checked })}
@@ -236,6 +242,7 @@ export function GrammarSettings(): React.ReactElement {
         <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
           {t("backend", undefined, "Backend")}
           <select
+            className="focus-ring"
             data-testid="grammar-backend"
             value={draft.backend}
             onChange={(e) =>
@@ -253,6 +260,7 @@ export function GrammarSettings(): React.ReactElement {
           {t("debounceMs", undefined, "Debounce (ms)")}
           <input
             type="number"
+            className="focus-ring"
             data-testid="grammar-debounce"
             min={300}
             max={10000}
@@ -265,6 +273,7 @@ export function GrammarSettings(): React.ReactElement {
           {t("minChars", undefined, "Minimum characters")}
           <input
             type="number"
+            className="focus-ring"
             data-testid="grammar-minchars"
             min={1}
             max={500}
@@ -277,6 +286,7 @@ export function GrammarSettings(): React.ReactElement {
           {t("maxChars", undefined, "Maximum characters")}
           <input
             type="number"
+            className="focus-ring"
             data-testid="grammar-maxchars"
             min={100}
             max={20000}
@@ -289,6 +299,7 @@ export function GrammarSettings(): React.ReactElement {
           {t("language", undefined, "Language")}
           <input
             type="text"
+            className="focus-ring"
             data-testid="grammar-language"
             value={draft.language}
             onChange={(e) => setDraft({ ...draft, language: e.target.value })}
@@ -303,16 +314,23 @@ export function GrammarSettings(): React.ReactElement {
                 data-testid="grammar-lt-health"
                 data-reachable={String(health?.reachable === true)}
                 style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "3px",
                   fontSize: "10px",
-                  color: health?.reachable ? "#34d399" : "#fbbf24",
+                  color: health?.reachable
+                    ? "var(--severity-success-fg)"
+                    : "var(--severity-warning-fg)",
                 }}
               >
+                <Icon path={mdiCircle} size={0.35} />
                 {health?.reachable
-                  ? `● ${t("ltReachable", undefined, "reachable")}`
-                  : `● ${t("ltUnreachable", undefined, "unreachable")}`}
+                  ? t("ltReachable", undefined, "reachable")
+                  : t("ltUnreachable", undefined, "unreachable")}
               </span>
               <button
                 type="button"
+                className="focus-ring"
                 data-testid="grammar-lt-test"
                 onClick={() => void probeHealth()}
                 style={{ fontSize: "10px", padding: "1px 8px" }}
@@ -322,6 +340,7 @@ export function GrammarSettings(): React.ReactElement {
             </span>
             <input
               type="text"
+              className="focus-ring"
               data-testid="grammar-lt-url"
               value={draft.languagetool.url}
               onChange={(e) =>
@@ -348,7 +367,7 @@ export function GrammarSettings(): React.ReactElement {
                 />
               </div>
             ) : (
-              <span data-testid="grammar-llm-model-selector-unavailable" style={{ color: "#a1a1aa" }}>
+              <span data-testid="grammar-llm-model-selector-unavailable" style={{ color: "var(--text-secondary)" }}>
                 {t("modelSelectorUnavailable", undefined, "Model selector unavailable")}
               </span>
             )}
@@ -359,6 +378,7 @@ export function GrammarSettings(): React.ReactElement {
       <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "10px" }}>
         <button
           type="button"
+          className="focus-ring"
           data-testid="grammar-save"
           onClick={() => void save()}
           disabled={saving || loading || !dirty}
@@ -368,6 +388,7 @@ export function GrammarSettings(): React.ReactElement {
         </button>
         <button
           type="button"
+          className="focus-ring"
           data-testid="grammar-reload"
           onClick={() => void load()}
           disabled={saving || loading}
@@ -376,7 +397,7 @@ export function GrammarSettings(): React.ReactElement {
           {t("reload", undefined, "Reload")}
         </button>
         {dirty && (
-          <span data-testid="grammar-dirty" style={{ fontSize: "10px", color: "#fbbf24" }}>
+          <span data-testid="grammar-dirty" style={{ fontSize: "10px", color: "var(--severity-warning-fg)" }}>
             {t("unsaved", undefined, "unsaved")}
           </span>
         )}

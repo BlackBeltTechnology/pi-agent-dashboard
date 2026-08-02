@@ -162,6 +162,42 @@ describe("checkWithLlm (registry + streamSimple)", () => {
     expect(captured.system).toContain("Do NOT change the capitalization");
   });
 
+  it("tells the model that jargon-looking prose words are not code to preserve", async () => {
+    // Regression: models cited the "preserve any code or URLs verbatim" clause to justify
+    // keeping misspelled hyphenated jargon ("to preserve the exact spelling of
+    // 'functional-specificatio'"), returning the draft unchanged with suggestions: [].
+    const { fn, captured } = capturingStream(EMPTY_RESULT);
+    await checkWithLlm("hello world", {
+      provider: "anthropic",
+      model: "claude-x",
+      language: "en-US",
+      registry: okRegistry,
+      streamSimple: fn,
+    });
+    const sys = captured.system ?? "";
+    expect(sys).toMatch(/is NOT code/i);
+    expect(sys).toMatch(/never leave a misspelling/i);
+  });
+
+  it("scopes the capitalization exception so the model still corrects every mistake", async () => {
+    // Regression: the old wording ("leave lowercase sentence starts exactly as
+    // written") was over-generalized by weak models into "preserve the text as-is",
+    // so a draft full of typos came back unchanged with suggestions: []. The clause
+    // must stay narrow AND re-assert the correction mandate.
+    const { fn, captured } = capturingStream(EMPTY_RESULT);
+    await checkWithLlm("hello world", {
+      provider: "anthropic",
+      model: "claude-x",
+      language: "en-US",
+      registry: okRegistry,
+      streamSimple: fn,
+    });
+    const sys = captured.system ?? "";
+    expect(sys).toContain("Do NOT change the capitalization");
+    expect(sys).not.toContain("exactly as written");
+    expect(sys).toMatch(/MUST still correct every/i);
+  });
+
   it("omits the capitalization instruction when capitalizeFirstWord is true", async () => {
     const { fn, captured } = capturingStream(EMPTY_RESULT);
     await checkWithLlm("hello world", {

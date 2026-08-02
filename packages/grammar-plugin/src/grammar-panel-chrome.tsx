@@ -16,6 +16,22 @@ import Icon from "@mdi/react";
 export const PANEL_SHELL =
   "border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]/40 px-3 py-2 flex flex-col gap-2 text-sm";
 
+/**
+ * Solid-accent button background, darkened so a white label clears WCAG-AA.
+ *
+ * Raw `--accent-primary` is `#3b82f6` in the default theme, which is only
+ * **3.68:1** against white — enough for the 3:1 UI-component target but NOT for
+ * the 4.5:1 normal-text target these 11-12px labels need. Mixing in 15% black
+ * lifts it to ~4.9:1 (and ~6.6:1 on the light theme) while keeping the accent hue.
+ *
+ * Applied as an inline `style`, deliberately NOT a Tailwind arbitrary class: a
+ * malformed arbitrary value emits no CSS at all, which would silently leave white
+ * text on the panel background. Scoped to this plugin — the dashboard core keeps
+ * its own `bg-[var(--accent-primary)] text-white` convention.
+ * See change: fix-grammar-settings-theme-tokens.
+ */
+export const ACCENT_BUTTON_BG = "color-mix(in srgb, var(--accent-primary) 85%, black)";
+
 /** Issue kind → theme colour (CSS var reference), applied via inline style. */
 export const KIND_COLOR_VAR: Record<GrammarIssueKind, string> = {
   spelling: "var(--accent-red)",

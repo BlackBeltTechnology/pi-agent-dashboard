@@ -16,11 +16,17 @@
 
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { GrammarErrorCode } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
-import { mdiCheck, mdiSpellcheck } from "@mdi/js";
+import { mdiCheck, mdiClose, mdiSpellcheck } from "@mdi/js";
 import Icon from "@mdi/react";
 import type React from "react";
 import { useCallback, useState } from "react";
-import { errorMessage, KIND_COLOR_VAR, PANEL_SHELL, PanelCloseButton } from "./grammar-panel-chrome.js";
+import {
+  ACCENT_BUTTON_BG,
+  errorMessage,
+  KIND_COLOR_VAR,
+  PANEL_SHELL,
+  PanelCloseButton,
+} from "./grammar-panel-chrome.js";
 import { buildRedlineSegments } from "./grammar-redline.js";
 import type { ActiveSuggestion, GrammarStatus } from "./useGrammarCheck.js";
 
@@ -151,7 +157,7 @@ export function GrammarRedlinePanel({
           tabIndex={0}
           aria-label={`${label}. Enter to apply, Delete to ignore.`}
           onKeyDown={onChangeKey(s)}
-          className="group relative focus-ring rounded cursor-pointer"
+          className="group relative focus-ring rounded-md cursor-pointer"
           style={{ textDecoration: "underline wavy", textDecorationColor: color, textUnderlineOffset: "3px" }}
         >
           {s.original}
@@ -160,17 +166,19 @@ export function GrammarRedlinePanel({
               type="button"
               data-testid="grammar-apply"
               onClick={() => onAccept(s.id)}
-              className="focus-ring rounded px-1.5 py-0.5 text-[11px] text-[var(--accent-green)] hover:bg-[var(--bg-hover)]"
+              className="focus-ring inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-[var(--accent-green)] hover:bg-[var(--bg-hover)]"
             >
-              ✓ {t("apply", undefined, "Apply")}
+              <Icon path={mdiCheck} size={0.5} />
+              {t("apply", undefined, "Apply")}
             </button>
             <button
               type="button"
               data-testid="grammar-ignore"
               onClick={() => onDismiss(s.id)}
-              className="focus-ring rounded px-1.5 py-0.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+              className="focus-ring inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
             >
-              ✕ {t("ignore", undefined, "Ignore")}
+              <Icon path={mdiClose} size={0.5} />
+              {t("ignore", undefined, "Ignore")}
             </button>
           </span>
         </span>
@@ -186,7 +194,7 @@ export function GrammarRedlinePanel({
         aria-label={`${label}. Enter to apply.`}
         onClick={() => onAccept(s.id)}
         onKeyDown={onChangeKey(s)}
-        className="focus-ring rounded cursor-pointer"
+        className="focus-ring rounded-md cursor-pointer"
       >
         <span
           style={{ color, textDecoration: "underline dotted", textDecorationColor: color, textUnderlineOffset: "3px" }}
@@ -219,7 +227,8 @@ export function GrammarRedlinePanel({
           type="button"
           data-testid="grammar-apply-all"
           onClick={onApplyAll}
-          className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-[var(--accent-primary)] text-white hover:opacity-90"
+          style={{ background: ACCENT_BUTTON_BG }}
+          className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-white hover:opacity-90"
         >
           <Icon path={mdiCheck} size={0.6} />
           {t("grammar.applyAll", undefined, "Apply all")}
@@ -232,7 +241,7 @@ export function GrammarRedlinePanel({
         data-testid="grammar-mode-toggle"
         role="tablist"
         aria-label={t("correctionView", undefined, "Correction view")}
-        className="inline-flex self-start rounded-md border border-[var(--border-secondary)] overflow-hidden text-[11.5px]"
+        className="inline-flex self-start rounded-md border border-[var(--border-secondary)] overflow-hidden text-[11px]"
       >
         {MODES.map((m) => (
           <button
@@ -242,9 +251,10 @@ export function GrammarRedlinePanel({
             aria-selected={mode === m}
             data-testid={`grammar-mode-${m}`}
             onClick={() => chooseMode(m)}
+            style={mode === m ? { background: ACCENT_BUTTON_BG } : undefined}
             className={
               mode === m
-                ? "px-2.5 py-1 bg-[var(--accent-primary)] text-white"
+                ? "px-2.5 py-1 text-white"
                 : "px-2.5 py-1 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] border-l border-[var(--border-secondary)] first:border-l-0"
             }
           >

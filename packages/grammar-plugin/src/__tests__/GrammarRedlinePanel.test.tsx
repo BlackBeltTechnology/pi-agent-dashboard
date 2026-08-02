@@ -91,6 +91,20 @@ describe("GrammarRedlinePanel", () => {
     expect(screen.queryByText("beleive")).toBeNull();
   });
 
+  it("darkens the accent background on Apply-all and the active mode tab (WCAG-AA)", () => {
+    render(<GrammarRedlinePanel {...baseProps()} />);
+    const applyAll = screen.getByTestId("grammar-apply-all");
+    expect(applyAll.getAttribute("style") ?? "").toContain("color-mix");
+    expect(applyAll.className).not.toContain("bg-[var(--accent-primary)]");
+
+    // Active tab carries the same darkened accent; inactive tabs carry none.
+    const active = screen.getByTestId("grammar-mode-redline");
+    expect(active.getAttribute("style") ?? "").toContain("color-mix");
+    expect(screen.getByTestId("grammar-mode-compact").getAttribute("style") ?? "").not.toContain(
+      "color-mix",
+    );
+  });
+
   it("Apply all fires the bulk callback", () => {
     const props = baseProps();
     render(<GrammarRedlinePanel {...props} />);
