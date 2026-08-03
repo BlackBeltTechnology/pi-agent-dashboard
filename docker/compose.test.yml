@@ -60,6 +60,11 @@ services:
       # scenario specs clear the onboarding gate and reach guarded endpoints.
       # Default empty → manual test-up.sh QA stays UI-only.
       PI_E2E_SEED: "${PI_E2E_SEED:-}"
+      # Optional comma-separated override for the PI_E2E_SEED trustedNetworks
+      # seed. Empty => trust any peer (the container, not an IP range, is the
+      # trust boundary; a VPN'd host can present a PUBLIC peer address, which
+      # made the old RFC1918-only seed fail nondeterministically).
+      PI_E2E_TRUSTED_NETWORKS: "${PI_E2E_TRUSTED_NETWORKS:-}"
       # Flow-plugin e2e peer selector (change: add-flow-plugin-e2e-tests):
       # both | no-am | legacy | bad-registration. Empty => test-entrypoint skips
       # all flow-peer wiring (non-flow specs unaffected). Requires PI_E2E_SEED=1.
