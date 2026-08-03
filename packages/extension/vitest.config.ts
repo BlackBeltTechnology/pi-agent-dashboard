@@ -1,5 +1,5 @@
-import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
@@ -13,5 +13,14 @@ export default defineConfig({
     // without it. Config-relative path so worktree-local source wins.
     // See change: parallelize-test-suite.
     setupFiles: [path.resolve(__dirname, "../shared/src/test-support/setup-home-perfile.ts")],
+  },
+  resolve: {
+    // Worktree-local shared source wins over the hoisted-workspace symlink
+    // (which escapes to the main checkout), so tests see the same code the
+    // build does. Mirrors packages/server + packages/client vitest configs.
+    // See change: honor-native-models-json-metadata.
+    alias: {
+      "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
+    },
   },
 });

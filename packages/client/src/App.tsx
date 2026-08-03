@@ -1138,7 +1138,7 @@ export default function App() {
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
-    handleHideSession, handleUnhideSession, handleSetSessionTags,
+    handleHideSession, handleUnhideSession, handleSetSessionTags, removeTagGlobally,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
     handleListFiles,
@@ -1423,6 +1423,7 @@ export default function App() {
       commandsMap={sessionCommands}
       onKillProcess={handleKillProcess}
       onSetProcessDrawer={(sessionId, collapsed) => send({ type: "set_session_process_drawer", sessionId, collapsed })}
+      onRemoveTagGlobally={removeTagGlobally}
       inflightBashMap={inflightBashMap}
       onAbortTool={handleAbortTool}
       gitWorktreeEnabled={gitWorktreeEnabled}

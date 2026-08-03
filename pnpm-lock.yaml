@@ -12,13 +12,13 @@ importers:
   .:
     dependencies:
       '@blackbelt-technology/pi-dashboard-extension':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:packages/extension
       '@blackbelt-technology/pi-dashboard-server':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:packages/server
       '@blackbelt-technology/pi-dashboard-web':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:packages/client
       '@earendil-works/pi-coding-agent':
         specifier: '*'
@@ -43,7 +43,7 @@ importers:
         specifier: 2.5.1
         version: 2.5.1
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:packages/shared
       '@earendil-works/pi-ai':
         specifier: ^0.75.5
@@ -81,13 +81,13 @@ importers:
   packages/automation-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-client-utils':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../client-utils
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       yaml:
         specifier: ^2.9.0
@@ -109,7 +109,7 @@ importers:
   packages/bus-client:
     dependencies:
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       ws:
         specifier: ^8.18.0
@@ -125,40 +125,40 @@ importers:
   packages/client:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-automation-plugin':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../automation-plugin
       '@blackbelt-technology/pi-dashboard-client-utils':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../client-utils
       '@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../flows-anthropic-bridge-plugin
       '@blackbelt-technology/pi-dashboard-flows-plugin':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../flows-plugin
       '@blackbelt-technology/pi-dashboard-goal-plugin':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../goal-plugin
       '@blackbelt-technology/pi-dashboard-grammar-plugin':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../grammar-plugin
       '@blackbelt-technology/pi-dashboard-hermes-memory-plugin':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../hermes-memory-plugin
       '@blackbelt-technology/pi-dashboard-kb-plugin':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../kb-plugin
       '@blackbelt-technology/pi-dashboard-roles-plugin':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../roles-plugin
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       '@blackbelt-technology/pi-dashboard-subagents-plugin':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../subagents-plugin
       '@dnd-kit/core':
         specifier: ^6.3.1
@@ -264,7 +264,7 @@ importers:
         version: 2.9.0
     devDependencies:
       '@blackbelt-technology/demo-plugin':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../demo-plugin
       '@tailwindcss/vite':
         specifier: ^4.1.0
@@ -309,10 +309,10 @@ importers:
   packages/client-utils:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       '@mdi/js':
         specifier: ^7.4.47
@@ -339,7 +339,7 @@ importers:
   packages/dashboard-plugin-runtime:
     dependencies:
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       wouter:
         specifier: ^3.0.0
@@ -370,11 +370,11 @@ importers:
   packages/dashboard-plugin-skill:
     dependencies:
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
     devDependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       vitest:
         specifier: ^2.1.8
@@ -383,25 +383,25 @@ importers:
   packages/demo-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
 
   packages/distill-session-knowledge:
     dependencies:
       '@blackbelt-technology/pi-dashboard-session-distiller':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../session-distiller
 
   packages/document-converter:
     dependencies:
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
 
   packages/electron:
     dependencies:
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       electron-updater:
         specifier: ^6.3.0
@@ -441,10 +441,10 @@ importers:
   packages/extension:
     dependencies:
       '@blackbelt-technology/pi-dashboard-bus-client':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../bus-client
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       '@earendil-works/pi-coding-agent':
         specifier: '*'
@@ -478,10 +478,10 @@ importers:
   packages/flows-anthropic-bridge-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
     devDependencies:
       '@types/react':
@@ -500,13 +500,13 @@ importers:
   packages/flows-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-client-utils':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../client-utils
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       yaml:
         specifier: ^2.9.0
@@ -530,10 +530,10 @@ importers:
   packages/goal-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       '@mdi/js':
         specifier: ^7.4.47
@@ -561,10 +561,10 @@ importers:
   packages/grammar-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       diff:
         specifier: ^8.0.3
@@ -583,10 +583,10 @@ importers:
   packages/hermes-memory-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       '@mdi/js':
         specifier: ^7.4.47
@@ -629,7 +629,7 @@ importers:
   packages/kb-extension:
     dependencies:
       '@blackbelt-technology/pi-dashboard-kb':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../kb
       '@mariozechner/pi-coding-agent':
         specifier: '*'
@@ -642,13 +642,13 @@ importers:
   packages/kb-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-kb':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../kb
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       '@mdi/js':
         specifier: ^7.4.47
@@ -695,7 +695,7 @@ importers:
   packages/nano-banana:
     dependencies:
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
     devDependencies:
       '@earendil-works/pi-coding-agent':
@@ -713,10 +713,10 @@ importers:
   packages/roles-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
     devDependencies:
       '@types/react':
@@ -729,16 +729,16 @@ importers:
   packages/server:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-document-converter':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../document-converter
       '@blackbelt-technology/pi-dashboard-extension':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../extension
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       '@earendil-works/pi-coding-agent':
         specifier: ^0.81.1
@@ -885,13 +885,13 @@ importers:
   packages/subagents-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-client-utils':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../client-utils
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       '@mdi/js':
         specifier: ^7.4.47
@@ -913,10 +913,10 @@ importers:
   packages/video-production:
     dependencies:
       '@blackbelt-technology/pi-dashboard-nano-banana':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../nano-banana
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
       '@google/genai':
         specifier: ^1.52.0
@@ -935,7 +935,7 @@ importers:
   packages/video-transcription:
     dependencies:
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.6.1
+        specifier: ^0.7.0
         version: link:../shared
     devDependencies:
       '@earendil-works/pi-coding-agent':

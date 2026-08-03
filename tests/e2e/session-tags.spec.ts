@@ -54,8 +54,10 @@ test.describe("session tags", () => {
       timeout: 30_000,
     });
 
-    // 4. Sidebar "Your tags" filter chip appears, selects (aria-pressed), and
-    // keeps the tagged session visible.
+    // 4. The sidebar tag area is now DEFAULT-COLLAPSED (change:
+    // sidebar-tag-collapse-and-delete) — expand it before the filter chip is
+    // reachable, then select (aria-pressed) and keep the tagged session visible.
+    await page.getByTestId("tag-area-toggle").click();
     const filterChip = page.getByRole("button", { name: `Filter by tag ${tag}` });
     await expect(filterChip).toBeVisible();
     await filterChip.click();
@@ -68,8 +70,136 @@ test.describe("session tags", () => {
     await page.getByTestId("clear-tag-filters").click();
     await expect(page.getByTestId("clear-tag-filters")).toHaveCount(0);
 
-    // 5. Remove the tag via the chip ✕.
-    await page.getByRole("button", { name: `Remove tag ${tag}` }).click();
-    await expect(page.getByRole("button", { name: `Remove tag ${tag}` })).toHaveCount(0);
+    // 5. Remove the tag via the header editable-strip ✕ (exact: the sidebar
+    // filter chip's ✕ is "Remove tag <t> from all sessions", a superstring).
+    await page.getByRole("button", { name: `Remove tag ${tag}`, exact: true }).click();
+    await expect(page.getByRole("button", { name: `Remove tag ${tag}`, exact: true })).toHaveCount(0);
+  });
+});
+
+/**
+ * E2E for change `sidebar-tag-collapse-and-delete`: the sidebar tag-area master
+ * collapse (default-collapsed + persisted), the guarded destructive global
+ * delete (✕ → confirm → server fan-out), cross-context convergence, and the
+ * collapsed active-filter indicator. Drives the real server + `.meta.json`
+ * persistence + WS broadcast against the docker harness.
+ *
+ * Overflow-cap + remove-control render scenarios (E1/E2/F2/F4/X2) are covered
+ * deterministically as component tests in
+ * `packages/client/src/components/tags/__tests__/tags-components.test.tsx`.
+ */
+test.describe("sidebar tag collapse + global delete", () => {
+  // Add a user tag to the currently-selected session via the header editor.
+  async function addHeaderTag(page: import("@playwright/test").Page, tag: string) {
+    await page.getByRole("button", { name: "Add tag" }).click();
+    const input = page.getByRole("textbox", { name: "Tag name" });
+    await input.fill(tag);
+    await input.press("Enter");
+    await expect(page.getByRole("button", { name: `Remove tag ${tag}` })).toBeVisible();
+  }
+
+  // E7 + E8: default-collapsed with a count, and fold state persists reload.
+  test("E7/E8 — default collapsed with count, persists across reload", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await expect(page.getByRole("button", { name: "Add tag" })).toBeVisible({ timeout: 30_000 });
+    const tag = `e2e-${Date.now().toString(36)}`;
+    await addHeaderTag(page, tag);
+
+    // E7: the master header is collapsed by default — chip hidden, aria-expanded
+    // false, count present.
+    const toggle = page.getByTestId("tag-area-toggle");
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByTestId("tag-area-count")).toBeVisible();
+    await expect(page.getByRole("button", { name: `Filter by tag ${tag}` })).toHaveCount(0);
+
+    // E8: expand → reload → still expanded.
+    await toggle.click();
+    await expect(page.getByRole("button", { name: `Filter by tag ${tag}` })).toBeVisible();
+    await page.reload();
+    await expect(page.getByTestId("tag-area-toggle")).toHaveAttribute("aria-expanded", "true", { timeout: 30_000 });
+    await expect(page.getByRole("button", { name: `Filter by tag ${tag}` })).toBeVisible();
+    // …then collapse → reload → collapsed.
+    await page.getByTestId("tag-area-toggle").click();
+    await page.reload();
+    await expect(page.getByTestId("tag-area-toggle")).toHaveAttribute("aria-expanded", "false", { timeout: 30_000 });
+  });
+
+  // F3: a selected filter is signaled on the collapsed header, with a clear
+  // control reachable without unfolding.
+  test("F3 — collapsed header signals an active filter and clears it", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await expect(page.getByRole("button", { name: "Add tag" })).toBeVisible({ timeout: 30_000 });
+    const tag = `e2e-${Date.now().toString(36)}`;
+    await addHeaderTag(page, tag);
+
+    // Expand, select the filter, then collapse.
+    await page.getByTestId("tag-area-toggle").click();
+    const chip = page.getByRole("button", { name: `Filter by tag ${tag}` });
+    await chip.click();
+    await expect(chip).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("tag-area-toggle").click(); // collapse
+
+    // Collapsed: an active-selection indicator distinct from the count + a clear.
+    await expect(page.getByTestId("tag-area-active-indicator")).toBeVisible();
+    await page.getByTestId("clear-tag-filters-collapsed").click();
+    await expect(page.getByTestId("tag-area-active-indicator")).toHaveCount(0);
+  });
+
+  // X1 (cancel) then the delete round-trip (confirm → server strips the tag).
+  test("X1 — cancel keeps the tag; confirm strips it globally", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await expect(page.getByRole("button", { name: "Add tag" })).toBeVisible({ timeout: 30_000 });
+    const tag = `e2e-${Date.now().toString(36)}`;
+    await addHeaderTag(page, tag);
+
+    await page.getByTestId("tag-area-toggle").click();
+    const removeChip = page.getByRole("button", { name: `Remove tag ${tag} from all sessions` });
+    await expect(removeChip).toBeVisible();
+
+    // X1: open the confirm and Cancel → nothing sent, tag remains.
+    await removeChip.click();
+    await expect(page.getByTestId("tag-delete-confirm")).toBeVisible();
+    await page.getByTestId("tag-delete-cancel").click();
+    await expect(page.getByTestId("tag-delete-confirm")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: `Filter by tag ${tag}` })).toBeVisible();
+    // header chip intact (exact: distinct from the filter chip's "… from all sessions").
+    await expect(page.getByRole("button", { name: `Remove tag ${tag}`, exact: true })).toBeVisible();
+
+    // Confirm → server strips the tag from every carrier; the chip vanishes.
+    await removeChip.click();
+    await page.getByTestId("tag-delete-confirm-btn").click();
+    await expect(page.getByRole("button", { name: `Filter by tag ${tag}` })).toHaveCount(0, { timeout: 15_000 });
+    // The per-session header chip also drops (server rebroadcast).
+    await expect(page.getByRole("button", { name: `Remove tag ${tag}`, exact: true })).toHaveCount(0);
+  });
+
+  // F1: a confirmed delete in one context converges in another via session_updated.
+  test("F1 — delete converges across browser contexts without reload", async ({ page, context }) => {
+    const card = await spawnFreshGitSession(page);
+    const sid = await card.getAttribute("data-session-id");
+    await card.click();
+    await expect(page.getByRole("button", { name: "Add tag" })).toBeVisible({ timeout: 30_000 });
+    const tag = `e2e-${Date.now().toString(36)}`;
+    await addHeaderTag(page, tag);
+
+    // Context B observes the same tag chip (its own WS connection).
+    const pageB = await context.newPage();
+    await pageB.goto(page.url().replace(/\/session\/.*/, "/"));
+    await pageB.getByTestId("tag-area-toggle").click();
+    await expect(pageB.getByRole("button", { name: `Filter by tag ${tag}` })).toBeVisible({ timeout: 30_000 });
+
+    // Context A confirms the delete.
+    await page.getByTestId("tag-area-toggle").click();
+    await page.getByRole("button", { name: `Remove tag ${tag} from all sessions` }).click();
+    await page.getByTestId("tag-delete-confirm-btn").click();
+
+    // Context B converges to the tag absent via session_updated — no reload.
+    await expect(pageB.getByRole("button", { name: `Filter by tag ${tag}` })).toHaveCount(0, { timeout: 15_000 });
+    await pageB.close();
+    expect(sid).toBeTruthy();
   });
 });

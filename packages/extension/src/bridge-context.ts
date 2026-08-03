@@ -215,6 +215,27 @@ export function extractFirstAssistantReply(ctx: any): string | undefined {
   return undefined;
 }
 
+/**
+ * Defensive read of pi's `ctx.cwd` guarded getter. That getter throws once the
+ * session is replaced (new/fork/resume/reload). During a `session_start` for a
+ * replacement, `handleSessionChange(ctx)` runs BEFORE `connection.connect()`;
+ * an un-guarded `ctx.cwd` read there throws, the bridge's `safe()` wrapper
+ * swallows it, `connect()` is skipped, and the socket the preceding
+ * `session_shutdown` closed stays terminally down — the #393 permanent
+ * disconnect. Reading through `safeCwd` yields `process.cwd()` on a throw so the
+ * re-registration path always reaches `connect()`. See change:
+ * fix-bridge-resume-disconnect.
+ */
+export function safeCwd(ctx: unknown): string {
+  try {
+    const c = (ctx as { cwd?: unknown } | null | undefined)?.cwd;
+    if (typeof c === "string") return c;
+  } catch {
+    /* guarded getter threw — session was replaced */
+  }
+  return process.cwd();
+}
+
 /** Get current model string (provider/id) from cached context */
 export function getCurrentModelString(bc: BridgeContext): string | undefined {
   const model = bc.cachedCtx?.model;

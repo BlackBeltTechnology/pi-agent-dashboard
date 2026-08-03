@@ -208,12 +208,18 @@
     "fix-goal-detail-turns-and-spend": "ui",
     "add-embed-session-lifecycle": "ui",
     "add-hermes-memory-settings-plugin": "ui",
+    "fix-markdown-preview-relative-images": "ui",
+    "head-tail-truncate-subagent-event-timeline": "ui",
+    "fix-bridge-resume-disconnect": "ui",
+    "honor-native-models-json-metadata": "ui",
     "fix-grammar-llm-swallowed-corrections": "separate-functions-to-plugins"
   },
   "changeOrder": {
     "__ungrouped__": [
       "fix-pi-install-node26-and-omit-dev-build",
-      "fix-markdown-preview-relative-images"
+      "add-mid-turn-tool-oauth",
+      "add-skill-tool-provisioning",
+      "implement-it"
     ],
     "kowledge-base": [
       "add-lora-dataset-export-skill",
@@ -223,12 +229,8 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "sidebar-tag-collapse-and-delete",
-      "image-fit-tool-result-images",
-      "fix-goal-detail-turns-and-spend",
-      "add-embed-session-lifecycle",
-      "redesign-directory-card",
-      "add-hermes-memory-settings-plugin"
+      "fix-bridge-resume-disconnect",
+      "honor-native-models-json-metadata"
     ],
     "next-phase": [
       "add-codegraph-code-plane",

@@ -47,8 +47,8 @@ session cards.
   `openspec_update` arrives for the same cwd with
   `{ initialized: true, changes: [...] }`
 - **THEN** the spinner SHALL be replaced by the standard collapsed
-  header (`▶ OPENSPEC (N CHANGES)` + Refresh + Archive + Specs)
-  without layout shift
+  pill (`OPENSPEC` capsule + count + trailing action cluster
+  Refresh + Archive + Specs, all icon-only) without layout shift
 
 #### Scenario: Folder without openspec dir never spins
 
@@ -151,26 +151,26 @@ The folder OpenSpec section header SHALL include a refresh button that triggers 
 - **THEN** the browser SHALL send `{ type: "openspec_refresh", cwd: "/project/foo" }`
 
 ### Requirement: Folder-level Specs button opens specs browser
-The folder OpenSpec section header SHALL include a "Specs" button on the right side of the header row. Clicking it SHALL open the specs browser view in the content area for that folder's cwd.
+The folder OpenSpec section SHALL include a Specs control rendered as an **icon-only** button (`mdiFileDocumentOutline`, cyan accent) inside the `SlotPill` trailing action cluster, after the Refresh and Archive controls. It SHALL carry an accessible name (`title` + `aria-label`) of "Specs" since no text label is shown. Clicking it SHALL open the specs browser view in the content area for that folder's cwd.
 
-#### Scenario: Specs button visible in header
-- **WHEN** the folder OpenSpec section is rendered
-- **THEN** a "Specs" button SHALL appear on the right side of the header row
+#### Scenario: Specs button visible in pill action cluster
+- **WHEN** the folder OpenSpec section is rendered with an `onOpenSpecs` callback
+- **THEN** an icon-only Specs button (accessible name "Specs") SHALL appear in the pill's trailing action cluster, ordered after Refresh and Archive
 
 #### Scenario: Specs button opens specs browser
 - **WHEN** the user clicks the "Specs" button on folder `/project/foo`
 - **THEN** the content area SHALL switch to the `SpecsBrowserView` showing all specs from `openspec/specs/` in cwd `/project/foo`
 
-#### Scenario: Specs button click does not toggle collapse
-- **WHEN** the user clicks the "Specs" button
-- **THEN** the click SHALL NOT toggle the collapsible change list (event propagation is stopped)
+#### Scenario: Specs button click does not navigate to the board
+- **WHEN** the user clicks the Specs button in the pill action cluster
+- **THEN** the click SHALL NOT trigger the pill's board navigation (event propagation is stopped)
 
 ### Requirement: Archive button in folder OpenSpec section
-The folder OpenSpec section header SHALL include an "Archive" button next to the existing "Specs" button, visible only when OpenSpec is initialized.
+The folder OpenSpec section SHALL include an Archive control rendered as an **icon-only** button (`mdiArchiveOutline`, purple accent) inside the `SlotPill` trailing action cluster, positioned between the Refresh and Specs controls, visible only when OpenSpec is initialized. It SHALL carry an accessible name (`title` + `aria-label`) of "Archive" since no text label is shown.
 
 #### Scenario: Archive button rendered
 - **WHEN** a folder OpenSpec section is rendered with `initialized: true` and an `onOpenArchive` callback is provided
-- **THEN** an "Archive" button SHALL be displayed next to the "Specs" button
+- **THEN** an icon-only Archive button (accessible name "Archive") SHALL be displayed in the pill's trailing action cluster, between Refresh and Specs
 
 #### Scenario: Archive button opens archive browser
 - **WHEN** the user clicks the "Archive" button on folder `/project/foo`

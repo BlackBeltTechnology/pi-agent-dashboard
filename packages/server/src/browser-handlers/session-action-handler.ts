@@ -12,9 +12,9 @@ import {
 import {
   findPidByMarker,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
+import { createBranchedSessionFile } from "../session/session-file-reader.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
 import { spawnPiSession } from "../spawn-process/process-manager.js";
-import { createBranchedSessionFile } from "../session/session-file-reader.js";
 import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
@@ -286,6 +286,17 @@ export async function handleResumeSession(
   }
   if (msg.mode === "continue" && session.status !== "ended") {
     sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already active", code: "resume.already_active", requestId: msg.requestId });
+    return;
+  }
+  // Defense-in-depth against the Class-2 double-spawn race: while a cold-start
+  // recovery candidate's liveness is still unresolved (grace window open), a
+  // surviving bridge may be about to reattach. Reopening now would spawn a
+  // second pi for a sessionId whose process is alive, and the gateway
+  // session→connection map is last-write-wins → message routing breaks. Refuse
+  // until liveness is finalized (the UI shows a "verifying" state meanwhile).
+  // See change: fix-recovery-offer-bridge-liveness-gate.
+  if (msg.mode === "continue" && ctx.isRecoveryLivenessPending?.(msg.sessionId)) {
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Verifying whether this session is still running…", code: "resume.already_resuming", requestId: msg.requestId });
     return;
   }
   if (session.resuming) {

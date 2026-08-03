@@ -14,9 +14,97 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+### Fixed
+
+## [0.7.0] - 2026-07-24
+
+### Added
+
+- Custom-provider models now honor the native capability metadata authored in
+  `~/.pi/agent/models.json` (the standard Pi nested `providers.<name>.models[]`
+  format). Both registry paths — the bridge extension that feeds pi sessions +
+  the web thinking-level selector, and the dashboard server behind
+  `GET /api/models` + proxy routing — read the native file via one shared reader
+  and merge it with live `/v1/models` discovery: native `contextWindow`,
+  `maxTokens`, `reasoning`, `thinkingLevelMap`, `compat`, `input`, and `cost`
+  win over the api-typed fallback floors; routing stays from discovery. A
+  user-authored model absent from `/v1/models` (or when discovery is down) still
+  surfaces. `GET /api/models` gains the raw `thinkingLevelMap` (additive) and
+  never emits `compat` or credentials. The web selector gains an opt-in,
+  runtime-gated `max` thinking level (shown only when the session's pi advertises
+  `max` AND the model's `thinkingLevelMap.max` is declared).
+
+- **Knowledge-base search can now filter, facet, and sort on frontmatter.** YAML frontmatter in indexed markdown is parsed into a searchable structure, so kb queries can constrain and group results by declared frontmatter fields (with type-aware eq/in/gte/lte filters and distinct-file facet counts) instead of full-text matching alone. (change: `add-kb-frontmatter-structural-indexing`)
+
+- **Settings surface for pi-hermes-memory.** When the pi-hermes-memory extension is installed, a new dashboard settings section lets you view and edit its configuration through a grouped form — per-field defaults with reset, inline validation, and a raw-JSON view — instead of hand-editing the on-disk config file. Changes apply to new sessions. (change: `add-hermes-memory-settings-plugin`)
+
+- **Collapsible sidebar tags with global tag delete.** The sidebar tag/phase area is now a single collapsible section (collapsed by default, remembered across reloads) with a count, active-filter indicator, and a `+N more` / `show less` expander once you have many tags. Each tag also gains a guarded delete that removes it from every session that carries it. (change: `sidebar-tag-collapse-and-delete`)
+
+- **Turns and spend on goal surfaces.** The goal detail and board views now show the real turn count for completed or reloaded goals (falling back to the last persisted value when there's no live status), and display each goal's actual USD spend summed from its linked sessions. (change: `fix-goal-detail-turns-and-spend`)
+
+- **OpenSpec CLI available inside sessions.** The `openspec` command is now shimmed onto the session PATH, so agent sessions can run it directly without a separate install. (change: `provision-openspec-cli-in-sessions`)
+
+- **Reuse and lifecycle management for embedded sessions (off by default).** Ephemeral/embedded sessions can now be reused per visitor, idle-reaped, and bounded by per-visitor and global caps, with lifecycle counters exposed on `/api/health`. All behavior is inert unless explicitly enabled. (change: `add-embed-session-lifecycle`)
+
+### Changed
+
+- **Native `models.json` capability metadata now wins over a top-level duplicate.**
+  Installs that previously set custom-model capabilities via a top-level
+  `models.json` array/`{models:[]}` entry duplicating a discovered `provider/id`
+  will now see the native nested `providers.<name>.models[]` entry take
+  precedence on overlap (nested wins). `models.json` remains read-only; editing
+  it needs a refresh trigger (server) or session restart (extension) to take
+  effect — no live hot-reload. A custom `models.json` entry authored under a
+  built-in provider name does NOT override the built-in model.
+
 - Bumped pinned pi (`@earendil-works/pi-coding-agent`) 0.80.10 → 0.81.1 across the server dependency, Dockerfile global install, and `verify-release-deps` floor. Lifted `piCompatibility.recommended` 0.78.0 → 0.81.1 to track the upstream line (soft upgrade hint); `piCompatibility.minimum` stays 0.78.0 (broad support floor — no blocking error for 0.78.x–0.80.x). 0.81.0 added full provider extensions + Qwen Token Plan providers (auto-surface via the derived provider catalogue — no bridge change); 0.81.1 restored the default stream fallback for extensions on the pre-0.81 agent-core API. No breaking-change entries in the range.
 
+- **Directory cards redesigned as folder-style cards.** Each directory card now reads as a folder that encloses its Create tray and session list under one continuous border, with a small folder-tab nub in place of the old 3D watermark and top-level (non-workspace) folders getting a subtle accent tint so their boundary stays legible across themes. The four folder facets render as single-concern slot pills in a responsive two-column grid. (change: `redesign-directory-card`, `folder-card-enclosure`, `folder-card-tab-nub`)
+
+- **Slot-pill labels no longer truncate.** Slot pill labels (e.g. AUTOMATIONS, Knowledge base) now render as a capsule overhanging the top edge instead of an inline label, so long names display in full; create actions became compact icon-only "+" buttons. (change: `slot-pill`)
+
+- **Folder card actions consolidated.** OpenSpec Archive/Specs actions moved into the slot pill as icon-only buttons, the redundant Terminals and Editor buttons were dropped (the pane is still reachable elsewhere) with Initialize and Directory Settings merged onto the git row, and the automation unit label was renamed from "flows" to "tasks" to avoid confusion with pi-flows. (change: `folder-card`, `compact-folder-header-actions`)
+
+- **Knowledge-base row on session cards matches its neighbours.** The KNOWLEDGE BASE row on worktree session cards now uses the same flat, translucent panel style as the adjacent OpenSpec/Git/Process rows instead of standing out as a raised, opaque pill. (change: `align-session-card-kb-slot-surface`)
+
+- **Continuous-scroll PDF viewer.** PDF previews now scroll continuously with a selectable text layer and Ctrl-F find, replacing the old paged single-canvas viewer with Prev/Next controls. (change: `pdf-preview-continuous-scroll`)
+
+- **Faster initial page load.** The large Material Design icon set (~2.6 MB) was split out of the eager entry bundle into its own cacheable chunk, cutting the gzipped index chunk from ~1388 KB to ~580 KB. (change: `shrink-client-index-chunk`)
+
+- **Faster bulk video transcription.** Multiple files now transcribe in parallel (up to 8 by default, configurable via `TRANSCRIBE_CONCURRENCY`), overlapping the per-file poll wait; set the concurrency to 1 to restore serial behavior. (change: `parallel-transcription-file-pool`)
+
 ### Fixed
+
+- Subagent live timeline no longer freezes after ~3 steps. An oversized subagent
+  event (its payload embeds the full running timeline) used to trip the per-event
+  size ceiling and get dropped wholesale, so the client stopped updating the
+  subagent detail. Such events are now reduced head+tail — keeping the opening
+  steps, a "⋯ N steps hidden ⋯" marker, and the final steps/result — instead of
+  being replaced by a truncation placeholder. Server-only (the marker is a plain
+  text entry that renders on any client). Event-size accounting is now
+  byte-accurate (UTF-8 width + JSON escape expansion, real base64-image size),
+  which also fixes a latent image-bearing broadcast OOM where an oversized image
+  message previously escaped the ceiling.
+
+- **Bridge no longer permanently disconnects after an in-TUI resume/switch/fork.** Resuming, switching, or forking a session inside the TUI used to silently drop the dashboard connection for the rest of the session; the connection now survives session replacement. (change: `fix-bridge-resume-disconnect`)
+
+- **Session tags survive a bridge reattach.** Tags applied to a session are no longer wiped when the bridge reattaches (for example after a reboot); they now carry over in memory and stay in the saved session metadata. (change: `fix-tags-lost-on-bridge-reattach`)
+
+- **Cold-start recovery no longer offers to reopen sessions that are still alive.** Recovery now checks whether a session's process is actually running before offering to reopen it, preventing a double-spawn that broke message routing after a plain server restart. (change: `recovery`)
+
+- **Running subagents show their live timeline.** A running subagent's card no longer displays "Subagent not found in this session." for the whole run — its timeline now hydrates from the durable message channel instead of only the lossy ephemeral event stream. (change: `subagents`)
+
+- **Oversized images no longer break sessions on reload.** Large tool-result, pasted, or historical images are now automatically resized before each model call, rescuing already-saved sessions whose oversized images previously caused failures on reload. The on-disk transcript is left untouched. (change: `image-fit-tool-result-images`)
+
+- **Local images now render in on-disk markdown previews.** Relative image references in previewed markdown files (file preview overlay, editor viewer, and markdown preview) now resolve to the actual local files, with a neutral placeholder shown if an image fails to load. (change: `fix-markdown-preview-relative-images`)
+
+- **PDF previews no longer fail to load intermittently.** A load-order race that could throw while opening a PDF (viewer chunk evaluating before the pdfjs library was ready) is fixed by sequencing the loads. (change: `fix-pdf-viewer-load-order`)
+
+- **Popovers stay within view.** Popovers are now positioned against their actual clipping container rather than the full viewport, so they no longer get cut off inside scrollable or clipped panes. (change: `fix-popover-container-clip`)
+
+- **Directory Initialize no longer hangs.** The "Initialize" action's setup hook used to abort when `corepack` was unavailable under the bundled Node, leaving the prompt to re-fire indefinitely; it now falls through to the on-PATH package manager and completes. (change: `harden-worktree-init-corepack`)
+
+- **Build & CI / internal.** Assorted developer-facing fixes: CPU-only Torch install for the document converter (avoids a ~3.4 GB CUDA download), a nightly Verdaccio full-fidelity build, removal of mechanical Vite build warnings, a flaky goal-supervisor test made deterministic, and refreshed knowledge-base index rows. (changes: `document-converter`, `add-nightly-verdaccio-build`, `fix-vite-build-warnings`, `goal-supervisor`, `kb`)
 
 ## [0.6.1] - 2026-07-20
 

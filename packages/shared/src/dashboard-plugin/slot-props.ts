@@ -25,6 +25,13 @@ export interface FolderDescriptor {
 }
 
 /**
+ * Where a folder section is being rendered. `sidebar` (default) = the sidebar
+ * folder card (raised pill); `card` = inside a session card (flat pill matching
+ * the SessionSubcard panels). See change: align-session-card-kb-slot-surface.
+ */
+export type SlotPlacement = "sidebar" | "card";
+
+/**
  * Image payload forwarded to `tool-renderer` plugins. Structural mirror of the
  * client's `ChatImage` (kept inline so this types-only package stays free of a
  * client dependency). See change: wire-tool-renderer-slot.
@@ -51,10 +58,12 @@ export interface ToolRendererContext {
 export interface SlotPropsMap {
   "sidebar-folder-section": {
     folder: FolderDescriptor;
+    placement?: SlotPlacement;
     pluginContext: AnyPluginContext;
   };
   "worktree-card-section": {
     folder: FolderDescriptor;
+    placement?: SlotPlacement;
     pluginContext: AnyPluginContext;
   };
   "session-card-badge": {

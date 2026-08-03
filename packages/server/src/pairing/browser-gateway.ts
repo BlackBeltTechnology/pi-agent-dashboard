@@ -66,7 +66,7 @@ export function buildOpenSpecConnectSnapshot(
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest } from "../browser-handlers/session-action-handler.js";
-import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
+import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
 import { handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
@@ -149,6 +149,14 @@ export interface BrowserGateway {
    * See change: fix-recovery-offer-dismiss-and-phantom-reopen.
    */
   onRecoveryResolve?: () => void;
+  /**
+   * Predicate: true while a cold-start recovery candidate's process liveness is
+   * still unresolved (the Class-2 grace window). The server assigns this from
+   * its `liveRecoveryCandidates` set; the resume handler consults it to refuse
+   * a `continue` reopen that could double-spawn a still-alive session.
+   * See change: fix-recovery-offer-bridge-liveness-gate.
+   */
+  isRecoveryLivenessPending?: (sessionId: string) => boolean;
   /** Broadcast a message to all connected clients */
   broadcast(msg: ServerToBrowserMessage): void;
   /**
@@ -490,6 +498,7 @@ export function createBrowserGateway(
           pendingResumeIntents,
           pendingClientCorrelations,
           pendingWorktreeBaseRegistry,
+          isRecoveryLivenessPending: gateway.isRecoveryLivenessPending,
           sendTo, broadcast, getSubscribers, replayPendingUiRequests,
           broadcastEvent: gateway.broadcastEvent,
           trackUiRequest: trackUiRequest,
@@ -608,6 +617,9 @@ export function createBrowserGateway(
           case "set_session_tags":
             handleSetSessionTags(msg, ctx);
             break;
+          case "remove_tag_globally":
+            handleRemoveTagGlobally(msg, ctx);
+            break;
           case "fetch_content":
             handleFetchContent(msg, ctx);
             break;
@@ -615,10 +627,16 @@ export function createBrowserGateway(
             handleListSessions(msg, ctx);
             break;
           case "resume_session":
-            // Reopen is a resolving action for any pending recovery offer:
-            // null the server-held offer so onConnect stops replaying it.
-            // See change: fix-recovery-offer-dismiss-and-phantom-reopen.
-            gateway.onRecoveryResolve?.();
+            // Reopen resolves a pending recovery offer (null it so onConnect
+            // stops replaying it) — but NOT when the resume will be refused
+            // because a candidate's liveness is still unresolved (grace window).
+            // Clearing it there would drop the offer for a genuinely-lost
+            // session the user can legitimately reopen once the window closes.
+            // See changes: fix-recovery-offer-dismiss-and-phantom-reopen,
+            //              fix-recovery-offer-bridge-liveness-gate.
+            if (!gateway.isRecoveryLivenessPending?.(msg.sessionId)) {
+              gateway.onRecoveryResolve?.();
+            }
             await handleResumeSession(msg, ctx);
             break;
           case "spawn_session":

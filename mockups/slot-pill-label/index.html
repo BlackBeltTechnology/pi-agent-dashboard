@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SlotPill — AUTOMATIONS label fix</title>
+<style>
+  [data-theme="light"] { --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --border-subtle:rgba(0,0,0,.09); --shadow-card:rgba(0,0,0,.08); --text-primary:#1a1a1a; --text-secondary:#4a4a4a; --text-tertiary:#8a8a95; --text-muted:#aaa; --sidebar:#fff; }
+  [data-theme="dark"] { --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --border-subtle:rgba(255,255,255,.09); --shadow-card:rgba(0,0,0,.4); --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858; --sidebar:#0a0a0a; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; background:var(--sidebar); color:var(--text-primary); padding:24px; -webkit-font-smoothing:antialiased; }
+  .toolbar { display:flex; gap:12px; align-items:center; margin-bottom:18px; }
+  .toolbar h1 { font-size:14px; margin:0; } .toolbar .sp{flex:1}
+  .toolbar button { font:inherit; font-size:12px; padding:6px 12px; border-radius:8px; border:1px solid var(--border-subtle); background:var(--bg-tertiary); color:var(--text-secondary); cursor:pointer; }
+  .case { margin-bottom:26px; }
+  .case h2 { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); margin:0 0 4px; }
+  .case p { font-size:11px; color:var(--text-muted); margin:0 0 10px; }
+  /* the 2-col grid at 500px sidebar (folder ~476 inner) */
+  .grid { width:476px; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+
+  .pill { display:flex; align-items:center; gap:8px; min-width:0; padding:6px 10px; border-radius:11px; border:1px solid var(--border-subtle); background:var(--bg-secondary); box-shadow:0 1px 2px var(--shadow-card); }
+  .glyph { flex-shrink:0; width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:15px; }
+  .mid { display:flex; flex-direction:column; min-width:0; flex:1; line-height:1.15; }
+  .lbl { font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .val { font-size:13px; font-weight:800; display:flex; align-items:baseline; gap:6px; min-width:0; }
+  .val .u { font-size:10px; font-weight:600; color:var(--text-tertiary); }
+  .acts { flex-shrink:0; display:flex; align-items:center; gap:4px; }
+  .ref { color:var(--text-muted); padding:4px; font-size:14px; }
+  .new { font-size:10px; padding:2px 6px; border-radius:6px; border:1px solid; }
+  .auto .glyph{color:#3b82f6;background:rgba(59,130,246,.1)} .auto .new{color:#60a5fa;border-color:rgba(59,130,246,.4);background:rgba(59,130,246,.05)}
+  .goals .glyph{color:#818cf8;background:rgba(129,140,248,.1)} .goals .new{color:#818cf8;border-color:rgba(129,140,248,.4);background:rgba(129,140,248,.05)}
+  .kb .glyph{color:#22d3ee;background:rgba(34,211,238,.1)} .spec .glyph{color:#c084fc;background:rgba(192,132,252,.1)}
+
+  /* fixes */
+  .fix-track .lbl { letter-spacing:0; }
+  .fix-tight .glyph { width:22px; height:22px; } .fix-tight { }
+  .fix-tight .pill { gap:6px; padding:6px 8px; }
+  .fix-plus .new-label { display:none; }
+
+  /* E — fieldset-legend capsule title (like SessionSubcard), compact + action */
+  .fs .pill { position:relative; align-items:center; gap:8px; padding:11px 10px 7px; }
+  .fs .lbl { position:absolute; top:-7px; left:50%; transform:translateX(-50%); padding:1px 8px; border-radius:999px;
+    background:var(--bg-tertiary); border:1px solid var(--border-subtle); letter-spacing:.06em; color:var(--text-tertiary);
+    overflow:visible; white-space:nowrap; max-width:none; z-index:1; }
+  .fs .mid { flex-direction:row; align-items:baseline; }
+</style>
+</head>
+<body data-theme="dark">
+<div class="toolbar"><h1>SlotPill — AUTOMATIONS label fix (pill ≈234px @ 500px sidebar)</h1><span class="sp"></span>
+  <button onclick="document.body.dataset.theme=document.body.dataset.theme==='dark'?'light':'dark'">◑ Toggle theme</button></div>
+<div id="root"></div>
+
+<script>
+  const pills = (mods, plusLabel=true) => `
+    <div class="grid ${mods}">
+      <div class="pill auto"><span class="glyph">⚙</span><span class="mid"><span class="lbl">Automations</span><span class="val">0 <span class="u">flows</span></span></span><span class="acts"><span class="ref">↻</span><span class="new">+${plusLabel?' New':''}</span></span></div>
+      <div class="pill goals"><span class="glyph">◎</span><span class="mid"><span class="lbl">Goals</span><span class="val">0 <span class="u">active</span></span></span><span class="acts"><span class="ref">↻</span><span class="new">+${plusLabel?' Goal':''}</span></span></div>
+      <div class="pill kb"><span class="glyph">▤</span><span class="mid"><span class="lbl">KB</span><span class="val">19.8k <span class="u">chunks</span></span></span><span class="acts"><span class="ref">↻</span></span></div>
+      <div class="pill spec"><span class="glyph">▦</span><span class="mid"><span class="lbl">OpenSpec</span><span class="val">58 <span class="u">changes</span></span></span><span class="acts"><span class="ref">↻</span></span></div>
+    </div>`;
+
+  const cases = [
+    ["A — Current (truncates)", "tracking-wider label + full '+ New' → AUTOMATIONS clips", pills("", true)],
+    ["D — Compact create action (+ only) + no tracking", "'+ New'/'+ Goal' → '+' icon; frees width, label inline", pills("fix-track", false)],
+    ["E — Fieldset-legend capsule title + compact + (RECOMMENDED)", "label floats as a little pill centered on the pill (like session's OpenSpec block) — never truncates; value row is glyph + count + actions", pills("fs fix-track", false)],
+  ];
+  document.getElementById("root").innerHTML = cases.map(([t,d,html]) =>
+    `<div class="case"><h2>${t}</h2><p>${d}</p>${html}</div>`).join("");
+</script>
+</body>
+</html>

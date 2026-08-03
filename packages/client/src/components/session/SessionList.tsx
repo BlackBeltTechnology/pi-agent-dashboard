@@ -2,7 +2,7 @@ import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
+import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -15,9 +15,11 @@ import { buildFolderHomeUrl } from "../../lib/nav/route-builders.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
   getCollapsedGroups,
+  getTagAreaOpen,
   pruneStaleCollapsedGroups,
   removeLegacyHiddenSessions,
   setCollapsedGroups,
+  setTagAreaOpen,
 } from "../../lib/session/session-filter-storage.js";
 import {
   type DirectoryGroup,
@@ -43,6 +45,7 @@ import { Toast, useToast } from "../primitives/Toast.js";
 import { ThemePicker } from "../settings/ThemePicker.js";
 import { ThemeToggle } from "../settings/ThemeToggle.js";
 import { allTagsInUse } from "../tags/all-tags.js";
+import { TagDeleteConfirmDialog } from "../tags/TagDeleteConfirmDialog.js";
 import { TagFilterGroup } from "../tags/TagFilterGroup.js";
 import { AddToWorkspaceMenu } from "../workspace/AddToWorkspaceMenu.js";
 import { NewWorkspaceDialog } from "../workspace/NewWorkspaceDialog.js";
@@ -166,6 +169,12 @@ interface Props {
    */
   onSetProcessDrawer?: (sessionId: string, collapsed: boolean) => void;
   /**
+   * Strip a tag from every carrying session (server fan-out). Wired to the
+   * per-chip destructive ✕ in the sidebar tag filter, gated by a confirm
+   * dialog. See change: sidebar-tag-collapse-and-delete.
+   */
+  onRemoveTagGlobally?: (tag: string) => void;
+  /**
    * Per-session in-flight bash toolCalls for the SessionActivityBar.
    * See change: redesign-process-list-activity-bar.
    */
@@ -231,7 +240,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -614,6 +623,25 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     setSelectedPhases(new Set());
   }, []);
 
+  // Sidebar tag-area master collapse. Default collapsed (absent key ⇒ false).
+  // See change: sidebar-tag-collapse-and-delete.
+  const [tagAreaOpen, setTagAreaOpenState] = useState<boolean>(() => getTagAreaOpen());
+  const toggleTagArea = useCallback(() => {
+    setTagAreaOpenState((prev) => {
+      const next = !prev;
+      setTagAreaOpen(next);
+      return next;
+    });
+  }, []);
+  // Tag pending a global-delete confirm (null = dialog closed).
+  const [pendingDeleteTag, setPendingDeleteTag] = useState<string | null>(null);
+  // Carrying-session count for the confirm dialog blast-radius copy (task 6.3).
+  const deleteTagCount = useMemo(
+    () => (pendingDeleteTag == null ? 0 : sessions.filter((s) => (s.tags ?? []).includes(pendingDeleteTag)).length),
+    [pendingDeleteTag, sessions],
+  );
+  const activeFilterCount = selectedTags.size + selectedPhases.size;
+
   /**
    * Decide whether a folder should be visible given the active filters.
    * Workspace filter matches against folder path; session filter matches
@@ -854,23 +882,40 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     );
   }
 
-  function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false) {
+  function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string) {
     const displayPath = truncatePathMiddle(group.cwd, 45);
     const lastSlash = displayPath.lastIndexOf('/');
     const parentPath = lastSlash >= 0 ? displayPath.slice(0, lastSlash + 1) : '';
     const lastSegment = lastSlash >= 0 ? displayPath.slice(lastSlash + 1) : displayPath;
     const isCollapsed = isFolderCollapsed(group.cwd);
+    // Root (non-workspace) folders get a subtle accent-tinted surface so their
+    // boundary stays legible across themes, incl. low-contrast/warm ones where
+    // --bg-primary blends into the page (change: folder-card-enclosure, C).
+    const folderTint = !inWorkspace
+      ? {
+          background: "color-mix(in srgb, var(--accent-blue) 5%, var(--bg-primary))",
+          borderColor: "color-mix(in srgb, var(--accent-blue) 22%, var(--border-subtle))",
+        }
+      : undefined;
+    const folderHasSessions = group.sessions.length > 0;
 
     return (
       <div key={group.cwd} className="space-y-1">
-        <div className="relative overflow-hidden bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-[14px] p-1.5 shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]">
-        {/* Faint 3D half-open folder watermark — a static vector asset, behind
-            content, non-interactive, clipped to the card's rounded bounds
-            (design D2; Q2 resolved: centered on the card, anchoring the pill
-            grid). See change: redesign-directory-card. */}
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
-          <img src="/assets/folder-3d.svg" alt="" className="w-[188px] max-w-[70%] h-auto opacity-[0.13] saturate-[.85]" />
-        </div>
+        {/* Folder-tab nub — a small tab peeking above the card's top-left
+            corner so the directory card reads as a folder. Sits behind the
+            bordered card (which paints on top, hiding the nub's lower edge)
+            and is non-interactive. The pt-[9px] on the wrapper reserves the
+            space the nub occupies above the card. See change: folder-card-tab-nub. */}
+        <div className="relative pt-[9px]">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute top-0 left-3.5 w-[78px] h-3 bg-[var(--bg-primary)] border border-[var(--border-subtle)] border-b-0 rounded-t-lg"
+          style={folderTint}
+        />
+        <div
+          className={`relative overflow-hidden bg-[var(--bg-primary)] border border-[var(--border-subtle)] p-1.5 ${isCollapsed ? "rounded-[14px] shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]" : "rounded-t-[14px] border-b-0 shadow-[inset_0_1px_0_var(--elevation-rim)]"}`}
+          style={folderTint}
+        >
         <div className="relative z-[1]">
         <div className="flex gap-1.5 px-1 py-1 min-h-[44px] md:min-h-0 rounded">
           {/* Left gutter — chevron at top, drag-handle column extending below */}
@@ -974,6 +1019,23 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 <Icon path={mdiPin} size={0.55} />
               </button>
             )}
+            {/* Remove-from-workspace — grouped inline after the open-home
+                icon (workspace folders only), not floated in the card corner. */}
+            {inWorkspace && workspaceId && onRemoveFolderFromWorkspace && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemoveFolderFromWorkspace(workspaceId, group.cwd);
+                }}
+                className="px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-red-400 hover:bg-[var(--bg-hover)]"
+                title={t("sessionList.removeFromWorkspace", undefined, "Remove from workspace")}
+                aria-label={t("sessionList.removeFromWorkspace", undefined, "Remove from workspace")}
+                data-testid={`ws-remove-${workspaceId}-${group.cwd}`}
+              >
+                <Icon path={mdiClose} size={0.5} />
+              </button>
+            )}
           </div>
           {/* Collapsed density (variant B): when collapsed, the heavy slots
               (git · action bar · plugin sections · OpenSpec proposal state ·
@@ -1017,7 +1079,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               collapses to 1-col at mobile width. A section that renders null
               (plugin disabled / not yet loaded) simply leaves no cell.
               See change: redesign-directory-card. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-3 mt-3">
             <SidebarFolderSectionSlot folder={{ cwd: group.cwd }} />
             {/* Render for both initialized (full section) and pending (spinner).
                 See change: fix-cold-boot-openspec-protocol. */}
@@ -1038,11 +1100,18 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         </div>
         </div>{/* end content layer (relative z-1) */}
         </div>{/* end bordered info card */}
-        {/* Detached Create tray — rendered OUTSIDE the bordered card as a
-            sibling below it, with a divider label; not part of the card
-            surface (design D3). See change: redesign-directory-card. */}
+        {/* Folder body — encloses the Create tray + sessions + ended row so the
+            card reads as a folder holding its contents. Shares the header's
+            --bg-primary surface with one continuous border (header is border-b-0
+            when expanded); an absolute fold-shadow child marks the header/body
+            seam. See change: folder-card-enclosure. */}
         {!isCollapsed && (
-          <div>
+        <div
+          className="relative bg-[var(--bg-primary)] border border-[var(--border-subtle)] border-t-0 rounded-b-[14px] px-1.5 pb-1.5 shadow-[0_2px_4px_var(--shadow-card)]"
+          style={folderTint}
+          data-testid={`folder-body-${group.cwd}`}
+        >
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-2.5 shadow-[inset_0_6px_6px_-6px_var(--shadow-card)]" />
             <div className="relative text-center text-[9.5px] font-semibold tracking-[.1em] uppercase text-[var(--text-muted)] my-2 before:content-[''] before:absolute before:top-1/2 before:left-0 before:w-[38%] before:h-px before:bg-[var(--border-subtle)] after:content-[''] after:absolute after:top-1/2 after:right-0 after:w-[38%] after:h-px after:bg-[var(--border-subtle)]">
               {t("sessionList.create", undefined, "Create")}
             </div>
@@ -1063,10 +1132,15 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 setWorktreeDialogCwd(group.cwd);
               }}
             />
-          </div>
-        )}
-        {/* Session + terminal cards — animated collapse */}
-        <div className={`group-collapse ${isCollapsed ? "collapsed" : "expanded"}`}>
+            {/* Sessions separator — mirrors the Create separator; labels the
+                folder's session cards inside the body. */}
+            {folderHasSessions && (
+            <div className="relative text-center text-[9.5px] font-semibold tracking-[.1em] uppercase text-[var(--text-muted)] my-2 before:content-[''] before:absolute before:top-1/2 before:left-0 before:w-[38%] before:h-px before:bg-[var(--border-subtle)] after:content-[''] after:absolute after:top-1/2 after:right-0 after:w-[38%] after:h-px after:bg-[var(--border-subtle)]">
+              {t("sessionList.sessions", undefined, "Sessions")}
+            </div>
+            )}
+        {/* Session + terminal cards */}
+        <div className="group-collapse expanded">
         <div className="space-y-1 pt-1">
           {/* Spawn error banner — see change: spawn-failure-diagnostics */}
           {spawnErrors?.get(group.cwd) && (
@@ -1292,6 +1366,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           })()}
         </div>
         </div>
+        </div>
+        )}
+        </div>{/* end folder-tab nub wrapper */}
       </div>
     );
   }
@@ -1344,41 +1421,108 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             {t("common.hidden", undefined, "Hidden")}
           </ToggleButton>
         </div>
-        {/* Tag + phase filter groups. Two SEPARATE selection sets (no user-tag
-            vs phase collision). Phase chips write no session state.
-            See change: add-session-tags. */}
+        {/* Master tag-area collapse. ONE header folds BOTH the user-tag group
+            and the read-only phase group (default collapsed, persisted). The
+            collapsed header signals `N tags · M phases` plus, when a filter is
+            active, a distinct active-selection badge + clear affordance so a
+            folded area never silently hides an active filter (D8). Phases stay
+            a distinct read-only sub-group (D9). Two SEPARATE selection sets
+            (no user-tag vs phase collision).
+            See change: add-session-tags · sidebar-tag-collapse-and-delete. */}
         {(allTags.length > 0 || phasesInUse.length > 0) && (
           <div className="px-3 pb-2" data-testid="tag-filter-bar">
-            <TagFilterGroup
-              label={t("sessionList.yourTags", undefined, "Your tags")}
-              tags={allTags}
-              selected={selectedTags}
-              onToggle={toggleSelectedTag}
-              tone="user"
-            />
-            <TagFilterGroup
-              label={t("sessionList.phaseReadOnly", undefined, "Phase (read-only)")}
-              tags={phasesInUse}
-              selected={selectedPhases}
-              onToggle={toggleSelectedPhase}
-              tone="exec"
-            />
-            {anyTagFilterActive && (
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={clearTagFilters}
-                  className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline"
-                  data-testid="clear-tag-filters"
-                >
-                  {t("sessionList.clearTags", undefined, "Clear tags")}
-                </button>
-                {!sessions.some(passesTagAxes) && (
-                  <span className="text-[10px] text-[var(--text-muted)] italic" data-testid="tag-filter-no-match">
-                    {t("sessionList.zeroMatch", undefined, "0 match")}
-                  </span>
+            <button
+              type="button"
+              onClick={toggleTagArea}
+              aria-expanded={tagAreaOpen}
+              className="flex w-full items-center gap-1.5 py-1 text-[10px] uppercase tracking-wide text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+              data-testid="tag-area-toggle"
+            >
+              <Icon path={tagAreaOpen ? mdiChevronDown : mdiChevronRight} size={0.55} className="shrink-0 motion-reduce:transition-none" />
+              <span className="font-medium">{t("sessionList.tags", undefined, "Tags")}</span>
+              <span className="text-[var(--text-muted)] normal-case tracking-normal" data-testid="tag-area-count">
+                {t(
+                  "sessionList.tagAreaCount",
+                  { tags: allTags.length, phases: phasesInUse.length },
+                  `${allTags.length} tag${allTags.length === 1 ? "" : "s"} · ${phasesInUse.length} phase${phasesInUse.length === 1 ? "" : "s"}`,
                 )}
-              </div>
+              </span>
+              {activeFilterCount > 0 && (
+                <span
+                  className="ml-auto rounded-full bg-[var(--accent-blue)]/15 px-1.5 py-0.5 text-[9px] font-semibold text-[var(--accent-blue)] normal-case tracking-normal"
+                  data-testid="tag-area-active-indicator"
+                >
+                  {t("sessionList.tagAreaActiveCount", { count: activeFilterCount }, `${activeFilterCount} active`)}
+                </span>
+              )}
+            </button>
+            {/* Clear affordance reachable while collapsed (D8) — only when a
+                filter is active AND the area is folded. */}
+            {!tagAreaOpen && activeFilterCount > 0 && (
+              <button
+                type="button"
+                onClick={clearTagFilters}
+                className="mt-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline"
+                data-testid="clear-tag-filters-collapsed"
+              >
+                {t("sessionList.clearTags", undefined, "Clear tags")}
+              </button>
+            )}
+            {tagAreaOpen && (
+              <>
+                <TagFilterGroup
+                  label={t("sessionList.yourTags", undefined, "Your tags")}
+                  tags={allTags}
+                  selected={selectedTags}
+                  onToggle={toggleSelectedTag}
+                  tone="user"
+                  cap={10}
+                  onRemove={onRemoveTagGlobally ? (tag) => setPendingDeleteTag(tag) : undefined}
+                />
+                <TagFilterGroup
+                  label={t("sessionList.phaseReadOnly", undefined, "Phase (read-only)")}
+                  tags={phasesInUse}
+                  selected={selectedPhases}
+                  onToggle={toggleSelectedPhase}
+                  tone="exec"
+                />
+                {anyTagFilterActive && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={clearTagFilters}
+                      className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline"
+                      data-testid="clear-tag-filters"
+                    >
+                      {t("sessionList.clearTags", undefined, "Clear tags")}
+                    </button>
+                    {!sessions.some(passesTagAxes) && (
+                      <span className="text-[10px] text-[var(--text-muted)] italic" data-testid="tag-filter-no-match">
+                        {t("sessionList.zeroMatch", undefined, "0 match")}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+            {pendingDeleteTag != null && onRemoveTagGlobally && (
+              <TagDeleteConfirmDialog
+                tag={pendingDeleteTag}
+                count={deleteTagCount}
+                onConfirm={() => {
+                  onRemoveTagGlobally(pendingDeleteTag);
+                  // Drop the just-deleted tag from the active filter selection so a
+                  // now-nonexistent tag can't leave the list filtered to 0 with no
+                  // chip left to deselect (CodeRabbit #5).
+                  setSelectedTags((prev) => {
+                    if (!prev.has(pendingDeleteTag)) return prev;
+                    const next = new Set(prev);
+                    next.delete(pendingDeleteTag);
+                    return next;
+                  });
+                }}
+                onClose={() => setPendingDeleteTag(null)}
+              />
             )}
           </div>
         )}
@@ -1431,18 +1575,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                           <SortableContext items={ws.folders.filter((f) => !anyTagFilterActive || folderMatchesFilters(f)).map((f) => f.cwd)} strategy={verticalListSortingStrategy}>
                             {ws.folders.filter((folder) => !anyTagFilterActive || folderMatchesFilters(folder)).map((folder) => (
                               <SortableWorkspaceFolder key={`ws-${ws.id}-f-${folder.cwd}`} id={folder.cwd} wsId={ws.id}>
-                                <div className="relative">
-                                  {renderGroup(folder, folder.pinned, true)}
-                                  {/* Quick "remove from workspace" affordance —
-                                      full menu lives on the folder action bar. */}
-                                  <button
-                                    onClick={() => onRemoveFolderFromWorkspace?.(ws.id, folder.cwd)}
-                                    className="absolute top-1 right-1 text-[10px] text-[var(--text-muted)] hover:text-red-400 px-1"
-                                    title={t("sessionList.removeFromWorkspace", undefined, "Remove from workspace")}
-                                    data-testid={`ws-remove-${ws.id}-${folder.cwd}`}
-                                  >
-                                    ×
-                                  </button>
+                                <div>
+                                  {renderGroup(folder, folder.pinned, true, ws.id)}
                                 </div>
                               </SortableWorkspaceFolder>
                             ))}

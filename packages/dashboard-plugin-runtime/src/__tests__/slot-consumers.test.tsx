@@ -210,6 +210,24 @@ describe("WorktreeCardSectionSlot", () => {
     expect(screen.getByTestId("wt-kb").textContent).toBe("/repo/.worktrees/feat");
   });
 
+  it("passes placement=\"card\" to rendered claims", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "kb",
+      priority: 100,
+      slot: "worktree-card-section",
+      Component: ({ placement }: { placement?: string }) => (
+        <span data-testid="wt-placement">{placement ?? "(none)"}</span>
+      ),
+    });
+    render(
+      <PluginContextProvider registry={registry}>
+        <WorktreeCardSectionSlot folder={{ cwd: "/repo/.worktrees/feat" }} />
+      </PluginContextProvider>,
+    );
+    expect(screen.getByTestId("wt-placement").textContent).toBe("card");
+  });
+
   it("renders nothing when no claims target the slot", () => {
     const registry = createSlotRegistry();
     const { container } = render(
