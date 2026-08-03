@@ -1,9 +1,13 @@
 import { describe, it, expect, afterEach } from "vitest";
+import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import {
   parseModuleNotFoundError,
   isModuleNotFoundError,
   detectInstallLayout,
+  detectPackageManager,
   suggestedReinstallCommand,
   buildRecoveryHtml,
   startRecoveryServer,
@@ -85,6 +89,43 @@ describe("suggestedReinstallCommand", () => {
   });
   it("returns repo-root install for monorepo", () => {
     expect(suggestedReinstallCommand("monorepo")).toMatch(/repo root/);
+  });
+
+  // A pnpm-only repo (nodeLinker: hoisted) MUST NOT be `npm install`ed — npm
+  // drifts the tree (nested wrong-version deps) and breaks pi at startup.
+  // See change: recovery-server-respect-package-manager.
+  it("suggests pnpm for a monorepo whose root declares pnpm", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "rec-pnpm-"));
+    fs.writeFileSync(path.join(root, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n");
+    const cli = path.join(root, "packages", "server", "src", "cli.ts");
+    // NB: "pnpm install" contains "npm install" — assert on the prefix, not absence.
+    expect(suggestedReinstallCommand("monorepo", cli).startsWith("pnpm install")).toBe(true);
+  });
+
+  it("still suggests npm for a monorepo without pnpm markers", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "rec-npm-"));
+    const cli = path.join(root, "packages", "server", "src", "cli.ts");
+    expect(suggestedReinstallCommand("monorepo", cli).startsWith("npm install")).toBe(true);
+  });
+});
+
+describe("detectPackageManager", () => {
+  it("detects pnpm from pnpm-workspace.yaml", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-ws-"));
+    fs.writeFileSync(path.join(root, "pnpm-workspace.yaml"), "packages: []\n");
+    expect(detectPackageManager(root)).toBe("pnpm");
+  });
+
+  it("detects pnpm from pnpm-lock.yaml", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-lock-"));
+    fs.writeFileSync(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    expect(detectPackageManager(root)).toBe("pnpm");
+  });
+
+  it("falls back to npm when no pnpm markers exist", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-none-"));
+    fs.writeFileSync(path.join(root, "package-lock.json"), "{}\n");
+    expect(detectPackageManager(root)).toBe("npm");
   });
 });
 
