@@ -41,8 +41,8 @@
 ## 6. Regression + budget
 
 - [x] 6.1 Run the full suite: `npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log`. Pay attention to `incremental-event-sync`, `on-demand-session-replay`, `ui-decorators-replay`, and client `event-reducer` suites.
-- [ ] 6.2 Build the large-session fixture (~20k events, #399 shape) — synthetic builder for L1, plus a `.jsonl` seed for the docker harness (new infra, see test-plan.md).
-- [ ] 6.3 Add `tests/e2e/large-session-replay.spec.ts`: **P1** replayed event count ≤ 2× cold-load count (C1), **F5** no `shouldReset` misfire with seq gaps, **F6** reasoning rows still render on reopen, **F3** mid-turn subscribe — rendered streaming row text equals the full accumulated text (C2). Harness port from `.pi-test-harness.json`, never `:18000`.
+- [x] 6.2 Build the large-session fixture (~20k events, #399 shape) — synthetic builder for L1, plus a `.jsonl` seed for the docker harness (new infra, see test-plan.md).
+- [x] 6.3 Add `tests/e2e/large-session-replay.spec.ts`: **P1** replayed event count ≤ 2× cold-load count (C1), **F5** no `shouldReset` misfire with seq gaps, **F6** reasoning rows still render on reopen, **F3** mid-turn subscribe — rendered streaming row text equals the full accumulated text (C2). Harness port from `.pi-test-harness.json`, never `:18000`.
 - [ ] 6.4 **P4** RSS soak (L2): 10 consecutive cold subscribes, RSS returns within +10% of baseline. Needs a new `qa/` RSS-sampling helper.
 - [ ] 6.5 Measure a real large session before/after (event count, bytes, batch count, wall time) and record the numbers in the change folder.
 
