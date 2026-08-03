@@ -67,7 +67,7 @@ Full details: [docs/architecture.md](docs/architecture.md). Electron bootstrap: 
 ## Commands
 
 ```bash
-npm install          # deps
+pnpm install         # deps — pnpm ONLY (pnpm-workspace.yaml sets nodeLinker: hoisted); `npm install` drifts the tree
 npm test             # all tests (vitest)
 npm run build        # build web client (Vite)
 npm run dev          # Vite dev server
