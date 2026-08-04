@@ -31,6 +31,28 @@ bounds: it expands to fit its content, is never shorter than the floor, and
 never exceeds the available space — with content scrolling inside the popover
 when it would exceed `maxHeight`.
 
+A consumer that applies only `maxHeight` silently loses its floor, so the
+complete set of consumer surfaces SHALL be enumerated — **9 surfaces resolving to
+8 hook call sites** (the launch-dialog row re-mounts two existing call sites
+rather than adding a new one):
+
+| # | Surface | Hook call site | Floor |
+|---|---|---|---|
+| 1 | `ModelSelector` | own | 260 (filterable list) |
+| 2 | `ThinkingLevelSelector` | own | 120 default |
+| 3 | `ThemePicker` | own | 120 default |
+| 4 | `ChatViewMenu` | own | 120 default (content always exceeds it) |
+| 5 | `CommandInput` composer dropdown | own | 260 (filterable list) |
+| 6 | `CommandInput` attach (＋) menu | own | n/a — horizontal axis only, applies no height bound |
+| 7 | `WorktreeActionsMenu` | own | 120 default |
+| 8 | `PackageRow` | own | 120 default |
+| 9 | OpenSpec launch-dialog run-config row ("Runs with") | re-mounts #1 + #2 | inherited from #1/#2 |
+
+Surface 9 inherits both bounds because the floor opt-in lives INSIDE each
+consumer component rather than at its mount site; a new host therefore cannot
+forget it. Any future surface that re-mounts an enumerated consumer inherits the
+same guarantee.
+
 The height rule SHALL be expressed declaratively (bounds applied as styles on a
 popover whose natural height is its content height). The hook's measurement path
 SHALL NOT read layout-invalidating content metrics (e.g. `scrollHeight`) of the
@@ -106,6 +128,19 @@ attached only while the popover is open.
 - **THEN** `maxHeight` equals the available space
 - **AND** `minHeight` equals the available space rather than the larger floor
 - **AND** the popover does not extend past the boundary edge
+
+#### Scenario: A re-mounted consumer inherits both bounds in a short dialog
+- **GIVEN** the OpenSpec launch-dialog run-config row, which mounts the model and
+  effort selectors inside a dialog panel that is `overflow`-clipped and shorter
+  than the viewport, and supplies that panel as the clipping boundary
+- **AND** the space above the model-selector trigger within the panel is smaller
+  than the configured 260px list floor
+- **WHEN** the model selector opens
+- **THEN** `maxHeight` equals the panel-measured available space, not the larger
+  viewport-measured space
+- **AND** `minHeight` equals that same available space rather than the 260px floor
+- **AND** the popover does not extend past the dialog panel's edge or grow its
+  scroll extent
 
 #### Scenario: Short content is raised to the readable floor
 - **GIVEN** an open popover whose natural content height is below the configured

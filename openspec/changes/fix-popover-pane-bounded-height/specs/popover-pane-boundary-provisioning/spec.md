@@ -20,6 +20,18 @@ supplied.
 The provided boundary SHALL be the clipping pane itself and never a popover's own
 internal overflow wrapper, so a popover is never clamped against itself.
 
+A modal dialog panel that is `overflow`-clipped and height-capped (e.g.
+`max-h-[80vh] overflow-y-auto`) is such a pane, and SHALL provide itself as the
+boundary for popovers mounted in its body. A dialog is typically far shorter than
+the viewport, so a viewport-measured popover inside one over-reports its space by
+the largest margin of any surface.
+
+A boundary MAY be resolved by a scoped lookup from the consumer's own container
+(e.g. the nearest `[role="dialog"]` ancestor) rather than a literal ref to a known
+element. Such a lookup SHALL be scoped to a single known ancestor selector — it is
+not the rejected general `overflow` ancestor walk — and SHALL still satisfy the
+contains-the-trigger requirement above.
+
 #### Scenario: Settings scroll pane provides its boundary
 - **GIVEN** the Settings panel, whose page content renders in a scrollable pane
 - **WHEN** a popover consumer inside it (e.g. the model selector) opens
@@ -32,6 +44,16 @@ internal overflow wrapper, so a popover is never clamped against itself.
 - **WHEN** a composer popover (e.g. the model selector) opens
 - **THEN** its available space is measured against that host's scroll pane
 - **AND** the popover is not clipped by the pane edge
+
+#### Scenario: A launch dialog provides its panel as the boundary
+- **GIVEN** an OpenSpec launch dialog (Explore / Propose / New Change) whose
+  panel is `overflow`-clipped and height-capped, hosting the run-config row's
+  model and effort selectors
+- **WHEN** one of those selectors opens
+- **THEN** its available space is measured against the dialog panel's rect
+- **AND** the popover renders fully inside the panel rather than past its
+  `overflow` edge
+- **AND** the panel's scroll extent is unchanged, so no second scrollbar appears
 
 #### Scenario: Innermost clipping pane wins when panes are nested
 - **GIVEN** a popover trigger inside nested scrollable panes

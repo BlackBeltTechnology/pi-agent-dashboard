@@ -1,6 +1,7 @@
 ## Context
 
-`usePopoverFlip` is a shared client primitive behind 8 call sites. It measures a trigger rect and
+`usePopoverFlip` is a shared client primitive behind 8 call sites (9 consumer surfaces — see
+Decision 10). It measures a trigger rect and
 returns `flipUp` / `maxHeight` / `anchorRight` / `maxWidth`. It accepts an optional `boundaryRef`
 (supplied via `PopoverBoundaryContext`) to measure against a clipping pane instead of the viewport.
 
@@ -118,6 +119,36 @@ Because the floor moves out of `maxHeight`, any consumer that applies only `maxH
 its minimum height. All 8 call sites must be updated to apply both. This is the change's main
 regression surface and is why every call site is enumerated as an explicit task rather than "update
 consumers".
+
+The opt-in for a non-default floor lives INSIDE the consumer component, not at its mount site — so a
+new host that re-mounts an enumerated consumer inherits both bounds and cannot forget the floor. This
+is what made surface 9 (Decision 10) correct on arrival.
+
+### Decision 10: The launch-dialog run-config row is a 9th consumer SURFACE, not a 9th call site
+
+`#404` (`88c1537e`, merged into `develop` after this change was written) added
+`components/openspec/useOpenSpecRunConfigRow.tsx` — a shared "Runs with" row in the Explore / Propose /
+New Change dialogs. Audited on rebase:
+
+| Audit question | Finding |
+|---|---|
+| New `usePopoverFlip` call site? | **No.** Grep confirms the call-site count is still 8. The row re-mounts `ModelSelector` + `ThinkingLevelSelector`. |
+| Does it get both bounds? | **Yes, inherited.** Both components apply `minHeight`+`maxHeight` internally, so the new mount gets them for free. |
+| Does its host provide a boundary? | **Yes.** `#404` mounts `PopoverBoundaryProvider` with `containerRef.current?.closest('[role="dialog"]')` — which resolves to the shared `Dialog` panel (`packages/client-utils/src/Dialog.tsx:83-91`, `max-h-[80vh] overflow-y-auto`), a real clip+scroll container that contains the trigger. |
+| Does it need the 260 opt-in? | **No.** `ModelSelector` sets `minPopoverHeight: LIST_POPOVER_MIN_HEIGHT` internally; `ThinkingLevelSelector` keeps the 120 default. Correct at this surface too. |
+
+So the new surface needed **no source change** — the contract composed correctly. But a dialog panel is
+the shortest host in the app (`max-h-[80vh]`, often much less), which makes it the surface where the
+260px floor is *most* likely to exceed the available space. That is precisely the overflow mechanism
+Decision 1 removed, and it was previously untested. It is now pinned by three tests in
+`components/__tests__/OpenSpecRunConfig.test.tsx`, including a deliberate contrast case asserting that
+without the dialog ancestor the same rects yield the viewport-derived `440px` instead of the
+pane-derived `192px` — so the boundary assertion cannot silently rot into a tautology.
+
+Lesson recorded: the consumer enumeration is a **moving target**. It is a point-in-time fact that
+goes stale whenever a new surface mounts an existing popover, and it is not protected by the type
+system. The enumeration table now lives in the spec (surface → call site → floor) so the next audit
+has an explicit list to diff against.
 
 ### Decision 6: The floor is a per-consumer option defaulting to 120; only filterable list popovers opt into 260
 

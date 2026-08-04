@@ -53,10 +53,13 @@ surfaces; leaving them untouched keeps the change surgical.
 - `packages/client/src/hooks/usePopoverFlip.tsx` — return shape gains `minHeight`; `maxHeight` no longer
   floor-inflated; `MIN_POPOVER_HEIGHT` raised. Existing tests in
   `packages/client/src/hooks/__tests__/usePopoverFlip.test.ts` assert the old floor behavior and will need updating.
-- **8 `usePopoverFlip` call sites** consume the changed return shape: `ModelSelector`,
+- **9 consumer surfaces over 8 `usePopoverFlip` call sites** consume the changed return shape: `ModelSelector`,
   `ThinkingLevelSelector`, `ThemePicker`, `ChatViewMenu`, `CommandInput` (×2), `WorktreeActionsMenu`,
   `PackageRow`. Each must apply `minHeight` alongside `maxHeight` to gain the floor it previously got
-  implicitly.
+  implicitly. The 9th surface is the OpenSpec launch-dialog run-config row added by #404 after this
+  change was written (`components/openspec/useOpenSpecRunConfigRow.tsx`); it re-mounts `ModelSelector`
+  + `ThinkingLevelSelector` inside a dialog panel and provides that panel as their boundary, so it
+  inherits both bounds without a new call site — see Decision 10.
 - `packages/client/src/components/settings/SettingsPanel.tsx` — scroll pane gains a ref + provider wrap.
   Note it currently nests two `overflow-y-auto` panes (lines 835, 858); the correct clip boundary must be
   determined before wrapping.
@@ -69,6 +72,6 @@ surfaces; leaving them untouched keeps the change surgical.
 - `performance-optimization` — the hook re-measures on window scroll/resize plus boundary
   `scroll`/`ResizeObserver`; the height rule must stay reflow-free (no `scrollHeight` reads in the
   measure path) so added panes don't introduce layout thrash on scroll.
-- `doubt-driven-review` — changes a shared primitive behind 8 call sites; the `maxHeight`/`minHeight`
+- `doubt-driven-review` — changes a shared primitive behind 8 call sites / 9 surfaces; the `maxHeight`/`minHeight`
   contract split should be stress-tested before it stands.
 - `review-code` — non-trivial cross-cutting client change; review before commit.

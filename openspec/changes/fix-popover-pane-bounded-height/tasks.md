@@ -21,7 +21,7 @@
 - [x] 3.4 Update the hook's doc comment to state the `maxHeight` (bound) vs `minHeight` (floor, capped by bound) split, the reflow-free constraint, and `See change: fix-popover-pane-bounded-height`.
 - [x] 3.5 Confirm tasks 2.1–2.5 now pass.
 
-## 4. Consumer updates — apply both bounds at all 8 call sites
+## 4. Consumer updates — apply both bounds at all 8 call sites (9 surfaces)
 
 - [x] 4.1 `components/settings/ModelSelector.tsx` — apply `minHeight` alongside `maxHeight`; confirm the list region inner-scrolls.
 - [x] 4.2 `components/settings/ThinkingLevelSelector.tsx` — apply `minHeight`.
@@ -64,3 +64,12 @@
 - [x] 8.2 Update the `PopoverBoundaryContext.tsx` row in `packages/client/src/lib/state/AGENTS.md` to list every pane that now provides a boundary.
 - [x] 8.3 Update the affected component rows / sidecars in their directory `AGENTS.md` files (`components/settings/`, `components/chat/`, `components/worktree/`, `components/packages/`, `components/folder/`, `components/session/`, `src/`).
 - [x] 8.4 Delegate any `docs/` prose update to the `DocScribe` subagent in caveman style (main agent must not edit `docs/` directly); apply the tree rows it returns.
+
+## 9. Rebase onto develop — re-audit the consumer enumeration
+
+- [x] 9.1 Rebase onto `origin/develop`; resolve the `ModelSelector.tsx` conflict (#404's `useId`) and the auto-merged `ThinkingLevelSelector.tsx` (74facdf4's chip font size) preserving BOTH sides.
+- [x] 9.2 Re-run the suite post-rebase and confirm red is stale-dependency only (`pnpm install` after #405's lockfile bump), not conflict fallout.
+- [x] 9.3 Audit #404's launch-dialog run-config row as a new consumer surface: both bounds, host boundary, 260 opt-in. Record as design Decision 10.
+- [x] 9.4 Update the spec consumer enumeration to 9 surfaces (surface → call site → floor table) and add scenarios to both spec deltas.
+- [x] 9.5 Pin the new surface with tests in `components/__tests__/OpenSpecRunConfig.test.tsx`, including a contrast case proving the boundary assertion is not tautological.
+- [x] 9.6 Update the affected `AGENTS.md` rows for the 9th surface.
