@@ -65,20 +65,35 @@ async function health() {
   return res.json();
 }
 
-/** Pick the session with the most events — the heaviest replay available. */
+/**
+ * Pick the heaviest replay target: the session with the most events when the
+ * server reports a count, else the first listed. Fails fast on an empty list or
+ * an entry without an id, instead of hanging until the 20s timeout.
+ */
 async function pickSessionId() {
   const ws = new WebSocket(`ws://localhost:${PORT}/ws`);
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { ws.close(); reject(new Error("timed out listing sessions")); }, 20_000);
+    const done = (fn, arg) => { clearTimeout(timer); ws.close(); fn(arg); };
     ws.on("open", () => ws.send(JSON.stringify({ type: "list_sessions" })));
     ws.on("message", (raw) => {
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
       const list = msg?.sessions ?? msg?.data?.sessions;
-      if (!Array.isArray(list) || list.length === 0) return;
-      clearTimeout(timer);
-      ws.close();
-      resolve(list[0].id ?? list[0].sessionId);
+      if (!Array.isArray(list)) return; // not the reply we are waiting for
+      if (list.length === 0) {
+        done(reject, new Error("no sessions on the dashboard — spawn one before soaking"));
+        return;
+      }
+      const countOf = (s) =>
+        [s?.eventCount, s?.entryCount].find((n) => typeof n === "number") ?? -1;
+      const heaviest = list.reduce((best, s) => (countOf(s) > countOf(best) ? s : best), list[0]);
+      const id = heaviest?.id ?? heaviest?.sessionId;
+      if (typeof id !== "string" || id.length === 0) {
+        done(reject, new Error(`session entry has no id: ${JSON.stringify(heaviest).slice(0, 120)}`));
+        return;
+      }
+      done(resolve, id);
     });
     ws.on("error", (e) => { clearTimeout(timer); reject(e); });
   });
