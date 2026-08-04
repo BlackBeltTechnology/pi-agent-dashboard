@@ -112,7 +112,9 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 - [ ] 5.8 Blob cache (2 GB LRU, disk) as an optimisation over the transcript.
 - [ ] 5.10 D10: fitted-derivative disk cache keyed by content hash; miss re-fits.
 - [x] 5.11 D11: animated-GIF detection → bypass fitting, keep existing ceiling handling.
-- [ ] 5.9 Client: placeholder → image swap; click-to-original overlay.
+- [x] 5.9a Client: reducer `attachment_fitted` case + placeholder/failed rendering
+      (`ChatImage.attachmentId`/`attachmentState`, `ChatView` pending + failed states).
+- [ ] 5.9b Client: click-to-original overlay (depends on the originals endpoint, 5.7).
 
 ## 6. New infra
 

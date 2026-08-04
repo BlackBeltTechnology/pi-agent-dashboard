@@ -15,6 +15,19 @@ import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 export interface ChatImage {
   data: string;
   mimeType: string;
+  /**
+   * sha256 of the original bytes, present when the server used the two-phase
+   * attachment path. Addresses this block for the later `attachment_fitted`
+   * resolution and for fetching the full-resolution original.
+   * See change: fit-attachments-for-display (D12).
+   */
+  attachmentId?: string;
+  /**
+   * `pending` until its fitted derivative arrives, then `ready`, or `failed`
+   * when fitting could not produce one. Absent for legacy inline blocks that
+   * already carry their bytes.
+   */
+  attachmentState?: "pending" | "ready" | "failed";
 }
 
 export interface ChatMessage {
@@ -1209,6 +1222,39 @@ export function reduceEvent(
       break;
     }
 
+    // Phase 2 of the two-phase attachment render: swap a pending placeholder
+    // for its fitted derivative (or an explicit failed state). Addressed by
+    // `attachmentId` rather than seq because this fold never sees a seq and
+    // replay may deliver the resolution well after its row.
+    // See change: fit-attachments-for-display (D12, test-plan #F2 #F3 #F7).
+    case "attachment_fitted": {
+      const attachmentId = typeof data.attachmentId === "string" ? data.attachmentId : "";
+      if (!attachmentId) break;
+      const state_ = data.state === "failed" ? "failed" : "ready";
+      let patched = false;
+      const messages = next.messages.map((m) => {
+        if (patched || !m.images) return m;
+        if (!m.images.some((img) => img.attachmentId === attachmentId)) return m;
+        patched = true;
+        return {
+          ...m,
+          images: m.images.map((img) =>
+            img.attachmentId === attachmentId
+              ? {
+                  ...img,
+                  data: state_ === "failed" ? "" : String(data.data ?? ""),
+                  mimeType: typeof data.mimeType === "string" ? data.mimeType : img.mimeType,
+                  attachmentState: state_ as "ready" | "failed",
+                }
+              : img,
+          ),
+        };
+      });
+      // Unknown id (evicted row, foreign session): ignore rather than disturb state.
+      if (patched) next.messages = messages;
+      break;
+    }
+
     case "message_start": {
       const msg = data.message as any;
       if (msg?.role === "assistant") {
@@ -1230,13 +1276,20 @@ export function reduceEvent(
             .filter((c: any) => c.type === "text")
             .map((c: any) => c.text)
             .join("");
+          // A two-phase placeholder has NO bytes yet but must still occupy its
+          // slot, otherwise the attachment position is lost and the later
+          // `attachment_fitted` event has nothing to fill. Legacy inline blocks
+          // (bytes present, no attachmentId) keep the original predicate.
+          // See change: fit-attachments-for-display (D12).
           const imgBlocks = msg.content.filter(
-            (c: any) => c.type === "image" && c.data && c.mimeType,
+            (c: any) => c.type === "image" && c.mimeType && (c.data || c.attachmentId),
           );
           if (imgBlocks.length > 0) {
             images = imgBlocks.map((c: any) => ({
-              data: c.data,
+              data: c.data ?? "",
               mimeType: c.mimeType,
+              ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
+              ...(c.attachmentState ? { attachmentState: c.attachmentState } : {}),
             }));
           }
         } else {

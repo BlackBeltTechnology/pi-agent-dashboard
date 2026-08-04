@@ -118,12 +118,41 @@ function ImageAttachments({
     <>
       <div className="flex gap-2 flex-wrap mb-2">
         {images.map((img, i) => {
+          // Two-phase attachment render: the row is delivered before its fitted
+          // image exists, so a block may be pending (no bytes yet) or failed.
+          // Rendering a data URL for those would show a broken-image glyph.
+          // See change: fit-attachments-for-display (D3/D12, test-plan #F1 #F3).
+          if (img.attachmentState === "pending") {
+            return (
+              <div
+                key={i}
+                data-testid="attachment-pending"
+                className="min-w-[80px] min-h-[80px] w-[120px] h-[80px] rounded border border-white/20 bg-white/5 animate-pulse flex items-center justify-center text-[10px] text-white/40"
+                aria-label={`Attachment ${i + 1} loading`}
+              >
+                loading
+              </div>
+            );
+          }
+          if (img.attachmentState === "failed") {
+            return (
+              <div
+                key={i}
+                data-testid="attachment-failed"
+                className="min-w-[80px] min-h-[80px] w-[120px] h-[80px] rounded border border-red-500/40 bg-red-500/5 flex items-center justify-center text-[10px] text-red-300/70 text-center px-1"
+                aria-label={`Attachment ${i + 1} failed to load`}
+              >
+                image unavailable
+              </div>
+            );
+          }
           const src = `data:${img.mimeType};base64,${img.data}`;
           const reserve = !loaded.has(i) ? "min-w-[80px] min-h-[80px]" : "";
           return (
             <img
               key={i}
               src={src}
+              data-testid="attachment-image"
               alt={`Attachment ${i + 1}`}
               className={`max-w-[300px] max-h-[300px] ${reserve} rounded border border-white/20 object-contain cursor-pointer`}
               onLoad={(e) => {
