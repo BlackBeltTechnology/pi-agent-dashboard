@@ -212,14 +212,21 @@
     "head-tail-truncate-subagent-event-timeline": "ui",
     "fix-bridge-resume-disconnect": "ui",
     "honor-native-models-json-metadata": "ui",
-    "fix-grammar-llm-swallowed-corrections": "separate-functions-to-plugins"
+    "fix-grammar-llm-swallowed-corrections": "separate-functions-to-plugins",
+    "compact-warm-replay-stream": "ui",
+    "openspec-dialog-model-effort-selector": "ui",
+    "add-apple-tools-imcp-plugin": "ui",
+    "update-pi-core-0-83-adopt-apis": "ui",
+    "preserve-inline-terminal-transcript": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
       "fix-pi-install-node26-and-omit-dev-build",
       "add-mid-turn-tool-oauth",
       "add-skill-tool-provisioning",
-      "implement-it"
+      "implement-it",
+      "match-local-installs-by-package-name",
+      "ship-browser-skill-and-electron-cdp"
     ],
     "kowledge-base": [
       "add-lora-dataset-export-skill",
@@ -229,8 +236,11 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "fix-bridge-resume-disconnect",
-      "honor-native-models-json-metadata"
+      "openspec-dialog-model-effort-selector",
+      "preserve-inline-terminal-transcript",
+      "add-apple-tools-imcp-plugin",
+      "update-pi-core-0-83-adopt-apis",
+      "compact-warm-replay-stream"
     ],
     "next-phase": [
       "add-codegraph-code-plane",

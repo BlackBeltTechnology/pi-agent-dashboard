@@ -1,5 +1,18 @@
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseSourceKey, sourcesMatch } from "../source-matching.js";
+
+describe("source-matching purity (S1)", () => {
+	it("imports no fs module — stays usable by the wizard bootstrap + plugin loader", () => {
+		const here = path.dirname(fileURLToPath(import.meta.url));
+		const src = fs.readFileSync(path.join(here, "..", "source-matching.ts"), "utf-8");
+		expect(src).not.toMatch(/from\s+["']node:fs["']/);
+		expect(src).not.toMatch(/from\s+["']fs["']/);
+		expect(src).not.toMatch(/require\((?:["'])(?:node:)?fs["']\)/);
+	});
+});
 
 describe("parseSourceKey", () => {
 	it("parses npm:<name>", () => {

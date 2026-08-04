@@ -20,6 +20,72 @@ import {
 import { killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { augmentEnvWithGitSource } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { measureBytes, DEFAULT_MAX_EVENT_DATA_SIZE } from "../persistence/memory-event-store.js";
+
+/**
+ * Default byte budget for a captured inline-terminal transcript: 75 % of the
+ * event-store's default data ceiling, leaving ample envelope headroom so the
+ * close event can never trip the store's size clamp (which would destroy the
+ * `terminalId` the client reducer keys on). Overridable per manager.
+ * See change: preserve-inline-terminal-transcript.
+ */
+export const DEFAULT_TRANSCRIPT_CAP_BYTES = Math.floor(DEFAULT_MAX_EVENT_DATA_SIZE * 0.75);
+
+/**
+ * Derive the transcript byte budget from the event-store ceiling (75 %) and
+ * assert both truncation knobs are safe. Throws (fail-loud at boot) when the
+ * derived cap is not strictly below the ceiling, or when a nonzero per-field
+ * cap could, at worst-case 6× serialized expansion (`ESC` → `\u001b`), push a
+ * capped transcript back over the ceiling. `maxEventDataSize = 0` (size pass
+ * disabled) falls back to the default ceiling, never a 0 budget.
+ * See change: preserve-inline-terminal-transcript (D2a/D2b).
+ */
+export function deriveTranscriptCapBytes(maxEventDataSize: number, maxStringFieldSize: number): number {
+  const ceiling = maxEventDataSize || DEFAULT_MAX_EVENT_DATA_SIZE;
+  const cap = Math.floor(ceiling * 0.75);
+  if (cap >= ceiling) {
+    throw new Error(`[config] derived transcript cap (${cap} B) must be below the event-data ceiling (${ceiling} B)`);
+  }
+  if (maxStringFieldSize !== 0 && maxStringFieldSize * 6 >= ceiling) {
+    throw new Error(
+      `[config] maxStringFieldSize (${maxStringFieldSize}) × 6 worst-case serialized bytes must be below the event-data ceiling (${ceiling} B); inline terminal close events would lose their terminalId`,
+    );
+  }
+  return cap;
+}
+
+/** Bounded count of dead ephemeral transcript tombstones retained at once. */
+const TOMBSTONE_CAP = 64;
+/** How long a close-release suppression flag lives (ms), swept lazily. */
+const RELEASED_TTL_MS = 60_000;
+
+/**
+ * Cap a transcript to `capBytes` measured in serialized JSON bytes (the SAME
+ * unit the event store enforces), keeping the tail. A code-unit cap would
+ * diverge badly on CJK/emoji/ANSI content and still trip the store's byte
+ * ceiling. When over budget, binary-search the largest tail slice such that
+ * `MARKER + tail` still serializes within budget — the marker is counted
+ * INSIDE the budget. See change: preserve-inline-terminal-transcript (D2).
+ */
+export function capTranscript(s: string, capBytes: number): string {
+  if (measureBytes(s, capBytes) <= capBytes) return s;
+  let lo = 0;
+  let hi = s.length;
+  let best = "";
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const tail = s.slice(s.length - mid);
+    const hidden = s.length - mid;
+    const candidate = `…[${hidden} chars hidden]…\n${tail}`;
+    if (measureBytes(candidate, capBytes) <= capBytes) {
+      best = candidate;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
 
 /** Detect the appropriate shell for the current platform. */
 export function detectShell(platform?: string): string {
@@ -86,11 +152,21 @@ interface TerminalEntry {
   pty: IPty;
   buffer: RingBuffer;
   clients: Set<WebSocket>;
+  /** True once the user has sent any input keystroke to this PTY. */
+  sawInput: boolean;
+}
+
+/** Retained transcript of a dead ephemeral terminal. */
+export interface TranscriptTombstone {
+  transcript: string;
+  sawInput: boolean;
 }
 
 export interface TerminalManagerOptions {
   onExit?: (terminalId: string) => void;
   bufferSize?: number;
+  /** Byte budget for captured transcripts. See change: preserve-inline-terminal-transcript. */
+  transcriptCapBytes?: number;
 }
 
 export interface TerminalManager {
@@ -107,6 +183,20 @@ export interface TerminalManager {
    * See change: add-inline-terminal-card.
    */
   getTranscript(id: string): string;
+  /**
+   * Capped transcript + input flag for an inline terminal, from the live entry
+   * if still alive, else from a retained tombstone, else `undefined` when the
+   * manager has no knowledge of the id. See change: preserve-inline-terminal-transcript.
+   */
+  getTerminalRecord(id: string): TranscriptTombstone | undefined;
+  /**
+   * Mark a terminal's transcript released (card closed). Sticky suppression:
+   * a later PTY exit path must never re-create a tombstone for a closed card.
+   * See change: preserve-inline-terminal-transcript (D1b).
+   */
+  releaseTranscript(id: string): void;
+  /** True while a release suppression flag is still in force for `id`. */
+  isReleased(id: string): boolean;
 }
 
 function generateId(): string {
@@ -119,6 +209,36 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
 
   const entries = new Map<string, TerminalEntry>();
   const bufferSize = options?.bufferSize ?? DEFAULT_BUFFER_SIZE;
+  const transcriptCapBytes = options?.transcriptCapBytes ?? DEFAULT_TRANSCRIPT_CAP_BYTES;
+  // Retained transcripts of dead ephemeral terminals (insertion-ordered).
+  const transcripts = new Map<string, TranscriptTombstone>();
+  // Sticky close-release suppression flags: id -> timestamp (ms). Bounded by
+  // time (TTL), never by count, so eviction can never defeat stickiness.
+  const released = new Map<string, number>();
+
+  function sweepReleased(): void {
+    if (released.size === 0) return;
+    const cutoff = Date.now() - RELEASED_TTL_MS;
+    for (const [id, ts] of released) {
+      if (ts <= cutoff) released.delete(id);
+    }
+  }
+
+  // Write a tombstone for a dead ephemeral terminal, unless its card was
+  // already released. Never clears `released` — both exit paths may run.
+  function writeTombstone(id: string, entry: TerminalEntry): void {
+    sweepReleased();
+    if (!entry.session.ephemeral || released.has(id)) return;
+    transcripts.set(id, {
+      transcript: capTranscript(entry.buffer.contents().toString("utf8"), transcriptCapBytes),
+      sawInput: entry.sawInput,
+    });
+    while (transcripts.size > TOMBSTONE_CAP) {
+      const oldest = transcripts.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      transcripts.delete(oldest);
+    }
+  }
 
   function spawn(cwd: string, opts?: { ephemeral?: boolean }): TerminalSession {
     const shell = detectShell();
@@ -149,7 +269,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     const buffer = new RingBuffer(bufferSize);
     const clients = new Set<WebSocket>();
 
-    const entry: TerminalEntry = { session, pty: p, buffer, clients };
+    const entry: TerminalEntry = { session, pty: p, buffer, clients, sawInput: false };
     entries.set(id, entry);
 
     p.onData((data: string) => {
@@ -169,6 +289,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
         try { ws.close(); } catch {}
       }
       clients.clear();
+      writeTombstone(id, entry);
       entries.delete(id);
       options?.onExit?.(id);
     });
@@ -191,6 +312,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) {
         // Terminal input (binary frame)
+        entry.sawInput = true;
         entry.pty.write(data.toString());
       } else {
         // Text frame: could be a control message or terminal input from AttachAddon
@@ -214,10 +336,12 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
             // title control message — handled elsewhere
           } else {
             // Unknown JSON, treat as terminal input
+            entry.sawInput = true;
             entry.pty.write(str);
           }
         } catch {
           // Not JSON — treat as terminal input (AttachAddon sends text frames)
+          entry.sawInput = true;
           entry.pty.write(str);
         }
       }
@@ -282,6 +406,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
         try { ws.close(); } catch { /* ignore */ }
       }
       stale.clients.clear();
+      writeTombstone(id, stale);
       entries.delete(id);
       options?.onExit?.(id);
     }, 3000);
@@ -297,8 +422,30 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
 
   function getTranscript(id: string): string {
     const entry = entries.get(id);
-    if (!entry) return "";
-    return entry.buffer.contents().toString("utf8");
+    if (entry) return entry.buffer.contents().toString("utf8");
+    return transcripts.get(id)?.transcript ?? "";
+  }
+
+  function getTerminalRecord(id: string): TranscriptTombstone | undefined {
+    const entry = entries.get(id);
+    if (entry) {
+      return {
+        transcript: capTranscript(entry.buffer.contents().toString("utf8"), transcriptCapBytes),
+        sawInput: entry.sawInput,
+      };
+    }
+    return transcripts.get(id);
+  }
+
+  function releaseTranscript(id: string): void {
+    sweepReleased();
+    released.set(id, Date.now());
+    transcripts.delete(id);
+  }
+
+  function isReleased(id: string): boolean {
+    sweepReleased();
+    return released.has(id);
   }
 
   function list(): TerminalSession[] {
@@ -312,5 +459,5 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     }
   }
 
-  return { spawn, attach, detach, kill, get, list, updateTitle, getTranscript };
+  return { spawn, attach, detach, kill, get, list, updateTitle, getTranscript, getTerminalRecord, releaseTranscript, isReleased };
 }

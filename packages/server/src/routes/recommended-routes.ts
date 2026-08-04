@@ -10,6 +10,19 @@
  *   - activeInPi flag from ~/.pi/agent/settings.json packages[]
  *   - updateAvailable flag
  *
+ * Matching an entry to a local install uses an either-match:
+ * `sourcesMatch(candidate, entry.source)` (pure string) OR the candidate's
+ * on-disk `package.json` `name` equals the entry's npm name. The fs-aware name
+ * fallback (npm-sourced entries only) covers monorepo checkouts whose directory
+ * basename is decorated differently from the published name
+ * (e.g. `image-fit-extension` vs `@blackbelt-technology/pi-image-fit-extension`).
+ * It is applied at ALL THREE decision sites — `inGlobal`/`inLocal`, the inner
+ * lookup that gates the version/skills read, and `activeInPi`. A single
+ * memoized `package.json` parse per path per request backs both the name match
+ * and the existing version/pi.skills read, so a given path is read at most
+ * once. It fails closed (falls back to the string match) on any read/parse
+ * error.
+ *
  * Results are cached for 60 seconds. The cache is busted when any package
  * install / remove / update operation completes successfully.
  */
@@ -122,6 +135,51 @@ function readActiveSources(cwd?: string): string[] {
 	return sources;
 }
 
+/** A parsed package.json, or undefined when absent/unreadable/invalid. */
+type ParsedPkg = Record<string, unknown> | undefined;
+
+/**
+ * Build a memoized `package.json` reader: each distinct directory is read and
+ * parsed at most once for the lifetime of the returned function (one request).
+ * Swallows all errors, yielding undefined — callers fail closed.
+ */
+export function createPkgReader(): (dir: string | undefined) => ParsedPkg {
+	const cache = new Map<string, ParsedPkg>();
+	return (dir) => {
+		if (!dir) return undefined;
+		if (cache.has(dir)) return cache.get(dir);
+		let parsed: ParsedPkg;
+		try {
+			const pj = path.join(dir, "package.json");
+			parsed = fs.existsSync(pj)
+				? (JSON.parse(fs.readFileSync(pj, "utf-8")) as Record<string, unknown>)
+				: undefined;
+		} catch {
+			parsed = undefined;
+		}
+		cache.set(dir, parsed);
+		return parsed;
+	};
+}
+
+/**
+ * Fs-aware name fallback predicate. Returns true when `entrySource` is an
+ * npm source AND the `package.json` `name` at `candidatePath` (via the
+ * injected `readPkg`) equals the parsed npm name. Pure given `readPkg`; fails
+ * closed (false) for non-npm entries, a missing candidate path, or a
+ * missing/invalid/non-string name.
+ */
+export function npmNameMatchesPath(
+	entrySource: string,
+	candidatePath: string | undefined,
+	readPkg: (dir: string | undefined) => ParsedPkg,
+): boolean {
+	const key = parseSourceKey(entrySource);
+	if (key.kind !== "npm" || !candidatePath) return false;
+	const name = readPkg(candidatePath)?.name;
+	return typeof name === "string" && name === key.name;
+}
+
 function semverOlder(installed: string | undefined, latest: string | undefined): boolean {
 	if (!installed || !latest) return false;
 	if (installed === latest) return false;
@@ -137,8 +195,15 @@ async function enrichEntry(
 	installedLocal: Array<{ source: string; installedPath?: string }>,
 	activeSources: string[],
 	reqDeps: RequirementProbeDeps,
+	readPkg: (dir: string | undefined) => ParsedPkg,
 ): Promise<EnrichedRecommendedExtension> {
 	const key = parseSourceKey(entry.source);
+
+	// fs-aware name fallback (npm-sourced entries only): a local candidate path
+	// whose package.json name equals this entry's npm name counts as a match,
+	// even when the path basename is decorated differently. Fails closed.
+	const nameMatches = (candidatePath: string | undefined): boolean =>
+		npmNameMatchesPath(entry.source, candidatePath, readPkg);
 	let meta: PackageMeta | null = null;
 
 	if (key.kind === "npm") {
@@ -153,15 +218,24 @@ async function enrichEntry(
 	// registry / GitHub blob; an installed copy (read below) overrides it.
 	let skillsRegistered: string[] | undefined = meta?.skills;
 
-	const inGlobal = installedGlobal.some((p) => sourcesMatch(p.source, entry.source));
-	const inLocal = installedLocal.some((p) => sourcesMatch(p.source, entry.source));
+	const inGlobal = installedGlobal.some(
+		(p) => sourcesMatch(p.source, entry.source) || nameMatches(p.installedPath),
+	);
+	const inLocal = installedLocal.some(
+		(p) => sourcesMatch(p.source, entry.source) || nameMatches(p.installedPath),
+	);
 	const installedScope: "global" | "local" | null = inGlobal
 		? "global"
 		: inLocal
 			? "local"
 			: null;
 
-	const activeInPi = activeSources.some((s) => sourcesMatch(s, entry.source));
+	// activeInPi drives the client Active/Remove button + missing-required count.
+	// The active source string for a local install IS the checkout path, so the
+	// name fallback reads package.json from it directly.
+	const activeInPi = activeSources.some(
+		(s) => sourcesMatch(s, entry.source) || nameMatches(s),
+	);
 
 	// Best-effort update indicator: for npm sources, try to read the installed
 	// package.json version and compare to the live registry version. For git
@@ -173,16 +247,19 @@ async function enrichEntry(
 	// disk; the registry blob is the pre-install fallback).
 	if (installedScope) {
 		const installed = inGlobal ? installedGlobal : installedLocal;
-		const match = installed.find((p) => sourcesMatch(p.source, entry.source));
+		const match = installed.find(
+			(p) => sourcesMatch(p.source, entry.source) || nameMatches(p.installedPath),
+		);
 		if (match?.installedPath) {
 			try {
-				const pj = path.join(match.installedPath, "package.json");
-				if (fs.existsSync(pj)) {
-					const parsed = JSON.parse(fs.readFileSync(pj, "utf-8"));
+				// Same memoized parse the name match used — no second read.
+				const parsed = readPkg(match.installedPath);
+				if (parsed) {
 					if (version && key.kind === "npm") {
-						updateAvailable = semverOlder(parsed?.version, version);
+						updateAvailable = semverOlder(parsed.version as string | undefined, version);
 					}
-					const installedSkills = deriveSkillIds(parsed?.pi?.skills);
+					const pi = parsed.pi as { skills?: unknown } | undefined;
+					const installedSkills = deriveSkillIds(pi?.skills);
 					if (installedSkills) skillsRegistered = installedSkills;
 				}
 			} catch {
@@ -273,9 +350,13 @@ export function registerRecommendedRoutes(
 			toolRegistry: getDefaultRegistry(),
 		};
 
+		// One memoized package.json parse per path for this request, shared by
+		// the name match and the version/pi.skills read across all entries.
+		const readPkg = createPkgReader();
+
 		const enriched = await Promise.all(
 			RECOMMENDED_EXTENSIONS.map((entry) =>
-				enrichEntry(entry, installedGlobal, installedLocal, activeSources, reqDeps),
+				enrichEntry(entry, installedGlobal, installedLocal, activeSources, reqDeps, readPkg),
 			),
 		);
 

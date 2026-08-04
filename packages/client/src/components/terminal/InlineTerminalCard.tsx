@@ -69,7 +69,11 @@ export function InlineTerminalCard({ terminalId, closed, transcript, onClose }: 
   const handleClose = useCallback(() => onClose(terminalId), [onClose, terminalId]);
 
   return (
-    <div className="my-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] overflow-hidden">
+    <div
+      data-testid="terminal-card"
+      data-terminal-state={closed ? "frozen" : "live"}
+      className="my-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] overflow-hidden"
+    >
       {closed ? (
         <>
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] text-sm text-[var(--text-secondary)]">
