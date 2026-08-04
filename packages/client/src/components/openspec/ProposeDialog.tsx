@@ -4,6 +4,7 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useOpenSpecRunConfigRow } from "./useOpenSpecRunConfigRow.js";
 
 /**
  * Propose dialog — name-only (optional) launcher for the `propose` workflow.
@@ -27,9 +28,10 @@ export function formatProposePrompt(name: string): string {
 
 export function ProposeDialog({ onSend, onClose }: Props) {
   const [name, setName] = useState("");
+  const { rowElement, submit, sending } = useOpenSpecRunConfigRow();
 
   const handleSend = () => {
-    onSend(formatProposePrompt(name));
+    submit(() => onSend(formatProposePrompt(name)));
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -40,8 +42,8 @@ export function ProposeDialog({ onSend, onClose }: Props) {
   };
 
   return (
-    <Dialog open onClose={onClose} title={i18nT("common.proposeChange", undefined, "Propose Change")} testId="propose-dialog">
-      <p className="text-xs text-[var(--text-tertiary)] mb-2">
+    <Dialog open onClose={onClose} title={i18nT("common.proposeChange", undefined, "Propose Change")} icon={mdiSend} testId="propose-dialog">
+      <p data-testid="propose-hint" className="text-xs text-[var(--text-tertiary)] mb-2">
         {i18nT("common.createsAChangeAndGeneratesAll", undefined, "Creates a change and generates all planning artifacts in one step.")}
       </p>
       <input
@@ -54,9 +56,10 @@ export function ProposeDialog({ onSend, onClose }: Props) {
         autoFocus
         data-testid="propose-name"
       />
+      {rowElement}
       <Dialog.Footer>
         <Dialog.Cancel onClick={onClose} testId="propose-cancel" />
-        <Dialog.Action onClick={handleSend} testId="propose-send">
+        <Dialog.Action onClick={handleSend} disabled={sending} testId="propose-send">
           <Icon path={mdiSend} size={0.45} className="inline mr-0.5" />{i18nT("common.propose", undefined, "Propose")}
         </Dialog.Action>
       </Dialog.Footer>

@@ -31,6 +31,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `helpers/index.ts` | E2E helpers. `gotoDashboard(page)` navigates `/`, waits for `header-app-bar`, and arms a one-per-page… → see `helpers/index.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts (change: inline-agent-screenshot-artifacts, automates… → see `inline-screenshot.spec.ts.AGENTS.md` |
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Docker harness. → see `kb-folder-slot.spec.ts.AGENTS.md` |
+| `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-replay-stream` (#399): P1 zero superseded `message_update`, F5, F6… → see `large-session-replay.spec.ts.AGENTS.md` |
 | `list-models-registry-ready.spec.ts` | Playwright spec (L3). Live proof of the `list_models` registry-readiness discriminator. → see `list-models-registry-ready.spec.ts.AGENTS.md` |
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free port in managed mode; `PW_E2E_PORT` (default 18000) +… → see `lifecycle.ts.AGENTS.md` |
 | `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page). Model-proxy OAuth-incompatible filtering. → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
