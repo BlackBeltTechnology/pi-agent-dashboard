@@ -212,9 +212,19 @@ export function isUserAllowed(email: string, username: string, allowedUsers?: st
 
 // ─── Redirect URI Builder ───────────────────────────────────────────────────
 
-export function buildRedirectUri(provider: string, port: number): string {
-  const base = getTunnelUrl() ?? `http://localhost:${port}`;
-  return `${base}/auth/callback/${provider}`;
+/**
+ * Build the OAuth redirect URI for a provider.
+ *
+ * Base precedence (highest first): explicit `baseOverride` (from config file
+ * `auth.redirectBaseUrl`) → active tunnel URL → `http://localhost:<port>`.
+ */
+export function buildRedirectUri(
+  provider: string,
+  port: number,
+  baseOverride?: string | null,
+): string {
+  const base = baseOverride || getTunnelUrl() || `http://localhost:${port}`;
+  return `${base.replace(/\/+$/, "")}/auth/callback/${provider}`;
 }
 
 // ─── OAuth Flow Helpers ─────────────────────────────────────────────────────

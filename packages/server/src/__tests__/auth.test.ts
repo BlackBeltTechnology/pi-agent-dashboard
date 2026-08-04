@@ -7,6 +7,7 @@ import {
   ensureAuthSecret,
   buildAuthorizeUrl,
   buildProviderRegistry,
+  buildRedirectUri,
   COOKIE_NAME,
   type AuthUser,
   type ResolvedProvider,
@@ -196,6 +197,40 @@ describe("buildProviderRegistry", () => {
     // keycloak should be skipped (no issuerUrl), github should resolve
     expect(registry.size).toBe(1);
     expect(registry.has("github")).toBe(true);
+  });
+});
+
+// ─── Redirect URI Builder Tests ─────────────────────────────────────────────
+
+describe("buildRedirectUri", () => {
+  // No tunnel runtime exists in tests, so getTunnelUrl() returns null and the
+  // localhost fallback is exercised.
+
+  it("falls back to localhost when no tunnel and no override", () => {
+    expect(buildRedirectUri("github", 8000)).toBe(
+      "http://localhost:8000/auth/callback/github",
+    );
+  });
+
+  it("uses the config-file override when provided (highest precedence)", () => {
+    expect(buildRedirectUri("github", 8000, "https://pi.example.com")).toBe(
+      "https://pi.example.com/auth/callback/github",
+    );
+  });
+
+  it("normalizes a trailing slash on the override base", () => {
+    expect(buildRedirectUri("google", 9000, "https://pi.example.com/")).toBe(
+      "https://pi.example.com/auth/callback/google",
+    );
+    expect(buildRedirectUri("google", 9000, "https://pi.example.com///")).toBe(
+      "https://pi.example.com/auth/callback/google",
+    );
+  });
+
+  it("treats an empty override like an absent one (falls back to localhost)", () => {
+    expect(buildRedirectUri("github", 8000, "")).toBe(
+      "http://localhost:8000/auth/callback/github",
+    );
   });
 });
 

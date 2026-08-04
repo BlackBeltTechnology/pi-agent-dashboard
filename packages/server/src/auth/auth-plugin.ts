@@ -121,6 +121,7 @@ export async function registerAuthPlugin(
     allowedUsers: authConfig.allowedUsers,
     bypassUrls: authConfig.bypassUrls ?? [],
     bypassHosts: resolvedTrustedNetworks ?? authConfig.bypassHosts ?? [],
+    redirectBaseUrl: authConfig.redirectBaseUrl,
   };
 
   if (authState.providerRegistry.size === 0) {
@@ -135,6 +136,7 @@ export async function registerAuthPlugin(
     authState.allowedUsers = newConfig.allowedUsers;
     authState.bypassUrls = newConfig.bypassUrls ?? [];
     authState.bypassHosts = newConfig.bypassHosts ?? [];
+    authState.redirectBaseUrl = newConfig.redirectBaseUrl;
     const names = Array.from(authState.providerRegistry.values()).map((p) => p.name);
     console.log(`🔐 Auth reloaded with providers: ${names.join(", ")}`);
   };
@@ -158,7 +160,7 @@ export async function registerAuthPlugin(
     if (providers.length === 1 && !error) {
       // Auto-redirect to single provider
       const p = providers[0];
-      const redirectUri = buildRedirectUri(p.key, port);
+      const redirectUri = buildRedirectUri(p.key, port, authState.redirectBaseUrl);
       const returnUrl = (request.query as any)?.return || "/";
       const state = encodeState(returnUrl);
       const url = buildAuthorizeUrl(p, redirectUri, state);
@@ -175,7 +177,7 @@ export async function registerAuthPlugin(
     if (!provider) {
       return reply.code(404).send({ error: "Unknown provider" });
     }
-    const redirectUri = buildRedirectUri(providerKey, port);
+    const redirectUri = buildRedirectUri(providerKey, port, authState.redirectBaseUrl);
     const returnUrl = (request.query as any)?.return || "/";
     const state = encodeState(returnUrl);
     const url = buildAuthorizeUrl(provider, redirectUri, state);
@@ -198,7 +200,7 @@ export async function registerAuthPlugin(
       return reply.redirect("/auth/login?error=Missing+authorization+code");
     }
 
-    const redirectUri = buildRedirectUri(providerKey, port);
+    const redirectUri = buildRedirectUri(providerKey, port, authState.redirectBaseUrl);
     const accessToken = await exchangeCode(provider, code, redirectUri);
     if (!accessToken) {
       return reply.redirect("/auth/login?error=Token+exchange+failed");

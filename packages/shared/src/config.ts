@@ -80,6 +80,8 @@ export interface AuthConfig {
   allowedUsers?: string[];
   bypassUrls?: string[];
   bypassHosts?: string[];
+  /** Base URL for OAuth redirect URIs — overrides the tunnel URL when set. */
+  redirectBaseUrl?: string;
   /** Admin email override — can list/revoke every user's proxy API keys. */
   admin?: string;
 }
@@ -574,6 +576,9 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
     ...(Array.isArray(raw.allowedUsers) ? { allowedUsers: raw.allowedUsers } : Array.isArray(raw.allowedEmails) ? { allowedUsers: raw.allowedEmails } : {}),
     bypassUrls: Array.isArray(raw.bypassUrls) ? raw.bypassUrls.filter((u: unknown) => typeof u === "string") : [],
     bypassHosts: Array.isArray(raw.bypassHosts) ? raw.bypassHosts.filter((u: unknown) => typeof u === "string") : [],
+    ...(typeof raw.redirectBaseUrl === "string" && raw.redirectBaseUrl.trim()
+      ? { redirectBaseUrl: raw.redirectBaseUrl.trim() }
+      : {}),
     ...(typeof raw.admin === "string" && raw.admin ? { admin: raw.admin } : {}),
   };
 }

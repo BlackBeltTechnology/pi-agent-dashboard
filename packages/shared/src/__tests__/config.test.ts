@@ -296,6 +296,43 @@ describe("loadConfig", () => {
     expect(config.auth!.bypassUrls).toEqual(["/valid", "/also-valid"]);
   });
 
+  it("should parse auth.redirectBaseUrl when set", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      auth: {
+        providers: { github: { clientId: "id1", clientSecret: "s1" } },
+        redirectBaseUrl: "https://pi.example.com",
+      },
+    }));
+    const config = loadConfig();
+    expect(config.auth!.redirectBaseUrl).toBe("https://pi.example.com");
+  });
+
+  it("should trim auth.redirectBaseUrl and omit blank values", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      auth: {
+        providers: { github: { clientId: "id1", clientSecret: "s1" } },
+        redirectBaseUrl: "  https://pi.example.com/  ",
+      },
+    }));
+    expect(loadConfig().auth!.redirectBaseUrl).toBe("https://pi.example.com/");
+
+    fs.writeFileSync(configFile, JSON.stringify({
+      auth: {
+        providers: { github: { clientId: "id1", clientSecret: "s1" } },
+        redirectBaseUrl: "   ",
+      },
+    }));
+    expect(loadConfig().auth!.redirectBaseUrl).toBeUndefined();
+
+    fs.writeFileSync(configFile, JSON.stringify({
+      auth: {
+        providers: { github: { clientId: "id1", clientSecret: "s1" } },
+        redirectBaseUrl: 42,
+      },
+    }));
+    expect(loadConfig().auth!.redirectBaseUrl).toBeUndefined();
+  });
+
   it("should parse lastServer when set", () => {
     fs.writeFileSync(configFile, JSON.stringify({ lastServer: "workstation.local:8000" }));
     const config = loadConfig();
