@@ -4,18 +4,19 @@ The Packages tab's "Recommended for this dashboard" panel shows locally-installe
 
 ## What Changes
 
-- Resolve a local install's identity by reading its on-disk `package.json` `name` (available via the `installedPath` already returned by `listConfiguredPackages()`), and match that against the recommended entry's parsed npm name.
-- Apply the fs-aware match in the **server enrichment layer** (`enrichEntry` in `recommended-routes.ts`), which already opens `<installedPath>/package.json` for `version` + `pi.skills` — the `name` is read in the same parse, zero extra IO.
+- Resolve a local install's identity by reading its on-disk `package.json` `name` and match that against the recommended entry's parsed npm name. Reuse the **existing exported** `readPackageJsonName(installedPath)` in `packages/server/src/package/installed-package-enricher.ts` (fail-closed, tested) — do not author a new reader.
+- Apply the fs-aware either-match in the **server enrichment layer** (`enrichEntry` in `recommended-routes.ts`) at **all three** decision sites that currently use only `sourcesMatch`: (a) `inGlobal`/`inLocal` (over installed rows, which carry `installedPath`); (b) the inner `installed.find(...)` that gates the `version`/`pi.skills` read; and (c) **`activeInPi`** (over `activeSources` — the settings `packages[]` strings; for a local install the source string IS the checkout path, so read `package.json` `name` from it directly). Fixing only (a) leaves the actual bug unfixed: the Active/Remove button and the missing-required count both key off `activeInPi`, not `installed.scope`.
 - Keep `sourcesMatch` in `packages/shared/src/source-matching.ts` **pure and unchanged** (string-only, no fs) so the Electron wizard bootstrap enricher and plugin loader keep working; the fs read is a layered addition, not a replacement.
-- Once display is corrected, `Install all missing` and the missing-required counts fold in automatically (matched entries become `activeInPi: true`).
+- Memoize `readPackageJsonName` per path within a single request to bound reads (N recommended entries × M installed rows otherwise re-read the same file).
+- Once `activeInPi` is corrected, `Install all missing` and the missing-required counts fold in automatically.
 
 ## Capabilities
 
 ### New Capabilities
-- `local-install-name-resolution`: An fs-aware resolution step in the recommended-extensions enrichment that identifies a locally-installed package by its `package.json` `name` at `installedPath`, so decoration-mismatched checkout directories are matched exactly against a recommended entry's npm name.
+- `local-install-name-resolution`: An fs-aware resolution step in the recommended-extensions enrichment that identifies a locally-installed package by its `package.json` `name` (read via the existing `readPackageJsonName`) at a local path — either an installed row's `installedPath` or an `activeSources` checkout-path string — so decoration-mismatched checkout directories are matched exactly against a recommended entry's npm name. Applies to npm-sourced recommended entries only (git entries have no npm `name`).
 
 ### Modified Capabilities
-- `installed-package-row-enrichment`: The recommended-extensions enrichment SHALL treat a local install as installed/active when its `installedPath` `package.json` `name` equals the entry's npm name, in addition to the existing string `sourcesMatch`.
+- `installed-package-row-enrichment`: The recommended-extensions enrichment SHALL treat a local install as installed AND active when the `package.json` `name` at its local path equals the entry's npm name, in addition to the existing string `sourcesMatch`. The either-match SHALL be applied at every site that decides installed-scope OR `activeInPi` OR gates the installed `package.json` read.
 
 ## Discipline Skills
 
@@ -24,7 +25,8 @@ The Packages tab's "Recommended for this dashboard" panel shows locally-installe
 
 ## Impact
 
-- **Code**: `packages/server/src/routes/recommended-routes.ts` (`enrichEntry` `inGlobal`/`inLocal` + `activeInPi`). Possible parity mirror in the Electron wizard bootstrap enricher (scope decision in design).
+- **Code**: `packages/server/src/routes/recommended-routes.ts` (`enrichEntry`: `inGlobal`/`inLocal`, inner `installed.find(...)`, and `activeInPi`). Reuses `readPackageJsonName` from `installed-package-enricher.ts`. Possible parity mirror in the Electron wizard bootstrap enricher (deferred — see design D3).
 - **APIs**: `GET /api/packages/recommended` response values change (correct `installed.scope` / `activeInPi`); shape unchanged.
 - **No change** to `sourcesMatch` / `package-source-matching` spec (stays pure).
+- **IO**: NOT zero-IO. Entries that fail the string match but resolve a local path incur one `readPackageJsonName` read each (they read nothing today, since the current `package.json` read is gated behind a matched `installedScope`). Reads are memoized per path within a request; the delta is bounded and necessary to fix the bug.
 - **Migration/rollback**: pure read-path fix, no persisted state, no settings migration; revert restores prior behavior. Results are cached 60s and busted on install/remove — no cache-shape change.
