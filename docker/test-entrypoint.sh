@@ -85,10 +85,24 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   if [ ! -f "${PI_DIR}/dashboard/config.json" ]; then
     # `trustedNetworks` is the SOURCE field; loadConfig() merges it into the
     # derived `resolvedTrustedNetworks` that createNetworkGuard reads. Seeding
-    # the derived field directly is ignored (recomputed at load). Trust the
-    # RFC1918 private blocks — docker published-port traffic is SNAT'd through
-    # the bridge gateway (Linux 172.17.x, Docker Desktop 192.168.65.x), always
-    # private. Narrower than 0.0.0.0/0; still clears the in-container browser.
+    # the derived field directly is ignored (recomputed at load).
+    #
+    # This USED to seed only the RFC1918 blocks on the assumption that
+    # published-port traffic is always SNAT'd through a private bridge gateway
+    # (Linux 172.17.x, Docker Desktop 192.168.65.x). That assumption does NOT
+    # hold: on a host running a VPN/secure-DNS layer (e.g. Cloudflare WARP) the
+    # peer address the container observes for host traffic can be a PUBLIC
+    # address (observed: 172.67.221.13 — outside 172.16.0.0/12, which spans only
+    # 172.16-172.31). Every browser request then failed createNetworkGuard, so
+    # the UI rendered "Network not allowed" + "Server offline" and every
+    # scenario spec died in `pinDirectory` — nondeterministically, depending on
+    # the host's network stack.
+    #
+    # The trust boundary here is the CONTAINER, not the IP range: this is a
+    # disposable, RAM-backed, localhost-published test container seeded with a
+    # fake credential, and it is torn down (with volumes) after the run. So the
+    # seed trusts any peer by default. Override with PI_E2E_TRUSTED_NETWORKS
+    # (comma-separated) to narrow it on a host where RFC1918 does hold.
     # `defaultModel` makes the bridge call pi.setModel(faux/faux-1) on each
     # brand-new UI-spawned session (bridge-default-model-gate) so the round-trip
     # specs reach a key-free model with no --model flag.
@@ -101,11 +115,12 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     node -e '
       const crypto = require("node:crypto");
       const fs = require("node:fs");
-      const [key, spawnStrategy, out] = process.argv.slice(1);
+      const [key, spawnStrategy, out, trusted] = process.argv.slice(1);
       const hash = crypto.createHash("sha256").update(key).digest("hex");
+      const networks = (trusted || "").split(",").map((s) => s.trim()).filter(Boolean);
       const cfg = {
         spawnStrategy: spawnStrategy || "tmux",
-        trustedNetworks: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+        trustedNetworks: networks.length > 0 ? networks : ["0.0.0.0/0"],
         defaultModel: "faux/faux-1",
         modelProxy: {
           enabled: true,
@@ -116,8 +131,8 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
         },
       };
       fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
-    ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json"
-    echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (RFC1918) + defaultModel + modelProxy apiKey → config.json"
+    ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json" "${PI_E2E_TRUSTED_NETWORKS:-}"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (${PI_E2E_TRUSTED_NETWORKS:-0.0.0.0/0}) + defaultModel + modelProxy apiKey → config.json"
   fi
 
   # --- Faux model: stage the fixture as a global auto-discovered extension ---

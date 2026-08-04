@@ -438,6 +438,42 @@ describe("PathPicker", () => {
     expect(getInput().value).toBe("/Users/robson/");
   });
 
+  it("does not clobber a path typed while the default-directory fetch is in flight", async () => {
+    // Regression: the mount-time `fetchDir(undefined, "")` used to
+    // `setInputValue(result.current)` unconditionally when it resolved, wiping
+    // anything typed meanwhile — the user silently ended up browsing HOME.
+    let resolveHome!: (v: unknown) => void;
+    mockBrowse.mockImplementationOnce(
+      () => new Promise((res) => { resolveHome = res; }),
+    );
+    render(<PathPicker onSelect={onSelect} onCancel={onCancel} />);
+
+    // User types a full path BEFORE the default-dir listing comes back.
+    mockBrowse.mockResolvedValue({
+      current: "/fixtures",
+      parent: "/",
+      entries: [{ name: "sample-git", path: "/fixtures/sample-git", isGit: true, isPi: true }],
+    });
+    fireEvent.change(getInput(), { target: { value: "/fixtures/sample-git" } });
+
+    // …then the stale default-directory fetch resolves. This lands INSIDE the
+    // debounce window, so `abortRef` still points at the mount controller and
+    // the stale-response guard does NOT suppress it — only `userEditedRef` does.
+    await act(async () => {
+      resolveHome({
+        current: "/Users/robson",
+        parent: "/Users",
+        entries: [{ name: "Desktop", path: "/Users/robson/Desktop", isGit: false, isPi: false }],
+      });
+      // Flush the promise chain so any clobbering setInputValue has committed
+      // before we assert (asserting earlier would pass even without the fix).
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getInput().value).toBe("/fixtures/sample-git");
+  });
+
   it("should reset highlight when typing", async () => {
     renderPicker();
     await waitFor(() => expect(screen.getByText("Desktop")).toBeTruthy());

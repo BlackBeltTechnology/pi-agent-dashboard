@@ -118,12 +118,21 @@ PW_E2E_USE_RUNNING=1 npm run test:e2e
 
 `PI_E2E_SEED=1` makes `docker/test-entrypoint.sh` seed a fake (never-valid)
 anthropic OAuth credential — flips `providersReady` so the LandingPage step
-CTAs unlock — and seed `trustedNetworks` (RFC1918 private blocks) so the in-container
-browser (docker-gateway source IP, non-loopback) clears the network guard for
-directory listing / providers. A spawned session registers over the bridge
-before any model call, so card-appearance does not depend on key validity.
-Without the flag the harness stays UI-only and scenario specs fail at the pin
-step.
+CTAs unlock — and seed `trustedNetworks` so the browser's non-loopback source IP
+clears the network guard for directory listing / providers. A spawned session
+registers over the bridge before any model call, so card-appearance does not
+depend on key validity. Without the flag the harness stays UI-only and scenario
+specs fail at the pin step.
+
+`trustedNetworks` defaults to `0.0.0.0/0`. Narrow it with
+`PI_E2E_TRUSTED_NETWORKS` (comma-separated CIDRs). It used to seed only the
+RFC1918 blocks, on the assumption that published-port traffic is always SNAT'd
+through a private bridge gateway — false on a host running a VPN/secure-DNS
+layer (e.g. Cloudflare WARP), where the peer the container observes can be a
+PUBLIC address. Every browser request then 403s ("Network not allowed" +
+"Server offline") and every scenario spec dies at the pin step. The trust
+boundary is the container, not an IP range: `compose.test.yml` publishes the
+test harness on `127.0.0.1` only, and its state is a throwaway tmpfs.
 
 ## Layout
 

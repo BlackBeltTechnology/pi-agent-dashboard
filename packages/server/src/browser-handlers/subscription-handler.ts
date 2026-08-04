@@ -7,10 +7,17 @@ import type { WebSocket } from "ws";
 import { extractStatsFromEvents } from "../session/event-status-extraction.js";
 import type { StoredEvent } from "../persistence/memory-event-store.js";
 import { pluginIntentCache } from "../plugin-intent-cache.js";
+import { compactEventsForReplay } from "../session/replay-compaction.js";
 import { truncateToolResultForReplay } from "../session/replay-truncate.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
-const REPLAY_BATCH_SIZE = 50;
+/**
+ * Raised 50 → 200. Each batch is one client React commit, so a large warm
+ * window used to cost hundreds of commits. With `compactEventsForReplay`
+ * removing the superseded snapshot updates, a 200-event batch stays well under
+ * BACKPRESSURE_THRESHOLD. See change: compact-warm-replay-stream (D5).
+ */
+const REPLAY_BATCH_SIZE = 200;
 /** Max events to replay per session subscription (0 = unlimited) */
 const MAX_REPLAY_EVENTS = 0;
 /** Max buffered bytes before pausing replay sends (1MB) */
@@ -30,17 +37,32 @@ const HYDRATE_HEARTBEAT_MS = 10000;
  */
 /**
  * Send stored events to a WebSocket in batches with backpressure handling.
- * Returns the highest seq sent, or 0 if no events were sent.
+ *
+ * Returns the PRE-compaction highest seq of the window, or 0 if nothing was
+ * sent. Compaction can drop the highest-seq event (a still-superseded
+ * `message_update`); returning the last SURVIVING seq would make
+ * `clearReplaying` re-send already-covered events as a catch-up batch.
+ * See change: compact-warm-replay-stream (D4).
+ *
+ * Exported so unit tests can drive the batching / backpressure / socket-close
+ * paths directly, mirroring `replayUiState` / `replaySessionAssets`.
  */
-async function sendEventBatches(
+export async function sendEventBatches(
   ws: WebSocket,
   sessionId: string,
   stored: StoredEvent[],
   sendTo: (ws: WebSocket, msg: ServerToBrowserMessage) => void,
 ): Promise<number> {
-  for (let i = 0; i < stored.length; i += REPLAY_BATCH_SIZE) {
+  // High-water mark is computed from the PRE-compaction window (D4).
+  const preCompactionMaxSeq = stored.length > 0 ? stored[stored.length - 1].seq : 0;
+  // Replay-only stream compaction: drop assistant `message_update` snapshots
+  // superseded by a later `message_end`, bringing the warm (in-memory) window
+  // down to the cold (on-disk) path's shape. The store keeps the full stream.
+  // See change: compact-warm-replay-stream.
+  const compacted = compactEventsForReplay(stored);
+  for (let i = 0; i < compacted.length; i += REPLAY_BATCH_SIZE) {
     if (ws.readyState !== ws.OPEN) return 0;
-    const batch = stored.slice(i, i + REPLAY_BATCH_SIZE);
+    const batch = compacted.slice(i, i + REPLAY_BATCH_SIZE);
     sendTo(ws, {
       type: "event_replay",
       sessionId,
@@ -49,7 +71,7 @@ async function sendEventBatches(
       // keeps the full body for develop's "Show full output" route; small
       // results and non-tool events pass through untouched.
       events: batch.map((e) => ({ seq: e.seq, event: truncateToolResultForReplay(e.event) })),
-      isLast: i + REPLAY_BATCH_SIZE >= stored.length,
+      isLast: i + REPLAY_BATCH_SIZE >= compacted.length,
     });
     // Yield to event loop between batches to allow GC and buffer flushing
     if (ws.bufferedAmount > BACKPRESSURE_THRESHOLD) {
@@ -67,7 +89,7 @@ async function sendEventBatches(
       await new Promise<void>((r) => setImmediate(r));
     }
   }
-  return stored.length > 0 ? stored[stored.length - 1].seq : 0;
+  return preCompactionMaxSeq;
 }
 
 /**
