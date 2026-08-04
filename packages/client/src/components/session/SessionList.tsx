@@ -841,48 +841,48 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   function renderGroupWithWorkspaceMenu(group: DirectoryGroup, isPinned: boolean) {
     const owningWsId = folderWorkspaceMap.get(group.cwd) ?? null;
     const menuOpen = addToWsMenuFor === group.cwd;
-    return (
-      <div className="relative">
-        {renderGroup(group, isPinned)}
-        {(onCreateWorkspace || (workspaces && workspaces.length > 0)) && (
-          <div className="absolute top-1.5 right-9">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setAddToWsMenuFor(menuOpen ? null : group.cwd);
+    // Add-to-workspace affordance flows inline in the header action row (with
+    // the open-home / pin icons) rather than floating over the card corner —
+    // a full-width pill overlaps those icons when absolutely positioned.
+    const workspaceAction =
+      onCreateWorkspace || (workspaces && workspaces.length > 0) ? (
+        <div className="relative ml-auto">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setAddToWsMenuFor(menuOpen ? null : group.cwd);
+            }}
+            className="text-xs px-2 py-1 rounded border flex items-center gap-0.5 text-blue-500 border-blue-500/40 bg-blue-500/5 hover:text-blue-400 hover:border-blue-500/70"
+            title={t("sessionList.addToWorkspace", undefined, "Add to workspace")}
+            data-testid={`add-to-workspace-btn-${group.cwd}`}
+          >
+            <Icon path={mdiViewGridPlus} size={0.55} /> {t("sessionList.workspace", undefined, "Workspace")}
+          </button>
+          {menuOpen && (
+            <AddToWorkspaceMenu
+              workspaces={workspaces ?? []}
+              currentWorkspaceId={owningWsId}
+              onPick={(wsId) => {
+                onAddFolderToWorkspace?.(wsId, group.cwd);
+                setAddToWsMenuFor(null);
               }}
-              className="text-xs px-2 py-1 rounded border flex items-center gap-0.5 text-blue-500 border-blue-500/40 bg-blue-500/5 hover:text-blue-400 hover:border-blue-500/70"
-              title={t("sessionList.addToWorkspace", undefined, "Add to workspace")}
-              data-testid={`add-to-workspace-btn-${group.cwd}`}
-            >
-              <Icon path={mdiViewGridPlus} size={0.55} /> {t("sessionList.workspace", undefined, "Workspace")}
-            </button>
-            {menuOpen && (
-              <AddToWorkspaceMenu
-                workspaces={workspaces ?? []}
-                currentWorkspaceId={owningWsId}
-                onPick={(wsId) => {
-                  onAddFolderToWorkspace?.(wsId, group.cwd);
-                  setAddToWsMenuFor(null);
-                }}
-                onNewWorkspace={() => {
-                  setNewWsOpen({ pendingFolder: group.cwd });
-                  setAddToWsMenuFor(null);
-                }}
-                onRemoveFromWorkspace={() => {
-                  if (owningWsId) onRemoveFolderFromWorkspace?.(owningWsId, group.cwd);
-                  setAddToWsMenuFor(null);
-                }}
-                onClose={() => setAddToWsMenuFor(null)}
-              />
-            )}
-          </div>
-        )}
-      </div>
-    );
+              onNewWorkspace={() => {
+                setNewWsOpen({ pendingFolder: group.cwd });
+                setAddToWsMenuFor(null);
+              }}
+              onRemoveFromWorkspace={() => {
+                if (owningWsId) onRemoveFolderFromWorkspace?.(owningWsId, group.cwd);
+                setAddToWsMenuFor(null);
+              }}
+              onClose={() => setAddToWsMenuFor(null)}
+            />
+          )}
+        </div>
+      ) : null;
+    return renderGroup(group, isPinned, false, undefined, workspaceAction);
   }
 
-  function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string) {
+  function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string, headerAction?: React.ReactNode) {
     const displayPath = truncatePathMiddle(group.cwd, 45);
     const lastSlash = displayPath.lastIndexOf('/');
     const parentPath = lastSlash >= 0 ? displayPath.slice(0, lastSlash + 1) : '';
@@ -983,6 +983,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 is irrelevant for visibility/ordering there. The pin state
                 itself is preserved on the server (orthogonal to workspace
                 membership). See change: folder-workspaces. */}
+            {/* Add-to-workspace pill (top-level groups only). ml-auto on its
+                wrapper right-aligns this whole action cluster. */}
+            {headerAction}
             {/* Open the directory home page. Distinct from the collapse toggle
                 (the name row) and the drag gutter (a sibling) — stopPropagation
                 keeps the click from toggling collapse or starting a reorder.
@@ -997,7 +1000,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                   e.stopPropagation();
                   navigate(buildFolderHomeUrl(group.cwd));
                 }}
-                className="ml-auto px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                className={`${headerAction ? "" : "ml-auto "}px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]`}
                 title={t("sessionList.openFolderHome", undefined, "Open folder home")}
                 aria-label={t("sessionList.openFolderHome", undefined, "Open folder home")}
                 data-testid={`folder-open-home-${group.cwd}`}
@@ -1012,7 +1015,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                   if (isPinned) onUnpinDirectory?.(group.cwd);
                   else onPinDirectory?.(group.cwd);
                 }}
-                className={`ml-auto px-1 py-0.5 rounded ${isPinned ? "text-yellow-400 hover:text-yellow-300" : "text-[var(--text-tertiary)] hover:text-yellow-400"}`}
+                className={`${headerAction ? "" : "ml-auto "}px-1 py-0.5 rounded ${isPinned ? "text-yellow-400 hover:text-yellow-300" : "text-[var(--text-tertiary)] hover:text-yellow-400"}`}
                 title={isPinned ? t("sessionList.unpinDirectory", undefined, "Unpin directory") : t("sessionList.pinDirectory", undefined, "Pin directory")}
                 data-testid={isPinned ? "unpin-dir-btn" : "pin-dir-btn"}
               >
