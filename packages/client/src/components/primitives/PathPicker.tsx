@@ -62,6 +62,14 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
   const abortRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingFetchRef = useRef<(() => Promise<void>) | null>(null);
+  /**
+   * Set once the user edits the input. The mount-time default-directory fetch
+   * resolves asynchronously and used to `setInputValue(result.current)`
+   * unconditionally, wiping anything typed while it was in flight (a fast
+   * typist — or a programmatic fill — lost the whole path and silently ended up
+   * browsing HOME). Adopt the server default ONLY while the field is pristine.
+   */
+  const userEditedRef = useRef(false);
 
   /**
    * Fetch directory contents. If `q` is non-empty, filters server-side.
@@ -165,7 +173,8 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
       void fetchDir(parent, partial);
     } else {
       fetchDir(undefined, "").then((result) => {
-        if (result) {
+        // Never clobber input the user has already typed (see userEditedRef).
+        if (result && !userEditedRef.current) {
           // Append OS-native separator using the platform the server
           // reports (falls back to inference if absent for backward-
           // compat with older servers).
@@ -215,6 +224,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
   // Input change → debounced server fetch with (parent, partial) as q.
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
+    userEditedRef.current = true;
     setInputValue(value);
     setHighlightIndex(-1);
     const { parent, partial: newPartial } = parseInput(value);
@@ -222,6 +232,9 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
   };
 
   const descendInto = (dirPath: string) => {
+    // Counts as a user edit: this writes `inputValue`, so a late-resolving
+    // mount-time default fetch must not overwrite it either.
+    userEditedRef.current = true;
     // Use OS-native separator so a Windows-resolved path stays in
     // backslash form (previously `dirPath + "/"` produced mixed
     // separators like `C:\Users\me/`).

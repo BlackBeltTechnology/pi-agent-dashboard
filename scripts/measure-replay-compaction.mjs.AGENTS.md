@@ -1,0 +1,3 @@
+# measure-replay-compaction.mjs — index
+
+Measures the `compact-warm-replay-stream` (#399) win: events / wire bytes / batch count / wall time, BEFORE (no compaction, batch 50) vs AFTER (compaction, batch 200). Loads TS sources through `jiti`. No args → synthetic #399-shaped window from `largeSyntheticWindow()` (21420 → 420 events, 6.26 MB → 0.10 MB, 429 → 3 batches, ~2.2 ms). Optional `<session.jsonl>` arg → runs `replayEntriesAsEvents` on a real persisted session and asserts compaction is a NO-OP on the cold path by full projection equality (seq + eventType + object identity), not just equal length — resolves the design's uniform-apply open question. Numbers recorded in the archived change's `measurements.md`. See change: compact-warm-replay-stream.
