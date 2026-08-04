@@ -187,6 +187,33 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     echo "[test-entrypoint] PI_E2E_SEED: seeded faux role-preset → providers.json"
   fi
 
+  # --- Decoration-mismatched local install (change: match-local-installs-by-package-name) ---
+  # A local checkout whose DIRECTORY basename is decorated differently from its
+  # published npm name: dir `image-fit-extension` vs name
+  # `@blackbelt-technology/pi-image-fit-extension`. The pure-string sourcesMatch
+  # basename rule cannot match these, so the recommended-extensions enrichment
+  # must fall back to reading package.json#name to report the entry Active.
+  # Registered in settings.json packages[] => it lands in activeSources, which is
+  # the site that drives the card's Active/Remove button.
+  LOCAL_PKG_DIR="/fixtures/local-pkg/image-fit-extension"
+  if [ ! -f "${LOCAL_PKG_DIR}/package.json" ]; then
+    mkdir -p "${LOCAL_PKG_DIR}"
+    printf '%s\n' '{ "name": "@blackbelt-technology/pi-image-fit-extension", "version": "0.0.1" }' \
+      > "${LOCAL_PKG_DIR}/package.json"
+    node -e '
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const [p, dir] = process.argv.slice(1);
+      let s = {};
+      try { s = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+      if (!Array.isArray(s.packages)) s.packages = [];
+      if (!s.packages.includes(dir)) s.packages.push(dir);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
+    ' "${PI_DIR}/agent/settings.json" "${LOCAL_PKG_DIR}"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded decorated local install → ${LOCAL_PKG_DIR}"
+  fi
+
   # --- Flow-plugin e2e peers, selected by PI_TEST_PEERS (change: add-flow-plugin-e2e-tests) ---
   # Variants: both | no-am | legacy | bad-registration. UNSET => skipped entirely
   # (non-flow specs run exactly as before). The pi-flows engine + anthropic peer

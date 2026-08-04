@@ -68,4 +68,4 @@ Harness exemplars (copy glue from these):
 
 ## New infra needed
 
-- **F3 (L3)** needs a docker-harness fixture that seeds a decorated local install whose `package.json` name matches a recommended npm entry. If the harness cannot seed this cheaply, F3 downgrades to manual (merge into M1) — flagged for the implementer to decide during authoring, not assumed present.
+- **F3 (L3)** needed a docker-harness fixture seeding a decorated local install. **RESOLVED — implemented, not downgraded.** `docker/test-entrypoint.sh` seeds `/fixtures/local-pkg/image-fit-extension` (`package.json#name` = `@blackbelt-technology/pi-image-fit-extension`) into settings.json `packages[]` under the existing `PI_E2E_SEED` gate, reusing the same pattern the pi-flows peer wiring already uses. Verified no perturbation: no e2e spec asserts recommended-package counts, and `recommended-requires.spec.ts` still passes alongside the new spec.

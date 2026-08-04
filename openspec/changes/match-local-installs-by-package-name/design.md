@@ -36,9 +36,15 @@ Traced facts (verified against `recommended-routes.ts`):
 
 `npmNameMatchesPath(entry, candidatePath)`: only for npm-sourced entries (`parseSourceKey(entry.source).kind === "npm"` → `name`); reads `readPackageJsonName(candidatePath)` (existing exported reader) and compares exactly; fails closed (false) on non-npm entry, missing/unreadable path, invalid JSON, or non-string `name`, so behavior degrades to today's string match. Git-sourced entries have no npm `name` and are out of scope (Non-Goal).
 
-### D2 — reuse the existing reader; memoize per path per request
+### D2 — ONE memoized `package.json` parse per path per request
 
-Do NOT author a new parse helper: `readPackageJsonName(installedPath)` already exists (exported, tested, swallow-on-error) in `installed-package-enricher.ts`. Wrap it in a per-request `Map<string, string | undefined>` memo so N recommended entries × M installed rows do not re-read the same `package.json`. The existing `version`/`pi.skills` read stays as-is (separate concern); the memo only bounds the new name reads. Net IO is one read per distinct local path touched by a failed string match — not zero, but bounded and cached.
+The route must not gain a second on-disk reader alongside the `version`/`pi.skills` read it already performs. `createPkgReader()` returns a memoized `dir → parsed package.json | undefined` function (swallow-on-error) held for one request; **both** the name match and the existing `version`/`pi.skills` read go through it. Consequences:
+
+- A given directory is read + parsed **at most once per request**, however many recommended entries probe it (N entries × M rows collapse to one read per distinct path).
+- The route ends up with exactly **one** package.json reader, not two — satisfying the DRY concern that motivated reusing an existing reader, while also removing the duplicate read the previous framing would have introduced.
+- `readPackageJsonName` in `installed-package-enricher.ts` is left untouched and still serves its own callers; it is not called here because this site needs `name` + `version` + `pi.skills` from a single parse, not just the name.
+
+Net IO is still not zero: an entry that fails the string match but resolves a local path incurs one read it would not perform today (today's read is gated behind an already-matched scope). The added reads are bounded by the number of distinct local paths touched.
 
 ### D3 — wizard bootstrap enricher parity: DEFER, documented
 

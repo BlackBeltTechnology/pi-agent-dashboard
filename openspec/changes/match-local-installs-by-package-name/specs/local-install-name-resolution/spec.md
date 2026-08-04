@@ -4,11 +4,11 @@
 
 ### Requirement: Recommended-extensions enrichment SHALL identify a local install by its package.json name
 
-When enriching a recommended-extensions entry, the system SHALL treat an installed row as referring to that entry when the row's `installedPath` directory contains a `package.json` whose `name` equals the recommended entry's parsed npm name (the `npm:<name>` source with the `npm:` prefix and any trailing `@<version>` removed). This SHALL be evaluated in addition to — not instead of — the existing pure-string `sourcesMatch(row.source, entry.source)` predicate; a match by EITHER means SHALL count as installed.
+When enriching a recommended-extensions entry, the system SHALL treat a local candidate as referring to that entry when the candidate's directory contains a `package.json` whose `name` equals the recommended entry's parsed npm name (the `npm:<name>` source with the `npm:` prefix and any trailing `@<version>` removed). A local candidate is either an installed row's `installedPath` or an active-source string that denotes a local checkout path. This SHALL be evaluated in addition to — not instead of — the existing pure-string `sourcesMatch(candidate, entry.source)` predicate; a match by EITHER means SHALL count as installed. The name resolution applies only to npm-sourced entries (git-sourced entries have no npm `name`).
 
-The name comparison SHALL be exact (including any `@scope/` prefix) and SHALL be read from the same `package.json` parse the enrichment already performs for `version` and `pi.skills`, incurring no additional file read.
+The name comparison SHALL be exact (including any `@scope/` prefix). The `package.json` name read reuses the existing `readPackageJsonName` reader and SHALL be memoized per path within a single request so a given path is read at most once. This is NOT a zero-IO change: an entry that fails the string match but resolves a local path incurs one `package.json` read it would not perform today (the current `version`/`pi.skills` read is gated behind an already-matched scope); the added reads are bounded by the number of distinct local paths touched by a failed string match.
 
-The system SHALL tolerate a missing `installedPath`, a missing or unreadable `package.json`, invalid JSON, or a non-string `name` by falling back to the string `sourcesMatch` result only.
+The system SHALL tolerate a non-npm entry, a missing candidate path, a missing or unreadable `package.json`, invalid JSON, or a non-string `name` by falling back to the string `sourcesMatch` result only (returning false for the name predicate, never throwing).
 
 #### Scenario: decoration-mismatched local checkout matches by package.json name
 
