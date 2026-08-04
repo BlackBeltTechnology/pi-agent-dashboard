@@ -119,6 +119,61 @@ its minimum height. All 8 call sites must be updated to apply both. This is the 
 regression surface and is why every call site is enumerated as an explicit task rather than "update
 consumers".
 
+### Decision 6: The floor is a per-consumer option defaulting to 120; only filterable list popovers opt into 260
+
+Resolved during implementation from measured content heights (task 1.3). A global 260px floor is wrong:
+today **no** consumer has a rendered `min-height` at all (120 was only a floor on `maxHeight`), so any
+global floor is new visible behavior, and the short fixed menus would render dead space.
+
+| Consumer | Natural content | Under a global 260 floor |
+|---|---|---|
+| `ModelSelector` | filterable, long | correct — the reported defect |
+| `CommandInput` composer dropdown | filterable list | correct |
+| `ChatViewMenu` | ~20 rows | no-op (always taller) |
+| `ThinkingLevelSelector` | 6–7 rows ≈ 180px desktop | ~80px dead space |
+| `ThemePicker` | 4 rows ≈ 112px | ~148px dead space |
+| `WorktreeActionsMenu` / `PackageRow` | 3–5 item menus | oddly tall |
+
+Chosen: `PopoverFlipOptions.minPopoverHeight`, default `MIN_POPOVER_HEIGHT = 120` (the existing
+constant, unchanged), with `ModelSelector` and the `CommandInput` composer dropdown passing 260. The
+spec's "configured floor (≈260px)" is therefore the *configured* value at the list-like call sites, not
+a global constant.
+
+### Decision 7: `maxHeight` is clamped at 0
+
+`maxHeight = availableSpace` can be negative when the trigger is scrolled outside the pane in both
+directions. A negative CSS `max-height` is invalid and ignored by the browser, yielding an *unbounded*
+popover — the exact failure this change removes. `maxHeight = Math.max(0, space)` is not a floor in the
+spec's sense (it never inflates `maxHeight` above the available space when that space is real) and it
+keeps the bound valid in the degenerate case.
+
+### Decision 8: The Settings `overflow-y-auto` panes are siblings, not nested
+
+Resolved during implementation (task 1.1). `SettingsPanel.tsx:835` and `:858` are the two branches of a
+ternary, not a nesting. `:835` is the resource-grid tab and hosts no `usePopoverFlip` consumer; `:858`
+is the pane for every other settings page and is where `ModelSelector` (`:1126`) renders. `:858` is the
+clip boundary; nothing is redundant.
+
+### Decision 9: Two of the four planned provider mounts were already covered; one boundary-less consumer was not immune
+
+Resolved during implementation (tasks 5.2 / 5.4 / 5.6) by reading the actual host tree:
+
+| Planned | Reality | Action |
+|---|---|---|
+| Wrap the `App.tsx` composer host (5.2) | `sessionDetail`'s chat is passed as `SessionSplitView`’s `chat` prop → `SplitWorkspace`, which already wraps it in `PopoverBoundaryProvider value={chatPaneRef}` (`split-chat-pane`) | none — already bounded |
+| Wrap the `ComposerSessionActions` host (5.4) | Not a host: it is a flex action row with no scroll pane, mounted only at `App.tsx:1734` inside that same already-bounded chat column | none — already bounded |
+| Wrap `DirectoryHomeView` (5.3) | `directory-home` is a real `overflow-auto` pane hosting the focal `CommandInput` | wrapped |
+| Wrap the Settings pane (5.1) | `SettingsPanel.tsx:858` | wrapped |
+
+So the *only* missing provider mounts were Settings and DirectoryHomeView; the chat surface's real
+defect was Decision 1's floor inflation, not a missing boundary.
+
+The immunity audit (5.6) also split by axis. `ThemePicker` stays immune — its sole mount is the
+SessionList **header bar**, a sibling above that view's scroll list (its old comment claiming the
+"settings header" was stale and is corrected). `CommandInput:376` is NOT immune: `left-3 right-3` pins
+both composer edges so it is immune **horizontally**, but it applies a height bound and an offset pane's
+bottom edge sits above the viewport's — it now consumes `boundaryRef`.
+
 ## Risks / Trade-offs
 
 - **A consumer is missed and loses its height floor** → Enumerate all 8 call sites as individual tasks;

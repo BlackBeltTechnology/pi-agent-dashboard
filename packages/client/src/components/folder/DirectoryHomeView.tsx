@@ -17,8 +17,9 @@
 import type { CommandInfo, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiCog, mdiConsole, mdiFileEdit, mdiFolderOpen } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { CommandInput } from "../chat/CommandInput.js";
 
 export interface DirectoryHomeViewProps {
@@ -91,6 +92,13 @@ export function DirectoryHomeView({
   onOpenSettings,
 }: DirectoryHomeViewProps) {
   const { t } = useI18n();
+  /**
+   * This view's own scroll pane — the clipping boundary for the focal
+   * `CommandInput`'s popovers (composer dropdown, model/thinking selectors),
+   * which would otherwise measure against the viewport and overflow the pane.
+   * See change: fix-popover-pane-bounded-height.
+   */
+  const paneRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState("");
   // A single spawn from this page disables the send control until the page
   // navigates away (design D6 / risk mitigation). Sticky by intent: on success
@@ -156,7 +164,8 @@ export function DirectoryHomeView({
   };
 
   return (
-    <div data-testid="directory-home" className="flex-1 flex flex-col min-w-0 min-h-0 overflow-auto">
+    <PopoverBoundaryProvider value={paneRef}>
+    <div ref={paneRef} data-testid="directory-home" className="flex-1 flex flex-col min-w-0 min-h-0 overflow-auto">
       {/* Vertically-centered focal prompt (design D2). */}
       <div className="flex-1 flex flex-col items-center justify-center gap-6 p-6 w-full">
         <div className="flex flex-col items-center gap-2 text-center">
@@ -234,5 +243,6 @@ export function DirectoryHomeView({
         </div>
       )}
     </div>
+    </PopoverBoundaryProvider>
   );
 }

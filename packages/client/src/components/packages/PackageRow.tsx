@@ -164,6 +164,7 @@ export function PackageRow({
 	const {
 		flipUp: menuFlipUp,
 		maxHeight: menuMaxHeight,
+		minHeight: menuMinHeight,
 		anchorRight: menuAnchorRight,
 		maxWidth: menuMaxWidth,
 	} = usePopoverFlip(menuTriggerRef, { open: menuOpen, estimatedWidth: 160, boundaryRef });
@@ -305,7 +306,7 @@ export function PackageRow({
 							</button>
 							{menuOpen && (
 								<div
-									style={{ maxHeight: menuMaxHeight, maxWidth: menuMaxWidth }}
+									style={{ maxHeight: menuMaxHeight, minHeight: menuMinHeight, maxWidth: menuMaxWidth }}
 									className={`absolute z-10 min-w-[160px] overflow-y-auto rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-lg py-1 text-xs ${
 										menuAnchorRight ? "right-0" : "left-0"
 									} ${menuFlipUp ? "bottom-full mb-1" : "top-full mt-1"}`}
