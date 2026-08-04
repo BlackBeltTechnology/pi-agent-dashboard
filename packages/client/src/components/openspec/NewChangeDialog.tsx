@@ -1,9 +1,10 @@
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { mdiSend } from "@mdi/js";
+import { mdiPlusBoxOutline, mdiSend } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useOpenSpecRunConfigRow } from "./useOpenSpecRunConfigRow.js";
 
 interface Props {
   onSend: (prompt: string) => void;
@@ -22,9 +23,10 @@ export function formatNewChangePrompt(name: string, description: string): string
 export function NewChangeDialog({ onSend, onClose }: Props) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const { rowElement, submit, sending } = useOpenSpecRunConfigRow();
 
   const handleSend = () => {
-    onSend(formatNewChangePrompt(name, description));
+    submit(() => onSend(formatNewChangePrompt(name, description)));
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -34,7 +36,10 @@ export function NewChangeDialog({ onSend, onClose }: Props) {
   };
 
   return (
-    <Dialog open onClose={onClose} title={i18nT("openspec.newChange", undefined, "New Change")} testId="new-change-dialog">
+    <Dialog open onClose={onClose} title={i18nT("openspec.newChange", undefined, "New Change")} icon={mdiPlusBoxOutline} testId="new-change-dialog">
+        <p data-testid="new-change-hint" className="text-xs text-[var(--text-tertiary)]">
+          {i18nT("openspec.newChangeHint", undefined, "Creates a new change with a proposal you'll refine before implementing.")}
+        </p>
         <input
           type="text"
           value={name}
@@ -53,9 +58,10 @@ export function NewChangeDialog({ onSend, onClose }: Props) {
           className="w-full h-24 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded p-2 text-sm text-[var(--text-secondary)] resize-none focus:outline-none focus:border-blue-500"
           data-testid="new-change-description"
         />
+        {rowElement}
         <Dialog.Footer>
           <Dialog.Cancel onClick={onClose} testId="new-change-cancel" />
-          <Dialog.Action onClick={handleSend} testId="new-change-send">
+          <Dialog.Action onClick={handleSend} disabled={sending} testId="new-change-send">
             <Icon path={mdiSend} size={0.45} className="inline mr-0.5" />{i18nT("common.send", undefined, "Send")}
           </Dialog.Action>
         </Dialog.Footer>

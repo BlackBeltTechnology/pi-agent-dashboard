@@ -1,9 +1,5 @@
-## Purpose
+## MODIFIED Requirements
 
-Define the OpenSpec launch dialogs (Explore, Propose, New Change) and their mobile
-kebab-menu entry points: their structure, controls, prompt formatting, and the
-run-config row that sets the session's model and thinking effort at launch.
-## Requirements
 ### Requirement: Explore dialog
 Clicking [Explore] on a change SHALL open a modal dialog with a multiline text input and support for pasted image attachments. The dialog SHALL render via DialogPortal at document.body with z-[60]. The dialog container SHALL use `max-w-2xl` (wider than a standard small modal) and the textarea SHALL be at least `h-48` to accommodate longer exploration prompts. The dialog textarea SHALL accept clipboard-pasted images via the shared `useImagePaste()` hook, and pasted images SHALL be rendered below the textarea via the shared `<ImagePreviewStrip>` component.
 
@@ -57,23 +53,6 @@ The dialog SHALL render the run-config row defined by the `openspec-dialog-run-c
 - **THEN** the dialog closes without sending anything
 - **AND** any pasted images are discarded
 
-### Requirement: Quick confirm dialog for Archive
-Clicking [Archive] SHALL show a confirmation dialog before executing. The dialog SHALL render via DialogPortal at document.body with z-[60].
-
-#### Scenario: Archive confirm shown
-- **WHEN** user clicks [Archive] on change "theme-system"
-- **THEN** a confirm dialog appears asking "Archive theme-system?"
-- **AND** the dialog is rendered at document.body via DialogPortal
-
-#### Scenario: Archive confirmed
-- **WHEN** user clicks [Archive] in the confirm dialog
-- **THEN** a `send_prompt` is sent with text `/opsx:archive theme-system`
-- **AND** the dialog closes
-
-#### Scenario: Archive cancelled
-- **WHEN** user clicks [Cancel] in the confirm dialog
-- **THEN** the dialog closes without sending anything
-
 ### Requirement: NewChangeDialog for creating changes
 Clicking `+ New` in the folder OpenSpec header SHALL open a `NewChangeDialog` modal with optional name and description fields.
 
@@ -108,37 +87,7 @@ The dialog header SHALL follow the shared OpenSpec dialog anatomy: a leading ico
 - **WHEN** the NewChangeDialog sends a prompt
 - **THEN** it SHALL target the first active (non-ended) session in the folder group
 
-### Requirement: Mobile kebab menu unattached Explore
-When no proposal is attached and the session is alive, the mobile kebab menu (MobileActionMenu) SHALL show an "Explore" menu row that opens the ExploreDialog with no change name.
-
-#### Scenario: Explore visible when unattached and alive
-- **WHEN** a session has no attached proposal and status is not "ended"
-- **THEN** the kebab menu SHALL show an OpenSpec section with an "Explore" row
-
-#### Scenario: Explore hidden when ended
-- **WHEN** a session has no attached proposal and status is "ended"
-- **THEN** the kebab menu SHALL NOT show the unattached OpenSpec section
-
-#### Scenario: Explore hidden when attached
-- **WHEN** a session has an attached proposal
-- **THEN** the unattached OpenSpec section SHALL NOT appear (the attached section renders instead)
-
-#### Scenario: Explore sends prompt via dialog
-- **WHEN** user taps "Explore" in the unattached section
-- **THEN** the menu closes and the ExploreDialog opens with empty changeName
-- **AND** on send, a `send_prompt` is sent with text `/skill:openspec-explore\n<user text>`
-
-### Requirement: Mobile kebab menu unattached New Change
-When no proposal is attached and the session is alive, the mobile kebab menu SHALL show a "+ New Change" menu row that opens the NewChangeDialog.
-
-#### Scenario: New Change visible when unattached and alive
-- **WHEN** a session has no attached proposal and status is not "ended"
-- **THEN** the kebab menu SHALL show a "+ New Change" row in the OpenSpec section
-
-#### Scenario: New Change sends prompt via dialog
-- **WHEN** user taps "+ New Change" in the unattached section
-- **THEN** the menu closes and the NewChangeDialog opens
-- **AND** on send, a `send_prompt` is sent with the formatted `/opsx:new` command
+## ADDED Requirements
 
 ### Requirement: Shared header anatomy across OpenSpec launch dialogs
 The Explore, Propose, and New Change dialogs SHALL present a consistent header structure: a leading icon tile rendered through `Dialog`'s `icon` prop, a title, an optional change-name chip, and a hint line stating what the workflow does. Each dialog SHALL retain the standard close (X) control that `Dialog` renders, in addition to its Cancel action, and the header SHALL reserve horizontal space so that header content never renders beneath that control.
@@ -153,4 +102,3 @@ The Explore, Propose, and New Change dialogs SHALL present a consistent header s
 - **THEN** it SHALL disclose the `Cmd/Ctrl+Enter` accelerator
 - **WHEN** the Propose dialog is open
 - **THEN** it SHALL NOT render an accelerator note, because plain Enter submits its single-field form by default
-
