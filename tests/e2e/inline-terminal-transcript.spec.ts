@@ -20,16 +20,26 @@ test.use({ viewport: { width: 1680, height: 900 } });
 const card = (page: Page) => page.getByTestId("terminal-card");
 const liveCard = (page: Page) => page.locator('[data-testid="terminal-card"][data-terminal-state="live"]');
 const frozenCard = (page: Page) => page.locator('[data-testid="terminal-card"][data-terminal-state="frozen"]');
-const termInput = (page: Page) => page.getByRole("textbox", { name: /terminal input/i }).first();
+// MUST be scoped to the LIVE card: a frozen card's read-only xterm still
+// renders a helper textarea with the same accessible name, so a page-wide
+// `.first()` would send keystrokes into the frozen card and the live terminal
+// would register no input at all.
+const termInput = (page: Page) => liveCard(page).getByRole("textbox", { name: /terminal input/i }).first();
 const closeBtn = (page: Page) => page.getByRole("button", { name: /close terminal/i }).first();
 
-async function openInline(page: Page): Promise<string> {
-  const session = await spawnFreshGitSession(page);
-  const sessionId = await session.getAttribute("data-session-id");
-  expect(sessionId).toBeTruthy();
-  await session.click();
-  // Composer must be mounted for the selected session before its actions exist.
-  await page.getByPlaceholder(/message/i).first().waitFor({ state: "visible", timeout: 30_000 });
+/** Dismiss any modal overlay that would intercept composer clicks. */
+async function dismissOverlays(page: Page): Promise<void> {
+  const overlay = page.locator('[data-testid$="-overlay"]').first();
+  for (let i = 0; i < 3; i++) {
+    if (!(await overlay.isVisible().catch(() => false))) return;
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+  }
+}
+
+/** Click the composer's "open inline terminal" affordance (desktop or ⋯). */
+async function clickOpenTerminal(page: Page): Promise<void> {
+  await dismissOverlays(page);
   const openBtn = byTestId(page, "openInlineTerminalButton");
   const desktopVisible = await openBtn
     .first()
@@ -47,6 +57,16 @@ async function openInline(page: Page): Promise<string> {
   await expect(liveCard(page)).toBeVisible({ timeout: 20_000 });
   // xterm textarea proves the pane initialized end-to-end over the WS.
   await expect(termInput(page)).toBeVisible({ timeout: 20_000 });
+}
+
+async function openInline(page: Page): Promise<string> {
+  const session = await spawnFreshGitSession(page);
+  const sessionId = await session.getAttribute("data-session-id");
+  expect(sessionId).toBeTruthy();
+  await session.click();
+  // Composer must be mounted for the selected session before its actions exist.
+  await page.getByPlaceholder(/message/i).first().waitFor({ state: "visible", timeout: 30_000 });
+  await clickOpenTerminal(page);
   return sessionId as string;
 }
 
@@ -56,15 +76,40 @@ async function typeIntoTerminal(page: Page, text: string): Promise<void> {
   await page.waitForTimeout(300);
 }
 
+/**
+ * Rendered text of an xterm pane inside a card. xterm paints its rows into
+ * `.xterm-rows`, so this reads what the user actually sees — the transcript
+ * CONTENT, not merely the card's existence. Whitespace is collapsed because
+ * xterm pads every row to the terminal width.
+ */
+async function readCardText(cardLoc: ReturnType<typeof frozenCard>): Promise<string> {
+  const rows = cardLoc.locator(".xterm-rows").first();
+  await rows.waitFor({ state: "attached", timeout: 20_000 });
+  const raw = await rows.innerText();
+  return raw.replace(/\u00a0/g, " ").replace(/[ \t]+/g, " ").trim();
+}
+
+/** Unique per-run marker so an assertion cannot pass on stale/other content. */
+function marker(tag: string): string {
+  return `MARK-${tag}-${Date.now().toString(36)}`;
+}
+
 test.describe("inline terminal transcript preservation", () => {
   test("F1: run ls then exit, close → frozen read-only card with pre-exit scrollback", async ({ page }) => {
+    const m = marker("F1");
     await openInline(page);
-    await typeIntoTerminal(page, "ls\n");
-    await typeIntoTerminal(page, "exit\n"); // shell exits before the card is closed
+    // Deterministic pre-exit output: this exact string must survive the PTY
+    // exit and reach the frozen card — that IS the change under test.
+    await typeIntoTerminal(page, `echo ${m}\n`);
+    await typeIntoTerminal(page, "exit\n"); // shell exits BEFORE the card is closed
     await page.waitForTimeout(1_000);
     await closeBtn(page).click();
     await expect(frozenCard(page)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/read-only transcript/i).first()).toBeVisible();
+    // The distinguishing assertion: pre-exit scrollback is preserved.
+    await expect
+      .poll(() => readCardText(frozenCard(page)), { timeout: 15_000 })
+      .toContain(m);
   });
 
   test("F2: open then close untouched → no card, no placeholder", async ({ page }) => {
@@ -74,12 +119,30 @@ test.describe("inline terminal transcript preservation", () => {
     await expect(page.getByText(/terminal closed/i)).toHaveCount(0);
   });
 
-  test("F3: open untouched with a shell prompt visible → still removed (line count irrelevant)", async ({ page }) => {
+  test("F3: untouched card with a MULTI-LINE prompt is still removed (line count irrelevant)", async ({ page }) => {
+    // A multi-line prompt is the case that breaks any "≤ 1 non-empty line"
+    // heuristic. Configure it in a FIRST terminal (which is therefore touched
+    // and freezes), then open a SECOND terminal that inherits it and is never
+    // typed into. The second must still be removed.
     await openInline(page);
-    // The shell prints its prompt (possibly multi-line) but the user never typed.
-    await page.waitForTimeout(800);
+    await typeIntoTerminal(page, `printf 'PS1="\\\\n[l2]\\\\n[l3]\\\\$ "\\n' >> ~/.bashrc\n`);
+    await page.waitForTimeout(500);
     await closeBtn(page).click();
-    await expect(card(page)).toHaveCount(0, { timeout: 15_000 });
+    await expect(frozenCard(page)).toBeVisible({ timeout: 15_000 });
+
+    // Second terminal: inherits the 3-line prompt, never touched.
+    await clickOpenTerminal(page);
+    // Precondition guard — without this the test could pass while proving
+    // nothing (e.g. if the shell never sourced ~/.bashrc).
+    await expect
+      .poll(() => readCardText(liveCard(page)), { timeout: 20_000 })
+      .toContain("[l3]");
+
+    await closeBtn(page).click();
+    // Exactly the frozen first card remains; the untouched multi-line-prompt
+    // card is gone despite rendering 3 non-empty lines.
+    await expect(liveCard(page)).toHaveCount(0, { timeout: 15_000 });
+    await expect(frozenCard(page)).toHaveCount(1, { timeout: 15_000 });
   });
 
   test("F4: type only 'exit' → frozen, not removed", async ({ page }) => {
@@ -109,19 +172,50 @@ test.describe("inline terminal transcript preservation", () => {
     await expect(card(page)).toHaveCount(0, { timeout: 15_000 });
   });
 
-  test("F8: reload after open + non-empty close → frozen at its original position", async ({ page }) => {
+  test("F8: reload after open + non-empty close → frozen at its ORIGINAL stream position", async ({ page }) => {
+    // Two closed cards give the stream a stable before/after ordering. If the
+    // replay path appended the card at the tail (the defensive
+    // close-without-open branch), the order would invert — which a
+    // single-card test cannot detect.
+    const first = marker("F8a");
+    const second = marker("F8b");
+
     const sessionId = await openInline(page);
-    await typeIntoTerminal(page, "echo persisted\n");
+    await typeIntoTerminal(page, `echo ${first}\n`);
     await page.waitForTimeout(600);
     await closeBtn(page).click();
-    await expect(frozenCard(page)).toBeVisible({ timeout: 15_000 });
+    await expect(frozenCard(page)).toHaveCount(1, { timeout: 15_000 });
+
+    await clickOpenTerminal(page);
+    await typeIntoTerminal(page, `echo ${second}\n`);
+    await page.waitForTimeout(600);
+    await closeBtn(page).click();
+    await expect(frozenCard(page)).toHaveCount(2, { timeout: 15_000 });
+
+    // Poll each card: a freshly-mounted xterm paints asynchronously, so a
+    // single snapshot can read an as-yet-empty pane.
+    await expect
+      .poll(() => readCardText(frozenCard(page).nth(0)), { timeout: 20_000 })
+      .toContain(first);
+    await expect
+      .poll(() => readCardText(frozenCard(page).nth(1)), { timeout: 20_000 })
+      .toContain(second);
+
     await page.goto(`/session/${sessionId}`);
-    await expect(frozenCard(page)).toBeVisible({ timeout: 20_000 });
+    await expect(frozenCard(page)).toHaveCount(2, { timeout: 20_000 });
+    // Same relative position after a cold replay — first still precedes second.
+    await expect
+      .poll(() => readCardText(frozenCard(page).nth(0)), { timeout: 20_000 })
+      .toContain(first);
+    await expect
+      .poll(() => readCardText(frozenCard(page).nth(1)), { timeout: 20_000 })
+      .toContain(second);
   });
 
-  test("F9: two browsers converge on identical card state after close", async ({ page, browser }) => {
+  test("F9: two browsers converge on byte-identical transcripts after close", async ({ page, browser }) => {
+    const m = marker("F9");
     const sessionId = await openInline(page);
-    await typeIntoTerminal(page, "echo shared\n");
+    await typeIntoTerminal(page, `echo ${m}\n`);
     await page.waitForTimeout(600);
 
     const ctx2 = await browser.newContext({ baseURL: BASE_URL });
@@ -136,6 +230,14 @@ test.describe("inline terminal transcript preservation", () => {
 
       await page2.goto(`/session/${sessionId}`);
       await expect(frozenCard(page2)).toBeVisible({ timeout: 20_000 });
+
+      // The distinguishing assertion: the LIVE-path payload and the REPLAY-path
+      // payload are the same text. Both handlers broadcast the event read back
+      // from the store, so any divergence here means that invariant broke.
+      const liveText = await readCardText(frozenCard(page));
+      const replayText = await readCardText(frozenCard(page2));
+      expect(liveText).toContain(m);
+      expect(replayText).toBe(liveText);
     } finally {
       await ctx2.close();
     }
