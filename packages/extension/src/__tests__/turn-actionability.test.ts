@@ -39,6 +39,25 @@ describe("classifyTurnActionability", () => {
     expect(classifyTurnActionability(ERRORED_TURN)).toBe("error");
   });
 
+  // pi >= 0.83.0 "pending" partial-streaming stop reason (test-plan #X2-#X4).
+  it("X2: a pending partial (no text/tool) classifies as normal, NOT empty-actionable", () => {
+    expect(
+      classifyTurnActionability({ role: "assistant", stopReason: "pending", content: [] }),
+    ).toBe("normal");
+  });
+
+  it("X3: a genuinely idle non-pending empty turn is still empty-actionable (guard intact)", () => {
+    expect(
+      classifyTurnActionability({ role: "assistant", stopReason: "stop", content: [] }),
+    ).toBe("empty-actionable");
+  });
+
+  it("X4: a pending turn carrying an error still classifies as error (precedence)", () => {
+    expect(
+      classifyTurnActionability({ role: "assistant", stopReason: "pending", content: [], error: { code: 500 } }),
+    ).toBe("error");
+  });
+
   it("treats a non-empty error object as error even with stopReason stop", () => {
     expect(
       classifyTurnActionability({ role: "assistant", stopReason: "stop", content: [], error: { code: 500 } }),
