@@ -44,6 +44,25 @@ function userStyle(label: string): React.CSSProperties {
   return { color: c.text, borderColor: c.border, backgroundColor: c.bg };
 }
 
+const NO_RING = { ringClass: "", ringStyle: undefined } as const;
+
+/**
+ * Selection ring for a `filter` chip, resolved for its two possible hosts: the
+ * toggle alone, or the wrapper enclosing the toggle + the destructive ✕ (so the
+ * ✕ stays inside the selected unit). Tailwind can't emit a class for a runtime
+ * hash color, so a colorized chip carries the ring color inline from its own
+ * palette entry; `exec` chips keep `outline-current`, which already resolves to
+ * their intended muted color. See change: fix-selected-tag-chip-ring.
+ */
+function selectionRing(on: boolean, colorized: boolean, label: string, hostIsWrapper: boolean) {
+  if (!on) return { toggle: NO_RING, wrapper: NO_RING };
+  const ring = {
+    ringClass: `outline outline-1 outline-offset-1 ${colorized ? "" : "outline-current"}`,
+    ringStyle: colorized ? ({ outlineColor: tagColor(label).text } as React.CSSProperties) : undefined,
+  };
+  return hostIsWrapper ? { toggle: NO_RING, wrapper: ring } : { toggle: ring, wrapper: NO_RING };
+}
+
 export function TagChip({ label, variant, tone = "user", selected, onToggle, onRemove }: TagChipProps) {
   const colorized = variant === "user" || (variant === "filter" && tone === "user");
   const display = colorized ? `#${label}` : label;
@@ -52,7 +71,7 @@ export function TagChip({ label, variant, tone = "user", selected, onToggle, onR
   const execClass = colorized
     ? ""
     : "border-dashed border-[var(--border-secondary)] bg-transparent text-[var(--text-tertiary)]";
-  const selRing = variant === "filter" && selected ? "outline outline-2 outline-offset-1 outline-current" : "";
+  const ring = selectionRing(variant === "filter" && !!selected, colorized, label, !!onRemove);
 
   if (variant === "filter") {
     const toggleBtn = (
@@ -61,8 +80,8 @@ export function TagChip({ label, variant, tone = "user", selected, onToggle, onR
         onClick={onToggle}
         aria-pressed={!!selected}
         aria-label={`Filter by ${tone === "exec" ? "phase" : "tag"} ${label}`}
-        style={style}
-        className={`${baseClass} ${!onRemove ? selRing : ""} ${execClass} cursor-pointer`}
+        style={{ ...style, ...ring.toggle.ringStyle }}
+        className={`${baseClass} ${ring.toggle.ringClass} ${execClass} cursor-pointer`}
       >
         {display}
       </button>
@@ -74,7 +93,7 @@ export function TagChip({ label, variant, tone = "user", selected, onToggle, onR
     // stopPropagation needed). See change: sidebar-tag-collapse-and-delete.
     if (onRemove && tone === "user") {
       return (
-        <span className={`inline-flex items-center rounded-full ${selRing}`}>
+        <span style={ring.wrapper.ringStyle} className={`inline-flex items-center rounded-full ${ring.wrapper.ringClass}`}>
           {toggleBtn}
           <button
             type="button"
