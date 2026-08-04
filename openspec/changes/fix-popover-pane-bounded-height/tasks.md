@@ -73,3 +73,11 @@
 - [x] 9.4 Update the spec consumer enumeration to 9 surfaces (surface → call site → floor table) and add scenarios to both spec deltas.
 - [x] 9.5 Pin the new surface with tests in `components/__tests__/OpenSpecRunConfig.test.tsx`, including a contrast case proving the boundary assertion is not tautological.
 - [x] 9.6 Update the affected `AGENTS.md` rows for the 9th surface.
+
+## 10. Branch hygiene + docker-harness qualification
+
+- [x] 10.1 Evict the 4 commits that do not belong to this change (`folder-chevron-drag-handle` ×3 + `fix-tags-lost-on-bridge-reattach`, the latter already squash-merged upstream as #396): reset to `origin/develop` (`5b695446`, #407) and cherry-pick only this change's 3 commits. Gate: `git diff --name-only origin/develop..HEAD` contains only this change's files.
+- [x] 10.2 Confirm zero contact with #407's territory (`packages/server/src/terminal/*`, event-store essential-event set) — 0 files under `packages/{server,extension,shared}/`; this change is client-only.
+- [x] 10.3 Re-verify both sides survived on the new base: #404's `useId`/`dropdownId`/aria in `ModelSelector`, 74facdf4's `text-xs` chip line in `ThinkingLevelSelector` (byte-identical to `origin/develop`), alongside our `minHeight`/`maxHeight`.
+- [x] 10.4 Qualify in the worktree's OWN docker harness (never `:8000`). Overlay mode fails on this host (`cannot mount overlay read-only`, exit 32) → used the documented `TEST_COPY_MODE=1` fallback. Own derived port from `.pi-test-harness.json`; torn down with `docker/test-down.sh`.
+- [x] 10.5 Harness-verify the no-second-scrollbar invariant in a slim pane and the floor's readability. See design Decision 11 for measurements and the surface-9 reachability gap.

@@ -205,6 +205,38 @@ SessionList **header bar**, a sibling above that view's scroll list (its old com
 both composer edges so it is immune **horizontally**, but it applies a height bound and an offset pane's
 bottom edge sits above the viewport's — it now consumes `boundaryRef`.
 
+### Decision 11: Harness qualification — what was proved in-browser, and the one surface that was not
+
+Qualified in this worktree's OWN docker harness (own derived port from `.pi-test-harness.json`, never
+`:8000`), rebuilt from source. Overlay mode fails on this host (`cannot mount overlay read-only`, exit
+32), so the documented `TEST_COPY_MODE=1` fallback was used; container source confirmed to carry the
+change and the served bundle confirmed to contain `h({flipUp,maxHeight,minHeight,anchorRight,maxWidth})`.
+
+Measured, viewport 760×600 (pane 760×480 — deliberately slim AND short):
+
+| Surface | Result |
+|---|---|
+| Settings pane, trigger 24px above the pane bottom | Flipped up. `minHeight 120px`, `maxHeight 427.17px`, rendered 120px, `insidePane: true`. Pane `scrollHeight` **16515 → 16515 unchanged** — no second scrollbar, no stretch. |
+| `PackageRow` ⋮ menu (3 items) | 120px — the default floor is effectively a no-op; not oddly tall, confirming Decision 6 against a global 260. |
+| `ThemePicker` (boundary-less, viewport-measured) | `min-height: 120px; max-height: 753px`, rendered 262px — content-driven strictly between the bounds, inside the viewport, no inner scrollbar. |
+
+**Gap, stated plainly:** surface 9 (#404's launch-dialog run-config row) could NOT be exercised in the
+harness. Its dialogs (`Explore`/`Propose`/`New Change`) only mount from session actions, and session
+spawn yields 0 sessions in the harness — seeded credential markers are not live provider credentials.
+The board's own "New proposal" dialog is a different, simpler name+group dialog that does not host the
+run-config row. Surface 9's qualification therefore rests on the four jsdom tests in
+`components/__tests__/OpenSpecRunConfig.test.tsx`, which assert the pane-derived bound (`192px`), the
+floor capped onto it (`minHeight === maxHeight === 192px`), both bounds present on both popovers, and
+the contrast case proving a missing boundary yields the viewport-derived `440px`. That is strong
+evidence for the arithmetic and the wiring, but it is NOT rendered-layout evidence: jsdom has no
+layout, so the no-second-scrollbar invariant is unverified *specifically inside a dialog panel*. The
+reachable surfaces above verify it for scroll panes. Closing this properly wants a Playwright spec
+driving a real dialog once the harness can spawn a session.
+
+One process note: an early probe reported ThemePicker's `min-height` as `0px`, which looked like a
+missing bound. It was a racy probe — reading the popover before React committed the measured state.
+Re-read cleanly it is `120px`. Recorded because the first reading was wrong, not the code.
+
 ## Risks / Trade-offs
 
 - **A consumer is missed and loses its height floor** → Enumerate all 8 call sites as individual tasks;
