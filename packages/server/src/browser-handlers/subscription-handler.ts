@@ -10,6 +10,11 @@ import { pluginIntentCache } from "../plugin-intent-cache.js";
 import { compactEventsForReplay } from "../session/replay-compaction.js";
 import { truncateToolResultForReplay } from "../session/replay-truncate.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
+import {
+  prepareEventForIngest,
+  type PendingAttachment,
+} from "../attachments/attachment-ingest.js";
+import { createAttachmentResolver } from "../attachments/attachment-resolver.js";
 
 /**
  * Raised 50 → 200. Each batch is one client React commit, so a large warm
@@ -282,8 +287,19 @@ export function handleSubscribe(
       directoryService.loadSessionEvents(msg.sessionId, session.sessionFile, session.contextWindow).then(async (result) => {
         stopHeartbeat();
         if (result.success) {
+          // Hydration admits full-resolution inline images straight from the
+          // transcript, so it needs the SAME two-phase strip as the live path.
+          // Without it a reload resurrects the original bug: the event blows
+          // the per-event ceiling, collapses to {__truncated}, and the user's
+          // message row disappears on every replay.
+          // See change: fit-attachments-for-display (task 5.2, test-plan #E9).
+          const pendingAttachments: PendingAttachment[] = [];
           for (const evt of result.events) {
-            eventStore.insertEvent(msg.sessionId, evt);
+            const prepared = ctx.fitWorkerPool
+              ? prepareEventForIngest(evt)
+              : { event: evt, pending: [] as PendingAttachment[] };
+            pendingAttachments.push(...prepared.pending);
+            eventStore.insertEvent(msg.sessionId, prepared.event);
           }
           const statsUpdates = extractStatsFromEvents(result.events);
           const metaUpdates: Record<string, unknown> = { dataUnavailable: false, ...statsUpdates };
@@ -300,6 +316,23 @@ export function handleSubscribe(
             await sendEventBatches(sub, msg.sessionId, stored, sendTo);
             replayPendingUiRequests(sub, msg.sessionId);
             replayUiState(sub, msg.sessionId, ctx);
+          }
+          // Fit AFTER the batches are on the wire: the rows (with their
+          // placeholders) render immediately and each image swaps in as its
+          // derivative lands, so hydration is never blocked on a resize.
+          // Detached — a fit failure can only degrade an attachment.
+          if (pendingAttachments.length > 0 && ctx.fitWorkerPool) {
+            void createAttachmentResolver({
+              eventStore,
+              fitWorkerPool: ctx.fitWorkerPool,
+              emit: (sessionId, seq, event) => {
+                for (const sub of getSubscribers(sessionId)) {
+                  if (sub.readyState === sub.OPEN) {
+                    sendTo(sub, { type: "event", sessionId, seq, event });
+                  }
+                }
+              },
+            }).resolve(msg.sessionId, pendingAttachments);
           }
         } else if (result.error === "cancelled") {
           // The load was cancelled because the subscriber left before it

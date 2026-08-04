@@ -37,7 +37,7 @@ All L1 rows extend `packages/server/src/__tests__/memory-event-store.test.ts`
       ingest · observable event is not `{__truncated}`, `data.message.role === "user"`.
 - [x] 3.4 E8 many attachments (test-plan #E8) — input 20 × 2 MB blocks · trigger ingest ·
       observable event ≤ 256 KB, all blocks fitted.
-- [ ] 3.5 E9 replay is fitted (test-plan #E9) — input JSONL with inline 5 MB image ·
+- [x] 3.5 E9 replay is fitted (test-plan #E9) — input JSONL with inline 5 MB image ·
       trigger replay · observable emitted event ≤ 256 KB.
 - [x] 3.6 E10 fitted max fits ceiling (test-plan #E10) — input 212 KB fitted image ·
       trigger ingest · observable under ceiling, no truncation.

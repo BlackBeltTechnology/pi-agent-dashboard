@@ -37,6 +37,14 @@ export interface BrowserHandlerContext {
    * See change: configurable-chat-display.
    */
   metaPersistence?: MetaPersistence;
+  /**
+   * Optional display-fit pool. When provided, session hydration strips inline
+   * image bytes to a bounded placeholder and resolves the fitted derivative,
+   * exactly as the live ingest path does — otherwise a replayed image-bearing
+   * event trips the per-event ceiling and its row vanishes.
+   * See change: fit-attachments-for-display (test-plan #E9).
+   */
+  fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool;
   directoryService?: DirectoryService;
   terminalManager?: TerminalManager;
   headlessPidRegistry: HeadlessPidRegistry;

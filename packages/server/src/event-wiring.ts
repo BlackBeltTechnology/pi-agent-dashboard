@@ -18,11 +18,8 @@ import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./sessi
 import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import type { EventStore } from "./persistence/memory-event-store.js";
-import {
-  buildFittedEvent,
-  prepareEventForIngest,
-  type PendingAttachment,
-} from "./attachments/attachment-ingest.js";
+import { prepareEventForIngest, type PendingAttachment } from "./attachments/attachment-ingest.js";
+import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
 import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import type { PiGateway } from "./pi/pi-gateway.js";
@@ -272,57 +269,22 @@ export function wireEvents(deps: EventWiringDeps): void {
     });
   }
 
-  /**
-   * Phase 2 of the two-phase attachment render: fit the stripped originals off
-   * the event loop, then store + broadcast one `attachment_fitted` event per
-   * block so the client can swap each placeholder for its image.
-   *
-   * Detached and never rethrows — the message row is already stored, so the
-   * worst outcome here is an attachment that resolves to an honest failed
-   * state. See change: fit-attachments-for-display (task 5.3, test-plan #F3 #X7).
-   */
+  // Phase 2 of the two-phase attachment render. Shared with the replay path
+  // (subscription-handler) so the two cannot drift.
+  // See change: fit-attachments-for-display (task 5.3, test-plan #F3 #X7).
+  const attachmentResolver = fitWorkerPool
+    ? createAttachmentResolver({
+        eventStore,
+        fitWorkerPool,
+        emit: (sessionId, seq, event) => browserGateway.broadcastEvent(sessionId, seq, event),
+      })
+    : null;
+
   async function resolvePendingAttachments(
     sessionId: string,
     pending: PendingAttachment[],
   ): Promise<void> {
-    if (!fitWorkerPool) return;
-    try {
-      const { results } = await fitWorkerPool.fit({
-        blocks: pending.map((p) => ({
-          blockIndex: p.blockIndex,
-          data: p.data,
-          mimeType: p.mimeType,
-        })),
-      });
-      for (const result of results) {
-        const source = pending.find((p) => p.blockIndex === result.blockIndex);
-        if (!source) continue;
-        const fittedEvent = buildFittedEvent({
-          attachmentId: source.attachmentId,
-          data: result.failed ? "" : result.data,
-          mimeType: result.mimeType,
-          state: result.failed ? "failed" : "ready",
-        });
-        const seq = eventStore.insertEvent(sessionId, fittedEvent);
-        const stored = eventStore.getEvent(sessionId, seq) ?? fittedEvent;
-        browserGateway.broadcastEvent(sessionId, seq, stored);
-      }
-    } catch (err) {
-      // A pool that cannot deliver at all must still not strand placeholders:
-      // resolve every block to the explicit failed state.
-      console.error(`[attachments] fit failed for session ${sessionId}:`, err);
-      for (const p of pending) {
-        const failedEvent = buildFittedEvent({
-          attachmentId: p.attachmentId,
-          data: "",
-          mimeType: p.mimeType,
-          state: "failed",
-        });
-        const seq = eventStore.insertEvent(sessionId, failedEvent);
-        const stored = eventStore.getEvent(sessionId, seq) ?? failedEvent;
-        browserGateway.broadcastEvent(sessionId, seq, stored);
-      }
-    }
+    await attachmentResolver?.resolve(sessionId, pending);
   }
 
   // Broadcast placeholder session to browsers when auto-created from early events
