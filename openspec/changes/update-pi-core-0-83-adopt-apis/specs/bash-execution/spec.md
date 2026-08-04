@@ -6,6 +6,8 @@ pi's streaming `bash_execution_update` events (0.82.0) fire **only for direct RP
 
 Therefore this change SHALL treat streaming-bash and bash-session-env adoption as a **feasibility spike**, not a committed implementation. The spike SHALL determine whether any dashboard bash path can, in fact, surface `bash_execution_update` or read the pi bash-tool session env (including whether `pi.exec` children inherit `PI_SESSION_*` from the pi process env), and SHALL record the outcome. Code SHALL land ONLY if the spike identifies a concrete applicable path; otherwise the requirement is satisfied by the recorded finding. In all cases the existing dashboard `bash_output` event contract SHALL remain unchanged.
 
+**Spike outcome (recorded):** investigation against pi `0.83.0` + the dashboard source confirms **no applicable path** today — the dashboard issues no RPC `bash` (dashboard bash runs via `pi.exec` in `handleBashCommand` → synthetic `bash_output`; LLM bash → `tool_execution_*`), and pi injects `PI_SESSION_*` only into its own bash-tool command env (`environment-variables.md`), not into `pi.exec` children or the server-side worktreeInit bash (a separate process). No streaming/env code lands; the `bash_output` contract is unchanged. Re-evaluate if the dashboard ever adopts an RPC-bash path.
+
 #### Scenario: Spike finds no applicable path
 
 - **GIVEN** the dashboard issues no RPC bash and registers no pi bash tool
