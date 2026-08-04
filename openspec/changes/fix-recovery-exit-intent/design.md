@@ -150,6 +150,17 @@ SIGTERM→SIGKILL ladder (`restart-helper.ts:158`) — the restart intent is rec
 ladder runs, and `exitIntent` is write-once-per-boot (first writer wins) so a subsequent
 `signal` cannot overwrite `restart`.
 
+**Prerequisite discovered during live verification (task 8.6): the CLI wrapper swallowed the
+signal.** `bin/pi-dashboard.mjs` re-execs the server as a CHILD (it must, to inject the jiti
+loader) and handled only the child's `exit`. The wrapper owns `argv[1]`, so `kill <pid>`, a
+service manager tracking the CLI pid, and Ctrl-C in a foreground shell all land on the
+*wrapper* — which died while leaving the server child orphaned and still serving
+`/api/health`. In that topology the handler above could never run, so D4 was inert for the
+standalone install (it would only fire under systemd, which signals the whole cgroup). The
+wrapper now forwards `SIGTERM`/`SIGINT`/`SIGHUP` to the child and re-raises after the child
+exits. Covered by `cli-signal-forwarding.test.ts`, which drives the real wrapper end-to-end
+and asserts the boot record reads `"signal"`.
+
 ### D5 — Derive the grace window from the quiesce window
 
 ```ts

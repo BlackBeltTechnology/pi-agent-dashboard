@@ -84,11 +84,32 @@
 - [x] 8.2 Biome clean on every new file; on the 6 modified files the finding count is
       IDENTICAL before/after the change (4 errors / 54 warnings, all pre-existing).
       (`quality:changed` sees no source files in a fresh worktree — ran biome directly.)
-- [ ] 8.3 Manual: `POST /api/restart` with 3 live sessions → **no** offer, all reattach, messages
-      send. (Manual — verify post-merge.)
-- [ ] 8.4 Manual: `kill -9` the server with live sessions → relaunch → offer appears → Reopen →
-      single clean spawn → messages send. (Manual — verify post-merge.)
-- [ ] 8.5 Manual: let the idle timer stop the server with live sessions → relaunch → offer appears.
-      (Manual — verify post-merge.)
-- [ ] 8.6 Manual: `systemctl`-style SIGTERM (or OS reboot) with live sessions → relaunch → offer
-      appears. (Manual — verify post-merge.)
+- [x] 8.3 VERIFIED LIVE (real server from this worktree, isolated HOME, ports 8123/9123, 3 real
+      faux-backed pi sessions each having streamed a turn ⇒ `live:true` + `liveEpoch` on disk):
+      exiting server wrote `exitIntent:"restart"`; replacement server broadcast **zero** offers
+      over an 11 s window (grace = 7 s); all 3 sessions reattached (`status:"active"`); a new
+      prompt streamed a second response ⇒ messages send.
+- [x] 8.4 VERIFIED LIVE (same harness): `kill -9` of both wrapper + server child left
+      `exitIntent:null` and the `live:true` marker intact; relaunch logged
+      `1 candidate(s) after the exit-intent gate` → `grace window closed; offering 1` and the
+      offer carried that sessionId; Reopen returned `success:true` and produced exactly ONE
+      spawn, which registered (`status:"active"`).
+      PARTIAL: "messages send" after Reopen needs a credentialed model — the reopened pi is
+      spawned by the dashboard without the key-free faux fixture, so the turn itself is
+      post-merge on a real instance.
+- [ ] 8.5 NOT VERIFIED LIVE — needs post-merge on a real instance. The *mechanism* is covered
+      automatically: `liveness-stamp-wiring.test.ts` asserts a real `server.stop()` records
+      `exitIntent:"idle"` AND leaves the `live` marker in place, and
+      `recovery-exit-intent.test.ts` asserts an `idle` boot yields an offer. What could not be
+      reproduced in the harness is the idle TIMER firing: it requires
+      `piGateway.connectionCount() === 0`, and after SIGKILLing the pi the gateway held the
+      session in its heartbeat reconnect-grace window, so no stop() ran within 3 min. That
+      condition is pre-existing idle-timer behaviour, untouched by this change.
+- [x] 8.6 VERIFIED LIVE (same harness): SIGTERM → `[dashboard] SIGTERM received — flushing and
+      exiting` → boot record `exitIntent:"signal"`, `live:true` marker SURVIVED, relaunch
+      broadcast an offer containing the sessionId.
+      Uncovered a prerequisite bug and fixed it: `bin/pi-dashboard.mjs` did not forward signals
+      to the server child it spawns, so `kill <cli-pid>` killed the wrapper and left the server
+      orphaned — the handler from 3.5 never ran on the standalone path. Wrapper now forwards
+      SIGTERM/SIGINT/SIGHUP; regression test `cli-signal-forwarding.test.ts` drives the real
+      wrapper end-to-end and asserts the recorded intent.
