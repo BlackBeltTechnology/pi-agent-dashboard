@@ -16,5 +16,12 @@
   },
   "flows": {
     "editFlow": false
+  },
+  "permissions": {
+    "allow": [
+      "Read(/tmp/**)",
+      "Write(/tmp/**)",
+      "Edit(/tmp/**)"
+    ]
   }
 }
