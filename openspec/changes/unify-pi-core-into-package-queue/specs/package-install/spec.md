@@ -33,6 +33,58 @@ Each entry in the queue (running, queued, error, success) SHALL carry a `kind` f
 - **WHEN** a pi-core op's POST resolves with `body.data.results = [{name: "@mariozechner/pi-coding-agent", success: false, error: "boom"}]`
 - **THEN** the queue records `errorBySource.set("pi-core:@mariozechner/pi-coding-agent", { message: "boom" })` and advances to the next queued op
 
+### Requirement: The queue carries no package-manager knowledge
+
+The client `packageQueue` SHALL NOT encode which package manager performs an install. Its pi-core request body SHALL contain only `{packages: [name]}` — no package-manager field, flag, or hint. The server owns that decision: `detectPackageManager(repoRoot)` resolves `pnpm` when `pnpm-workspace.yaml` or `pnpm-lock.yaml` is present and `npm` otherwise, and the pi-core updater targets a resolved install location (npm global prefix, or `~/.pi-dashboard/` for managed installs) rather than the repo tree.
+
+This keeps the queue correct without modification when the server's package-manager selection changes. The queue's contract is transport plus state: it POSTs a package name and renders whatever the server reports.
+
+#### Scenario: Pi-core request body carries only the package name
+
+- **WHEN** the queue dispatches a `kind: "pi-core"` op for `@mariozechner/pi-coding-agent`
+- **THEN** the POST body is exactly `{packages: ["@mariozechner/pi-coding-agent"]}`
+- **AND** it contains no package-manager field, flag, or hint
+
+#### Scenario: Package-manager choice changing server-side needs no queue change
+
+- **GIVEN** the server switches the install it performs from `npm` to the repo's own package manager
+- **WHEN** a pi-core op is dispatched
+- **THEN** the queue's request shape, dispatch arm, and completion handling are unchanged
+- **AND** any resulting error text is surfaced verbatim from `results[].error`
+
+### Requirement: Only the busy lock produces a 409; other failures keep their own message
+
+`POST /api/pi-core/update` distinguishes four response shapes. The queue SHALL map each to a distinct outcome and SHALL NOT flatten a non-busy failure into the generic busy message:
+
+| Condition | HTTP | Body | Queue outcome |
+|---|---|---|---|
+| Busy lock held | 409 | `{success: false, error}` | retry once, then error with `body.error` |
+| Unknown package name | 400 | `{success: false, error}` | error with `body.error`, **no retry** |
+| Nothing resolved as updatable | 200 | `{success: true, data: {results: []}}` | **success** (no-op), not an error |
+| Per-package failure | 200 | `{success: true, data: {results: [{success: false, error}]}}` | error with `results[0].error`, **no retry** |
+
+The 409-retry-once policy SHALL apply only to the busy-lock shape. A package-manager-level failure — for example pi 0.82 requiring a `pnpm store prune` when a pnpm-installed core package's cached version has been removed — arrives as the per-package shape (HTTP 200), so it SHALL reach the row as its own distinguishable message. Retrying it would be futile (a 500 ms backoff cannot repair a pruned cache) and would replace the actionable text with generic busy wording.
+
+#### Scenario: A pnpm cache-prune failure is distinguishable, not a 409
+
+- **WHEN** a pi-core op's POST resolves with HTTP 200 and `body.data.results = [{name: "@earendil-works/pi-coding-agent", success: false, error: "ERR_PNPM_NO_OFFLINE_TARBALL … run `pnpm store prune` and retry"}]`
+- **THEN** the queue records that exact error text for `"pi-core:@earendil-works/pi-coding-agent"`
+- **AND** the message is NOT replaced by the busy text and is NOT `"Update failed"`
+- **AND** the queue does NOT retry — exactly one POST is made
+
+#### Scenario: An unknown package name surfaces its own 400 message
+
+- **GIVEN** a client POSTs a core package name the server no longer resolves (reachable via the `@mariozechner` → `@earendil-works` core rename)
+- **WHEN** the POST resolves with HTTP 400 and `{success: false, error: "Unknown package(s): …"}`
+- **THEN** the queue records that message verbatim and does NOT retry
+
+#### Scenario: An empty results array is a no-op, not a failure
+
+- **GIVEN** a core row's `updateAvailable` flipped false between render and click
+- **WHEN** the POST resolves with HTTP 200 and `body.data.results = []`
+- **THEN** the queue completes the op as a success and clears `running`
+- **AND** the row does NOT render an error
+
 ### Requirement: Pi-core source key uses a `pi-core:` prefix convention
 
 Pi-core operations SHALL use a `source` string of the form `"pi-core:" + packageName`, where `packageName` is the full scoped npm name from `CORE_PACKAGE_NAMES` in `packages/server/src/pi-core-checker.ts` — e.g. `"pi-core:@mariozechner/pi-coding-agent"`, `"pi-core:@blackbelt-technology/pi-agent-dashboard"`, `"pi-core:@blackbelt-technology/pi-model-proxy"`. The prefix is a self-documenting convention; the dispatch decision is made by the `kind` field, not by source-string prefix matching.

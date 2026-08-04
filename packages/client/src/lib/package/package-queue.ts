@@ -21,11 +21,19 @@
  * same server-side busy lock (`PackageManagerWrapper.busy`):
  *   - `"extension"` — POST `/api/packages/{action}` → 202 + operationId,
  *     completion arrives asynchronously via `package_operation_complete`.
- *   - `"pi-core"` — POST `/api/pi-core/update` → blocks until npm
+ *   - `"pi-core"` — POST `/api/pi-core/update` → blocks until the install
  *     finishes; completion is carried by the response body. The
  *     `pi_core_update_complete` WS frame is deliberately IGNORED: the
  *     server broadcasts it before returning the HTTP response, so it
  *     nearly always arrives first and would complete the op early.
+ *
+ * The queue carries NO package-manager knowledge. It posts a package name
+ * and renders whatever the server reports; the server picks the package
+ * manager (see `detectPackageManager` in `lifecycle/recovery-server.ts`,
+ * change: cf18e682). Only ONE response shape is a 409 (the busy lock), so
+ * package-manager-level failures — e.g. pi 0.82 requiring a `pnpm store
+ * prune` before a pnpm-installed core package can update — reach the row
+ * as their own verbatim message via `results[].error`.
  *
  * Pi-core sources use the `pi-core:<scoped-npm-name>` prefix convention
  * (see `piCoreSource`). The prefix is documentation; `kind` is the
@@ -288,12 +296,25 @@ class PackageQueue {
       return;
     }
 
-    // Single-name batch in → single result out.
-    const result = body?.data?.results?.[0];
+    // Single-name batch in → at most one result out.
+    const results = body?.data?.results;
+    if (Array.isArray(results) && results.length === 0) {
+      // Server resolved nothing updatable (e.g. `updateAvailable` flipped
+      // false between render and click). "Nothing to do" is not a failure —
+      // reporting it as one paints a red error on a healthy row.
+      this.completeRunning(true, undefined, "Already up to date");
+      return;
+    }
+
+    const result = results?.[0];
     if (result?.success) {
       this.completeRunning(true, undefined, "Update complete");
     } else {
-      this.completeRunning(false, result?.error ?? "Update failed");
+      // Propagate the server's message verbatim. Package-manager-specific
+      // failures (e.g. pi 0.82's pnpm cache-prune requirement) arrive here
+      // as HTTP 200 + `success: false`, NOT as a 409, so they must never be
+      // flattened into the generic busy text.
+      this.completeRunning(false, result?.error ?? `Update failed for ${name}`);
     }
   }
 

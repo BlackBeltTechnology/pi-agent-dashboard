@@ -313,6 +313,113 @@ describe("package-queue pi-core dispatch", () => {
     expect(packageQueue.isAnyRunning()).toBe(true);
   });
 
+  // ── Failure-shape taxonomy of POST /api/pi-core/update ──────────────
+  //
+  // The route distinguishes four failure shapes. Only ONE of them is a
+  // 409, so a package-manager-level failure must never be flattened into
+  // the generic busy message. See change:
+  // unify-pi-core-into-package-queue (reconciliation with cf18e682 +
+  // pi 0.82 pnpm `pi update` cache behaviour).
+
+  it("surfaces a pnpm cache-prune failure verbatim, not as a 409, and does not retry", async () => {
+    // pi 0.82: `pi update` on a pnpm install can point at a removed cached
+    // version and require `pnpm store prune` / a pnpm self-update. The
+    // server catches this PER PACKAGE, so it arrives as HTTP 200 +
+    // results[0].success === false — never a 409.
+    const pnpmErr =
+      "ERR_PNPM_NO_OFFLINE_TARBALL  Could not find cached tarball for " +
+      "@earendil-works/pi-coding-agent@0.82.0 — run `pnpm store prune` and retry";
+    const fetchMock = makeFetchMock(() =>
+      jsonResponse({
+        success: true,
+        data: { results: [{ name: PI, success: false, error: pnpmErr }], sessionsReloaded: 0 },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    packageQueue.enqueue({ source: PI_SRC, kind: "pi-core", action: "update", scope: "global" });
+    await flush();
+    // Give the 409 retry window a chance to fire — it must not.
+    await vi.advanceTimersByTimeAsync(600);
+    await flush();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(packageQueue.getStateForSource(PI_SRC)).toBe("error");
+    const msg = packageQueue.getMessageForSource(PI_SRC);
+    expect(msg).toBe(pnpmErr);
+    expect(msg).toContain("pnpm store prune");
+    expect(msg).not.toMatch(/server busy/i);
+    expect(msg).not.toBe("Update failed");
+  });
+
+  it("surfaces an unknown-package 400 verbatim and does not retry", async () => {
+    // Reachable via the @mariozechner -> @earendil-works core rename: a
+    // stale client can POST a name the server no longer resolves.
+    const fetchMock = makeFetchMock(() =>
+      jsonResponse({ success: false, error: `Unknown package(s): ${PI}` }, 400),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    packageQueue.enqueue({ source: PI_SRC, kind: "pi-core", action: "update", scope: "global" });
+    await flush();
+    await vi.advanceTimersByTimeAsync(600);
+    await flush();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(packageQueue.getStateForSource(PI_SRC)).toBe("error");
+    expect(packageQueue.getMessageForSource(PI_SRC)).toBe(`Unknown package(s): ${PI}`);
+  });
+
+  it("treats an empty results array as a no-op success, not a failure", async () => {
+    // The route returns {results: [], sessionsReloaded: 0} when nothing
+    // resolved as updatable (e.g. updateAvailable flipped false between
+    // render and click). That is 'nothing to do', not a failure.
+    vi.stubGlobal(
+      "fetch",
+      makeFetchMock(() =>
+        jsonResponse({ success: true, data: { results: [], sessionsReloaded: 0 } }),
+      ),
+    );
+
+    packageQueue.enqueue({ source: PI_SRC, kind: "pi-core", action: "update", scope: "global" });
+    await flush();
+
+    expect(packageQueue.getStateForSource(PI_SRC)).not.toBe("error");
+    expect(packageQueue.getRunning()).toBeNull();
+  });
+
+  it("names the package when a failed result carries no error text", async () => {
+    vi.stubGlobal(
+      "fetch",
+      makeFetchMock(() =>
+        jsonResponse({ success: true, data: { results: [{ name: PI, success: false }] } }),
+      ),
+    );
+
+    packageQueue.enqueue({ source: PI_SRC, kind: "pi-core", action: "update", scope: "global" });
+    await flush();
+
+    expect(packageQueue.getStateForSource(PI_SRC)).toBe("error");
+    expect(packageQueue.getMessageForSource(PI_SRC)).toContain(PI);
+  });
+
+  it("sends no package-manager hint — the server owns that decision", async () => {
+    // cf18e682 made the server pick the repo's own package manager. The
+    // queue must stay agnostic: request body carries ONLY the package name.
+    const fetchMock = makeFetchMock(() =>
+      jsonResponse({ success: true, data: { results: [{ name: PI, success: true }] } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    packageQueue.enqueue({ source: PI_SRC, kind: "pi-core", action: "update", scope: "global" });
+    await flush();
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const sent = JSON.parse(init.body as string);
+    expect(Object.keys(sent)).toEqual(["packages"]);
+    expect(sent).toEqual({ packages: [PI] });
+  });
+
   it("defaults kind to `extension` when unspecified", async () => {
     const fetchMock = makeFetchMock(() =>
       jsonResponse({ success: true, data: { operationId: "op-1" } }),
