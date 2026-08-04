@@ -88,9 +88,16 @@ if (file) {
     "cold-load events after compaction": coldCompacted.length,
     "cold wire bytes": fmtBytes(wireBytes(cold)),
   });
+  // Equal LENGTH alone would not prove a no-op — a compactor could reorder or
+  // rewrite events without changing the count. Compare the full projection.
+  const identical =
+    coldCompacted.length === cold.length &&
+    JSON.stringify(coldCompacted.map((e) => [e.seq, e.event.eventType])) ===
+      JSON.stringify(cold.map((e) => [e.seq, e.event.eventType])) &&
+    coldCompacted.every((e, i) => e.event === cold[i].event);
   console.log(
-    coldCompacted.length === cold.length
-      ? "compaction is a NO-OP on the cold path → safe to apply uniformly"
-      : `compaction removed ${cold.length - coldCompacted.length} cold-path events`,
+    identical
+      ? "compaction is a NO-OP on the cold path (same events, same order, same refs) → safe to apply uniformly"
+      : `compaction CHANGED the cold path: ${cold.length} → ${coldCompacted.length} events`,
   );
 }

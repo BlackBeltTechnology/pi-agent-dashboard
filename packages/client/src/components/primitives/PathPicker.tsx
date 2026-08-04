@@ -232,6 +232,9 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
   };
 
   const descendInto = (dirPath: string) => {
+    // Counts as a user edit: this writes `inputValue`, so a late-resolving
+    // mount-time default fetch must not overwrite it either.
+    userEditedRef.current = true;
     // Use OS-native separator so a Windows-resolved path stays in
     // backslash form (previously `dirPath + "/"` produced mixed
     // separators like `C:\Users\me/`).

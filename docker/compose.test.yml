@@ -17,6 +17,15 @@
 
 services:
   pi-dashboard:
+    # Loopback-only publish for the TEST overlay (production `compose.yml`
+    # deliberately publishes on the wildcard so a LAN device can reach the
+    # dashboard). The PI_E2E_SEED path seeds a fake credential and, by default,
+    # a trust-any-peer `trustedNetworks` — sound ONLY because the harness is
+    # unreachable off-host. Without this the seeded instance would be exposed to
+    # the local network. See change: compact-warm-replay-stream (harness fix).
+    ports: !override
+      - "127.0.0.1:${DASHBOARD_PORT:-18000}:${DASHBOARD_PORT:-18000}"
+      - "127.0.0.1:${PI_GATEWAY_PORT:-18999}:${PI_GATEWAY_PORT:-18999}"
     # Per-worktree image tag so two worktrees never share/clobber a baked image
     # (the dashboard server+client run from BAKED source, not the overlay). The
     # managed e2e path passes --build; teardown removes the tag. Falls back to

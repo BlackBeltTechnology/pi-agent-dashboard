@@ -64,6 +64,13 @@ function replayFramesIn(payload: string): { events: ReplayFrame[]; isLast: boole
 }
 
 test.describe("replay compaction — warm replay drops superseded snapshots", () => {
+  // Two faux turns + a second-context full replay. When this spec happens to run
+  // FIRST against a freshly built container it also pays the cold-start cost
+  // (pi-flows jiti compile, first session spawn), which can exceed the 60s
+  // default before the composer is interactive. Give it room so the result does
+  // not depend on alphabetical run order.
+  test.setTimeout(180_000);
+
   test("full replay carries no superseded message_update, keeps seqs monotonic, and still renders reasoning", async ({
     page,
     browser,
@@ -80,6 +87,17 @@ test.describe("replay compaction — warm replay drops superseded snapshots", ()
     expect(sessionId).toBeTruthy();
 
     await card.click();
+    // Wait until the composer can actually SEND before the first prompt. On a
+    // cold container the send button stays disabled until the bridge has wired
+    // the session to `defaultModel` (faux/faux-1). The button is also disabled
+    // while the composer is empty, so prime it with text, wait, then clear —
+    // otherwise `sendPrompt`'s click races the model wiring and times out
+    // whenever this spec happens to run first.
+    const composer = page.getByPlaceholder(/message/i).first();
+    await composer.waitFor({ state: "visible", timeout: 60_000 });
+    await composer.fill("warmup");
+    await expect(page.getByTestId("send-button")).toBeEnabled({ timeout: 120_000 });
+    await composer.fill("");
     // thinking-text streams a reasoning block AND prose, so the window carries
     // both thinking-bearing updates (exempt) and superseded text snapshots.
     await sendPrompt(page, "[[faux:thinking-text]] go");

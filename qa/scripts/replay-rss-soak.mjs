@@ -40,9 +40,20 @@ function resolvePort() {
   throw new Error("No port: pass --port, set PW_E2E_PORT, or run docker/test-up.sh first.");
 }
 
+/** `Number()` yields NaN/Infinity for junk, which would silently disable the
+ *  verdict (`settled > NaN` is false ⇒ always PASS). Fail loud instead. */
+function num(name, fallback, { min, max }) {
+  const v = Number(arg(name, fallback));
+  if (!Number.isFinite(v) || v < min || v > max) {
+    console.error(`--${name} must be a finite number in [${min}, ${max}] (got ${arg(name, fallback)})`);
+    process.exit(2);
+  }
+  return v;
+}
+
 const PORT = resolvePort();
-const ITERATIONS = Number(arg("iterations", 10));
-const TOLERANCE = Number(arg("tolerance", 0.1));
+const ITERATIONS = num("iterations", 10, { min: 1, max: 1000 });
+const TOLERANCE = num("tolerance", 0.1, { min: 0, max: 100 });
 const BASE = `http://localhost:${PORT}`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
