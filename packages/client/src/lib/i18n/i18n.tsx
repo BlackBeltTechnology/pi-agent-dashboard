@@ -460,7 +460,7 @@ const zhCN: Record<string, string> = {
   "folders.addAFolder": "添加文件夹",
   "folders.addFolder": "添加文件夹",
   "folders.forEachKnownDirectoryLongerInterval": "针对每个已知目录。间隔越长 → CPU 占用越低,UI 稍显陈旧。并发越低 → 曲线越平滑。变更检测",
-  "folders.newFolder": "＋ 新建文件夹",
+  "folders.newFolder": "新建文件夹",
   "folders.newFolderName": "新文件夹名称",
   "folders.newWorkspace": "+ 新建工作区…",
   "folders.newWorkspace2": "新建工作区",

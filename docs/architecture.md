@@ -95,7 +95,7 @@ React-based responsive web UI that:
 - Provides command autocomplete with `/` prefix
 - Supports bidirectional interaction (send prompts, run commands)
 - Works on mobile with responsive layout and swipe gestures
-- Shows an onboarding `LandingPage` whenever the main pane is empty, narrating the three steps needed to go from install → first running session (Setup credentials → Add folder → Start session). Each step is a card in **pending**, **done**, or **locked** state, derived purely from client state: `useProvidersReady()` (from `GET /api/providers`), `pinnedDirectories.length`, and `sessions.size`. Satisfied steps collapse to single-line ✔ rows, so returning users see a compact status strip rather than a full onboarding wall. The `PinDirectoryDialog` used by Step ② is mounted once at the app root in `App.tsx` and shared with the sidebar "Add folder" button via a single `onOpenPinDialog` callback.
+- Shows an onboarding `LandingPage` whenever the main pane is empty, narrating the three steps needed to go from install → first running session (Setup credentials → Add folder → Start session). Each step is a card in **pending**, **done**, or **locked** state, derived purely from client state: `useProvidersReady()` (from `GET /api/providers`), `pinnedDirectories.length`, and `sessions.size`. Satisfied steps collapse to single-line ✔ rows, so returning users see a compact status strip rather than a full onboarding wall. Step ② sidebar "Add folder" button opens multi-select `AddFoldersDialog` (destination: None); pinning implicit (adding folder pins it). App uses `pinDialogOpen` state to gate dialog.
 
 **Unified dialog system** (`packages/client-utils/`): `Dialog` primitive + `Confirm` preset + `useFocusTrap` hook. `Dialog` owns portal/overlay (`bg-black/60`)/Esc/click-outside/focus-trap/ARIA/`z-[60]`/size variants (sm/md/lg)/header+footer slots (`Dialog.Footer`/`Dialog.Cancel`/`Dialog.Action`). `Confirm` wraps `Dialog` (size sm) for confirm flows. `ui:dialog` registry key exposes shell to plugins; `ui:confirm-dialog` re-skinned as adapter over `Confirm`. ~20 dialogs migrated. Legacy `ConfirmDialog` removed. See change: unify-dialog-system.
 
@@ -796,6 +796,22 @@ See change: add-worktree-lifecycle-actions.
 5. Server stores processes on the session object and forwards to subscribed browsers as `process_list_update`
 6. New browser connections receive current processes via the initial `session_added` message
 7. Session cards display processes with elapsed time and a kill button (sends SIGTERM to process group)
+
+### Folder → workspace add flow (redesign-folder-workspace-add-flow)
+
+**DirectoryHomeView eligibility guard removed.** Any groupable cwd renders home page (session list + spawn prompt). Gone: props `pinnedDirectories`, `workspaceFolders`, `pinnedDirectoriesLoaded`, `workspacesLoaded`, `onPinDirectory`; testids `directory-home-loading`, `directory-home-not-pinned`; i18n keys `directoryHome.notPinnedTitle`, `notPinnedBody`, `pinCta`. App drops `workspaceFolderSet` memo + `pinnedDirsLoaded`, `workspacesLoaded` state + their `useMessageHandler` setters (handlers `pinned_dirs_updated`, `workspaces_updated` no longer flip loaded flags).
+
+**Pin now implicit visibility primitive.** Adding folder always pins (`pin_directory`). `AddToWorkspaceMenu` + add dialog offer NO "Pin to dashboard". Safe: `visibleTopPinned`/`visibleTopUnpinned` already filter workspace-owned cwd out of top tier (renders once); redundant pin = fallback so removing from workspace leaves folder visible at root.
+
+**Add-to-workspace affordance.** `mdiFolderPlus` + `mdiMenuDown` caret icon button INSIDE folder-header cluster, order: `sort · add-to · home · pin`. Same button on session-card header (`session-card-add-to-workspace-<id>`, targets `session.cwd`). `aria-haspopup="menu"` + `aria-expanded` + `aria-label`/`title` "Add to workspace…". Popover state keyed by SCOPE (`folder:<cwd>` vs `session:<id>`) so card + same-cwd folder row never co-open. Old `+ws` text token removed. `SessionList.renderGroupWithWorkspaceMenu` → `renderGroup(..., withWorkspaceMenu=true)`.
+
+**Folder-header cluster never wraps.** `folder-header-cluster-<cwd>` = `flex-none whitespace-nowrap`; name region `folder-header-name-<cwd>` = `min-w-0` absorbs squeeze; parent path `folder-header-parent-<cwd>` = `flex-[0_1_auto] min-w-0` collapses first; leaf `folder-header-leaf-<cwd>` = `min-w-[6ch]` floor.
+
+**PathPicker opt-in multi-select.** `selection?: {selected:Set<string>; onToggle}` (absent = single-select, unchanged for existing callers e.g. PinDirectoryDialog). Multi-select: row body navigates (never `onSelect`), per-row checkbox (`path-picker-check-<path>`, `role=checkbox`, `stopPropagation`) toggles basket, trailing chevron (`path-picker-open-<path>`) descends; Space toggles highlighted row, Enter descends. Emoji → `@mdi/js` (`mdiArrowUp`, `mdiFolder`, `mdiFolderPlusOutline`); git/pi stay text badges. Optional `sessionCounts?: Map<pathKey,number>` → session badge (`path-picker-sessions-<path>`). `userEditedRef` mount-race guard (change compact-warm-replay-stream) preserved.
+
+**AddFoldersDialog** (`packages/client/src/components/workspace/AddFoldersDialog.tsx`): multi-select picker + removable-pill basket (persists across navigation) + single-select workspace destination (radio, default None, empty state "None — no workspaces yet", eager `+ New workspace…` that becomes selected once `workspaces_updated` echo lands) + count-bearing commit (`add-folders-commit`). Commit sends `pin_directory` for every path FIRST, then `add_folder_to_workspace` per path when destination set (pins first → folder never momentarily invisible). Reuses existing per-path messages, no new protocol. Wired to both entry points: App sidebar `+ Add Folder` → dest None; `SessionList` workspace-scoped `+ Add Folder` → that workspace preselected. `PinDirectoryDialog` retained ONLY for packages move-to-local single-select picker (`UnifiedPackagesSection`).
+
+See change: redesign-folder-workspace-add-flow.
 
 ### OpenSpec Polling (Server-Side)
 

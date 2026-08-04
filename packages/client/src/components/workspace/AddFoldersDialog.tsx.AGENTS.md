@@ -1,0 +1,3 @@
+# AddFoldersDialog.tsx — index
+
+Multi-select "Add folders" dialog: wraps `PathPicker` in multi-select mode + removable-pill basket + single-select workspace destination (radio, default None, empty state + eager `+ New workspace…`) + count-bearing commit. NO pin control — pinning is implicit. Commit sends `onPin` for every path FIRST, then `onAddFolderToWorkspace` per path when a destination is set. Session-count row badges via `pathKey` join. Exports `AddFoldersDialog`. Wired to both `dashboard-add-buttons` entry points (App sidebar `+ Add Folder` → dest None; SessionList workspace-scoped `+ Add Folder` → that ws preselected). See change: redesign-folder-workspace-add-flow.
