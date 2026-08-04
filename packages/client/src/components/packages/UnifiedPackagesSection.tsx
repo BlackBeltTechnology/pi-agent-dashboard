@@ -148,16 +148,26 @@ export function UnifiedPackagesSection() {
 	const [readmePkg, setReadmePkg] = useState<NpmPackageResult | null>(null);
 	const [movePickerSource, setMovePickerSource] = useState<string | null>(null);
 
-	// Core "Update All" gating. `queueBusy` covers the running op plus
-	// anything still waiting in the FIFO, so a second click can't stack a
-	// duplicate batch on top of an in-flight one.
-	const queueBusy = operations.queueDepth + (operations.runningSource ? 1 : 0) > 0;
-	const coreUpdateAllSpinning =
-		queueBusy &&
-		updatableCore.some((p) => {
-			const s = operations.statusFor(piCoreSource(p.name));
-			return s === "running" || s === "queued";
-		});
+	// Core "Update All" stays CLICKABLE while operations run — clicking it
+	// mid-flight fills the queue and each row shows queued → running. The
+	// queue's (source, action) dedupe makes a repeat click idempotent, so
+	// nothing stacks. See change: unify-pi-core-into-package-queue (D9).
+	const coreUpdateAllSpinning = updatableCore.some((p) => {
+		const s = operations.statusFor(piCoreSource(p.name));
+		return s === "running" || s === "queued";
+	});
+
+	// Move / Reset-to-npm are the ONLY controls gated on "any op running".
+	// They bypass `packageQueue` (moveTracker: moveId-keyed, partial-success
+	// semantics that don't fit source-keyed statusFor) and take the server
+	// busy lock directly with no retry, so a mid-flight click would 409
+	// silently. Everything else enqueues and is safe to leave enabled.
+	const moveLocked = operations.isAnyRunning;
+	const moveLockedReason = t(
+		"packages.moveLockedWhileBusy",
+		undefined,
+		"Unavailable while a package operation is running — move and reset can't be queued yet",
+	);
 
 	const checkInFlightRef = useRef(false);
 	const handleCheckUpdates = useCallback(
@@ -252,6 +262,9 @@ export function UnifiedPackagesSection() {
 			currentVersion: pkg.version,
 			updateAvailable: hasUpdate,
 			busy: rowBusy,
+			queued: opStatus === "queued",
+			locked: moveLocked,
+			lockedReason: moveLockedReason,
 			progress: rowProgress,
 			error: rowError,
 			isOverride: isSourceOverride(pkg),
@@ -338,7 +351,7 @@ export function UnifiedPackagesSection() {
 						<div className="mb-2">
 							<button
 								onClick={() => updatableCore.forEach((p) => operations.coreUpdate(p.name))}
-								disabled={queueBusy || updatableCore.length === 0}
+								disabled={updatableCore.length === 0}
 								className="text-xs px-3 py-1 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 disabled:opacity-50 flex items-center gap-1"
 								data-testid="pi-core-update-all"
 							>
@@ -352,6 +365,7 @@ export function UnifiedPackagesSection() {
 							const isPi = isPiCorePkg(pkg.name);
 							const opSource = piCoreSource(pkg.name);
 							const busy = operations.runningSource === opSource;
+							const opStatus = operations.statusFor(opSource);
 							return (
 								<PackageRow
 									key={pkg.name}
@@ -362,8 +376,9 @@ export function UnifiedPackagesSection() {
 									latestVersion={pkg.latestVersion}
 									updateAvailable={pkg.updateAvailable}
 									busy={busy}
+									queued={opStatus === "queued"}
 									progress={busy ? operations.operation.message : undefined}
-									error={operations.statusFor(opSource) === "error" ? operations.messageFor(opSource) : undefined}
+									error={opStatus === "error" ? operations.messageFor(opSource) : undefined}
 									canUpdate={true}
 									canUninstall={false}
 									onUpdate={() => operations.coreUpdate(pkg.name)}

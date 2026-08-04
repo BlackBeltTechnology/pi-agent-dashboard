@@ -18,6 +18,11 @@ Core rows now read the singleton `packageQueue` through `usePackageOperations("g
 
 Version-list refresh after completion comes from `usePiCoreVersions`' own independent `pi_core_update_complete` listener — no inline `refresh(true)` needed.
 
-D9 (disable every lock-taking control while ANY op runs) is deliberately NOT implemented here; `packageQueue.isAnyRunning()` exists as the primitive for that follow-up.
+**D9 rewritten — VISIBLE queue, not disabled buttons.** Governing rule: no enabled click is silently lost. Earlier draft (disable every lock-taking control while any op runs) REVERSED — an inert button and a silently-409ing button are the same defect, and disabling freezes the panel for a multi-minute core update.
+
+- Core + extension row buttons stay ENABLED mid-flight. Click enqueues → row renders `queued` → `running` → result.
+- Three non-conflated `PackageRow` signals: `busy` (own-source running → spinner+progress) / `queued` (own-source queued → `queued` pill + "Queued" label + own-button disable) / `locked` (`operations.isAnyRunning` → disables **only** Move + Reset-to-npm, tooltip via `lockedReason`).
+- Core "Update All" stays clickable mid-flight; disabled only when `updatableCore.length === 0`. Idempotent via queue's (source, action) dedupe. Local `coreUpdateAllSpinning` = any updatable core row running|queued. The old `queueBusy` gate is GONE.
+- Move + Reset-to-npm are the ONLY disabled controls. Reason: they ride `moveTracker` not `packageQueue` — `moveId`-keyed identity + partial-success semantics don't fit source-keyed `statusFor(source)`, so they can't be queued; unqueued they take the busy lock directly with NO 409 retry.
 
 See change: unify-pi-core-into-package-queue.

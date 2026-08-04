@@ -32,7 +32,7 @@ This change picks the architectural fix over the narrow one: **pi-core operation
 
 ### 2. `usePackageOperations` gains a typed pi-core helper
 
-- Add `coreUpdate(name: string): void` that calls `packageQueue.enqueue({ source: "pi-core:" + name, kind: "pi-core", action: "update", scope: "global" })`. The `name` argument is the full scoped npm name (e.g. `@mariozechner/pi-coding-agent`), matching `PiCorePackage.name` returned by `GET /api/pi-core/status`.
+- Add `coreUpdate(name: string): void` that calls `packageQueue.enqueue({ source: "pi-core:" + name, kind: "pi-core", action: "update", scope: "global" })`. The `name` argument is the full scoped npm name (e.g. `@mariozechner/pi-coding-agent`), matching `PiCorePackage.name` returned by `GET /api/pi-core/versions`.
 - The `scope: "global"` value is a non-meaningful placeholder for pi-core ops — `/api/pi-core/update` does not consume the `scope` field; the server-side install location is determined per-package from `PiCorePackage.installSource` (`"global"` for npm-global vs `"managed"` for `~/.pi-dashboard/`). We pick `"global"` to satisfy the `EnqueueRequest.scope` type contract without introducing a third enum value.
 - All existing API on the hook is preserved.
 
@@ -46,11 +46,20 @@ This change picks the architectural fix over the narrow one: **pi-core operation
   - `progress={operations.runningSource === "pi-core:" + pkg.name ? operations.operation.message : undefined}`
   - `error={operations.statusFor("pi-core:" + pkg.name) === "error" ? operations.messageFor("pi-core:" + pkg.name) : undefined}`
   - `onUpdate={() => operations.coreUpdate(pkg.name)}`
-- "Update All" iterates over `updatableCore` and calls `operations.coreUpdate(name)` for each. The queue handles FIFO serialization automatically. The button's `disabled` becomes `operations.queueDepth + (operations.runningSource ? 1 : 0) > 0`.
+- "Update All" iterates over `updatableCore` and calls `operations.coreUpdate(name)` for each. The queue handles FIFO serialization automatically. The button stays **enabled** while operations run — the queue's (source, action) dedupe makes a repeat click idempotent — and is disabled only when there is nothing updatable.
 
-### 4. Extension install/uninstall buttons are gated while pi-core updates run, and vice versa
+### 4. The queue becomes visible; row buttons stay clickable
 
-This falls out of (1) for free: the queue's existing single-flight contract now spans both kinds. While a pi-core update is the running op, an extension install enqueued from any other surface enters the `queued` state automatically. The user no longer sees a 409 for clicking install during a core update — the install just queues until the core update finishes.
+This mostly falls out of (1): the queue's single-flight contract now spans both kinds, so an extension install clicked during a core update enters the `queued` state automatically instead of 409ing.
+
+What this change adds on top is the *visibility*, because a queued op the user cannot see is barely better than a 409:
+
+- Row buttons stay **enabled** while another operation runs. A click enqueues.
+- `PackageRow` gains a `queued` prop — a `queued` pill plus a "Queued" action label — so the click is visibly accounted for. A row whose own op is already pending disables its own button (the work is already registered, which is the opposite of losing the click).
+- `enqueue` dedupes on the **(source, action)** pair rather than on `source` alone, so double-clicks and repeat "Update All" presses cannot stack duplicate work, while `remove` and `update` of the same source remain distinct.
+- **Move and Reset-to-npm are the only controls disabled while busy** (`locked` ← `isAnyRunning`), with the reason in a tooltip. They ride `moveTracker`, not `packageQueue`: `moveId`-keyed identity plus partial-success semantics don't fit the source-keyed `statusFor(source)` contract, so they can't be queued yet — and being unqueued they take the busy lock directly with no retry.
+
+The governing principle is **no enabled click is silently lost**. An earlier draft of D9 instead disabled every lock-taking control while any op ran; that was reversed, because an inertly disabled button and a silently-409ing button are the same defect — the UI not telling the truth about what it did with the click — and disabling additionally freezes the whole panel for the duration of a multi-minute core update.
 
 ### Scope guardrails
 

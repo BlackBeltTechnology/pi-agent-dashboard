@@ -12,6 +12,8 @@ Queue handles BOTH extension and pi-core ops — same FIFO, because both contend
 - Dual subscription: `pi-package-event` (`onWindowEvent`) + `pi-core-event` (`onPiCoreEvent`). `pi_core_update_progress` updates `running.message`; **`pi_core_update_complete` is a deliberate no-op** — the server broadcasts it before returning the HTTP response, so it lands FIRST and would complete the op early (design R4).
 - `isAnyRunning(): boolean` — public primitive for cross-domain UI locking. No consumer yet (D9 deferred).
 
+**Dedupe on (source, action), NOT source alone** — private `isPending(source, action)`. Exact repeat dropped (double-click / repeat "Update All" → idempotent); `remove npm:foo` vs `update npm:foo` = distinct work, both accepted. This is what makes leaving row buttons ENABLED mid-flight safe. See change: unify-pi-core-into-package-queue (D9 rewritten).
+
 **Package-manager agnostic.** Queue holds NO package-manager knowledge. Pi-core request body = `{packages:[name]}` only — no pm field/flag/hint. Server owns pm choice (`detectPackageManager` in `lifecycle/recovery-server.ts`; change cf18e682). Server-side pm switch needs no queue change.
 
 **`/api/pi-core/update` response taxonomy — only 409 is the busy lock:**

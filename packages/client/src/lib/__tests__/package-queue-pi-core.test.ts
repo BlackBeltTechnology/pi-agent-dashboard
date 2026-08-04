@@ -420,6 +420,92 @@ describe("package-queue pi-core dispatch", () => {
     expect(sent).toEqual({ packages: [PI] });
   });
 
+  // ── Visible-queue contract (D9 rewritten) ───────────────────────
+  //
+  // Goal 6 is "no enabled click is silently lost", NOT "disable every
+  // control while busy". A click during a running op must enqueue and
+  // become visible as `queued`.
+
+  it("dedupes on (source, action), not on source alone", async () => {
+    const { fetchMock } = makeDeferredFetchMock({ success: true, data: { results: [] } });
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Hold the slot with an unrelated running op so everything else queues.
+    packageQueue.enqueue({ source: PI_SRC, kind: "pi-core", action: "update", scope: "global" });
+    await flush();
+
+    packageQueue.enqueue({ source: "npm:foo", action: "update", scope: "global" });
+    packageQueue.enqueue({ source: "npm:foo", action: "update", scope: "global" }); // exact dup → dropped
+    expect(packageQueue.getQueueDepth()).toBe(1);
+
+    // Same source, DIFFERENT action → distinct work, must be accepted.
+    packageQueue.enqueue({ source: "npm:foo", action: "remove", scope: "global" });
+    expect(packageQueue.getQueueDepth()).toBe(2);
+
+    // Dup of the second action → dropped.
+    packageQueue.enqueue({ source: "npm:foo", action: "remove", scope: "global" });
+    expect(packageQueue.getQueueDepth()).toBe(2);
+  });
+
+  it("a duplicate of the RUNNING (source, action) is dropped", async () => {
+    const { fetchMock } = makeDeferredFetchMock({ success: true, data: { results: [] } });
+    vi.stubGlobal("fetch", fetchMock);
+
+    packageQueue.enqueue({ source: PI_SRC, kind: "pi-core", action: "update", scope: "global" });
+    await flush();
+    expect(packageQueue.getStateForSource(PI_SRC)).toBe("running");
+
+    packageQueue.enqueue({ source: PI_SRC, kind: "pi-core", action: "update", scope: "global" });
+    expect(packageQueue.getQueueDepth()).toBe(0);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("renders queued for every op enqueued while one is running, across kinds", async () => {
+    const { fetchMock } = makeDeferredFetchMock({ success: true, data: { results: [] } });
+    vi.stubGlobal("fetch", fetchMock);
+
+    packageQueue.enqueue({ source: PI_SRC, kind: "pi-core", action: "update", scope: "global" });
+    await flush();
+
+    const DASH = "pi-core:@blackbelt-technology/pi-agent-dashboard";
+    packageQueue.enqueue({ source: DASH, kind: "pi-core", action: "update", scope: "global" });
+    packageQueue.enqueue({ source: "npm:pi-flows", action: "install", scope: "global" });
+
+    // The click was NOT lost and NOT 409'd — it is visibly queued.
+    expect(packageQueue.getStateForSource(PI_SRC)).toBe("running");
+    expect(packageQueue.getStateForSource(DASH)).toBe("queued");
+    expect(packageQueue.getStateForSource("npm:pi-flows")).toBe("queued");
+    // Only the running op has been POSTed.
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("drains strictly FIFO in enqueue order", async () => {
+    const posted: string[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      posted.push(body.packages ? `core:${body.packages[0]}` : `ext:${body.source}`);
+      return url.endsWith("/api/pi-core/update")
+        ? jsonResponse({ success: true, data: { results: [{ name: body.packages[0], success: true }] } })
+        : jsonResponse({ success: true, data: { operationId: `op-${posted.length}` } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const A = "pi-core:a";
+    const B = "pi-core:b";
+    const C = "pi-core:c";
+    packageQueue.enqueue({ source: A, kind: "pi-core", action: "update", scope: "global" });
+    packageQueue.enqueue({ source: B, kind: "pi-core", action: "update", scope: "global" });
+    packageQueue.enqueue({ source: C, kind: "pi-core", action: "update", scope: "global" });
+
+    expect(packageQueue.getQueueDepth()).toBe(2);
+    await flush();
+    await vi.advanceTimersByTimeAsync(0);
+    await flush();
+
+    expect(posted).toEqual(["core:a", "core:b", "core:c"]);
+    expect(packageQueue.getQueueDepth()).toBe(0);
+  });
+
   it("defaults kind to `extension` when unspecified", async () => {
     const fetchMock = makeFetchMock(() =>
       jsonResponse({ success: true, data: { operationId: "op-1" } }),

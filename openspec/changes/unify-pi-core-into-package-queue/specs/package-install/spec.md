@@ -157,9 +157,88 @@ This requirement closes the "cross-domain 409" UX bug class: today, a click on a
 - **WHEN** the extension op completes
 - **THEN** the pi-core op transitions from `"queued"` to `"running"` and POSTs to `/api/pi-core/update`
 
+### Requirement: A click during a running operation enqueues and is visibly queued
+
+No control that rides `packageQueue` SHALL be disabled merely because some *other* operation is running. Clicking such a control while an operation is in flight SHALL enqueue the work, and the affected row SHALL render a visible `queued` state, then `running`, then the result.
+
+The governing principle is **no enabled click is silently lost**. A control that silently 409s and a control that is inertly disabled are the same defect: the UI failing to account for the click. A row whose own operation is already pending (`running` or `queued`) MAY disable its own action button, because that work is already registered and visibly reported — which is the opposite of losing it.
+
+#### Scenario: Enqueue while running renders queued, not an error
+
+- **GIVEN** a pi-core update for `@earendil-works/pi-coding-agent` is the running op
+- **WHEN** the user clicks Update on a different Core row and on an extension row
+- **THEN** neither button was disabled at click time
+- **AND** both rows render a visible `queued` indicator
+- **AND** no 409 error text is shown to the user
+- **AND** no POST is issued for either until the running op completes
+
+#### Scenario: A queued row reports itself as queued
+
+- **GIVEN** a row's operation is in the `queued` state
+- **THEN** that row's action button is labelled `Queued` and is disabled
+- **AND** a tooltip explains it is waiting for the current operation to finish
+
+### Requirement: Enqueue dedupes on the (source, action) pair
+
+`packageQueue.enqueue` SHALL drop a request when the same **(source, action)** pair is already `running` or `queued`. It SHALL NOT dedupe on `source` alone: a different action against the same source is distinct work and SHALL be accepted.
+
+This is what makes leaving row buttons enabled safe — a double-click cannot stack duplicate work, and "Update All" is idempotent under repeat clicks.
+
+#### Scenario: Exact duplicate is dropped
+
+- **GIVEN** `{source: "npm:foo", action: "update"}` is queued
+- **WHEN** `{source: "npm:foo", action: "update"}` is enqueued again
+- **THEN** the queue depth is unchanged
+
+#### Scenario: Same source, different action is accepted
+
+- **GIVEN** `{source: "npm:foo", action: "update"}` is queued
+- **WHEN** `{source: "npm:foo", action: "remove"}` is enqueued
+- **THEN** the queue depth increases by one
+
+#### Scenario: Update All is idempotent mid-flight
+
+- **GIVEN** the Core group has 2 updatable packages and "Update All" has been clicked once (1 running, 1 queued)
+- **WHEN** the user clicks "Update All" again
+- **THEN** the button was enabled
+- **AND** the queue depth is unchanged
+
+### Requirement: The queue drains strictly FIFO in enqueue order
+
+Operations SHALL be POSTed one at a time in the order they were enqueued, regardless of `kind`.
+
+#### Scenario: FIFO order across kinds
+
+- **GIVEN** the running op is a pi-core update for package A
+- **AND** a pi-core update for package B was enqueued, then an extension install for `npm:pi-flows`
+- **WHEN** A completes
+- **THEN** B becomes the running op and POSTs
+- **AND** `npm:pi-flows` remains `queued`
+- **WHEN** B completes
+- **THEN** `npm:pi-flows` becomes the running op and POSTs to `/api/packages/install`
+
+### Requirement: Move and Reset-to-npm are the only controls disabled while busy
+
+The Move and Reset-to-npm controls SHALL be disabled whenever `packageQueue.isAnyRunning()` is true, and SHALL surface the reason via tooltip. No other package control SHALL be disabled on that basis.
+
+**Recorded reason**: these two operations do not ride `packageQueue`. They register into `moveTracker` (`lib/nav/move-tracker.ts`) and POST directly. Their identity is `moveId`, not `source`, and they carry partial-success semantics (install at destination succeeded / remove at origin failed) that the source-keyed `statusFor(source)` contract cannot express without a second identity axis. Because they are unqueued they take the server busy lock directly **with no 409 retry**, so leaving them enabled mid-flight would reproduce exactly the silent failure this change removes. Disabling them is therefore the truthful option until they are migrated into the queue (out of scope here).
+
+#### Scenario: Move and Reset disabled with a stated reason while any op runs
+
+- **GIVEN** any package operation is the running op
+- **THEN** the row's Move control is disabled
+- **AND** the row's Reset-to-npm control is disabled
+- **AND** both carry a tooltip stating they cannot be queued yet
+- **AND** the same row's Update button remains enabled
+
+#### Scenario: Move and Reset are live when idle
+
+- **GIVEN** no operation is running
+- **THEN** the Move and Reset-to-npm controls are enabled
+
 ### Requirement: Queue exposes `isAnyRunning()` for cross-domain UI primitives
 
-The `packageQueue` SHALL expose a public method `isAnyRunning(): boolean` that returns `true` when any op (regardless of `kind`) is currently the running op, and `false` otherwise. This primitive enables future cross-domain UI work (e.g., disabling all package-mutation buttons while any op is running) without committing to that work as part of this change.
+The `packageQueue` SHALL expose a public method `isAnyRunning(): boolean` that returns `true` when any op (regardless of `kind`) is currently the running op, and `false` otherwise. Its sole consumer in this change is the `locked` signal that disables the Move and Reset-to-npm controls (see "Move and Reset-to-npm are the only controls disabled while busy").
 
 `usePackageOperations` SHALL surface `isAnyRunning` on its return value.
 
@@ -180,7 +259,7 @@ The `packageQueue` SHALL expose a public method `isAnyRunning(): boolean` that r
 
 ### Requirement: `usePackageOperations` exposes a typed `coreUpdate` helper
 
-The `usePackageOperations` hook SHALL expose `coreUpdate(name: string): void` that internally calls `packageQueue.enqueue({ source: "pi-core:" + name, kind: "pi-core", action: "update", scope: "global" })`. The `name` argument SHALL be the full scoped npm name (matching `PiCorePackage.name` from `GET /api/pi-core/status`). The `scope: "global"` value is a non-meaningful placeholder for pi-core ops — the `/api/pi-core/update` endpoint does not consume `scope`; install location is determined server-side from `PiCorePackage.installSource`. This is the canonical way for components to enqueue a pi-core update.
+The `usePackageOperations` hook SHALL expose `coreUpdate(name: string): void` that internally calls `packageQueue.enqueue({ source: "pi-core:" + name, kind: "pi-core", action: "update", scope: "global" })`. The `name` argument SHALL be the full scoped npm name (matching `PiCorePackage.name` from `GET /api/pi-core/versions`). The `scope: "global"` value is a non-meaningful placeholder for pi-core ops — the `/api/pi-core/update` endpoint does not consume `scope`; install location is determined server-side from `PiCorePackage.installSource`. This is the canonical way for components to enqueue a pi-core update.
 
 The hook's existing methods (`install`, `remove`, `update`, `move`, `statusFor`, `messageFor`, `runningSource`, `queueDepth`, `clearOperation`, etc.) SHALL be preserved unchanged.
 

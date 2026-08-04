@@ -12,7 +12,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `PackageInstallConfirmDialog.tsx` | Pre-install confirmation dialog. Exports `PackageInstallConfirmDialog`. Shows source + optional name + scope. → see `PackageInstallConfirmDialog.tsx.AGENTS.md` |
 | `PackagePartialSuccessBanner.tsx` | Shared kind-aware partial-success banner for composite package ops (move + reset). → see `PackagePartialSuccessBanner.tsx.AGENTS.md` |
 | `PackageReadmeDialog.tsx` | Dialog fetching + rendering a package README. Exports `PackageReadmeDialog`. → see `PackageReadmeDialog.tsx.AGENTS.md` |
-| `PackageRow.tsx` | Generic installed-package row used across unified packages sections. Exports `PackageRow`, `PackageRowProps`. → see `PackageRow.tsx.AGENTS.md` |
+| `PackageRow.tsx` | Generic installed-package row used across unified packages sections. Exports `PackageRow`, `PackageRowProps`. Three non-conflated op-state props `busy`/`queued`/`locked` — `locked` gates ONLY Move + Reset-to-npm. → see `PackageRow.tsx.AGENTS.md` |
 | `PiUpdateBadge.tsx` | Header badge counting available pi-core updates. Exports `PiUpdateBadge`. → see `PiUpdateBadge.tsx.AGENTS.md` |
 | `PiVersionAdvisory.tsx` | NEW. Settings→General advisory. Reads `usePiCompatibility`. → see `PiVersionAdvisory.tsx.AGENTS.md` |
 | `PluginSettingsHost.tsx` | Wraps `SettingsSectionByPluginSlot` from dashboard-plugin-runtime so per-plugin settings sections mount inside Plugins tab below activation row. See change: add-plugin-activation-ui. |

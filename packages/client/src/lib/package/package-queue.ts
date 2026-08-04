@@ -128,11 +128,13 @@ class PackageQueue {
   // ── Public API ────────────────────────────────────────────────
 
   enqueue(req: EnqueueRequest, onComplete?: (success: boolean, error?: string) => void): void {
-    const status = this.getStateForSource(req.source);
-    if (status === "running" || status === "queued") {
-      // Dedup — drop duplicate enqueues silently.
-      return;
-    }
+    // Dedupe on (source, action), not on source alone: `remove npm:foo` is
+    // distinct work from `update npm:foo` and must not be swallowed because
+    // the other is already pending. An exact (source, action) repeat is a
+    // double-click — dropping it is what makes every row button safe to
+    // leave enabled while an operation runs (Goal 6: no enabled click is
+    // silently lost; an already-pending click is visibly `queued`).
+    if (this.isPending(req.source, req.action)) return;
     // Clear any sticky error/success for this source on fresh enqueue.
     this.errorBySource.delete(req.source);
     this.successBySource.delete(req.source);
@@ -149,6 +151,12 @@ class PackageQueue {
       this.queue.push(op);
       this.notify();
     }
+  }
+
+  /** True when this exact (source, action) pair is already running or queued. */
+  private isPending(source: string, action: PackageAction): boolean {
+    if (this.running?.source === source && this.running.action === action) return true;
+    return this.queue.some((q) => q.source === source && q.action === action);
   }
 
   getStateForSource(source: string): PackageOperationStatus {
