@@ -78,10 +78,11 @@ describe("X3 — runtime pi-core installs stay npm (never pnpm)", () => {
   // pnpm, but only behind an explicit workspace probe: `detectPackageManager`
   // returns "pnpm" solely when `pnpm-workspace.yaml` / `pnpm-lock.yaml` sits at
   // the resolved repo root, and `suggestedReinstallCommand` consults it ONLY
-  // for the `monorepo` layout. The end-user layouts (`npm-global`, `electron`,
-  // and the default fallback) still return npm, so the Column C premise — "runs
-  // on an end-user machine, where pnpm is not present" — does not hold for that
-  // reference. Blanket-guarding it would force `npm install` onto a pnpm
+  // for the `monorepo` layout. The end-user layouts never reach it: `npm-global`
+  // and the default fallback return an npm command, and `electron` returns an
+  // installer message with no package manager at all. So the Column C premise —
+  // "runs on an end-user machine, where pnpm is not present" — does not hold for
+  // that reference. Blanket-guarding it would force `npm install` onto a pnpm
   // hoisted workspace, which is exactly the tree-corrupting bug
   // `recovery-server-respect-package-manager` fixed.
   const columnC = [
