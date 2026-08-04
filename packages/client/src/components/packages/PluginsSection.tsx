@@ -164,6 +164,11 @@ function MissingRequirementsBlock({ row }: { row: PluginRow }) {
   const svcMissing = row.status?.requirements?.services
     ?.filter((p) => !p.satisfied)
     .map((p) => p.name) ?? [];
+  // `paths` category (see change: add-apple-tools-imcp-plugin). A path has no
+  // package source, so it renders a non-actionable warning pill (no [Install]).
+  const pathsMissing = row.status?.requirements?.paths
+    ?.filter((p) => !p.satisfied)
+    .map((p) => p.name) ?? [];
 
   function recommendedFor(name: string): { source: string } | null {
     const found = RECOMMENDED_EXTENSIONS.find((e) => e.id === name);
@@ -232,6 +237,21 @@ function MissingRequirementsBlock({ row }: { row: PluginRow }) {
           <Icon path={mdiAlert} size={0.5} />
           <span>
             {i18nT("common.requiresService", undefined, "requires service:")}{" "}
+            <code className="px-1 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
+              {name}
+            </code>
+          </span>
+        </div>
+      ))}
+      {pathsMissing.map((name) => (
+        <div
+          key={`path:${name}`}
+          className={`flex items-center gap-2 text-[11px] ${WARN_FG}`}
+          data-testid={`missing-path-${name}`}
+        >
+          <Icon path={mdiAlert} size={0.5} />
+          <span>
+            {i18nT("common.requiresPath", undefined, "requires file:")}{" "}
             <code className="px-1 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
               {name}
             </code>

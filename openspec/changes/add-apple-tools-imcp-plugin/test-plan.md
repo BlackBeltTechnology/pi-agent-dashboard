@@ -66,14 +66,14 @@ Stage: design   Generated: 2026-08-03
 | F1 | Missing-requirement rendering | state-transition | L3 | automated | plugin row with an unsatisfied `paths` requirement | Plugins tab rendered | a warning pill naming the requirement is present; the block is NOT empty (regression guard for the three-category client bug) |
 | F2 | Missing-requirement rendering | decision-table | L3 | automated | unsatisfied `paths` requirement | Plugins tab rendered | NO inline `[Install]` button (a path has no package source) |
 | F3 | Missing-requirement rendering | decision-table | L3 | automated | unsatisfied `pi-mcp-adapter` `piExtensions` requirement | Plugins tab rendered | `[Install via Packages tab]` link, NOT an inline `[Install]` button (no curated entry) |
-| F4 | Settings section placement | state-transition | L3 | automated | provisioned host, plugin enabled | settings-gear affordance on the plugin row clicked | section renders inline beneath that row; assert it renders on NO other settings page |
-| F5 | Settings section placement | decision-table | L3 | automated | plugin disabled in config | Plugins tab rendered | claim filtered out; no section rendered |
-| F6 | Panel state readout | state-transition | L3 | automated | unprovisioned macOS host | panel rendered | displays the shared checker's terminal state; vocabulary identical to the CLI's for the same host |
-| F7 | Cache invalidation | state-transition | L3 | automated | panel showing an unprovisioned state | `[Run installer]` completes, then config write | cache cleared on both events; panel converges to the new state without a manual reload |
+| F4 | Settings section placement | state-transition | L3 | automated | plugin enabled | settings-gear (`plugin-expand-<id>`) on the plugin row clicked | section renders INSIDE that row's `plugin-settings-<id>` container (containment is the invariant; the Plugins tab stays mounted across nav, so absence-elsewhere is not observable) |
+| F5 | Settings section placement | decision-table | L3 | automated | plugin toggled off | Plugins tab rendered | `plugins-restart-required-banner` appears; the claim is filtered only AFTER a server restart (toggle returns `restartRequired`) |
+| F6 | Panel state readout | state-transition | L3 | manual-only | unprovisioned macOS host | panel rendered | displays the shared checker's terminal state; vocabulary identical to the CLI's for the same host |
+| F7 | Cache invalidation | state-transition | L3 | manual-only | panel showing an unprovisioned state | `[Run installer]` completes, then config write | cache cleared on both events; panel converges to the new state without a manual reload |
 | F8 | Non-macOS inert panel | decision-table | L3 | automated | dashboard on a non-macOS host | panel rendered | unsupported-platform readout; `[Run installer]` action absent |
-| F9 | No service toggles | decision-table | L3 | automated | fully provisioned host | panel rendered | 0 controls purporting to toggle an individual Apple service; pending-grants copy delegates to the menu bar and states grants cannot be automated |
-| F10 | Disable override isolation | state-transition | L3 | automated | provisioned host | operator toggles the iMCP server off | `disabled` written to project-local `.pi/mcp.json`; `~/.pi/agent/mcp.json` `command` entry byte-identical |
-| F11 | Disabled ≠ ready | decision-table | L3 | automated | server disabled AND host provisioned | panel rendered | status does not simultaneously read `READY_PENDING_GRANTS` and `disabled` — disabled state folds into the readout |
+| F9 | No service toggles | decision-table | L3 | manual-only | fully provisioned host | panel rendered | 0 controls purporting to toggle an individual Apple service; pending-grants copy delegates to the menu bar and states grants cannot be automated |
+| F10 | Disable override isolation | state-transition | L3 | manual-only | provisioned host | operator toggles the iMCP server off | `disabled` written to project-local `.pi/mcp.json`; `~/.pi/agent/mcp.json` `command` entry byte-identical |
+| F11 | Disabled ≠ ready | decision-table | L3 | manual-only | server disabled AND host provisioned | panel rendered | status does not simultaneously read `READY_PENDING_GRANTS` and `disabled` — disabled state folds into the readout |
 | F12 | Panel visual fit across themes | visual/subjective | — | manual-only | panel in each of the 4 themes | human looks | [judgment: readable, consistent with sibling plugin sections — no automatable observable] |
 
 ### Error-handling
@@ -88,7 +88,7 @@ Stage: design   Generated: 2026-08-03
 | X6 | Merge-only mcp.json write | fault-injection | L1 | automated | config holds an unrelated `mcpServers.other` entry + unknown top-level keys | installer writes | both survive verbatim alongside the new `iMCP` entry |
 | X7 | Unparseable mcp.json | fault-injection (abort) | L1 | automated | config file present, invalid JSON | installer writes | `CONFIG_UNPARSEABLE`, non-zero, parse error reported, original file byte-identical |
 | X8 | Unparseable settings.json | fault-injection (abort) | L1 | automated | settings file present, invalid JSON | installer appends | `CONFIG_UNPARSEABLE`, original byte-identical (parity with X7 — the invariant covers both files) |
-| X9 | TCC revocation attribution | fault-injection | L3 | automated | provisioned host, grant revoked out of band | Apple-data tool called | [NEEDS CLARIFICATION: observable — iMCP's concrete permission-class error shape is unknown; pin against a live host during implementation] |
+| X9 | TCC revocation attribution | fault-injection | L3 | manual-only | provisioned host, grant revoked out of band | Apple-data tool called | [NEEDS CLARIFICATION: observable — iMCP's concrete permission-class error shape is unknown; pin against a live host during implementation] |
 | X10 | Atomic write (mcp.json) | fault-injection (abort) | L1 | automated | write interrupted mid-rename | installer writes | file is complete-old or complete-new; never truncated |
 | X11 | Atomic write (settings.json) | fault-injection (abort) | L1 | automated | write interrupted mid-rename | installer appends | as X10 |
 | X12 | Unwritable config | fault-injection (abort) | L1 | automated | parseable config, `EACCES` on rename | installer writes | `CONFIG_WRITE_FAILED` (NOT coerced to `CONFIG_UNPARSEABLE`), original byte-identical |
@@ -106,12 +106,36 @@ Stage: design   Generated: 2026-08-03
 
 ---
 
+## Implementation amendment — L3 disposition (approved during ship-it)
+
+Six L3 rows (**F6, F7, F9, F10, F11, X9**) were reclassified `automated` →
+`manual-only`. Reason: each requires a **provisioned macOS host**, and the e2e
+harness (`docker/`) is a Linux container with no mock seam for plugin
+provisioning state — `apple-tools` there necessarily reports
+`UNSUPPORTED_PLATFORM`. Automating them would require new test-only
+infrastructure outside this change's scope. Their invariants are covered at L1
+where the probe is injectable:
+
+- F10's write contract is pinned by `setServerDisabled` tests in
+  `packages/apple-tools/src/__tests__/mcp-config.test.ts`, verified against the
+  **installed** `pi-mcp-adapter` v2.19.0 source (task 7.8): the flag lands in
+  `<cwd>/.pi/mcp.json`, `isServerDisabled` accepts only a literal `true`, and
+  enabling removes the key rather than writing `false`.
+- F6/F11's vocabulary is pinned by the shared nine-state enum tests
+  (`install.test.ts`, `doctor.test.ts` — doctor/CLI parity, #X18).
+
+**F4 and F5** kept `automated` but their observables were corrected to the
+product's real contract: the Plugins tab stays mounted across settings nav (so
+"renders on no other page" is not observable), and toggling a plugin off returns
+`restartRequired` and raises `plugins-restart-required-banner` rather than
+unmounting the claim immediately.
+
 ## Coverage summary
 
 - Requirements covered: 30/30
 - Scenarios by class: edge 34 · perf 3 · frontend 12 · error 23 — **72 total**
 - Scenarios by level: L1 **56** · L2 0 · L3 **15** · manual-only 1
-- Scenarios by disposition: automated **71** · manual-only **1**
+- Scenarios by disposition (amended): automated **65** · manual-only **7**
 
 ## New infra needed
 

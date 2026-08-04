@@ -57,9 +57,10 @@ describe("router over real modules", () => {
 		modules = loadModules(MODULES_DIR);
 	});
 
-	it("loads all seven capability modules", () => {
+	it("loads all eight capability modules", () => {
 		const names = modules.map((m) => m.name).sort();
 		expect(names).toEqual([
+			"apple-tools",
 			"build-reload",
 			"env-node",
 			"install-topology",

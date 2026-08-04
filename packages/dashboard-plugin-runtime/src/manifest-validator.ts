@@ -200,7 +200,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     }
     const r = m.requires as Record<string, unknown>;
     const out: PluginRequirements = {};
-    for (const field of ["piExtensions", "binaries", "services"] as const) {
+    for (const field of ["piExtensions", "binaries", "services", "paths"] as const) {
       const arr = r[field];
       if (arr === undefined) continue;
       if (!Array.isArray(arr)) {
