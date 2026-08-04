@@ -200,12 +200,34 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   # so the two can legitimately disagree. Gating registration on "package.json
   # absent" would skip it whenever the dir survives but settings.json does not,
   # leaving the E2E spec without its active source. Both halves are idempotent.
+  # The manifest MUST be loadable as a real pi extension, not just a name+version
+  # stub. Registering the path in packages[] makes pi LOAD it on every session
+  # start, and pi treats a failed extension load as FATAL (exit 1). A stub with no
+  # entry point therefore killed every spawned session before it could register,
+  # so no card ever rendered and every spec using spawnFreshGitSession timed out
+  # at 60s with no server-side error to show for it. The entry must resolve AND
+  # default-export a factory function; either alone still exits 1.
   LOCAL_PKG_DIR="/fixtures/local-pkg/image-fit-extension"
   if [ ! -f "${LOCAL_PKG_DIR}/package.json" ]; then
     mkdir -p "${LOCAL_PKG_DIR}"
-    printf '%s\n' '{ "name": "@blackbelt-technology/pi-image-fit-extension", "version": "0.0.1" }' \
+    printf '%s\n' '{ "name": "@blackbelt-technology/pi-image-fit-extension", "version": "0.0.1", "type": "module", "main": "index.js" }' \
       > "${LOCAL_PKG_DIR}/package.json"
   fi
+  # Idempotent alongside the manifest guard above: /fixtures may survive with a
+  # legacy entry-less package.json from an older image, so write the entry
+  # unconditionally and repair `main`/`type` if they are missing.
+  printf '%s\n' 'export default function imageFitFixtureExtension() {' \
+                '  return { name: "image-fit-fixture" };' \
+                '}' > "${LOCAL_PKG_DIR}/index.js"
+  node -e '
+    const fs = require("node:fs");
+    const [p] = process.argv.slice(1);
+    const d = JSON.parse(fs.readFileSync(p, "utf8"));
+    let changed = false;
+    if (d.main !== "index.js") { d.main = "index.js"; changed = true; }
+    if (d.type !== "module") { d.type = "module"; changed = true; }
+    if (changed) fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
+  ' "${LOCAL_PKG_DIR}/package.json"
   # Always ensure settings.json packages[] carries the path (no-op when present).
   node -e '
     const fs = require("node:fs");
