@@ -30,6 +30,8 @@ interface StatusReadout {
   /** Adapter-owned, read server-side from ~/.pi/agent/mcp.json. */
   directTools: string[];
   disabled: boolean;
+  /** False when iMCP.app is absent — provisioning must go through the CLI. */
+  appPresent: boolean;
 }
 
 export function AppleToolsSettings() {
@@ -109,13 +111,27 @@ export function AppleToolsSettings() {
         </p>
       ) : (
         <>
-          <button
-            data-testid="apple-tools-run-installer"
-            onClick={() => act("run-installer")}
-            style={{ fontSize: "11px", padding: "3px 10px", marginBottom: "10px" }}
-          >
-            Run installer
-          </button>
+          {status && !status.appPresent ? (
+            // The dashboard performs only the fast config-write half of
+            // provisioning; the long `brew install --cask` runs from the CLI so
+            // a click can never block the server. Tell the operator that here
+            // rather than offering a button that would refuse.
+            <p
+              data-testid="apple-tools-needs-cli"
+              style={{ fontSize: "11px", color: "#fbbf24", margin: "0 0 10px 0" }}
+            >
+              iMCP is not installed. Run <code>pi-apple-tools-install</code> in a terminal to
+              install it, then reload this panel.
+            </p>
+          ) : (
+            <button
+              data-testid="apple-tools-run-installer"
+              onClick={() => act("run-installer")}
+              style={{ fontSize: "11px", padding: "3px 10px", marginBottom: "10px" }}
+            >
+              Run installer
+            </button>
+          )}
 
           <label style={{ display: "block", fontSize: "11px", marginBottom: "6px" }}>
             imcp-server path override

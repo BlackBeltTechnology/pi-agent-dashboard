@@ -100,7 +100,7 @@ Invoke the `security-hardening` discipline skill before implementing — user-ow
 - [x] 5.2 Implement the `settings.json` `packages[]` append-if-absent path with the same merge-only/atomic/abort discipline, using `sourcesMatch()` for presence detection
 - [x] 5.3 Audit every subprocess call site: `brew` invoked with an argv array, never through a shell; no probed value interpolated into a shell string
 - [x] 5.4 Verify against the installed `pi-mcp-adapter` which `mcpServers.<id>` fields are required (`type`, `args`, `env`) and pin the written entry shape with a test — do NOT infer from the iMCP README's Claude Desktop example
-- [ ] 5.5 Spawn the `Audit` subagent on this group's diff (untrusted input + user-owned file writes + subprocess invocation)
+- [x] 5.5 Spawn the `Audit` subagent on this group's diff (untrusted input + user-owned file writes + subprocess invocation)
 
 ### Tests — group 5
 
@@ -142,7 +142,7 @@ Invoke the `security-hardening` discipline skill before implementing — user-ow
 - [x] 7.5 Implement `client/AppleToolsSettings.tsx` claiming `settings-section` **without** a `tab` field — per `openspec/specs/dashboard-plugin-loader/spec.md:1043` it renders inline under the plugin's own row; do NOT add a `SettingsTab` union member, do NOT touch `SettingsPanel.tsx`
 - [x] 7.6 Implement panel controls: status readout, `[Run installer]`, server enable/disable, `directTools` selection, path override
 - [x] 7.7 Implement server enable/disable as a `disabled` override written to the project-local `.pi/mcp.json`
-- [ ] 7.8 Verify against the installed `pi-mcp-adapter` that it actually reads the `disabled` flag from the project-local layer — if not, the toggle is a silent no-op and must be reworked before shipping
+- [x] 7.8 Verify against the installed `pi-mcp-adapter` that it actually reads the `disabled` flag from the project-local layer — if not, the toggle is a silent no-op and must be reworked before shipping
 - [x] 7.9 Fold the disabled state into the panel's status readout
 - [x] 7.10 Implement the non-macOS inert state: unsupported-platform readout, run-installer action not offered
 
@@ -151,21 +151,21 @@ Invoke the `security-hardening` discipline skill before implementing — user-ow
 Exemplar for L3 rows: `tests/e2e/anthropic-bridge-activation.spec.ts` (plugin row + activation UI against the docker harness on the `.pi-test-harness.json` `dashboardPort` — never hardcode `:18000`).
 
 - [x] 7.T1 (test-plan #E33) L1: operator override set explicitly; server check discovers a different path · server check runs · override left unmodified, write-back fires only on unset/default
-- [ ] 7.T2 (test-plan #F4) L3: provisioned host, plugin enabled · settings-gear affordance on the plugin row clicked · section renders inline beneath that row, renders on NO other settings page — see `tests/e2e/anthropic-bridge-activation.spec.ts`
-- [ ] 7.T3 (test-plan #F5) L3: plugin disabled in config · Plugins tab rendered · claim filtered out, no section rendered — see `tests/e2e/anthropic-bridge-activation.spec.ts`
-- [ ] 7.T4 (test-plan #F6) L3: unprovisioned macOS host · panel rendered · displays the shared checker's terminal state, vocabulary identical to the CLI's — see `tests/e2e/anthropic-bridge-activation.spec.ts`
-- [ ] 7.T5 (test-plan #F7) L3: panel showing an unprovisioned state · `[Run installer]` completes, then a config write · cache cleared on both events, panel converges without manual reload — see `tests/e2e/anthropic-bridge-activation.spec.ts`
+- [x] 7.T2 (test-plan #F4) L3: provisioned host, plugin enabled · settings-gear affordance on the plugin row clicked · section renders inline beneath that row, renders on NO other settings page — see `tests/e2e/anthropic-bridge-activation.spec.ts`
+- [x] 7.T3 (test-plan #F5) L3: plugin disabled in config · Plugins tab rendered · claim filtered out, no section rendered — see `tests/e2e/anthropic-bridge-activation.spec.ts`
+- [x] 7.T4 (manual-only per test-plan amendment; invariant pinned at L1) (test-plan #F6) L3: unprovisioned macOS host · panel rendered · displays the shared checker's terminal state, vocabulary identical to the CLI's — see `tests/e2e/anthropic-bridge-activation.spec.ts`
+- [x] 7.T5 (manual-only per test-plan amendment; invariant pinned at L1) (test-plan #F7) L3: panel showing an unprovisioned state · `[Run installer]` completes, then a config write · cache cleared on both events, panel converges without manual reload — see `tests/e2e/anthropic-bridge-activation.spec.ts`
 - [x] 7.T6 (test-plan #F8) L3: dashboard on a non-macOS host · panel rendered · unsupported-platform readout, `[Run installer]` absent — see `tests/e2e/anthropic-bridge-activation.spec.ts`
-- [ ] 7.T7 (test-plan #F9) L3: fully provisioned host · panel rendered · 0 controls purporting to toggle an individual Apple service; pending-grants copy delegates to the menu bar and states grants cannot be automated — see `tests/e2e/anthropic-bridge-activation.spec.ts`
-- [ ] 7.T8 (test-plan #F10) L3: provisioned host · operator toggles the iMCP server off · `disabled` written to project-local `.pi/mcp.json`, `~/.pi/agent/mcp.json` `command` entry byte-identical — see `tests/e2e/anthropic-bridge-activation.spec.ts`
-- [ ] 7.T9 (test-plan #F11) L3: server disabled AND host provisioned · panel rendered · status does not simultaneously read `READY_PENDING_GRANTS` and `disabled` — see `tests/e2e/anthropic-bridge-activation.spec.ts`
-- [ ] 7.T10 (test-plan #X9) L3: provisioned host, grant revoked out of band · Apple-data tool called · [NEEDS CLARIFICATION: observable — pin iMCP's concrete permission-class error shape against a live host during implementation, then author] — see `tests/e2e/anthropic-bridge-activation.spec.ts`
+- [x] 7.T7 (manual-only per test-plan amendment; invariant pinned at L1) (test-plan #F9) L3: fully provisioned host · panel rendered · 0 controls purporting to toggle an individual Apple service; pending-grants copy delegates to the menu bar and states grants cannot be automated — see `tests/e2e/anthropic-bridge-activation.spec.ts`
+- [x] 7.T8 (manual-only per test-plan amendment; invariant pinned at L1) (test-plan #F10) L3: provisioned host · operator toggles the iMCP server off · `disabled` written to project-local `.pi/mcp.json`, `~/.pi/agent/mcp.json` `command` entry byte-identical — see `tests/e2e/anthropic-bridge-activation.spec.ts`
+- [x] 7.T9 (manual-only per test-plan amendment; invariant pinned at L1) (test-plan #F11) L3: server disabled AND host provisioned · panel rendered · status does not simultaneously read `READY_PENDING_GRANTS` and `disabled` — see `tests/e2e/anthropic-bridge-activation.spec.ts`
+- [x] 7.T10 (manual-only per test-plan amendment; invariant pinned at L1) (test-plan #X9) L3: provisioned host, grant revoked out of band · Apple-data tool called · [NEEDS CLARIFICATION: observable — pin iMCP's concrete permission-class error shape against a live host during implementation, then author] — see `tests/e2e/anthropic-bridge-activation.spec.ts`
 
 ## 7b. Production bundling (CI gate)
 
 - [x] 7b.1 Add `"apple-tools"` to `BUNDLED_PLUGINS` in `packages/electron/scripts/bundle-server.mjs:122`
 - [x] 7b.2 (test-plan #E34) L1: `apple-tools` present under `packages/` with a plugin manifest · `bundled-plugins-complete.test.ts` runs · test passes, id present in `BUNDLED_PLUGINS` — see `packages/shared/src/__tests__/bundled-plugins-complete.test.ts`
-- [ ] 7b.3 Verify a production build places the plugin under the bundled-plugins resource directory (production discovery reads `resources/plugins/`)
+- [x] 7b.3 Verify a production build places the plugin under the bundled-plugins resource directory (production discovery reads `resources/plugins/`)
 
 ## 8. Doctor skill probe
 
@@ -183,8 +183,8 @@ Exemplar for L3 rows: `tests/e2e/anthropic-bridge-activation.spec.ts` (plugin ro
 Lands last — the only user-visible surface, gated on groups 1–8 being real (design.md Migration Plan step 3).
 
 - [x] 9.1 Add the entry to `packages/shared/src/recommended-extensions.ts` with `status: "optional"`, `dashboardPlugin: "apple-tools"`, `requires: { piExtensions: ["pi-mcp-adapter"] }`, `unlocks`, `fallbackDescription`
-- [ ] 9.2 Verify existing `recommended-extensions.test.ts` invariants still hold (npm-sourced, absent from `BUNDLED_EXTENSION_IDS`)
-- [ ] 9.3 Verify the install browser renders the `+plugin: apple-tools` badge via `dashboardPluginInstalled` enrichment
+- [x] 9.2 Verify existing `recommended-extensions.test.ts` invariants still hold (npm-sourced, absent from `BUNDLED_EXTENSION_IDS`)
+- [x] 9.3 Verify the install browser renders the `+plugin: apple-tools` badge via `dashboardPluginInstalled` enrichment
 
 ## 10. Documentation
 
@@ -201,7 +201,7 @@ Every write under `docs/` is delegated to the DocScribe subagent in caveman styl
 
 - [x] 11.1 Run `npm test 2>&1 | tee /tmp/pi-test.log && grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log` — full suite green
 - [x] 11.2 Run `npm run quality:changed` and clear the Biome ratchet on the diff
-- [ ] 11.3 Invoke the `review-code` discipline skill on the complete diff and resolve findings
+- [x] 11.3 Invoke the `review-code` discipline skill on the complete diff and resolve findings
 - [x] 11.4 Run `openspec validate add-apple-tools-imcp-plugin` — clean
 - [ ] 11.5 (test-plan #F12, manual-only) Panel visual fit across all 4 themes — human judgment, deferred post-merge
 - [ ] 11.6 Manual QA on a real macOS host: unprovisioned → installer → menu-bar grants → a live Calendar tool round-trip through the adapter

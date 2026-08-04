@@ -40,6 +40,13 @@ interface StatusReadout {
    */
   directTools: string[];
   disabled: boolean;
+  /**
+   * True when iMCP.app is actually on disk. The dashboard can only perform the
+   * fast config-write half of provisioning; when this is false the operator
+   * must run the CLI (which owns the long, network-bound brew install), so the
+   * panel surfaces that instead of offering a button that would refuse.
+   */
+  appPresent: boolean;
 }
 
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
@@ -68,6 +75,11 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     });
     const result = runInstaller(env, { check: true });
     const entry = readImcpEntry(env.configIO, env.mcpJsonPath);
+    // check-mode PREDICTS a resolvedPath when brew could install it, so the
+    // path existing on disk — not merely being reported — is what decides
+    // whether the server can provision without shelling out to brew.
+    const appPresent =
+      result.resolvedPath !== undefined && env.pathExists(result.resolvedPath);
     return {
       platform: env.platform,
       state: result.state,
@@ -76,6 +88,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       imcpServerPath: configured ?? DEFAULT_IMCP_PATH,
       directTools: entry.directTools,
       disabled: entry.disabled,
+      appPresent,
     };
   }
 
@@ -121,6 +134,8 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
         const probe = runInstaller(env, { check: true });
         const appPresent = probe.resolvedPath !== undefined && env.pathExists(probe.resolvedPath);
         if (!appPresent) {
+          // The panel reads `appPresent` from the status readout and renders the
+          // CLI instruction instead of the button, so this is defence in depth.
           ctx.logger.warn(
             "apple-tools run-installer: iMCP is not installed. Run `pi-apple-tools-install` " +
               "in a terminal — the dashboard does not run `brew` in-process.",
