@@ -1,36 +1,22 @@
 ## ADDED Requirements
 
-### Requirement: Streaming bash_execution_update forwarding with terminal fallback
+### Requirement: Streaming bash and bash session env adoption SHALL be a documented feasibility spike
 
-When the pi runtime emits `bash_execution_update` events (pi ≥ 0.82.0) for direct RPC bash commands, the bridge SHALL subscribe to them and forward the incremental output chunks to subscribed browsers as a progressive-enhancement signal keyed to the executing command. The terminal `bash_output` event contract SHALL be preserved unchanged and SHALL remain the source of truth for the final rendered card; the client SHALL coalesce forwarded chunks into that same card rather than rendering a separate one.
+pi's streaming `bash_execution_update` events (0.82.0) fire **only for direct RPC bash commands correlated by request id** (`docs/rpc.md`), and the bash-tool session env vars (`PI_SESSION_ID`, `PI_SESSION_FILE`, `PI_PROVIDER`, `PI_MODEL`, `PI_REASONING_LEVEL`) are injected **only into commands run by pi's LLM-callable/factory bash tools**. The dashboard has no RPC-bash path: dashboard-initiated `!`/`!!`/slash-exec commands run through `handleBashCommand` via `pi.exec(...)` and emit the dashboard's own synthetic `bash_output` event; LLM tool bash renders via `tool_execution_*`; server-side worktreeInit hooks run as separate server child processes. None of these receive `bash_execution_update` or pi's bash-tool session env.
 
-Streaming SHALL be feature-detected by the availability of the `bash_execution_update` event, NOT by the pi version string. When the runtime does not emit `bash_execution_update` (older pi), the bridge SHALL forward only the terminal `bash_output` event and the client SHALL render exactly as it does today, with no error and no missing output.
+Therefore this change SHALL treat streaming-bash and bash-session-env adoption as a **feasibility spike**, not a committed implementation. The spike SHALL determine whether any dashboard bash path can, in fact, surface `bash_execution_update` or read the pi bash-tool session env (including whether `pi.exec` children inherit `PI_SESSION_*` from the pi process env), and SHALL record the outcome. Code SHALL land ONLY if the spike identifies a concrete applicable path; otherwise the requirement is satisfied by the recorded finding. In all cases the existing dashboard `bash_output` event contract SHALL remain unchanged.
 
-#### Scenario: Chunks stream and coalesce into the terminal card
+#### Scenario: Spike finds no applicable path
 
-- **WHEN** the runtime emits `bash_execution_update` chunks followed by a terminal `bash_output`
-- **THEN** the bridge SHALL forward each chunk to subscribed browsers
-- **AND** the client SHALL coalesce the chunks into the single `bash_output` card whose final content matches the terminal event
+- **GIVEN** the dashboard issues no RPC bash and registers no pi bash tool
+- **WHEN** the streaming-bash / bash-session-env feasibility spike runs
+- **THEN** the outcome SHALL be recorded as "not applicable to the current architecture"
+- **AND** no streaming code SHALL land
+- **AND** the existing `bash_output` event contract SHALL be unchanged
 
-#### Scenario: Runtime without streaming degrades to terminal-only
+#### Scenario: Spike finds an applicable path
 
-- **GIVEN** a pi runtime that does not emit `bash_execution_update`
-- **WHEN** a bash command runs
-- **THEN** only the terminal `bash_output` event SHALL be forwarded
-- **AND** the client SHALL render the existing card with no error and no missing output
-
-### Requirement: Bash session environment variables available to dashboard-side bash consumers
-
-Where the dashboard runs bash on the pi side, BOTH consumers — factory bash tools AND worktreeInit-style hooks — MAY read the pi-provided session environment variables `PI_SESSION_ID`, `PI_SESSION_FILE`, `PI_PROVIDER`, `PI_MODEL`, and `PI_REASONING_LEVEL` (pi ≥ 0.82.0) for correlation. Each variable SHALL be treated as OPTIONAL: when it is absent (older pi), the consumer SHALL proceed without it and SHALL NOT fail or emit a degraded result solely because a variable is unset.
-
-#### Scenario: Session env consumed when present
-
-- **GIVEN** a pi runtime that exports `PI_SESSION_ID` to bash commands
-- **WHEN** a dashboard-side bash consumer reads it
-- **THEN** it MAY use the value for session correlation
-
-#### Scenario: Missing session env does not break the consumer
-
-- **GIVEN** a pi runtime that does not export the session env vars
-- **WHEN** a dashboard-side bash consumer runs
-- **THEN** it SHALL proceed with the variables treated as absent and SHALL NOT fail
+- **GIVEN** the spike identifies a concrete dashboard bash path that surfaces `bash_execution_update` or the bash-tool session env
+- **WHEN** an adoption is implemented for that path
+- **THEN** it SHALL be feature-detected (present → enhanced, absent → today's behavior)
+- **AND** the existing `bash_output` event contract SHALL remain the source of truth for the final rendered card
