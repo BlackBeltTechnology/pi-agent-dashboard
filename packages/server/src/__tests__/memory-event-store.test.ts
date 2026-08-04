@@ -386,6 +386,28 @@ describe("memory-event-store", () => {
       expect(events[1].seq).toBe(2);
       expect(events[1].event.eventType).toBe("message_end");
     });
+
+    // F12 — inline terminal lifecycle events are essential and survive trim as
+    // a pair, so the reducer replays the card at its original stream position.
+    // See change: preserve-inline-terminal-transcript (D3b).
+    it("F12: an old inline open/close pair survives a flood in original order", () => {
+      const store = createMemoryEventStore(neverPinned, 100, 5);
+      store.insertEvent("s1", makeEvent("inline_terminal_open")); // seq 1
+      store.insertEvent("s1", makeEvent("inline_terminal_close")); // seq 2
+      for (let i = 0; i < 100; i++) {
+        store.insertEvent("s1", makeEvent("tool_execution_start"));
+      }
+      const events = store.getEvents("s1", 1);
+      const types = events.map((e) => e.event.eventType);
+      expect(types).toContain("inline_terminal_open");
+      expect(types).toContain("inline_terminal_close");
+      // Neither dropped, and open precedes close (original position preserved).
+      const openSeq = events.find((e) => e.event.eventType === "inline_terminal_open")!.seq;
+      const closeSeq = events.find((e) => e.event.eventType === "inline_terminal_close")!.seq;
+      expect(openSeq).toBe(1);
+      expect(closeSeq).toBe(2);
+      expect(openSeq).toBeLessThan(closeSeq);
+    });
   });
 
   describe("per-event serialized-size ceiling", () => {

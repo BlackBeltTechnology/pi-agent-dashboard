@@ -1995,25 +1995,43 @@ export function reduceEvent(
     case "inline_terminal_close": {
       const terminalId = data.terminalId as string;
       const transcript = (data.transcript as string) ?? "";
-      let replaced = false;
+      // Empty transcript = the user never interacted (server-side `sawInput`)
+      // or the tombstone was evicted: remove the row entirely, leaving no
+      // trace. No text inspection — the ONLY predicate is `transcript === ""`.
+      // See change: preserve-inline-terminal-transcript (D3).
+      const isEmpty = transcript === "";
       const updated = next.messages.slice();
+      let matchedIdx = -1;
       for (let i = updated.length - 1; i >= 0; i--) {
         const m = updated[i] as any;
         if (m?.role === "inlineTerminal" && m?.args?.terminalId === terminalId) {
-          updated[i] = {
+          matchedIdx = i;
+          break;
+        }
+      }
+      if (matchedIdx >= 0) {
+        const m = updated[matchedIdx] as any;
+        if (isEmpty) {
+          // Guard: never destroy a row already frozen with non-empty content
+          // (defensive against a stray/duplicate empty close). See X12. When the
+          // guard holds, leave `next.messages` untouched.
+          const alreadyFrozenNonEmpty = m?.args?.closed && typeof m.content === "string" && m.content !== "";
+          if (!alreadyFrozenNonEmpty) {
+            updated.splice(matchedIdx, 1);
+            next.messages = updated;
+          }
+        } else {
+          updated[matchedIdx] = {
             ...m,
             content: transcript,
             timestamp: event.timestamp,
             args: { terminalId, closed: true },
           };
-          replaced = true;
-          break;
+          next.messages = updated;
         }
-      }
-      if (replaced) {
-        next.messages = updated;
-      } else {
-        // Defensive: close without a matching open (e.g. partial replay).
+      } else if (!isEmpty) {
+        // Defensive: non-empty close without a matching open (partial replay).
+        // An empty close with no matching open appends nothing.
         next.messages = [
           ...next.messages,
           {

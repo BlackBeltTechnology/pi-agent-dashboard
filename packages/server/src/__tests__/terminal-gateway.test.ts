@@ -15,6 +15,9 @@ describe("TerminalGateway", () => {
       list: vi.fn(() => []),
       updateTitle: vi.fn(),
       getTranscript: vi.fn(() => ""),
+      getTerminalRecord: vi.fn(() => undefined),
+      releaseTranscript: vi.fn(),
+      isReleased: vi.fn(() => false),
     };
   });
 
