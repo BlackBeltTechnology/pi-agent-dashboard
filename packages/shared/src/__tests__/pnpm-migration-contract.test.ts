@@ -74,10 +74,19 @@ describe("E4 — pnpm-lock.yaml is the single committed lockfile", () => {
 // `npm install` (npm ships in Node). These MUST NOT be rewritten to pnpm.
 // `"pnpm".includes("npm")` is true, so npm-presence uses a word boundary.
 describe("X3 — runtime pi-core installs stay npm (never pnpm)", () => {
+  // `recovery-server.ts` is deliberately NOT in this list. It DOES reference
+  // pnpm, but only behind an explicit workspace probe: `detectPackageManager`
+  // returns "pnpm" solely when `pnpm-workspace.yaml` / `pnpm-lock.yaml` sits at
+  // the resolved repo root, and `suggestedReinstallCommand` consults it ONLY
+  // for the `monorepo` layout. The end-user layouts (`npm-global`, `electron`,
+  // and the default fallback) still return npm, so the Column C premise — "runs
+  // on an end-user machine, where pnpm is not present" — does not hold for that
+  // reference. Blanket-guarding it would force `npm install` onto a pnpm
+  // hoisted workspace, which is exactly the tree-corrupting bug
+  // `recovery-server-respect-package-manager` fixed.
   const columnC = [
     "packages/server/src/pi/pi-core-updater.ts",
     "packages/server/src/pi/pi-core-checker.ts",
-    "packages/server/src/lifecycle/recovery-server.ts",
     "packages/electron/src/lib/update-checker.ts",
   ];
   for (const file of columnC) {
