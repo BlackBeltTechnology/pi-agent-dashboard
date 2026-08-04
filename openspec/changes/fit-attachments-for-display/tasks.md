@@ -46,12 +46,12 @@ All L1 rows extend `packages/server/src/__tests__/memory-event-store.test.ts`
       / throws. E12 is the negative proof the assert no longer skips.
       Landed in `terminal-manager.test.ts` (home of `deriveTranscriptCapBytes`), not
       `memory-event-store.test.ts` — the assert is that module's export.
-- [ ] 3.8 E14/E15 content-type allow-list (test-plan #E14 #E15) — input jpeg/png/gif/webp
+- [x] 3.8 E14/E15 content-type allow-list (test-plan #E14 #E15) — input jpeg/png/gif/webp
       and a blob claiming `text/html` · trigger serve · observable allow-listed type,
       never active content.
-- [ ] 3.9 X1/X2 authorisation (test-plan #X1 #X2) — input unauthorised caller and a
+- [x] 3.9 X1/X2 authorisation (test-plan #X1 #X2) — input unauthorised caller and a
       wrong-session caller with a valid hash · trigger GET original · observable refused.
-- [ ] 3.10 X3 path safety (test-plan #X3) — input id with `../` or non-hex · trigger GET ·
+- [x] 3.10 X3 path safety (test-plan #X3) — input id with `../` or non-hex · trigger GET ·
       observable rejected, no fs access outside the store root.
 - [ ] 3.11 X4/X5/X6 recovery + eviction (test-plan #X4 #X5 #X6) — input evicted blob with
       transcript intact / at 2 GB cap / transcript deleted · trigger GET · observable
@@ -108,7 +108,7 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
       `config.maxStringFieldSize` through instead of `?? 0` — landed atomically with 5.4.
 - [x] 5.6 D9: terminal cap derivation stays coupled; 15 KB → 192 KiB shift documented on
       `DEFAULT_MAX_EVENT_DATA_SIZE` + `deriveTranscriptCapBytes` and asserted in E15.
-- [ ] 5.7 Session-scoped originals endpoint + transcript-backed streaming resolver.
+- [x] 5.7 Session-scoped originals endpoint + transcript-backed streaming resolver.
 - [ ] 5.8 Blob cache (2 GB LRU, disk) as an optimisation over the transcript.
 - [ ] 5.10 D10: fitted-derivative disk cache keyed by content hash; miss re-fits.
 - [x] 5.11 D11: animated-GIF detection → bypass fitting, keep existing ceiling handling.
@@ -119,7 +119,7 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 ## 6. New infra
 
 - [ ] 6.1 Event-loop-lag helper for L1 (no existing test measures it) — needed by 3.14.
-- [ ] 6.2 Attachment-endpoint fixtures: a session with a known hash plus an unauthorised
+- [x] 6.2 Attachment-endpoint fixtures: a session with a known hash plus an unauthorised
       caller — needed by 3.9–3.11.
 
 ## 7. Verify
