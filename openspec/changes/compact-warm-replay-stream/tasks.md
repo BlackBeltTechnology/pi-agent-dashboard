@@ -50,5 +50,5 @@
 
 - [x] 7.1 Delegate to DocScribe: `docs/architecture.md` replay section gains the compaction step; `docs/faq.md` entry for "reopening a big session is slow".
 - [x] 7.2 Add/update the directory `AGENTS.md` rows for `replay-compaction.ts` and the new test files.
-- [ ] 7.3 `openspec validate compact-warm-replay-stream --strict`; confirm C1–C3 in `test-plan.md` are resolved and their scenarios authored.
-- [ ] 7.4 Reply on issue #399 with the measured numbers and the chosen thinking policy.
+- [x] 7.3 `openspec validate compact-warm-replay-stream --strict`; confirm C1–C3 in `test-plan.md` are resolved and their scenarios authored.
+- [x] 7.4 Reply on issue #399 with the measured numbers and the chosen thinking policy.
