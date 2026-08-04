@@ -1239,8 +1239,49 @@ The web client includes a Settings panel (gear icon in sidebar header → `/sett
 
 ### Reconnection Flow
 1. Browser reconnects with `subscribe` message including `lastSeq`
-2. Server replays missed events from in-memory buffer in async batches of 50 with backpressure handling
+2. Server compacts the in-memory window via `compactEventsForReplay`, then replays missed events in async batches of 200 (`REPLAY_BATCH_SIZE`) with backpressure handling
 3. Browser's event reducer processes replay, rebuilding state
+
+**Replay compaction** (change: `compact-warm-replay-stream`, issue #399): warm (in-memory) replay ships the raw live stream. Every assistant `message_update` carries a full content snapshot, not a delta. Reopening a large session replayed ~20k events; cold (on-disk) path `packages/shared/src/state-replay.ts` synthesizes ~1k. `sendEventBatches` (`packages/server/src/browser-handlers/subscription-handler.ts`) composes pure `compactEventsForReplay` (`packages/server/src/session/replay-compaction.ts`) with existing `truncateToolResultForReplay` map. REPLAY ONLY — store keeps full stream for live path, "Show full output", status extraction. Sibling precedent: `packages/server/src/session/replay-truncate.ts`.
+
+Drop rule:
+- Drop every `message_update` before LAST `message_end` in window.
+- Two exemptions.
+
+Exemption — thinking updates:
+- `data.assistantMessageEvent.type` starts with `thinking` (`thinking_start|thinking_delta|thinking_end`).
+- Client builds `role:"thinking"` rows from them, carrying `startedAt` + `duration`.
+- `message_end` reconstruction path (`reconstruct-reasoning-on-replay`) rebuilds without them.
+- Dropping NOT state-equivalent.
+
+Exemption — last text update before tool start:
+- Last text `message_update` before each `tool_execution_start`.
+- At `tool_execution_start` reducer flushes `streamingText` into permanent row keyed `flush-<toolCallId>`.
+- No preceding update → `streamingText` empty → no flush → row lands at `message_end` with different id and position.
+- Snapshots cumulative; keeping only last reproduces `streamingText` exactly.
+
+Invariants:
+- Everything after last `message_end` = still-streaming tail, kept verbatim.
+- Non-`message_update` events always pass through.
+- Seq values NEVER rewritten.
+- Client `getEvents` tolerates gaps; monotonicity preserved.
+- `sendEventBatches` returns PRE-compaction highest seq.
+- `clearReplaying` cannot re-send already-delivered events as catch-up.
+
+Correctness = CLIENT reducer:
+- Acceptance gate `packages/server/src/__tests__/replay-compaction-equivalence.test.ts` imports `packages/client/src/lib/chat/event-reducer.ts`.
+- Asserts `deepEqual(reduceAll(raw), reduceAll(compacted))` across fixtures.
+- COUPLING: any change to how reducer consumes `streamingText` or thinking events invalidates rule.
+
+Measured (synthetic #399-shaped window, 140 messages × ~150 snapshot updates):
+- Events 21420 → 420 (98.0%).
+- Wire bytes 6.26 MB → 0.10 MB (98.4%).
+- Batches 429 → 3 (99.3%).
+- Compaction wall time 2.2 ms, single O(n) pass.
+- Real persisted session: cold path emits 1428 events; compaction verified NO-OP (1428 → 1428).
+- Pass safe to apply uniformly to both replay paths.
+
+See change: `compact-warm-replay-stream`.
 
 ### Bridge Reconnection (State Reset)
 When a bridge extension reconnects (e.g., after `pnpm run reload` or network recovery):
@@ -1273,7 +1314,7 @@ When a browser subscribes to a session whose events have been evicted from memor
 1. Server sends empty `event_replay` with `isLast: false` to indicate loading
 2. Server's DirectoryService loads the session file directly via `SessionManager.open(sessionFile).getBranch()`
 3. Entries are converted via `replayEntriesAsEvents()` and stored in the event buffer (truncated, capped at 5000/session)
-4. Server sends `event_replay` in async batches with backpressure to all waiting browsers
+4. Server sends `event_replay` via `sendEventBatches` in async batches with backpressure to all waiting browsers (compaction applied; verified no-op on this path — see Reconnection Flow)
 5. If the session file is missing or corrupt, server sends `dataUnavailable: true`
 6. Concurrent loads for the same session are deduplicated
 
