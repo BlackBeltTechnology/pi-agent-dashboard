@@ -1,9 +1,14 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
-import { NewChangeDialog, formatNewChangePrompt } from "../openspec/NewChangeDialog.js";
+import { cleanup, fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { makeRunConfig, RunConfigHarness } from "../../test-support/runConfigHarness.js";
+import { formatNewChangePrompt, NewChangeDialog } from "../openspec/NewChangeDialog.js";
 
 afterEach(() => cleanup());
+
+// NewChangeDialog now consumes the run-config context; wrap every render.
+const render = (ui: React.ReactElement) =>
+  rtlRender(<RunConfigHarness value={makeRunConfig()}>{ui}</RunConfigHarness>);
 
 describe("formatNewChangePrompt", () => {
   it("formats with name and description", () => {

@@ -8,5 +8,15 @@
       "type": "script",
       "command": "command -v corepack >/dev/null 2>&1 && corepack enable; pnpm install && npx --no-install openspec init --tools pi --force && pnpm --filter @blackbelt-technology/pi-dashboard-kb run build && NODE_OPTIONS=--experimental-sqlite npx kb index"
     }
+  },
+  "flows": {
+    "editFlow": false
+  },
+  "permissions": {
+    "allow": [
+      "Read(/tmp/**)",
+      "Write(/tmp/**)",
+      "Edit(/tmp/**)"
+    ]
   }
 }

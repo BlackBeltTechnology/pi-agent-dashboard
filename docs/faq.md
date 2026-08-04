@@ -1233,6 +1233,38 @@ Diagnostic: tail `~/.pi/dashboard/sessions/keeper-<sessionId>.log`. `spawn pi EN
 
 See change: `fix-rpc-keeper-pi-resolution`.
 
+## Reopening a big session is slow?
+
+Symptom:
+- Large session reopen replays tens of thousands of events.
+- Slow paint, slow catch-up.
+- Hundreds of React commits before conversation renders.
+
+Root cause (pre-fix):
+- Warm (in-memory) replay shipped raw live stream.
+- Every assistant `message_update` carries full content snapshot, not delta.
+- Large session replayed ~20k events.
+- Cold (on-disk) path (`packages/shared/src/state-replay.ts`) synthesizes ~1k for same conversation.
+
+Fix (change: `compact-warm-replay-stream`):
+- `sendEventBatches` (`packages/server/src/browser-handlers/subscription-handler.ts`) composes `compactEventsForReplay` (`packages/server/src/session/replay-compaction.ts`) before batching.
+- Drops every `message_update` before last `message_end` in window.
+- Exempts thinking updates (`thinking_start|thinking_delta|thinking_end`).
+- Exempts last text update before each `tool_execution_start`.
+- Still-streaming tail kept verbatim.
+- Non-`message_update` events always pass through.
+- `REPLAY_BATCH_SIZE` 50 → 200; each batch = one client React commit.
+- REPLAY ONLY — store keeps full stream for live path, "Show full output", status extraction.
+
+Measured (#399-shaped window, 140 messages × ~150 snapshot updates):
+- Events 21420 → 420 (98.0%).
+- Wire bytes 6.26 MB → 0.10 MB (98.4%).
+- Batches 429 → 3 (99.3%).
+- Compaction wall time 2.2 ms.
+- Cold path unaffected — verified no-op (1428 → 1428).
+
+See change: `compact-warm-replay-stream`. See also `docs/architecture.md` § "Reconnection Flow".
+
 ## Session stuck after Stop or Shutdown — how to recover?
 
 Symptom: Stop / abort / Shutdown clicked. Card stays "running". `ps` shows pi PID alive. Server restart clears it.

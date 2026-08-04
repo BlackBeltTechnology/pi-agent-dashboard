@@ -88,16 +88,56 @@ export function detectInstallLayout(scriptPath?: string): "electron" | "npm-glob
 }
 
 /**
- * Suggested reinstall command for the detected layout.
+ * Repo root for the `monorepo` layout, derived from the cli.ts script path.
+ * Returns null when the path is not a monorepo checkout.
  */
-export function suggestedReinstallCommand(layout: ReturnType<typeof detectInstallLayout>): string {
+function monorepoRootFrom(scriptPath?: string): string | null {
+  const p = scriptPath ?? (process.argv[1] ?? "");
+  const m = p.match(/^(.*)[/\\]packages[/\\]server[/\\]src[/\\]cli\.ts$/);
+  return m?.[1] ?? null;
+}
+
+/**
+ * Which package manager owns `repoRoot`.
+ *
+ * A pnpm workspace (this repo sets `nodeLinker: hoisted`, mandatory for
+ * electron-forge) MUST NOT be `npm install`ed: npm rewrites the hoisted tree
+ * and leaves wrong-version nested deps (observed: `lru-cache@6` shadowing the
+ * required v11 under `hosted-git-info@9` → "LRUCache is not a constructor" →
+ * pi fails to boot). Recovery must reinstall with the repo's own manager.
+ * See change: recovery-server-respect-package-manager.
+ */
+export function detectPackageManager(repoRoot: string): "pnpm" | "npm" {
+  for (const marker of ["pnpm-workspace.yaml", "pnpm-lock.yaml"]) {
+    try {
+      if (fs.existsSync(path.join(repoRoot, marker))) return "pnpm";
+    } catch {
+      // unreadable root — fall through to the npm default
+    }
+  }
+  return "npm";
+}
+
+/**
+ * Suggested reinstall command for the detected layout.
+ *
+ * `scriptPath` is optional and only consulted for the `monorepo` layout, to
+ * resolve the repo root and honour its package manager.
+ */
+export function suggestedReinstallCommand(
+  layout: ReturnType<typeof detectInstallLayout>,
+  scriptPath?: string,
+): string {
   switch (layout) {
     case "npm-global":
       return "npm install -g @blackbelt-technology/pi-agent-dashboard";
     case "electron":
       return "Reinstall the Pi Dashboard application from your installer.";
-    case "monorepo":
-      return "npm install   (from the repo root)";
+    case "monorepo": {
+      const root = monorepoRootFrom(scriptPath);
+      const pm = root ? detectPackageManager(root) : "npm";
+      return `${pm} install   (from the repo root)`;
+    }
     default:
       return "npm install -g @blackbelt-technology/pi-agent-dashboard";
   }
@@ -214,7 +254,10 @@ function runReinstall(
     let cmd: string;
     let args: string[];
     if (layout === "monorepo") {
-      cmd = "npm";
+      // Honour the repo's package manager — npm-installing a pnpm workspace
+      // drifts the tree. See change: recovery-server-respect-package-manager.
+      const root = monorepoRootFrom();
+      cmd = root ? detectPackageManager(root) : "npm";
       args = ["install"];
     } else {
       cmd = "npm";

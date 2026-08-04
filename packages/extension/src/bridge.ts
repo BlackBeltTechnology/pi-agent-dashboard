@@ -2100,7 +2100,13 @@ function initBridge(pi: ExtensionAPI) {
     // update_roles). list_models reads the in-process session registry via a
     // live getter so its refs match the human Model Selector exactly.
     // See change: add-agent-role-model-tools.
-    registerRoleModelTools(pi, { getRegistry: () => cachedModelRegistry });
+    registerRoleModelTools(pi, {
+      getRegistry: () => cachedModelRegistry,
+      // Live scope read at call time from the latest captured ctx (dynamic via
+      // Ctrl+P cycling). Absent on older pi / empty when unscoped → no filter.
+      // See change: update-pi-core-0-83-adopt-apis.
+      getScopedModels: () => (cachedCtx as any)?.scopedModels,
+    });
 
     // Opt-in isolated replacements register at session_start, after package
     // extensions loaded. That makes the local definitions authoritative only
