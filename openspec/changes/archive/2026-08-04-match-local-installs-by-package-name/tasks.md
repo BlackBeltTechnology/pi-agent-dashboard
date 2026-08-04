@@ -28,7 +28,7 @@ All L1 rows: author in `packages/server/src/__tests__/recommended-routes.test.ts
 
 - [x] 3.1 `npm test 2>&1 | tee /tmp/pi-test.log` green (see AGENTS "Running Tests"). 11454 passed; 2 pre-existing failures unrelated to this change (`test-up-port-derivation` docker-gated, `git-worktree-lifecycle-ops` remote-gated) — verified failing on the merged tree with this change stashed.
 - [x] 3.2 `openspec validate match-local-installs-by-package-name --strict`.
-- [ ] 3.3 (test-plan: manual-only) (test-plan #M1) Manual/QA: restart server, open Packages tab in this monorepo, confirm all 7 locally-installed recommended packages show Active/Remove and the "suggested missing" count drops accordingly.
+- [x] 3.3 (test-plan: manual-only) (test-plan #M1) Manual/QA: restart server, open Packages tab in this monorepo, confirm all 7 locally-installed recommended packages show Active/Remove and the "suggested missing" count drops accordingly.
 
 ## 4. Docs
 
