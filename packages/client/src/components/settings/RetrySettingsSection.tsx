@@ -13,9 +13,16 @@
  * Because pi reads its settings only at session construction, saving reloads
  * every connected session so the policy applies at once.
  *
+ * Commits through the panel's UNIFIED Save (no private Save button): registers
+ * as a draft source so one Save commits every dirty store, the nav rail shows a
+ * per-page dirty dot, and the leave guard offers Save / Discard / Cancel. A
+ * failing commit throws, so the host keeps this source dirty and names it in
+ * the partial-failure message. See change: unify-settings-save-contract.
+ *
  * See change: retry-forever-with-stop-control (spec `pi-retry-settings`).
  */
-import { mdiAlert, mdiContentSave, mdiInformationOutline, mdiLoading } from "@mdi/js";
+import { useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { mdiAlert, mdiInformationOutline, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -183,9 +190,11 @@ export function RetrySettingsSection({ load = getPiRetryPolicy, save = putPiRetr
     provMaxRetryDelayMs: String(PI_RETRY_DEFAULTS.provider.maxRetryDelayMs),
   });
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  // Loaded policy as a form snapshot — the dirty baseline for the unified Save.
+  // Null until the first load resolves, so a pending read never reads as dirty.
+  const [originalForm, setOriginalForm] = useState<FormState | null>(null);
 
   const patch = useCallback((p: Partial<FormState>) => setForm((f) => ({ ...f, ...p })), []);
 
@@ -194,14 +203,16 @@ export function RetrySettingsSection({ load = getPiRetryPolicy, save = putPiRetr
     load()
       .then((p) => {
         if (!alive) return;
-        setForm({
+        const loaded: FormState = {
           enabled: p.enabled,
           maxRetries: String(p.maxRetries),
           baseDelayMs: String(p.baseDelayMs),
           provTimeoutMs: p.provider.timeoutMs === undefined ? "" : String(p.provider.timeoutMs),
           provMaxRetries: String(p.provider.maxRetries),
           provMaxRetryDelayMs: String(p.provider.maxRetryDelayMs),
-        });
+        };
+        setForm(loaded);
+        setOriginalForm(loaded);
       })
       .catch(() => { /* keep defaults on read failure */ })
       .finally(() => { if (alive) setLoading(false); });
@@ -213,36 +224,51 @@ export function RetrySettingsSection({ load = getPiRetryPolicy, save = putPiRetr
   const bd = intOf(form.baseDelayMs);
   const schedule = validationError ? null : computeSchedule(mr, bd);
 
-  const onSave = useCallback(async () => {
+  // Dirty vs the loaded policy — string compare so an invalid in-progress edit
+  // still counts as dirty (toPolicy would yield NaN and hide it).
+  const isDirty = originalForm !== null && JSON.stringify(form) !== JSON.stringify(originalForm);
+
+  // Unified-Save commit. THROWS on invalid input so `Promise.allSettled` in the
+  // host marks this source failed, keeps it dirty, and lists it in
+  // `settings.savePartialFail` instead of reporting a false success.
+  const commit = useCallback(async () => {
     const v = validate(form);
-    if (v) { setError(v); setStatus(null); return; }
-    setSaving(true);
+    if (v) { setError(v); setStatus(null); throw new Error(v); }
     setError(null);
     setStatus(null);
     try {
       const res = await save(toPolicy(form));
+      setOriginalForm(form);
       setStatus(
         i18nT("retry.saved", { n: res.reloadedSessions },
           `Saved. Reloaded ${res.reloadedSessions} connected session(s).`),
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
+      throw e;
     }
   }, [form, save]);
 
+  // Discard → restore the loaded policy.
+  const reset = useCallback(() => {
+    setForm((f) => originalForm ?? f);
+    setError(null);
+    setStatus(null);
+  }, [originalForm]);
+
+  // page: "sessions" — must match the tab this section renders on, or the dirty
+  // dot lands on the wrong nav item. Retry lives under Sessions because its
+  // observable effect is on a session (waiting / attempt n / countdown / Stop).
+  useSettingsDraftSource({ id: "pi-retry", page: "sessions", isDirty, commit, reset });
+
   return (
     <section data-testid="retry-settings-section" className="space-y-3">
-      <div>
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-          {i18nT("retry.title", undefined, "Provider retry")}
-        </h3>
-        <p className="text-xs text-[var(--text-tertiary)]">
-          {i18nT("retry.subtitle", undefined,
-            "How hard pi retries a failing provider before giving up on a turn. These are pi's own settings.")}
-        </p>
-      </div>
+      {/* No local <h3>: the enclosing <Section title> already names this block —
+          a second heading rendered "Retry" above "Provider retry". */}
+      <p className="text-xs text-[var(--text-tertiary)]">
+        {i18nT("retry.subtitle", undefined,
+          "How hard pi retries a failing provider before giving up on a turn. These are pi's own settings.")}
+      </p>
 
       {loading ? (
         <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
@@ -345,19 +371,12 @@ export function RetrySettingsSection({ load = getPiRetryPolicy, save = putPiRetr
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              data-testid="retry-save"
-              onClick={onSave}
-              disabled={saving || !!validationError}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border-secondary)] bg-[var(--bg-surface)] px-3 py-1 text-xs text-[var(--text-primary)] disabled:opacity-40"
-            >
-              <Icon path={saving ? mdiLoading : mdiContentSave} size={0.6} className={saving ? "animate-spin" : ""} />
-              {i18nT("common.save", undefined, "Save")}
-            </button>
-            {status && <span data-testid="retry-save-status" className="text-xs text-[var(--accent-green)]">{status}</span>}
-          </div>
+          {/* No Save button — the panel's unified Save bar commits this source.
+             `reloadedSessions` still surfaces here; the generic bar cannot
+             express it. */}
+          {status && (
+            <div data-testid="retry-save-status" className="text-xs text-[var(--accent-green)]">{status}</div>
+          )}
         </>
       )}
     </section>

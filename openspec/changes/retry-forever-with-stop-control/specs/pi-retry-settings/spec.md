@@ -2,8 +2,8 @@
 
 ### Requirement: Dashboard exposes pi's native retry policy as a GLOBAL editor
 
-The dashboard SHALL expose pi's own retry policy as an editable settings surface covering ALL SIX
-native fields:
+The dashboard SHALL expose pi's own retry policy as an editable settings surface on the Sessions
+settings tab, covering ALL SIX native fields:
 
 | Field | pi default |
 |---|---|
@@ -51,6 +51,69 @@ global file — so the surface SHALL NOT present a per-session or project-scoped
 - **WHEN** the provider fields are rendered
 - **THEN** the surface SHALL state that a wait taken inside the provider layer emits no event, so it
   renders as ordinary streaming with no attempt count or countdown
+
+### Requirement: The editor lives on the Sessions tab and commits through the unified Save
+
+The retry editor SHALL render on the **Sessions** settings tab, not Providers. Three of the six
+fields (`retry.enabled`, `retry.maxRetries`, `retry.baseDelayMs`) are turn-level rather than
+provider-scoped, the policy's observable effect is on a session (waiting / attempt n / countdown /
+Stop), and the sibling turn-lifecycle settings (`askUserPromptTimeoutSeconds`,
+`spawnRegisterTimeoutMs`) already live there. The enclosing section SHALL be titled "Retry"; the
+provider trio keeps its own subheading inside it.
+
+The editor SHALL NOT render a private Save button. It SHALL register as a draft source with the
+panel's unified Save (see change: unify-settings-save-contract) so that a single Save commits every
+dirty store, the nav rail shows a per-page dirty dot, and the leave guard offers Save / Discard /
+Cancel. The registered `page` SHALL match the tab the section renders on. A commit that cannot
+proceed SHALL reject rather than silently no-op, so the host keeps the source dirty and names it in
+the partial-failure message instead of reporting a false success.
+
+#### Scenario: Section renders exactly one heading
+
+- **WHEN** the retry section is rendered inside its settings section
+- **THEN** the title SHALL appear exactly once (the section provides it; the body SHALL NOT repeat it)
+
+#### Scenario: No private Save button
+
+- **WHEN** the retry settings surface is rendered
+- **THEN** it SHALL NOT render its own Save control
+
+#### Scenario: An edit marks the panel dirty on the Sessions page
+
+- **GIVEN** the loaded policy is displayed
+- **WHEN** the user changes any retry field
+- **THEN** the source SHALL report dirty
+- **AND** the unsaved-changes count SHALL include it
+- **AND** the Sessions nav entry SHALL show a dirty dot
+
+#### Scenario: The unified Save commits the retry policy
+
+- **GIVEN** a dirty retry edit
+- **WHEN** the user activates the panel's Save
+- **THEN** the retry policy SHALL be written
+- **AND** the source SHALL report clean afterwards
+
+#### Scenario: Discard restores the loaded policy
+
+- **GIVEN** a dirty retry edit
+- **WHEN** the user discards
+- **THEN** the fields SHALL return to the loaded values
+- **AND** the source SHALL report clean
+
+#### Scenario: A failed write keeps the source dirty
+
+- **GIVEN** a dirty retry edit whose write will fail
+- **WHEN** the unified Save runs
+- **THEN** the commit SHALL reject
+- **AND** the source SHALL remain dirty
+- **AND** the panel SHALL name it among the failed sources rather than reporting success
+
+#### Scenario: Invalid input rejects the commit
+
+- **GIVEN** a field holding a value the validator rejects
+- **WHEN** the unified Save runs
+- **THEN** the commit SHALL reject
+- **AND** nothing SHALL be written
 
 ### Requirement: Saving writes a merge-preserving global settings block
 

@@ -54,6 +54,23 @@
 - [x] 7.6 PROVEN on real fs with an isolated HOME: `packages`/`extensions`/`dashboardPluginBridges`/`enabledModels`/`hideThinkingBlock` all byte-identical after save; `retry.someFutureKnob` and `retry.provider.futureProviderKnob` preserved; `provider.timeoutMs` correctly OMITTED (not 0/null) when left blank.
 - [x] 7.7 PROVEN: written block reads back identical via `readPiRetryPolicy`; the only `settings.json` created anywhere under the isolated tree is the global one; project `.pi/settings.json` NOT created; the REAL `~/.pi/agent/settings.json` still has `retry: null` (untouched throughout).
 
+## 9. Settings surface — unified-Save rewiring + Sessions placement
+
+Found during the combined smoke: the section shipped a PRIVATE Save button and bypassed the
+panel's unified-Save contract, so a retry edit produced no dirty dot, no Save bar, no leave
+guard, and the global Save reported "Settings saved" while the retry edit sat unsaved.
+
+- [x] 9.1 Register the section as a draft source — `useSettingsDraftSource({id:"pi-retry", page:"sessions", isDirty, commit, reset})`; track the loaded policy as the dirty baseline
+- [x] 9.2 Delete the private Save button, its `saving` state and `onSave`; keep the `reloadedSessions` status line (the generic bar cannot express it)
+- [x] 9.3 `commit` THROWS on invalid input and on a failed PUT so `Promise.allSettled` in the host keeps the source dirty and names it in `settings.savePartialFail`
+- [x] 9.4 `reset` restores the loaded policy so the panel's Discard works
+- [x] 9.5 Move the section from the `providers` tab to `sessions`; keep the registered `page` in sync with the mount tab
+- [x] 9.6 Title the enclosing section "Retry" (not "Provider Retry" — 3 of 6 fields are turn-level) and delete the body's duplicate `<h3>`, which rendered the title twice
+- [x] 9.7 Rewrite the 4 button-driven tests to drive the registry contract via a capturing `SettingsDraftProvider`; add coverage for: registers on `sessions`, no private Save button, clean-on-load, dirty-after-edit, clean-after-commit, Discard restores, failing PUT rejects + stays dirty, unregisters on unmount
+- [x] 9.8 Extend `specs/pi-retry-settings/spec.md` with the Sessions-placement + unified-Save requirement and its scenarios
+- [ ] 9.9 Run the rewritten suite — BLOCKED in the integration worktree: `@blackbelt-technology/dashboard-plugin-runtime` does not resolve there (no workspace symlinks; same pre-existing gap as §7.1's 58 failures). Source typechecked via the docker client build; behaviour verified live on the harness (dirty dot on Sessions, unified Save wrote `maxRetries: 11`, unrelated keys preserved, no project `settings.json`). Needs `pnpm install` in the worktree to execute.
+- [ ] 9.10 Correct the stale `docs/architecture.md` claims (DocScribe): `retry.provider.*` IS surfaced (line 175 says it is not), the write covers all six fields not three (line 167), and the editor lives on the Sessions tab with no private Save
+
 ## 8. Docs
 
 - [x] 8.1 Delegate to DocScribe (caveman style): document pi's retry ownership, the `baseDelayMs · 2^(n-1)` curve and its uncapped tail, the corrected bridge observation model (`agent_end` per attempt, `agent_settled` terminal), the settings write + reload-on-save, and the collapse-vs-dismiss rule in `docs/architecture.md`

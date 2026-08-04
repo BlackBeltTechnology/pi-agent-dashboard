@@ -1,10 +1,21 @@
 /**
  * RetrySettingsSection — GLOBAL editor over pi's six native retry fields.
  * Tests inject load/save so no fetch is mocked.
+ *
+ * The section has NO private Save button: it commits through the panel's
+ * unified Save. Tests therefore mount it inside a SettingsDraftProvider with a
+ * capturing registry and drive the registered source's `commit`/`reset`, which
+ * is exactly what the host does. See change: unify-settings-save-contract.
+ *
  * See change: retry-forever-with-stop-control.
  */
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { cleanup, render, fireEvent, waitFor } from "@testing-library/react";
+import {
+  type RegisteredSource,
+  SettingsDraftProvider,
+  type SettingsDraftRegistry,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { RetrySettingsSection } from "../settings/RetrySettingsSection.js";
 import type { PiRetryPolicy } from "../../lib/api/pi-retry-api.js";
 
@@ -24,9 +35,24 @@ const okSave = (reloadedSessions = 0) =>
   vi.fn().mockResolvedValue({ policy: DEFAULTS, reloadedSessions });
 
 async function mount(over: Partial<PiRetryPolicy> = {}, save = okSave()) {
-  const r = render(<RetrySettingsSection load={load(over)} save={save} />);
+  const sources = new Map<string, RegisteredSource>();
+  const registry: SettingsDraftRegistry = {
+    upsert: (id, s) => { sources.set(id, s); },
+    remove: (id) => { sources.delete(id); },
+  };
+  const r = render(
+    <SettingsDraftProvider registry={registry}>
+      <RetrySettingsSection load={load(over)} save={save} />
+    </SettingsDraftProvider>,
+  );
   await waitFor(() => expect(r.getByTestId("retry-maxretries-input")).toBeTruthy());
-  return { ...r, save };
+  /** The live registered source — re-read per call; the hook re-registers on dirty change. */
+  const src = () => {
+    const s = sources.get("pi-retry");
+    if (!s) throw new Error("pi-retry never registered with the unified-Save registry");
+    return s;
+  };
+  return { ...r, save, src, sources };
 }
 
 describe("RetrySettingsSection — all six native fields", () => {
@@ -67,10 +93,10 @@ describe("RetrySettingsSection — all six native fields", () => {
 
   it("saves all six fields, omitting a blank timeout", async () => {
     const save = okSave(3);
-    const { getByTestId } = await mount({}, save);
+    const { getByTestId, src } = await mount({}, save);
     fireEvent.change(getByTestId("retry-maxretries-input"), { target: { value: "24" } });
     fireEvent.change(getByTestId("retry-provider-maxretries-input"), { target: { value: "2" } });
-    fireEvent.click(getByTestId("retry-save"));
+    await src().commit();
     await waitFor(() => expect(getByTestId("retry-save-status").textContent).toMatch(/3/));
     expect(save).toHaveBeenCalledWith({
       enabled: true,
@@ -84,11 +110,67 @@ describe("RetrySettingsSection — all six native fields", () => {
 
   it("sends provider.timeoutMs when filled", async () => {
     const save = okSave();
-    const { getByTestId } = await mount({}, save);
+    const { getByTestId, src } = await mount({}, save);
     fireEvent.change(getByTestId("retry-provider-timeout-input"), { target: { value: "5000" } });
-    fireEvent.click(getByTestId("retry-save"));
+    await src().commit();
     await waitFor(() => expect(save).toHaveBeenCalled());
     expect(save.mock.calls[0]![0].provider.timeoutMs).toBe(5000);
+  });
+});
+
+describe("RetrySettingsSection — unified-Save contract", () => {
+  it("registers as a draft source on the sessions page", async () => {
+    const { src } = await mount();
+    // Must match the tab SettingsPanel renders it on, else the dirty dot lands
+    // on the wrong nav item.
+    expect(src().page).toBe("sessions");
+  });
+
+  it("renders NO private Save button", async () => {
+    const { queryByTestId } = await mount();
+    expect(queryByTestId("retry-save")).toBeNull();
+  });
+
+  it("is clean on load and dirty only after an edit", async () => {
+    const { getByTestId, src } = await mount();
+    expect(src().isDirty).toBe(false);
+    fireEvent.change(getByTestId("retry-maxretries-input"), { target: { value: "9" } });
+    await waitFor(() => expect(src().isDirty).toBe(true));
+  });
+
+  it("goes clean again after a successful commit", async () => {
+    const { getByTestId, src } = await mount();
+    fireEvent.change(getByTestId("retry-maxretries-input"), { target: { value: "9" } });
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    await src().commit();
+    await waitFor(() => expect(src().isDirty).toBe(false));
+  });
+
+  it("reset (Discard) restores the loaded policy and clears dirty", async () => {
+    const { getByTestId, src } = await mount();
+    fireEvent.change(getByTestId("retry-maxretries-input"), { target: { value: "42" } });
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    src().reset();
+    await waitFor(() => {
+      expect((getByTestId("retry-maxretries-input") as HTMLInputElement).value).toBe("3");
+      expect(src().isDirty).toBe(false);
+    });
+  });
+
+  it("a failing PUT REJECTS commit and stays dirty, so the host can report it", async () => {
+    const save = vi.fn().mockRejectedValue(new Error("boom"));
+    const { getByTestId, src } = await mount({}, save);
+    fireEvent.change(getByTestId("retry-maxretries-input"), { target: { value: "9" } });
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    await expect(src().commit()).rejects.toThrow(/boom/);
+    expect(src().isDirty).toBe(true);
+  });
+
+  it("unregisters on unmount", async () => {
+    const { unmount, sources } = await mount();
+    expect(sources.has("pi-retry")).toBe(true);
+    unmount();
+    expect(sources.has("pi-retry")).toBe(false);
   });
 });
 
@@ -101,11 +183,12 @@ describe("RetrySettingsSection — validation, warnings, disclosures", () => {
     ["retry-provider-timeout-input", "0"],
   ])("rejects %s=%s and does NOT save", async (testId, bad) => {
     const save = okSave();
-    const { getByTestId } = await mount({}, save);
+    const { getByTestId, src } = await mount({}, save);
     fireEvent.change(getByTestId(testId), { target: { value: bad } });
     expect(getByTestId("retry-error")).toBeTruthy();
-    expect((getByTestId("retry-save") as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(getByTestId("retry-save"));
+    // Invalid input must REJECT the unified commit, never silently no-op:
+    // the host keeps the source dirty and names it in savePartialFail.
+    await expect(src().commit()).rejects.toThrow();
     expect(save).not.toHaveBeenCalled();
   });
 
@@ -116,9 +199,10 @@ describe("RetrySettingsSection — validation, warnings, disclosures", () => {
   });
 
   it("warns above ~20 attempts but stays saveable", async () => {
-    const { getByTestId } = await mount({ maxRetries: 24 });
+    const { getByTestId, src } = await mount({ maxRetries: 24 });
     expect(getByTestId("retry-longtail-warning")).toBeTruthy();
-    expect((getByTestId("retry-save") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.change(getByTestId("retry-basedelay-input"), { target: { value: "2500" } });
+    await expect(src().commit()).resolves.toBeUndefined();
   });
 
   it("discloses global scope", async () => {

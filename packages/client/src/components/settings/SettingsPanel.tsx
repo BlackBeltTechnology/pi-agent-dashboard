@@ -1161,6 +1161,15 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     </p>
                   </div>
                 </Section>
+                {/* "Retry", not "Provider Retry": three of the six fields
+                    (`enabled`, `maxRetries`, `baseDelayMs`) are turn-level, not
+                    provider-scoped. The provider trio keeps its own subhead.
+                    Filed under Sessions, not Providers: the observable effect is
+                    on a session (waiting / attempt n / countdown / Stop), and the
+                    sibling turn-lifecycle timeouts already live here. */}
+                <Section title={t("settings.retry", undefined, "Retry")}>
+                  <RetrySettingsSection />
+                </Section>
                 <SettingsSectionSlot tab="sessions" />
               </>
             )}
@@ -1287,9 +1296,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     upstreamExtensionDetected={upstreamPiModelProxyInstalled}
                     availableModels={availableModels}
                   />
-                </Section>
-                <Section title={t("settings.providerRetry", undefined, "Provider Retry")}>
-                  <RetrySettingsSection />
                 </Section>
                 <SettingsSectionSlot tab="providers" />
               </>
