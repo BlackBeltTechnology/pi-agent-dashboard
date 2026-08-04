@@ -18,6 +18,11 @@ import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./sessi
 import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import type { EventStore } from "./persistence/memory-event-store.js";
+import {
+  buildFittedEvent,
+  prepareEventForIngest,
+  type PendingAttachment,
+} from "./attachments/attachment-ingest.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
 import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import type { PiGateway } from "./pi/pi-gateway.js";
@@ -69,6 +74,14 @@ const STRICT_SPAWN_CORRELATION =
 export interface EventWiringDeps {
   sessionManager: SessionManager;
   eventStore: EventStore;
+  /**
+   * Optional display-fit pool. When provided, inline image attachments are
+   * stripped to a bounded placeholder before the row event is stored, and the
+   * fitted derivative follows as its own `attachment_fitted` event. When
+   * absent (tests, minimal wirings) events pass through untouched.
+   * See change: fit-attachments-for-display (tasks 5.2, 5.3).
+   */
+  fitWorkerPool?: import("./attachments/fit-worker-pool.js").FitWorkerPool;
   piGateway: PiGateway;
   browserGateway: BrowserGateway;
   sessionOrderManager: SessionOrderManager;
@@ -194,6 +207,7 @@ export function wireEvents(deps: EventWiringDeps): void {
   const {
     sessionManager,
     eventStore,
+    fitWorkerPool,
     dispatchPluginSessionEnded,
     piGateway,
     browserGateway,
@@ -256,6 +270,59 @@ export function wireEvents(deps: EventWiringDeps): void {
       cwd: newOrderKey,
       sessionIds: sessionOrderManager.getOrder(newOrderKey, validIds),
     });
+  }
+
+  /**
+   * Phase 2 of the two-phase attachment render: fit the stripped originals off
+   * the event loop, then store + broadcast one `attachment_fitted` event per
+   * block so the client can swap each placeholder for its image.
+   *
+   * Detached and never rethrows — the message row is already stored, so the
+   * worst outcome here is an attachment that resolves to an honest failed
+   * state. See change: fit-attachments-for-display (task 5.3, test-plan #F3 #X7).
+   */
+  async function resolvePendingAttachments(
+    sessionId: string,
+    pending: PendingAttachment[],
+  ): Promise<void> {
+    if (!fitWorkerPool) return;
+    try {
+      const { results } = await fitWorkerPool.fit({
+        blocks: pending.map((p) => ({
+          blockIndex: p.blockIndex,
+          data: p.data,
+          mimeType: p.mimeType,
+        })),
+      });
+      for (const result of results) {
+        const source = pending.find((p) => p.blockIndex === result.blockIndex);
+        if (!source) continue;
+        const fittedEvent = buildFittedEvent({
+          attachmentId: source.attachmentId,
+          data: result.failed ? "" : result.data,
+          mimeType: result.mimeType,
+          state: result.failed ? "failed" : "ready",
+        });
+        const seq = eventStore.insertEvent(sessionId, fittedEvent);
+        const stored = eventStore.getEvent(sessionId, seq) ?? fittedEvent;
+        browserGateway.broadcastEvent(sessionId, seq, stored);
+      }
+    } catch (err) {
+      // A pool that cannot deliver at all must still not strand placeholders:
+      // resolve every block to the explicit failed state.
+      console.error(`[attachments] fit failed for session ${sessionId}:`, err);
+      for (const p of pending) {
+        const failedEvent = buildFittedEvent({
+          attachmentId: p.attachmentId,
+          data: "",
+          mimeType: p.mimeType,
+          state: "failed",
+        });
+        const seq = eventStore.insertEvent(sessionId, failedEvent);
+        const stored = eventStore.getEvent(sessionId, seq) ?? failedEvent;
+        browserGateway.broadcastEvent(sessionId, seq, stored);
+      }
+    }
   }
 
   // Broadcast placeholder session to browsers when auto-created from early events
@@ -569,11 +636,26 @@ export function wireEvents(deps: EventWiringDeps): void {
         // but those are only for non-replay events, so we can return early
         return;
       }
-      const seq = eventStore.insertEvent(sessionId, msg.event);
+      // Two-phase attachment render (D3/D12): strip full-resolution image bytes
+      // to a bounded placeholder so the ROW is stored and broadcast now, then
+      // resolve the fitted derivative asynchronously. Without this, a pasted
+      // screenshot pushes the event past the per-event ceiling and the whole
+      // message collapses to {__truncated} — the user's row vanishes silently.
+      // No-op (same reference) for the overwhelmingly common no-image event.
+      // See change: fit-attachments-for-display (tasks 5.2, 5.3).
+      const prepared = fitWorkerPool
+        ? prepareEventForIngest(msg.event)
+        : { event: msg.event, pending: [] as PendingAttachment[] };
+      const seq = eventStore.insertEvent(sessionId, prepared.event);
       // Skip broadcasting during replay — browser gets events via subscribe replay
       if (!replayingSessions.has(sessionId)) {
-        const storedEvent = eventStore.getEvent(sessionId, seq) ?? msg.event;
+        const storedEvent = eventStore.getEvent(sessionId, seq) ?? prepared.event;
         browserGateway.broadcastEvent(sessionId, seq, storedEvent);
+      }
+      // Phase 2 runs detached: the row is already durable, so a fit failure can
+      // only degrade an attachment, never the message.
+      if (prepared.pending.length > 0) {
+        void resolvePendingAttachments(sessionId, prepared.pending);
       }
 
       // Spawned-session turn-outcome surfacing to server.log (live only).

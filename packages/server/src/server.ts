@@ -124,6 +124,7 @@ import { spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes, type TerminalManager } from "./terminal/terminal-manager.js";
+import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 
@@ -689,6 +690,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     config.maxStringFieldSize,
   );
 
+  // Display-fit pool for inline image attachments. Sized small on purpose:
+  // fitting is bursty (a paste at a time), and each worker holds a decoded
+  // bitmap, so more slots buy latency we do not need at the cost of RSS we do.
+  // See change: fit-attachments-for-display (task 5.1).
+  const fitWorkerPool = createFitWorkerPool({ size: 2 });
+
   // Create terminal manager with exit callback
   const terminalManager = createTerminalManager({
     transcriptCapBytes,
@@ -987,6 +994,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   wireEvents({
     sessionManager,
     eventStore,
+    fitWorkerPool,
     piGateway,
     browserGateway,
     sessionOrderManager,
@@ -2317,6 +2325,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       pendingForkRegistry.dispose();
       preferencesStore.flush();
       preferencesStore.dispose();
+      // Terminate fit workers so a restart never leaves orphaned threads.
+      // See change: fit-attachments-for-display (task 5.1).
+      await fitWorkerPool.dispose();
 
       stopTunnelWatchdog();
       await deleteTunnel(config.port);
