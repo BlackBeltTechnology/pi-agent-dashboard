@@ -196,8 +196,28 @@ function ringColor(el: HTMLElement): string {
 
 describe("TagChip selected ring color", () => {
   // Ring color tracks the tag's own palette color, in the remove-enabled
-  // (sidebar "Your tags") layout where the ring is hosted on the wrapper.
-  it("remove-enabled selected chip rings in its own tag color on the wrapper", () => {
+  // (sidebar "Your tags") layout. The ring hosts on the TOGGLE so it hugs the
+  // chip; hosting it on the wrapper measured 67.9×24 around a 41.9×19.8 chip
+  // (+28px wide, +6.2px tall) because the wrapper also spans the ✕'s ≥24px hit
+  // area. See change: fix-selected-tag-chip-ring.
+  it("remove-enabled selected chip rings in its own tag color on the toggle", () => {
+    const { getByLabelText } = render(
+      <TagChip
+        label="dashboard"
+        variant="filter"
+        tone="user"
+        selected
+        onToggle={() => {}}
+        onRemove={() => {}}
+      />,
+    );
+    const toggle = getByLabelText("Filter by tag dashboard");
+    expect(ringColor(toggle)).toBe(asInlineColor(tagColor("dashboard").text));
+  });
+
+  // The ✕ is a destructive action, not part of the selection state — it must sit
+  // OUTSIDE the ring, and the wrapper must carry no ring of its own.
+  it("the wrapper carries NO ring, so the ✕ stays outside it", () => {
     const { getByLabelText } = render(
       <TagChip
         label="dashboard"
@@ -210,9 +230,26 @@ describe("TagChip selected ring color", () => {
     );
     const toggle = getByLabelText("Filter by tag dashboard");
     const wrapper = toggle.parentElement as HTMLElement;
-    // The ring is hosted on the wrapper enclosing the toggle + the ✕.
+    // ✕ still a sibling inside the wrapper (layout unchanged — one line, one unit).
     expect(within(wrapper).getByLabelText("Remove tag dashboard from all sessions")).toBeTruthy();
-    expect(ringColor(wrapper)).toBe(asInlineColor(tagColor("dashboard").text));
+    // …but the wrapper draws nothing.
+    expect(wrapper.className).not.toContain("outline");
+    expect(wrapper.style.outlineColor).toBe("");
+  });
+
+  // Both user-tone layouts host the ring on the same element (D3).
+  it("rings on the toggle whether or not the ✕ is enabled", () => {
+    const withX = render(
+      <TagChip label="dashboard" variant="filter" tone="user" selected onToggle={() => {}} onRemove={() => {}} />,
+    );
+    const a = withX.getByLabelText("Filter by tag dashboard");
+    expect(a.className).toContain("outline-1");
+    withX.unmount();
+    const noX = render(
+      <TagChip label="dashboard" variant="filter" tone="user" selected onToggle={() => {}} />,
+    );
+    const b = noX.getByLabelText("Filter by tag dashboard");
+    expect(b.className).toContain("outline-1");
   });
 
   // Both user-tone layouts must render an identical ring color (D3).

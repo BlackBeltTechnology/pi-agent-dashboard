@@ -47,20 +47,26 @@ function userStyle(label: string): React.CSSProperties {
 const NO_RING = { ringClass: "", ringStyle: undefined } as const;
 
 /**
- * Selection ring for a `filter` chip, resolved for its two possible hosts: the
- * toggle alone, or the wrapper enclosing the toggle + the destructive ✕ (so the
- * ✕ stays inside the selected unit). Tailwind can't emit a class for a runtime
- * hash color, so a colorized chip carries the ring color inline from its own
- * palette entry; `exec` chips keep `outline-current`, which already resolves to
- * their intended muted color. See change: fix-selected-tag-chip-ring.
+ * Selection ring for a `filter` chip. ALWAYS hosted on the toggle itself, so the
+ * ring hugs the chip.
+ *
+ * It used to re-home onto the wrapper when a destructive ✕ was present, to keep
+ * the ✕ "inside the selected unit". Measured, that ring came out 67.9×24 around a
+ * 41.9×19.8 chip — +28px wide, +6.2px tall (the ✕'s ≥24px hit area sets the
+ * wrapper height) — a bloated box floating off the chip. The ✕ is a destructive
+ * action, not part of the selection state, so ringing it also mis-signalled.
+ *
+ * Tailwind can't emit a class for a runtime hash color, so a colorized chip
+ * carries the ring color inline from its own palette entry; `exec` chips keep
+ * `outline-current`, which already resolves to their intended muted color.
+ * See change: fix-selected-tag-chip-ring.
  */
-function selectionRing(on: boolean, colorized: boolean, label: string, hostIsWrapper: boolean) {
-  if (!on) return { toggle: NO_RING, wrapper: NO_RING };
-  const ring = {
+function selectionRing(on: boolean, colorized: boolean, label: string) {
+  if (!on) return NO_RING;
+  return {
     ringClass: `outline outline-1 outline-offset-1 ${colorized ? "" : "outline-current"}`,
     ringStyle: colorized ? ({ outlineColor: tagColor(label).text } as React.CSSProperties) : undefined,
   };
-  return hostIsWrapper ? { toggle: NO_RING, wrapper: ring } : { toggle: ring, wrapper: NO_RING };
 }
 
 export function TagChip({ label, variant, tone = "user", selected, onToggle, onRemove }: TagChipProps) {
@@ -71,7 +77,7 @@ export function TagChip({ label, variant, tone = "user", selected, onToggle, onR
   const execClass = colorized
     ? ""
     : "border-dashed border-[var(--border-secondary)] bg-transparent text-[var(--text-tertiary)]";
-  const ring = selectionRing(variant === "filter" && !!selected, colorized, label, !!onRemove);
+  const ring = selectionRing(variant === "filter" && !!selected, colorized, label);
 
   if (variant === "filter") {
     const toggleBtn = (
@@ -80,8 +86,8 @@ export function TagChip({ label, variant, tone = "user", selected, onToggle, onR
         onClick={onToggle}
         aria-pressed={!!selected}
         aria-label={`Filter by ${tone === "exec" ? "phase" : "tag"} ${label}`}
-        style={{ ...style, ...ring.toggle.ringStyle }}
-        className={`${baseClass} ${ring.toggle.ringClass} ${execClass} cursor-pointer`}
+        style={{ ...style, ...ring.ringStyle }}
+        className={`${baseClass} ${ring.ringClass} ${execClass} cursor-pointer`}
       >
         {display}
       </button>
@@ -92,8 +98,10 @@ export function TagChip({ label, variant, tone = "user", selected, onToggle, onR
     // sibling <button> — its click does NOT bubble to the toggle (no
     // stopPropagation needed). See change: sidebar-tag-collapse-and-delete.
     if (onRemove && tone === "user") {
+      // No ring on this wrapper — it lives on the toggle so it hugs the chip; the
+      // ✕ sits outside it. See change: fix-selected-tag-chip-ring.
       return (
-        <span style={ring.wrapper.ringStyle} className={`inline-flex items-center rounded-full ${ring.wrapper.ringClass}`}>
+        <span className="inline-flex items-center rounded-full">
           {toggleBtn}
           <button
             type="button"
