@@ -222,9 +222,13 @@ function OpenSpecRunConfigRowView({
           {i18nT("openspec.runsWith", undefined, "Runs with")}
         </span>
         <PopoverBoundaryProvider value={boundaryRef}>
-          <div
-            className={`flex flex-wrap items-center gap-2 ${sending ? "pointer-events-none opacity-50" : ""}`}
-            aria-disabled={sending || undefined}
+          {/* `fieldset[disabled]` disables every nested control for pointer AND
+              keyboard users while the confirm-gate is pending (spec: both
+              selectors disabled). Reset the default fieldset chrome. */}
+          <fieldset
+            disabled={sending}
+            data-testid="run-config-controls"
+            className={`flex flex-wrap items-center gap-2 m-0 min-w-0 border-0 p-0 ${sending ? "opacity-50" : ""}`}
           >
             <ModelSelector
               current={model}
@@ -236,7 +240,7 @@ function OpenSpecRunConfigRowView({
               placeholder={i18nT("openspec.sessionModel", undefined, "session model")}
             />
             <ThinkingLevelSelector current={level} onSelect={onSelectLevel} />
-          </div>
+          </fieldset>
         </PopoverBoundaryProvider>
       </div>
       {modelsUnavailable && (

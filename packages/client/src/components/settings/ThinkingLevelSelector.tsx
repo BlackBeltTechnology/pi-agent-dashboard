@@ -78,6 +78,9 @@ export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Pr
             {levelsToRender.map((level) => (
               <button
                 key={level}
+                type="button"
+                role="option"
+                aria-selected={level === current}
                 onClick={() => {
                   onSelect(level);
                   setOpen(false);

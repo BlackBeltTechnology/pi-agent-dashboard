@@ -295,7 +295,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
         }`}
         disabled={!hasModels}
         data-testid="model-selector-button"
-        aria-haspopup="listbox"
+        aria-haspopup="true"
         aria-expanded={open}
         aria-controls={open ? dropdownId : undefined}
       >
@@ -321,7 +321,6 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
           style={{ width: Math.min(320, maxWidth), maxHeight }}
           data-testid="model-dropdown"
           id={dropdownId}
-          role="listbox"
         >
           {/* ── Filters ── */}
           <div className="p-1.5 pb-1 space-y-1">

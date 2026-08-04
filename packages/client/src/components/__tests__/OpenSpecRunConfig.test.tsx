@@ -82,7 +82,7 @@ describe("run-config row", () => {
     renderHost(makeRunConfig(), { onSend: vi.fn() });
     const modelBtn = screen.getByTestId("model-selector-button");
     const levelBtn = screen.getByTestId("thinking-level-button");
-    expect(modelBtn.getAttribute("aria-haspopup")).toBe("listbox");
+    expect(modelBtn.getAttribute("aria-haspopup")).toBe("true");
     expect(levelBtn.getAttribute("aria-haspopup")).toBe("listbox");
     expect(modelBtn.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(modelBtn);
@@ -123,6 +123,10 @@ describe("confirm-before-send gate", () => {
     expect(onSend).not.toHaveBeenCalled();
     expect(screen.getByTestId("host-sending").textContent).toBe("1");
     expect(screen.getByTestId("run-config-status")).toBeTruthy();
+    // Both selectors are disabled via a disabled fieldset (keyboard + pointer);
+    // nested buttons match :disabled and cannot be activated.
+    expect((screen.getByTestId("run-config-controls") as HTMLFieldSetElement).disabled).toBe(true);
+    expect(screen.getByTestId("model-selector-button").matches(":disabled")).toBe(true);
     // Session reports the new model → prompt is sent.
     rerender(
       <RunConfigHarness value={{ ...value, model: "openai/gpt-5.1-codex" }}>
@@ -150,15 +154,23 @@ describe("confirm-before-send gate", () => {
   });
 
   it("does not send when the dialog unmounts (cancel) during the pending window", () => {
-    const value = makeRunConfig();
-    const onSend = vi.fn();
-    const { unmount } = renderHost(value, { onSend });
-    selectModel("openai/gpt-5.1-codex");
-    fireEvent.click(screen.getByTestId("host-send"));
-    expect(onSend).not.toHaveBeenCalled();
-    unmount();
-    expect(onSend).not.toHaveBeenCalled();
-    // The emitted model change stays in effect (already sent).
-    expect(value.setModel).toHaveBeenCalledWith("openai/gpt-5.1-codex");
+    vi.useFakeTimers();
+    try {
+      const value = makeRunConfig();
+      const onSend = vi.fn();
+      const { unmount } = renderHost(value, { onSend, timeoutMs: 1000 });
+      selectModel("openai/gpt-5.1-codex");
+      fireEvent.click(screen.getByTestId("host-send"));
+      expect(onSend).not.toHaveBeenCalled();
+      unmount();
+      // Advancing past the timeout after unmount must NOT fire a late send —
+      // proves the timeout cleanup ran (guards against removing it).
+      vi.advanceTimersByTime(5000);
+      expect(onSend).not.toHaveBeenCalled();
+      // The emitted model change stays in effect (already sent).
+      expect(value.setModel).toHaveBeenCalledWith("openai/gpt-5.1-codex");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

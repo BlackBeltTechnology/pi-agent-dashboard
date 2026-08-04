@@ -1,7 +1,12 @@
 # openspec-dialog-run-config Specification
 
 ## Purpose
-TBD - created by archiving change openspec-dialog-model-effort-selector. Update Purpose after archive.
+Define the shared "Runs with" run-config row embedded in the OpenSpec launch
+dialogs (Explore, Propose, New Change): the model and thinking-effort selectors,
+their sticky-to-session semantics, the confirm-before-send gate that guarantees
+the chosen model actually runs the prompt, the degraded (no model list) state,
+the shared context that supplies the values, and the accessibility floor.
+
 ## Requirements
 ### Requirement: Run-config row in OpenSpec launch dialogs
 The `ExploreDialog`, `ProposeDialog`, and `NewChangeDialog` SHALL each render a run-config row in their footer containing a model selector and a thinking-effort selector, above the Cancel/action buttons and separated from the fields by a top border. The row SHALL be labelled "Runs with". Both controls SHALL always be visible — never collapsed behind a disclosure. The model selector SHALL be the shared `ModelSelector` component and the effort selector SHALL be the shared `ThinkingLevelSelector` component, both unmodified.

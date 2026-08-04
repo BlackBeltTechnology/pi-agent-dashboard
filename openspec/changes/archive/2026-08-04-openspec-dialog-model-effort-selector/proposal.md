@@ -24,7 +24,7 @@ Out of scope: the folder-level "New Spec" button, which spawns a session via `sp
 ## Impact
 
 - **Code**: `packages/client/src/components/openspec/{ExploreDialog,ProposeDialog,NewChangeDialog,SessionOpenSpecActions}.tsx`; `packages/client/src/App.tsx` (provide the model-control context); `packages/client/src/components/session/ComposerSessionActions.tsx` and `shell/MobileActionMenu.tsx` (mount sites); reuses `settings/{ModelSelector,ThinkingLevelSelector}.tsx` unchanged.
-- **Protocol**: none. Reuses `set_model`, `set_thinking_level`, `request_models`, and the `session_updated` confirmation already defined in `packages/shared/src/browser-protocol.ts`.
+- **Protocol**: none. Reuses `set_model`, `set_thinking_level`, `request_models`, and the `model_update` confirmation already defined in `packages/shared/src/browser-protocol.ts` (the spike corrected this from the originally-assumed `session_updated` — see `design.md` Spike Findings).
 - **Server / extension**: none.
 - **Tests**: `packages/client/src/components/__tests__/Dialogs.test.tsx` asserts current Explore dialog markup and will need updating; Playwright specs covering the OpenSpec dialogs likewise.
 - **Risk**: the ordering guarantee between `set_model` and the following prompt is unverified in the bridge — see `design.md`. This is the change's primary technical risk, and a failure is silent (the run uses the old model and looks correct).

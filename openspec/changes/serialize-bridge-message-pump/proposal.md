@@ -20,8 +20,12 @@ message.
 
 - Serialize the bridge `onMessage` dispatch behind a promise queue so handlers
   run to completion in wire order, closing the race for all callers.
-- Preserve back-pressure / ordering semantics for every existing message type on
-  the hot path; add tests covering the `set_model` → `send_prompt` ordering.
+- Preserve ordering semantics for every existing message type on the hot path;
+  add tests covering the `set_model` → `send_prompt` ordering.
+- Define an **explicit inbound back-pressure bound** (separate from the outgoing
+  `maxBufferSize`) so a slow handler cannot grow the queue without limit.
+- Define **failure isolation**: a throwing/rejecting handler is logged and the
+  pump continues with the next message, never stalling the queue.
 - Once landed, the client-side gate in `openspec-dialog-model-effort-selector`
   becomes a redundant belt-and-suspenders (kept, not removed, in that change).
 
