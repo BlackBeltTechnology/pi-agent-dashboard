@@ -1,10 +1,10 @@
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiBrain, mdiChevronDown, mdiEye, mdiLoading, mdiRefresh, mdiStar, mdiStarOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
-import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 
 // Per-browser view-state persistence (NOT favorites — those persist server-side).
 // See change: enrich-model-selector-capabilities-favorites.
@@ -111,6 +111,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownId = useId();
   // Opt into the horizontal axis, left-preserving: this `left-0` 320px dropdown
   // must flip (not silently swap to right-0) when its composer pane is too
   // narrow, and flip rather than squish its dense provider/model grid below
@@ -294,6 +295,9 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
         }`}
         disabled={!hasModels}
         data-testid="model-selector-button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? dropdownId : undefined}
       >
         <span className="font-mono truncate max-w-[200px]">
           {pendingModel ? (
@@ -316,6 +320,8 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
           // flips before it would squish below `minContentWidth`).
           style={{ width: Math.min(320, maxWidth), maxHeight }}
           data-testid="model-dropdown"
+          id={dropdownId}
+          role="listbox"
         >
           {/* ── Filters ── */}
           <div className="p-1.5 pb-1 space-y-1">

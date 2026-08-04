@@ -11,6 +11,7 @@ import { ChatViewMenu } from "./components/chat/ChatViewMenu.js";
 import { CommandInput } from "./components/chat/CommandInput.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
 import { ComposerSessionActions } from "./components/session/ComposerSessionActions.js";
+import { OpenSpecRunConfigProvider, type OpenSpecRunConfigValue } from "./lib/state/OpenSpecRunConfigContext.js";
 import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStatusBanner.js";
 import { DirectoryHomeView } from "./components/folder/DirectoryHomeView.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
@@ -1094,6 +1095,33 @@ export default function App() {
   // change: pluginize-flows-via-registry.
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
+  // Run-config context for the OpenSpec launch dialogs — sourced from the
+  // selected session's model/effort/models/favorites; setters emit the existing
+  // browser messages. See change: openspec-dialog-model-effort-selector.
+  const openSpecRunConfig = useMemo<OpenSpecRunConfigValue>(
+    () => ({
+      model: selectedState.model ?? selectedSession?.model,
+      models: selectedId ? modelsMap.get(selectedId) : undefined,
+      thinkingLevel: selectedState.thinkingLevel ?? selectedSession?.thinkingLevel,
+      favorites: favoriteModels,
+      setModel: (label) => {
+        const slashIdx = label.indexOf("/");
+        if (selectedId && slashIdx > 0) {
+          send({ type: "set_model", sessionId: selectedId, provider: label.slice(0, slashIdx), modelId: label.slice(slashIdx + 1) });
+        }
+      },
+      setThinkingLevel: (level) => {
+        if (selectedId) send({ type: "set_thinking_level", sessionId: selectedId, level });
+      },
+      toggleFavorite: (label, makeFavorite) =>
+        send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label }),
+      refreshModels: () => {
+        if (selectedId) send({ type: "request_models", sessionId: selectedId });
+      },
+      notify: (message) => showToast(message, "info"),
+    }),
+    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast],
+  );
   // Per-cwd OpenSpec workflow config — drives which action buttons render.
   // See change: redesign-session-card-and-composer (config-driven-workflow).
   const openspecConfig = useOpenSpecConfig(selectedSession?.cwd);
@@ -1970,6 +1998,7 @@ export default function App() {
     <ApiContext.Provider value={apiBase}>
       <DisplayPrefsProvider value={displayPrefsContextValue}>
       <CommitDialogProvider onCommitted={(shortHash, cwd) => { showToast(`Committed ${shortHash}`, "success"); void refreshGitStatus(cwd); }}>
+      <OpenSpecRunConfigProvider value={openSpecRunConfig}>
       <PluginContextProvider
         registry={_pluginRegistry}
         sessions={allSessionsList}
@@ -2039,6 +2068,7 @@ export default function App() {
         </ErrorBoundary>
       </ShellSessionsProvider>
       </PluginContextProvider>
+      </OpenSpecRunConfigProvider>
       </CommitDialogProvider>
       </DisplayPrefsProvider>
     </ApiContext.Provider>
