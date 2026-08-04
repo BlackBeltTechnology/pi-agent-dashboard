@@ -150,19 +150,21 @@ Known core packages SHALL have human-readable display names that distinguish the
 
 ### Requirement: piCompatibility block tracks current upstream pi-coding-agent
 
-The `packages/server/package.json` `piCompatibility` block SHALL declare a `recommended` version that is no more than one minor release behind the latest published `@earendil-works/pi-coding-agent` and a `minimum` version that matches the version actually exercised in the dashboard's tests and the bundled-extensions peer-dep constraints in `packages/electron/resources/bundled-extensions/*/package.json`.
+The `packages/server/package.json` `piCompatibility` block SHALL declare a `recommended` version that is no more than one minor release behind the latest published `@earendil-works/pi-coding-agent` and a `minimum` version that matches the version actually exercised in the dashboard's tests and the bundled-extensions peer-dep constraints in `packages/electron/resources/bundled-extensions/*/package.json`. The `recommended` version SHALL be `0.83.0`; the server dependency `@earendil-works/pi-coding-agent` SHALL be pinned to `^0.83.0`; `minimum` SHALL stay `0.78.0` and `maximum` SHALL stay `null`.
 
 The legacy offline-cache (`packages/electron/offline-packages.json`) was removed under change `eliminate-electron-runtime-install`; bundled-extension peer-deps are now the sole pin surface that must move in lockstep with `piCompatibility.minimum`.
 
 `recommended` MAY move ahead of `minimum` to track the current upstream line without raising the hard floor: a runtime pin bump lifts `recommended` to the pinned version while `minimum` stays at the broadly-supported floor, so older-pi users see a soft upgrade hint but no blocking error.
 
+Separately, the extension's devDependency `typebox` in `packages/extension/package.json` SHALL be bumped to `^1.3.7` to match pi's bundled runtime TypeBox, so the extension test suite validates against the runtime version (a test-fidelity pin, not a pi version pin).
+
 #### Scenario: Recommended tracks the current earendil line while floor stays broad
 
-- **WHEN** the pinned/latest `@earendil-works/pi-coding-agent` runtime is `0.81.1`
+- **WHEN** the pinned/latest `@earendil-works/pi-coding-agent` runtime is `0.83.0`
 - **AND** the bundled-extension peer-deps still permit the broad support floor (`>=0.75.0` / `^0.75.0`)
-- **THEN** `piCompatibility.recommended` SHALL be `"0.81.1"`
+- **THEN** `piCompatibility.recommended` SHALL be `"0.83.0"`
 - **AND** `piCompatibility.minimum` SHALL stay `"0.78.0"`
-- **AND** users on `0.78.x`–`0.80.x` SHALL see `upgradeRecommended: true` but no `compatibility.error`
+- **AND** users on `0.78.x`–`0.82.x` SHALL see `upgradeRecommended: true` but no `compatibility.error`
 
 #### Scenario: Recommended moves ahead of floor when a patch ships
 
@@ -329,8 +331,6 @@ The server SHALL query `https://pi.dev/api/latest-version` for `@mariozechner/pi
 - **WHEN** `PiCoreChecker.invalidate()` is called (typically after a successful core update)
 - **THEN** the next `getStatus()` SHALL re-issue the pi.dev request (cache cleared)
 
-
-
 ### Requirement: /api/health surfaces pi-version compatibility
 
 The `/api/health` REST response SHALL include a `compatibility` field of shape `BootstrapCompatibility | null`. The field is computed lazily per request from `pi-version-skew.ts` primitives (`readPiCompatibility` for the declared range + `readCurrentPiVersion` for the running pi + `computeCompatibility` to combine them), and cached for 30 seconds to avoid repeated registry probes and file reads on rapid health polls.
@@ -401,3 +401,20 @@ A small client-side component SHALL surface `compatibility` to users via the Set
 - **THEN** it SHALL fetch `/api/health` immediately
 - **AND** schedule a refetch every 60 seconds
 - **AND** clean up the interval on unmount
+
+### Requirement: The release-deps checker SHALL enforce pi pin coherence
+
+`scripts/verify-release-deps.mjs` SHALL enforce that the pi recommended version is coherent across the three pi-version pins it governs, not merely that the server dependency meets a floor. The checker SHALL assert that `packages/server/package.json` `dependencies.@earendil-works/pi-coding-agent` (a range, e.g. `^0.83.0`), `packages/server/package.json` `piCompatibility.recommended` (an exact string, e.g. `0.83.0`), and the `docker/Dockerfile` global-install pin (e.g. `@0.83.0`) all resolve to the same normalized version, and SHALL fail the release gate when any of them drifts. Comparison SHALL normalize each pin's syntax (reusing the existing `floorOf()`-style normalizer that strips `^`/`~`/`@` and pre-release suffixes) rather than comparing literal strings. The extension devDep `typebox` is a separate test-fidelity pin and is out of scope for this pi-version coherence rule.
+
+#### Scenario: Coherent pins pass
+
+- **GIVEN** the server dep range, `piCompatibility.recommended`, and the Dockerfile pin all reference `0.83.0`
+- **WHEN** `scripts/verify-release-deps.mjs` runs
+- **THEN** the pi coherence check SHALL pass
+
+#### Scenario: Drifted pin fails the gate
+
+- **GIVEN** one of the governed pi pins references a different version than the others
+- **WHEN** `scripts/verify-release-deps.mjs` runs
+- **THEN** the checker SHALL fail and name the drifted location
+
