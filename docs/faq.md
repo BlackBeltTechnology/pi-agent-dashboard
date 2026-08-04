@@ -1235,13 +1235,33 @@ See change: `fix-rpc-keeper-pi-resolution`.
 
 ## Reopening a big session is slow?
 
-Symptom: large session reopen replays tens of thousands of events. Slow paint, slow catch-up, hundreds of React commits before the conversation renders.
+Symptom:
+- Large session reopen replays tens of thousands of events.
+- Slow paint, slow catch-up.
+- Hundreds of React commits before conversation renders.
 
-Root cause (pre-fix): warm (in-memory) replay shipped the raw live stream. Every assistant `message_update` carries a full content snapshot, not a delta. Large session replayed ~20k events; cold (on-disk) path (`packages/shared/src/state-replay.ts`) synthesizes ~1k for the same conversation.
+Root cause (pre-fix):
+- Warm (in-memory) replay shipped raw live stream.
+- Every assistant `message_update` carries full content snapshot, not delta.
+- Large session replayed ~20k events.
+- Cold (on-disk) path (`packages/shared/src/state-replay.ts`) synthesizes ~1k for same conversation.
 
-Fix (change: `compact-warm-replay-stream`): `sendEventBatches` (`packages/server/src/browser-handlers/subscription-handler.ts`) composes `compactEventsForReplay` (`packages/server/src/session/replay-compaction.ts`) before batching. Drops every `message_update` before the last `message_end` in the window. Exempts thinking updates (`thinking_start|thinking_delta|thinking_end`) and the last text update before each `tool_execution_start`. Still-streaming tail kept verbatim. Non-`message_update` events always pass through. `REPLAY_BATCH_SIZE` 50 → 200; each batch = one client React commit. REPLAY ONLY — store keeps the full stream for live path, "Show full output", status extraction.
+Fix (change: `compact-warm-replay-stream`):
+- `sendEventBatches` (`packages/server/src/browser-handlers/subscription-handler.ts`) composes `compactEventsForReplay` (`packages/server/src/session/replay-compaction.ts`) before batching.
+- Drops every `message_update` before last `message_end` in window.
+- Exempts thinking updates (`thinking_start|thinking_delta|thinking_end`).
+- Exempts last text update before each `tool_execution_start`.
+- Still-streaming tail kept verbatim.
+- Non-`message_update` events always pass through.
+- `REPLAY_BATCH_SIZE` 50 → 200; each batch = one client React commit.
+- REPLAY ONLY — store keeps full stream for live path, "Show full output", status extraction.
 
-Measured (#399-shaped window, 140 messages × ~150 snapshot updates): events 21420 → 420 (98.0%), wire bytes 6.26 MB → 0.10 MB (98.4%), batches 429 → 3 (99.3%), compaction wall time 2.2 ms. Cold path unaffected — verified no-op (1428 → 1428).
+Measured (#399-shaped window, 140 messages × ~150 snapshot updates):
+- Events 21420 → 420 (98.0%).
+- Wire bytes 6.26 MB → 0.10 MB (98.4%).
+- Batches 429 → 3 (99.3%).
+- Compaction wall time 2.2 ms.
+- Cold path unaffected — verified no-op (1428 → 1428).
 
 See change: `compact-warm-replay-stream`. See also `docs/architecture.md` § "Reconnection Flow".
 
