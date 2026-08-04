@@ -28,6 +28,14 @@ import {
 export interface RoleModelToolsDeps {
   /** Returns the in-process session ModelRegistry (bridge's cachedModelRegistry). */
   getRegistry: () => any;
+  /**
+   * Returns the session's resolved model scope (`ctx.scopedModels`, pi ≥ 0.83.0)
+   * read from the LIVE ctx at call time (the scope is dynamic — Ctrl+P cycling).
+   * Absent on older pi, or an empty array when no scoping is configured; in both
+   * cases `list_models` output is byte-identical to the pre-adoption behavior.
+   * See change: update-pi-core-0-83-adopt-apis.
+   */
+  getScopedModels?: () => unknown;
 }
 
 // ── list_models row shape ───────────────────────────────────────────────────
@@ -81,6 +89,28 @@ export function buildModelRows(registry: any, annotated: boolean): ModelRow[] {
   });
 }
 
+/**
+ * Constrain rows to a NON-EMPTY `ctx.scopedModels` scope. Each scoped entry is
+ * `{ model, thinkingLevel? }` where `model` is a Model OBJECT (not a ref string);
+ * the ref is derived as `provider/id` to match the row `ref` key `buildModelRows`
+ * builds. Absent, non-array, or EMPTY scope → rows returned unchanged (the
+ * empty-when-unscoped case must NOT empty the catalogue). A scope that yields no
+ * parseable ref also returns rows unchanged (safe). Exported for unit tests.
+ * See change: update-pi-core-0-83-adopt-apis.
+ */
+export function filterRowsByScope(rows: ModelRow[], scopedModels: unknown): ModelRow[] {
+  if (!Array.isArray(scopedModels) || scopedModels.length === 0) return rows;
+  const refs = new Set<string>();
+  for (const entry of scopedModels) {
+    const m = (entry as any)?.model ?? entry;
+    const provider = (m as any)?.provider;
+    const id = (m as any)?.id;
+    if (provider != null && id != null) refs.add(`${provider}/${id}`);
+  }
+  if (refs.size === 0) return rows;
+  return rows.filter((r) => refs.has(r.ref));
+}
+
 // ── list_models result envelope (registry-readiness discriminator) ──────────
 
 export interface ModelsResult {
@@ -99,7 +129,11 @@ export interface ModelsResult {
  * models" (true answer). Additive/backward-compatible: consumers reading only
  * `models` are unaffected. See change: fix-list-models-empty-on-unhydrated-registry.
  */
-export function buildModelsResult(registry: any, annotated: boolean): ModelsResult {
+export function buildModelsResult(
+  registry: any,
+  annotated: boolean,
+  scopedModels?: unknown,
+): ModelsResult {
   if (!registry) {
     return {
       models: [],
@@ -107,7 +141,8 @@ export function buildModelsResult(registry: any, annotated: boolean): ModelsResu
       reason: "model registry not yet hydrated in this session; retry shortly",
     };
   }
-  return { models: buildModelRows(registry, annotated), registryReady: true };
+  const rows = filterRowsByScope(buildModelRows(registry, annotated), scopedModels);
+  return { models: rows, registryReady: true };
 }
 
 // ── Registration ─────────────────────────────────────────────────────────────
@@ -129,7 +164,7 @@ export function registerRoleModelTools(pi: ExtensionAPI, deps: RoleModelToolsDep
     }),
     async execute(_id: any, params: any, _signal: any, _onUpdate: any, _ctx: any) {
       const annotated = params?.annotated === true;
-      const result = buildModelsResult(deps.getRegistry(), annotated);
+      const result = buildModelsResult(deps.getRegistry(), annotated, deps.getScopedModels?.());
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         details: result,
