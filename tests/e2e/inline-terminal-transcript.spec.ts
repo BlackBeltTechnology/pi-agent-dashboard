@@ -1,5 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
-import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
+import { test, expect, type Locator, type Page } from "@playwright/test";
+import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**
@@ -83,10 +83,31 @@ async function typeIntoTerminal(page: Page, text: string): Promise<void> {
  * xterm pads every row to the terminal width.
  */
 async function readCardText(cardLoc: ReturnType<typeof frozenCard>): Promise<string> {
+  return (await readCardTextRaw(cardLoc)).replace(/\u00a0/g, " ").replace(/[ \t]+/g, " ").trim();
+}
+
+/**
+ * UNNORMALIZED rendered transcript. Used for the live-vs-replay equality check:
+ * normalizing (nbsp → space, whitespace collapse, trim) would let genuinely
+ * different transcripts compare equal, which is exactly what that scenario must
+ * be able to detect. Both pages must share a viewport for this to be sound,
+ * since xterm wraps to the pane width.
+ */
+async function readCardTextRaw(cardLoc: ReturnType<typeof frozenCard>): Promise<string> {
   const rows = cardLoc.locator(".xterm-rows").first();
   await rows.waitFor({ state: "attached", timeout: 20_000 });
-  const raw = await rows.innerText();
-  return raw.replace(/\u00a0/g, " ").replace(/[ \t]+/g, " ").trim();
+  return await rows.innerText();
+}
+
+/** True when `a` precedes `b` in document order. */
+async function precedes(a: Locator, b: Locator): Promise<boolean> {
+  const ha = await a.elementHandle();
+  const hb = await b.elementHandle();
+  if (!ha || !hb) return false;
+  return await ha.evaluate(
+    (ea, eb) => (ea.compareDocumentPosition(eb as Node) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+    hb,
+  );
 }
 
 /** Unique per-run marker so an assertion cannot pass on stale/other content. */
@@ -102,7 +123,14 @@ test.describe("inline terminal transcript preservation", () => {
     // exit and reach the frozen card — that IS the change under test.
     await typeIntoTerminal(page, `echo ${m}\n`);
     await typeIntoTerminal(page, "exit\n"); // shell exits BEFORE the card is closed
-    await page.waitForTimeout(1_000);
+    // Wait for CONFIRMED PTY death, not a fixed sleep. The client writes
+    // "[Terminal disconnected]" when the terminal socket closes, which only
+    // happens after the PTY actually exited. Without this the shell might
+    // still be live and the test would exercise the ordinary close path —
+    // passing without ever testing transcript retention after exit.
+    await expect
+      .poll(() => readCardText(liveCard(page)), { timeout: 20_000 })
+      .toContain("Terminal disconnected");
     await closeBtn(page).click();
     await expect(frozenCard(page)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/read-only transcript/i).first()).toBeVisible();
@@ -125,24 +153,38 @@ test.describe("inline terminal transcript preservation", () => {
     // and freezes), then open a SECOND terminal that inherits it and is never
     // typed into. The second must still be removed.
     await openInline(page);
-    await typeIntoTerminal(page, `printf 'PS1="\\\\n[l2]\\\\n[l3]\\\\$ "\\n' >> ~/.bashrc\n`);
-    await page.waitForTimeout(500);
-    await closeBtn(page).click();
-    await expect(frozenCard(page)).toBeVisible({ timeout: 15_000 });
+    try {
+      // Back up first so the shared container's shell config is restorable.
+      await typeIntoTerminal(page, "cp ~/.bashrc ~/.bashrc.f3bak 2>/dev/null || touch ~/.bashrc.f3new\n");
+      await typeIntoTerminal(page, `printf 'PS1="\\\\n[l2]\\\\n[l3]\\\\$ "\\n' >> ~/.bashrc\n`);
+      await page.waitForTimeout(500);
+      await closeBtn(page).click();
+      await expect(frozenCard(page)).toBeVisible({ timeout: 15_000 });
 
-    // Second terminal: inherits the 3-line prompt, never touched.
-    await clickOpenTerminal(page);
-    // Precondition guard — without this the test could pass while proving
-    // nothing (e.g. if the shell never sourced ~/.bashrc).
-    await expect
-      .poll(() => readCardText(liveCard(page)), { timeout: 20_000 })
-      .toContain("[l3]");
+      // Second terminal: inherits the 3-line prompt, never touched.
+      await clickOpenTerminal(page);
+      // Precondition guard — without this the test could pass while proving
+      // nothing (e.g. if the shell never sourced ~/.bashrc).
+      await expect
+        .poll(() => readCardText(liveCard(page)), { timeout: 20_000 })
+        .toContain("[l3]");
 
-    await closeBtn(page).click();
-    // Exactly the frozen first card remains; the untouched multi-line-prompt
-    // card is gone despite rendering 3 non-empty lines.
-    await expect(liveCard(page)).toHaveCount(0, { timeout: 15_000 });
-    await expect(frozenCard(page)).toHaveCount(1, { timeout: 15_000 });
+      await closeBtn(page).click();
+      // Exactly the frozen first card remains; the untouched multi-line-prompt
+      // card is gone despite rendering 3 non-empty lines.
+      await expect(liveCard(page)).toHaveCount(0, { timeout: 15_000 });
+      await expect(frozenCard(page)).toHaveCount(1, { timeout: 15_000 });
+    } finally {
+      // Restore the shell config so later scenarios in this shared container
+      // do not inherit the multi-line prompt.
+      await clickOpenTerminal(page);
+      await typeIntoTerminal(
+        page,
+        "if [ -f ~/.bashrc.f3bak ]; then mv -f ~/.bashrc.f3bak ~/.bashrc; else rm -f ~/.bashrc ~/.bashrc.f3new; fi\n",
+      );
+      await page.waitForTimeout(500);
+      await closeBtn(page).click();
+    }
   });
 
   test("F4: type only 'exit' → frozen, not removed", async ({ page }) => {
@@ -172,44 +214,46 @@ test.describe("inline terminal transcript preservation", () => {
     await expect(card(page)).toHaveCount(0, { timeout: 15_000 });
   });
 
-  test("F8: reload after open + non-empty close → frozen at its ORIGINAL stream position", async ({ page }) => {
-    // Two closed cards give the stream a stable before/after ordering. If the
-    // replay path appended the card at the tail (the defensive
-    // close-without-open branch), the order would invert — which a
-    // single-card test cannot detect.
-    const first = marker("F8a");
-    const second = marker("F8b");
+  test("F8: reload after open + non-empty close → frozen BETWEEN its neighbouring chat rows", async ({ page }) => {
+    // Ordering must be proven against NON-terminal rows. A replay path that
+    // appended every terminal close after the chat events would still keep two
+    // terminal cards in relative order, so comparing cards to each other cannot
+    // detect the bug this scenario exists to catch.
+    const before = marker("F8pre");
+    const mid = marker("F8mid");
+    const after = marker("F8post");
 
     const sessionId = await openInline(page);
-    await typeIntoTerminal(page, `echo ${first}\n`);
+    // Close the card opened by the helper; this scenario builds its own order.
+    await closeBtn(page).click();
+    await expect(card(page)).toHaveCount(0, { timeout: 15_000 });
+
+    await sendPrompt(page, `[[faux:plain-text]] ${before}`);
+    await expect(page.getByText(before, { exact: false }).first()).toBeVisible({ timeout: 45_000 });
+
+    await clickOpenTerminal(page);
+    await typeIntoTerminal(page, `echo ${mid}\n`);
     await page.waitForTimeout(600);
     await closeBtn(page).click();
     await expect(frozenCard(page)).toHaveCount(1, { timeout: 15_000 });
 
-    await clickOpenTerminal(page);
-    await typeIntoTerminal(page, `echo ${second}\n`);
-    await page.waitForTimeout(600);
-    await closeBtn(page).click();
-    await expect(frozenCard(page)).toHaveCount(2, { timeout: 15_000 });
-
-    // Poll each card: a freshly-mounted xterm paints asynchronously, so a
-    // single snapshot can read an as-yet-empty pane.
-    await expect
-      .poll(() => readCardText(frozenCard(page).nth(0)), { timeout: 20_000 })
-      .toContain(first);
-    await expect
-      .poll(() => readCardText(frozenCard(page).nth(1)), { timeout: 20_000 })
-      .toContain(second);
+    await sendPrompt(page, `[[faux:plain-text]] ${after}`);
+    await expect(page.getByText(after, { exact: false }).first()).toBeVisible({ timeout: 45_000 });
 
     await page.goto(`/session/${sessionId}`);
-    await expect(frozenCard(page)).toHaveCount(2, { timeout: 20_000 });
-    // Same relative position after a cold replay — first still precedes second.
+    await expect(frozenCard(page)).toHaveCount(1, { timeout: 20_000 });
     await expect
-      .poll(() => readCardText(frozenCard(page).nth(0)), { timeout: 20_000 })
-      .toContain(first);
-    await expect
-      .poll(() => readCardText(frozenCard(page).nth(1)), { timeout: 20_000 })
-      .toContain(second);
+      .poll(() => readCardText(frozenCard(page)), { timeout: 20_000 })
+      .toContain(mid);
+
+    // The card sits BETWEEN the two chat rows after a cold replay — not at the
+    // tail of the stream.
+    const beforeRow = page.getByText(before, { exact: false }).first();
+    const afterRow = page.getByText(after, { exact: false }).first();
+    await expect(beforeRow).toBeVisible({ timeout: 20_000 });
+    await expect(afterRow).toBeVisible({ timeout: 20_000 });
+    expect(await precedes(beforeRow, frozenCard(page))).toBe(true);
+    expect(await precedes(frozenCard(page), afterRow)).toBe(true);
   });
 
   test("F9: two browsers converge on byte-identical transcripts after close", async ({ page, browser }) => {
@@ -218,7 +262,9 @@ test.describe("inline terminal transcript preservation", () => {
     await typeIntoTerminal(page, `echo ${m}\n`);
     await page.waitForTimeout(600);
 
-    const ctx2 = await browser.newContext({ baseURL: BASE_URL });
+    // Same viewport as page1: xterm wraps to the pane width, so an unnormalized
+    // text comparison is only meaningful under identical rendering conditions.
+    const ctx2 = await browser.newContext({ baseURL: BASE_URL, viewport: { width: 1680, height: 900 } });
     try {
       const page2 = await ctx2.newPage();
       await page2.goto(`/session/${sessionId}`);
@@ -234,8 +280,13 @@ test.describe("inline terminal transcript preservation", () => {
       // The distinguishing assertion: the LIVE-path payload and the REPLAY-path
       // payload are the same text. Both handlers broadcast the event read back
       // from the store, so any divergence here means that invariant broke.
-      const liveText = await readCardText(frozenCard(page));
-      const replayText = await readCardText(frozenCard(page2));
+      // Compared UNNORMALIZED — collapsing whitespace would let genuinely
+      // different transcripts compare equal, defeating the check.
+      await expect
+        .poll(() => readCardTextRaw(frozenCard(page2)), { timeout: 20_000 })
+        .not.toBe("");
+      const liveText = await readCardTextRaw(frozenCard(page));
+      const replayText = await readCardTextRaw(frozenCard(page2));
       expect(liveText).toContain(m);
       expect(replayText).toBe(liveText);
     } finally {
