@@ -97,14 +97,32 @@
       PARTIAL: "messages send" after Reopen needs a credentialed model — the reopened pi is
       spawned by the dashboard without the key-free faux fixture, so the turn itself is
       post-merge on a real instance.
-- [ ] 8.5 NOT VERIFIED LIVE — needs post-merge on a real instance. The *mechanism* is covered
-      automatically: `liveness-stamp-wiring.test.ts` asserts a real `server.stop()` records
-      `exitIntent:"idle"` AND leaves the `live` marker in place, and
-      `recovery-exit-intent.test.ts` asserts an `idle` boot yields an offer. What could not be
-      reproduced in the harness is the idle TIMER firing: it requires
-      `piGateway.connectionCount() === 0`, and after SIGKILLing the pi the gateway held the
-      session in its heartbeat reconnect-grace window, so no stop() ran within 3 min. That
-      condition is pre-existing idle-timer behaviour, untouched by this change.
+- [ ] 8.5 NOT CHECKED — the scenario's PREMISE is unreachable, not the mechanism. Qualified in
+      this change's OWN docker harness (`docker/test-up.sh`, TEST_COPY_MODE=1 — overlay mount is
+      refused on this host; dashboard port 18891), with a real bridge-carried faux-backed pi
+      session that streamed a real turn (`live:true` + `liveEpoch` on disk). Measured timeline
+      after killing the bridge (30 s polling, full log in the harness run):
+        t+0        pi SIGKILLed, browser closed
+        t+30…330s  sidecar still `{status:"idle", live:true}`; server still serving
+        t+330…360s gateway reconnect grace expires → `sessionManager.unregister()` →
+                   sidecar becomes `{status:"ended", live:false}` (pre-existing eager clear
+                   from `reopen-sessions-after-shutdown`), then `checkEmpty()` → `onEmpty`
+        t+~360s    `No pi sessions for 15s, shutting down...` →
+                   `[boot-state] exit intent recorded: idle (boot 1785848546761)`
+        relaunch   boot record ring = `[{bootId:…, exitIntent:"idle"}]`; offers = `[]`
+      VERIFIED by this run: `exitIntent:"idle"` IS recorded by a real idle stop, and the ring
+      resolves the prior boot on the next cold start.
+      BLOCKER (structural, in pre-existing code): the idle timer only arms when
+      `piGateway.connectionCount() === 0` (`idle-timer.ts:39`), and for a non-ended session the
+      ONLY route to that is heartbeat timeout (`HEARTBEAT_TIMEOUT` 180 s) + reconnect grace
+      (another 180 s) → `sessionManager.unregister()`, which eagerly clears the `live` marker.
+      So an idle stop can never coincide with a `live:true` session: "idle timer stops the
+      server WITH live sessions" cannot happen. The empty offer above is CORRECT — that session
+      was cleanly unregistered 15 s before the stop, so nothing was lost.
+      NOT DONE, deliberately: reaching a green here would require shortening `HEARTBEAT_TIMEOUT`,
+      the reconnect grace, or the idle window, or suppressing the unregister-time marker clear.
+      All four are production liveness semantics and changing them to satisfy a test is how the
+      double-offer bug returns. See design.md D3 addendum.
 - [x] 8.6 VERIFIED LIVE (same harness): SIGTERM → `[dashboard] SIGTERM received — flushing and
       exiting` → boot record `exitIntent:"signal"`, `live:true` marker SURVIVED, relaunch
       broadcast an offer containing the sessionId.

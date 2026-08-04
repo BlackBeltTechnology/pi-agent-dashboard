@@ -138,6 +138,30 @@ Corollary: `stop()` **no longer clears `live` markers**. Clearing was the mechan
 misused as a signal; intent is now recorded explicitly. Marker consumption on
 dismiss / retract / offer-broadcast is unchanged (it enforces "shown once per dirty boot").
 
+**Addendum, measured in the docker harness (task 8.5) — the idle-timer path can never carry a
+live session, so `idle`'s allow-row is DEFENSIVE, not the fix for the reported false negative.**
+The idle timer only arms when `piGateway.connectionCount() === 0` (`idle-timer.ts:39`). For a
+non-ended session the only route to that count is heartbeat timeout (`HEARTBEAT_TIMEOUT`
+180 s) followed by a reconnect grace (another 180 s), whose expiry calls
+`sessionManager.unregister()` — which eagerly clears that session's `live` marker and sets
+`status:"ended"`. Observed exactly: marker intact through t+330 s, `{live:false, ended}` by
+t+360 s, `No pi sessions for 15s, shutting down...` immediately after, then
+`exit intent recorded: idle`. A relaunch offered nothing, which is CORRECT — that session was
+cleanly unregistered before the stop.
+
+Two consequences for this design:
+
+1. The `idle` row still earns its place, but via the RING rather than via its own boot: a
+   sidecar left `live:true` by an EARLIER crashed boot survives a later idle stop (because
+   `stop()` no longer wipes markers) and is resolved against that earlier boot's `null` intent
+   on the next cold start. Removing the clearing loop is what stops one boot's clean stop from
+   destroying another boot's crash evidence.
+2. The reported false negative ("a PC restart preceded by an idle auto-stop offers nothing")
+   therefore cannot originate in the idle-timer path. It originates in the *other* `stop()`
+   caller — Electron's app-quit via `/api/shutdown` — and in the unhandled-signal path. Both
+   are addressed here: `user-quit` allows recovery (D8) and `signal` is now recorded at all (D4,
+   verified live in task 8.6).
+
 ### D4 — SIGTERM/SIGINT handler recording `"signal"`
 
 `runForeground()` (`cli.ts:151`) installs no signal handlers, so an OS shutdown kills the

@@ -322,7 +322,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const recoveryCandidates: DashboardSession[] = [];
   for (const session of scanResult.sessions) {
     const restored = { ...session, dataUnavailable: true };
-    // Positive exit-intent gate: a boot that ended by `/api/restart` or
+    // Positive `exitIntent` gate: a boot that ended by `/api/restart` or
     // `/api/shutdown` left its sessions RUNNING and told every bridge to stay
     // away for longer than the reattach grace window, so those sessions will
     // reattach — after any window that could retract them. Suppress outright,
@@ -2326,9 +2326,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // SIGTERMs every dashboard-spawned pi: after this the sessions below are
       // GONE and can never reattach.
       browserGateway.shutdownHeadlessProcesses();
-      // Record the intent instead of erasing the evidence. `stop()` reaches
-      // here from the idle timer — the server chose to stop, the user closed
-      // nothing — so the sessions it just killed stay recoverable. Clearing
+      // Record `exitIntent:"idle"` instead of erasing the evidence. `stop()`
+      // reaches here from the idle timer — the server chose to stop, the user
+      // closed nothing — so the sessions it just killed stay recoverable. Clearing
       // their `live` markers here (the old behaviour) is what destroyed the
       // recovery signal for a reboot preceded by an idle auto-stop. Per-session
       // user intent still lives in `closedReason:"manual"`; marker consumption
