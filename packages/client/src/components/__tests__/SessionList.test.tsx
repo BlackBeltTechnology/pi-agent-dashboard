@@ -465,6 +465,58 @@ describe("SessionList dashboard add buttons", () => {
   });
 });
 
+describe("SessionList add-to-workspace affordance", () => {
+  it("renders a labelled Workspace pill (not the cryptic +ws) on a top-level folder", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+            workspaces={[{ id: "ws1", name: "WS", folders: [], collapsed: false }]}
+            onAddFolderToWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    const btn = screen.getByTestId("add-to-workspace-btn-/root/proj");
+    expect(btn.textContent).toContain("Workspace");
+    expect(btn.textContent).not.toContain("+ws");
+  });
+
+  it("opens the AddToWorkspaceMenu on click", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+            workspaces={[{ id: "ws1", name: "WS", folders: [], collapsed: false }]}
+            onAddFolderToWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByTestId("add-to-workspace-btn-/root/proj"));
+    // The menu surfaces the "+ New workspace…" entry.
+    expect(screen.getByText("+ New workspace…")).toBeTruthy();
+  });
+
+  it("hides the add-to-workspace button when no workspace exists and no create handler", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(screen.queryByTestId("add-to-workspace-btn-/root/proj")).toBeNull();
+  });
+});
+
 describe("SessionList workspace-scope Add Folder", () => {
   const expandedWs = { id: "ws1", name: "WS One", collapsed: false, folders: [] as string[] };
 

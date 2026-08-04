@@ -2,7 +2,7 @@ import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
+import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -845,17 +845,17 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       <div className="relative">
         {renderGroup(group, isPinned)}
         {(onCreateWorkspace || (workspaces && workspaces.length > 0)) && (
-          <div className="absolute top-1 right-7">
+          <div className="absolute top-1.5 right-9">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 setAddToWsMenuFor(menuOpen ? null : group.cwd);
               }}
-              className="text-[10px] px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-blue)]"
+              className="text-xs px-2 py-1 rounded border flex items-center gap-0.5 text-blue-500 border-blue-500/40 bg-blue-500/5 hover:text-blue-400 hover:border-blue-500/70"
               title={t("sessionList.addToWorkspace", undefined, "Add to workspace")}
               data-testid={`add-to-workspace-btn-${group.cwd}`}
             >
-              +ws
+              <Icon path={mdiViewGridPlus} size={0.55} /> {t("sessionList.workspace", undefined, "Workspace")}
             </button>
             {menuOpen && (
               <AddToWorkspaceMenu
