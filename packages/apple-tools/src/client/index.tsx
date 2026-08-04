@@ -19,8 +19,6 @@ const DEFAULT_PATH = "/Applications/iMCP.app/Contents/MacOS/imcp-server";
 
 interface AppleToolsConfig {
   imcpServerPath?: string;
-  directTools?: string[];
-  disabled?: boolean;
 }
 
 interface StatusReadout {
@@ -29,7 +27,9 @@ interface StatusReadout {
   message: string;
   resolvedPath?: string;
   imcpServerPath: string;
+  /** Adapter-owned, read server-side from ~/.pi/agent/mcp.json. */
   directTools: string[];
+  disabled: boolean;
 }
 
 export function AppleToolsSettings() {
@@ -37,12 +37,17 @@ export function AppleToolsSettings() {
   const send = usePluginSend();
   const [status, setStatus] = useState<StatusReadout | null>(null);
   const [pathDraft, setPathDraft] = useState(config?.imcpServerPath ?? DEFAULT_PATH);
-  const [directToolsDraft, setDirectToolsDraft] = useState((config?.directTools ?? []).join(", "));
+  const [directToolsDraft, setDirectToolsDraft] = useState("");
 
   useEffect(() => {
     setPathDraft(config?.imcpServerPath ?? DEFAULT_PATH);
-    setDirectToolsDraft((config?.directTools ?? []).join(", "));
-  }, [config?.imcpServerPath, config?.directTools]);
+  }, [config?.imcpServerPath]);
+
+  // directTools + disabled live in ~/.pi/agent/mcp.json (adapter-owned), so the
+  // server status readout — not our plugin config — is their source of truth.
+  useEffect(() => {
+    if (status) setDirectToolsDraft(status.directTools.join(", "));
+  }, [status]);
 
   async function refresh(): Promise<void> {
     try {
@@ -59,12 +64,18 @@ export function AppleToolsSettings() {
   }, []);
 
   const isMac = status ? status.platform === "darwin" : true;
-  const disabled = config?.disabled === true;
+  const disabled = status?.disabled === true;
   // #F11: disabled folds into the readout — never READY_PENDING_GRANTS + disabled simultaneously.
   const displayState = disabled ? "DISABLED" : (status?.state ?? "…");
 
   function saveConfig(partial: AppleToolsConfig): void {
     void send({ type: "plugin_config_write", id: PLUGIN_ID, config: { ...config, ...partial } });
+  }
+
+  /** Fire a plugin action, then re-read the status so the panel converges. */
+  function act(action: string, payload: Record<string, unknown> = {}): void {
+    void send({ type: "plugin_action", pluginId: PLUGIN_ID, action, payload });
+    setTimeout(() => void refresh(), 500);
   }
 
   return (
@@ -100,11 +111,7 @@ export function AppleToolsSettings() {
         <>
           <button
             data-testid="apple-tools-run-installer"
-            onClick={() => {
-              void send({ type: "plugin_action", pluginId: PLUGIN_ID, action: "run-installer" });
-              // converge without a manual reload (#F7)
-              setTimeout(() => void refresh(), 500);
-            }}
+            onClick={() => act("run-installer")}
             style={{ fontSize: "11px", padding: "3px 10px", marginBottom: "10px" }}
           >
             Run installer
@@ -128,8 +135,8 @@ export function AppleToolsSettings() {
               value={directToolsDraft}
               onChange={(e) => setDirectToolsDraft(e.target.value)}
               onBlur={() =>
-                saveConfig({
-                  directTools: directToolsDraft
+                act("set-direct-tools", {
+                  tools: directToolsDraft
                     .split(",")
                     .map((s) => s.trim())
                     .filter(Boolean),
@@ -144,9 +151,10 @@ export function AppleToolsSettings() {
               data-testid="apple-tools-disabled"
               type="checkbox"
               checked={disabled}
-              onChange={(e) => saveConfig({ disabled: e.target.checked })}
+              onChange={(e) => act("set-disabled", { scope: "global", disabled: e.target.checked })}
             />
-            Disable the iMCP server (writes a project-local override; the menu-bar grants are unaffected)
+            Disable the iMCP server globally (writes `disabled` to ~/.pi/agent/mcp.json; a project
+            can override this in its own .pi/mcp.json. Menu-bar grants are unaffected.)
           </label>
 
           <p style={{ fontSize: "10px", color: "#71717a", marginTop: "10px" }}>

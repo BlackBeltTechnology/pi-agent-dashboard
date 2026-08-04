@@ -265,6 +265,31 @@ describe("check mode", () => {
       );
     expect(build(true).state).toBe(build(false).state);
   });
+
+  it("#E32 (install branch): parity holds when the app appears only after brew", () => {
+    // The hardest parity case: check PREDICTS the post-install state without
+    // invoking brew, while write mode actually installs and re-discovers.
+    const checkState = runInstaller(
+      makeEnv({ pathExists: () => false, configIO: memIO() }),
+      { check: true },
+    ).state;
+
+    let installed = false;
+    const writeState = runInstaller(
+      makeEnv({
+        configIO: memIO(),
+        pathExists: (p) => installed && p === DEFAULT_SERVER,
+        runBrewCask: () => {
+          installed = true; // the cask lands the binary
+          return { code: 0, stderr: "" };
+        },
+      }),
+      { check: false },
+    ).state;
+
+    expect(checkState).toBe("READY_PENDING_GRANTS");
+    expect(writeState).toBe(checkState);
+  });
 });
 
 describe("install faults", () => {

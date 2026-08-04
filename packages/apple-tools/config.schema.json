@@ -8,12 +8,6 @@
       "type": "string",
       "description": "Absolute path to the iMCP server binary. Defaults to the canonical /Applications location; the paths requirement interpolates this key.",
       "default": "/Applications/iMCP.app/Contents/MacOS/imcp-server"
-    },
-    "directTools": {
-      "type": "array",
-      "description": "iMCP tool names to promote to direct pi tools via the adapter.",
-      "items": { "type": "string" },
-      "default": []
     }
   }
 }

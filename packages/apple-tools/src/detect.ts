@@ -57,18 +57,11 @@ export function meetsMinimum(version: string, min: string = MIN_MACOS): boolean 
 }
 
 /**
- * Resolve the ordered candidate list for the imcp-server binary.
- *  1. an explicit, existing override (a preference that only wins when real),
- *  2. `/Applications/iMCP.app/...`,
- *  3. `~/Applications/iMCP.app/...`.
- * A non-existent override does NOT veto the candidate list (E13).
+ * The standard, ordered install locations for the imcp-server binary (an
+ * operator override is consulted before these, see {@link discoverServer}).
  */
-export function candidatePaths(homedir: string, override?: string): string[] {
-  const list: string[] = [];
-  if (override && override.trim() !== "") list.push(override);
-  list.push(`/Applications/${IMCP_RELATIVE}`);
-  list.push(`${homedir}/Applications/${IMCP_RELATIVE}`);
-  return list;
+export function candidatePaths(homedir: string): string[] {
+  return [`/Applications/${IMCP_RELATIVE}`, `${homedir}/Applications/${IMCP_RELATIVE}`];
 }
 
 /**
@@ -83,7 +76,7 @@ export function discoverServer(
   override?: string,
 ): string | null {
   if (override && override.trim() !== "" && pathExists(override)) return override;
-  for (const p of [`/Applications/${IMCP_RELATIVE}`, `${homedir}/Applications/${IMCP_RELATIVE}`]) {
+  for (const p of candidatePaths(homedir)) {
     if (pathExists(p)) return p;
   }
   return null;

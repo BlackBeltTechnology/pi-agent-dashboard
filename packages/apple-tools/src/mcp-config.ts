@@ -148,37 +148,89 @@ export function ensureAdapterPackage(io: ConfigIO, settingsJsonPath: string): Co
   return writeOrError(io, settingsJsonPath, next);
 }
 
-/**
- * Write the iMCP `disabled` override to the project-local `.pi/mcp.json` (the
- * adapter's highest-precedence layer and its own write target for the flag).
- * Deliberately a different file from `~/.pi/agent/mcp.json` — the override folds
- * over the lower layer's `command` without mutating it.
- *
- * Mirrors `writeProjectServerDisabledOverride` in the installed pi-mcp-adapter
- * (`config.ts`): disabling writes `disabled: true`; ENABLING removes the key
- * rather than writing `false`. `isServerDisabled` treats only a literal `true`
- * as disabled (`types.ts`), and we never write `disabled` to any lower layer,
- * so key-removal is the correct enable path. Verified against the installed
- * adapter v2.19.0 (task 7.8).
- */
-export function setServerDisabled(
+/** Read the iMCP entry's operator-facing fields from a given mcp.json layer. */
+export function readImcpEntry(
   io: ConfigIO,
-  projectMcpJsonPath: string,
-  disabled: boolean,
+  mcpJsonPath: string,
+): { disabled: boolean; directTools: string[] } {
+  const r = parseOrError(io, mcpJsonPath);
+  if ("error" in r) return { disabled: false, directTools: [] };
+  const servers = r.parsed.mcpServers;
+  if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
+    return { disabled: false, directTools: [] };
+  }
+  const entry = (servers as Record<string, unknown>).iMCP;
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return { disabled: false, directTools: [] };
+  }
+  const e = entry as Record<string, unknown>;
+  return {
+    // pi-mcp-adapter's isServerDisabled: only a literal `true` disables.
+    disabled: e.disabled === true,
+    directTools: Array.isArray(e.directTools)
+      ? (e.directTools as unknown[]).filter((t): t is string => typeof t === "string")
+      : [],
+  };
+}
+
+/** Merge a patch into `mcpServers.iMCP`; an `undefined` value removes the key. */
+function patchImcpEntry(
+  io: ConfigIO,
+  mcpJsonPath: string,
+  patch: Record<string, unknown>,
 ): ConfigWriteResult {
-  const r = parseOrError(io, projectMcpJsonPath);
+  const r = parseOrError(io, mcpJsonPath);
   if ("error" in r) return r.error;
   const config = r.parsed;
-  const sr = readServers(config, projectMcpJsonPath);
+  const sr = readServers(config, mcpJsonPath);
   if ("error" in sr) return sr.error;
   const { servers } = sr;
   const existing =
     servers.iMCP && typeof servers.iMCP === "object" && !Array.isArray(servers.iMCP)
       ? (servers.iMCP as Record<string, unknown>)
       : {};
-  const merged = disabled
-    ? { ...existing, disabled: true }
-    : Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "disabled"));
+  const merged: Record<string, unknown> = { ...existing };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) delete merged[k];
+    else merged[k] = v;
+  }
   const next = { ...config, mcpServers: { ...servers, iMCP: merged } };
-  return writeOrError(io, projectMcpJsonPath, next);
+  return writeOrError(io, mcpJsonPath, next);
+}
+
+/**
+ * Write the iMCP `disabled` override into a given mcp.json layer. BOTH levels
+ * are supported and use the identical merge discipline:
+ *   - global  → `~/.pi/agent/mcp.json` (the layer the installer writes `command`
+ *     to; the target for the dashboard's global settings panel)
+ *   - project → `<cwd>/.pi/mcp.json` (the adapter's highest-precedence layer,
+ *     so a project override folds over the global value without mutating it)
+ *
+ * Mirrors `writeProjectServerDisabledOverride` in the installed pi-mcp-adapter
+ * (`config.ts`): disabling writes `disabled: true`; ENABLING removes the key
+ * rather than writing `false`. `isServerDisabled` treats only a literal `true`
+ * as disabled (`types.ts:395`). Verified against adapter v2.19.0 (task 7.8).
+ */
+export function setServerDisabled(
+  io: ConfigIO,
+  mcpJsonPath: string,
+  disabled: boolean,
+): ConfigWriteResult {
+  return patchImcpEntry(io, mcpJsonPath, { disabled: disabled ? true : undefined });
+}
+
+/**
+ * Write the adapter's per-server `directTools` filter onto the iMCP entry
+ * (`ServerEntry.directTools?: boolean | string[]`, consumed by the adapter's
+ * `direct-tools.ts`). An empty selection removes the key rather than writing
+ * `[]`, which the adapter would read as "promote nothing".
+ */
+export function setDirectTools(
+  io: ConfigIO,
+  mcpJsonPath: string,
+  tools: string[],
+): ConfigWriteResult {
+  return patchImcpEntry(io, mcpJsonPath, {
+    directTools: tools.length > 0 ? tools : undefined,
+  });
 }

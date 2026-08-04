@@ -12,6 +12,8 @@ import {
   type ConfigIO,
   ensureAdapterPackage,
   ensureMcpEntry,
+  readImcpEntry,
+  setDirectTools,
   setServerDisabled,
 } from "../mcp-config.js";
 
@@ -202,6 +204,40 @@ describe("setServerDisabled — pi-mcp-adapter contract (task 7.8, verified v2.1
     expect(JSON.parse(io.store[PROJECT_MCP]).mcpServers.iMCP).toEqual({});
   });
 
+  it("supports BOTH levels: global ~/.pi/agent/mcp.json and project .pi/mcp.json", () => {
+    // Global level — the same layer the installer writes `command` to.
+    const globalIO = memIO({
+      [MCP]: JSON.stringify({ mcpServers: { iMCP: { command: SERVER } } }),
+    });
+    expect(setServerDisabled(globalIO, MCP, true).ok).toBe(true);
+    const globalEntry = JSON.parse(globalIO.store[MCP]).mcpServers.iMCP;
+    // merge-only: `command` survives alongside the new flag
+    expect(globalEntry).toEqual({ command: SERVER, disabled: true });
+
+    // Project level — highest-precedence override, separate file.
+    const projIO = memIO();
+    expect(setServerDisabled(projIO, PROJECT_MCP, true).ok).toBe(true);
+    expect(JSON.parse(projIO.store[PROJECT_MCP]).mcpServers.iMCP).toEqual({ disabled: true });
+  });
+
+  it("readImcpEntry reports the effective flags (literal true only)", () => {
+    const io = memIO({
+      [MCP]: JSON.stringify({
+        mcpServers: { iMCP: { command: SERVER, disabled: true, directTools: ["calendar"] } },
+      }),
+    });
+    expect(readImcpEntry(io, MCP)).toEqual({ disabled: true, directTools: ["calendar"] });
+
+    // A non-literal-true value must NOT read as disabled (adapter parity).
+    const io2 = memIO({
+      [MCP]: JSON.stringify({ mcpServers: { iMCP: { disabled: "true" } } }),
+    });
+    expect(readImcpEntry(io2, MCP).disabled).toBe(false);
+
+    // Absent file / absent entry degrade to defaults, never throw.
+    expect(readImcpEntry(memIO(), MCP)).toEqual({ disabled: false, directTools: [] });
+  });
+
   it("preserves sibling servers and unrelated keys on the override file", () => {
     const io = memIO({
       [PROJECT_MCP]: JSON.stringify({ mcpServers: { other: { disabled: true } }, extra: 1 }),
@@ -210,6 +246,40 @@ describe("setServerDisabled — pi-mcp-adapter contract (task 7.8, verified v2.1
     const written = JSON.parse(io.store[PROJECT_MCP]);
     expect(written.mcpServers.other).toEqual({ disabled: true });
     expect(written.extra).toBe(1);
+  });
+});
+
+describe("setDirectTools — adapter per-server filter (ServerEntry.directTools)", () => {
+  it("writes the tool list onto the iMCP entry, preserving command", () => {
+    const io = memIO({
+      [MCP]: JSON.stringify({ mcpServers: { iMCP: { command: SERVER } } }),
+    });
+    expect(setDirectTools(io, MCP, ["calendar", "contacts"]).ok).toBe(true);
+    expect(JSON.parse(io.store[MCP]).mcpServers.iMCP).toEqual({
+      command: SERVER,
+      directTools: ["calendar", "contacts"],
+    });
+  });
+
+  it("an empty selection REMOVES the key (adapter reads [] as promote-nothing)", () => {
+    const io = memIO({
+      [MCP]: JSON.stringify({
+        mcpServers: { iMCP: { command: SERVER, directTools: ["calendar"] } },
+      }),
+    });
+    setDirectTools(io, MCP, []);
+    expect(JSON.parse(io.store[MCP]).mcpServers.iMCP).toEqual({ command: SERVER });
+  });
+
+  it("does not disturb the disabled flag", () => {
+    const io = memIO({
+      [MCP]: JSON.stringify({ mcpServers: { iMCP: { disabled: true } } }),
+    });
+    setDirectTools(io, MCP, ["weather"]);
+    expect(JSON.parse(io.store[MCP]).mcpServers.iMCP).toEqual({
+      disabled: true,
+      directTools: ["weather"],
+    });
   });
 });
 
