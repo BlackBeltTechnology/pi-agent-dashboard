@@ -164,15 +164,22 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 
 **3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
 
-- Reads/writes `retry.{enabled,maxRetries,baseDelayMs}` in GLOBAL `~/.pi/agent/settings.json`.
+- Reads/writes all SIX native fields: `retry.{enabled,maxRetries,baseDelayMs}` + `retry.provider.{timeoutMs,maxRetries,maxRetryDelayMs}` in GLOBAL `~/.pi/agent/settings.json`. Blank `provider.timeoutMs` OMITTED on write (never `0`/`null`).
 - Write is MERGE-PRESERVING: every other key survives, including `retry.provider.*`.
 - Project `<cwd>/.pi/settings.json` NEVER written.
 - Distinct from `config-api.ts`, which writes dashboard's own `~/.pi/dashboard/config.json`.
 - Validation: `maxRetries` non-negative integer; `baseDelayMs` positive integer. Invalid → nothing written.
 - No UI cap on `maxRetries`; long tail WARNED, never capped.
 - REST: `GET/PUT /api/pi-retry` (`packages/server/src/routes/pi-retry-routes.ts`), auth-gated by same network guard as `/api/config`.
-- pi reads settings only at session construction → a write alone is inert for running sessions. On successful save server dispatches `/reload` to every `piGateway.getConnectedSessionIds()`. Failed write reloads nothing.
-- `retry.provider.*` deliberately NOT surfaced in UI: that layer emits no event and no callback, so a wait routed through it renders as "streaming" for hours.
+- pi reads settings only at session construction → write alone inert for running sessions. On successful save server dispatches `/reload` to every `piGateway.getConnectedSessionIds()`. Failed write reloads nothing.
+- **UI placement + save.** Editor renders on Settings **Sessions** tab (NOT Providers). Reason: 3 fields (`enabled`, `maxRetries`, `baseDelayMs`) turn-level not provider-scoped; observable effect on session (waiting / attempt n / countdown / Stop). Sibling turn-lifecycle settings co-located.
+- Enclosing section titled "Retry".
+- NO private Save button. Registers with panel unified-Save draft registry via `useSettingsDraftSource({id:"pi-retry", page:"sessions", isDirty, commit, reset})`. See change: unify-settings-save-contract.
+- Consequences: one Save commits every dirty store. Sessions nav shows per-page dirty dot. Leave guard offers Save / Discard / Cancel.
+- `commit` THROWS on invalid input or failed PUT → host `Promise.allSettled` keeps source dirty + names it in `settings.savePartialFail`. Never false success.
+- `reset` restores loaded policy (powers Discard).
+- Registered `page` MUST match mount tab or dirty dot lands on wrong nav item.
+- `retry.provider.*` fields surfaced in UI under subheading "Provider / SDK request controls". WARNING: wait routed through that layer emits no event and no callback → renders as ordinary streaming with no attempt count, no countdown. Invisible-wait fact true + reason warning exists.
 
 **4. Collapse-vs-dismiss rule** (`packages/client/src/components/session/SessionBanner.tsx`).
 
