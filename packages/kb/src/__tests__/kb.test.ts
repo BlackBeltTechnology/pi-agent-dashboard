@@ -542,6 +542,24 @@ describe("dox: kb dox lint", () => {
     expect(r.issues.filter((i) => i.kind === "orphan" && i.path === "api.ts").length).toBe(0);
   });
 
+  it("walks .pi/skills and .pi/agents (doctrine requires rows there)", () => {
+    // .pi/skills/ carries per-skill rows per the Documentation Update Protocol.
+    // Excluding all of .pi blinds the orphan check on that whole tree.
+    const sk = join(dir, ".pi", "skills");
+    mkdirSync(sk, { recursive: true });
+    writeFileSync(join(sk, "AGENTS.md"), "# DOX \u2014 .pi/skills\n\n| `moved/SKILL.md` |  |\n");
+    const r = doxLint({ cwd: dir });
+    expect(r.issues.filter((i) => i.kind === "orphan" && i.path === "moved/SKILL.md").length).toBe(1);
+  });
+
+  it("still excludes .pi/dashboard (caches, kb index, not source)", () => {
+    const dash = join(dir, ".pi", "dashboard");
+    mkdirSync(dash, { recursive: true });
+    writeFileSync(join(dash, "AGENTS.md"), "# DOX\n\n| `nope.md` |  |\n");
+    const r = doxLint({ cwd: dir });
+    expect(r.issues.filter((i) => i.agentsFile.includes(".pi/dashboard")).length).toBe(0);
+  });
+
   it("falls back to repo-root for root-config rows documented in a sub-dir AGENTS.md (Option B)", () => {
     // docs/AGENTS.md documents root-level config that lives at the repo root
     mkdirSync(join(dir, "docs"), { recursive: true });

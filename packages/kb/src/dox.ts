@@ -18,7 +18,11 @@ import type { KbStore } from "./types.js";
 // navigable source) and self-evident top-level docs (`CHANGELOG.md`, `CLAUDE.md`,
 // repo-root `README.md`) with no per-file DOX value; `README` anchored to root so
 // package READMEs stay documented.
-const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|\.github|dist|build|out|\.next|coverage|\.kb|\.pi|\.worktrees|\.reverse-spec-scratch|openspec|doc-example|bundled-extensions|mockups|research|site|Prompt stories)(\/|$)|(^|\/)electron\/resources\/server(\/|$)|(^|\/)(CHANGELOG|CLAUDE)\.md$|^README\.md$/;
+// `.pi` is NOT excluded wholesale: `.pi/skills/`, `.pi/agents/` and `.pi/prompts/`
+// carry per-file DOX rows per the Documentation Update Protocol, and excluding the
+// whole tree blinded the orphan check there. Only the non-source `.pi` subdirs
+// (caches, kb index, npm/git mirrors, flow run state) are skipped.
+const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|\.github|dist|build|out|\.next|coverage|\.kb|\.worktrees|\.reverse-spec-scratch|openspec|doc-example|bundled-extensions|mockups|research|site|Prompt stories)(\/|$)|(^|\/)\.pi\/(dashboard|npm|git|flows)(\/|$)|(^|\/)electron\/resources\/server(\/|$)|(^|\/)(CHANGELOG|CLAUDE)\.md$|^README\.md$/;
 const AGENTS_FILES = ["AGENTS.md"];
 // delta ①: dox init now maps SOURCE, not docs. Source globs, minus type decls and tests.
 const SOURCE_EXT = /\.(ts|tsx|js|jsx)$/;
