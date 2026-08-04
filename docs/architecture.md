@@ -139,6 +139,53 @@ TypeScript type definitions shared across all components:
 - **Folder needs-you rollup.** `FolderNeedsYouPill` counts chat-routed ask_user child sessions per folder (`countNeedsYou` / `needsYouSessionIds`), excludes widget-bar via per-session `WidgetBarProbe` + `useHasWidgetBarPrompt`. Hidden at 0. Click → scroll+select first blocked. Mobile ≤375px hides label.
 - **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle `mdiSortVariant` in folder header.
 
+### Retry Lifecycle (change: retry-forever-with-stop-control)
+
+Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts fire sequentially; each produces ONE complete `agent_start` … `agent_end` event cycle. Final attempt produces ONE `agent_settled` event terminal marker.
+
+**1. Retry ownership & settings.**
+
+- Pi `RetrySettings` = `{ enabled, maxRetries, baseDelayMs, provider: {timeoutMs, maxRetries, maxRetryDelayMs} }`.
+- Session-layer delay = `baseDelayMs * 2^(attempt-1)`. Uncapped. No ceiling.
+- `retry.maxDelayMs` REMOVED from session layer. pi migrates to `retry.provider.maxRetryDelayMs` (different layer, different semantics).
+- Overshoot consequence: next attempt lands ~2x elapsed. Scale-invariant. Tuning `baseDelayMs` shifts which attempt lands where, never the ratio.
+- Dashboard runs NO retry loop. Raising `retry.maxRetries` is the whole "retry forever" mechanism.
+- `resume mode:"continue"` cannot re-drive live turn (refused `resume.already_active`). For ended session resolves to `pi --session <file>` which reopens IDLE + drives no turn. No re-drive mechanism exists — none needed, since pi never settles turn while budget remains.
+
+**2. Bridge observation model** (`packages/extension/src/retry-tracker.ts`).
+
+- pi fires ONE FULL `agent_start` … `agent_end` cycle PER ATTEMPT. Exactly one `agent_settled` after final `agent_end`.
+- Old model keyed on "error `message_end` then fresh assistant `message_start` in same turn". Never matched. Emitted ZERO events. Retry surface was dead in production.
+- New rules: error `message_end` records pending error text → emits nothing. Error `agent_end` = attempt over + another coming → emits `auto_retry_start` + `auto_retry_waiting` (carries `attempt`, `delayMs`, `nextAttemptAt`), does NOT clear chain. `agent_settled` = SOLE terminal → emits `auto_retry_end`, clears chain.
+- Waiting signal suppressed once `attempt >= maxAttempts`.
+- `agent_settled` carries NO `messages` (verified pi 0.81.1/0.83), so tracker remembers terminal disposition via `lastEndWasError` at `agent_end`.
+- `-1` sentinels REMOVED. `maxAttempts` / `delayMs` sourced read-only from pi settings via `packages/extension/src/pi-retry-settings.ts` (defaults 3 / 2000; unreadable → `delayMs: 0` → surface renders elapsed-only).
+- pi 0.83 exposes retry lifecycle events to RPC/SDK consumers ONLY. ExtensionAPI has no `auto_retry_*` and nothing on EventBus. `willRetry` in 0.83 is compaction-only (`session_before_compact`/`session_compact`). Bridge is extension → must observe-synthesize.
+
+**3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
+
+- Reads/writes `retry.{enabled,maxRetries,baseDelayMs}` in GLOBAL `~/.pi/agent/settings.json`.
+- Write is MERGE-PRESERVING: every other key survives, including `retry.provider.*`.
+- Project `<cwd>/.pi/settings.json` NEVER written.
+- Distinct from `config-api.ts`, which writes dashboard's own `~/.pi/dashboard/config.json`.
+- Validation: `maxRetries` non-negative integer; `baseDelayMs` positive integer. Invalid → nothing written.
+- No UI cap on `maxRetries`; long tail WARNED, never capped.
+- REST: `GET/PUT /api/pi-retry` (`packages/server/src/routes/pi-retry-routes.ts`), auth-gated by same network guard as `/api/config`.
+- pi reads settings only at session construction → a write alone is inert for running sessions. On successful save server dispatches `/reload` to every `piGateway.getConnectedSessionIds()`. Failed write reloads nothing.
+- `retry.provider.*` deliberately NOT surfaced in UI: that layer emits no event and no callback, so a wait routed through it renders as "streaming" for hours.
+
+**4. Collapse-vs-dismiss rule** (`packages/client/src/components/session/SessionBanner.tsx`).
+
+- While retry pending, dismiss DEGRADES TO COLLAPSE. Never clears state.
+- Collapsed pill carries: error text, bare attempt number, countdown, Stop retrying, expand control.
+- State-clearing dismiss offered ONLY when no retry sub-status carried.
+- Collapse sticky PER FAILURE CHAIN: later attempts of same chain stay collapsed; new chain renders expanded.
+- Attempt rendered BARE ("attempt 7"), never "of N" — `maxRetries` user-set + typically large.
+- Countdown from `nextAttemptAt`, else computed `startedAt + delayMs`; degrades to "still waiting… (N s elapsed)" on overrun or when `delayMs` is 0.
+- "Stop retrying" aborts session → cancels pi's chain. Sole abort control in banner. Session Stop has identical effect, honored even while collapsed. Measured: abort during 16 s backoff terminated chain in 2 ms (`ctx.abort()` → `AgentSession.abort()` → `abortRetry()`).
+- NO Retry control on settled surface (would need missing re-drive mechanism).
+- Sidebar session card shows only amber working-token mark (no per-card countdown — avoids N timers in render-hot component).
+
 ### Interactive UI Flow (PromptBus — extension dialog → browser → response)
 1. Extension calls `ctx.ui.confirm()` / `select()` / `input()` / `editor()` / bridge-patched `multiselect()`
 2. Bridge PromptBus intercepts via patched `ctx.ui` methods, creates a `PromptRequest` with a unique `promptId` and `pipeline` tag (e.g. `"command"`, `"architect"`)

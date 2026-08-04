@@ -31,6 +31,7 @@ import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
+import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ModelSelector } from "./ModelSelector.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
@@ -1286,6 +1287,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     upstreamExtensionDetected={upstreamPiModelProxyInstalled}
                     availableModels={availableModels}
                   />
+                </Section>
+                <Section title={t("settings.providerRetry", undefined, "Provider Retry")}>
+                  <RetrySettingsSection />
                 </Section>
                 <SettingsSectionSlot tab="providers" />
               </>

@@ -99,6 +99,7 @@ import { registerPackageRoutes } from "./routes/package-routes.js";
 import { registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
+import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
@@ -1131,6 +1132,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const networkGuard = createNetworkGuard(config.resolvedTrustedNetworks ?? [], { localToken });
 
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
+  // pi retry policy editor. Reload fan-out dispatches `/reload` to every
+  // connected session so a saved policy applies without a manual restart
+  // (pi reads its settings only at session construction). See change:
+  // retry-forever-with-stop-control.
+  registerPiRetryRoutes(fastify, {
+    networkGuard,
+    reloadConnectedSessions: () => {
+      const ids = piGateway.getConnectedSessionIds();
+      for (const id of ids) {
+        piGateway.sendToSession(id, { type: "send_prompt", sessionId: id, text: "/reload" });
+      }
+      return ids.length;
+    },
+  });
   registerGitRoutes(fastify, {
     networkGuard, sessionManager, browserGateway, worktreeInitRegistry,
     sendToSession: (id, msg) => piGateway.sendToSession(id, msg),

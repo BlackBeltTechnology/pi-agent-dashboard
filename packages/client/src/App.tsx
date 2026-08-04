@@ -1706,10 +1706,15 @@ export default function App() {
           </ErrorBoundary>
           {/* Single-card error-lifecycle surface. Sticky above the command
               input: ONE card showing the error string plus a live retry
-              sub-line. ✕ (onDismiss) is CLEAR-ONLY — it never aborts. The
-              "Stop (ends the session)" control inside the banner is the sole
-              abort (onAbort), shown only while a retry is in flight.
-              See change: simplify-error-retry-single-card. */}
+              sub-line (bare attempt + countdown from pi's own retry settings).
+              "Stop retrying" (onAbort → handleAbort) cancels pi's retry chain
+              by aborting; it is the sole abort control, and the always-present
+              session Stop has the identical effect (both honored even while the
+              card is collapsed). While a retry is pending the dismiss control
+              degrades to COLLAPSE inside the component (onDismiss is not invoked
+              then); onDismiss fires — clearing the settled error — only once no
+              retry sub-status is carried. See change:
+              retry-forever-with-stop-control. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}
             onAbort={handleAbort}
@@ -1717,10 +1722,9 @@ export default function App() {
               setSessionStates((prev) => {
                 const next = new Map(prev);
                 const current = next.get(selectedId!);
-                // Clear-only: drop BOTH the error anchor and any live retry
-                // sub-status locally so the card disappears immediately. This
-                // does NOT abort the session — a live pi retry keeps running.
-                // See change: simplify-error-retry-single-card.
+                // Clear-only, reachable only on a settled error (the component
+                // collapses instead of calling this while a retry is pending).
+                // Never aborts. See change: retry-forever-with-stop-control.
                 if (current?.lastError || current?.retryState) {
                   next.set(selectedId!, { ...current, lastError: undefined, retryState: undefined });
                 }
