@@ -95,25 +95,31 @@ covers the paths a per-endpoint fix cannot.
 
 `ExitIntent = "restart" | "shutdown" | "user-quit" | "idle" | "signal" | null`
 
+The mapping below is governed by **D8** ("suppression requires proof of return"), which
+was ratified during implementation and overrides this section's first draft on the
+`user-quit` row. Read D8 before reviewing the table — without it the `user-quit: allow`
+row reads like a bug.
+
 | intent | recorded by | recovery |
 |---|---|---|
-| `restart` | `POST /api/restart` | **suppress** — sessions survive via keeper; the server is being replaced |
-| `shutdown` | `POST /api/shutdown`, CLI `stop` | **suppress** — deliberate teardown of this server |
-| `user-quit` | Electron `before-quit` (user-initiated) | **suppress** — user closed the app on purpose |
-| `idle` | idle timer → `stop()` | **allow** — the *server* chose to stop; the user closed nothing |
+| `restart` | `POST /api/restart` | **suppress** — sessions survive via keeper and reattach after the 5 s quiesce |
+| `shutdown` | `POST /api/shutdown` (dev reload / force-relaunch) | **suppress** — sessions survive; 60 s quiesce announced, so reattach outlives any grace window |
+| `user-quit` | Electron `before-quit` (user-initiated) | **allow** — the quit may have taken the sessions with it; if it did not, they reattach on relaunch and the gate retracts them |
+| `idle` | idle timer → `stop()` | **allow** — `stop()` SIGTERMs every spawned pi (`killAll`), so those sessions can never reattach |
 | `signal` | new SIGTERM/SIGINT handler | **allow** — OS-initiated (reboot / systemd stop) |
 | `null` / absent | crash, SIGKILL, power loss, pre-upgrade | **allow** — the original target case |
 
 The load-bearing distinction: **server-lifecycle intent lives in the boot record; per-session
 user intent already lives in `closedReason:"manual"`.** A session the user actually closed is
 excluded by `closedReason`, so app-quit and idle-stop do not need to double as "the user
-discarded these sessions". This is what lets `idle` flip to *allow* and fix the false negative
-without re-introducing nagging.
+discarded these sessions". That is what lets both `idle` and `user-quit` be *allowed* without
+re-introducing nagging.
 
 ### D3 — Classification gains one conjunct
 
 ```text
-recoverable(bootId) = exitIntentFor(bootId) ∈ { "idle", "signal", null }
+recoverable(bootId) = exitIntentFor(bootId) ∉ { "restart", "shutdown" }
+                    ≡ exitIntentFor(bootId) ∈ { "user-quit", "idle", "signal", null }
 
 candidate = live === true
           ∧ status !== "ended"
@@ -172,6 +178,78 @@ can never double-spawn one `sessionId` (returns `resume.already_active`). Requir
 optional: it is the only guard that holds when an upstream assumption breaks — which is the
 exact failure mode this lineage keeps repeating.
 
+### D8 — Suppression requires PROOF OF RETURN, not proof of intent
+
+**Ratified during implementation; overrides the `user-quit` row of D2's first draft.**
+The first draft suppressed recovery for `user-quit` on a Chrome analogy ("restore after a
+crash, not after a clean quit"). That is an argument about the user's *intent toward the
+app*. It is the wrong question, and it re-commits the original sin of this whole lineage:
+inferring session fate from something that is not session fate.
+
+The rule instead is: **offer a session only when it can never reattach, and the user did
+not close it.** Recovery exists to rescue sessions that are GONE. So:
+
+1. **Suppress only where the sessions are proven to come back.** An exit qualifies only if
+   it (a) leaves the pi processes running AND (b) instructs bridges to suppress reconnection
+   for LONGER than `RECOVERY_REATTACH_GRACE_MS`. Both conditions together mean the session
+   reattaches *after* the only window in which the liveness gate could retract the offer —
+   so the offer would be permanently wrong and nothing downstream can fix it. Exactly two
+   exits qualify: `/api/restart` (`RESTART_QUIESCE_MS` = 5 s) and `/api/shutdown`
+   (`SHUTDOWN_QUIESCE_MS` = 60 s), both vs a 7 s grace window.
+2. **Allow where the sessions are proven dead.** `idle` reaches `stop()`, which calls
+   `shutdownHeadlessProcesses()` → `headlessPidRegistry.killAll()` → SIGTERM to every
+   dashboard-spawned pi process group. Those sessions cannot reattach by construction.
+   This is the false-negative half of the reported bug.
+3. **Where session fate is UNKNOWN, do not guess — measure.** `user-quit`, `signal` and a
+   crash all leave the outcome genuinely undetermined at classification time (detached pi
+   children survive on macOS/Linux; a Windows Job Object or an OS reboot kills them). For
+   these we allow the candidate and let the existing process-liveness gate decide: keeper
+   reclaim (Class 1) and bridge reattach inside the grace window (Class 2) retract anything
+   that proves alive, and D7's resume-time probe refuses anything that slips through.
+
+So the boot record answers only the question it can answer soundly — *"is this session's
+return already guaranteed and un-retractable?"* — and delegates every ambiguous case to a
+mechanism that observes the process rather than reasoning about the human.
+
+Per-session user intent is NOT part of this decision: `closedReason:"manual"` already
+excludes sessions the user closed individually, on every path. `user-quit` therefore does
+not need to double as "the user discarded these sessions".
+
+**Exit classes and their scenarios** (one per class; the spec delta carries the normative
+form of each):
+
+| class | exits | why | scenario |
+|---|---|---|---|
+| **A — return proven** | `restart`, `shutdown` | sessions alive + quiesce > grace | ▾ A1 |
+| **B — death proven** | `idle` | `stop()` SIGTERMs every spawned pi | ▾ B1 |
+| **C — fate unknown** | `user-quit`, `signal`, `null` (crash) | detached children may or may not survive | ▾ C1, C2, C3 |
+
+- **A1 — restart:** three sessions running; `POST /api/restart` records `"restart"` and
+  exits; bridges are told to hold off 5 s; the replacement server classifies at t≈0 s and
+  finds `live:true` on every sidecar. Suppressed by intent ⇒ **no offer**, and the bridges
+  reattach normally at t≈5–7 s. Without D8 the grace window (7 s) would be racing the
+  quiesce window (5 s) on every restart — the exact race that shipped broken four times.
+- **B1 — idle auto-stop:** the idle timer fires, `stop()` SIGTERMs every spawned pi and
+  records `"idle"`; the user later relaunches. Nothing can reattach, the markers are no
+  longer cleared (D3), so **all three sessions are offered**. Under the old build the same
+  scenario cleared the markers and offered nothing — the reported false negative.
+- **C1 — user quit, sessions died with the app** (Windows Job Object, or the OS tore the
+  tree down): `"user-quit"` recorded; on relaunch no keeper answers and no bridge reattaches
+  within the grace window ⇒ **offered**. Suppressing here (first draft) would have silently
+  lost the user's work.
+- **C2 — user quit, sessions survived** (macOS/Linux, detached pi + keeper): `"user-quit"`
+  recorded; on relaunch keeper reclaim finds them alive at t≈0 s and retracts them before
+  the deferred broadcast ⇒ **no offer**, no flash. Same input as C1, opposite output,
+  decided by evidence rather than by the intent label.
+- **C3 — SIGKILL / power loss:** nothing recorded, `exitIntent` stays `null`; on relaunch
+  nothing proves liveness ⇒ **offered**. The original target case, unchanged.
+
+**Falsifiability.** A row moves out of "allow" only by demonstrating that its exit satisfies
+both clauses of (1) — sessions alive AND a reconnect ban longer than the grace window. If a
+future exit path adds a quiesce longer than `RECOVERY_REATTACH_GRACE_MS`, it belongs in
+class A. Conversely, if `/api/shutdown`'s 60 s quiesce were ever dropped, `shutdown` would
+move to class C and be decided by liveness like everything else.
+
 ## Risks / Trade-offs
 
 - **[Boot-record write fails / disk full]** → `exitIntent` unwritten ⇒ treated as dirty ⇒
@@ -180,14 +258,13 @@ exact failure mode this lineage keeps repeating.
   `~/.pi/dashboard/`. One dashboard per HOME is an existing invariant; a second instance would
   interleave `bootId`s. The ring makes this survivable (unknown epoch ⇒ allowed) rather than
   silently wrong.
-- **[`user-quit` suppresses recovery]** → a user who quits the app with sessions running gets
-  no offer on relaunch. Matches Chrome (restore is offered after a *crash*, not a clean quit)
-  and preserves 06-30's explicit "never nag about deliberate closes" goal. Reversible: it is
-  one row in the D2 table, not a structural choice. See Open Questions.
-- **[Electron OS-restart still maps to `user-quit`]** → `before-quit` fires for both a user
-  quit and an OS shutdown, so the Electron false-negative is only *partially* fixed by this
-  change (fully fixed for the standalone/daemon install via D4). Called out as a follow-up
-  rather than silently claimed.
+- **[`user-quit` allows recovery]** → a user who quits the app with sessions running may be
+  offered them on relaunch. Bounded by the liveness gate: if the pi processes survived the
+  quit, keeper reclaim (Class 1) or a bridge reattach (Class 2) retracts them before the
+  offer is broadcast, so only genuinely-dead sessions reach the user. Sessions the user
+  closed individually are excluded by `closedReason:"manual"` as before. Cost when the gate
+  misjudges: one dismissible card. Benefit: the Electron OS-restart false negative closes,
+  since `before-quit` fires for both a user quit and an OS shutdown.
 - **[Deferring the broadcast delays a genuine crash offer]** → by `RECOVERY_REATTACH_GRACE_MS`
   (~7 s). Acceptable: the offer is sticky and the alternative is a flashing false card.
 - **[`idle` becoming recoverable increases offers]** → an idle-stopped server now offers its
@@ -203,14 +280,14 @@ no protocol change, no config change, no user action. Rollback = revert; a lefto
 
 ## Open Questions
 
-- **Should `user-quit` suppress or allow recovery?** D2 picks *suppress* (Chrome model). If the
-  product intent is closer to "the dashboard always restores what was running", this flips to
-  *allow* and the Electron follow-up below becomes unnecessary. One-row change — worth deciding
-  explicitly before implementation.
-- **Electron OS-shutdown discrimination** — is there a reliable cross-platform signal
-  (Windows `WM_QUERYENDSESSION`, macOS `NSWorkspaceWillPowerOffNotification`) to distinguish
-  an OS-initiated quit from a user quit? If yes, Electron records `"signal"` instead of
-  `"user-quit"` in that case and the Electron false-negative closes fully.
+- ~~**Should `user-quit` suppress or allow recovery?**~~ **RESOLVED — allow. See D8.**
+  Suppression requires proof of return, not proof of intent; a quit does not tell us whether
+  the sessions died, so the liveness gate decides (classes B/C in D8).
+- ~~**Electron OS-shutdown discrimination**~~ **MOOT** for recovery correctness: since
+  `user-quit` now allows recovery, `before-quit` needs no OS-vs-user discrimination — both
+  cases land on "let liveness decide". A future platform signal (Windows
+  `WM_QUERYENDSESSION`, macOS `NSWorkspaceWillPowerOffNotification`) would only sharpen
+  logging.
 - **Should `bootId` be a UUID rather than `Date.now()`?** Reusing `liveEpoch` avoids a new
   per-session field, but two boots inside the same millisecond would collide. Practically
   impossible given startup cost; a monotonic counter persisted in the record would remove the

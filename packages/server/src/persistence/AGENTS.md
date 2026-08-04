@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `boot-state.ts` | Durable HOME-scoped boot record `~/.pi/dashboard/boot-state.json` (atomic tmp+rename, O(1) per exit — not per session). Exports `stampBootStart(bootId=liveEpoch)`, `recordExitIntent(intent)` (write-once per boot, first writer wins), `resolveExitIntent(liveEpoch)` (current record then 8-entry ring; unresolvable ⇒ `null` ⇒ recovery allowed), `readBootState`, `_resetBootStateForTests`. Write failures logged, never thrown. See change: fix-recovery-exit-intent. |
 | `json-store.ts` | Atomic JSON file read/write helpers. Exports `readJsonFile(filePath, fallback)` (returns fallback on… → see `json-store.ts.AGENTS.md` |
 | `memory-event-store.ts` | In-memory event store with LRU eviction; replaces SQLite-backed event-store. → see `memory-event-store.ts.AGENTS.md` |
 | `meta-persistence.ts` | Per-session debounced `.meta.json` writer. Exports `MetaPersistence`, `createMetaPersistence`. → see `meta-persistence.ts.AGENTS.md` |

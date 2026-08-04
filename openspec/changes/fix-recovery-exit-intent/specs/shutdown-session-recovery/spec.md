@@ -48,6 +48,12 @@ the process terminates:
 | idle-timer stop | `"idle"` |
 | SIGTERM / SIGINT | `"signal"` |
 
+Recovery is suppressed for exactly those intents whose exit leaves the sessions RUNNING
+and instructs bridges to suppress reconnection for longer than the reattach grace window
+(`"restart"`, `"shutdown"`) — such sessions reattach after any window that could retract
+them, so an offer for them can never be corrected. Every other intent allows recovery and
+defers to the process-liveness gate.
+
 The server SHALL install SIGTERM and SIGINT handlers that record `"signal"`, flush pending
 metadata writes, and exit. The handlers SHALL be idempotent under repeated signals.
 
@@ -97,10 +103,9 @@ recovery-suppressing exit intent**.
 
 Exit intent is resolved by matching the session's `liveEpoch` against the boot-record ring:
 
-- `"restart"`, `"shutdown"`, `"user-quit"` — recovery **suppressed**; the session SHALL NOT be
-  a candidate.
-- `"idle"`, `"signal"`, `null`, or an unresolvable `liveEpoch` — recovery **allowed**; the
-  remaining conjuncts decide.
+- `"restart"`, `"shutdown"` — recovery **suppressed**; the session SHALL NOT be a candidate.
+- `"user-quit"`, `"idle"`, `"signal"`, `null`, or an unresolvable `liveEpoch` — recovery
+  **allowed**; the remaining conjuncts (including process liveness) decide.
 
 This closes the defect that made disk-marker absence ambiguous: `POST /api/restart` and
 `POST /api/shutdown` terminate without clearing per-session markers, so a still-running session
@@ -135,12 +140,14 @@ and offer broadcast is unchanged.
 - **WHEN** the server next cold starts
 - **THEN** those sessions SHALL be recovery candidates
 
-#### Scenario: User quit suppresses the offer
+#### Scenario: User quit defers to liveness
 
 - **GIVEN** sessions running with `live: true` and non-`ended` status
 - **AND** the previous boot recorded `exitIntent: "user-quit"`
 - **WHEN** the server next cold starts
-- **THEN** no session from that boot SHALL be a recovery candidate
+- **THEN** those sessions SHALL be recovery candidates
+- **AND** any candidate whose keeper or bridge proves it alive SHALL be retracted before the
+  offer is broadcast, so only sessions that cannot reattach are offered
 
 #### Scenario: Two consecutive dirty boots preserve the earlier offer
 

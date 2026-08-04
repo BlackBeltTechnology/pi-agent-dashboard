@@ -81,7 +81,14 @@ describe("liveness-stamp wiring", () => {
     ws.close();
   });
 
-  it("clean server stop() clears live:false without closedReason for running sessions", async () => {
+  // `stop()` used to clear every running session's `live` marker, which was
+  // the ONLY way a deliberate exit signalled itself. That coupling is what
+  // made an idle auto-stop before a reboot destroy the recovery signal, while
+  // `/api/restart` (which clears nothing) impersonated a crash. Intent is now
+  // recorded positively in the boot record, so the marker survives the stop
+  // and the next boot decides from `exitIntent`.
+  // See change: fix-recovery-exit-intent (D3, task 3.4).
+  it("clean server stop() records the exit intent and LEAVES the liveness marker", async () => {
     const SID = "live-stop";
     const sessionFile = path.join(tmpDir, `${SID}.jsonl`);
     writeFileSync(sessionFile, "");
@@ -92,11 +99,14 @@ describe("liveness-stamp wiring", () => {
     expect(readSessionMeta(sessionFile)?.live).toBe(true);
     ws.close();
 
-    // Clean teardown (idle / app quit) is intentional.
+    // Clean teardown (idle timer): SIGTERMs every spawned pi, so the sessions
+    // it just killed stay recoverable.
     await server.stop();
     const meta = readSessionMeta(sessionFile);
-    expect(meta?.live).toBe(false);
+    expect(meta?.live).toBe(true);
     expect(meta?.closedReason).toBeUndefined();
+    const { readBootState } = await import("../persistence/boot-state.js");
+    expect(readBootState()?.exitIntent).toBe("idle");
   });
 
   it("explicit unregister eagerly clears live:false; same-boot re-register re-stamps live:true", async () => {
