@@ -73,6 +73,12 @@ export const DEFAULT_MAX_EVENTS_PER_SESSION = 20000;
 const ESSENTIAL_CHAT_EVENT_TYPES: ReadonlySet<string> = new Set([
   "message_start",
   "message_end",
+  // Inline terminal lifecycle: the reducer's card position depends on the
+  // paired open/close surviving trim together. Trimming one of a structurally
+  // paired set relocates the card to the stream tail on replay.
+  // See change: preserve-inline-terminal-transcript (D3b).
+  "inline_terminal_open",
+  "inline_terminal_close",
 ]);
 
 /**
