@@ -68,7 +68,7 @@ import { createPendingGoalLinkRegistry } from "./pending/pending-goal-link-regis
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
-import { createMemoryEventStore, type EventStore } from "./persistence/memory-event-store.js";
+import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } from "./persistence/memory-event-store.js";
 import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore, type PreferencesStore } from "./persistence/preferences-store.js";
@@ -123,7 +123,7 @@ import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
-import { createTerminalManager, type TerminalManager } from "./terminal/terminal-manager.js";
+import { createTerminalManager, deriveTranscriptCapBytes, type TerminalManager } from "./terminal/terminal-manager.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 
@@ -157,6 +157,8 @@ export interface ServerConfig {
   /** Memory limit overrides from config */
   maxEventsPerSession?: number;
   maxStringFieldSize?: number;
+  /** Override the event-store per-event data byte ceiling. Default DEFAULT_MAX_EVENT_DATA_SIZE. */
+  maxEventDataSize?: number;
   maxWsBufferBytes?: number;
   /** OpenSpec polling config (interval, concurrency, change detection, jitter) */
   openspec?: import("@blackbelt-technology/pi-dashboard-shared/config.js").OpenSpecPollConfig;
@@ -656,6 +658,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: add-session-uncommitted-indicator-and-commit.
   const commitDraftRelay = createCommitDraftRelay();
 
+  // ONE ceiling value feeds both the store and the transcript budget derived
+  // from it — threading it into only one of the two is the silent drift D2a
+  // exists to prevent. See change: preserve-inline-terminal-transcript.
+  const eventDataCeiling = config.maxEventDataSize ?? DEFAULT_MAX_EVENT_DATA_SIZE;
+
   // Create event store with pinning callback and configurable limits
   const eventStore = createMemoryEventStore(
     (sessionId) =>
@@ -664,10 +671,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     undefined, // maxCachedSessions (use default)
     config.maxEventsPerSession,
     config.maxStringFieldSize,
+    eventDataCeiling,
+  );
+
+  // Derive the inline-terminal transcript byte budget from the event-store
+  // ceiling (75 %), so the capped transcript can never trip the store's size
+  // clamp and destroy the `terminalId`. Assert both truncation knobs are safe
+  // at boot rather than silently corrupting close events months later.
+  // See change: preserve-inline-terminal-transcript (D2a/D2b).
+  const transcriptCapBytes = deriveTranscriptCapBytes(
+    eventDataCeiling,
+    config.maxStringFieldSize ?? 0,
   );
 
   // Create terminal manager with exit callback
   const terminalManager = createTerminalManager({
+    transcriptCapBytes,
     onExit: (terminalId) => {
       // Find and remove from session order
       const allOrders = sessionOrderManager.getAllOrders();

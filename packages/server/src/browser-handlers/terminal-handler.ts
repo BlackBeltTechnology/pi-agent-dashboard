@@ -42,10 +42,19 @@ export function handleOpenInlineTerminal(
 }
 
 /**
- * Close a live inline terminal card: capture the final ring-buffer transcript,
- * kill the PTY, then insert and broadcast an `inline_terminal_close` event so
- * the card freezes to a read-only transcript and replays frozen on reload.
- * See change: add-inline-terminal-card.
+ * Close a live inline terminal card. Captures the final transcript (from the
+ * live PTY buffer or a retained tombstone if the shell already exited), kills
+ * the PTY, then inserts and broadcasts an `inline_terminal_close` event.
+ *
+ * - Idempotent: a released id is a no-op (checked FIRST, before any liveness
+ *   or tombstone lookup), so a double close cannot resurrect or destroy a
+ *   frozen card even under two-browser concurrency. See D1c.
+ * - A close for an id the session never opened emits nothing (no stray empty
+ *   close). An opened-but-evicted terminal emits `transcript:""` so the client
+ *   removes the card gracefully. See D1c / X10 / X11.
+ * - Emits `transcript:""` when the user never interacted (server-side
+ *   `sawInput`), else the capped transcript. The client removes empty rows.
+ * See change: preserve-inline-terminal-transcript.
  */
 export function handleCloseInlineTerminal(
   msg: Extract<BrowserToServerMessage, { type: "close_inline_terminal" }>,
@@ -53,8 +62,27 @@ export function handleCloseInlineTerminal(
 ): void {
   const { terminalManager, eventStore, broadcastEvent } = ctx;
   if (!terminalManager) return;
-  const transcript = terminalManager.getTranscript(msg.terminalId);
+  // Idempotency guard FIRST — a released card never emits again.
+  if (terminalManager.isReleased(msg.terminalId)) return;
+
+  const record = terminalManager.getTerminalRecord(msg.terminalId);
+  // Distinguish "never existed" (emit nothing) from "opened but tombstone
+  // evicted" (emit empty so the client removes the card). The durable proof a
+  // terminal existed in this session is its `inline_terminal_open` event, which
+  // survives per-session trim (essential type).
+  if (!record) {
+    const opened = eventStore
+      .getEvents(msg.sessionId, 0)
+      .some(
+        (e) =>
+          e.event.eventType === "inline_terminal_open" &&
+          (e.event.data as { terminalId?: string } | undefined)?.terminalId === msg.terminalId,
+      );
+    if (!opened) return;
+  }
+
   try { terminalManager.kill(msg.terminalId); } catch { /* already gone */ }
+  const transcript = record?.sawInput ? record.transcript : "";
   const seq = eventStore.insertEvent(msg.sessionId, {
     eventType: "inline_terminal_close",
     timestamp: Date.now(),
@@ -62,6 +90,7 @@ export function handleCloseInlineTerminal(
   });
   const stored = eventStore.getEvent(msg.sessionId, seq);
   broadcastEvent?.(msg.sessionId, seq, stored);
+  terminalManager.releaseTranscript(msg.terminalId);
 }
 
 export function handleKillTerminal(
