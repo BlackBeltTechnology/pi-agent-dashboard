@@ -107,6 +107,21 @@ describe("suggestedReinstallCommand", () => {
     const cli = path.join(root, "packages", "server", "src", "cli.ts");
     expect(suggestedReinstallCommand("monorepo", cli).startsWith("npm install")).toBe(true);
   });
+
+  // Column C intent (change: adopt-pnpm-for-dev-ci, X3), asserted behaviourally
+  // here instead of by the source-text guard in pnpm-migration-contract.test.ts:
+  // END-USER layouts run where pnpm does not exist, so they must never be told
+  // to run it. Only the `monorepo` layout may resolve to pnpm, and only behind
+  // the workspace probe above. Passing a pnpm-workspace-rooted scriptPath must
+  // NOT leak pnpm into a non-monorepo layout.
+  it("never suggests pnpm for end-user layouts, even from a pnpm workspace path", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "rec-enduser-"));
+    fs.writeFileSync(path.join(root, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n");
+    const cli = path.join(root, "packages", "server", "src", "cli.ts");
+    for (const layout of ["npm-global", "electron", "unknown"] as const) {
+      expect(suggestedReinstallCommand(layout, cli)).not.toMatch(/\bpnpm\b/);
+    }
+  });
 });
 
 describe("detectPackageManager", () => {

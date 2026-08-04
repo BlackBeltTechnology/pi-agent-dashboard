@@ -1,15 +1,21 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
-import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
-import { formatProposePrompt } from "../openspec/ProposeDialog.js";
 import type { DashboardSession, OpenSpecChange, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { CORE_WORKFLOWS, EXPANDED_WORKFLOWS } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { makeRunConfig, RunConfigHarness } from "../../test-support/runConfigHarness.js";
+import { formatProposePrompt } from "../openspec/ProposeDialog.js";
+import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
 
 const coreConfig: OpenSpecConfig = { profile: "core", delivery: "both", workflows: [...CORE_WORKFLOWS] };
 const expandedConfig: OpenSpecConfig = { profile: "expanded", delivery: "both", workflows: [...EXPANDED_WORKFLOWS] };
 
 afterEach(() => cleanup());
+
+// SessionOpenSpecActions mounts the OpenSpec dialogs, which consume the
+// run-config context; wrap every render in the provider.
+const render = (ui: React.ReactElement) =>
+  rtlRender(<RunConfigHarness value={makeRunConfig()}>{ui}</RunConfigHarness>);
 
 function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSession {
   return {

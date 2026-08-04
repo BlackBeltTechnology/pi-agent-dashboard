@@ -1,10 +1,19 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { makeRunConfig, RunConfigHarness } from "../../test-support/runConfigHarness.js";
 import { ExploreDialog } from "../openspec/ExploreDialog.js";
 
 afterEach(() => cleanup());
+
+// ExploreDialog now consumes the run-config context; wrap every render.
+const renderExplore = (props: React.ComponentProps<typeof ExploreDialog>) =>
+  render(
+    <RunConfigHarness value={makeRunConfig()}>
+      <ExploreDialog {...props} />
+    </RunConfigHarness>,
+  );
 
 describe("Confirm", () => {
   it("renders message and buttons", () => {
@@ -72,14 +81,15 @@ describe("Confirm", () => {
 });
 
 describe("ExploreDialog", () => {
-  it("renders with change name", () => {
-    render(<ExploreDialog changeName="feat-a" onSend={() => {}} onClose={() => {}} />);
-    expect(screen.getByText("Explore: feat-a")).toBeTruthy();
+  it("renders the static title and a separate name chip", () => {
+    renderExplore({ changeName: "feat-a", onSend: () => {}, onClose: () => {} });
+    expect(screen.getByRole("heading", { name: "Explore" })).toBeTruthy();
+    expect(screen.getByTestId("explore-name-chip").textContent).toBe("feat-a");
   });
 
-  it("calls onSend with text when Send clicked", () => {
+  it("calls onSend with text when Send clicked (controls unchanged)", () => {
     const onSend = vi.fn();
-    render(<ExploreDialog changeName="feat-a" onSend={onSend} onClose={() => {}} />);
+    renderExplore({ changeName: "feat-a", onSend, onClose: () => {} });
     const textarea = screen.getByTestId("explore-textarea");
     fireEvent.change(textarea, { target: { value: "my question" } });
     fireEvent.click(screen.getByTestId("explore-send"));
@@ -88,14 +98,14 @@ describe("ExploreDialog", () => {
 
   it("does not send when text is empty", () => {
     const onSend = vi.fn();
-    render(<ExploreDialog changeName="feat-a" onSend={onSend} onClose={() => {}} />);
+    renderExplore({ changeName: "feat-a", onSend, onClose: () => {} });
     fireEvent.click(screen.getByTestId("explore-send"));
     expect(onSend).not.toHaveBeenCalled();
   });
 
   it("calls onClose when cancel clicked", () => {
     const onClose = vi.fn();
-    render(<ExploreDialog changeName="feat-a" onSend={() => {}} onClose={onClose} />);
+    renderExplore({ changeName: "feat-a", onSend: () => {}, onClose });
     fireEvent.click(screen.getByTestId("explore-cancel"));
     expect(onClose).toHaveBeenCalledOnce();
   });

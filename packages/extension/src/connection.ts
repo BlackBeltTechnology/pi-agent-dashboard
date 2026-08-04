@@ -198,6 +198,15 @@ export class ConnectionManager {
       this.lastMessageAt = Date.now();
       try {
         const parsed = JSON.parse(ev.data);
+        // Handler dispatch is intentionally concurrent: `onMessage` is async but
+        // is invoked WITHOUT `await`, so each inbound message starts an
+        // independent task. Ordering between a `set_model` and a following
+        // `send_prompt` is therefore NOT guaranteed bridge-side — the prompt can
+        // run on the old model. The only current protection is the client-side
+        // confirm-before-send gate in the OpenSpec dialogs (design Decision 7,
+        // option a). A bridge-side fix (serialize the pump behind a promise
+        // queue) is tracked as a follow-up.
+        // See change: openspec-dialog-model-effort-selector.
         this.onMessage?.(parsed);
       } catch {
         // Ignore malformed messages
