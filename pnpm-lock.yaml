@@ -763,6 +763,9 @@ importers:
       isomorphic-dompurify:
         specifier: 3.18.0
         version: 3.18.0(@noble/hashes@2.2.0)
+      jimp:
+        specifier: ^1.6.1
+        version: 1.6.1(supports-color@8.1.1)
       jiti:
         specifier: ^2.7.0
         version: 2.7.0

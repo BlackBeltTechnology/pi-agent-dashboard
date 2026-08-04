@@ -156,6 +156,19 @@ fitting; they remain subject to the existing ceiling and truncate as they do tod
 Animation is preserved when the payload is small; a large animated GIF still collapses,
 which is no worse than current behaviour. Never emit a corrupt frame (scenario X10).
 
+### D12 — Phase 2 ships as its own resolution event (settled)
+
+The fitted bytes reach the client as a SEPARATE stored+broadcast event carrying
+`{targetSeq, blockIndex, data, mimeType}`; the client reducer gains one additive case
+that patches the already-folded message. Rejected: re-broadcasting the row at the same
+`seq` — the client fold (`useSessionState.ts`, `foldLiveEvents`) is append-only, so a
+second fold of `message_start` duplicates the row; making it safe needs replace-by-seq
+semantics inside the reducer SHARED with replay and the virtualized row-height invariant
+(F8). Rejected: synchronous fit before first store — violates "row renders before image".
+
+Side benefit: the row event stays small and the ≤212 KB fitted payload rides its own
+event, so each is independently well under the 256 KiB ceiling.
+
 ## Risks / Trade-offs
 
 - **Lossy default.** 768 px may make UI text unreadable — and UI screenshots are the main
