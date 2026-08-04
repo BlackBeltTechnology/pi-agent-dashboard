@@ -31,15 +31,15 @@ All L1 rows extend `packages/server/src/__tests__/memory-event-store.test.ts`
 - [ ] 3.1 E1/E2/E3 fitting bounds the event (test-plan #E1 #E2 #E3) — input 10.5 MB / 2.2 MB /
       126 KB image · trigger ingest · observable stored event ≤ 256 KB with `data.message`.
       **Must fail before implementation.**
-- [ ] 3.2 E4/E5/E6 no-upscale + fit boundary (test-plan #E4 #E5 #E6) — input 0.2 KB, 767 px,
+- [x] 3.2 E4/E5/E6 no-upscale + fit boundary (test-plan #E4 #E5 #E6) — input 0.2 KB, 767 px,
       769 px · trigger ingest · observable unchanged / unchanged / long edge 768 px.
-- [ ] 3.3 E7 message survives (test-plan #E7) — input text + 10.5 MB image · trigger
+- [x] 3.3 E7 message survives (test-plan #E7) — input text + 10.5 MB image · trigger
       ingest · observable event is not `{__truncated}`, `data.message.role === "user"`.
-- [ ] 3.4 E8 many attachments (test-plan #E8) — input 20 × 2 MB blocks · trigger ingest ·
+- [x] 3.4 E8 many attachments (test-plan #E8) — input 20 × 2 MB blocks · trigger ingest ·
       observable event ≤ 256 KB, all blocks fitted.
 - [ ] 3.5 E9 replay is fitted (test-plan #E9) — input JSONL with inline 5 MB image ·
       trigger replay · observable emitted event ≤ 256 KB.
-- [ ] 3.6 E10 fitted max fits ceiling (test-plan #E10) — input 212 KB fitted image ·
+- [x] 3.6 E10 fitted max fits ceiling (test-plan #E10) — input 212 KB fitted image ·
       trigger ingest · observable under ceiling, no truncation.
 - [x] 3.7 E11/E12/E13 boot assert armed (test-plan #E11 #E12 #E13) — input cap unset + 256 KB /
       cap unset + 20 KB / cap 50_000 + 256 KB · trigger boot · observable passes / throws
@@ -59,7 +59,7 @@ All L1 rows extend `packages/server/src/__tests__/memory-event-store.test.ts`
 - [ ] 3.12 X7/X8/X9 worker faults (test-plan #X7 #X8 #X9) — input worker crash / saturated pool
       / undecodable bytes · trigger ingest · observable message stored with `data.message`,
       attachment resolves to failed state, event loop not blocked.
-- [ ] 3.13 X10 animated GIF (test-plan #X10) — input animated GIF over bound · trigger
+- [x] 3.13 X10 animated GIF (test-plan #X10) — input animated GIF over bound · trigger
       ingest · observable preserved intact or fitted to a still; never a corrupt frame.
 - [ ] 3.14 P1/P2 event-loop lag (test-plan #P1 #P2) — workload one 10 MB image, then
       5 × 2 MB · metric max event-loop lag < 50 ms · needs the new lag helper (§6.1).
@@ -99,9 +99,9 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 
 ## 5. Implement
 
-- [ ] 5.1 Display-fit worker (jimp, 768 px/q75) invoked off the event loop.
-- [ ] 5.2 Ingest seam: fit image blocks, store the derivative inline.
-- [ ] 5.3 Two-phase emission: row first, attachment resolves later (D3).
+- [x] 5.1 Display-fit worker (jimp, 768 px/q75) invoked off the event loop.
+- [x] 5.2 Ingest seam: fit image blocks, store the derivative inline.
+- [x] 5.3 Two-phase emission: row first, attachment resolves later (D3).
 - [x] 5.4 Raise `DEFAULT_MAX_EVENT_DATA_SIZE` to 256 KiB (`262_144`, per test-plan #E13).
 - [x] 5.5 Export `DEFAULT_MAX_STRING_SIZE`; `deriveTranscriptCapBytes` defaults an
       UNSET cap to it (explicit `0` still means disabled); `server.ts` passes
@@ -111,7 +111,7 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 - [ ] 5.7 Session-scoped originals endpoint + transcript-backed streaming resolver.
 - [ ] 5.8 Blob cache (2 GB LRU, disk) as an optimisation over the transcript.
 - [ ] 5.10 D10: fitted-derivative disk cache keyed by content hash; miss re-fits.
-- [ ] 5.11 D11: animated-GIF detection → bypass fitting, keep existing ceiling handling.
+- [x] 5.11 D11: animated-GIF detection → bypass fitting, keep existing ceiling handling.
 - [ ] 5.9 Client: placeholder → image swap; click-to-original overlay.
 
 ## 6. New infra
@@ -142,6 +142,9 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 
 - [ ] 9.1 Mid-turn `bridgeFollowUp` image loss (`bridge.ts:355` is `string[]`; images
       dropped on drain while streaming) — a genuine *delivery* bug, separate from this.
+- [ ] 9.3 Extract a generic `worker_threads` pool — `fit-worker-pool.ts` is the THIRD
+      copy (`openspec-poll`, `session-load`, `fit`), which is the rule-of-three trigger
+      the existing pools' headers explicitly defer to.
 - [ ] 9.2 Retire now-unreachable inline-attachment truncation paths once no
       full-resolution base64 reaches the store (`capContentBlocks` slicing, the line-224
       exemption, `isImageBlock`'s depth-limit use).
