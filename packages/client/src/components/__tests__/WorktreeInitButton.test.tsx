@@ -40,6 +40,14 @@ describe("WorktreeInitButton", () => {
     expect(screen.getByTestId("worktree-init-btn").textContent).toContain("Initialize");
   });
 
+  it("supports the folder-tools menu presentation", async () => {
+    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: true, needsInit: true, trusted: true });
+    render(<WorktreeInitButton cwd="/repo" variant="menu" />);
+    await waitFor(() => screen.getByTestId("worktree-init-btn"));
+    expect(screen.getByTestId("worktree-init-btn").getAttribute("role")).toBe("menuitem");
+    expect(screen.getByTestId("worktree-init-btn").textContent).toContain("Initialize");
+  });
+
   it("shows the button when the hook is present but untrusted (gate not yet run)", async () => {
     fetchWorktreeInitStatus.mockResolvedValue({ hasHook: true, trusted: false });
     render(<WorktreeInitButton cwd="/repo" />);

@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { useInitStatus } from "../../hooks/useInitStatus.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ProjectInitButton } from "../packages/ProjectInitButton.js";
+import { WorktreeInitButton } from "../worktree/WorktreeInitButton.js";
 
 interface Props {
   cwd: string;
@@ -15,14 +16,16 @@ interface Props {
   /** Renders the Pencil-reference square overflow trigger beside primary actions. */
   compact?: boolean;
   onInitializeProject?: (cwd: string) => void;
+  /** Renders the hook-run Initialize control inside the overflow menu. */
+  showWorktreeInit?: boolean;
   onOpenDirectorySettings?: () => void;
   onCommit?: () => void;
 }
 
 /** Secondary folder integrations and project-scoped actions. */
-export function FolderToolsMenu({ cwd, hasOpenSpec, children, compact = false, onInitializeProject, onOpenDirectorySettings, onCommit }: Props) {
+export function FolderToolsMenu({ cwd, hasOpenSpec, children, compact = false, onInitializeProject, showWorktreeInit = false, onOpenDirectorySettings, onCommit }: Props) {
   const hasPluginSection = useSlotHasClaimsForFolder("sidebar-folder-section", { cwd });
-  const hasTools = hasPluginSection || hasOpenSpec || !!onInitializeProject || !!onOpenDirectorySettings || !!onCommit;
+  const hasTools = hasPluginSection || hasOpenSpec || !!onInitializeProject || showWorktreeInit || !!onOpenDirectorySettings || !!onCommit;
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -116,6 +119,7 @@ export function FolderToolsMenu({ cwd, hasOpenSpec, children, compact = false, o
             cwd={cwd}
             hasPluginSection={hasPluginSection}
             onInitializeProject={onInitializeProject}
+            showWorktreeInit={showWorktreeInit}
             onOpenDirectorySettings={onOpenDirectorySettings}
             onCommit={onCommit}
           >
@@ -128,15 +132,16 @@ export function FolderToolsMenu({ cwd, hasOpenSpec, children, compact = false, o
   );
 }
 
-function FolderToolsContents({ cwd, hasPluginSection, onInitializeProject, onOpenDirectorySettings, onCommit, children }: {
+function FolderToolsContents({ cwd, hasPluginSection, onInitializeProject, showWorktreeInit, onOpenDirectorySettings, onCommit, children }: {
   cwd: string;
   hasPluginSection: boolean;
   onInitializeProject?: (cwd: string) => void;
+  showWorktreeInit: boolean;
   onOpenDirectorySettings?: () => void;
   onCommit?: () => void;
   children?: ReactNode;
 }) {
-  const { status } = useInitStatus(cwd);
+  const { status, refetch } = useInitStatus(cwd);
   return (
     <div className="flex flex-col gap-[2px]">
       <div className="px-2 py-[6px] font-mono text-[8px] font-normal uppercase tracking-[0.5px] text-[var(--text-muted)]">
@@ -157,6 +162,7 @@ function FolderToolsContents({ cwd, hasPluginSection, onInitializeProject, onOpe
         </button>
       )}
       <ProjectInitButton cwd={cwd} status={status} onInitializeProject={onInitializeProject} variant="menu" />
+      {showWorktreeInit && <WorktreeInitButton cwd={cwd} status={status} onStatusChange={refetch} variant="menu" />}
     </div>
   );
 }

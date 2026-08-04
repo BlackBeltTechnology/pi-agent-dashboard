@@ -54,9 +54,11 @@ interface Props {
   status?: WorktreeInitStatus | null;
   /** Row-provided refetch, invoked after a run flips the gate. */
   onStatusChange?: () => void;
+  /** Menu presentation keeps Initialize out of the folder header action row. */
+  variant?: "inline" | "menu";
 }
 
-export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange }: Props) {
+export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange, variant = "inline" }: Props) {
   const [internalStatus, setInternalStatus] = useState<WorktreeInitStatus | null>(null);
   // The row owns the probe when it passes a `status` prop (even `null`).
   const rowOwnsProbe = externalStatus !== undefined;
@@ -124,18 +126,29 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
   if (!showButton) return null;
 
   return (
-    <div className="inline-flex flex-col gap-1">
+    <div className={variant === "menu" ? "flex w-full flex-col gap-1" : "inline-flex flex-col gap-1"}>
       <button
         type="button"
+        role={variant === "menu" ? "menuitem" : undefined}
         onClick={(e) => { e.stopPropagation(); void doRun(); }}
         data-testid="worktree-init-btn"
-        className="text-[10px] px-1.5 py-0.5 rounded border text-amber-400 border-amber-500/40 bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/70"
+        className={variant === "menu"
+          ? "focus-ring flex w-full items-center gap-[10px] rounded-[6px] p-2 text-left hover:bg-[var(--bg-hover)]"
+          : "text-[10px] px-1.5 py-0.5 rounded border text-amber-400 border-amber-500/40 bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/70"}
         title={i18nT("common.initializeThisCheckoutRunItsDeclared", undefined, "Initialize this checkout (run its declared worktree-init hook)")}
       >
-        <span className="inline-flex items-center gap-0.5">
+        {variant === "menu" ? <>
+          <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-amber-500">
+            <Icon path={mdiCogPlayOutline} size={0.52} />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col gap-px">
+            <span className="text-[12px] font-medium text-[var(--text-primary)]">{label}</span>
+            <span className="font-mono text-[9px] font-normal text-[var(--text-muted)]">Run the declared worktree hook</span>
+          </span>
+        </> : <span className="inline-flex items-center gap-0.5">
           <Icon path={mdiCogPlayOutline} size={0.5} />
           {label}
-        </span>
+        </span>}
       </button>
 
       {confirm && (

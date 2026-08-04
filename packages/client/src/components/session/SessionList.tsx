@@ -910,41 +910,52 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
 
     return (
       <div key={group.cwd} className="space-y-1">
-        <div className="relative">
-        <div
-          className="dashboard-card relative overflow-visible rounded-[10px] border shadow-none"
-        >
-        <div className="relative z-[1] px-[14px] pt-[14px]">
-        <div className="flex gap-1.5 min-h-[44px] md:min-h-0 rounded">
-          {/* Left gutter — chevron at top, drag-handle column extending below */}
-          <FolderDragGutter
-            isCollapsed={isCollapsed}
-            onToggle={() => handleToggleCollapse(group.cwd)}
-          />
-          <div className="flex-1 min-w-0">
-          {/* Whole header row is clickable to open the directory home page —
-              same affordance as clicking a session card selects its session.
-              Collapse/expand now lives solely on the chevron in the drag
-              gutter (folder-toggle-btn). Child buttons/pills
-              stopPropagation so they don't trigger navigation.
-              See change: directory-card-clickable-select. */}
+        <div className="relative pt-3">
+          {/* Folder tab and container share one edge; the tab carries the name. */}
           <div
-            className="flex min-w-0 items-center gap-1.5 cursor-pointer"
+            className="absolute top-0 left-0 z-10 flex h-3 max-w-[min(75%,280px)] items-center gap-1 rounded-t-md border border-b-0 border-[#D6DBE1] bg-[#F3F6FA] px-2 font-mono text-[8px] font-bold uppercase tracking-wider text-[#5A6472]"
+            title={group.cwd}
+            aria-label={group.cwd}
+          >
+            <Icon path={isCollapsed ? mdiFolder : mdiFolderOpen} size={0.4} className="shrink-0 text-[#7C6BFF]" />
+            <span className="truncate">{lastSegment}</span>
+          </div>
+
+          <div
+            className="dashboard-card relative overflow-visible rounded-[0_12px_12px_12px] rounded-tl-none border border-[#D6DBE1] bg-[#F7F8FA] shadow-none"
+          >
+        <div className={isCollapsed ? "relative z-[1] px-3 py-2" : "relative z-[1] px-[14px] pt-[14px]"}>
+        <div className={isCollapsed ? "flex min-h-[36px] items-center gap-1.5 rounded" : "flex min-h-[36px] gap-1.5 rounded"}>
+          {/* Left gutter — chevron at top, drag-handle column extending below */}
+          <div className={isCollapsed ? "flex items-center" : "flex items-start"}>
+            <FolderDragGutter
+              isCollapsed={isCollapsed}
+              onToggle={() => handleToggleCollapse(group.cwd)}
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+          <div className={isCollapsed ? "min-w-0 flex-1" : "min-w-0 flex-1 rounded-[8px] border border-[#D6DBE1] bg-[#F3F6FA] px-[14px] py-3"}>
+          {/* Whole header row is clickable to open the directory home page */}
+          <div
+            className={isCollapsed
+              ? "flex min-w-0 flex-nowrap items-center gap-1.5 cursor-pointer"
+              : "flex min-w-0 flex-wrap items-start gap-1.5 cursor-pointer"}
             onClick={() => navigate(buildFolderHomeUrl(group.cwd))}
             title={`${group.cwd}\n${t("sessionList.openFolderHome", undefined, "Open folder home")}`}
             data-testid={`folder-home-row-${group.cwd}`}
           >
-            <span className="min-w-0 flex-1 flex flex-col gap-0.5">
-              <span className="flex min-w-0 items-center gap-1.5 text-[14px] font-semibold text-[var(--text-primary)]" title={group.cwd}>
-                <Icon path={isCollapsed ? mdiFolder : mdiFolderOpen} size={0.55} className="shrink-0 text-[var(--accent-primary)]" />
-                <span className="truncate">{lastSegment}</span>
-              </span>
+            <span className="min-w-0 flex-[1_1_180px] flex flex-col gap-0.5">
+              {!isCollapsed && (
+                <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-semibold text-[#0E1420]" title={group.cwd}>
+                  <span className="truncate">{lastSegment}</span>
+                </span>
+              )}
               <span className="flex min-w-0 items-center gap-1">
-                <span className="truncate font-mono text-[10px] text-[var(--text-muted)]" title={group.cwd}>{parentPath}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-[#98A1AE]" title={group.cwd}>{parentPath}</span>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); void copyFolderPath(group.cwd); }}
-                  className="focus-ring inline-flex shrink-0 items-center justify-center rounded p-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                  className="focus-ring inline-flex shrink-0 items-center justify-center rounded p-0.5 text-[#98A1AE] hover:bg-[#EAF2FF] hover:text-[#2B7FFF]"
                   title={`Copy full folder path\n${group.cwd}`}
                   aria-label={`Copy full folder path: ${group.cwd}`}
                   data-testid={`folder-copy-path-${group.cwd}`}
@@ -953,7 +964,20 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 </button>
               </span>
             </span>
-            <span className="inline-flex shrink-0 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-2 py-[3px] font-mono text-[10px] text-[var(--text-secondary)]">
+            <span className="flex min-w-0 flex-[0_1_auto] flex-wrap items-center justify-end gap-1.5">
+            {!isCollapsed && (
+              <span className="min-w-0 max-w-[180px] shrink">
+                <GroupGitInfo
+                  compact
+                  sessions={group.sessions}
+                  cwd={group.cwd}
+                  folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
+                  onBranchClick={() => setBranchDialogCwd(group.cwd)}
+                  showCommitAction={false}
+                />
+              </span>
+            )}
+            <span className="inline-flex shrink-0 items-center justify-center rounded-full border border-[#D6DBE1] bg-[#FFFFFF] px-2 py-[2px] font-mono text-[10px] leading-none text-[#5A6472]">
               {group.sessions.length}
             </span>
             {/* Needs-you rollup: count of chat-routed ask_user children.
@@ -984,7 +1008,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 improve-dashboard-attention-routing. */}
             <button
               onClick={(e) => { e.stopPropagation(); urgencySort.toggle(group.cwd); }}
-              className={`shrink-0 px-1 py-0.5 rounded ${urgencySort.isOn(group.cwd) ? "text-[var(--status-needs-you)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"}`}
+              className={`shrink-0 px-1 py-0.5 rounded ${urgencySort.isOn(group.cwd) ? "text-[var(--status-needs-you)]" : "text-[#98A1AE] hover:text-[#2B7FFF]"}`}
               title={t("sessionList.urgencySort", undefined, "Float blocked sessions to top")}
               aria-label={t("sessionList.urgencySort", undefined, "Float blocked sessions to top")}
               aria-pressed={urgencySort.isOn(group.cwd)}
@@ -1006,7 +1030,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                   e.stopPropagation();
                   navigate(`/folder/${encodeFolderPath(group.cwd)}/editor`);
                 }}
-                className="shrink-0 px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                className="shrink-0 px-1 py-0.5 rounded text-[#98A1AE] hover:text-[#2B7FFF]"
                 title={t("directoryHome.editor", undefined, "Open in editor")}
                 aria-label={t("directoryHome.editor", undefined, "Open in editor")}
                 data-testid={`folder-open-editor-${group.cwd}`}
@@ -1021,12 +1045,15 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                   if (isPinned) onUnpinDirectory?.(group.cwd);
                   else onPinDirectory?.(group.cwd);
                 }}
-                className={`shrink-0 px-1 py-0.5 rounded ${isPinned ? "text-yellow-400 hover:text-yellow-300" : "text-[var(--text-tertiary)] hover:text-yellow-400"}`}
+                className={`shrink-0 px-1 py-0.5 rounded ${isPinned ? "text-yellow-500 hover:text-yellow-400" : "text-[#98A1AE] hover:text-yellow-500"}`}
                 title={isPinned ? t("sessionList.unpinDirectory", undefined, "Unpin directory") : t("sessionList.pinDirectory", undefined, "Pin directory")}
                 data-testid={isPinned ? "unpin-dir-btn" : "pin-dir-btn"}
               >
                 <Icon path={mdiPin} size={0.55} />
               </button>
+            )}
+            {!isCollapsed && (
+              <span className="ml-1 h-4 w-px bg-[#D6DBE1]" aria-hidden="true" />
             )}
             {/* Remove-from-workspace — grouped inline after the open-home
                 icon (workspace folders only), not floated in the card corner. */}
@@ -1037,7 +1064,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                   e.stopPropagation();
                   onRemoveFolderFromWorkspace(workspaceId, group.cwd);
                 }}
-                className="px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-red-400 hover:bg-[var(--bg-hover)]"
+                className="px-1 py-0.5 rounded text-[#98A1AE] hover:text-red-400 hover:bg-[#EAF2FF]"
                 title={t("sessionList.removeFromWorkspace", undefined, "Remove from workspace")}
                 aria-label={t("sessionList.removeFromWorkspace", undefined, "Remove from workspace")}
                 data-testid={`ws-remove-${workspaceId}-${group.cwd}`}
@@ -1045,6 +1072,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 <Icon path={mdiClose} size={0.5} />
               </button>
             )}
+            </span>
+          </div>
           </div>
           {/* Collapsed density (variant B): when collapsed, the heavy slots
               (git · action bar · plugin sections · OpenSpec proposal state ·
@@ -1053,31 +1082,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               of a collapsed folder is unaffected.
               See change: condense-collapsed-folder-header. */}
           {!isCollapsed && (<>
-          {/* Git info + folder actions share ONE compact row (variant B):
-              branch/commit left, Initialize + settings gear right-grouped.
-              Terminals + Editor buttons removed — that pane is reachable from
-              the Directory home page and ChatView.
-              `flex-wrap` + `justify-between`: the small idle Initialize button
-              sits inline right of the git info, but a wide init state (the
-              running / failed `WorktreeInitChip`, min-w ~240px) wraps to its own
-              line instead of overflowing and overlapping the git row.
-              See change: compact-folder-header-actions. */}
-          <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-            <div className="min-w-0">
-              <GroupGitInfo
-                sessions={group.sessions}
-                cwd={group.cwd}
-                folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
-                onBranchClick={() => setBranchDialogCwd(group.cwd)}
-                showCommitAction={false}
-              />
-            </div>
+          {/* Folder setup/cleanup actions stay below the identity row. Git
+              metadata is represented by the compact branch chip in the same
+              header action cluster, so it does not create a second row. */}
+          <div className="mt-1 flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
             <FolderActionBar
-              cwd={group.cwd}
-              onOpenPiResources={() => onOpenPiResources?.(group.cwd)}
-              onInitializeProject={onSpawnSession ? (cwd) => onSpawnSession(cwd, undefined, { initialPrompt: "/skill:project-init" }) : undefined}
-              showProjectInit={false}
-              showDirectorySettings={false}
               brokenSessionCount={group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended" && !s.hidden).length}
               onCleanUpBroken={onHideSession ? () => {
                 for (const s of group.sessions) {
@@ -1120,6 +1129,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 <FolderToolsMenu
                   cwd={group.cwd}
                   compact
+                  showWorktreeInit
                   hasOpenSpec={Boolean(openspecMap?.get(group.cwd)?.initialized || openspecMap?.get(group.cwd)?.pending)}
                   onInitializeProject={onSpawnSession ? (cwd) => onSpawnSession(cwd, undefined, { initialPrompt: "/skill:project-init" }) : undefined}
                   onOpenDirectorySettings={onOpenPiResources ? () => onOpenPiResources(group.cwd) : undefined}
@@ -1745,7 +1755,7 @@ function FolderDragGutter({
   return (
     <div
       {...(dragHandleProps ?? {})}
-      className={`flex flex-col items-center flex-shrink-0 w-3 pt-0.5 text-[var(--text-tertiary)] ${dragHandleProps ? "cursor-grab active:cursor-grabbing" : ""}`}
+      className={`flex flex-col items-center flex-shrink-0 w-3 ${isCollapsed ? "pt-0" : "pt-0.5"} text-[var(--text-tertiary)] ${dragHandleProps ? "cursor-grab active:cursor-grabbing" : ""}`}
       data-testid={dragHandleProps ? "drag-handle-pinned" : undefined}
       title={dragHandleProps ? "Drag to reorder folder" : undefined}
     >

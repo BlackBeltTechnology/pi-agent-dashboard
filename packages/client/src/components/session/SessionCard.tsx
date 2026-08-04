@@ -319,9 +319,11 @@ interface GroupGitInfoProps {
   folderStatus?: GitStatus;
   /** Keep the compact project Git row informational; Commit moves to Tools. */
   showCommitAction?: boolean;
+  /** Render repository metadata as an inline folder-header chip instead of a row. */
+  compact?: boolean;
 }
 
-export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folderStatus, showCommitAction = true }: GroupGitInfoProps) {
+export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folderStatus, showCommitAction = true, compact = false }: GroupGitInfoProps) {
   // Folder status: prefer the explicit folder-head value, else any same-cwd
   // session's broadcast (all share one tree → identical). One on-demand read
   // per cwd erases staleness; no per-session redundancy.
@@ -391,46 +393,49 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
   const branchUrl = session?.gitBranchUrl;
   const prNumber = session?.gitPrNumber;
   const prUrl = session?.gitPrUrl;
+  const rootClass = compact
+    ? "inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-[#D6DBE1] bg-white px-2 py-1 font-mono text-[9px] text-[#5A6472]"
+    : "text-[11px] flex items-center gap-1.5 text-[var(--text-tertiary)]";
 
   // No branch info at all: show dimmed icon (with "Init git" if confirmed not a repo)
   if (!branchName) {
     return (
-      <div className="text-[11px] flex items-center gap-1.5 text-[var(--text-muted)]">
+      <div className={compact ? `${rootClass} text-[#98A1AE]` : "text-[11px] flex items-center gap-1.5 text-[var(--text-muted)]"}>
         <button
           onClick={(e) => { e.stopPropagation(); onBranchClick?.(); }}
-          className="flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
+          className={compact ? "inline-flex h-4 w-4 shrink-0 items-center justify-center hover:text-[#2B7FFF] transition-colors" : "flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"}
           title={showInitGit ? i18nT("git.initializeRepo", undefined, "Initialize git repository") : i18nT("git.gitBranches", undefined, "Git branches")}
           data-testid="git-init-btn"
         >
-          <Icon path={mdiSourceBranch} size={0.5} />
-          {showInitGit && <span className="text-[10px]">{i18nT("git.initGit", undefined, "Init git")}</span>}
+          <Icon path={mdiSourceBranch} size={compact ? 0.45 : 0.5} />
+          {!compact && showInitGit && <span className="text-[10px]">{i18nT("git.initGit", undefined, "Init git")}</span>}
         </button>
       </div>
     );
   }
 
   return (
-    <div className="text-[11px] flex items-center gap-1.5 text-[var(--text-tertiary)]">
+    <div className={rootClass}>
       <button
         onClick={(e) => { e.stopPropagation(); onBranchClick?.(); }}
-        className="flex items-center gap-1 hover:text-blue-400 transition-colors"
+        className={compact ? "inline-flex h-4 w-4 shrink-0 items-center justify-center text-[#7C6BFF] hover:text-[#2B7FFF] transition-colors" : "flex items-center gap-1 hover:text-blue-400 transition-colors"}
         title={i18nT("git.switchBranch", undefined, "Switch branch")}
         data-testid="git-branch-btn"
       >
-        <Icon path={mdiSourceBranch} size={0.5} />
+        <Icon path={mdiSourceBranch} size={compact ? 0.45 : 0.5} />
       </button>
       {branchUrl ? (
-        <a href={branchUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline truncate">
+        <a href={branchUrl} target="_blank" rel="noopener noreferrer" className={compact ? "min-w-0 max-w-[120px] truncate text-[#5A6472] hover:text-[#2B7FFF] hover:underline" : "text-blue-400 hover:underline truncate"}>
           {branchName}
         </a>
       ) : (
-        <span className="truncate">{branchName}</span>
+        <span className={compact ? "min-w-0 max-w-[120px] truncate text-[#5A6472]" : "truncate"}>{branchName}</span>
       )}
       {prNumber != null && (
         <>
           <span className="text-[var(--text-muted)]">·</span>
           {prUrl ? (
-            <a href={prUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+            <a href={prUrl} target="_blank" rel="noopener noreferrer" className={compact ? "text-[#5A6472] hover:text-[#2B7FFF] hover:underline" : "text-blue-400 hover:underline"}>
               #{prNumber}
             </a>
           ) : (
@@ -609,13 +614,27 @@ export function SessionCard({
   const sessionActionsRef = useRef<HTMLDivElement>(null);
   const sessionActionsPopupRef = useRef<HTMLDivElement>(null);
 
-  // Selection owns the default density: opening a session exposes its detail
-  // stack, while selecting another session (or clearing the selection) folds
-  // this card back to the compact board view. The chevron still remains a
-  // local override while this card stays selected.
+
+  const cardRef = useRef<HTMLLIElement>(null);
+
+  // Focus-driven density: currently active session expands its detail stack,
+  // while selecting another session folds it back to compact view.
   useEffect(() => {
     setDetailsExpanded(isSelected);
   }, [isSelected]);
+
+  // Click-outside fold: when clicking anywhere outside the active card, fold details
+  useEffect(() => {
+    if (!detailsExpanded || !isSelected) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (cardRef.current && !cardRef.current.contains(target)) {
+        setDetailsExpanded(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [detailsExpanded, isSelected]);
 
   useEffect(() => {
     if (!sessionActionsOpen) return;
@@ -692,8 +711,8 @@ export function SessionCard({
         data-session-id={session.id}
         data-testid="session-card-mobile"
         onClick={() => onSelect(session.id)}
-        className={`dashboard-card relative isolate w-full cursor-pointer rounded-[10px] border p-[14px] transition-all duration-200 ${
-          isSelected ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30" : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
+        className={`dashboard-card relative isolate w-full cursor-pointer rounded-[12px] border p-4 shadow-[0_1px_2px_rgba(14,20,32,0.06),0_6px_16px_rgba(14,20,32,0.03)] transition-all duration-200 ${
+          isSelected ? "border-[#2B7FFF]/60 bg-[#FFFFFF] ring-1 ring-[#2B7FFF]/30" : "border-[#D9E0E8] bg-[#FFFFFF]"
         } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${pulseClass}`}
       >
         {stripeFxClass ? <div className={`card-stripes-fx ${stripeFxClass}`} aria-hidden="true" /> : null}
@@ -705,21 +724,21 @@ export function SessionCard({
             <div className="flex min-w-0 items-center gap-2">
               <div className="flex h-[31px] min-w-0 flex-1 flex-col gap-0.5">
                 <div className="flex h-[17px] min-w-0 items-center gap-1">
-                  <span className="truncate text-[13px] font-semibold leading-[17px] text-[var(--text-primary)]">
+                  <span className="truncate text-[14px] font-semibold leading-[18px] text-[#0E1420]">
                     {getSessionDisplayName(session)}
                   </span>
                 </div>
                 <div className="flex h-3 min-w-0 items-center gap-2">
                   <ActivityIndicator session={session} compact />
                   {session.model && (
-                    <span className="truncate font-mono text-[9px] leading-3 text-[var(--text-muted)]">
+                    <span className="truncate font-mono text-[10px] leading-3 text-[#5A6472]">
                       {session.model}{session.thinkingLevel ? ` (${session.thinkingLevel})` : ""}
                     </span>
                   )}
                 </div>
               </div>
               <span
-                className="shrink-0 font-mono text-[9px] text-[var(--text-muted)]"
+                className="shrink-0 font-mono text-[10px] text-[#98A1AE]"
                 title={i18nT("session.startedAtTime", { time: new Date(session.startedAt).toLocaleString() }, "Started {time}")}
               >
                 {formatRelativeTime(now - selectBadgeTimestamp(session))}
@@ -762,16 +781,19 @@ export function SessionCard({
 
   return (
     <li
-      ref={hasAnimatedFx ? cardFxRef : undefined}
+      ref={(el) => {
+        (cardRef as any).current = el;
+        if (hasAnimatedFx) (cardFxRef as any).current = el;
+      }}
       data-session-id={session.id}
       onClick={() => {
         onSelect(session.id);
         setDetailsExpanded(true);
       }}
-        className={`dashboard-card relative isolate w-full max-w-[420px] cursor-pointer rounded-[10px] border p-[14px] hover:shadow-[0_3px_10px_rgba(14,20,32,0.09)] hover:-translate-y-px transition-all duration-200 ${sessionActionsOpen ? "z-[70]" : "z-0"} ${
+        className={`dashboard-card relative isolate w-full max-w-[420px] cursor-pointer rounded-[12px] border p-4 shadow-[0_1px_2px_rgba(14,20,32,0.06),0_6px_16px_rgba(14,20,32,0.03)] hover:shadow-[0_3px_10px_rgba(14,20,32,0.09)] hover:-translate-y-px transition-all duration-200 ${sessionActionsOpen ? "z-[70]" : "z-0"} ${
         isSelected
-          ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30 card-selected-ring"
-          : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
+          ? "border-[#2B7FFF]/60 bg-[#FFFFFF] ring-1 ring-[#2B7FFF]/30 card-selected-ring"
+          : "border-[#D9E0E8] bg-[#FFFFFF]"
       } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${pulseClass}`}
       data-testid="session-card-desktop"
     >
@@ -810,7 +832,7 @@ export function SessionCard({
               />
             ) : (
               <span
-                className={`truncate text-[13px] font-semibold leading-[17px] ${canRename ? "cursor-text" : ""}`}
+                className={`truncate text-[14px] font-semibold leading-[18px] text-[#0E1420] ${canRename ? "cursor-text" : ""}`}
                 onDoubleClick={(e) => {
                   if (canRename) {
                     e.stopPropagation();
@@ -834,7 +856,7 @@ export function SessionCard({
           <div className="flex h-3 min-w-0 items-center gap-2">
             <ActivityIndicator session={session} compact />
             {session.model && (
-              <span className="truncate font-mono text-[9px] leading-3 text-[var(--text-muted)]">
+              <span className="truncate font-mono text-[10px] leading-3 text-[#5A6472]">
                 {session.model}{session.thinkingLevel ? ` (${session.thinkingLevel})` : ""}
               </span>
             )}
@@ -870,7 +892,7 @@ export function SessionCard({
               ? i18nT("session.hideDetails", undefined, "Hide details")
               : i18nT("session.showDetails", undefined, "Show details")}
             onClick={(e) => { e.stopPropagation(); setDetailsExpanded((expanded) => !expanded); }}
-            className="focus-ring inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
+            className="focus-ring inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] border border-[#E7EAEE] bg-[#EAF2FF] text-[#2B7FFF] hover:bg-[#DDEBFF] hover:text-[#1D65D6] transition-colors"
           >
             <Icon path={detailsExpanded ? mdiChevronUp : mdiChevronDown} size={0.45} />
           </button>

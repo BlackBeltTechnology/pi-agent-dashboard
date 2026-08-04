@@ -1,24 +1,17 @@
 /**
  * Unified action bar for folder groups in the sidebar.
- * Buttons: Initialize | Clean up broken | Directory Settings
+ * Button: Clean up broken
  * Terminals + Editor removed — that pane is reachable from the Directory home
  * page and ChatView. See change: compact-folder-header-actions.
  */
 
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
-import {
-  mdiBroom,
-  mdiCog,
-} from "@mdi/js";
+import { mdiBroom } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React from "react";
-import { useInitStatus } from "../../hooks/useInitStatus.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { ProjectInitButton } from "../packages/ProjectInitButton.js";
-import { WorktreeInitButton } from "../worktree/WorktreeInitButton.js";
 
 interface Props {
-  cwd: string;
   /**
    * Number of ended sessions in this folder whose `cwdMissing === true`.
    * Drives the visibility + label of the `Clean up broken (N)` button.
@@ -27,43 +20,17 @@ interface Props {
   brokenSessionCount?: number;
   /** Called when the user confirms cleaning up. Fires hide for each broken session. */
   onCleanUpBroken?: () => void;
-  /**
-   * Called when an unconfigured directory's "Set up project" button is clicked.
-   * Routed to spawning an interactive project-init session in `cwd`.
-   * See change: project-init-skill-and-profiles, distinguish-initialize-actions.
-   */
-  onInitializeProject?: (cwd: string) => void;
-  /** When false, Set up project is rendered by the folder tools menu instead. */
-  showProjectInit?: boolean;
-  /** When false, Directory Settings is rendered by the folder tools menu instead. */
-  showDirectorySettings?: boolean;
-  onOpenPiResources: () => void;
 }
 
 export function FolderActionBar({
-  cwd,
   brokenSessionCount,
   onCleanUpBroken,
-  onInitializeProject,
-  showProjectInit = true,
-  showDirectorySettings = true,
-  onOpenPiResources,
 }: Props) {
   const showCleanUp = (brokenSessionCount ?? 0) > 0 && !!onCleanUpBroken;
   const [confirmCleanUpOpen, setConfirmCleanUpOpen] = React.useState(false);
-  // Single shared init-status probe feeds both init buttons (avoids a double
-  // fetch per row). See change: distinguish-initialize-actions.
-  const { status: initStatus, refetch: refetchInitStatus } = useInitStatus(cwd);
 
   return (
     <div className="flex items-center gap-1">
-      {/* Two monomorphic init controls, each self-gating on the shared probe:
-          - ProjectInitButton: indigo "Set up project" scaffold, state ① only.
-          - WorktreeInitButton: amber "Initialize" hook runner, state ② only.
-          State ③ (configured, no hook) renders neither. */}
-      {showProjectInit && <ProjectInitButton cwd={cwd} status={initStatus} onInitializeProject={onInitializeProject} />}
-      <WorktreeInitButton cwd={cwd} status={initStatus} onStatusChange={refetchInitStatus} />
-
       {showCleanUp && (
         <button
           onClick={(e) => { e.stopPropagation(); setConfirmCleanUpOpen(true); }}
@@ -88,15 +55,6 @@ export function FolderActionBar({
         />
       )}
 
-      {/* Directory Settings — right-aligned. See change: directory-settings-page-and-scoped-md-editing. */}
-      {showDirectorySettings && <button
-        onClick={(e) => { e.stopPropagation(); onOpenPiResources(); }}
-        className="focus-ring text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-purple-400 hover:border-purple-500/50"
-        title={i18nT("folders.directorySettings", undefined, "Directory Settings")}
-        aria-label={i18nT("folders.directorySettings", undefined, "Directory Settings")}
-      >
-        <Icon path={mdiCog} size={0.5} />
-      </button>}
     </div>
   );
 }
