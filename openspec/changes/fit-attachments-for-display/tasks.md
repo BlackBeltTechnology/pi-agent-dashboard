@@ -16,10 +16,12 @@
 
 ## 2. Resolve remaining design decisions
 
-- [ ] 2.1 D9 — decouple `DEFAULT_TRANSCRIPT_CAP_BYTES` (`0.75 ×` ceiling, moving
-      15 KB → 192 KB), or accept and document the shift.
-- [ ] 2.2 Decide whether fitted derivatives are cached so replay does not re-fit.
-- [ ] 2.3 Decide animated-GIF handling (fit to a still vs exempt) — see X10.
+- [x] 2.1 D9 — **accept** the `0.75 ×` coupling and the 15 KB → 192 KB terminal-cap shift;
+      document it. Derivation stays coupled; the boot assert keeps validating the pair.
+- [x] 2.2 D10 — **cache** fitted derivatives on disk keyed by content hash; a miss re-fits.
+      Optimisation only, never a source of truth.
+- [x] 2.3 D11 — **exempt** animated GIFs from fitting; they stay subject to the existing
+      ceiling and truncate as today. Never emit a corrupt frame (X10).
 
 ## 3. Tests — L1 unit (vitest)
 
@@ -101,9 +103,12 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 - [ ] 5.4 Raise `DEFAULT_MAX_EVENT_DATA_SIZE` to 256 KB.
 - [ ] 5.5 Export `DEFAULT_MAX_STRING_SIZE`; pass the store's effective cap to
       `deriveTranscriptCapBytes` (`server.ts:684`) — land atomically with 5.4.
-- [ ] 5.6 Apply the D9 decision from 2.1 to the terminal cap derivation.
+- [ ] 5.6 D9: keep the terminal cap derivation coupled; document the 15 KB → 192 KB shift
+      in `packages/server/src/terminal/` docs + the inline-terminal spec.
 - [ ] 5.7 Session-scoped originals endpoint + transcript-backed streaming resolver.
 - [ ] 5.8 Blob cache (2 GB LRU, disk) as an optimisation over the transcript.
+- [ ] 5.10 D10: fitted-derivative disk cache keyed by content hash; miss re-fits.
+- [ ] 5.11 D11: animated-GIF detection → bypass fitting, keep existing ceiling handling.
 - [ ] 5.9 Client: placeholder → image swap; click-to-original overlay.
 
 ## 6. New infra

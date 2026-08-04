@@ -134,12 +134,27 @@ from the existing `useImagePaste.SUPPORTED_IMAGE_TYPES` allow-list
 (`jpeg`/`png`/`gif`/`webp`) and are served with headers preventing interpretation as
 active content.
 
-### D9 — Terminal transcript coupling (OPEN)
+### D9 — Terminal transcript coupling (settled)
 
 `terminal-manager.ts:32` derives `DEFAULT_TRANSCRIPT_CAP_BYTES = 0.75 ×` the ceiling.
-Raising 20 KB → 256 KB moves the terminal cap 15 KB → 192 KB. Decouple, or accept and
-document the shift. Must be settled before the raise lands, since the assert validates
-the pair.
+Raising 20 KB → 256 KB moves the terminal cap 15 KB → 192 KB.
+
+**Decision: accept the shift and document it.** The derivation stays coupled — one
+constant, one rule. Inline terminal transcripts may now carry ~12× more bytes before the
+tail-keeping cap trims them. The boot assert continues to validate the pair.
+
+### D10 — Fitted derivatives are cached (settled)
+
+Re-fitting on every replay costs 174–874 ms per image (fact 1.5). **Decision: cache the
+fitted derivative on disk, keyed by content hash**, alongside the 2 GB original-blob
+cache (D7). A cache miss re-fits; the cache is an optimisation, never a source of truth.
+
+### D11 — Animated GIFs are exempt from fitting (settled)
+
+jimp resize flattens animation. **Decision: detect animated GIFs and exempt them from
+fitting; they remain subject to the existing ceiling and truncate as they do today.**
+Animation is preserved when the payload is small; a large animated GIF still collapses,
+which is no worse than current behaviour. Never emit a corrupt frame (scenario X10).
 
 ## Risks / Trade-offs
 
@@ -158,13 +173,11 @@ the pair.
 
 ## Open Questions
 
-- **D9** — decouple the terminal cap derivation, or accept the 15 KB → 192 KB shift?
-- Should the fitted derivative be cached so replay does not re-resize every load, or is
-  re-fitting on ingest-from-replay acceptable?
 - Does the click-to-original overlay need progressive loading for a 10 MB original, or is
   a spinner sufficient?
-- Should animated GIFs be exempt from fitting (resize would flatten them), and if so do
-  they bypass the ceiling?
+
+Resolved: D9 (accept the 15 KB → 192 KB shift), D10 (cache fitted derivatives by content
+hash), D11 (exempt animated GIFs from fitting, keep them under the ceiling).
 
 ## Established facts (verified; do not re-derive)
 
