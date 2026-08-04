@@ -118,8 +118,13 @@ function trimBufferToLimit(
   return { dropped, toolEndDropped };
 }
 
-/** Default max size for any string field within event data */
-const DEFAULT_MAX_STRING_SIZE = 4_000;
+/**
+ * Default max size for any string field within event data. Exported so the
+ * boot-time transcript-cap assert can validate the value the store ACTUALLY
+ * uses when the config leaves it unset, rather than skipping the check.
+ * See change: fit-attachments-for-display (task 5.5).
+ */
+export const DEFAULT_MAX_STRING_SIZE = 4_000;
 /**
  * Default cap on the TOTAL serialized size of an individual event's `data`
  * (bytes). A single subagent turn embeds its full timeline (tool calls,
@@ -127,8 +132,18 @@ const DEFAULT_MAX_STRING_SIZE = 4_000;
  * deeply-nested payload can escape per-field truncation and blow the server
  * heap when `JSON.stringify`d on the broadcast path (whole-server OOM).
  * See change: bound-subagent-event-serialization.
+ *
+ * Raised 20_000 -> 262_144 (256 KiB). Image content blocks are now fitted for
+ * display BEFORE they reach the store (768 px long edge, q75), whose measured
+ * worst case is 212 KB (n=40) - so 256 KiB covers 100 % of fitted output and
+ * the ceiling becomes deterministic. At the RAW payload sizes that reach the
+ * store today (p99 2.2 MB, max 10.5 MB) a 256 KiB ceiling would still only
+ * cover 74.9 %, which is why the raise is only sound TOGETHER with the fit.
+ * The raise is global: `DEFAULT_TRANSCRIPT_CAP_BYTES` is derived from it at
+ * 0.75 x and therefore moves 15 KB -> 192 KiB (D9, accepted).
+ * See change: fit-attachments-for-display (task 5.4, D2/D9).
  */
-export const DEFAULT_MAX_EVENT_DATA_SIZE = 20_000;
+export const DEFAULT_MAX_EVENT_DATA_SIZE = 262_144;
 
 /** True for a base64 image content block (`data` string + sibling `mimeType`). */
 function isImageBlock(obj: object): boolean {

@@ -41,9 +41,11 @@ All L1 rows extend `packages/server/src/__tests__/memory-event-store.test.ts`
       trigger replay · observable emitted event ≤ 256 KB.
 - [ ] 3.6 E10 fitted max fits ceiling (test-plan #E10) — input 212 KB fitted image ·
       trigger ingest · observable under ceiling, no truncation.
-- [ ] 3.7 E11/E12/E13 boot assert armed (test-plan #E11 #E12 #E13) — input cap unset + 256 KB /
+- [x] 3.7 E11/E12/E13 boot assert armed (test-plan #E11 #E12 #E13) — input cap unset + 256 KB /
       cap unset + 20 KB / cap 50_000 + 256 KB · trigger boot · observable passes / throws
       / throws. E12 is the negative proof the assert no longer skips.
+      Landed in `terminal-manager.test.ts` (home of `deriveTranscriptCapBytes`), not
+      `memory-event-store.test.ts` — the assert is that module's export.
 - [ ] 3.8 E14/E15 content-type allow-list (test-plan #E14 #E15) — input jpeg/png/gif/webp
       and a blob claiming `text/html` · trigger serve · observable allow-listed type,
       never active content.
@@ -100,11 +102,12 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 - [ ] 5.1 Display-fit worker (jimp, 768 px/q75) invoked off the event loop.
 - [ ] 5.2 Ingest seam: fit image blocks, store the derivative inline.
 - [ ] 5.3 Two-phase emission: row first, attachment resolves later (D3).
-- [ ] 5.4 Raise `DEFAULT_MAX_EVENT_DATA_SIZE` to 256 KB.
-- [ ] 5.5 Export `DEFAULT_MAX_STRING_SIZE`; pass the store's effective cap to
-      `deriveTranscriptCapBytes` (`server.ts:684`) — land atomically with 5.4.
-- [ ] 5.6 D9: keep the terminal cap derivation coupled; document the 15 KB → 192 KB shift
-      in `packages/server/src/terminal/` docs + the inline-terminal spec.
+- [x] 5.4 Raise `DEFAULT_MAX_EVENT_DATA_SIZE` to 256 KiB (`262_144`, per test-plan #E13).
+- [x] 5.5 Export `DEFAULT_MAX_STRING_SIZE`; `deriveTranscriptCapBytes` defaults an
+      UNSET cap to it (explicit `0` still means disabled); `server.ts` passes
+      `config.maxStringFieldSize` through instead of `?? 0` — landed atomically with 5.4.
+- [x] 5.6 D9: terminal cap derivation stays coupled; 15 KB → 192 KiB shift documented on
+      `DEFAULT_MAX_EVENT_DATA_SIZE` + `deriveTranscriptCapBytes` and asserted in E15.
 - [ ] 5.7 Session-scoped originals endpoint + transcript-backed streaming resolver.
 - [ ] 5.8 Blob cache (2 GB LRU, disk) as an optimisation over the transcript.
 - [ ] 5.10 D10: fitted-derivative disk cache keyed by content hash; miss re-fits.

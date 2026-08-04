@@ -6,6 +6,7 @@ import {
   detectShell,
   type TerminalManager,
 } from "../terminal/terminal-manager.js";
+import { DEFAULT_MAX_EVENT_DATA_SIZE } from "../persistence/memory-event-store.js";
 
 // Mock node-pty
 const mockPtyWrite = vi.fn();
@@ -465,8 +466,39 @@ describe("deriveTranscriptCapBytes (startup config validation)", () => {
     expect(deriveTranscriptCapBytes(20_000, 3333)).toBe(15_000);
   });
 
-  it("E15: maxEventDataSize=0 yields a 15000 budget, not 0", () => {
-    expect(deriveTranscriptCapBytes(0, 0)).toBe(15_000);
+  it("E15: maxEventDataSize=0 falls back to the default ceiling, not a 0 budget", () => {
+    // D9 (fit-attachments-for-display): the 0.75 x derivation stays COUPLED to
+    // the event ceiling, so raising it 20 KB -> 256 KiB moves this fallback
+    // 15 KB -> 192 KiB. Accepted and documented, not decoupled.
+    expect(deriveTranscriptCapBytes(0, 0)).toBe(Math.floor(DEFAULT_MAX_EVENT_DATA_SIZE * 0.75));
+    expect(deriveTranscriptCapBytes(0, 0)).toBe(196_608);
+  });
+});
+
+// The assert previously ran against `config.maxStringFieldSize ?? 0`, and the
+// `!== 0` guard made an UNSET cap skip the check entirely - it validated only
+// explicitly-configured values. `undefined` now resolves to the store's real
+// default (DEFAULT_MAX_STRING_SIZE), so the production configuration is the
+// one being asserted. `0` keeps its explicit "string pass disabled" meaning.
+// See change: fit-attachments-for-display (task 3.7, test-plan #E11 #E12 #E13).
+describe("deriveTranscriptCapBytes (boot assert armed for the unset cap)", () => {
+  it("E11: unset maxStringFieldSize at the 256 KiB ceiling returns 192 KiB and does not throw", () => {
+    expect(deriveTranscriptCapBytes(262_144)).toBe(196_608);
+  });
+
+  it("E12: unset maxStringFieldSize at the pre-raise 20 KB ceiling throws", () => {
+    // The negative proof the assert no longer skips: 4000 x 6 = 24000 >= 20000.
+    // Before the fix this silently returned 15000.
+    expect(() => deriveTranscriptCapBytes(20_000)).toThrow(/maxStringFieldSize/);
+  });
+
+  it("E13: maxStringFieldSize=50_000 at the 256 KiB ceiling throws", () => {
+    // 50_000 x 6 = 300_000 >= 262_144.
+    expect(() => deriveTranscriptCapBytes(262_144, 50_000)).toThrow(/50000[\s\S]*262144|262144[\s\S]*50000/);
+  });
+
+  it("E12b: an explicit 0 still means 'string pass disabled' and skips the check", () => {
+    expect(deriveTranscriptCapBytes(20_000, 0)).toBe(15_000);
   });
 });
 

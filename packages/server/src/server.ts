@@ -679,9 +679,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // clamp and destroy the `terminalId`. Assert both truncation knobs are safe
   // at boot rather than silently corrupting close events months later.
   // See change: preserve-inline-terminal-transcript (D2a/D2b).
+  // Pass the config value THROUGH (undefined when unset) so the assert resolves
+  // it to the store's real default. `?? 0` previously coerced an unset cap to
+  // the sentinel that means "string pass disabled", which made the assert skip
+  // the production configuration entirely.
+  // See change: fit-attachments-for-display (task 5.5).
   const transcriptCapBytes = deriveTranscriptCapBytes(
     eventDataCeiling,
-    config.maxStringFieldSize ?? 0,
+    config.maxStringFieldSize,
   );
 
   // Create terminal manager with exit callback

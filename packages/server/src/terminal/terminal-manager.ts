@@ -20,7 +20,11 @@ import {
 import { killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { augmentEnvWithGitSource } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { measureBytes, DEFAULT_MAX_EVENT_DATA_SIZE } from "../persistence/memory-event-store.js";
+import {
+  measureBytes,
+  DEFAULT_MAX_EVENT_DATA_SIZE,
+  DEFAULT_MAX_STRING_SIZE,
+} from "../persistence/memory-event-store.js";
 
 /**
  * Default byte budget for a captured inline-terminal transcript: 75 % of the
@@ -39,8 +43,17 @@ export const DEFAULT_TRANSCRIPT_CAP_BYTES = Math.floor(DEFAULT_MAX_EVENT_DATA_SI
  * capped transcript back over the ceiling. `maxEventDataSize = 0` (size pass
  * disabled) falls back to the default ceiling, never a 0 budget.
  * See change: preserve-inline-terminal-transcript (D2a/D2b).
+ *
+ * `maxStringFieldSize` UNSET resolves to `DEFAULT_MAX_STRING_SIZE` - the value
+ * the store actually applies - so the assert validates the production config
+ * instead of skipping it. An explicit `0` keeps its distinct meaning: the
+ * per-field string pass is disabled, so there is nothing to expand and nothing
+ * to check. See change: fit-attachments-for-display (task 5.5, test-plan #E11 #E12).
  */
-export function deriveTranscriptCapBytes(maxEventDataSize: number, maxStringFieldSize: number): number {
+export function deriveTranscriptCapBytes(
+  maxEventDataSize: number,
+  maxStringFieldSize: number = DEFAULT_MAX_STRING_SIZE,
+): number {
   const ceiling = maxEventDataSize || DEFAULT_MAX_EVENT_DATA_SIZE;
   const cap = Math.floor(ceiling * 0.75);
   if (cap >= ceiling) {
