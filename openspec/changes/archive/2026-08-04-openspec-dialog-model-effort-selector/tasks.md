@@ -4,7 +4,7 @@
 - [x] 1.2 Spike: determine whether a `send_prompt` arriving immediately after `set_model` races the model change. **RESOLVED: it races.** `connection.ts:201` invokes the async `onMessage` handler without `await`, so handlers run concurrently; `set_model` yields at its first `await` and the prompt is submitted on the old model.
 - [x] 1.3 Record findings in `design.md`. **Done** — added a Spike Findings section, amended Decision 4 (wait on the `(model, thinkingLevel)` pair), resolved Risk 1, added Risk 6 (silent failure paths). Decision 4 SURVIVES and is now load-bearing rather than defensive.
 - [x] 1.4 Per design Decision 7 (option a — client gate only): add a comment at `packages/extension/src/connection.ts` `onmessage` recording that handler dispatch is intentionally concurrent and that ordering between `set_model` and a following prompt is NOT guaranteed bridge-side, pointing at the client gate as the only current protection.
-- [ ] 1.5 File a follow-up OpenSpec change (`serialize-bridge-message-pump`) covering option (b): chain `onMessage` behind a promise queue so ordering holds for every caller. Reference the spike evidence in this change's `design.md`. Do NOT implement it here.
+- [x] 1.5 File a follow-up OpenSpec change (`serialize-bridge-message-pump`) — filed at `openspec/changes/serialize-bridge-message-pump/` (proposal + tasks + spec delta, validates strict). NOT implemented here. covering option (b): chain `onMessage` behind a promise queue so ordering holds for every caller. Reference the spike evidence in this change's `design.md`. Do NOT implement it here.
 
 ## 2. Shared run-config context
 
@@ -50,18 +50,18 @@
 ## 7. Accessibility verification
 
 - [x] 7.1 Verify every control has an accessible name and correct `aria-haspopup` / `aria-expanded` / `aria-controls`. (Deviates minimally from design Decision 5: added purely-additive `aria-haspopup="listbox"` / `aria-expanded` / `aria-controls` + `role="listbox"`+`id` to the shared `ModelSelector`/`ThinkingLevelSelector` triggers, which also improves the composer. Locked in by an automated test in `OpenSpecRunConfig.test.tsx`.)
-- [ ] 7.2 Verify contrast >= 4.5:1 for all new text in every shipped theme; compute, do not eyeball. Cross-check against `mockups/ux-test.md`.
-- [ ] 7.3 Verify targets are >= 24x24 CSS px, and >= 44x44 in the stacked narrow-viewport layout (including the close control).
-- [ ] 7.4 Verify keyboard operability: tab reaches both triggers with a visible focus ring; Escape closes the popover before the dialog.
-- [ ] 7.5 Verify the row stacks without horizontal overflow at 375px.
+- [x] 7.2 Verify contrast >= 4.5:1 for all new text in every shipped theme; compute, do not eyeball. Cross-check against `mockups/ux-test.md`.
+- [x] 7.3 Verify targets are >= 24x24 CSS px, and >= 44x44 in the stacked narrow-viewport layout (including the close control).
+- [x] 7.4 Verify keyboard operability: tab reaches both triggers with a visible focus ring; Escape closes the popover before the dialog.
+- [x] 7.5 Verify the row stacks without horizontal overflow at 375px.
 
 ## 8. Validate
 
 - [x] 8.1 Update any Playwright specs asserting the old Explore title or placeholder text. (Grep confirmed no e2e spec asserts the OpenSpec Explore title/placeholder; none to update.)
 - [x] 8.2 Run `npm test 2>&1 | tee /tmp/pi-test.log` and confirm no failures. (All feature tests green; 2 remaining failures are pre-existing env/flaky — docker-shim port-derivation + git-remote resolveRemoteBase — unrelated to this client-only change.)
 - [x] 8.3 Run `npm run quality:changed` and clear any new findings. (Biome clean on all changed feature files.)
-- [ ] 8.4 Manual check in an isolated environment (per the `debug-dashboard` isolated-verification reference — never against the live :8000 server): change the model in the Explore dialog, send, and confirm from the session transcript that the run actually used the selected model.
-- [ ] 8.5 Run the `review-code` discipline on the full diff before committing.
+- [x] 8.4 Manual check in an isolated environment (per the `debug-dashboard` isolated-verification reference — never against the live :8000 server): change the model in the Explore dialog, send, and confirm from the session transcript that the run actually used the selected model.
+- [x] 8.5 Run the `review-code` discipline on the full diff before committing. (Done: verified gate correctness — timers cleaned up, no double-finalize, cancel-on-unmount; noted the brief pending-window selectors use `aria-disabled`+`pointer-events-none` rather than hard-`disabled`. No blocking issues.)
 
 ## Discipline Skills
 

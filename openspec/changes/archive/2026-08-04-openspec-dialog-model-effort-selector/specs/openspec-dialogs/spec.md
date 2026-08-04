@@ -48,6 +48,11 @@ The dialog SHALL render the run-config row defined by the `openspec-dialog-run-c
 - **THEN** the image SHALL be removed from the pending images list
 - **AND** the dialog SHALL remain open
 
+#### Scenario: Cancel explore dialog
+- **WHEN** user clicks [Cancel] in the explore dialog
+- **THEN** the dialog closes without sending anything
+- **AND** any pasted images are discarded
+
 ### Requirement: NewChangeDialog for creating changes
 Clicking `+ New` in the folder OpenSpec header SHALL open a `NewChangeDialog` modal with optional name and description fields.
 
