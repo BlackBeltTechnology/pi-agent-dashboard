@@ -195,24 +195,30 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   # must fall back to reading package.json#name to report the entry Active.
   # Registered in settings.json packages[] => it lands in activeSources, which is
   # the site that drives the card's Active/Remove button.
+  # Manifest creation and settings registration are INDEPENDENT: /fixtures is
+  # repopulated from the image each run while ~/.pi lives on a separate tmpfs,
+  # so the two can legitimately disagree. Gating registration on "package.json
+  # absent" would skip it whenever the dir survives but settings.json does not,
+  # leaving the E2E spec without its active source. Both halves are idempotent.
   LOCAL_PKG_DIR="/fixtures/local-pkg/image-fit-extension"
   if [ ! -f "${LOCAL_PKG_DIR}/package.json" ]; then
     mkdir -p "${LOCAL_PKG_DIR}"
     printf '%s\n' '{ "name": "@blackbelt-technology/pi-image-fit-extension", "version": "0.0.1" }' \
       > "${LOCAL_PKG_DIR}/package.json"
-    node -e '
-      const fs = require("node:fs");
-      const path = require("node:path");
-      const [p, dir] = process.argv.slice(1);
-      let s = {};
-      try { s = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
-      if (!Array.isArray(s.packages)) s.packages = [];
-      if (!s.packages.includes(dir)) s.packages.push(dir);
-      fs.mkdirSync(path.dirname(p), { recursive: true });
-      fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
-    ' "${PI_DIR}/agent/settings.json" "${LOCAL_PKG_DIR}"
-    echo "[test-entrypoint] PI_E2E_SEED: seeded decorated local install → ${LOCAL_PKG_DIR}"
   fi
+  # Always ensure settings.json packages[] carries the path (no-op when present).
+  node -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const [p, dir] = process.argv.slice(1);
+    let s = {};
+    try { s = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+    if (!Array.isArray(s.packages)) s.packages = [];
+    if (!s.packages.includes(dir)) s.packages.push(dir);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
+  ' "${PI_DIR}/agent/settings.json" "${LOCAL_PKG_DIR}"
+  echo "[test-entrypoint] PI_E2E_SEED: decorated local install registered → ${LOCAL_PKG_DIR}"
 
   # --- Flow-plugin e2e peers, selected by PI_TEST_PEERS (change: add-flow-plugin-e2e-tests) ---
   # Variants: both | no-am | legacy | bad-registration. UNSET => skipped entirely

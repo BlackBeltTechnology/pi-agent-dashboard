@@ -14,7 +14,7 @@ Traced facts (verified against `recommended-routes.ts`):
 
 **Goals**
 - Correct display AND state (`activeInPi`) for locally-installed recommended packages — so the Active/Remove button and missing-required count fold in.
-- Minimize IO: reuse the existing `readPackageJsonName` reader, memoize per path within a request. (NOT zero-IO — newly-matched entries read a file they skip today; see D2.)
+- Minimize IO: ONE memoized `package.json` parse per path per request (`createPkgReader()`), shared by the name match and the version/skills read. (NOT zero-IO — newly-matched entries read a file they skip today; see D2.)
 - Keep `sourcesMatch` pure (no fs) so the Electron wizard enricher and plugin loader are unaffected.
 
 **Non-Goals**
@@ -34,7 +34,7 @@ Traced facts (verified against `recommended-routes.ts`):
 2. the inner `installed.find(...)` gating the `version`/`pi.skills` read — same either-match predicate, else the read is skipped for the newly-matched entries and `updateAvailable`/`skillsRegistered` stay unset.
 3. `activeInPi` — `activeSources.some((s) => sourcesMatch(s, entry.source) || npmNameMatchesPath(entry, s))`, where the active source string is treated as a candidate local path. This is the site that fixes the actual bug.
 
-`npmNameMatchesPath(entry, candidatePath)`: only for npm-sourced entries (`parseSourceKey(entry.source).kind === "npm"` → `name`); reads `readPackageJsonName(candidatePath)` (existing exported reader) and compares exactly; fails closed (false) on non-npm entry, missing/unreadable path, invalid JSON, or non-string `name`, so behavior degrades to today's string match. Git-sourced entries have no npm `name` and are out of scope (Non-Goal).
+`npmNameMatchesPath(entrySource, candidatePath, readPkg)`: only for npm-sourced entries (`parseSourceKey(entrySource).kind === "npm"` → `name`); compares `readPkg(candidatePath)?.name` exactly; fails closed (false) on non-npm entry, missing candidate path, invalid JSON, or non-string `name`, so behavior degrades to today's string match. `readPkg` is injected (the request-scoped reader from `createPkgReader()`), which keeps the predicate pure and directly unit-testable. Git-sourced entries have no npm `name` and are out of scope (Non-Goal).
 
 ### D2 — ONE memoized `package.json` parse per path per request
 
@@ -52,8 +52,7 @@ The Electron first-launch wizard has its own bootstrap enricher that also uses `
 
 ## Risks / Trade-offs
 
-- **False positive**: two unrelated local packages with the same `package.json` name — impossible within one settings scope (npm names are unique) and no worse than today.
-- **Multiple checkouts, same name** (e.g. a fork alongside upstream, or v1/v2 branches): `installed.find(...)` picks the first match, so `version`/`skills` may come from the wrong checkout. Pre-existing behavior of the `.find()`; not regressed by this change; documented, not fixed here.
+- **`package.json#name` does not identify a UNIQUE checkout.** Several local directories can legitimately carry the same name — a fork alongside upstream, or v1/v2 branch checkouts. Consequences: (a) the entry is correctly reported installed/active (any one of them satisfies that); (b) `installed.find(...)` resolves the FIRST match, so `version`/`skills` may be read from a different checkout than the user has in mind. First-match ambiguity is pre-existing `.find()` behavior, not regressed by this change; documented, not fixed here.
 - **Git-sourced local installs under decorated dir names**: not matched (npm-name-only resolution). Parallel gap, explicit Non-Goal.
 - **Cache**: results cached 60s, busted on install/remove — a fresh local install shows correctly after the next cache miss, identical to current freshness.
 
