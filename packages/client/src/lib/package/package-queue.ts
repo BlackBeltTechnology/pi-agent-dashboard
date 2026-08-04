@@ -10,15 +10,32 @@
  * spinner orphaned, and the second POST often 409'd.
  *
  * This singleton owns:
- *   - the running op (at most one)
+ *   - the running op (at most one, across ALL operation kinds)
  *   - a FIFO queue of pending ops
  *   - a per-`source` status map (idle/queued/running/success/error)
- *   - the single `pi-package-event` window listener that advances the
- *     queue when `package_operation_complete` arrives.
+ *   - the `pi-package-event` window listener that advances the queue
+ *     when `package_operation_complete` arrives, and the
+ *     `pi-core-event` listener that streams pi-core progress.
+ *
+ * Two operation kinds ride the same FIFO because they contend for the
+ * same server-side busy lock (`PackageManagerWrapper.busy`):
+ *   - `"extension"` — POST `/api/packages/{action}` → 202 + operationId,
+ *     completion arrives asynchronously via `package_operation_complete`.
+ *   - `"pi-core"` — POST `/api/pi-core/update` → blocks until npm
+ *     finishes; completion is carried by the response body. The
+ *     `pi_core_update_complete` WS frame is deliberately IGNORED: the
+ *     server broadcasts it before returning the HTTP response, so it
+ *     nearly always arrives first and would complete the op early.
+ *
+ * Pi-core sources use the `pi-core:<scoped-npm-name>` prefix convention
+ * (see `piCoreSource`). The prefix is documentation; `kind` is the
+ * dispatch key.
  *
  * React subscribers consume it via `usePackageQueue()` (see
  * `usePackageOperations.ts`) and re-render when `subscribe`'s callback
  * fires.
+ *
+ * See change: unify-pi-core-into-package-queue.
  */
 
 import { getApiBase } from "../api/api-context.js";
@@ -27,17 +44,29 @@ import { t as i18nT } from "../i18n/i18n.js";
 export type PackageScope = "global" | "local";
 export type PackageAction = "install" | "remove" | "update";
 export type PackageOperationStatus = "idle" | "queued" | "running" | "success" | "error";
+export type PackageOpKind = "extension" | "pi-core";
+
+/** Source-key prefix for pi-core ops. Convention, not the dispatch key. */
+export const PI_CORE_SOURCE_PREFIX = "pi-core:";
+
+/** Build the queue source key for a pi-core package's full scoped npm name. */
+export function piCoreSource(name: string): string {
+  return PI_CORE_SOURCE_PREFIX + name;
+}
 
 export interface EnqueueRequest {
   source: string;
   action: PackageAction;
   scope: PackageScope;
   cwd?: string;
+  /** Dispatch discriminator. Defaults to `"extension"`. */
+  kind?: PackageOpKind;
 }
 
 export interface RunningOp {
   operationId: string | null; // null between POST and POST-resolve
   source: string;
+  kind: PackageOpKind;
   action: PackageAction;
   scope: PackageScope;
   cwd?: string;
@@ -48,6 +77,7 @@ export interface RunningOp {
 
 interface QueuedOp {
   source: string;
+  kind: PackageOpKind;
   action: PackageAction;
   scope: PackageScope;
   cwd?: string;
@@ -83,6 +113,7 @@ class PackageQueue {
   constructor() {
     if (typeof window !== "undefined") {
       window.addEventListener("pi-package-event", this.onWindowEvent);
+      window.addEventListener("pi-core-event", this.onPiCoreEvent);
     }
   }
 
@@ -103,10 +134,11 @@ class PackageQueue {
       this.autoClearTimers.delete(req.source);
     }
 
+    const op: QueuedOp = { ...req, kind: req.kind ?? "extension", retries: 0, onComplete };
     if (this.running === null) {
-      this.startOperation({ ...req, retries: 0, onComplete });
+      this.startOperation(op);
     } else {
-      this.queue.push({ ...req, retries: 0, onComplete });
+      this.queue.push(op);
       this.notify();
     }
   }
@@ -132,6 +164,11 @@ class PackageQueue {
 
   getQueueDepth(): number {
     return this.queue.length;
+  }
+
+  /** True while any op — of any kind — holds the single-flight slot. */
+  isAnyRunning(): boolean {
+    return this.running !== null;
   }
 
   /** Subscribe to ANY state transition. Returns unsubscribe fn. */
@@ -169,6 +206,7 @@ class PackageQueue {
     this.running = {
       operationId: null,
       source: op.source,
+      kind: op.kind,
       action: op.action,
       scope: op.scope,
       cwd: op.cwd,
@@ -182,6 +220,84 @@ class PackageQueue {
   }
 
   private async postOperation(op: QueuedOp): Promise<void> {
+    switch (op.kind) {
+      case "pi-core":
+        await this.postPiCoreUpdate(op);
+        return;
+      case "extension":
+        await this.postExtensionOperation(op);
+        return;
+    }
+  }
+
+  /**
+   * 409 retry-once policy, shared by both dispatch arms: drop the
+   * running slot, re-prepend the op, and re-start it after a short
+   * backoff. Returns `true` when a retry was scheduled.
+   */
+  private scheduleRetry(op: QueuedOp): boolean {
+    if (op.retries >= 1) return false;
+    const retried: QueuedOp = { ...op, retries: op.retries + 1 };
+    this.running = null;
+    this.queue.unshift(retried);
+    this.notify();
+    setTimeout(() => {
+      // Only fire if nothing else jumped in (which can't, because
+      // running is null and retried is at head — but be defensive).
+      if (this.running === null && this.queue[0]?.source === retried.source) {
+        const head = this.queue.shift()!;
+        this.startOperation(head);
+      }
+    }, RETRY_BACKOFF_MS);
+    return true;
+  }
+
+  /**
+   * Pi-core arm. Completion is signalled by the POST response — the
+   * `pi_core_update_complete` WS frame is ignored (see module header).
+   * Always sent as a single-name batch so per-row state stays keyed by
+   * strict source equality.
+   */
+  private async postPiCoreUpdate(op: QueuedOp): Promise<void> {
+    const name = op.source.slice(PI_CORE_SOURCE_PREFIX.length);
+    let res: Response;
+    let body: any;
+    try {
+      res = await fetch(`${getApiBase()}/api/pi-core/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packages: [name] }),
+      });
+      body = await res.json().catch(() => ({}));
+    } catch (err: any) {
+      this.completeRunning(false, err?.message ?? "Network error");
+      return;
+    }
+
+    // Stale guard: reset/cancellation during the await.
+    if (this.running?.source !== op.source) return;
+
+    if (res.status === 409) {
+      if (this.scheduleRetry(op)) return;
+      this.completeRunning(false, body?.error ?? "Server busy");
+      return;
+    }
+
+    if (!res.ok || body?.success === false) {
+      this.completeRunning(false, body?.error ?? `HTTP ${res.status}`);
+      return;
+    }
+
+    // Single-name batch in → single result out.
+    const result = body?.data?.results?.[0];
+    if (result?.success) {
+      this.completeRunning(true, undefined, "Update complete");
+    } else {
+      this.completeRunning(false, result?.error ?? "Update failed");
+    }
+  }
+
+  private async postExtensionOperation(op: QueuedOp): Promise<void> {
     let res: Response;
     let body: any;
     try {
@@ -201,23 +317,7 @@ class PackageQueue {
     if (this.running?.source !== op.source) return;
 
     if (res.status === 409) {
-      // Retry-once policy.
-      if (op.retries < 1) {
-        const retried: QueuedOp = { ...op, retries: op.retries + 1 };
-        // Drop running, schedule retry at head.
-        this.running = null;
-        this.queue.unshift(retried);
-        this.notify();
-        setTimeout(() => {
-          // Only fire if nothing else jumped in (which can't, because
-          // running is null and retried is at head — but be defensive).
-          if (this.running === null && this.queue[0]?.source === retried.source) {
-            const head = this.queue.shift()!;
-            this.startOperation(head);
-          }
-        }, RETRY_BACKOFF_MS);
-        return;
-      }
+      if (this.scheduleRetry(op)) return;
       // Out of retries → error and advance.
       this.completeRunning(false, body?.error ?? "Server busy");
       return;
@@ -286,6 +386,24 @@ class PackageQueue {
         : "";
       this.completeRunning(!!msg.success, errorMsg, successMsg);
     }
+  };
+
+  /**
+   * `pi-core-event` channel. Only progress is consumed:
+   * `pi_core_update_complete` is a deliberate no-op because the server
+   * broadcasts it BEFORE returning the HTTP response that actually
+   * carries the result (see module header / design R4).
+   */
+  private onPiCoreEvent = (e: Event) => {
+    const msg = (e as CustomEvent).detail;
+    if (!msg || typeof msg !== "object") return;
+    if (msg.type !== "pi_core_update_progress") return;
+    if (typeof msg.name !== "string") return;
+    const running = this.running;
+    if (!running || running.kind !== "pi-core") return;
+    if (running.source !== piCoreSource(msg.name)) return;
+    running.message = msg.message ?? `${msg.name}: ${msg.phase}`;
+    this.notify();
   };
 
   private completeRunning(success: boolean, errorMsg?: string, successMsg?: string): void {

@@ -1835,6 +1835,19 @@ This is separate from the main JSON dashboard WebSocket (`/ws`).
 
 Package operations all flow through `package-manager-wrapper.ts`'s single-flight `busy` lock. The route layer (`/api/packages/install` / `/remove` / `/update` / `/move`) returns `202 { operationId | moveId }` synchronously and progress streams over the existing `package_progress` + `package_operation_complete` WebSocket channels.
 
+**Client-side single-flight queue** (added in change `unify-pi-core-into-package-queue`):
+
+Client mirrors server busy lock with FIFO singleton `packageQueue` (`packages/client/src/lib/package/package-queue.ts`). Single-flight across ALL op kinds — second enqueue returns `queued` status, not 409. `kind: "extension" | "pi-core"` discriminates dispatch path; `EnqueueRequest.kind` optional, defaults `"extension"`.
+
+- `kind: "extension"` → POST `/api/packages/{install,remove,update}` → 202 + `operationId`. Completion arrives via `package_operation_complete` WS frame.
+- `kind: "pi-core"` → POST `/api/pi-core/update` with single-name batch `{packages:[name]}`. Blocks server-side until npm finishes. Completion read from response body `body.data.results[0]`.
+
+Pi-core source key convention: `pi-core:<scoped-npm-name>` via exported `piCoreSource(name)` — convention only, `kind` is dispatch key, not prefix. Queue subscribes both window channels: `pi-package-event` + `pi-core-event`. `pi_core_update_progress` updates `running.message`. `pi_core_update_complete` deliberate NO-OP for queue — `packages/server/src/routes/pi-core-routes.ts` calls `onUpdateComplete(out)` BEFORE returning HTTP response, so WS frame reaches client FIRST; acting on it would complete early.
+
+409 retry-once (500 ms backoff) applies to both arms via shared `scheduleRetry`. Queue browser-module singleton — survives component unmount, does NOT survive page reload, not shared across clients (two tabs still 409 each other). `moveTracker` (`move` + `reset-to-npm`) stays OUTSIDE queue — `moveId`-keyed identity, partial-success semantics. `packageQueue.isAnyRunning()` exists for future cross-domain UI lock; no consumer yet.
+
+See change: `unify-pi-core-into-package-queue`.
+
 **Move semantics** (added in change `unify-package-management-ui`):
 
 Moving a package between scopes (global ↔ local) is a hybrid operation, keyed on the source kind:
