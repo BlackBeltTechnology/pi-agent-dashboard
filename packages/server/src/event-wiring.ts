@@ -14,7 +14,6 @@ import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
 import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
 import type { DirectoryService } from "./directory-service.js";
 import { captureLifecycleTimestamp } from "./embed-lifecycle/lifecycle-event-capture.js";
-import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
 import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
 import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js";
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./openspec/proposal-attach-naming.js";
@@ -24,7 +23,9 @@ import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import type { PiGateway } from "./pi/pi-gateway.js";
+import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
+import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
@@ -38,7 +39,6 @@ import {
   buildModelErrorLogLine,
   extractModelTurnError,
 } from "./spawn-process/spawned-turn-log.js";
-import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 
 /**
  * `true` iff `changeName` appears in the cwd's authoritative OpenSpec poll

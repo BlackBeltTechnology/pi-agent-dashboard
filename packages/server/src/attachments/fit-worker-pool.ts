@@ -164,14 +164,21 @@ export function createFitWorkerPool(opts: FitWorkerPoolOptions = {}): FitWorkerP
   /** In-process settle: run the fit on the main thread, capped at `size`. */
   async function fallbackSettle(p: Pending): Promise<void> {
     if (p.timeoutHandle) { clearTimeout(p.timeoutHandle); p.timeoutHandle = null; }
-    jobs.delete(p.id);
     freeSlot(p);
+    // The job stays REGISTERED across the await below. Deregistering first made
+    // it invisible to `dispose()`, so a job waiting on a fallback slot could
+    // never be settled by shutdown and its caller's promise hung forever.
     await acquireFallbackSlot();
     try {
-      finish(p, await fitBlocks(p.payload));
+      // Shutdown began while we waited for a slot: abandon the work rather
+      // than start a jimp decode nobody is left to receive.
+      if (!disposed && !p.resolved) {
+        finish(p, await fitBlocks(p.payload));
+      }
     } finally {
       // Must release even if the fit throws, or the cap leaks a slot per
       // failure and eventually wedges every fallback fit forever.
+      jobs.delete(p.id);
       releaseFallbackSlot();
     }
     drainQueue();
@@ -244,15 +251,28 @@ export function createFitWorkerPool(opts: FitWorkerPoolOptions = {}): FitWorkerP
   async function dispose(): Promise<void> {
     if (disposed) return;
     disposed = true;
-    // Disarm every dispatched job BEFORE terminating workers. Their timeouts
-    // would otherwise stay armed for up to timeoutMs, keep the process alive,
-    // and then run a full in-process fit during shutdown.
+    // Disarm and settle EVERY registered job before terminating workers — both
+    // the ones dispatched to a worker and the ones parked waiting for an
+    // in-process fallback slot. Their timeouts would otherwise stay armed for
+    // up to timeoutMs, keep the process alive, and then run a full in-process
+    // fit during shutdown.
     for (const p of Array.from(jobs.values())) {
       if (p.timeoutHandle) { clearTimeout(p.timeoutHandle); p.timeoutHandle = null; }
       jobs.delete(p.id);
       finish(p, { jobId: p.id, results: [] });
     }
-    for (const p of queue.splice(0, queue.length)) void fallbackSettle(p);
+    // Abandon the backlog rather than performing it. Routing these through
+    // `fallbackSettle` started real jimp decodes on the main thread DURING
+    // shutdown, and once the fallback became slot-capped they also queued
+    // behind an in-flight fit — so a shutdown could sit waiting on work nobody
+    // is left to receive. Every caller is answered with an empty result; a fit
+    // is fire-and-forget by design, so an unfitted attachment simply resolves
+    // to its failed state on the next load.
+    for (const p of queue.splice(0, queue.length)) {
+      if (p.timeoutHandle) { clearTimeout(p.timeoutHandle); p.timeoutHandle = null; }
+      jobs.delete(p.id);
+      finish(p, { jobId: p.id, results: [] });
+    }
     await Promise.all(
       slots.map(async (s) => {
         if (s.worker) { try { await s.worker.terminate(); } catch { /* ignore */ } }

@@ -177,6 +177,92 @@ describe("display-fit — output byte budget", () => {
     expect(DISPLAY_MAX_BYTES).toBeLessThan(262_144);
   });
 
+  // --- GIF block-stream walk (CodeRabbit round 3) ---
+
+  describe("isAnimatedGif walks the block stream", () => {
+    /**
+     * Build a syntactically real GIF: header, logical screen descriptor,
+     * optional global colour table, N image descriptors each with LZW
+     * sub-blocks, then the trailer.
+     *
+     * `payload` bytes are planted inside the LZW sub-block so a fixture can
+     * carry `0x2C` bytes that are DATA, not frame markers.
+     */
+    function buildGif(frames: number, opts: { gct?: number[]; payload?: number[] } = {}): Buffer {
+      const b: number[] = [...Buffer.from("GIF89a", "ascii")];
+      const gctExp = 1; // 2^(1+1) = 4 entries = 12 bytes
+      b.push(1, 0, 1, 0); // 1x1 canvas, uint16 LE
+      b.push(opts.gct ? 0x80 | gctExp : 0x00, 0, 0); // packed, bg index, aspect
+      if (opts.gct) {
+        const table = new Array(3 * (1 << (gctExp + 1))).fill(0);
+        opts.gct.forEach((v, i) => {
+          table[i] = v;
+        });
+        b.push(...table);
+      }
+      const payload = opts.payload ?? [0x00];
+      for (let f = 0; f < frames; f++) {
+        b.push(0x2c); // Image Descriptor
+        b.push(0, 0, 0, 0, 1, 0, 1, 0, 0x00); // left, top, w, h, packed (no LCT)
+        b.push(0x02); // LZW minimum code size
+        b.push(payload.length, ...payload); // one length-prefixed sub-block
+        b.push(0x00); // sub-block terminator
+      }
+      b.push(0x3b); // trailer
+      return Buffer.from(b);
+    }
+
+    it("reports a single-frame GIF as still", () => {
+      expect(isAnimatedGif(buildGif(1))).toBe(false);
+    });
+
+    it("reports a two-frame GIF as animated", () => {
+      expect(isAnimatedGif(buildGif(2))).toBe(true);
+    });
+
+    it("does NOT mistake 0x2C bytes in LZW DATA for extra frames", () => {
+      // The old byte-scan counted every 0x2C and short-circuited at two, so a
+      // still image whose compressed data happened to contain them was called
+      // animated and silently skipped fitting. The 1x1 fixture hid this
+      // because it is too small to contain a stray 0x2C.
+      const still = buildGif(1, { payload: [0x2c, 0x2c, 0x2c] });
+      expect(isAnimatedGif(still)).toBe(false);
+    });
+
+    it("does NOT mistake 0x2C bytes in the global colour table for frames", () => {
+      const still = buildGif(1, { gct: [0x2c, 0x2c, 0x2c, 0x2c] });
+      expect(isAnimatedGif(still)).toBe(false);
+    });
+
+    it("still detects animation when frames also carry 0x2C data", () => {
+      const animated = buildGif(3, { gct: [0x2c, 0x2c], payload: [0x2c, 0x2c] });
+      expect(isAnimatedGif(animated)).toBe(true);
+    });
+
+    it("skips extension blocks (graphic control, comment) without miscounting", () => {
+      // A GIF89a animation carries a Graphic Control Extension per frame.
+      const b: number[] = [...Buffer.from("GIF89a", "ascii"), 1, 0, 1, 0, 0x00, 0, 0];
+      for (let f = 0; f < 2; f++) {
+        // Extension: introducer, label, one sub-block (containing 0x2C), terminator
+        b.push(0x21, 0xf9, 0x04, 0x2c, 0x2c, 0x00, 0x00, 0x00);
+        b.push(0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0x00, 0x02, 0x01, 0x2c, 0x00);
+      }
+      b.push(0x3b);
+      expect(isAnimatedGif(Buffer.from(b))).toBe(true);
+    });
+
+    it("treats a truncated/malformed stream as still rather than looping", () => {
+      // Fail-safe: an unparseable stream must terminate and skip fitting only
+      // if it genuinely looks animated, never hang the walk.
+      expect(isAnimatedGif(Buffer.from([...Buffer.from("GIF89a", "ascii"), 1, 0, 1]))).toBe(false);
+      expect(isAnimatedGif(Buffer.from([...Buffer.from("GIF89a", "ascii"), 1, 0, 1, 0, 0, 0, 0, 0x2c]))).toBe(false);
+    });
+
+    it("is not fooled by a non-GIF payload", () => {
+      expect(isAnimatedGif(Buffer.from("not a gif at all"))).toBe(false);
+    });
+  });
+
   // --- pre-decode guards (CodeRabbit round 2) ---
 
   describe("pre-decode size guard", () => {
@@ -217,6 +303,35 @@ describe("display-fit — output byte budget", () => {
       expect(out.failed).toBeFalsy();
       expect(out.fitted).toBe(true);
     }, 30_000);
+
+    it("an oversize ANIMATED GIF is rejected, not exempted (round-3 MAJOR)", async () => {
+      // The GIF exemption used to return before the declared-pixel check, so a
+      // 20000x20000 animated GIF passed through at full resolution. We never
+      // decode it, but the BROWSER does — the bomb was simply forwarded.
+      const b: number[] = [...Buffer.from("GIF89a", "ascii")];
+      b.push(0x20, 0x4e, 0x20, 0x4e); // 20000 x 20000, uint16 LE
+      b.push(0x00, 0, 0);
+      for (let f = 0; f < 2; f++) {
+        b.push(0x2c, 0, 0, 0, 0, 0x20, 0x4e, 0x20, 0x4e, 0x00, 0x02, 0x01, 0x00, 0x00);
+      }
+      b.push(0x3b);
+      const data = Buffer.from(b).toString("base64");
+      const out = await fitImageBlockForDisplay({ data, mimeType: "image/gif" });
+      expect(out.failed).toBe(true);
+      expect(out.exempt).toBeFalsy();
+    });
+
+    it("a WITHIN-BOUNDS animated GIF is still exempted, not fitted", async () => {
+      const b: number[] = [...Buffer.from("GIF89a", "ascii"), 1, 0, 1, 0, 0x00, 0, 0];
+      for (let f = 0; f < 2; f++) {
+        b.push(0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0x00, 0x02, 0x01, 0x00, 0x00);
+      }
+      b.push(0x3b);
+      const data = Buffer.from(b).toString("base64");
+      const out = await fitImageBlockForDisplay({ data, mimeType: "image/gif" });
+      expect(out.exempt).toBe(true); // D11 preserved
+      expect(out.failed).toBeFalsy();
+    });
 
     it("a supported mime whose header cannot be parsed is failed, not decoded", async () => {
       // Fail CLOSED: if we cannot bound the allocation, we do not attempt it.
