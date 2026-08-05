@@ -56,7 +56,7 @@ All L1 rows extend `packages/server/src/__tests__/memory-event-store.test.ts`
 - [ ] 3.11 X4/X5/X6 recovery + eviction (test-plan #X4 #X5 #X6) — input evicted blob with
       transcript intact / at 2 GB cap / transcript deleted · trigger GET · observable
       recovered / still retrievable / clean 404 without crash.
-- [ ] 3.12 X7/X8/X9 worker faults (test-plan #X7 #X8 #X9) — input worker crash / saturated pool
+- [x] 3.12 X7/X8/X9 worker faults (test-plan #X7 #X8 #X9) — input worker crash / saturated pool
       / undecodable bytes · trigger ingest · observable message stored with `data.message`,
       attachment resolves to failed state, event loop not blocked.
 - [x] 3.13 X10 animated GIF (test-plan #X10) — input animated GIF over bound · trigger
@@ -79,13 +79,13 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
       trigger send, then fitting completes · observable row present before any image,
       placeholder in the attachment position, converging to `<img>` in the same position
       with row count unchanged.
-- [ ] 4.2 F3 fitting failure is honest (test-plan #F3) — input corrupt image bytes ·
+- [x] 4.2 F3 fitting failure is honest (test-plan #F3) — input corrupt image bytes ·
       trigger fitting fails · observable explicit failed state, row still present, no
       indefinite pending.
 - [ ] 4.3 F4 reload mid-fit (test-plan #F4) — input 10.5 MB attachment · trigger reload
       before fitting completes · observable row renders; attachment resolves or shows
       failed state.
-- [ ] 4.4 F5/F6 original view (test-plan #F5 #F6) — input rendered fitted image; then a
+- [x] 4.4 F5/F6 original view (test-plan #F5 #F6) — input rendered fitted image; then a
       404 from the original endpoint · trigger user opens it · observable full-resolution
       original byte-identical to input; on failure the fitted image still renders and only
       zoom degrades.

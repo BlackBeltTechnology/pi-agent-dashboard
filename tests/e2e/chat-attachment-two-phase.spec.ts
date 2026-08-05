@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
+import { spawnFreshGitSession } from "./helpers/index.js";
 
 // Two-phase attachment render (change: fit-attachments-for-display).
 //
@@ -16,6 +16,11 @@ import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
 // The attachment is injected through the REAL user path: a synthetic
 // ClipboardEvent carrying a File, which is exactly what useImagePaste's
 // `handlePaste` consumes (`e.clipboardData.items`).
+//
+// Sends are driven with Enter rather than clicking the send button: holding a
+// multi-MB base64 in composer state makes the button's actionability check
+// intermittently stall (visible+enabled+stable, but the click never lands),
+// while Enter is both a real user path and immune to that.
 
 /**
  * Build a large PNG in the page and paste it into the composer.
@@ -88,7 +93,7 @@ test.describe("chat attachments — two-phase render", () => {
     });
 
     await composer.fill("here is the screenshot");
-    await byTestId(page, "sendButton").click();
+    await composer.press("Enter");
 
     const userRow = page.locator("[data-role='user'], [data-testid='chat-message-user']").last();
     const pending = page.getByTestId("attachment-pending");
@@ -143,7 +148,7 @@ test.describe("chat attachments — two-phase render", () => {
       timeout: 15_000,
     });
     await composer.fill("reload me");
-    await byTestId(page, "sendButton").click();
+    await composer.press("Enter");
 
     await expect(page.getByTestId("attachment-image").first()).toBeVisible({ timeout: 60_000 });
 
@@ -153,4 +158,129 @@ test.describe("chat attachments — two-phase render", () => {
     await expect(page.getByText("reload me").first()).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId("attachment-image").first()).toBeVisible({ timeout: 60_000 });
   });
+
+  test("F3: undecodable bytes resolve to an explicit failed state, not a stuck placeholder", async ({
+    page,
+  }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+
+    const composer = page.getByPlaceholder(/message/i).first();
+    await composer.waitFor({ state: "visible", timeout: 30_000 });
+
+    // A File that CLAIMS image/png but carries garbage. The client accepts it
+    // (mime is allow-listed), so the server is the first thing that actually
+    // tries to decode it — which is the failure this scenario is about.
+    await page.evaluate(() => {
+      const file = new File([new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9])], "broken.png", {
+        type: "image/png",
+      });
+      const composerEl = Array.from(document.querySelectorAll("textarea")).find((t) =>
+        /message/i.test(t.getAttribute("placeholder") ?? ""),
+      )!;
+      composerEl.focus();
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      composerEl.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }),
+      );
+    });
+
+    await expect(page.locator("img[class*='h-16'][src^='data:image/']").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await composer.fill("this one is broken");
+    await composer.press("Enter");
+
+    // The message row must survive regardless — the attachment failing is not
+    // allowed to take the message with it.
+    await expect(page.getByText("this one is broken").first()).toBeVisible({ timeout: 60_000 });
+
+    // And the attachment must reach an EXPLICIT failed state; a placeholder
+    // left pending forever is the specific regression this guards.
+    await expect(page.getByTestId("attachment-failed").first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("attachment-pending")).toHaveCount(0, { timeout: 60_000 });
+  });
+
+  test("F5: clicking the fitted image opens the full-resolution original", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+
+    const composer = page.getByPlaceholder(/message/i).first();
+    await composer.waitFor({ state: "visible", timeout: 30_000 });
+    await pasteLargeImage(page, 1600, 1200);
+    await expect(page.locator("img[class*='h-16'][src^='data:image/']").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await composer.fill("open me full size");
+    await composer.press("Enter");
+
+    const image = page.getByTestId("attachment-image");
+    // Wait for the SERVER's fitted derivative (not the optimistic echo).
+    await expect
+      .poll(
+        async () =>
+          await image.first().evaluate((el) => (el as HTMLImageElement).naturalWidth).catch(() => -1),
+        { timeout: 90_000 },
+      )
+      .toBeLessThanOrEqual(768);
+
+    await image.first().click();
+
+    const lightbox = page.getByTestId("lightbox-image");
+    await expect(lightbox).toBeVisible({ timeout: 15_000 });
+    // Zoom targets the session-scoped originals endpoint, not the inline data URL.
+    await expect(lightbox).toHaveAttribute("src", /\/api\/sessions\/.+\/attachments\/[0-9a-f]{64}/);
+    // ...and it really is the ORIGINAL: larger than the 768px display bound.
+    await expect
+      .poll(
+        async () => await lightbox.evaluate((el) => (el as HTMLImageElement).naturalWidth),
+        { timeout: 30_000, message: "lightbox should load the full-resolution original" },
+      )
+      .toBeGreaterThan(768);
+  });
+
+  test("F6: a failing original degrades only the zoom, never the transcript", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+
+    const composer = page.getByPlaceholder(/message/i).first();
+    await composer.waitFor({ state: "visible", timeout: 30_000 });
+    await pasteLargeImage(page, 1600, 1200);
+    await expect(page.locator("img[class*='h-16'][src^='data:image/']").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await composer.fill("original will 404");
+    await composer.press("Enter");
+
+    const image = page.getByTestId("attachment-image");
+    await expect
+      .poll(
+        async () =>
+          await image.first().evaluate((el) => (el as HTMLImageElement).naturalWidth).catch(() => -1),
+        { timeout: 90_000 },
+      )
+      .toBeLessThanOrEqual(768);
+
+    // Force the originals endpoint to fail for the zoom request only.
+    await page.route("**/api/sessions/*/attachments/*", (route) =>
+      route.fulfill({ status: 404, contentType: "application/json", body: '{"success":false}' }),
+    );
+
+    await image.first().click();
+    const lightbox = page.getByTestId("lightbox-image");
+    await expect(lightbox).toBeVisible({ timeout: 15_000 });
+
+    // The zoom falls back to the fitted derivative instead of an empty frame.
+    await expect(lightbox).toHaveAttribute("data-degraded", "true", { timeout: 20_000 });
+    await expect
+      .poll(async () => await lightbox.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
+        timeout: 20_000,
+      })
+      .toBeGreaterThan(0);
+
+    // The transcript image itself is untouched — only the zoom degraded.
+    await expect(image.first()).toBeVisible();
+  });
 });
+
