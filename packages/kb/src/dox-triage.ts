@@ -12,7 +12,7 @@
 // hashes to that value pinpoints what a human last signed off on. `git diff`
 // from there is exactly what the row has never been reconciled against — small
 // enough to hand to a cheap model, specific enough to judge.
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns the git history walk, no pi-dashboard-shared dep)
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";

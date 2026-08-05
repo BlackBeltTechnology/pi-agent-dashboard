@@ -5,8 +5,8 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 
 // Mock the shared openspec poller. We expose three entry points now:
 //   - pollOpenSpecAsync: legacy monolithic (still used as fallback where no mtime gate applies)
@@ -72,6 +72,7 @@ function createMockPreferencesStore(pinnedDirs: string[] = []): PreferencesStore
     setWorkspaceCollapsed: vi.fn(() => false),
     addFolderToWorkspace: vi.fn(() => false),
     removeFolderFromWorkspace: vi.fn(() => false),
+    moveFolderToWorkspace: vi.fn(() => false),
     reorderWorkspaceFolders: vi.fn(() => false),
     reorderWorkspaces: vi.fn(() => false),
     flush: vi.fn(),
