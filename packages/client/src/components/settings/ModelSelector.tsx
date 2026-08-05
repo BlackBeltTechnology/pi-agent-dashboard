@@ -2,7 +2,7 @@ import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-sha
 import { mdiBrain, mdiChevronDown, mdiEye, mdiLoading, mdiRefresh, mdiStar, mdiStarOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { LIST_POPOVER_MIN_HEIGHT, usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 
@@ -118,12 +118,16 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
   // ~280px. `boundaryRef` is the composer/chat pane when rendered there (else
   // viewport). See change: fix-popover-container-clip.
   const boundaryRef = usePopoverBoundary();
-  const { flipUp, maxHeight, anchorRight, maxWidth } = usePopoverFlip(triggerRef, {
+  const { flipUp, maxHeight, minHeight, anchorRight, maxWidth } = usePopoverFlip(triggerRef, {
     open,
     estimatedWidth: 320, // 20rem natural width
     minContentWidth: 280, // readable floor for the provider/model grid
     preferredAnchor: "left",
     boundaryRef,
+    // Filterable list: typing narrows it to a couple of rows, so it needs the
+    // generous floor rather than collapsing to a sliver.
+    // See change: fix-popover-pane-bounded-height.
+    minPopoverHeight: LIST_POPOVER_MIN_HEIGHT,
   });
 
   const hasModels = !!models && models.length > 0;
@@ -318,7 +322,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
           } ${flipUp ? "bottom-full mb-1" : "top-full mt-1"}`}
           // Natural width 320px, capped by the pane-aware `maxWidth` (the hook
           // flips before it would squish below `minContentWidth`).
-          style={{ width: Math.min(320, maxWidth), maxHeight }}
+          style={{ width: Math.min(320, maxWidth), maxHeight, minHeight }}
           data-testid="model-dropdown"
           id={dropdownId}
         >

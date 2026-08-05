@@ -49,7 +49,7 @@ import { TagDeleteConfirmDialog } from "../tags/TagDeleteConfirmDialog.js";
 import { TagFilterGroup } from "../tags/TagFilterGroup.js";
 import { AddToWorkspaceMenu } from "../workspace/AddToWorkspaceMenu.js";
 import { NewWorkspaceDialog } from "../workspace/NewWorkspaceDialog.js";
-import { PinDirectoryDialog } from "../workspace/PinDirectoryDialog.js";
+import { AddFoldersDialog } from "../workspace/AddFoldersDialog.js";
 import { PinnedTierDropZone } from "../workspace/PinnedTierDropZone.js";
 import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
 import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
@@ -913,53 +913,81 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   useEffect(() => clearPendingReveal, [clearPendingReveal]);
 
   /**
-   * folder-workspaces: same as renderGroup but injects an "Add to
-   * workspace" affordance inside the header. Used for top-level groups
-   * only. Workspace-tier folders use the plain renderGroup since their
-   * membership is already established.
+   * folder-workspaces: same as renderGroup but with the "Add to workspace"
+   * affordance switched on. Used for top-level groups only — workspace-tier
+   * folders use the plain renderGroup since their membership is already
+   * established.
+   *
+   * The affordance used to be a `+ws` text token in an `absolute top-1 right-7`
+   * layer floating OUTSIDE the row's icon cluster. It is now an icon button
+   * rendered by renderGroup inside the cluster itself, so this wrapper is a
+   * thin flag-flip. See change: redesign-folder-workspace-add-flow.
    */
   function renderGroupWithWorkspaceMenu(group: DirectoryGroup, isPinned: boolean) {
-    const owningWsId = folderWorkspaceMap.get(group.cwd) ?? null;
-    const menuOpen = addToWsMenuFor === group.cwd;
-    // Add-to-workspace affordance flows inline in the header action row (with
-    // the open-home / pin icons) rather than floating over the card corner —
-    // a full-width pill overlaps those icons when absolutely positioned.
     const workspaceAction =
-      onCreateWorkspace || (workspaces && workspaces.length > 0) ? (
-        <div className="relative ml-auto">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setAddToWsMenuFor(menuOpen ? null : group.cwd);
-            }}
-            className="text-xs px-2 py-1 rounded border flex items-center gap-0.5 text-blue-500 border-blue-500/40 bg-blue-500/5 hover:text-blue-400 hover:border-blue-500/70"
-            title={t("sessionList.addToWorkspace", undefined, "Add to workspace")}
-            data-testid={`add-to-workspace-btn-${group.cwd}`}
-          >
-            <Icon path={mdiViewGridPlus} size={0.55} /> {t("sessionList.workspace", undefined, "Workspace")}
-          </button>
-          {menuOpen && (
-            <AddToWorkspaceMenu
-              workspaces={workspaces ?? []}
-              currentWorkspaceId={owningWsId}
-              onPick={(wsId) => {
-                onAddFolderToWorkspace?.(wsId, group.cwd);
-                setAddToWsMenuFor(null);
-              }}
-              onNewWorkspace={() => {
-                setNewWsOpen({ pendingFolder: group.cwd });
-                setAddToWsMenuFor(null);
-              }}
-              onRemoveFromWorkspace={() => {
-                if (owningWsId) onRemoveFolderFromWorkspace?.(owningWsId, group.cwd);
-                setAddToWsMenuFor(null);
-              }}
-              onClose={() => setAddToWsMenuFor(null)}
-            />
-          )}
-        </div>
-      ) : null;
+      onCreateWorkspace || (workspaces && workspaces.length > 0)
+        ? renderAddToWorkspaceButton(
+            group.cwd,
+            t("sessionList.addToWorkspace", undefined, "Add to workspace"),
+            `folder:${group.cwd}`,
+            `add-to-workspace-btn-${group.cwd}`,
+            "ml-auto",
+          )
+        : null;
     return renderGroup(group, isPinned, false, undefined, workspaceAction);
+  }
+
+  /**
+   * Add-to-workspace affordance: an `mdiViewGridPlus` + "Workspace" pill.
+   * PRESENTATION is add-to-workspace-affordance's labelled pill (a bare icon
+   * or the old `+ws` token did not read as "add to a workspace"). BEHAVIOUR is
+   * ours: the popover flag is keyed by SCOPE, and `aria-label`/`title` carry
+   * the full verb while `aria-expanded` tracks the popover.
+   * See change: redesign-folder-workspace-add-flow.
+   */
+  function renderAddToWorkspaceButton(cwd: string, label: string, scopeKey: string, testId: string, wrapperClass = "") {
+    const owningWsId = folderWorkspaceMap.get(cwd) ?? null;
+    // Keyed by SCOPE, not by cwd: a session card and its folder row share a cwd,
+    // so a cwd-keyed flag would pop both menus at once.
+    const menuOpen = addToWsMenuFor === scopeKey;
+    return (
+      <span className={`relative inline-flex ${wrapperClass}`}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setAddToWsMenuFor(menuOpen ? null : scopeKey);
+          }}
+          className="focus-ring text-xs px-2 py-1 min-h-[44px] md:min-h-0 rounded border inline-flex items-center gap-0.5 text-blue-500 border-blue-500/40 bg-blue-500/5 hover:text-blue-400 hover:border-blue-500/70"
+          title={label}
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          data-testid={testId}
+        >
+          <Icon path={mdiViewGridPlus} size={0.55} /> {t("sessionList.workspace", undefined, "Workspace")}
+        </button>
+        {menuOpen && (
+          <AddToWorkspaceMenu
+            workspaces={workspaces ?? []}
+            currentWorkspaceId={owningWsId}
+            onPick={(wsId) => {
+              onAddFolderToWorkspace?.(wsId, cwd);
+              setAddToWsMenuFor(null);
+            }}
+            onNewWorkspace={() => {
+              setNewWsOpen({ pendingFolder: cwd });
+              setAddToWsMenuFor(null);
+            }}
+            onRemoveFromWorkspace={() => {
+              if (owningWsId) onRemoveFolderFromWorkspace?.(owningWsId, cwd);
+              setAddToWsMenuFor(null);
+            }}
+            onClose={() => setAddToWsMenuFor(null)}
+          />
+        )}
+      </span>
+    );
   }
 
   function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string, headerAction?: React.ReactNode) {
@@ -1017,12 +1045,30 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             title={t("sessionList.openFolderHome", undefined, "Open folder home")}
             data-testid={`folder-home-row-${group.cwd}`}
           >
-            <span className="text-xs font-medium text-[var(--text-secondary)] truncate flex items-center gap-1">
+            {/* Name region absorbs ALL horizontal squeeze (`min-w-0`) so the
+                action cluster below never wraps. Truncation priority: the
+                parent path may collapse entirely, the leaf folder name keeps a
+                legible 6ch floor — the name is the payload, the path is only
+                context. See change: redesign-folder-workspace-add-flow. */}
+            <span
+              className="text-xs font-medium text-[var(--text-secondary)] min-w-0 overflow-hidden flex items-center gap-1"
+              data-testid={`folder-header-name-${group.cwd}`}
+            >
               <Icon path={isCollapsed ? mdiFolder : mdiFolderOpen} size={0.5} className="shrink-0" />
-              <span className="truncate">{parentPath}</span>
-              <span className="font-bold text-base truncate">{lastSegment}</span>
+              <span
+                className="truncate flex-[0_1_auto] min-w-0"
+                data-testid={`folder-header-parent-${group.cwd}`}
+              >
+                {parentPath}
+              </span>
+              <span
+                className="font-bold text-base truncate flex-[0_1_auto] min-w-[6ch]"
+                data-testid={`folder-header-leaf-${group.cwd}`}
+              >
+                {lastSegment}
+              </span>
             </span>
-            <span className="text-[10px] text-[var(--text-muted)]">({group.sessions.length})</span>
+            <span className="text-[10px] text-[var(--text-muted)] shrink-0">({group.sessions.length})</span>
             {/* Needs-you rollup: count of chat-routed ask_user children.
                 Pill resolves the target id (widget-bar excluded) and passes it
                 up; we select + scroll it into view.
@@ -1046,6 +1092,15 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 covered by the pill above. See change:
                 condense-collapsed-folder-header. */}
             {isCollapsed && <FolderStatusRollup sessions={group.sessions} />}
+            {/* Trailing action cluster — `flex-none` + `whitespace-nowrap` pins
+                it to the top-right at any sidebar width; it never wraps to a
+                second row and never leaves the card. Order:
+                sort · add-to · home · pin (· remove, workspace rows only).
+                See change: redesign-folder-workspace-add-flow. */}
+            <span
+              className="ml-auto flex items-center gap-px flex-none whitespace-nowrap"
+              data-testid={`folder-header-cluster-${group.cwd}`}
+            >
             {/* Opt-in per-folder urgency sort toggle (default off). Floats
                 blocked sessions to the top. See change:
                 improve-dashboard-attention-routing. */}
@@ -1063,8 +1118,10 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 is irrelevant for visibility/ordering there. The pin state
                 itself is preserved on the server (orthogonal to workspace
                 membership). See change: folder-workspaces. */}
-            {/* Add-to-workspace pill (top-level groups only). ml-auto on its
-                wrapper right-aligns this whole action cluster. */}
+            {/* Add-to-workspace pill — top-level rows only (a workspace-tier
+                folder already has its membership). Sits between sort and
+                open-home so it borrows the cluster's "these organise the
+                folder" meaning; its ml-auto right-aligns the cluster. */}
             {headerAction}
             {/* Open the directory home page. Distinct from the collapse toggle
                 (the name row) and the drag gutter (a sibling) — stopPropagation
@@ -1119,6 +1176,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 <Icon path={mdiClose} size={0.5} />
               </button>
             )}
+            </span>
           </div>
           {/* Collapsed density (variant B): when collapsed, the heavy slots
               (git · action bar · plugin sections · OpenSpec proposal state ·
@@ -1362,6 +1420,18 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                         isHidden={!!session.hidden}
                         onHide={handleHide}
                         onUnhide={handleUnhide}
+                        // Same add-to-workspace glyph as the folder row, scoped
+                        // to this session's cwd. Passed as a render prop so the
+                        // card reuses the popover without threading workspace
+                        // state. See change: redesign-folder-workspace-add-flow.
+                        renderAddToWorkspace={onCreateWorkspace || (workspaces && workspaces.length > 0)
+                          ? () => renderAddToWorkspaceButton(
+                              session.cwd,
+                              t("sessionList.addCwdToWorkspace", undefined, "Add cwd to workspace…"),
+                              `session:${session.id}`,
+                              `session-card-add-to-workspace-${session.id}`,
+                            )
+                          : undefined}
 
                         contextUsage={contextUsageMap?.get(session.id)}
                         openspecChanges={openspecMap?.get(session.cwd)?.changes}
@@ -1745,18 +1815,19 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         />
       )}
       {pickFolderForWsId && (
-        <PinDirectoryDialog
+        // Workspace-scoped `+ Add Folder` — the same multi-select dialog with
+        // THIS workspace preselected as the destination (still retargetable).
+        // Pin is implicit and sent first, so removing the folder from the
+        // workspace later leaves it visible at root instead of vanishing.
+        // See change: redesign-folder-workspace-add-flow.
+        <AddFoldersDialog
+          workspaces={workspaces ?? []}
+          initialWorkspaceId={pickFolderForWsId}
+          sessionCwds={sessions.map((s) => s.cwd)}
           onCancel={() => setPickFolderForWsId(null)}
-          onPin={(path) => {
-            // Workspace-scoped pin: add to workspace (authoritative) AND
-            // silently pin (kept in pinnedDirectories so removal from the
-            // workspace later returns the folder to top-level pinned).
-            // Workspace folders don't display pin state, so the pin is
-            // invisible to the user inside the container.
-            onAddFolderToWorkspace?.(pickFolderForWsId, path);
-            onPinDirectory?.(path);
-            setPickFolderForWsId(null);
-          }}
+          onPin={(path) => onPinDirectory?.(path)}
+          onAddFolderToWorkspace={(wsId, path) => onAddFolderToWorkspace?.(wsId, path)}
+          onCreateWorkspace={onCreateWorkspace ? (name) => onCreateWorkspace(name) : undefined}
         />
       )}
       {hiddenCount > 0 && !showHidden && (

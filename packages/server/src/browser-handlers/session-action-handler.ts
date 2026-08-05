@@ -14,7 +14,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
 import { createBranchedSessionFile } from "../session/session-file-reader.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
-import { spawnPiSession } from "../spawn-process/process-manager.js";
+import { getKeeperManager, spawnPiSession } from "../spawn-process/process-manager.js";
 import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
@@ -265,6 +265,20 @@ export async function handleSendPrompt(
   }
 }
 
+/**
+ * Is a process carrier still holding this session? Keeper sidecar probe
+ * (keeper PID + pi PID). Never throws — an unprobeable carrier reads as dead
+ * so a genuine loss is never blocked from resuming.
+ * See change: fix-recovery-exit-intent (task 6.1).
+ */
+function isSessionCarrierAlive(sessionId: string): boolean {
+  try {
+    return getKeeperManager().isKeeperAlive(sessionId);
+  } catch {
+    return false;
+  }
+}
+
 export async function handleResumeSession(
   msg: Extract<BrowserToServerMessage, { type: "resume_session" }>,
   ctx: BrowserHandlerContext,
@@ -301,6 +315,17 @@ export async function handleResumeSession(
   }
   if (session.resuming) {
     sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already being resumed", code: "resume.already_resuming", requestId: msg.requestId });
+    return;
+  }
+  // Last line of defence before we spawn: PROBE the process rather than trust
+  // upstream state. Every guard above reads in-memory status or a timing
+  // window — exactly the assumptions that broke in this bug's lineage and
+  // produced a second pi for one sessionId (gateway session→connection map is
+  // last-write-wins, so message routing dies). A live keeper means the session
+  // never needed reopening. See change: fix-recovery-exit-intent (D7).
+  if (msg.mode === "continue" && isSessionCarrierAlive(msg.sessionId)) {
+    console.info(`[recovery] refused reopen of ${msg.sessionId}: keeper still alive`);
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "This session is still running", code: "resume.already_active", requestId: msg.requestId });
     return;
   }
   // Fork preflight: silent-degrade when the source session has no on-disk

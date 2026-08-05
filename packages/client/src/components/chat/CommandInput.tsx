@@ -3,7 +3,7 @@ import { mdiAlertOctagon, mdiClipboardText, mdiConsole, mdiDotsHorizontal, mdiEy
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useImagePaste } from "../../hooks/useImagePaste.js";
-import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { LIST_POPOVER_MIN_HEIGHT, usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import type { ChatMessage } from "../../lib/chat/event-reducer.js";
 import { extractRecentUrls } from "../../lib/preview/extract-urls.js";
@@ -370,11 +370,28 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     : dropdownMode === "file" ? (fileItems.length + urlItems.length)
     : 0;
 
-  // Flip the autocomplete dropdown above/below the composer based on viewport
+  // Chat/composer/directory-home pane when a provider supplies it (else
+  // viewport). See change: fix-popover-container-clip.
+  const boundaryRef = usePopoverBoundary();
+
+  // Flip the autocomplete dropdown above/below the composer based on available
   // space; clamp height so it never runs off-screen. See change:
   // fix-popover-viewport-flip.
-  const { flipUp: ddFlipUp, maxHeight: ddMaxHeight } = usePopoverFlip(composerRef, {
+  //
+  // `left-3 right-3` pins both composer edges, so this dropdown stays immune on
+  // the HORIZONTAL axis — but it applies a height bound, and an offset pane's
+  // bottom edge sits above the viewport's, so the vertical axis must measure
+  // against the pane or the dropdown overruns it. See change:
+  // fix-popover-pane-bounded-height (task 5.6).
+  const {
+    flipUp: ddFlipUp,
+    maxHeight: ddMaxHeight,
+    minHeight: ddMinHeight,
+  } = usePopoverFlip(composerRef, {
     open: dropdownMode !== null,
+    boundaryRef,
+    // Filterable list (commands / files narrow as you type) — generous floor.
+    minPopoverHeight: LIST_POPOVER_MIN_HEIGHT,
   });
 
   // Attach (＋) menu boundary-awareness (fix-popover-container-clip): the
@@ -382,7 +399,10 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   // pane narrows to its 25% floor (~222px < 224px menu). Measure the horizontal
   // axis against the chat pane so it clamps/flips within the pane; vertical
   // stays hardcoded `bottom-full` (composer sits at the pane bottom).
-  const boundaryRef = usePopoverBoundary();
+  // Height-agnostic on purpose: this menu consumes only the horizontal axis
+  // (`anchorRight`/`maxWidth`) — its vertical placement is a hardcoded
+  // `bottom-full` and it applies no height bound, so there is no floor to lose.
+  // See change: fix-popover-pane-bounded-height (task 4.6).
   const { anchorRight: attachAnchorRight, maxWidth: attachMaxWidth } = usePopoverFlip(attachBtnRef, {
     open: attachOpen,
     estimatedWidth: 224, // w-56
@@ -829,13 +849,14 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       className="border-t border-[var(--border-primary)] p-3 relative"
     >
       {/* Autocomplete dropdown — grouped by source with badges + arg hints.
-          Structurally immune to the container-clip class (fix-popover-container-clip):
-          `left-3 right-3` pins BOTH composer edges, so it can never overflow the
-          pane on either side regardless of offset — no boundaryRef needed. */}
+          `left-3 right-3` pins BOTH composer edges, so it stays immune to the
+          container-clip class HORIZONTALLY (fix-popover-container-clip). Its
+          height bound is boundary-measured though — see the hook call above
+          (fix-popover-pane-bounded-height). */}
       {dropdownMode === "command" && (
 
         <div
-          style={{ maxHeight: ddMaxHeight }}
+          style={{ maxHeight: ddMaxHeight, minHeight: ddMinHeight }}
           className={`absolute left-3 right-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-y-auto shadow-lg z-10 ${
             ddFlipUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
@@ -880,7 +901,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           command dropdown → structurally immune to the container clip. */}
       {dropdownMode === "file" && (
         <div
-          style={{ maxHeight: ddMaxHeight }}
+          style={{ maxHeight: ddMaxHeight, minHeight: ddMinHeight }}
           className={`absolute left-3 right-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-y-auto shadow-lg z-10 ${
             ddFlipUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}

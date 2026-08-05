@@ -117,9 +117,36 @@ const child = spawn(
   { stdio: "inherit", windowsHide: true },
 );
 
+// Forward termination signals to the real server child.
+//
+// This wrapper is the process every external supervisor sees: it owns
+// `argv[1]`, so `kill <pid>`, a service manager tracking the CLI pid, and
+// Ctrl-C in a foreground shell all land HERE, not on the child. Without
+// forwarding, the wrapper died on SIGTERM and left the server child orphaned
+// and running — which also meant the server's own SIGTERM/SIGINT handler
+// (records `exitIntent:"signal"`, flushes `.meta.json` writes) never ran on
+// this path. Verified live: `kill <wrapper-pid>` left the server answering
+// /api/health with no exit intent recorded.
+//
+// Idempotent: repeat signals re-forward harmlessly; the child's own handler
+// is itself idempotent. After the child exits, the `exit` handler below
+// re-raises so the parent shell still sees the true exit reason.
+// See change: fix-recovery-exit-intent (task 3.5).
+for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+  process.on(sig, () => {
+    try {
+      child.kill(sig);
+    } catch {
+      /* child already gone — the exit handler below still fires */
+    }
+  });
+}
+
 child.on("exit", (code, signal) => {
   if (signal) {
     // Re-raise the signal so the parent shell sees the same exit reason.
+    // Drop our own handler first, or the re-raise is swallowed by it.
+    process.removeAllListeners(signal);
     process.kill(process.pid, signal);
   } else {
     process.exit(code ?? 0);

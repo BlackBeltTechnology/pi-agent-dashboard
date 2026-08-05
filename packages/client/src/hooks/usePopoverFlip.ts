@@ -7,6 +7,21 @@
  * never overflows the screen edge — the list scrolls internally as a last
  * resort.
  *
+ * Height comes back as TWO independent values and consumers MUST apply both:
+ *   - `maxHeight` is the BOUND: the available space in the chosen direction,
+ *     never inflated by any floor (a floor applied after clamping can exceed
+ *     the space it was clamped to and push the popover past the boundary edge).
+ *   - `minHeight` is the FLOOR: `min(minPopoverHeight, availableSpace)` — it
+ *     raises a short popover to a readable height but can never exceed the
+ *     bound. When space is below the floor the two collapse onto each other.
+ * The popover's rendered height is then its natural content height clamped
+ * between them, performed by the browser during normal layout: apply both as
+ * styles on a box whose content region carries `overflow-y-auto`. Nothing here
+ * measures content — the measure path runs on every window `resize`/`scroll`
+ * plus boundary `scroll`/`ResizeObserver`, so reading a content metric like
+ * `scrollHeight` would force a reflow on every scroll frame. It stays pure rect
+ * arithmetic.
+ *
  * On the horizontal axis it additionally measures the trigger's left/right
  * viewport space and returns an `anchorRight` edge selection plus a clamped
  * `maxWidth`, so a right-anchored popover in a slim container flips toward the
@@ -30,6 +45,7 @@
  * See change: fix-popover-viewport-flip.
  * See change: fix-popover-horizontal-flip.
  * See change: fix-popover-container-clip.
+ * See change: fix-popover-pane-bounded-height.
  */
 import { useCallback, useLayoutEffect, useState } from "react";
 
@@ -69,13 +85,29 @@ export interface PopoverFlipOptions {
    * when neither side fits does it clamp. Default 0 (no minimum).
    */
   minContentWidth?: number;
+  /**
+   * Readable-height floor returned as `minHeight` (itself capped by available
+   * space). Per-consumer rather than global: filterable list popovers want a
+   * generous floor (≈260) while short fixed menus would render dead space at
+   * that height. Default `MIN_POPOVER_HEIGHT`.
+   * See change: fix-popover-pane-bounded-height (Decision 6).
+   */
+  minPopoverHeight?: number;
 }
 
 export interface PopoverFlipState {
   /** True → render the popover above the trigger (`bottom-full mb-1`). */
   flipUp: boolean;
-  /** Clamped max height (px) for the popover in the chosen direction. */
+  /**
+   * BOUND: available space (px) in the chosen direction. Never inflated by the
+   * floor, so applying it can never push the popover past the boundary edge.
+   */
   maxHeight: number;
+  /**
+   * FLOOR: `min(minPopoverHeight, maxHeight)`. Apply alongside `maxHeight` —
+   * a consumer that applies only `maxHeight` silently loses its minimum height.
+   */
+  minHeight: number;
   /**
    * True → anchor the popover to the right edge (`right-0`, extends left);
    * false → anchor to the left edge (`left-0`, extends right). Defaults to
@@ -86,8 +118,10 @@ export interface PopoverFlipState {
   maxWidth: number;
 }
 
-/** Minimum popover height so it never collapses to nothing. */
+/** Default readable-height floor (`minHeight`) so a popover is never a sliver. */
 export const MIN_POPOVER_HEIGHT = 120;
+/** Floor for filterable list popovers, which read as cramped at the default. */
+export const LIST_POPOVER_MIN_HEIGHT = 260;
 /** Minimum popover width so it never collapses to nothing. */
 export const MIN_POPOVER_WIDTH = 160;
 const DEFAULT_GAP = 8;
@@ -96,6 +130,8 @@ const DEFAULT_THRESHOLD = 200;
 const CLOSED_STATE: PopoverFlipState = {
   flipUp: false,
   maxHeight: MIN_POPOVER_HEIGHT,
+  // A closed popover renders nothing, so it asserts no floor.
+  minHeight: 0,
   anchorRight: true,
   maxWidth: MIN_POPOVER_WIDTH,
 };
@@ -113,6 +149,7 @@ export function usePopoverFlip(
     boundaryRef,
     preferredAnchor = "right",
     minContentWidth = 0,
+    minPopoverHeight = MIN_POPOVER_HEIGHT,
   } = options;
   const [state, setState] = useState<PopoverFlipState>(CLOSED_STATE);
 
@@ -149,7 +186,14 @@ export function usePopoverFlip(
     const spaceBelow = bottomEdge - rect.bottom - gap;
     const spaceAbove = rect.top - topEdge - gap;
     const flipUp = spaceBelow < Math.min(estimatedHeight, threshold) && spaceAbove > spaceBelow;
-    const maxHeight = Math.max(MIN_POPOVER_HEIGHT, flipUp ? spaceAbove : spaceBelow);
+    // The bound is the raw available space. `Math.max(0, …)` only guards the
+    // degenerate case where the trigger has scrolled outside the boundary in
+    // both directions: a negative CSS `max-height` is invalid and would be
+    // dropped by the browser, leaving the popover unbounded — the very failure
+    // this bound exists to prevent. It never inflates a real space.
+    const maxHeight = Math.max(0, flipUp ? spaceAbove : spaceBelow);
+    // The floor can never exceed the bound, so it can never cause overflow.
+    const minHeight = Math.min(minPopoverHeight, maxHeight);
 
     // Horizontal axis. Right-anchored (`right-0`) popovers extend leftward from
     // the trigger's right edge → room is `rect.right - leftEdge`. Left-anchored
@@ -170,8 +214,8 @@ export function usePopoverFlip(
     const anchorRight = preferLeft ? flipHorizontal : !flipHorizontal;
     const chosenSpace = flipHorizontal ? otherSpace : preferredSpace;
     const maxWidth = Math.max(MIN_POPOVER_WIDTH, chosenSpace);
-    setState({ flipUp, maxHeight, anchorRight, maxWidth });
-  }, [triggerRef, boundaryRef, estimatedHeight, gap, threshold, estimatedWidth, preferredAnchor, minContentWidth]);
+    setState({ flipUp, maxHeight, minHeight, anchorRight, maxWidth });
+  }, [triggerRef, boundaryRef, estimatedHeight, gap, threshold, estimatedWidth, preferredAnchor, minContentWidth, minPopoverHeight]);
 
   // Measure BEFORE paint (layout effect): a plain effect paints one frame at the
   // initial CLOSED_STATE (right-0, 160px floor) before the corrected anchor/size
