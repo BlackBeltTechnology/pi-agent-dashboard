@@ -68,7 +68,8 @@ describe("dox-triage: baseline resolution from a content hash", () => {
   it("finds the commit whose blob matches the acked hash", () => {
     const r = resolveBaseline({ cwd: repo, file: "a.ts", ackedSha: v1Sha, depth: 20 });
     expect(r.found).toBe(true);
-    expect(git(repo, "log", "-1", "--format=%s", r.commit).trim()).toBe("v1");
+    expect(r.commit).not.toBeNull();
+    expect(git(repo, "log", "-1", "--format=%s", r.commit!).trim()).toBe("v1");
   });
 
   it("returns a real diff between the acked state and HEAD", () => {
@@ -121,7 +122,7 @@ describe("dox-triage: work items", () => {
   it("pairs each stale issue with its row text and a diff", () => {
     const items = buildWorkItems({
       cwd: repo,
-      issues: [{ kind: "stale", agentsFile: "AGENTS.md", path: "a.ts" }],
+      issues: [{ kind: "stale", agentsFile: "AGENTS.md", path: "a.ts", detail: "hash mismatch" }],
       staleness: { "a.ts": sha("export const v = 1;\n") },
     });
     expect(items).toHaveLength(1);
@@ -133,7 +134,7 @@ describe("dox-triage: work items", () => {
   it("skips non-stale issue kinds", () => {
     const items = buildWorkItems({
       cwd: repo,
-      issues: [{ kind: "missing", agentsFile: "AGENTS.md", path: "a.ts" }],
+      issues: [{ kind: "missing", agentsFile: "AGENTS.md", path: "a.ts", detail: "no row" }],
       staleness: {},
     });
     expect(items).toHaveLength(0);
