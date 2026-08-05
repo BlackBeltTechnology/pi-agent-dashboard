@@ -238,7 +238,7 @@ describe("terminal-state closure + distinctness", () => {
 });
 
 describe("check mode", () => {
-  it("#E31: unprovisioned host --check reports would-be state, 0 writes, brew never invoked", () => {
+  it("#E31: unprovisioned host --check reports the would-be state, 0 writes, brew never invoked", () => {
     let brewCalled = false;
     const io = memIO();
     const r = runInstaller(
@@ -255,6 +255,24 @@ describe("check mode", () => {
     expect(r.state).toBe("READY_PENDING_GRANTS");
     expect(io.writes).toEqual([]);
     expect(brewCalled).toBe(false);
+
+    // Regression (found by QA on a real macOS host with brew but no iMCP):
+    // the predicted state must NOT be reported as an accomplished fact.
+    expect(r.appPresent).toBe(false);
+    expect(r.resolvedPath).toBeUndefined(); // never name a path that doesn't exist
+    expect(r.message).toMatch(/NOT installed/i);
+    expect(r.message).not.toMatch(/iMCP provisioned/i);
+  });
+
+  it("#E31b: --check on a genuinely provisioned host DOES report it as provisioned", () => {
+    const r = runInstaller(
+      makeEnv({ pathExists: (p) => p === DEFAULT_SERVER }),
+      { check: true },
+    );
+    expect(r.state).toBe("READY_PENDING_GRANTS");
+    expect(r.appPresent).toBe(true);
+    expect(r.resolvedPath).toBe(DEFAULT_SERVER);
+    expect(r.message).toMatch(/provisioned/i);
   });
 
   it("#E32: --check and write-mode report the same terminal state for identical host", () => {

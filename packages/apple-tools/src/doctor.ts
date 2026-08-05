@@ -15,8 +15,15 @@ export interface DoctorProbeResult {
   /** Terminal provisioning state (identical vocabulary to the CLI). */
   state: TerminalState;
   /**
+   * Whether iMCP.app is actually on disk. When false, `state` is a PREDICTION
+   * of what running the installer would reach — not an observation.
+   */
+  appPresent: boolean;
+  /**
    * Whether the operator must act. Always false on a non-macOS host — an
-   * unsupported platform is not a fault to remediate (#X19).
+   * unsupported platform is not a fault to remediate (#X19). True whenever the
+   * app is absent, even though the predicted state is a healthy one: a host
+   * without iMCP installed genuinely needs action.
    */
   requiresRemediation: boolean;
 }
@@ -34,7 +41,10 @@ export function doctorProbe(env: InstallerEnv, packagePresent: boolean): DoctorP
     packagePresent,
     supported,
     state: result.state,
-    // Non-macOS is never a remediation item; a healthy state needs no action.
-    requiresRemediation: supported && !HEALTHY.includes(result.state),
+    appPresent: result.appPresent,
+    // Non-macOS is never a remediation item. Otherwise the operator must act
+    // when the state is unhealthy OR the app simply isn't installed yet (the
+    // predicted-healthy case — caught by QA on a real host with brew but no iMCP).
+    requiresRemediation: supported && (!HEALTHY.includes(result.state) || !result.appPresent),
   };
 }

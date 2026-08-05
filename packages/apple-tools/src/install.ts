@@ -78,8 +78,19 @@ export interface InstallResult {
   state: TerminalState;
   exitCode: number;
   message: string;
-  /** Resolved imcp-server path when discovery/install succeeded. */
+  /**
+   * Resolved imcp-server path. Set ONLY when the binary actually exists — in
+   * check mode the traversal predicts what a write run would reach, and a
+   * prediction must never be reported as a discovered path.
+   */
   resolvedPath?: string;
+  /**
+   * Whether iMCP.app is on disk right now. False in check mode when the app is
+   * absent but installable, which is precisely when `state` is a PREDICTION
+   * rather than an observation. Every surface (CLI, doctor, panel) uses this to
+   * avoid claiming a host is provisioned when it is not.
+   */
+  appPresent: boolean;
 }
 
 export interface RunOptions {
@@ -91,7 +102,7 @@ const OK = 0;
 const ERR = 1;
 
 function fail(state: TerminalState, message: string): InstallResult {
-  return { state, exitCode: ERR, message };
+  return { state, exitCode: ERR, message, appPresent: false };
 }
 
 /**
@@ -108,6 +119,7 @@ export function runInstaller(env: InstallerEnv, opts: RunOptions = {}): InstallR
       state: "UNSUPPORTED_PLATFORM",
       exitCode: OK,
       message: "iMCP is macOS-only; nothing to provision on this platform.",
+      appPresent: false,
     };
   }
 
@@ -128,6 +140,9 @@ export function runInstaller(env: InstallerEnv, opts: RunOptions = {}): InstallR
 
   // 3. Discover imcp-server (override-as-preference, ordered candidate list).
   let resolved = discoverServer(env.homedir, env.pathExists, env.overridePath);
+  // Whether the app is really on disk, captured BEFORE any check-mode
+  // prediction overwrites `resolved`.
+  const appPresent = resolved !== null;
 
   // 4. Install branch when the binary is absent.
   if (!resolved) {
@@ -182,10 +197,27 @@ export function runInstaller(env: InstallerEnv, opts: RunOptions = {}): InstallR
 
   // 6. Terminal success. The installer never claims READY — only a live adapter
   //    round-trip (a granted tool call) can distinguish READY from pending.
+  //
+  //    In check mode with the app absent, `state` is a PREDICTION of what a
+  //    write run would reach. Reporting it as "provisioned", or naming the
+  //    predicted path as if discovered, would be a lie — so both are withheld.
+  if (check && !appPresent) {
+    return {
+      state: "READY_PENDING_GRANTS",
+      exitCode: OK,
+      appPresent: false,
+      message:
+        `iMCP is NOT installed. Homebrew is available, so running \`pi-apple-tools-install\` ` +
+        `would install it (cask ${IMCP_BREW_CASK}) and reach READY_PENDING_GRANTS — after which ` +
+        "the Apple permissions must be granted manually in the iMCP menu-bar app.",
+    };
+  }
+
   return {
     state: "READY_PENDING_GRANTS",
     exitCode: OK,
     resolvedPath: resolved,
+    appPresent: true,
     message:
       "iMCP provisioned. Final step (manual, unautomatable): open the iMCP menu-bar app and grant the Apple service permissions you need. Grants cannot be automated.",
   };

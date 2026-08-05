@@ -68,6 +68,21 @@ describe("doctorProbe", () => {
     expect(doctorProbe(env, true).state).toBe(runInstaller(env, { check: true }).state);
   });
 
+  it("a macOS host with brew but NO iMCP requires remediation (real-host QA regression)", () => {
+    // The predicted state is healthy (brew could install it), but the operator
+    // still has to act — a doctor that reports "nothing to fix" here is useless.
+    const r = doctorProbe(makeEnv({ pathExists: () => false }), true);
+    expect(r.state).toBe("READY_PENDING_GRANTS");
+    expect(r.appPresent).toBe(false);
+    expect(r.requiresRemediation).toBe(true);
+  });
+
+  it("a genuinely provisioned macOS host requires NO remediation", () => {
+    const r = doctorProbe(makeEnv(), true);
+    expect(r.appPresent).toBe(true);
+    expect(r.requiresRemediation).toBe(false);
+  });
+
   it("#X19: non-macOS → unsupported, NOT flagged for remediation", () => {
     const r = doctorProbe(makeEnv({ platform: "linux" }), true);
     expect(r.supported).toBe(false);
