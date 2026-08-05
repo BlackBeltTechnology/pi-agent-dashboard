@@ -188,5 +188,29 @@ describe("attachment-resolver — over-budget guard", () => {
     expect(stored.data.__truncated).toBeUndefined();
     expect(stored.data.attachmentId).toBe("9".repeat(64));
   });
+
+  it("hydration: blocks from DIFFERENT rows sharing a blockIndex each resolve", async () => {
+    // Hydration aggregates pending blocks across MANY message rows, so the
+    // message-relative blockIndex repeats. Matching results on it made a later
+    // result resolve the first attachment again and strand its own placeholder.
+    // (CodeRabbit, PR #419.)
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: fakePool(),
+      emit: (_s, _q, e) => emitted.push(e),
+    });
+    await resolver.resolve("s1", [
+      { attachmentId: "1".repeat(64), blockIndex: 1, data: "AA", mimeType: "image/png" },
+      { attachmentId: "2".repeat(64), blockIndex: 1, data: "BB", mimeType: "image/png" },
+      { attachmentId: "3".repeat(64), blockIndex: 1, data: "CC", mimeType: "image/png" },
+    ]);
+    expect(emitted).toHaveLength(3);
+    expect(emitted.map((e) => (e.data as any).attachmentId)).toEqual([
+      "1".repeat(64), "2".repeat(64), "3".repeat(64),
+    ]);
+    for (const e of emitted) expect((e.data as any).state).toBe("ready");
+  });
 });
 

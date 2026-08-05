@@ -141,15 +141,22 @@ export async function fitImageBlockForDisplay(block: ImageBlockInput): Promise<F
   try {
     const img = await Jimp.read(bytes);
     const longEdge = Math.max(img.bitmap.width, img.bitmap.height);
-    // At or under the bound: return the ORIGINAL bytes. Re-encoding here would
-    // lose quality and could even grow the payload for no benefit.
-    if (longEdge <= DISPLAY_MAX_EDGE) return unchanged;
+    // At or under the bound: return the ORIGINAL bytes — but only if they also
+    // fit the byte budget. A small-dimension, high-entropy image can be under
+    // DISPLAY_MAX_EDGE and still over DISPLAY_MAX_BYTES; returning it unchanged
+    // pushed an over-budget payload downstream, where the resolver's guard could
+    // only mark it failed. Fall through to the ladder instead.
+    if (longEdge <= DISPLAY_MAX_EDGE && block.data.length <= DISPLAY_MAX_BYTES) {
+      return unchanged;
+    }
+    if (longEdge > DISPLAY_MAX_EDGE) {
 
-    const scale = DISPLAY_MAX_EDGE / longEdge;
-    img.resize({
-      w: Math.max(1, Math.round(img.bitmap.width * scale)),
-      h: Math.max(1, Math.round(img.bitmap.height * scale)),
-    });
+      const scale = DISPLAY_MAX_EDGE / longEdge;
+      img.resize({
+        w: Math.max(1, Math.round(img.bitmap.width * scale)),
+        h: Math.max(1, Math.round(img.bitmap.height * scale)),
+      });
+    }
 
     // PNG in → PNG out keeps screenshots lossless-ish; everything else goes to
     // JPEG at the measured quality. A PNG screenshot is the main use case.

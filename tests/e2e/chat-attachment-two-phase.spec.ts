@@ -376,23 +376,9 @@ test.describe("chat attachments — two-phase render", () => {
     await expect(image.first()).toBeVisible();
   });
 
-  // KNOWN FAILING — do not silently skip: this is a real, reproducible defect,
-  // not a flaky test. With ~8 image-bearing messages, reloading leaves the
-  // attachments stuck on the "loading" placeholder indefinitely.
-  //
-  // Evidence gathered (WS probe against the live harness): the event store DOES
-  // contain the attachment_fitted events and DOES broadcast them on subscribe
-  // (16 image blocks / 16 pending placeholders / 16 attachment_fitted), and the
-  // server is idle with no fit errors and no over-budget warnings. So the fits
-  // succeed and reach the wire — the client is not APPLYING them at this scale.
-  //
-  // Prime suspects, in order: (1) MAX_REPLAY_EVENTS slicing splitting a row from
-  // its resolution across batches, (2) the client's hydration ceiling dropping
-  // late batches, (3) duplicate row+resolution sets from the live and replay
-  // paths both fitting the same blocks.
-  //
-  // Tracked as task 9.4. Marked fixme so the suite stays green and honest;
-  // flip back to `test(` when the root cause is fixed.
+  // Regression guard for the task-9.4 reducer defect: identical images share one
+  // content hash, so ONE attachment_fitted resolves several rows. This spec
+  // originally failed because the reducer stopped at the first match.
   test("P5: an image-heavy session replays without dropping a gateway frame", async ({
     page,
     request,

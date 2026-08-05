@@ -93,9 +93,11 @@ describe("GET /api/sessions/:sessionId/attachments/:attachmentId", () => {
   it("X3: traversal and non-hex ids are rejected as 400 before any lookup", async () => {
     const file = transcriptWith([{ data: PNG_B64, mimeType: "image/png" }]);
     const app = buildApp({ s1: { sessionFile: file } });
-    for (const bad of ["..", "not-hex", "A".repeat(64), "a".repeat(63), `${"a".repeat(64)}x`]) {
+    // Assert 400 specifically for route-matched malformed ids: accepting 404 too
+    // would let a regression that bypasses isValidAttachmentId slip through.
+    for (const bad of ["not-hex", "A".repeat(64), "a".repeat(63), `${"a".repeat(64)}x`]) {
       const res = await app.inject({ url: `/api/sessions/s1/attachments/${encodeURIComponent(bad)}` });
-      expect([400, 404], `id ${bad}`).toContain(res.statusCode);
+      expect(res.statusCode, `id ${bad}`).toBe(400);
       expect(res.rawPayload.toString("base64")).not.toBe(PNG_B64);
     }
     await app.close();

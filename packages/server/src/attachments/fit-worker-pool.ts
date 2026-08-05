@@ -213,6 +213,14 @@ export function createFitWorkerPool(opts: FitWorkerPoolOptions = {}): FitWorkerP
   async function dispose(): Promise<void> {
     if (disposed) return;
     disposed = true;
+    // Disarm every dispatched job BEFORE terminating workers. Their timeouts
+    // would otherwise stay armed for up to timeoutMs, keep the process alive,
+    // and then run a full in-process fit during shutdown.
+    for (const p of Array.from(jobs.values())) {
+      if (p.timeoutHandle) { clearTimeout(p.timeoutHandle); p.timeoutHandle = null; }
+      jobs.delete(p.id);
+      finish(p, { jobId: p.id, results: [] });
+    }
     for (const p of queue.splice(0, queue.length)) void fallbackSettle(p);
     await Promise.all(
       slots.map(async (s) => {

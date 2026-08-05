@@ -44,15 +44,19 @@ export function createAttachmentResolver(deps: AttachmentResolverDeps): Attachme
     async resolve(sessionId, pending) {
       if (pending.length === 0) return;
       try {
+        // Index into `pending` — NOT the message-relative blockIndex. Hydration
+        // aggregates blocks from MANY message rows, so blockIndex repeats across
+        // rows; matching on it made a later result resolve the first attachment
+        // again and strand its own placeholder pending forever.
         const { results } = await fitWorkerPool.fit({
-          blocks: pending.map((p) => ({
-            blockIndex: p.blockIndex,
+          blocks: pending.map((p, i) => ({
+            blockIndex: i,
             data: p.data,
             mimeType: p.mimeType,
           })),
         });
         for (const result of results) {
-          const source = pending.find((p) => p.blockIndex === result.blockIndex);
+          const source = pending[result.blockIndex];
           if (!source) continue;
           // Last line of defence for the "never an indefinite placeholder"
           // invariant: an over-budget payload would make THIS event exceed the
