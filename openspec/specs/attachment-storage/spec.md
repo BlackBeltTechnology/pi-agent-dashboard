@@ -1,7 +1,25 @@
 # attachment-storage Specification
 
 ## Purpose
-TBD - created by archiving change fit-attachments-for-display. Update Purpose after archive.
+
+Keep a message readable no matter how large its image attachments are.
+
+An inline image arrives as full-resolution base64 inside the message event. Left alone it
+pushes the event past the per-event storage ceiling, and the whole event — including the
+user's text — collapses to a truncation placeholder. The row silently disappears.
+
+This capability makes that outcome impossible. It bounds what an attachment can cost the
+event store, decouples the row's render from the cost of bounding it, and keeps the
+untouched original reachable on demand for full-resolution viewing.
+
+The governing priority, in order:
+
+1. The message row always renders, with the user's text intact.
+2. Every attachment reaches a terminal state — shown, or explicitly failed. Never an
+   indefinite placeholder.
+3. Bounding an attachment never blocks the server for unrelated sessions.
+4. Full-resolution originals stay reachable, but are never load-bearing for 1–3.
+
 ## Requirements
 ### Requirement: Images SHALL be fitted for display before an event is stored
 
@@ -45,6 +63,16 @@ replaced by the fitted image when it becomes available.
 A fitting failure SHALL resolve to an explicit failed-attachment state. It SHALL NOT
 leave an indefinite placeholder, an empty row, or a missing row.
 
+**Two-phase boundary.** An image block SHALL enter the two-phase flow only if it is one
+the fit can actually produce a derivative for. The gate that removes an attachment's
+bytes from the row and the gate that fits them SHALL admit exactly the same set.
+
+This is a single boundary, not two independent checks. Replacing a block with a
+placeholder is a PROMISE that a resolution will follow; a block the fit would decline
+must therefore never be given a placeholder in the first place. A block outside the
+boundary SHALL be left inline and unmodified, subject to the same per-event ceiling it
+was always subject to.
+
 #### Scenario: Row appears immediately on send
 
 - **WHEN** a user sends a message with a large attachment
@@ -56,6 +84,14 @@ leave an indefinite placeholder, an empty row, or a missing row.
 - **WHEN** fitting completes for a pending attachment
 - **THEN** the fitted image SHALL replace the placeholder in that position
 - **AND** the surrounding message SHALL be unchanged
+
+#### Scenario: An unfittable attachment is never promised a resolution
+
+- **WHEN** a message carries an image block whose type the fit cannot produce a
+  derivative for
+- **THEN** that block SHALL be left inline and unmodified
+- **AND** it SHALL NOT be replaced by a pending placeholder
+- **AND** no resolution event SHALL be emitted for it
 
 #### Scenario: A fitting failure is honest
 

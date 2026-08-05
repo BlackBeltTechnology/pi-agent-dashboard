@@ -18,8 +18,12 @@
 
 - [x] 2.1 D9 — **accept** the `0.75 ×` coupling and the 15 KB → 192 KB terminal-cap shift;
       document it. Derivation stays coupled; the boot assert keeps validating the pair.
-- [x] 2.2 D10 — **cache** fitted derivatives on disk keyed by content hash; a miss re-fits.
-      Optimisation only, never a source of truth.
+- [x] 2.2 D10 — **REVERSED.** No disk cache ships. Fitted derivatives ride their own
+      `attachment_fitted` event and are addressed by content hash; the session transcript
+      is the only durable record, so there is nothing to evict, cap, or invalidate and no
+      second source of truth to keep coherent.
+      Original: D10 — **cache** fitted derivatives on disk keyed by content hash; a miss
+      re-fits. Optimisation only, never a source of truth.
 - [x] 2.3 D11 — **exempt** animated GIFs from fitting; they stay subject to the existing
       ceiling and truncate as today. Never emit a corrupt frame (X10).
 
@@ -69,8 +73,10 @@ All L1 rows extend `packages/server/src/__tests__/memory-event-store.test.ts`
       5 × 2 MB · metric max event-loop lag < 50 ms · needs the new lag helper (§6.1).
 - [x] 3.15 P3 broadcast payload (test-plan #P3) — workload fitted image-bearing message ·
       metric frame < 256 KB, ≪ 4 MB `MAX_WS_BUFFER`.
-- [x] 3.16 P4 recovery memory (test-plan #P4) — workload cache miss on a 50 MB transcript ·
-      metric peak RSS delta < 50 MB, proving the scan streams rather than slurps.
+- [x] 3.16 P4 recovery memory (test-plan #P4) — workload original lookup against a 50 MB
+      transcript · metric peak RSS delta < 50 MB, proving the scan streams rather than
+      slurps. ("cache miss" in the original wording died with D10; every lookup is a
+      transcript scan now.)
 
 ## 4. Tests — L3 Playwright e2e
 

@@ -155,16 +155,16 @@ function ImageAttachments({
           const src = `data:${img.mimeType};base64,${img.data}`;
           const reserve = !loaded.has(i) ? "min-w-[80px] min-h-[80px]" : "";
           return (
-            <img
+            // A real <button>, not a click handler on the <img>: zoom is the
+            // ONLY route to the full-resolution original, and a bare img is
+            // mouse-only — no tab stop, no Enter/Space, nothing for a screen
+            // reader to announce. A native button gets all three from the user
+            // agent, so there is no hand-rolled key handling to keep correct.
+            <button
               key={i}
-              src={src}
-              data-testid="attachment-image"
-              alt={`Attachment ${i + 1}`}
-              className={`max-w-[300px] max-h-[300px] ${reserve} rounded border border-white/20 object-contain cursor-pointer`}
-              onLoad={(e) => {
-                setLoaded((prev) => (prev.has(i) ? prev : new Set(prev).add(i)));
-                onImageLoad?.(e);
-              }}
+              type="button"
+              aria-label={`Zoom attachment ${i + 1}`}
+              className="p-0 border-0 bg-transparent cursor-pointer leading-none"
               onClick={() => {
                 // Zoom shows the ORIGINAL when one is recoverable; the inline
                 // image is only a 768 px display derivative. Falls back to that
@@ -177,7 +177,21 @@ function ImageAttachments({
                   fallbackSrc: original ? src : undefined,
                 });
               }}
-            />
+            >
+              <img
+                src={src}
+                data-testid="attachment-image"
+                // Empty alt on purpose: the button above already carries the
+                // accessible name, so a described img would make AT announce
+                // the same control twice.
+                alt=""
+                className={`max-w-[300px] max-h-[300px] ${reserve} rounded border border-white/20 object-contain`}
+                onLoad={(e) => {
+                  setLoaded((prev) => (prev.has(i) ? prev : new Set(prev).add(i)));
+                  onImageLoad?.(e);
+                }}
+              />
+            </button>
           );
         })}
       </div>
