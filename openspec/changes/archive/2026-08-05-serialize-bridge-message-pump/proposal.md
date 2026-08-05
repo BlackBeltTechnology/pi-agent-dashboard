@@ -22,10 +22,14 @@ message.
   run to completion in wire order, closing the race for all callers.
 - Preserve ordering semantics for every existing message type on the hot path;
   add tests covering the `set_model` → `send_prompt` ordering.
-- Bypass the queue for **`prompt_response` only** (a reply correlated by request
-  id — queueing it behind the handler awaiting it would deadlock permanently).
-  Cancellation stays serialized: bypassing `abort` would let it run *ahead* of
-  the `send_prompt` it cancels and silently lose the cancellation.
+- Bypass the queue for an **immediate lane of three types** — `prompt_response`
+  (a reply correlated by request id; queueing it behind the handler awaiting it
+  would deadlock permanently), `server_restarting` (a time-critical lifecycle
+  signal delivered immediately before the socket closes), and `kill_process`
+  (pgid-keyed, and the only mechanism able to terminate a child that is itself
+  occupying the queue). Cancellation stays serialized: bypassing `abort` would
+  let it run *ahead* of the `send_prompt` it cancels and silently lose the
+  cancellation.
 - Define an **explicit inbound back-pressure bound** (separate from the outgoing
   `maxBufferSize`) so a slow handler cannot grow the queue without limit, with
   drop-newest + an observable dropped count.

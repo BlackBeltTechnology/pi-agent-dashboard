@@ -11,6 +11,12 @@ export interface ConnectionManagerOptions {
    * Bound on the SERIALIZED INBOUND queue. Distinct from `maxBufferSize`, which
    * bounds the OUTGOING send ring. On overflow the newest inbound message is
    * refused. Default 1000.
+   *
+   * NOTE: the drain loop dequeues with `Array.prototype.shift()`, which
+   * reindexes the remainder — so draining is O(n²) in the queue length. That is
+   * irrelevant at the default bound (1000 → sub-millisecond), but raising this
+   * value by orders of magnitude would make the cost noticeable; switch the
+   * queue to a read-index/deque first if you ever do.
    * See change: serialize-bridge-message-pump.
    */
   maxInboundQueue?: number;
@@ -89,11 +95,33 @@ export class ConnectionManager {
   constructor(options: ConnectionManagerOptions) {
     this.url = options.url;
     this.WS = options.WebSocketImpl ?? (globalThis as any).WebSocket;
-    this.maxBufferSize = options.maxBufferSize ?? 10000;
-    this.maxInboundQueue = options.maxInboundQueue ?? 1000;
-    this.watchdogTimeout = options.watchdogTimeout ?? ConnectionManager.DEFAULT_WATCHDOG_TIMEOUT;
+    // Validate the numeric options up front: a negative bound would refuse
+    // every message and a NaN/Infinity bound would disable the limit entirely
+    // (`length >= NaN` is always false), both silently.
+    this.maxBufferSize = ConnectionManager.intOption(options.maxBufferSize, 10000, "maxBufferSize", 1);
+    this.maxInboundQueue = ConnectionManager.intOption(options.maxInboundQueue, 1000, "maxInboundQueue", 1);
+    // `watchdogTimeout` accepts 0 — that documented value disables the watchdog.
+    this.watchdogTimeout = ConnectionManager.intOption(
+      options.watchdogTimeout,
+      ConnectionManager.DEFAULT_WATCHDOG_TIMEOUT,
+      "watchdogTimeout",
+      0,
+    );
     this.onMessage = options.onMessage;
     this.onReconnect = options.onReconnect;
+  }
+
+  /**
+   * Resolve a numeric constructor option, rejecting values that would silently
+   * break the behaviour they configure. `min` is the smallest legal value (1 for
+   * the bounds, 0 for `watchdogTimeout` where 0 means "disabled").
+   */
+  private static intOption(value: number | undefined, fallback: number, name: string, min: number): number {
+    const resolved = value ?? fallback;
+    if (!Number.isSafeInteger(resolved) || resolved < min) {
+      throw new RangeError(`${name} must be a safe integer >= ${min} (received ${resolved})`);
+    }
+    return resolved;
   }
 
   connect(): void {

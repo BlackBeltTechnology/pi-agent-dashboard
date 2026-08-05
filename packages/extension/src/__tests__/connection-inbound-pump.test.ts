@@ -571,6 +571,40 @@ describe("inbound message pump — connection lifecycle", () => {
   });
 });
 
+describe("ConnectionManager — numeric option validation", () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+  });
+
+  const build = (opts: Partial<ConnectionManagerOptions>) =>
+    new ConnectionManager({ url: "ws://localhost:9999", WebSocketImpl: MockWebSocket as any, ...opts });
+
+  // A bound that silently refuses everything (<=0) or silently disables itself
+  // (NaN/Infinity, since `length >= NaN` is always false) must not be accepted.
+  it.each([
+    ["maxInboundQueue", 0],
+    ["maxInboundQueue", -1],
+    ["maxInboundQueue", Number.NaN],
+    ["maxInboundQueue", Number.POSITIVE_INFINITY],
+    ["maxInboundQueue", 1.5],
+    ["maxBufferSize", 0],
+    ["maxBufferSize", -1],
+    ["maxBufferSize", Number.NaN],
+    ["watchdogTimeout", -1],
+    ["watchdogTimeout", Number.NaN],
+  ])("rejects %s = %p", (name, value) => {
+    expect(() => build({ [name]: value } as Partial<ConnectionManagerOptions>)).toThrow(RangeError);
+  });
+
+  it("accepts watchdogTimeout = 0 (documented 'disabled' value)", () => {
+    expect(() => build({ watchdogTimeout: 0 })).not.toThrow();
+  });
+
+  it("accepts the defaults when options are omitted", () => {
+    expect(() => build({})).not.toThrow();
+  });
+});
+
 describe("inbound message pump — hot-path overhead", () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
