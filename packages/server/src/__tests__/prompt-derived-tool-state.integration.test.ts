@@ -422,6 +422,26 @@ describe("prompt-derived currentTool (integration)", () => {
     expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(false);
   });
 
+  it("#X7 a prompt_request racing the unregister does not resurrect the registry", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    promptRequest(bridge, "s1", "p1");
+    await wait(120);
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(true);
+
+    // No settle between the two: the prompt is in flight while the unregister
+    // runs, so the ordering the server observes is genuinely racy rather than
+    // the serialized post-cleanup path the previous case pins.
+    server.sessionManager.unregister("s1");
+    promptRequest(bridge, "s1", "racing");
+    await wait(300);
+
+    // Either interleaving must converge on an empty registry: tracked-then-
+    // cleared, or refused because the session is already ended.
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(false);
+  });
+
   it("#X6 the replay exit drains the collected set but NEVER the live registry", async () => {
     await boot();
     const bridge = await openBridge();

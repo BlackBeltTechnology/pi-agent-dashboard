@@ -117,14 +117,17 @@ export default async function globalSetup(): Promise<void> {
   const env = {
     ...process.env,
     PI_E2E_SEED: "1",
-    // Launch a pi the dashboard did NOT spawn. Every dashboard-spawned session
-    // is SIGTERMed by `shutdownHeadlessProcesses()` on shutdown ("GONE and can
-    // never reattach"), so only an independent session can survive
-    // `/api/restart` and re-register — which is the whole point of the
-    // reconnect spec in faux-ask.spec.ts (#F6). Without this the spec SKIPS
-    // rather than covering the scenario.
+    // Independent (NOT dashboard-spawned) pi session — required by the reconnect
+    // spec in faux-ask.spec.ts (#F6), because every dashboard-spawned session is
+    // SIGTERMed by `shutdownHeadlessProcesses()` and so cannot survive
+    // `/api/restart` to re-register.
+    //
+    // OPT-IN, and it must stay that way: a pre-existing session card defeats
+    // `ensureGitSession`'s reuse heuristic (it reuses ANY card, so FIXTURE_GIT
+    // never gets pinned) and directory-home.spec.ts fails outright. Enable it
+    // only for the dedicated reconnect run — `npm run test:e2e:reconnect`.
     // See change: restore-ask-user-tool-state-on-reconnect.
-    PI_E2E_INDEPENDENT_SESSION: "1",
+    PI_E2E_INDEPENDENT_SESSION: process.env.PI_E2E_INDEPENDENT_SESSION ?? "0",
     // Flow-plugin e2e peers (change: add-flow-plugin-e2e-tests). The managed
     // container boots with BOTH peers so the synthetic flow is discoverable +
     // runnable and the anthropic bridge reaches `active` for the L3 specs

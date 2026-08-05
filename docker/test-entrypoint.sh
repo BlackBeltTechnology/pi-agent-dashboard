@@ -476,7 +476,13 @@ INDEPENDENT_LOG="${PI_DIR}/dashboard/independent-session.log"
 # restarted gateway falls back to 9999 and no live bridge can reconnect.
 # Consumed by the reconnect scenario in tests/e2e/faux-ask.spec.ts (#F6).
 if [ "${PI_E2E_INDEPENDENT_SESSION:-0}" = "1" ] && [ "${PI_E2E_SEED:-}" = "1" ]; then
-  INDEPENDENT_CWD="${INDEPENDENT_SESSION_CWD:-/fixtures/sample-git}"
+  # DEDICATED cwd, never the shared /fixtures/sample-git. A session's cwd forms
+  # a sidebar folder group, so parking this one in the fixture every other spec
+  # asserts on perturbs them (directory-home.spec.ts fails outright). Its own
+  # directory keeps the extra card in its own group; #F6 resolves the session by
+  # `source:"tui"`, so the cwd is irrelevant to it.
+  INDEPENDENT_CWD="${INDEPENDENT_SESSION_CWD:-/fixtures/independent-session}"
+  mkdir -p "${INDEPENDENT_CWD}"
   if [ -d "${INDEPENDENT_CWD}" ]; then
     # Point the bridge at the RUNNING gateway. `config.json` carries no `piPort`,
     # so the bridge would default to 9999, find nothing, and try to AUTOSTART a
