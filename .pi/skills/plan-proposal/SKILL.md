@@ -1,6 +1,6 @@
 ---
 name: plan-proposal
-description: "Develop-side planning orchestrator for an OpenSpec change. Chains artifact creation (openspec-new-change/-ff/-continue) → doubt-driven-review of proposal.md + design.md → scenario-design → category-routed fold of automated scenarios into tasks.md, then STOPS at the git-worktree boundary for the human checkpoint. Main interactive session only; never a subagent. Triggers: \"plan this change\", \"draft the proposal and plan\", \"scaffold + review + fold\", \"prep a change for building\"."
+description: 'Develop-side planning orchestrator for an OpenSpec change: artifact creation → doubt-driven-review → scenario-design → fold of automated scenarios into tasks.md, then STOPS at the git-worktree boundary. Main interactive session only; never a subagent. Triggers: "plan this change", "draft the proposal and plan", "scaffold + review + fold", "prep a change for building".'
 metadata:
   version: "1.0"
   scope: project

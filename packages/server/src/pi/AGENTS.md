@@ -12,3 +12,4 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `pi-resource-scanner.ts` | Discovers extensions, skills, prompts, agents from local `.pi/`, global `~/.pi/agent/`, and installed… → see `pi-resource-scanner.ts.AGENTS.md` |
 | `pi-version-skew.ts` | Pi compatibility range reader. `readPiCompatibility` reads `piCompatibility` from… → see `pi-version-skew.ts.AGENTS.md` |
 | `resource-activation-toggle.ts` | Replays pi's `config-selector` enable/disable write via pi's `SettingsManager` (zero glob logic… → see `resource-activation-toggle.ts.AGENTS.md` |
+| `session-skill-registry.ts` | Live half of the Resources skill list. `SessionCommandRegistry` retains the latest `commands_list` per… → see `session-skill-registry.ts.AGENTS.md` |

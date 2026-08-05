@@ -1,6 +1,6 @@
 ---
 name: skill-to-subagent
-description: "Turn an existing pi skill into an isolated subagent and wire it into a project's implementation pipeline. Use on triggers like \"wrap this skill as a subagent\", \"turn X into a subagent\", \"create a subagent from a skill\", \"should this be a subagent or a skill\", \"subagentize this\", \"isolate this into its own context\", \"add a subagent to the pipeline\". Tech-stack independent (works for any target project) but pi-platform-specific: relies on pi's .pi/agents/*.md, the Agent tool, role aliases, and inherit_context. Decides fitness first (coherence-critical work stays an inline skill), then writes the bridge agent, routes the model by function, tunes context inheritance, and wires a spawn checkpoint. Not a skill-authoring workflow (that's skill-creator) and not a feature-build workflow."
+description: 'Turn an existing pi skill into an isolated subagent and wire it into a project''s implementation pipeline. Decides fitness first, writes the bridge agent, routes the model, tunes context inheritance, and wires a spawn checkpoint. Use on "wrap this skill as a subagent", "turn X into a subagent", "should this be a subagent or a skill", "subagentize this", "add a subagent to the pipeline".'
 related_skills: skill-creator
 ---
 

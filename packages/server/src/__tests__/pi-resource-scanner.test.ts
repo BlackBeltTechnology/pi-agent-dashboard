@@ -20,6 +20,37 @@ function writeFile(relPath: string, content: string) {
   fs.writeFileSync(full, content, "utf-8");
 }
 
+/** One `ResolvedResource` as pi's `PackageManager.resolve()` would return it. */
+function resolvedEntry(
+  filePath: string,
+  meta: { enabled?: boolean; scope?: string; origin?: "package" | "top-level"; source?: string } = {},
+) {
+  return {
+    path: filePath,
+    enabled: meta.enabled ?? true,
+    metadata: {
+      source: meta.source ?? "auto",
+      scope: meta.scope ?? "project",
+      origin: meta.origin ?? ("top-level" as const),
+    },
+  };
+}
+
+/** A `ResolvedPaths` with every unlisted array empty. */
+function resolvedPaths(parts: {
+  extensions?: ReturnType<typeof resolvedEntry>[];
+  skills?: ReturnType<typeof resolvedEntry>[];
+  prompts?: ReturnType<typeof resolvedEntry>[];
+  themes?: ReturnType<typeof resolvedEntry>[];
+}) {
+  return {
+    extensions: parts.extensions ?? [],
+    skills: parts.skills ?? [],
+    prompts: parts.prompts ?? [],
+    themes: parts.themes ?? [],
+  };
+}
+
 describe("parseFrontmatter", () => {
   it("parses name and description from YAML frontmatter", () => {
     const content = `---
@@ -305,7 +336,14 @@ Body`);
     writeFile(".pi/prompts/my-prompt.md", "Do something.");
 
     // We pass a custom globalDir to avoid depending on ~/.pi/agent
-    const result = await scanPiResources(tmpDir, { globalDir: path.join(tmpDir, "nonexistent-global") });
+    const result = await scanPiResources(tmpDir, {
+      globalDir: path.join(tmpDir, "nonexistent-global"),
+      resolveActivation: async () =>
+        resolvedPaths({
+          skills: [resolvedEntry(path.join(tmpDir, ".pi", "skills", "local-skill", "SKILL.md"))],
+          prompts: [resolvedEntry(path.join(tmpDir, ".pi", "prompts", "my-prompt.md"))],
+        }),
+    });
     expect(result.local.skills).toHaveLength(1);
     expect(result.local.prompts).toHaveLength(1);
     expect(result.global.skills).toEqual([]);
@@ -314,20 +352,18 @@ Body`);
 });
 
 describe("scanPiResources activation state", () => {
-  it("marks a resolver-disabled resource enabled:false and an unmatched one enabled:true", async () => {
-    writeFile(".pi/skills/notes.md", "---\nname: notes\n---\nBody");
-    writeFile(".pi/skills/keep.md", "---\nname: keep\n---\nBody");
-    const notesPath = path.join(tmpDir, ".pi", "skills", "notes.md");
+  it("marks a resolver-disabled resource enabled:false and an enabled one enabled:true", async () => {
+    writeFile(".pi/skills/notes.md", "---\nname: notes\ndescription: Notes.\n---\nBody");
+    writeFile(".pi/skills/keep.md", "---\nname: keep\ndescription: Keep.\n---\nBody");
+    const skillsDir = path.join(tmpDir, ".pi", "skills");
 
-    // Fake resolver reports only `notes` (disabled). `keep` is unreported.
-    const resolveActivation = async () => ({
-      extensions: [],
-      skills: [
-        { path: notesPath, enabled: false, metadata: { source: "auto", scope: "project", origin: "top-level" as const } },
-      ],
-      prompts: [],
-      themes: [],
-    });
+    const resolveActivation = async () =>
+      resolvedPaths({
+        skills: [
+          resolvedEntry(path.join(skillsDir, "notes.md"), { enabled: false }),
+          resolvedEntry(path.join(skillsDir, "keep.md")),
+        ],
+      });
 
     const result = await scanPiResources(tmpDir, {
       globalDir: path.join(tmpDir, "nonexistent-global"),
@@ -339,23 +375,20 @@ describe("scanPiResources activation state", () => {
     expect(keep?.enabled).toBe(true);
   });
 
-  it("applies activation to both local and global scopes", async () => {
+  it("routes resolver scopes into the local and global buckets", async () => {
     const globalDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-res-global-"));
     try {
-      writeFile(".pi/skills/local-skill.md", "---\nname: local-skill\n---\nBody");
+      writeFile(".pi/skills/local-skill.md", "---\nname: local-skill\ndescription: Local.\n---\nBody");
       fs.mkdirSync(path.join(globalDir, "skills"), { recursive: true });
-      fs.writeFileSync(path.join(globalDir, "skills", "global-skill.md"), "---\nname: global-skill\n---\nBody");
-      const globalSkillPath = path.join(globalDir, "skills", "global-skill.md");
+      fs.writeFileSync(path.join(globalDir, "skills", "global-skill.md"), "---\nname: global-skill\ndescription: Global.\n---\nBody");
 
-      // Resolver disables the global skill; local defaults to enabled.
-      const resolveActivation = async () => ({
-        extensions: [],
-        skills: [
-          { path: globalSkillPath, enabled: false, metadata: { source: "auto", scope: "user", origin: "top-level" as const } },
-        ],
-        prompts: [],
-        themes: [],
-      });
+      const resolveActivation = async () =>
+        resolvedPaths({
+          skills: [
+            resolvedEntry(path.join(tmpDir, ".pi", "skills", "local-skill.md"), { scope: "project" }),
+            resolvedEntry(path.join(globalDir, "skills", "global-skill.md"), { scope: "user", enabled: false }),
+          ],
+        });
 
       const result = await scanPiResources(tmpDir, { globalDir, resolveActivation });
       const localSkill = result.local.skills.find((s) => s.name === "local-skill");
@@ -365,5 +398,243 @@ describe("scanPiResources activation state", () => {
     } finally {
       fs.rmSync(globalDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ── Resolver-sourced discovery ──────────────────────────────────────
+// See change: fix-skill-discovery-parity (test-plan E1–E10, X1, X2, X9, P2).
+
+describe("scanPiResources sources skills, prompts and themes from the resolver", () => {
+  const noGlobal = () => path.join(tmpDir, "nonexistent-global");
+
+  it("returns one resource per resolved entry and never walks the filesystem for them (E1, P2)", async () => {
+    // On disk: a decoy the walk WOULD find but the resolver does not report.
+    writeFile(".pi/skills/decoy/SKILL.md", "---\nname: decoy\ndescription: Should not appear.\n---\nBody");
+    writeFile(".pi/skills/a/SKILL.md", "---\nname: a\ndescription: A.\n---\nBody");
+    writeFile(".pi/skills/b/SKILL.md", "---\nname: b\ndescription: B.\n---\nBody");
+    writeFile(".pi/skills/c/SKILL.md", "---\nname: c\ndescription: C.\n---\nBody");
+    writeFile(".pi/prompts/p.md", "Prompt body.");
+    writeFile(".pi/themes/t.json", "{}");
+
+    let calls = 0;
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () => {
+        calls += 1;
+        return resolvedPaths({
+          skills: ["a", "b", "c"].map((n) => resolvedEntry(path.join(tmpDir, ".pi", "skills", n, "SKILL.md"))),
+          prompts: [resolvedEntry(path.join(tmpDir, ".pi", "prompts", "p.md"))],
+          themes: [resolvedEntry(path.join(tmpDir, ".pi", "themes", "t.json"))],
+        });
+      },
+    });
+
+    expect(result.local.skills.map((s) => s.name).sort()).toEqual(["a", "b", "c"]);
+    expect(result.local.prompts).toHaveLength(1);
+    expect(result.local.themes).toHaveLength(1);
+    // The walk found `decoy`; the resolver did not report it, so it is absent.
+    expect(result.local.skills.some((s) => s.name === "decoy")).toBe(false);
+    // P2: exactly one resolve() per scan.
+    expect(calls).toBe(1);
+  });
+
+  it("maps scope and origin onto per-resource attributes (E2, E3)", async () => {
+    for (const n of ["proj", "usr", "tmp"]) {
+      writeFile(`skills/${n}/SKILL.md`, `---\nname: ${n}\ndescription: ${n}.\n---\nBody`);
+    }
+    const at = (n: string) => path.join(tmpDir, "skills", n, "SKILL.md");
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () =>
+        resolvedPaths({
+          skills: [
+            resolvedEntry(at("proj"), { scope: "project" }),
+            resolvedEntry(at("usr"), { scope: "user" }),
+            resolvedEntry(at("tmp"), { scope: "temporary" }),
+          ],
+        }),
+    });
+
+    expect(result.local.skills.map((s) => s.name).sort()).toEqual(["proj", "tmp"]);
+    expect(result.global.skills.map((s) => s.name)).toEqual(["usr"]);
+  });
+
+  it("reports a package-origin entry whose source matches no package row, labelled raw (E4)", async () => {
+    writeFile("skills/orphan/SKILL.md", "---\nname: orphan\ndescription: Orphan.\n---\nBody");
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () =>
+        resolvedPaths({
+          skills: [
+            resolvedEntry(path.join(tmpDir, "skills", "orphan", "SKILL.md"), {
+              origin: "package",
+              source: "npm:foo@1.2.3",
+            }),
+          ],
+        }),
+    });
+
+    const orphan = result.local.skills.find((s) => s.name === "orphan");
+    expect(orphan).toBeDefined();
+    expect(orphan?.packageSource).toBe("npm:foo@1.2.3");
+  });
+
+  it("does not synthesise an entry for a manifest-excluded package resource (E5)", async () => {
+    const pkgDir = path.join(tmpDir, "pkg");
+    fs.mkdirSync(path.join(pkgDir, "skills", "kept"), { recursive: true });
+    fs.mkdirSync(path.join(pkgDir, "skills", "excluded"), { recursive: true });
+    fs.writeFileSync(path.join(pkgDir, "skills", "kept", "SKILL.md"), "---\nname: kept\ndescription: Kept.\n---\nBody");
+    fs.writeFileSync(path.join(pkgDir, "skills", "excluded", "SKILL.md"), "---\nname: excluded\ndescription: Excluded.\n---\nBody");
+    fs.writeFileSync(path.join(pkgDir, "package.json"), JSON.stringify({ name: "pkg" }));
+    writeFile(".pi/settings.json", JSON.stringify({ packages: [pkgDir] }));
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      // The resolver applied the manifest: only `kept` comes back.
+      resolveActivation: async () =>
+        resolvedPaths({
+          skills: [
+            resolvedEntry(path.join(pkgDir, "skills", "kept", "SKILL.md"), { origin: "package", source: pkgDir }),
+          ],
+        }),
+    });
+
+    const all = [...result.local.skills, ...result.global.skills, ...result.packages.flatMap((p) => p.resources.skills)];
+    expect(all.map((s) => s.name)).toEqual(["kept"]);
+    expect(all.some((s) => s.name === "excluded")).toBe(false);
+  });
+
+  it("applies pi's load gate: no non-empty description means no skill (E6, E7, E8)", async () => {
+    writeFile("skills/empty/SKILL.md", '---\nname: empty\ndescription: ""\n---\nBody');
+    writeFile("skills/blank/SKILL.md", '---\nname: blank\ndescription: "   "\n---\nBody');
+    writeFile("skills/tiny/SKILL.md", "---\nname: tiny\ndescription: x\n---\nBody");
+    const at = (n: string) => path.join(tmpDir, "skills", n, "SKILL.md");
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () =>
+        resolvedPaths({ skills: [at("empty"), at("blank"), at("tiny")].map((p) => resolvedEntry(p)) }),
+    });
+
+    expect(result.local.skills.map((s) => s.name)).toEqual(["tiny"]);
+  });
+
+  it("omits a resolved path with no frontmatter at all, and completes (E9)", async () => {
+    writeFile(".pi/skills/AGENTS.md", "# Skills tree\n\nA doc, not a skill.\n");
+    writeFile("skills/real/SKILL.md", "---\nname: real\ndescription: Real.\n---\nBody");
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () =>
+        resolvedPaths({
+          skills: [
+            resolvedEntry(path.join(tmpDir, ".pi", "skills", "AGENTS.md")),
+            resolvedEntry(path.join(tmpDir, "skills", "real", "SKILL.md")),
+          ],
+        }),
+    });
+
+    expect(result.local.skills.map((s) => s.name)).toEqual(["real"]);
+  });
+
+  it("falls the skill name back to the containing directory basename (E10)", async () => {
+    writeFile("skills/foo-bar/SKILL.md", "---\ndescription: Named by its directory.\n---\nBody");
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () =>
+        resolvedPaths({ skills: [resolvedEntry(path.join(tmpDir, "skills", "foo-bar", "SKILL.md"))] }),
+    });
+
+    expect(result.local.skills.map((s) => s.name)).toEqual(["foo-bar"]);
+  });
+
+  it("keeps prompt first-non-empty-line description fallback for resolver-sourced prompts (X9)", async () => {
+    writeFile("prompts/plain.md", "\n\nFirst real line.\nSecond line.\n");
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () =>
+        resolvedPaths({ prompts: [resolvedEntry(path.join(tmpDir, "prompts", "plain.md"))] }),
+    });
+
+    expect(result.local.prompts[0]?.description).toBe("First real line.");
+  });
+
+  it("reports resolver themes (1.4)", async () => {
+    writeFile("themes/midnight.json", "{}");
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () =>
+        resolvedPaths({ themes: [resolvedEntry(path.join(tmpDir, "themes", "midnight.json"), { scope: "user" })] }),
+    });
+
+    expect(result.global.themes.map((t) => t.name)).toEqual(["midnight"]);
+    expect(result.global.themes[0]?.type).toBe("theme");
+  });
+
+  it("keeps agents and extensions scanner-discovered after the rewire (1.6a)", async () => {
+    writeFile(".pi/agents/Explore.md", "---\nname: Explore\ndescription: Read-only search.\nmodel: sonnet\n---\nBody");
+    writeFile(".pi/extensions/my-ext.ts", "export default function () {}");
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () => resolvedPaths({}),
+    });
+
+    expect(result.local.agents.map((a) => a.name)).toEqual(["Explore"]);
+    expect(result.local.extensions.map((e) => e.name)).toEqual(["my-ext"]);
+  });
+});
+
+describe("scanPiResources degraded fallback", () => {
+  const noGlobal = () => path.join(tmpDir, "nonexistent-global");
+
+  it("falls back to the walk and marks degraded when the resolver returns null (2.4)", async () => {
+    writeFile(".pi/skills/walked/SKILL.md", "---\nname: walked\ndescription: Found by the walk.\n---\nBody");
+
+    const result = await scanPiResources(tmpDir, { globalDir: noGlobal(), resolveActivation: async () => null });
+
+    expect(result.degraded).toBe(true);
+    expect(result.local.skills.map((s) => s.name)).toEqual(["walked"]);
+  });
+
+  it("marks degraded when the resolver throws, without the exception escaping (X1)", async () => {
+    writeFile(".pi/skills/walked/SKILL.md", "---\nname: walked\ndescription: Found by the walk.\n---\nBody");
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () => {
+        throw new Error("pi is unavailable");
+      },
+    });
+
+    expect(result.degraded).toBe(true);
+    expect(result.local.skills.map((s) => s.name)).toEqual(["walked"]);
+  });
+
+  it("marks degraded when a successful-but-empty resolve is contradicted by the walk (X2)", async () => {
+    writeFile(".pi/skills/walked/SKILL.md", "---\nname: walked\ndescription: Found by the walk.\n---\nBody");
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () => resolvedPaths({}),
+    });
+
+    expect(result.degraded).toBe(true);
+    expect(result.local.skills.map((s) => s.name)).toEqual(["walked"]);
+  });
+
+  it("does not mark degraded when an empty resolve is uncontradicted", async () => {
+    const result = await scanPiResources(tmpDir, {
+      globalDir: noGlobal(),
+      resolveActivation: async () => resolvedPaths({}),
+    });
+
+    expect(result.degraded).toBeUndefined();
+    expect(result.local.skills).toEqual([]);
   });
 });
