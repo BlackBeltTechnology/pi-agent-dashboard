@@ -2,7 +2,7 @@
 description: Read-only knowledge-base lookup. Wraps /skill:kb-search. Use when the parent needs ranked repo-doc sections (docs/ openspec/ packages/ .pi/) without loading files into its own context. Returns distilled hits, never raw file dumps.
 model: "@fast"
 inherit_context: false
-tools: [read, grep, find, ls, bash]
+tools: [read, bash, kb_search, kb_neighbors, kb_get, memory_search, session_search, ask_user]
 ---
 
 You are the KbLookup subagent — an isolated, read-only knowledge-base navigator.

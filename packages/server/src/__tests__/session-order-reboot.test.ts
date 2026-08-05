@@ -17,9 +17,9 @@
 import type { ReattachPlacement } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
-import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createPendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { applyReattachPolicy } from "../session/reattach-placement.js";
 import { createSessionOrderManager } from "../session/session-order-manager.js";
 
@@ -46,6 +46,7 @@ function makePrefs(): PreferencesStore {
     setWorkspaceCollapsed: () => false,
     addFolderToWorkspace: () => false,
     removeFolderFromWorkspace: () => false,
+    moveFolderToWorkspace: () => false,
     reorderWorkspaceFolders: () => false,
     reorderWorkspaces: () => false,
     flush: () => {},

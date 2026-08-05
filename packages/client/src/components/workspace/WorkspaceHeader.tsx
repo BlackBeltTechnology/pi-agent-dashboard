@@ -13,6 +13,7 @@
  * See change: folder-workspaces.
  */
 
+import { useDroppable } from "@dnd-kit/core";
 import {
   mdiChevronDown,
   mdiChevronRight,
@@ -22,6 +23,7 @@ import {
 import Icon from "@mdi/react";
 import React, { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { dropIndicatorProps } from "../../lib/layout/sidebar-dnd.js";
 import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
 import { useWorkspaceDragHandle } from "./SortableWorkspace.js";
 
@@ -50,6 +52,16 @@ export function WorkspaceHeader({
   const [menuOpen, setMenuOpen] = useState(false);
   const dragHandleProps = useWorkspaceDragHandle();
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // Header-sized append target. `SortableWorkspace`'s own node spans header
+  // PLUS folder body, so its center sits mid-body and closestCenter resolves
+  // to a folder when the header strip of an expanded workspace is hovered.
+  // The `wsId` payload is mandatory — resolvers must not parse the `wsh:`
+  // prefix. See design D4 / change: drag-folders-across-workspaces.
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `wsh:${id}`,
+    data: { type: "workspace-header", wsId: id },
+  });
+  const indicator = dropIndicatorProps(isOver, false);
 
   // Close menu on outside click / Escape.
   useEffect(() => {
@@ -93,7 +105,9 @@ export function WorkspaceHeader({
 
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-1.5 bg-[var(--bg-tertiary)] rounded-t-lg select-none shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]"
+      ref={setDropRef}
+      className={`flex items-center gap-1.5 px-2 py-1.5 bg-[var(--bg-tertiary)] rounded-t-lg select-none shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)] ${indicator.className}`}
+      data-over={indicator["data-over"]}
       data-testid={`workspace-header-${id}`}
     >
       {dragHandleProps && (

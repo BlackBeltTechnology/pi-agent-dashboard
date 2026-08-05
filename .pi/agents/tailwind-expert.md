@@ -1,8 +1,7 @@
 ---
 description: Expert in Tailwind CSS for efficient and responsive styling of web projects, utilizing utility-first approaches and responsive design principles.
-display_name: Tailwind-Expert
-tools: read, bash, grep, find, ls, edit, write
-prompt_mode: replace
+model: "@coding"
+tools: [read, bash, edit, write, kb_search, kb_neighbors, kb_get, memory_search, session_search, memory, skill_manage, ask_user]
 ---
 
 ## Focus Areas

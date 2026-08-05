@@ -18,8 +18,8 @@ import { CONFIG_DIR } from "@blackbelt-technology/pi-dashboard-shared/config.js"
 import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { LiveServerTarget } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
-import { readJsonFile, writeJsonFile } from "./json-store.js";
 import { safeRealpathSync } from "../resolve-path.js";
+import { readJsonFile, writeJsonFile } from "./json-store.js";
 
 export const PREFERENCES_FILE = path.join(CONFIG_DIR, "preferences.json");
 
@@ -108,6 +108,24 @@ export interface PreferencesStore {
   addFolderToWorkspace(id: string, dirPath: string): boolean;
   /** Returns true on mutation, false on unknown id or not-member. */
   removeFolderFromWorkspace(id: string, dirPath: string): boolean;
+  /**
+   * Moves `dirPath` into workspace `toWorkspaceId`, or — when
+   * `toWorkspaceId` is `null` — ejects it from every workspace.
+   *
+   * Validate-before-mutate: the target is resolved BEFORE any detach, so an
+   * unknown id leaves the folder where it was (returns false, no mutation).
+   * Same-workspace moves are rejected (`reorder_workspace_folders` owns
+   * repositioning). `index` is clamped to `[0, folders.length]`; omitted =
+   * append. Ignored when `toWorkspaceId` is null. Path is canonicalized
+   * internally. Returns true only on a real mutation.
+   *
+   * See change: drag-folders-across-workspaces.
+   */
+  moveFolderToWorkspace(
+    dirPath: string,
+    toWorkspaceId: string | null,
+    index?: number,
+  ): boolean;
   /**
    * Replaces a workspace's folder order. Rejected if `paths` does not
    * equal the current member set (after canonicalization). Returns true
@@ -460,6 +478,35 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
       const i = ws.folders.indexOf(canon);
       if (i === -1) return false;
       ws.folders.splice(i, 1);
+      scheduleSave();
+      return true;
+    },
+
+    moveFolderToWorkspace(
+      dirPath: string,
+      toWorkspaceId: string | null,
+      index?: number,
+    ): boolean {
+      const canon = canonicalize(dirPath);
+      const detach = () => {
+        for (const other of workspaces) {
+          const i = other.folders.indexOf(canon);
+          if (i !== -1) other.folders.splice(i, 1);
+        }
+      };
+      if (toWorkspaceId !== null) {
+        // Resolve the target FIRST — a stale id must not leave the folder
+        // detached from every workspace.
+        const ws = findWs(toWorkspaceId);
+        if (!ws) return false;
+        if (ws.folders.includes(canon)) return false;
+        detach();
+        const at = Math.min(Math.max(index ?? ws.folders.length, 0), ws.folders.length);
+        ws.folders.splice(at, 0, canon);
+      } else {
+        if (!workspaces.some((w) => w.folders.includes(canon))) return false;
+        detach();
+      }
       scheduleSave();
       return true;
     },
