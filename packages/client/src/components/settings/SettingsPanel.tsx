@@ -17,20 +17,19 @@ import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
 import { type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
-import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
 import { suggestTrustEntries } from "../../lib/gateway/gateway-config-ops.js";
 import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../../lib/git/git-api.js";
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
+import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
 import { PairingView } from "../connectivity/PairingView.js";
 import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
-import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
 import { PackageBrowser } from "../packages/PackageBrowser.js";
 import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDialog.js";
@@ -47,6 +46,7 @@ import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
+import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
 
 interface ProviderConfig {
@@ -1466,7 +1466,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   {activePluginId && !pluginList.loading && !activePluginHasSettings && (
                     <PluginNotFoundNotice pluginId={activePluginId} />
                   )}
-                  <PluginsSection list={pluginList} toggle={pluginToggle} />
+                  <PluginsSection list={pluginList} toggle={pluginToggle} contributesSettings={contributesSettings} />
                 </>
               )
             )}

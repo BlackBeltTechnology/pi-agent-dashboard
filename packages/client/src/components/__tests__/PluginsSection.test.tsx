@@ -15,7 +15,16 @@ import { PluginsSection } from "../packages/PluginsSection.js";
 function MountedPluginsSection() {
   const list = usePluginList();
   const toggle = usePluginToggle(list);
-  return <PluginsSection list={list} toggle={toggle} />;
+  // Same predicate SettingsPanel supplies (claims OR intent).
+  const contributesSettings = (row: { claims: { slot: string }[] }) =>
+    row.claims.some((c) => c.slot === "settings-section");
+  return (
+    <PluginsSection
+      list={list}
+      toggle={toggle}
+      contributesSettings={contributesSettings as never}
+    />
+  );
 }
 
 vi.mock("../../hooks/usePackageOperations.js", () => ({

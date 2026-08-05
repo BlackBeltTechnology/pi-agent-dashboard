@@ -26,6 +26,7 @@ import Icon from "@mdi/react";
 import { useLocation } from "wouter";
 import type { PluginList, PluginToggle } from "../../hooks/usePluginToggle.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import type { PluginRow } from "../../lib/package/plugins-api.js";
 import {
   CopyableErrorBlock,
   MissingRequirementsBlock,
@@ -45,13 +46,20 @@ import {
 export function PluginsSection({
   list,
   toggle,
+  contributesSettings,
 }: {
   list: PluginList;
   toggle: PluginToggle;
+  /**
+   * Shared "does this plugin contribute settings" predicate. MUST be the same
+   * one the nav rail and the route guard use: a claims-only test here would
+   * give an intent-only plugin a disabled cog reading "No settings for this
+   * plugin" while the nav lists it and its page renders.
+   */
+  contributesSettings: (row: PluginRow) => boolean;
 }) {
   const [, navigate] = useLocation();
   const { rows, loading, error } = list;
-  const { CascadeDialog } = toggle;
 
   if (loading) {
     return <div className="text-sm text-[var(--text-muted)]">{i18nT("packages.loadingPlugins", undefined, "Loading plugins…")}</div>;
@@ -66,7 +74,7 @@ export function PluginsSection({
 
   return (
     <div className="space-y-3" data-testid="plugins-section">
-      <CascadeDialog />
+      {toggle.cascadeDialog}
       {toggle.restartRequired && (
         <div
           className={`flex items-center gap-2 px-3 py-2 rounded ${WARN_BG} border ${WARN_BORDER} ${WARN_FG} text-sm`}
@@ -102,7 +110,7 @@ export function PluginsSection({
           </div>
         )}
         {rows.map((row) => {
-          const hasSettings = row.claims.some((c) => c.slot === "settings-section");
+          const hasSettings = contributesSettings(row);
           const isEnabled = row.status?.enabled !== false;
           const statusError = row.status?.error;
           const toggleError = toggle.toggleErrorFor(row.id);

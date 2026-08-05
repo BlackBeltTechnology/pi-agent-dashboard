@@ -17,6 +17,7 @@ import {
   buildGraph,
   computeToggleImpact,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LINK_BG, LINK_BG_HOVER, LINK_BORDER, LINK_FG } from "../components/packages/plugin-row-parts.js";
 import { getApiBase } from "../lib/api/api-context.js";
@@ -151,6 +152,8 @@ export function usePluginList(): PluginList {
   return { rows, loading, error, refresh, setDesiredEnabled: setDesired };
 }
 
+const RESTART_POLL_TIMEOUT_MS = 30_000;
+
 interface CascadePrompt {
   id: string;
   displayName: string;
@@ -159,16 +162,107 @@ interface CascadePrompt {
   cascade: string[];
 }
 
+/**
+ * Cascade-confirm modal. Module-level so its component identity is stable
+ * across parent renders (an inner function remounted the subtree every render).
+ *
+ * Carries dialog semantics and Escape-to-dismiss: it traps the user's attention
+ * on a destructive multi-plugin toggle, so it must be announced as a dialog and
+ * dismissible from the keyboard.
+ */
+function CascadeDialogView({
+  prompt,
+  rows,
+  onCancel,
+  onConfirm,
+}: {
+  prompt: CascadePrompt;
+  rows: PluginRow[];
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  const verb = prompt.target ? "enable" : "disable";
+  const cascadeLabels = prompt.cascade.map(
+    (id) => rows.find((r) => r.id === id)?.displayName ?? id,
+  );
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)]"
+      data-testid="plugins-cascade-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label={i18nT("git.cascadeRequired", undefined, "Cascade required")}
+    >
+      <div className="max-w-md w-full mx-4 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded shadow-lg">
+        <div className="px-4 py-3 border-b border-[var(--border-secondary)] text-sm font-medium text-[var(--text-primary)]">
+          {i18nT("git.cascadeRequired", undefined, "Cascade required")}
+        </div>
+        <div className="px-4 py-3 text-sm text-[var(--text-secondary)] space-y-2">
+          <p>
+            {prompt.target ? "Enabling" : "Disabling"}{" "}
+            <strong>{prompt.displayName}</strong> {i18nT("common.willAlso", undefined, "will also")} {verb} {i18nT("packages.theFollowingPlugin", undefined, "the following\n              plugin")}{prompt.cascade.length > 1 ? "s" : ""}:
+          </p>
+          <ul className="list-disc pl-5 space-y-0.5 text-[var(--text-primary)]">
+            {cascadeLabels.map((label, i) => (
+              <li key={prompt.cascade[i]} className="text-xs">
+                {label}{" "}
+                <code className="text-[10px] text-[var(--text-muted)]">
+                  {prompt.cascade[i]}
+                </code>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="px-4 py-3 border-t border-[var(--border-secondary)] flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-3 py-1 rounded text-xs bg-[var(--bg-tertiary)] hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
+            data-testid="plugins-cascade-cancel"
+          >
+            {i18nT("common.cancel", undefined, "Cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className={`px-3 py-1 rounded text-xs ${LINK_BG} ${LINK_BG_HOVER} ${LINK_FG} border ${LINK_BORDER}`}
+            data-testid="plugins-cascade-confirm"
+          >
+            {prompt.target ? "Enable all" : "Disable all"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export interface PluginToggle {
   /** True while a toggle request for this plugin id is in flight. */
   isToggling: (id: string) => boolean;
   /** Last toggle error for this plugin id, if any. */
   toggleErrorFor: (id: string) => string | undefined;
   handleToggle: (row: PluginRow, next: boolean) => Promise<void>;
-  /** Cascade-confirm modal. Renders null when no confirm is pending. */
-  CascadeDialog: () => React.ReactElement | null;
+  /**
+   * Cascade-confirm modal element, or `null` when no confirm is pending.
+   *
+   * An ELEMENT, not a component: as an inner function the component's identity
+   * changed every render, so React remounted the modal subtree (losing focus
+   * and any in-flight interaction) on each parent render. The element's type is
+   * now the stable module-level `CascadeDialogView`.
+   */
+  cascadeDialog: React.ReactElement | null;
   restartRequired: boolean;
   restarting: boolean;
+  /** Set when the restart poll timed out without the server coming back. */
+  restartError: string | null;
   handleRestart: () => Promise<void>;
 }
 
@@ -179,6 +273,7 @@ export function usePluginToggle(list: PluginList): PluginToggle {
   const [serverStartedAt, setServerStartedAt] = useState<string | null>(null);
   const [pendingToggleStartedAt, setPendingToggleStartedAt] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
   const [cascadePrompt, setCascadePrompt] = useState<CascadePrompt | null>(null);
 
   // Guards every async write below: `handleRestart` polls for up to 30s, so
@@ -297,6 +392,7 @@ export function usePluginToggle(list: PluginList): PluginToggle {
 
   async function handleRestart() {
     setRestarting(true);
+    setRestartError(null);
     try {
       await fetch(`${getApiBase()}/api/restart`, { method: "POST" });
     } catch {
@@ -304,7 +400,8 @@ export function usePluginToggle(list: PluginList): PluginToggle {
     }
     const start = Date.now();
     const wasStartedAt = serverStartedAt;
-    while (Date.now() - start < 30_000) {
+    let cameBack = false;
+    while (Date.now() - start < RESTART_POLL_TIMEOUT_MS) {
       await new Promise((r) => setTimeout(r, 500));
       // Stop the poll when the panel closed mid-restart.
       if (!mounted.current) return;
@@ -316,81 +413,49 @@ export function usePluginToggle(list: PluginList): PluginToggle {
           setServerStartedAt(body.startedAt);
           setPendingToggleStartedAt(null);
           await refresh();
+          cameBack = true;
           break;
         }
       } catch {
         /* keep polling */
       }
     }
-    if (mounted.current) setRestarting(false);
-  }
-
-  function CascadeDialog() {
-    if (!cascadePrompt) return null;
-    const c = cascadePrompt;
-    const verb = c.target ? "enable" : "disable";
-    const cascadeLabels = c.cascade.map(
-      (id) => rows.find((r) => r.id === id)?.displayName ?? id,
-    );
-    return (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)]"
-        data-testid="plugins-cascade-dialog"
-      >
-        <div className="max-w-md w-full mx-4 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded shadow-lg">
-          <div className="px-4 py-3 border-b border-[var(--border-secondary)] text-sm font-medium text-[var(--text-primary)]">
-            {i18nT("git.cascadeRequired", undefined, "Cascade required")}
-          </div>
-          <div className="px-4 py-3 text-sm text-[var(--text-secondary)] space-y-2">
-            <p>
-              {c.target ? "Enabling" : "Disabling"}{" "}
-              <strong>{c.displayName}</strong> {i18nT("common.willAlso", undefined, "will also")} {verb} {i18nT("packages.theFollowingPlugin", undefined, "the following\n              plugin")}{c.cascade.length > 1 ? "s" : ""}:
-            </p>
-            <ul className="list-disc pl-5 space-y-0.5 text-[var(--text-primary)]">
-              {cascadeLabels.map((label, i) => (
-                <li key={c.cascade[i]} className="text-xs">
-                  {label}{" "}
-                  <code className="text-[10px] text-[var(--text-muted)]">
-                    {c.cascade[i]}
-                  </code>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="px-4 py-3 border-t border-[var(--border-secondary)] flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setCascadePrompt(null)}
-              className="px-3 py-1 rounded text-xs bg-[var(--bg-tertiary)] hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
-              data-testid="plugins-cascade-cancel"
-            >
-              {i18nT("common.cancel", undefined, "Cancel")}
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                const row = rows.find((r) => r.id === c.id);
-                setCascadePrompt(null);
-                if (row) await performToggle(row, c.target);
-              }}
-              className={`px-3 py-1 rounded text-xs ${LINK_BG} ${LINK_BG_HOVER} ${LINK_FG} border ${LINK_BORDER}`}
-              data-testid="plugins-cascade-confirm"
-            >
-              {c.target ? "Enable all" : "Disable all"}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    if (!mounted.current) return;
+    setRestarting(false);
+    // Say so rather than silently returning to an idle button that looks like
+    // the restart succeeded.
+    if (!cameBack) {
+      setRestartError(
+        i18nT(
+          "packages.restartDidNotConfirm",
+          undefined,
+          "Server did not come back within 30s. It may still be restarting — reload to check.",
+        ),
+      );
+    }
   }
 
   return {
     isToggling: (id) => toggling[id] ?? false,
     toggleErrorFor: (id) => toggleErrors[id],
     handleToggle,
-    CascadeDialog,
+    cascadeDialog: cascadePrompt
+      ? (
+          <CascadeDialogView
+            prompt={cascadePrompt}
+            rows={rows}
+            onCancel={() => setCascadePrompt(null)}
+            onConfirm={async () => {
+              const row = rows.find((r) => r.id === cascadePrompt.id);
+              setCascadePrompt(null);
+              if (row) await performToggle(row, cascadePrompt.target);
+            }}
+          />
+        )
+      : null,
     restartRequired,
     restarting,
+    restartError,
     handleRestart,
   };
 }

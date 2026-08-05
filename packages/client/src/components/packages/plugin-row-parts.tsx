@@ -13,6 +13,7 @@ import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-share
 import { mdiAlert, mdiCheck, mdiContentCopy } from "@mdi/js";
 import Icon from "@mdi/react";
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { PluginRow } from "../../lib/package/plugins-api.js";
@@ -111,6 +112,7 @@ export function CopyableErrorBlock({ text, testId }: { text: string; testId: str
 export function MissingRequirementsBlock({ row }: { row: PluginRow }) {
   const missing = row.status?.missingRequirements ?? [];
   const operations = usePackageOperations("global");
+  const [, navigate] = useLocation();
   if (!missing.length) return null;
 
   const piExtMissing = row.status?.requirements?.piExtensions
@@ -155,13 +157,14 @@ export function MissingRequirementsBlock({ row }: { row: PluginRow }) {
                 {i18nT("common.install2", undefined, "Install")}
               </button>
             ) : (
-              <a
-                href="/settings/packages"
+              <button
+                type="button"
+                onClick={() => navigate("/settings/packages")}
                 className="px-2 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
                 data-testid={`install-piExtension-link-${name}`}
               >
                 {i18nT("packages.installViaPackagesTab", undefined, "Install via Packages tab")}
-              </a>
+              </button>
             )}
           </div>
         );

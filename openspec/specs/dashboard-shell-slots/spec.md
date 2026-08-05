@@ -261,9 +261,14 @@ The host SHALL render the plugin's identity, status, enable toggle, and error/re
 - **WHEN** a plugin's `updatePluginConfig({...})` succeeds
 - **THEN** the server SHALL broadcast `plugin_config_update { id, config }`, and any subscribed `usePluginConfig<T>()` consumers in *any* plugin or section SHALL re-render with the new value within one frame
 
-#### Scenario: Plugin without settings claim gets no page
+#### Scenario: Plugin that contributes no settings gets no page
 
-- **WHEN** a plugin has no `settings-section` claim
+A plugin CONTRIBUTES SETTINGS when it registers a `settings-section` refs claim
+OR has a `settings-section` intent in the store. Navigation membership, the
+activation-index affordance, and route eligibility SHALL all use that one
+predicate — a claims-only test would strand an intent-only contribution.
+
+- **WHEN** a plugin has neither a `settings-section` claim nor a `settings-section` intent
 - **THEN** the settings navigation rail SHALL render no child entry for that plugin and SHALL NOT log a warning
 - **AND** the plugin's row in the activation index SHALL render a non-clickable settings affordance that does not navigate
 - **AND** a directly typed `/settings/plugins/<id>` URL for that plugin SHALL fall back to the activation index

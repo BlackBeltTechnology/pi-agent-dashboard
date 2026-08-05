@@ -101,7 +101,7 @@ export function PluginSettingsPage({
       {/* The toggle above can require a dependency cascade; without this mount
           the confirm never appears and the toggle silently no-ops, because the
           activation index (which also renders it) is not on this route. */}
-      <toggle.CascadeDialog />
+      {toggle.cascadeDialog}
 
       {/* ── Host chrome (constructed unconditionally) ── */}
       <div

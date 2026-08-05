@@ -88,15 +88,13 @@ describe("settings route pattern", () => {
     const [bareMatch, bareParams] = matchAt("/folder/L3RtcA/settings/plugins", folderPattern);
     expect(bareMatch).toBe(true);
     expect(bareParams?.page).toBe("plugins");
-    const VALID_FOLDER_SETTINGS_PAGES = [
-      "instructions",
-      "packages",
-      "skills",
-      "agents",
-      "extensions",
-      "prompts",
-      "themes",
-    ];
-    expect(VALID_FOLDER_SETTINGS_PAGES).not.toContain("plugins");
+    // Read the real list out of App.tsx rather than restating it here: a local
+    // copy would keep passing after App.tsx started accepting `plugins`.
+    const app = fs.readFileSync(path.join(CLIENT_SRC, "App.tsx"), "utf-8");
+    const decl = app.match(/const VALID_FOLDER_SETTINGS_PAGES = \[(.*?)\]/s);
+    expect(decl, "VALID_FOLDER_SETTINGS_PAGES not found in App.tsx").toBeTruthy();
+    expect(decl![1]).not.toContain('"plugins"');
+    // And the folder route must still carry exactly one optional segment.
+    expect(app).toContain('useRoute("/folder/:encodedCwd/settings/:page?")');
   });
 });

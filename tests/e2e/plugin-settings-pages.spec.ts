@@ -256,13 +256,14 @@ test.describe("plugin settings pages (L3)", () => {
       await gotoSettings(page, path);
       const fixedBars = await page.evaluate(() => {
         const vh = window.innerHeight;
+        const vw = window.innerWidth;
         return Array.from(document.querySelectorAll("div")).filter((el) => {
           const s = getComputedStyle(el);
           if (s.position !== "fixed") return false;
           const r = el.getBoundingClientRect();
           // A bottom-anchored bar: touches the viewport floor, spans it wide,
           // and is short. Modal backdrops (full-height) are excluded by height.
-          return r.height > 0 && r.height < 200 && r.bottom >= vh - 2 && r.width > vh / 2;
+          return r.height > 0 && r.height < 200 && r.bottom >= vh - 2 && r.width > vw / 2;
         }).length;
       });
       expect(fixedBars, `fixed bottom bars on ${path}`).toBe(0);

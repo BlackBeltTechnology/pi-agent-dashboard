@@ -120,8 +120,17 @@ export function HermesMemorySettings(): React.ReactElement {
   // See change: plugin-settings-pages (design D5).
   useSettingsDraftSource({
     id: "plugin:hermes-memory",
-    isDirty: changedCount > 0 && !hasErrors,
+    // Dirty means "has unsaved edits", NOT "has valid unsaved edits". Clearing
+    // it on a validation error would hide the Save Bar and make invalid edits
+    // look committed; `commit` rejects instead, which keeps the source dirty
+    // and offers Retry.
+    isDirty: changedCount > 0,
     commit: async () => {
+      if (hasErrors) {
+        throw new Error(
+          t("fixInvalidFields", undefined, "Fix the invalid fields before saving."),
+        );
+      }
       await putConfig(buildResolvedConfig(values, overridden));
       await load();
     },
