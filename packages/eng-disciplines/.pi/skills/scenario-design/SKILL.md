@@ -1,17 +1,6 @@
 ---
 name: scenario-design
-description: >-
-  Draft real-life test SCENARIOS (not smoke tests) from a change/feature spec
-  (OpenSpec optional). Derives edge-case, performance, frontend-quirk, and
-  error-handling scenarios using ISTQB design techniques, routes each to your
-  project's test levels, and writes a standalone test-plan.md catalog. When a
-  scenario's
-  (input · trigger · observable) triple cannot be filled from the spec, the spec
-  has a gap — the skill emits decision-forcing clarification questions and (in
-  proposal/design stage) STOPS to ask. Use when the user says "design test
-  scenarios", "what should we test for this change", "the tasks are just smoke
-  tests", "build a test plan", "find edge cases", "is this spec testable", or
-  before writing the ## Tests / ## Validate sections of a tasks.md.
+description: 'Draft real-life test SCENARIOS (not smoke tests) from a change/feature spec. Derives edge-case, performance, frontend-quirk and error-handling scenarios with ISTQB techniques, routes each to a test level, and writes test-plan.md, emitting clarification questions on a spec gap. Use on "design test scenarios", "what should we test", "build a test plan", "find edge cases".'
 license: MIT
 compatibility: "Optional: OpenSpec change spec as input. Reads a change/feature spec; writes test-plan.md."
 metadata:

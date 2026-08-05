@@ -2,13 +2,13 @@
 
 Stage: apply   Generated: 2026-08-04
 
-## ⚠ Clarifications needed (3)
+## ⚠ Clarifications (3) — C1, C2 RESOLVED
 
-- [ ] **C1** — Blocks **P1**. No latency budget is stated anywhere for the resources payload, yet `resolve()` is now on its critical path with no timeout and can perform network I/O for temporary git sources. What is the acceptable p95 for `GET /api/pi-resources` on a warm cache, and what timeout should bound `resolve()` — 2s, 5s, or the poll interval itself?
-- [ ] **C2** — Blocks **X4**. The design says a transient skill-less `commands_list` must not displace a populated retained list, but gives no settling rule. Is the rule "never replace a non-empty skill set with an empty one", or "ignore an empty list within N ms of a non-empty one" (and if so, what is N)?
+- [x] **C1** — RESOLVED. `GET /api/pi-resources` p95 ≤ 5s on a warm cache; `resolve()` bounded by a 5s timeout (timeout expiry → degraded fallback, per X1).
+- [x] **C2** — RESOLVED. Settling rule: **never replace a non-empty retained skill set with an empty one**. No time window; an empty `commands_list` is ignored whenever the retained set is non-empty.
 - [ ] **X3 observable is partial.** The join warns when retained skill commands carry no joinable path. Where does that warning surface — server log only, or the degraded/scan-only marker in the payload? Recorded inline on the row rather than blocking, since the row is testable at the log level today.
 
-> Resolve C1 and C2 before P1 and X4 can be authored.
+> C1 and C2 resolved; P1 and X4 are unblocked.
 
 ---
 
@@ -40,7 +40,7 @@ Stage: apply   Generated: 2026-08-04
 
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
-| P1 | Resolver on the resources path | tail-latency | L2 | automated | resources refresh across 10 known directories | [NEEDS CLARIFICATION: threshold — see C1; and what timeout bounds `resolve()`] | one poll cycle |
+| P1 | Resolver on the resources path | tail-latency | L2 | automated | resources refresh across 10 known directories | p95 `GET /api/pi-resources` ≤ 5s warm; `resolve()` bounded by a 5s timeout | one poll cycle |
 | P2 | Resolver call count | invariant counting | L1 | automated | one `scanPiResources()` invocation | `resolveActivation()` called exactly once | single call |
 
 ### Frontend-quirk
@@ -66,7 +66,7 @@ Stage: apply   Generated: 2026-08-04
 | X1 | Degraded on resolver throw | fault-injection (abort) | L1 | automated | `resolveActivation()` throws | `scanPiResources()` runs | fallback walk results returned; payload marked degraded; no exception escapes |
 | X2 | Degraded on contradicted empty | fault-injection (empty return) | L1 | automated | `resolveActivation()` returns all-empty arrays while the fallback walk finds ≥1 skill | scan assembles | payload marked degraded, not presented as an authoritative empty list |
 | X3 | Path-less retained list | fault-injection (field removal) | L1 | automated | retained `commands_list` whose skill entries all lack `path` | server joins | condition reported (see C1 note above); NOT every resolved skill flipped to `not-loaded` |
-| X4 | Transient empty list on reload | state-transition (illegal edge) | L1 | automated | session with a populated retained set | a `commands_list` containing zero skill entries arrives mid-reload | [NEEDS CLARIFICATION: observable — see C2; retained set must not empty, but the settling rule is unstated] |
+| X4 | Transient empty list on reload | state-transition (illegal edge) | L1 | automated | session with a populated retained set | a `commands_list` containing zero skill entries arrives mid-reload | retained set unchanged — a non-empty skill set is never replaced by an empty one |
 | X5 | Multi-session folder | decision-table | L1 | automated | two sessions attached to one folder, both reporting | resources payload built | payload is scan-only; no `not-loaded` labels; no last-writer-wins selection |
 | X6 | Path mapping survives every sender | state-transition | L1 | automated | commands emitted via register, spawn, flow-rediscover, `session_start`, `request_commands` | each sender fires | all five carry `path` on skill entries |
 | X7 | Reload does not degrade a good list | state-transition | L3 | automated | session with correct provenance rendered | user triggers `/reload`, then a flow rediscovery | provenance remains correct; no mass flip to `not-loaded` |

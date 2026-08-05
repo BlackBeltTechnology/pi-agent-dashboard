@@ -1,6 +1,6 @@
 ---
 name: interview-me
-description: Pre-spec intent extraction — one question at a time until ~95% confidence about what the user actually wants, BEFORE any openspec proposal or change exists. Use when an ask is underspecified (missing who/why/success/constraint), or on explicit invocation "interview me", "grill me", "stress-test my thinking". Sits upstream of openspec-explore/openspec-new-change; it does not write specs or plans itself. Interactive only — never in CI or autonomous loops.
+description: 'Pre-spec intent extraction — one question at a time until ~95% confidence about what the user actually wants, BEFORE any openspec proposal exists. Use when an ask is underspecified (missing who/why/success/constraint), or on "interview me", "grill me", "stress-test my thinking". Upstream of openspec-explore; writes no specs. Interactive only — never in CI or autonomous loops.'
 ---
 
 # Interview Me

@@ -338,7 +338,27 @@ export interface PiResource {
   tools?: string;
   /** Theme-only: palette swatch colors (bg / surface / accent / text) for the card strip. */
   colors?: string[];
+  /**
+   * Raw `metadata.source` of a package-origin resolver entry whose source matched
+   * no known package row. Rendered as the card's package label rather than dropped.
+   * See change: fix-skill-discovery-parity.
+   */
+  packageSource?: string;
+  /**
+   * Skill-only provenance from the live join against a session's retained
+   * `commands_list`. Absent when the payload is scan-only or degraded.
+   * See change: fix-skill-discovery-parity.
+   */
+  status?: PiSkillStatus;
+  /** Skill-only: the path the session reported, for `loaded-elsewhere` entries. */
+  sessionPath?: string;
 }
+
+/**
+ * Provenance of a skill relative to the session that reported its loaded set.
+ * See change: fix-skill-discovery-parity.
+ */
+export type PiSkillStatus = "active" | "not-loaded" | "loaded-elsewhere";
 
 export interface PiResourceScope {
   extensions: PiResource[];
@@ -346,6 +366,8 @@ export interface PiResourceScope {
   prompts: PiResource[];
   /** Subagents from `agents/*.md`. See change: resources-card-tabs. */
   agents: PiResource[];
+  /** Themes from pi's resolver (`ResolvedPaths.themes`). See change: fix-skill-discovery-parity. */
+  themes: PiResource[];
 }
 
 export interface PiPackageInfo {
@@ -361,6 +383,26 @@ export interface PiResourcesResult {
   local: PiResourceScope;
   global: PiResourceScope;
   packages: PiPackageInfo[];
+  /**
+   * True when skills/prompts/themes came from the filesystem fallback because
+   * pi's resolver was unavailable or returned a contradicted empty result.
+   * See change: fix-skill-discovery-parity.
+   */
+  degraded?: boolean;
+  /**
+   * True when no single session has reported a `commands_list` for this folder
+   * (none, or more than one). No skill carries a `status` in that case.
+   */
+  scanOnly?: boolean;
+  /**
+   * The single reporting session behind the join, when there is exactly one.
+   * `differsFromFolder` is true when its working directory is not the scanned
+   * folder (a worktree or subdirectory), which is what makes a `not-loaded`
+   * status attributable to scope rather than to rejection.
+   */
+  contributingSession?: { sessionId: string; cwd: string; differsFromFolder: boolean };
+  /** True when the retained skill commands carried no joinable `path` at all. */
+  pathlessCommands?: boolean;
 }
 
 export type PiResourcesResponse = ApiResponse<PiResourcesResult>;

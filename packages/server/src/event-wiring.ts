@@ -36,6 +36,7 @@ import {
   extractModelTurnError,
 } from "./spawn-process/spawned-turn-log.js";
 import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
+import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 
 /**
  * `true` iff `changeName` appears in the cwd's authoritative OpenSpec poll
@@ -1361,10 +1362,16 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Drop the per-session debounce entry so a future re-register with the
       // same id does not silently suppress its first activity broadcast.
       lastActivityBroadcastAt.delete(sessionId);
+      sessionCommandRegistry.remove(sessionId);
       browserGateway.broadcastSessionRemoved(sessionId);
     }
 
     if (msg.type === "commands_list") {
+      // Retain the latest list so `/api/pi-resources` can tell a skill the
+      // session loaded from one merely present on disk. The registry's own
+      // settling rule keeps a transitional reload list from emptying it.
+      // See change: fix-skill-discovery-parity.
+      sessionCommandRegistry.retain(sessionId, msg.commands);
       browserGateway.sendToSubscribers(sessionId, {
         type: "commands_list",
         sessionId,

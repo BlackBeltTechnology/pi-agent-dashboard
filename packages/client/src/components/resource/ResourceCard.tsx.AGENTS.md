@@ -1,3 +1,3 @@
 # ResourceCard.tsx — index
 
-One pi-resource as a card. Exports `ResourceCard`. Scope/source badges, path line, `ActivationToggle` (omitted for `agent` — no pi activation dim). Agent variant: `◆ model`+`🔧 tools` badges. Theme variant: swatch strip from `resource.colors` replaces desc. See change: resources-card-tabs.
+One pi-resource as a card. Exports `ResourceCard`. Scope/source badges, path line, `ActivationToggle` (omitted for `agent` — no pi activation dim). Agent variant: `◆ model`+`🔧 tools` badges. Theme variant: swatch strip from `resource.colors` replaces desc. Skill provenance badge from `resource.status`: none for `active`, `○ not loaded` / `↗ loaded elsewhere` otherwise (no cause asserted). `loaded-elsewhere` also shows `resource.sessionPath`; `not-loaded` shows the `sessionCwd` prop when the reporting session's cwd differs from the folder. See change: resources-card-tabs, fix-skill-discovery-parity.

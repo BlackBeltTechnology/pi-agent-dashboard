@@ -1,6 +1,6 @@
 ---
 name: review-code
-description: "Review a code change well — engine-agnostic critical review discipline for an inline dev loop. Use on triggers like \"review this code\", \"review my diff\", \"is this change good\", \"critique this implementation\", \"review before commit\", or autonomously after writing a non-trivial change and before committing. Defines WHAT to look for (design→correctness→complexity→tests→naming→security), a parseable severity taxonomy, and a review→fix→re-review loop with a hard stop condition. Runs on any reviewer engine (a model via role alias, a human, or a cloud tool). Not a ship-gate: the cloud PR gate (rabbit-code-review) stays reserved for the pull request. Not a debugging or feature-build workflow."
+description: 'Review a code change well — engine-agnostic critical review discipline for an inline dev loop. Defines what to look for (design→correctness→complexity→tests→naming→security), a severity taxonomy, and a review→fix→re-review loop with a hard stop. Use on "review this code", "review my diff", "is this change good", "critique this implementation", "review before commit". Not a ship-gate.'
 related_skills: doubt-driven-review, systematic-debugging, security-hardening, code-simplification
 ---
 
