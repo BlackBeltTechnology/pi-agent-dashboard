@@ -15,3 +15,4 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `resource-entry-ownership.ts` | Machine-local record of the plain settings entries this dashboard wrote, at… → see `resource-entry-ownership.ts.AGENTS.md` |
 | `resource-origin.ts` | Origin classification by longest-prefix path match + narrow mirrors of unexported pi semantics… → see `resource-origin.ts.AGENTS.md` |
 | `resource-toggle-trust.ts` | Project-trust gate for the resource-activation write. `resolveToggleTrust` → proceed \| refused \| prompt… → see `resource-toggle-trust.ts.AGENTS.md` |
+| `session-skill-registry.ts` | Live half of the Resources skill list. `SessionCommandRegistry` retains the latest `commands_list` per… → see `session-skill-registry.ts.AGENTS.md` |

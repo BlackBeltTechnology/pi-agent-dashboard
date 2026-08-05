@@ -1,15 +1,6 @@
 ---
 name: doc-summarizer
-description: >-
-  Summarize documents of any size by extracting them with the document-converter
-  engine, chunking to fit context, and fanning chunks out to subagents that
-  produce structured summaries, then synthesizing one unified summary. Handles
-  PDF, DOCX, PPTX, XLSX, HTML, CSV, TXT, MD and more. Use when the user wants to:
-  (1) summarize a single document, (2) summarize multiple documents in batch,
-  (3) condense content from large files that exceed context limits, (4) get a
-  quick overview of document contents. Triggers on: "summarize this document",
-  "what's in this PDF", "give me a summary of these files", "extract key points
-  from", "condense this document", "TL;DR of this file".
+description: 'Summarize documents of any size: extract with the document-converter engine, chunk to fit context, fan out to subagents, then synthesize one unified summary. Handles PDF, DOCX, PPTX, XLSX, HTML, CSV, TXT, MD. Triggers: "summarize this document", "what''s in this PDF", "give me a summary of these files", "extract key points from", "condense this document", "TL;DR of this file".'
 ---
 
 # Document Summarizer

@@ -1,13 +1,6 @@
 ---
 name: faq-mine
-description: >-
-  Mine docs/faq.md from README.md, docs/*.md, AND the pi-hermes memory stores
-  (project MEMORY.md + global failures.md). Dispatches @fast subagents per source
-  to extract recurring how-to / what-is questions and runtime-problem fixes,
-  dedupes against existing FAQ, and merges entries in caveman style. Use when the
-  user asks to "build / regenerate / extend the FAQ", "mine docs into FAQ", "mine
-  hermes memory into FAQ", "surface runtime problems in the FAQ", "create FAQ from
-  README + docs", or "process knowledge into faq.md".
+description: 'Mine docs/faq.md from README.md, docs/*.md, and the pi-hermes memory stores. Dispatches @fast subagents per source, dedupes against the existing FAQ, and merges entries in caveman style. Use when asked to "build / regenerate / extend the FAQ", "mine docs into FAQ", "mine hermes memory into FAQ", "surface runtime problems in the FAQ", or "create FAQ from README + docs".'
 license: MIT
 compatibility: Requires @fast subagents (general-purpose) + write access to docs/ + read access to ~/.pi/agent hermes stores.
 metadata:

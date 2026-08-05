@@ -4,6 +4,11 @@
  * the card carries them explicitly as badges:
  *   - scope  → `⬡ local` (green) / `◇ global` (purple)
  *   - source → `loose` / `📦 <package-name>` (orange)
+ *   - provenance → skills only, from the live join: nothing for `active`,
+ *              `not loaded` / `loaded elsewhere` otherwise. No cause is
+ *              asserted — discovery already dropped anything failing pi's
+ *              load gate, so the status is all that is known.
+ *              See change: fix-skill-discovery-parity.
  *   - path   → monospace line at the card bottom
  *   - toggle → activation switch, top-right (omitted for agents — pi has no
  *              activation dimension for `.pi/agents/*.md`)
@@ -24,8 +29,8 @@ import type { PiResource } from "@blackbelt-technology/pi-dashboard-shared/rest-
 import { mdiBookOpenPageVariant, mdiPalette, mdiPuzzleOutline, mdiRobotOutline, mdiTextBoxOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type { ResourceActivationController } from "../../hooks/useResourceActivation.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { ResourceScope } from "../../lib/api/resources-api.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ActivationToggle } from "./resource-tree.js";
 
 const TYPE_ICON: Record<PiResource["type"], string> = {
@@ -51,11 +56,16 @@ interface Props {
   packageName?: string;
   /** Raw package source string (pi settings key) used by the activation write. */
   packageSource?: string;
+  /**
+   * Working directory of the session behind the provenance status, shown only
+   * when it differs from the scanned folder. See change: fix-skill-discovery-parity.
+   */
+  sessionCwd?: string;
   onView: () => void;
   activation?: ResourceActivationController;
 }
 
-export function ResourceCard({ resource, scope, toggleScope, packageName, packageSource, onView, activation }: Props) {
+export function ResourceCard({ resource, scope, toggleScope, packageName, packageSource, sessionCwd, onView, activation }: Props) {
   const isAgent = resource.type === "agent";
   const isTheme = resource.type === "theme";
   // Agents have no pi activation dimension → no toggle, never dimmed.
@@ -127,7 +137,41 @@ export function ResourceCard({ resource, scope, toggleScope, packageName, packag
         {isAgent && resource.tools && (
           <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-[var(--accent-primary)]" data-testid="badge-tools">🔧 {resource.tools}</span>
         )}
+        {resource.status === "not-loaded" && (
+          <span
+            className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/12 text-[var(--accent-orange,#d97706)]"
+            data-testid="badge-provenance"
+            data-provenance="not-loaded"
+          >
+            ○ {i18nT("common.notLoaded", undefined, "not loaded")}
+          </span>
+        )}
+        {resource.status === "loaded-elsewhere" && (
+          <span
+            className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-sky-500/12 text-[var(--accent-primary)]"
+            data-testid="badge-provenance"
+            data-provenance="loaded-elsewhere"
+          >
+            ↗ {i18nT("common.loadedElsewhere", undefined, "loaded elsewhere")}
+          </span>
+        )}
       </div>
+
+      {resource.status === "loaded-elsewhere" && resource.sessionPath && (
+        <div
+          data-testid="resource-card-session-path"
+          className="text-[10px] font-mono text-[var(--text-muted)] truncate"
+          title={resource.sessionPath}
+        >
+          {resource.sessionPath}
+        </div>
+      )}
+
+      {resource.status === "not-loaded" && sessionCwd && (
+        <div data-testid="resource-card-session-cwd" className="text-[10px] text-[var(--text-muted)] truncate" title={sessionCwd}>
+          {i18nT("common.sessionCwd", { cwd: sessionCwd }, `session cwd: ${sessionCwd}`)}
+        </div>
+      )}
 
       <div className="text-[10px] font-mono text-[var(--text-muted)] truncate" title={resource.filePath}>{resource.filePath}</div>
     </div>

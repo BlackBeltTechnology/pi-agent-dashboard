@@ -1,79 +1,177 @@
-import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { parse as parseYaml } from 'yaml';
-
 /**
- * Guard: every SKILL.md in the repo MUST have YAML-parseable frontmatter
- * with a non-empty `description`. Skills whose frontmatter fails to parse are
- * silently dropped by pi's loader at startup (e.g. an unquoted description
- * containing `Triggers: "..."` triggers "Nested mappings are not allowed in
- * compact mappings"). This turns that silent runtime warning into a CI failure.
+ * Guard tests for `scripts/check-skill-frontmatter.mjs`.
  *
- * See change: fix-skill-frontmatter-yaml.
+ * The guard used to be a vitest `it.each` that could only pass or fail. It is
+ * now a script emitting structured findings, so these tests cover each
+ * severity, each source label, the wording-locked exemption, and the exit-code
+ * contract — plus the original repository-wide assertion that no SKILL.md is
+ * error-level broken.
+ *
+ * See change: fix-skill-discovery-parity (test-plan E11, E12, E13, E14).
  */
 
-const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { parse as parseYaml } from 'yaml';
+import { describe, expect, it } from 'vitest';
+import {
+  analyzeRepository,
+  analyzeSkillFile,
+  BUDGET_EXEMPT_SKILLS,
+  PI_MAX_DESCRIPTION_LENGTH,
+  REPO_DESCRIPTION_BUDGET,
+  REPO_ROOT,
+} from '../check-skill-frontmatter.mjs';
 
-const SKIP_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  'coverage',
-  '.next',
-  'out',
-  'worktrees',
-  '.worktrees',
-]);
-
-/** Recursively collect every SKILL.md path under `root`, skipping heavy dirs. */
-function collectSkillManifests(root) {
-  const found = [];
-  const walk = (dir) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        if (SKIP_DIRS.has(entry.name)) continue;
-        walk(join(dir, entry.name));
-      } else if (entry.name === 'SKILL.md') {
-        found.push(join(dir, entry.name));
-      }
-    }
-  };
-  walk(root);
-  return found;
+/** Build a SKILL.md body with a description of exactly `n` characters. */
+function skillWithDescription(n, name = 'a-skill') {
+  return `---\nname: ${name}\ndescription: ${'x'.repeat(n)}\n---\n\nBody`;
 }
 
-/** Extract the leading `---`-fenced frontmatter block. Returns null if absent. */
-function extractFrontmatter(text) {
-  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  return m ? m[1] : null;
-}
+const rulesOf = (findings) => findings.map((f) => f.rule);
 
-const manifests = collectSkillManifests(REPO_ROOT);
-
-describe('SKILL.md frontmatter validity', () => {
-  it('discovers skill manifests to check', () => {
-    expect(manifests.length).toBeGreaterThan(0);
+describe('description length severities (E11)', () => {
+  it.each([
+    [400, []],
+    [401, ['description-over-budget']],
+    [1024, ['description-over-budget']],
+    [1025, ['description-too-long', 'description-over-budget']],
+  ])('a %i-char description yields %j', (len, expected) => {
+    const findings = analyzeSkillFile('skills/a-skill/SKILL.md', skillWithDescription(len));
+    expect(rulesOf(findings).sort()).toEqual([...expected].sort());
+    expect(findings.every((f) => f.severity === 'warning')).toBe(true);
   });
 
-  it.each(manifests.map((p) => [relative(REPO_ROOT, p), p]))(
-    '%s has YAML-parseable frontmatter with a non-empty description',
-    (_rel, absPath) => {
-      const text = readFileSync(absPath, 'utf8');
-      const fm = extractFrontmatter(text);
-      expect(fm, 'missing `---`-fenced frontmatter block').not.toBeNull();
+  it('labels the two thresholds with distinct sources', () => {
+    const findings = analyzeSkillFile('skills/a-skill/SKILL.md', skillWithDescription(PI_MAX_DESCRIPTION_LENGTH + 1));
+    const bySource = Object.fromEntries(findings.map((f) => [f.rule, f.source]));
+    expect(bySource['description-too-long']).toBe('pi');
+    expect(bySource['description-over-budget']).toBe('repository');
+  });
+});
 
-      let parsed;
-      expect(() => {
-        parsed = parseYaml(fm);
-      }, 'frontmatter must parse as valid YAML').not.toThrow();
+describe('name severities (E12)', () => {
+  it.each([
+    [64, []],
+    [65, ['name-too-long']],
+  ])('a %i-char name yields %j', (len, expected) => {
+    const name = 'a'.repeat(len);
+    const findings = analyzeSkillFile('skills/x/SKILL.md', `---\nname: ${name}\ndescription: Fine.\n---\nBody`);
+    expect(rulesOf(findings)).toEqual(expected);
+    expect(findings.every((f) => f.severity === 'warning' && f.source === 'pi')).toBe(true);
+  });
 
-      const description = parsed?.description;
-      expect(
-        typeof description === 'string' && description.trim().length > 0,
-        '`description` must be a non-empty string',
-      ).toBe(true);
-    },
-  );
+  it('warns without failing on an uppercase name', () => {
+    const findings = analyzeSkillFile('skills/x/SKILL.md', '---\nname: MySkill\ndescription: Fine.\n---\nBody');
+    expect(rulesOf(findings)).toEqual(['name-charset']);
+    expect(findings[0].severity).toBe('warning');
+  });
+
+  it('warns without failing on consecutive hyphens', () => {
+    const findings = analyzeSkillFile('skills/x/SKILL.md', '---\nname: my--skill\ndescription: Fine.\n---\nBody');
+    expect(rulesOf(findings)).toEqual(['name-hyphens']);
+    expect(findings[0].severity).toBe('warning');
+  });
+});
+
+describe('description errors', () => {
+  it.each([
+    ['omitted', '---\nname: x\n---\nBody'],
+    ['empty', '---\nname: x\ndescription: ""\n---\nBody'],
+    ['whitespace', '---\nname: x\ndescription: "   "\n---\nBody'],
+  ])('a %s description is an error naming the file', (_label, text) => {
+    const findings = analyzeSkillFile('skills/x/SKILL.md', text);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe('error');
+    expect(findings[0].source).toBe('pi');
+    expect(findings[0].file).toBe('skills/x/SKILL.md');
+  });
+
+  it('treats a missing frontmatter block as an error', () => {
+    const findings = analyzeSkillFile('skills/x/SKILL.md', '# Just a heading\n');
+    expect(findings[0].severity).toBe('error');
+    expect(findings[0].rule).toBe('frontmatter-missing');
+  });
+
+  it('treats unparseable frontmatter as an error, not a crash', () => {
+    const text = '---\nname: x\ndescription: Use when Triggers: "a", "b"\n---\nBody';
+    const findings = analyzeSkillFile('skills/x/SKILL.md', text);
+    expect(findings[0].severity).toBe('error');
+    expect(findings[0].rule).toBe('frontmatter-unparseable');
+  });
+});
+
+describe('wording-locked exemption (E14)', () => {
+  it.each([...BUDGET_EXEMPT_SKILLS])('%s raises no budget warning', (skill) => {
+    const findings = analyzeSkillFile(`skills/${skill}/SKILL.md`, skillWithDescription(REPO_DESCRIPTION_BUDGET + 200, skill));
+    expect(rulesOf(findings)).toEqual([]);
+  });
+
+  // Pinned to approved digests, NOT to HEAD: comparing a working-tree file with
+  // `git show HEAD:<the same file>` passes after any committed edit, so a
+  // HEAD-based lock silently stops protecting the wording it exists to protect.
+  const APPROVED_DESCRIPTION_SHA256 = {
+    'ship-change': '8759069009538a1daf9489c27595249ddd8d84a97a1624bb87efcfc3d1a9cad3',
+    'frontend-mockup-loop': '161f387768adc25a77c6bbd9d4bda3607466b0faceeeffc4a1b71732aa2c5019',
+    'anti-slop-frontend': '829c144c5ef7b8332d22c97899be3f0b040596daec850e1fd9aafcf1dce79c3c',
+  };
+
+  it('their descriptions match the approved wording byte for byte', () => {
+    const { files } = analyzeRepository();
+    const exempt = files.filter((f) => [...BUDGET_EXEMPT_SKILLS].some((s) => f.includes(`${s}/SKILL.md`)));
+    expect(exempt.length).toBe(BUDGET_EXEMPT_SKILLS.size);
+
+    for (const file of exempt) {
+      const skill = [...BUDGET_EXEMPT_SKILLS].find((s) => file.includes(`${s}/SKILL.md`));
+      const fm = readFileSync(file, 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---/)[1];
+      const digest = createHash('sha256').update(parseYaml(fm).description, 'utf8').digest('hex');
+      expect(digest, `${skill} description changed — its wording is locked by spec`).toBe(
+        APPROVED_DESCRIPTION_SHA256[skill],
+      );
+    }
+  });
+});
+
+describe('exit-code contract (E13)', () => {
+  const script = join(REPO_ROOT, 'scripts', 'check-skill-frontmatter.mjs');
+
+  it('exits 0 for the repository, which must have warnings but no errors', () => {
+    const out = execFileSync('node', [script], { cwd: REPO_ROOT, encoding: 'utf8' });
+    expect(out).toMatch(/0 error\(s\)/);
+  });
+
+  it('reports every finding with a severity and a source label', () => {
+    const { findings } = analyzeRepository();
+    for (const f of findings) {
+      expect(['error', 'warning']).toContain(f.severity);
+      expect(['pi', 'repository']).toContain(f.source);
+    }
+  });
+
+  it('never collects a documentation-tree file as a skill candidate', () => {
+    const { files } = analyzeRepository();
+    expect(files.every((f) => f.endsWith('SKILL.md'))).toBe(true);
+    expect(files.some((f) => f.endsWith('AGENTS.md'))).toBe(false);
+  });
+});
+
+describe('repository is error-free', () => {
+  it('discovers skill manifests to check', () => {
+    const { files } = analyzeRepository();
+    expect(files.length).toBeGreaterThan(0);
+  });
+
+  it('has no SKILL.md with missing, empty, or unparseable frontmatter description', () => {
+    const { findings } = analyzeRepository();
+    const errors = findings.filter((f) => f.severity === 'error');
+    expect(errors.map((f) => `${f.file}: ${f.message}`)).toEqual([]);
+  });
+
+  it('has no budget warning outside the exempt skills (6.8)', () => {
+    const { findings } = analyzeRepository();
+    const overBudget = findings.filter((f) => f.rule === 'description-over-budget');
+    expect(overBudget.map((f) => f.file)).toEqual([]);
+  });
 });
