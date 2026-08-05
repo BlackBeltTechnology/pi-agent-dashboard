@@ -13,8 +13,8 @@
  * Blocks are addressed by `attachmentId` = sha256 of the ORIGINAL bytes, not
  * by sequence number. That choice matters: the client's live fold
  * (`foldLiveEvents`) is append-only and never sees a seq, replay can reorder
- * relative to the row, and the same hash is the key the originals endpoint and
- * the fitted-derivative cache need anyway (D10).
+ * relative to the row, and the same hash is the key the originals endpoint
+ * needs anyway. (Fitted derivatives are NOT cached — D10.)
  *
  * See change: fit-attachments-for-display (tasks 5.2, 5.3).
  */

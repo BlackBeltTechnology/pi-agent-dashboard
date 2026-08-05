@@ -125,6 +125,19 @@ describe("GET /api/sessions/:sessionId/attachments/:attachmentId", () => {
     await app.close();
   });
 
+  it("X6c: an unknown session yields 404 whatever the id shape, leaking nothing", async () => {
+    // Gate order is session-then-shape: a malformed id must NOT earn a 400 on a
+    // session that does not exist, or the status code distinguishes "real
+    // session, bad id" from "no such session" and turns the endpoint into a
+    // session-id oracle.
+    const app = buildApp({});
+    for (const bad of ["not-hex", "A".repeat(64), `${"a".repeat(64)}x`]) {
+      const res = await app.inject({ url: `/api/sessions/ghost/attachments/${encodeURIComponent(bad)}` });
+      expect(res.statusCode, `id ${bad}`).toBe(404);
+    }
+    await app.close();
+  });
+
   it("X6b: a session whose transcript file is gone yields a clean 404", async () => {
     const app = buildApp({ s1: { sessionFile: "/tmp/definitely-not-here-9f2b.jsonl" } });
     const res = await app.inject({ url: `/api/sessions/s1/attachments/${sha(PNG_B64)}` });

@@ -209,7 +209,10 @@ which is no worse than current behaviour. Never emit a corrupt frame (scenario X
 ### D12 — Phase 2 ships as its own resolution event (settled)
 
 The fitted bytes reach the client as a SEPARATE stored+broadcast event carrying
-`{targetSeq, blockIndex, data, mimeType}`; the client reducer gains one additive case
+`{attachmentId, data, mimeType, state}` (`buildFittedEvent`); the block is addressed by
+the sha256 of the ORIGINAL bytes, NOT by `{targetSeq, blockIndex}` — the live fold is
+append-only and never sees a seq, and `state` lets a FAILED fit resolve the placeholder
+honestly instead of leaving it pending. The client reducer gains one additive case
 that patches the already-folded message. Rejected: re-broadcasting the row at the same
 `seq` — the client fold (`useSessionState.ts`, `foldLiveEvents`) is append-only, so a
 second fold of `message_start` duplicates the row; making it safe needs replace-by-seq
@@ -239,8 +242,9 @@ event, so each is independently well under the 256 KiB ceiling.
 - Does the click-to-original overlay need progressive loading for a 10 MB original, or is
   a spinner sufficient?
 
-Resolved: D9 (accept the 15 KB → 192 KB shift), D10 (cache fitted derivatives by content
-hash), D11 (exempt animated GIFs from fitting, keep them under the ceiling).
+Resolved: D9 (accept the 15 KB → 192 KB shift), D10 (do NOT cache fitted derivatives —
+reversed on evidence after implementation; the D7 originals blob cache is dropped with
+it), D11 (exempt animated GIFs from fitting, keep them under the ceiling).
 
 ## Established facts (verified; do not re-derive)
 

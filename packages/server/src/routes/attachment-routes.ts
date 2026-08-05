@@ -42,20 +42,22 @@ export function registerAttachmentRoutes(
     async (request, reply) => {
       const { sessionId, attachmentId } = request.params;
 
-      // Shape-check BEFORE any lookup: a malformed id is a client error and
-      // must never reach the recovery path.
-      if (!isValidAttachmentId(attachmentId)) {
-        reply.code(400);
-        return { success: false, error: "invalid attachment id" } satisfies ApiResponse;
-      }
-
       const session = sessionManager.get(sessionId);
       if (!session?.sessionFile) {
         // Unknown session, or one with no transcript to recover from. Same
         // 404 either way — do not distinguish, so the endpoint cannot be used
-        // to probe which session ids exist.
+        // to probe which session ids exist. This gate precedes the shape check
+        // deliberately: answering 400 for a malformed id on a NON-existent
+        // session would make the status code reveal which sessions are real.
         reply.code(404);
         return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+
+      // Shape-check before the recovery path: a malformed id is a client error
+      // and must never reach transcript scanning.
+      if (!isValidAttachmentId(attachmentId)) {
+        reply.code(400);
+        return { success: false, error: "invalid attachment id" } satisfies ApiResponse;
       }
 
       const original = await findOriginalInTranscript(session.sessionFile, attachmentId);

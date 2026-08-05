@@ -21,6 +21,8 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
+import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { isJitiLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
 import { type FitRequest, type FitResponse, fitBlocks } from "./fit-worker.js";
 
 export interface FitWorkerPoolOptions {
@@ -58,8 +60,39 @@ const DEBUG =
   typeof process.env?.DEBUG === "string" &&
   /pi-dashboard|fit-worker/.test(process.env.DEBUG);
 
+/**
+ * `execArgv` for a spawned fit worker.
+ *
+ * The worker entry is a `.ts` file, loadable ONLY under a TypeScript loader.
+ * Production inherits one (`bin/pi-dashboard.mjs` spawns the CLI with
+ * `--import <jiti-register>`), so this normally returns `process.execArgv`
+ * untouched.
+ *
+ * A host that does NOT supply one — vitest, or an embedder importing the
+ * server directly — spawned a worker that came ONLINE and then died on its
+ * first `.js` specifier (`Cannot find module …/display-fit.js`). The pool
+ * dutifully caught the crash and fell back to fitting on the MAIN thread:
+ * exactly the multi-hundred-ms stall the worker exists to prevent, with no
+ * signal that it was happening. Supply the loader when it is absent.
+ *
+ * Falls through to the inherited argv when jiti cannot be resolved — the
+ * in-process fallback still guarantees correctness, only not the offload.
+ */
+function workerExecArgv(workerUrl: string): string[] {
+  const inherited = [...process.execArgv];
+  if (!workerUrl.endsWith(".ts")) return inherited;
+  if (inherited.some(isJitiLoader)) return inherited;
+  const loader = new ToolResolver().resolveJiti({ anchor: fileURLToPath(import.meta.url) });
+  // `resolveJiti` returns a `pathToFileURL(...).href` or null — never a raw OS
+  // path — so the Windows drive-letter hazard `no-raw-node-import` guards is not
+  // reachable here. There is no entry-script position either: the worker entry
+  // is passed to `new Worker()` as a URL object, not through argv.
+  return loader ? ["--import", loader, ...inherited] : inherited; // ban:raw-node-import-ok
+}
+
 function defaultWorkerUrl(): string {
-  // Sibling .ts entry; jiti (inherited via `execArgv`) loads it in the worker.
+  // Sibling .ts entry; jiti loads it in the worker — inherited via `execArgv`,
+  // or supplied by `workerExecArgv` when the host has no TS loader.
   const here = dirname(fileURLToPath(import.meta.url));
   return pathToFileURL(resolve(here, "fit-worker.ts")).href;
 }
@@ -98,7 +131,7 @@ export function createFitWorkerPool(opts: FitWorkerPoolOptions = {}): FitWorkerP
   function spawnSlot(i: number): void {
     if (workersDisabled || disposed) return;
     try {
-      const w = new Worker(new URL(workerUrl), { execArgv: [...process.execArgv] });
+      const w = new Worker(new URL(workerUrl), { execArgv: workerExecArgv(workerUrl) });
       w.on("message", (msg: FitResponse) => {
         const p = jobs.get(msg.jobId);
         if (!p) return;

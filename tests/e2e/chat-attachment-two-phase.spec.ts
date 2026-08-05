@@ -30,6 +30,64 @@ import { spawnFreshGitSession } from "./helpers/index.js";
  * and multi-MB (so the resize is slow enough that the placeholder is
  * observable rather than a single-frame flash).
  */
+/**
+ * Scroll the virtualized transcript top-to-bottom and report which
+ * `image message N` rows were seen carrying a RESOLVED attachment image.
+ *
+ * Needed because rows outside the viewport are unmounted: asserting all N at
+ * once can only ever observe the tail. Returns the set of indices whose row
+ * rendered an `attachment-image`.
+ */
+async function sweepTranscriptRows(page: Page, total: number): Promise<Set<number>> {
+  const scroller = page.getByTestId("chat-scroll-container");
+  const withImage = new Set<number>();
+
+  await scroller.evaluate((el) => {
+    el.scrollTop = 0;
+  });
+
+  // Bounded: each step advances ~80% of a viewport, and the loop also exits on
+  // reaching the bottom. The cap only guards against a non-scrolling container.
+  for (let step = 0; step < 200; step++) {
+    for (const [idx, hasImg] of await page.evaluate(() => {
+      const rows: Array<[number, boolean]> = [];
+      // Scan per MESSAGE, not per virtualized row: ChatView groups messages
+      // into turns, so one `[data-index]` row holds many labels and matching
+      // it against the row's whole textContent reports only the first.
+      for (const p of document.querySelectorAll("p")) {
+        const m = /^image message (\d+)$/.exec((p.textContent ?? "").trim());
+        if (!m) continue;
+        // Walk up to the smallest ancestor that owns an attachment image AND
+        // exactly one label — i.e. this message's own bubble, not the turn.
+        let hasImg = false;
+        let el: HTMLElement | null = p.parentElement;
+        for (let hops = 0; el && hops < 4; hops++, el = el.parentElement) {
+          if (el.querySelector("[data-testid='attachment-image']") === null) continue;
+          if ((el.textContent ?? "").match(/image message \d+/g)?.length === 1) {
+            hasImg = true;
+            break;
+          }
+        }
+        rows.push([Number(m[1]), hasImg]);
+      }
+      return rows;
+    })) {
+      if (hasImg) withImage.add(idx);
+    }
+    if (withImage.size === total) break;
+
+    const atBottom = await scroller.evaluate((el) => {
+      const done = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+      if (!done) el.scrollTop += el.clientHeight * 0.8;
+      return done;
+    });
+    if (atBottom) break;
+    // Let the virtualizer mount the newly-exposed window and its images decode.
+    await page.waitForTimeout(250);
+  }
+  return withImage;
+}
+
 async function pasteLargeImage(page: Page, w = 1600, h = 1200): Promise<number> {
   return await page.evaluate(
     async ([width, height]) => {
@@ -93,6 +151,25 @@ test.describe("chat attachments — two-phase render", () => {
     });
 
     await composer.fill("here is the screenshot");
+
+    // Latch the PENDING phase before it can disappear. Asserting visibility of
+    // `attachment-pending` directly would race a fast fit; a MutationObserver
+    // armed before send records that the phase EVER existed, which is the
+    // actual two-phase invariant. Without it, a regression that withholds
+    // `message_start` until fitting completes still satisfies F1/F2.
+    await page.evaluate(() => {
+      const w = window as unknown as { __sawPending?: boolean };
+      w.__sawPending = false;
+      const seen = () => document.querySelector("[data-testid='attachment-pending']") !== null;
+      if (seen()) {
+        w.__sawPending = true;
+        return;
+      }
+      new MutationObserver(() => {
+        if (seen()) w.__sawPending = true;
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+
     await composer.press("Enter");
 
     const userRow = page.locator("[data-role='user'], [data-testid='chat-message-user']").last();
@@ -103,6 +180,16 @@ test.describe("chat attachments — two-phase render", () => {
     await expect(userRow.or(page.getByText("here is the screenshot")).first()).toBeVisible({
       timeout: 20_000,
     });
+
+    // F1b — the row was delivered in its PENDING phase, i.e. before the fit
+    // finished. This is what makes F1 meaningful rather than incidental.
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(() => (window as unknown as { __sawPending?: boolean }).__sawPending),
+        { timeout: 60_000 },
+      )
+      .toBe(true);
 
     // F2 — convergence: whatever the interleaving, the transcript settles on a
     // real <img> with no placeholder left pending. Asserted as convergence
@@ -411,10 +498,18 @@ test.describe("chat attachments — two-phase render", () => {
     await expect(page.getByText(`image message ${MESSAGES - 1}`).first()).toBeVisible({
       timeout: 120_000,
     });
-    await expect
-      .poll(async () => await page.getByTestId("attachment-image").count(), { timeout: 120_000 })
-      .toBeGreaterThan(0);
+    // Every replayed row AND its attachment — not just the last row and "at
+    // least one" image, which a replay that dropped 7 of 8 rows still passed.
+    //
+    // The transcript is VIRTUALIZED (@tanstack/react-virtual, overscan 6), so
+    // off-screen rows are unmounted and no single-shot assertion can see more
+    // than the tail. Sweep from the top and accumulate what each row showed.
     await expect(page.getByTestId("attachment-pending")).toHaveCount(0, { timeout: 120_000 });
+    const withImage = await sweepTranscriptRows(page, MESSAGES);
+    const missing = Array.from({ length: MESSAGES }, (_, i) => i).filter((i) => !withImage.has(i));
+    expect(missing, `replayed rows missing a resolved attachment: ${missing.join(", ")}`).toEqual(
+      [],
+    );
 
     const healthAfter = await (await request.get("/api/health")).json();
     const droppedAfter = healthAfter?.droppedFrames?.serverToBrowser?.total ?? 0;

@@ -31,19 +31,31 @@ export function startLagMonitor(intervalMs = 10): LagMonitor {
   let maxLag = 0;
   let last = performance.now();
 
-  const timer = setInterval(() => {
+  // Anything beyond the scheduled interval is time the loop was unavailable.
+  // Called from the tick AND from peek()/stop(), because a block can start and
+  // end without a single tick getting the chance to run.
+  const sample = (advance: boolean) => {
     const now = performance.now();
-    // Anything beyond the scheduled interval is time the loop was unavailable.
     const lag = now - last - intervalMs;
     if (lag > maxLag) maxLag = lag;
-    last = now;
-  }, intervalMs);
+    if (advance) last = now;
+  };
+
+  const timer = setInterval(() => sample(true), intervalMs);
   // Never keep the event loop alive on account of measurement.
   (timer as unknown as { unref?: () => void }).unref?.();
 
   return {
-    peek: () => maxLag,
+    peek() {
+      sample(false);
+      return maxLag;
+    },
     stop() {
+      // Take one final sample BEFORE clearing. Without it, work that blocks the
+      // loop from start() until stop() prevents every tick from running, and
+      // the monitor reports 0 — the perf gate would then pass the exact
+      // blocking regression it exists to catch.
+      sample(true);
       clearInterval(timer);
       return maxLag;
     },
