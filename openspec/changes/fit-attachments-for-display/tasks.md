@@ -53,7 +53,9 @@ All L1 rows extend `packages/server/src/__tests__/memory-event-store.test.ts`
       wrong-session caller with a valid hash · trigger GET original · observable refused.
 - [x] 3.10 X3 path safety (test-plan #X3) — input id with `../` or non-hex · trigger GET ·
       observable rejected, no fs access outside the store root.
-- [ ] 3.11 X4/X5/X6 recovery + eviction (test-plan #X4 #X5 #X6) — input evicted blob with
+- [x] 3.11 X6 recovery covered (clean 404, transcript-backed); X4/X5 DROPPED with the
+      caches (D10 reversed) — they only tested cache eviction/cap.
+      Original: 3.11 X4/X5/X6 recovery + eviction (test-plan #X4 #X5 #X6) — input evicted blob with
       transcript intact / at 2 GB cap / transcript deleted · trigger GET · observable
       recovered / still retrievable / clean 404 without crash.
 - [x] 3.12 X7/X8/X9 worker faults (test-plan #X7 #X8 #X9) — input worker crash / saturated pool
@@ -111,8 +113,10 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 - [x] 5.6 D9: terminal cap derivation stays coupled; 15 KB → 192 KiB shift documented on
       `DEFAULT_MAX_EVENT_DATA_SIZE` + `deriveTranscriptCapBytes` and asserted in E15.
 - [x] 5.7 Session-scoped originals endpoint + transcript-backed streaming resolver.
-- [ ] 5.8 Blob cache (2 GB LRU, disk) as an optimisation over the transcript.
-- [ ] 5.10 D10: fitted-derivative disk cache keyed by content hash; miss re-fits.
+- [~] 5.8 DROPPED as speculative (D10 reversed): originals stream from the transcript
+      (<50 MB RSS for ~40 MB, P4) and the zoom path is not load-bearing.
+- [~] 5.10 DROPPED as speculative (D10 reversed): warm replay never re-fits, and the
+      two-phase render already hides cold-open fit latency.
 - [x] 5.11 D11: animated-GIF detection → bypass fitting, keep existing ceiling handling.
 - [x] 5.9a Client: reducer `attachment_fitted` case + placeholder/failed rendering
       (`ChatImage.attachmentId`/`attachmentState`, `ChatView` pending + failed states).
@@ -164,6 +168,8 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
       ~1.7x faster on a burst and transfer costs only ~6 ms. design.md D4 rewritten with
       the numbers. The earlier "worker lag ~1030 ms" reading was wall time leaking into
       the sample inside the test runner.
+- [ ] 9.6 Revisit caching ONLY if cold-open latency for image-heavy sessions is measured
+      as a real problem (D10 reversed on evidence; see design.md).
 - [ ] 9.2 Retire now-unreachable inline-attachment truncation paths once no
       full-resolution base64 reaches the store (`capContentBlocks` slicing, the line-224
       exemption, `isImageBlock`'s depth-limit use).

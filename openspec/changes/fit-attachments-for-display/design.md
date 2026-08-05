@@ -168,11 +168,36 @@ Raising 20 KB → 256 KB moves the terminal cap 15 KB → 192 KB.
 constant, one rule. Inline terminal transcripts may now carry ~12× more bytes before the
 tail-keeping cap trims them. The boot assert continues to validate the pair.
 
-### D10 — Fitted derivatives are cached (settled)
+### D10 — Fitted derivatives are NOT cached (reversed; originally "cached")
 
-Re-fitting on every replay costs 174–874 ms per image (fact 1.5). **Decision: cache the
-fitted derivative on disk, keyed by content hash**, alongside the 2 GB original-blob
-cache (D7). A cache miss re-fits; the cache is an optimisation, never a source of truth.
+Originally settled as "cache the fitted derivative on disk, keyed by content hash", to
+avoid re-fitting on every replay. **Reversed after implementation, on evidence.**
+
+Two facts, both verified in code and by measurement, removed the justification:
+
+1. **Warm replay never re-fits.** `prepareEventForIngest` is called only in the COLD
+   `directoryService` branch of `subscription-handler.ts`. An ordinary reload takes the
+   warm branch, which replays stored events already containing the placeholder rows AND
+   their `attachment_fitted` events. Re-fitting happens only when the session's buffer has
+   been evicted entirely.
+2. **The two-phase render already hides the cold-open cost.** Rows render immediately;
+   fitting runs off the loop across the pool; images fill in progressively. Hiding that
+   latency is precisely what D3/D12 exist to do, so a cache would optimise a path whose
+   latency is not user-visible.
+
+`DISPLAY_MAX_BYTES` also bounds each derivative at 240 KB, so a cold re-fit is bounded
+work, not an unbounded tail.
+
+**D7 knock-on: the 2 GB LRU originals blob cache is dropped too.** Originals are recovered
+by streaming the session transcript, measured at <50 MB RSS for a ~40 MB transcript (P4).
+The transcript is authoritative (D7), so the cache was always an optimisation — and the
+click-to-original path is explicitly NOT load-bearing. Adding 2 GB of disk-cache
+machinery (eviction, cap accounting, cleanup, staleness) to accelerate it fails the
+simplicity bar.
+
+Revisit only if cold-open latency for image-heavy sessions is MEASURED as a problem; the
+scenarios that would have covered the caches (X4/X5) are dropped with them.
+
 
 ### D11 — Animated GIFs are exempt from fitting (settled)
 
