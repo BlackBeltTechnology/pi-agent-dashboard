@@ -64,28 +64,26 @@ describe("display-fit perf — event-loop offload (P1/P2)", () => {
   // What D4 actually claims is OFFLOAD, so this asserts offload directly, by
   // running the identical workload both ways. That is the invariant worth
   // locking: doing the work in-process must be dramatically worse.
-  // MEASURED, UNRESOLVED — see task 9.5. Deliberately skipped rather than
-  // deleted: it records a measurement that CONTRADICTS design decision D4.
+  // RESOLVED (task 9.5) — kept SKIPPED as a record of a measurement pitfall.
   //
-  // D4 assumed jimp is pure-JS + single-threaded, so an inline resize would
-  // stall the loop and must be offloaded to a worker. Measured on a 5-image
-  // concurrent burst (1600x1200 each):
+  // This test once appeared to show the worker offload was counterproductive
+  // (~1030 ms "worker lag" vs ~0 ms in-process). That reading was WRONG: inside
+  // vitest the sample captured the burst's WALL TIME (runner CPU contention +
+  // worker startup), not loop blocking. Measured cleanly outside the runner,
+  // 3 consecutive runs on a 5 x 1.84 MB burst:
   //
-  //     in-process (useWorker:false)  max event-loop lag ~0 ms
-  //     worker-backed (size 2)        max event-loop lag ~1030 ms
+  //     in-process           wall ~1710 ms   max lag 0 ms
+  //     worker pool (2)      wall ~1030 ms   max lag 1 ms
+  //     structuredClone only wall ~6 ms      max lag 0 ms
   //
-  // i.e. the OPPOSITE of the premise. jimp v1's async API appears to yield
-  // between operations, so in-process fitting does not starve the loop, while
-  // the worker path pays a SYNCHRONOUS structured-clone of multi-MB base64 on
-  // the main thread for every job — which is itself the blocking cost.
+  // So: neither path blocks the loop (jimp v1's async API yields), transfer cost
+  // is negligible, and the pool is ~1.7x faster through parallelism. D4 stands;
+  // its rationale was corrected to throughput + CPU isolation (see design.md).
   //
-  // P1 (a single, larger image through a worker) stays under 50 ms, so this is
-  // specifically about burst + payload-transfer cost, not workers per se.
-  //
-  // Not acted on here: reversing D4 is a design decision, and this measurement
-  // needs confirming on the target hardware and against a transfer-optimised
-  // variant (e.g. passing an ArrayBuffer transferable instead of a base64
-  // string) before the offload is judged. Task 9.5.
+  // The assertion below is left intact but skipped because it compares two
+  // near-zero lag figures, which is not a stable thing to assert. If you want a
+  // perf gate here, assert THROUGHPUT (worker burst wall time < in-process), and
+  // measure it outside vitest.
   it.skip("P2: a concurrent burst blocks the loop far less on workers than in-process", async () => {
     const makeBlocks = async () =>
       await Promise.all(

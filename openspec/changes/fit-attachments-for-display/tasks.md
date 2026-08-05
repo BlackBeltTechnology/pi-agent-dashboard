@@ -158,12 +158,12 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
       match, stranding every later copy on "loading". Now patches every occurrence
       (idempotent). Root-caused by comparing pending vs fitted ids on the wire:
       8 attachments but only 1 distinct id.
-- [ ] 9.5 RE-EVALUATE D4 (worker offload). Measured on a 5-image burst: in-process
-      max event-loop lag ~0 ms vs worker-backed ~1030 ms — the reverse of D4's
-      premise. jimp v1's async API appears to yield, while postMessage
-      structured-clone of multi-MB base64 blocks the main thread per job. Confirm on
-      target hardware and against an ArrayBuffer-transferable variant before
-      reversing or keeping the offload. Reproducer: `display-fit-perf.test.ts` P2.
+- [x] 9.5 D4 re-evaluated and RESOLVED: offload KEPT, rationale corrected. Clean
+      measurement (outside vitest, 3 runs) shows in-process lag is ~0 ms (jimp v1 yields),
+      so the original "inline resize stalls the loop" premise was wrong — but the pool is
+      ~1.7x faster on a burst and transfer costs only ~6 ms. design.md D4 rewritten with
+      the numbers. The earlier "worker lag ~1030 ms" reading was wall time leaking into
+      the sample inside the test runner.
 - [ ] 9.2 Retire now-unreachable inline-attachment truncation paths once no
       full-resolution base64 reaches the store (`capContentBlocks` slicing, the line-224
       exemption, `isImageBlock`'s depth-limit use).

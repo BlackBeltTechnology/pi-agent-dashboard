@@ -84,12 +84,37 @@ Resize costs up to 874 ms; a user must never wait on it to see their own message
 A placeholder that never resolves (worker crash, unsupported format) must degrade to an
 honest failed-attachment state — never an empty box and never a missing row.
 
-### D4 — Resize runs off the event loop (settled)
+### D4 — Resize runs off the event loop (settled; rationale CORRECTED)
 
-jimp is pure JS and single-threaded; 874 ms of synchronous work on the ingest path would
-stall the server for every connected session. Resize runs in a worker; the assertion is
-on **event-loop lag**, not on resize latency, which is inherently unbounded for a 10 MB
-input.
+Resize runs in a `worker_threads` pool (`fit-worker-pool.ts`, size 2).
+
+**The original rationale was wrong.** It assumed jimp is pure-JS + single-threaded, so an
+inline resize would stall the event loop for its 174–874 ms. Measured, that does not
+happen: jimp v1's async API yields, so in-process fitting blocks the loop for ~0 ms.
+
+Measured on a 5 x 1.84 MB base64 burst (1600x1200 PNG), 3 consecutive runs, 16-CPU host,
+outside the test runner:
+
+| path | wall time | max event-loop lag |
+|---|---|---|
+| in-process | ~1710 ms | 0 ms |
+| worker pool (2 slots) | ~1030 ms | 1 ms |
+| `structuredClone` only | ~6 ms | 0 ms |
+
+**The decision stands, for different reasons:** the pool is ~1.7x faster on a burst
+(parallelism across slots) and keeps CPU-heavy decode/encode off the main thread's CPU
+share, at negligible lag cost. Payload transfer is NOT a bottleneck — cloning the base64
+across the boundary costs ~6 ms, disproving the concern that `postMessage` serialization
+would dominate.
+
+Caveats: measured on 16 CPUs; on a 2-core host the parallelism gain shrinks and each
+worker's decoded bitmap costs RSS, which is why `size` is a conservative 2.
+
+Measurement pitfall recorded for whoever revisits this: an earlier reading inside vitest
+reported ~1030 ms of "worker lag". That number was the burst's WALL TIME leaking into the
+sample (runner CPU contention + worker startup), not loop blocking. Measure this outside
+the test runner.
+
 
 ### D5 — Direct jimp, not the `pi-image-fit` extension (settled)
 
