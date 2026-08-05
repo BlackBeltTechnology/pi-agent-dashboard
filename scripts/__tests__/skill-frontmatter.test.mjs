@@ -11,8 +11,10 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parse as parseYaml } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import {
   analyzeRepository,
@@ -107,15 +109,27 @@ describe('wording-locked exemption (E14)', () => {
     expect(rulesOf(findings)).toEqual([]);
   });
 
-  it('their descriptions are unchanged from HEAD', () => {
+  // Pinned to approved digests, NOT to HEAD: comparing a working-tree file with
+  // `git show HEAD:<the same file>` passes after any committed edit, so a
+  // HEAD-based lock silently stops protecting the wording it exists to protect.
+  const APPROVED_DESCRIPTION_SHA256 = {
+    'ship-change': '8759069009538a1daf9489c27595249ddd8d84a97a1624bb87efcfc3d1a9cad3',
+    'frontend-mockup-loop': '161f387768adc25a77c6bbd9d4bda3607466b0faceeeffc4a1b71732aa2c5019',
+    'anti-slop-frontend': '829c144c5ef7b8332d22c97899be3f0b040596daec850e1fd9aafcf1dce79c3c',
+  };
+
+  it('their descriptions match the approved wording byte for byte', () => {
     const { files } = analyzeRepository();
     const exempt = files.filter((f) => [...BUDGET_EXEMPT_SKILLS].some((s) => f.includes(`${s}/SKILL.md`)));
-    expect(exempt.length).toBeGreaterThan(0);
+    expect(exempt.length).toBe(BUDGET_EXEMPT_SKILLS.size);
+
     for (const file of exempt) {
-      const rel = file.slice(REPO_ROOT.length + 1);
-      const head = execFileSync('git', ['show', `HEAD:${rel}`], { cwd: REPO_ROOT, encoding: 'utf8' });
-      const descOf = (t) => t.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1].match(/^description:([\s\S]*?)(?=\n\w+:|$)/m)?.[1];
-      expect(descOf(readFileSync(file, 'utf8')), rel).toBe(descOf(head));
+      const skill = [...BUDGET_EXEMPT_SKILLS].find((s) => file.includes(`${s}/SKILL.md`));
+      const fm = readFileSync(file, 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---/)[1];
+      const digest = createHash('sha256').update(parseYaml(fm).description, 'utf8').digest('hex');
+      expect(digest, `${skill} description changed — its wording is locked by spec`).toBe(
+        APPROVED_DESCRIPTION_SHA256[skill],
+      );
     }
   });
 });

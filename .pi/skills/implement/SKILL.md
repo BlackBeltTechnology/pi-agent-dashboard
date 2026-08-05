@@ -1,6 +1,6 @@
 ---
 name: implement
-description: 'Disciplined implementation in pi-agent-dashboard: the 3-component rebuild matrix (extension→reload, server→restart, client→build+restart) plus the project''s code discipline rules. Use when starting to write code, after editing extension/server/client, when unsure what to rebuild, or before committing. Triggers: "I changed the bridge", "rebuild and restart", "implement X", "after edit", "TDD this".'
+description: 'Disciplined implementation in pi-agent-dashboard: the rebuild matrix (extension→reload, server→restart, client→build+restart, openspec-apply→full rebuild) plus the project''s code discipline rules. Use when writing code, after editing extension/server/client, after applying an OpenSpec change, when unsure what to rebuild, or before committing. Triggers: "rebuild and restart", "TDD this".'
 ---
 
 # Implement

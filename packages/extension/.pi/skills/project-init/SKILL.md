@@ -1,6 +1,6 @@
 ---
 name: project-init
-description: 'Scaffold an unconfigured directory into a configured pi project. Interactive and profile-driven: lists project profiles, previews the planned writes, and on confirmation writes AGENTS.md, .pi/settings.json and prompt files. Use when a bare directory needs turning into a working pi project, or when the dashboard''s "Initialize" button spawns this session.'
+description: 'Scaffold an unconfigured directory into a configured pi project. Interactive, profile-driven: previews the planned writes, then writes AGENTS.md, .pi/settings.json and prompt files — optionally also a knowledge base, an openspec/ scaffold, and user-global ~/.pi/agent/settings.json. Use on a bare directory, or when the dashboard''s "Initialize" button spawns this session.'
 license: MIT
 metadata:
   author: pi-dashboard

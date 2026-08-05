@@ -58,8 +58,21 @@ function payload(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * Dismiss the first-launch display prompt whenever it appears. A fresh
+ * container shows it over everything, and its backdrop intercepts pointer
+ * events, so any click in these specs would otherwise time out.
+ */
+async function armFirstLaunchDismiss(page: import("@playwright/test").Page) {
+  const backdrop = page.getByTestId("first-launch-display-backdrop");
+  await page.addLocatorHandler(backdrop, async () => {
+    await backdrop.getByRole("button", { name: /^skip$/i }).click();
+  });
+}
+
 /** Serve `data` for every `/api/pi-resources` read, then open the skills page. */
 async function openSkills(page: import("@playwright/test").Page, data: unknown, page_ = "skills") {
+  await armFirstLaunchDismiss(page);
   await page.route("**/api/pi-resources**", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data }) }),
   );
@@ -121,13 +134,17 @@ test.describe("skill provenance", () => {
     await expect(page.getByTestId("resource-provenance-filter")).toHaveCount(0);
   });
 
-  test("the grid converges from scan-only to per-card provenance on refresh (F7)", async ({ page }) => {
-    // First read is scan-only; every later read carries the join. The client
-    // refetches without a full reload, so the grid must converge on its own.
+  test("the grid converges from scan-only to per-card provenance with no manual refresh (F7)", async ({ page }) => {
+    // First read is scan-only; every later read carries the join. Nothing here
+    // clicks refresh — `usePiResources` polls on its own 30s interval, and F7
+    // is precisely the claim that the grid converges without user action.
+    test.setTimeout(120_000);
+
     const scanOnly = payload({ scanOnly: true, contributingSession: undefined });
     for (const s of (scanOnly.local as { skills: Record<string, unknown>[] }).skills) s.status = undefined;
 
     let served = 0;
+    await armFirstLaunchDismiss(page);
     await page.route("**/api/pi-resources**", (route) => {
       served += 1;
       const data = served === 1 ? scanOnly : payload();
@@ -136,9 +153,10 @@ test.describe("skill provenance", () => {
     await page.goto(`/folder/${encodeFolderPath(CWD)}/settings/skills`);
 
     await expect(page.getByTestId("resource-grid-scan-only")).toBeVisible({ timeout: 20_000 });
-    await page.getByTestId("resource-grid-refresh").click();
-    await expect(page.getByTestId("badge-provenance")).toHaveCount(3, { timeout: 15_000 });
+    // One poll interval (30s) plus headroom, with no interaction in between.
+    await expect(page.getByTestId("badge-provenance")).toHaveCount(3, { timeout: 60_000 });
     await expect(page.getByTestId("resource-grid-scan-only")).toHaveCount(0);
+    expect(served).toBeGreaterThan(1);
   });
 
   test("a differing session working directory is shown as context (F8)", async ({ page }) => {

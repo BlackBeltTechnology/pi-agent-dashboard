@@ -16,6 +16,7 @@
  * `path`. See change: fix-skill-discovery-parity.
  */
 import * as fs from "node:fs";
+import * as path from "node:path";
 import type { PiResource, PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -33,6 +34,22 @@ export function canonicalPath(p: string): string {
   } catch {
     return p;
   }
+}
+
+/**
+ * True when `child` is `folder` itself or a path beneath it, compared on
+ * canonicalized paths.
+ *
+ * The reporter set is folder-scoped but a session resolves against its own
+ * `cwd`, and a worktree or subdirectory session is legitimately attached to the
+ * folder card. Requiring exact equality would exclude it, degrade the payload
+ * to scan-only, and make `differsFromFolder` unreachable — the very state the
+ * spec asks the surface to explain. See change: fix-skill-discovery-parity.
+ */
+export function isWithinFolder(child: string, folder: string): boolean {
+  const c = canonicalPath(child);
+  const f = canonicalPath(folder);
+  return c === f || c.startsWith(f.endsWith(path.sep) ? f : f + path.sep);
 }
 
 /**

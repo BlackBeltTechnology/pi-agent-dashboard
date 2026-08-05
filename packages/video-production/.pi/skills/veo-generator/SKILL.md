@@ -1,6 +1,6 @@
 ---
 name: veo-generator
-description: 'Render a scripted video project into mp4 clips with the Google Veo 3.1 API. Reads a project''s shot package (shots/*.md) and generates one clip per camera cut, reusing the prompt, seed, world anchor and storyboard sketch in each shot file. Use on "render the Veo video for <project>", "generate the videos from the shot scripts", "make the clips with Veo".'
+description: 'Render a scripted video project into mp4 clips with the Google Veo 3.1 API. Reads a project''s shot package (shots/*.md), one clip per camera cut, reusing each shot''s prompt and sketch — world anchor only with `--with-reference`, seed unless `--no-seed`. Use on "render the Veo video for <project>", "generate the videos from the shot scripts", "make the clips with Veo".'
 ---
 
 # Veo Generator

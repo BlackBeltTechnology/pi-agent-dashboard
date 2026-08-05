@@ -8,7 +8,7 @@ import * as path from "node:path";
 import type { PiResource, PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { joinSkillProvenance, SessionCommandRegistry } from "../pi/session-skill-registry.js";
+import { isWithinFolder, joinSkillProvenance, SessionCommandRegistry } from "../pi/session-skill-registry.js";
 
 let tmpDir: string;
 
@@ -247,5 +247,49 @@ describe("joinSkillProvenance scan-only and degraded (4.5, 4.6a, 4.6b, X3, X5)",
 
     expect(joined.degraded).toBe(true);
     expect(joined.local.skills[0].status).toBeUndefined();
+  });
+});
+
+describe("isWithinFolder — folder membership for the reporter set", () => {
+  // A session attached to a folder card legitimately runs in a worktree or a
+  // subdirectory of it. Exact equality would exclude it, degrade the payload to
+  // scan-only, and make `differsFromFolder` unreachable on the HTTP path.
+  it("accepts the folder itself", () => {
+    expect(isWithinFolder(tmpDir, tmpDir)).toBe(true);
+  });
+
+  it("accepts a worktree or subdirectory beneath the folder", () => {
+    const sub = path.join(tmpDir, ".worktrees", "os-x");
+    fs.mkdirSync(sub, { recursive: true });
+    expect(isWithinFolder(sub, tmpDir)).toBe(true);
+  });
+
+  it("rejects a sibling that merely shares a path prefix", () => {
+    const sibling = `${tmpDir}-other`;
+    fs.mkdirSync(sibling, { recursive: true });
+    try {
+      expect(isWithinFolder(sibling, tmpDir)).toBe(false);
+    } finally {
+      fs.rmSync(sibling, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an unrelated folder", () => {
+    expect(isWithinFolder(path.parse(tmpDir).root, tmpDir)).toBe(false);
+  });
+
+  it("joins a worktree session and flags the differing working directory", () => {
+    const sub = path.join(tmpDir, ".worktrees", "os-x");
+    fs.mkdirSync(sub, { recursive: true });
+    const s = realSkill("a");
+
+    expect(isWithinFolder(sub, tmpDir)).toBe(true);
+    const joined = joinSkillProvenance(
+      result({ local: { ...emptyScope(), skills: [skill("a", s)] } }),
+      [{ sessionId: "s1", cwd: sub, commands: [cmd("a", s)] }],
+      tmpDir,
+    );
+    expect(joined.contributingSession).toEqual({ sessionId: "s1", cwd: sub, differsFromFolder: true });
+    expect(joined.scanOnly).toBeUndefined();
   });
 });

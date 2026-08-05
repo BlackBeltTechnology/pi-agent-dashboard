@@ -1,6 +1,6 @@
 ---
 name: reverse-spec-from-code
-description: 'Reverse-generate OpenSpec capability specs (openspec/specs/<cap>/spec.md) from existing code that lacks them, using parallel subagents. Fans out one blind generator per capability, audits each spec against the code for hallucinations, and promotes only on user confirm. Use on "generate specs from code", "backfill openspec specs", "spec this code for the KB".'
+description: 'Reverse-generate OpenSpec capability specs (openspec/specs/<cap>/spec.md) from code that lacks them, or reconcile an existing stale spec with `--refresh`, using parallel subagents. Fans out one blind generator per capability, audits each spec against the code for hallucinations, and promotes only on user confirm. Use on "generate specs from code", "backfill openspec specs", "refresh a stale spec".'
 ---
 
 # reverse-spec-from-code

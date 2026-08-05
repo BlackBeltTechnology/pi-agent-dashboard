@@ -40,6 +40,9 @@ see [`docs/release-process.md`](docs/release-process.md).
   budget, preserving their trigger phrasing. `ship-change`,
   `frontend-mockup-loop`, and `anti-slop-frontend` are exempt: an existing
   requirement locks their wording.
+- Package resources excluded by a package's own manifest patterns are now absent
+  from the Resources view rather than shown as disabled, matching pi, which does
+  not load them either. There is consequently no activation toggle for them.
 
 ### Fixed
 
@@ -52,11 +55,6 @@ see [`docs/release-process.md`](docs/release-process.md).
   the filesystem walk when pi is unavailable, resolution throws, or the resolver
   returns an empty result the walk contradicts. The payload is flagged as a
   degraded fallback rather than presented as pi's answer.
-
-**Note:** package resources excluded by a package's own manifest patterns are
-now absent from the Resources view rather than shown as disabled, matching pi,
-which does not load them either. There is consequently no activation toggle for
-them.
 
 ## [0.7.0] - 2026-07-24
 
