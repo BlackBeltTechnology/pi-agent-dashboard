@@ -133,10 +133,18 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 
 - [x] 7.1 `npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗' /tmp/pi-test.log`.
 - [x] 7.2 `npm run build` + `curl -X POST http://localhost:8000/api/restart`.
-- [ ] 7.3 Acceptance — the original report: open session `019fca04`, scroll to "The layout
-      is not ok"; the screenshot renders.
-- [ ] 7.4 Paste a fresh ~2 MB screenshot: row appears immediately, image swaps in, still
-      renders after reload, and click opens the original.
+- [x] 7.3 Acceptance PASSED — the original report. Verified in a real browser against an
+      ISOLATED dashboard (temp HOME on :8123) running worktree code, seeded with the real
+      `019fca04` transcript; live :8000 untouched (pid unchanged, no build leak — main
+      `packages/client/dist` never written). Result: row renders, `"The layout is not ok"`
+      visible, screenshot renders at natural size **768x214** (fitted to the display bound),
+      `complete:true`, 0 pending / 0 failed. Server side: 1 placeholder + 1
+      `attachment_fitted` on the hydration path.
+- [ ] 7.4 Paste a fresh ~2 MB screenshot on the LIVE dashboard. NOT done here: an isolated
+      server has no pi bridge to send a prompt through, and driving the live dashboard was
+      out of scope. Substance is covered by browser E2E on the docker harness — F1/F2 (row
+      first, then fitted image), F7 (survives reload), F5 (click opens the full-resolution
+      original) — so this remains only a live-environment sanity check.
 - [x] 7.5 Docs (Documentation Update Protocol): 20/20 changed source files carry a row in
       their NEAREST directory `AGENTS.md` (attachments/, routes/, test-support/, chat/,
       persistence/, terminal/, tests/e2e/, docker/); `docs/architecture.md` gained a
