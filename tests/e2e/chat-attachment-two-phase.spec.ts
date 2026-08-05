@@ -282,5 +282,154 @@ test.describe("chat attachments — two-phase render", () => {
     // The transcript image itself is untouched — only the zoom degraded.
     await expect(image.first()).toBeVisible();
   });
+
+  test("F4: reloading mid-fit still yields a resolved attachment, never a stuck placeholder", async ({
+    page,
+  }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+
+    const composer = page.getByPlaceholder(/message/i).first();
+    await composer.waitFor({ state: "visible", timeout: 30_000 });
+    // Deliberately large so the fit is still in flight when we reload.
+    await pasteLargeImage(page, 2000, 1500);
+    await expect(page.locator("img[class*='h-16'][src^='data:image/']").first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await composer.fill("reload mid fit");
+    await composer.press("Enter");
+
+    // Reload as soon as the row exists — do NOT wait for the fitted image, so
+    // the reload races the in-flight resize.
+    await expect(page.getByText("reload mid fit").first()).toBeVisible({ timeout: 60_000 });
+    await page.reload();
+
+    // The row must come back...
+    await expect(page.getByText("reload mid fit").first()).toBeVisible({ timeout: 60_000 });
+    // ...and the attachment must SETTLE either way. What is forbidden is an
+    // indefinite placeholder: a fit interrupted by reload must still converge.
+    await expect
+      .poll(
+        async () =>
+          (await page.getByTestId("attachment-image").count()) +
+          (await page.getByTestId("attachment-failed").count()),
+        { timeout: 90_000, message: "attachment should settle to ready or failed after reload" },
+      )
+      .toBeGreaterThan(0);
+    await expect(page.getByTestId("attachment-pending")).toHaveCount(0, { timeout: 90_000 });
+  });
+
+  test("F8: an image row keeps its height when scrolled out of the window and back", async ({
+    page,
+  }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+
+    const composer = page.getByPlaceholder(/message/i).first();
+    await composer.waitFor({ state: "visible", timeout: 30_000 });
+
+    await pasteLargeImage(page, 1200, 900);
+    await expect(page.locator("img[class*='h-16'][src^='data:image/']").first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await composer.fill("height anchor row");
+    await composer.press("Enter");
+
+    const image = page.getByTestId("attachment-image");
+    await expect
+      .poll(
+        async () =>
+          await image.first().evaluate((el) => (el as HTMLImageElement).naturalWidth).catch(() => -1),
+        { timeout: 90_000 },
+      )
+      .toBeLessThanOrEqual(768);
+
+    // Push the image row out of the window with filler turns.
+    for (let i = 0; i < 6; i++) {
+      await composer.fill(`filler ${i}`);
+      await composer.press("Enter");
+      await expect(page.getByText(`filler ${i}`).first()).toBeVisible({ timeout: 60_000 });
+    }
+
+    const anchorRow = page.getByText("height anchor row").first();
+    const before = await anchorRow.boundingBox();
+    expect(before, "anchor row should be measurable before scrolling away").not.toBeNull();
+
+    const scroller = page.getByTestId("chat-scroll-container");
+    await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await page.waitForTimeout(500);
+    await scroller.evaluate((el) => { el.scrollTop = 0; });
+    await page.waitForTimeout(1000);
+
+    const after = await anchorRow.boundingBox();
+    expect(after, "anchor row should still be measurable after scrolling back").not.toBeNull();
+    // The virtualized row must not collapse when remeasured post-decode; a
+    // near-zero height here is the overlap regression the chat-view invariant
+    // exists to prevent.
+    expect(after!.height).toBeGreaterThan(0);
+    expect(Math.abs(after!.height - before!.height)).toBeLessThanOrEqual(4);
+    await expect(image.first()).toBeVisible();
+  });
+
+  // KNOWN FAILING — do not silently skip: this is a real, reproducible defect,
+  // not a flaky test. With ~8 image-bearing messages, reloading leaves the
+  // attachments stuck on the "loading" placeholder indefinitely.
+  //
+  // Evidence gathered (WS probe against the live harness): the event store DOES
+  // contain the attachment_fitted events and DOES broadcast them on subscribe
+  // (16 image blocks / 16 pending placeholders / 16 attachment_fitted), and the
+  // server is idle with no fit errors and no over-budget warnings. So the fits
+  // succeed and reach the wire — the client is not APPLYING them at this scale.
+  //
+  // Prime suspects, in order: (1) MAX_REPLAY_EVENTS slicing splitting a row from
+  // its resolution across batches, (2) the client's hydration ceiling dropping
+  // late batches, (3) duplicate row+resolution sets from the live and replay
+  // paths both fitting the same blocks.
+  //
+  // Tracked as task 9.4. Marked fixme so the suite stays green and honest;
+  // flip back to `test(` when the root cause is fixed.
+  test.fixme("P5: an image-heavy session replays without dropping a gateway frame", async ({
+    page,
+    request,
+  }) => {
+    // test-plan #P5 specifies 20 image-bearing messages; 8 is used here to keep
+    // the in-page PNG generation within a sane runtime while still exercising
+    // many image rows through one replay. The invariant asserted is identical.
+    const MESSAGES = 8;
+
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    const composer = page.getByPlaceholder(/message/i).first();
+    await composer.waitFor({ state: "visible", timeout: 30_000 });
+
+    for (let i = 0; i < MESSAGES; i++) {
+      await pasteLargeImage(page, 900, 700);
+      await expect(page.locator("img[class*='h-16'][src^='data:image/']").first()).toBeVisible({
+        timeout: 20_000,
+      });
+      await composer.fill(`image message ${i}`);
+      await composer.press("Enter");
+      await expect(page.getByText(`image message ${i}`).first()).toBeVisible({ timeout: 60_000 });
+    }
+
+    const healthBefore = await (await request.get("/api/health")).json();
+    const droppedBefore = healthBefore?.droppedFrames?.serverToBrowser?.total ?? 0;
+
+    // Replay the whole image-bearing session.
+    await page.reload();
+    await expect(page.getByText(`image message ${MESSAGES - 1}`).first()).toBeVisible({
+      timeout: 120_000,
+    });
+    await expect
+      .poll(async () => await page.getByTestId("attachment-image").count(), { timeout: 120_000 })
+      .toBeGreaterThan(0);
+    await expect(page.getByTestId("attachment-pending")).toHaveCount(0, { timeout: 120_000 });
+
+    const healthAfter = await (await request.get("/api/health")).json();
+    const droppedAfter = healthAfter?.droppedFrames?.serverToBrowser?.total ?? 0;
+    // Fitting bounds every frame well under MAX_WS_BUFFER, so replay must not
+    // shed a single frame under back-pressure.
+    expect(droppedAfter).toBe(droppedBefore);
+  });
 });
 

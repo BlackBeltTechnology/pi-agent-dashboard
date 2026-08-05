@@ -82,7 +82,7 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 - [x] 4.2 F3 fitting failure is honest (test-plan #F3) — input corrupt image bytes ·
       trigger fitting fails · observable explicit failed state, row still present, no
       indefinite pending.
-- [ ] 4.3 F4 reload mid-fit (test-plan #F4) — input 10.5 MB attachment · trigger reload
+- [x] 4.3 F4 reload mid-fit (test-plan #F4) — input 10.5 MB attachment · trigger reload
       before fitting completes · observable row renders; attachment resolves or shows
       failed state.
 - [x] 4.4 F5/F6 original view (test-plan #F5 #F6) — input rendered fitted image; then a
@@ -91,10 +91,11 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
       zoom degrades.
 - [x] 4.5 F7 replay renders images (test-plan #F7) — input session with image messages ·
       trigger reload · observable every image-bearing row renders an image.
-- [ ] 4.6 F8 row-height stability (test-plan #F8) — input virtualized transcript with
+- [x] 4.6 F8 row-height stability (test-plan #F8) — input virtualized transcript with
       image rows · trigger scroll out and back · observable stable height, no collapse or
       overlap. Guards the existing `chat-view` invariant.
-- [ ] 4.7 P5 image-heavy replay (test-plan #P5) — workload 20 image-bearing messages ·
+- [ ] 4.7 P5 image-heavy replay (test-plan #P5) — WRITTEN but `test.fixme`: reveals a
+      real defect (see 9.4), not a test problem. (test-plan #P5) — workload 20 image-bearing messages ·
       trigger replay · observable completes with no gateway frame dropped.
 
 ## 5. Implement
@@ -148,6 +149,13 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 - [ ] 9.3 Extract a generic `worker_threads` pool — `fit-worker-pool.ts` is the THIRD
       copy (`openspec-poll`, `session-load`, `fit`), which is the rule-of-three trigger
       the existing pools' headers explicitly defer to.
+- [ ] 9.4 BUG: an image-heavy session (~8 attachments) leaves placeholders stuck
+      "loading" after reload. Fitted events ARE stored and broadcast (WS probe: 16
+      blocks / 16 pending / 16 attachment_fitted, server idle, no errors) — the client
+      does not apply them at that scale. Suspects: MAX_REPLAY_EVENTS batch slicing
+      separating a row from its resolution; client hydration ceiling; duplicate
+      row+resolution sets from the live AND replay paths fitting the same blocks.
+      Reproducer: `tests/e2e/chat-attachment-two-phase.spec.ts` P5 (currently fixme).
 - [ ] 9.2 Retire now-unreachable inline-attachment truncation paths once no
       full-resolution base64 reaches the store (`capContentBlocks` slicing, the line-224
       exemption, `isImageBlock`'s depth-limit use).
