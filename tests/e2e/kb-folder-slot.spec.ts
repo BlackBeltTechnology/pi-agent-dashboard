@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { gotoDashboard } from "./helpers/index.js";
+import { gotoDashboard, pinDirectory } from "./helpers/index.js";
 
 // KB folder slot — browser E2E against the disposable Docker harness.
 // Covers tasks 6.1/6.2 (session-less worktree index through the UI), 3.x (row +
@@ -44,29 +44,13 @@ async function prepareShell(page: Page): Promise<void> {
 }
 
 /**
- * Robust pin: opens the pin dialog via whichever add-folder affordance the
- * current mode exposes (onboarding CTA or sidebar button). The PathPicker
- * re-lists /home/pi on mount and can overwrite an immediate fill (a race the
- * shared helper hits): settle the initial listing, fill, then ASSERT the value
- * stuck (auto-retry) before Select.
+ * Pin via the shared helper. This spec used to carry its own copy to settle the
+ * PathPicker's mount-time re-list before filling; that hardening now lives in
+ * `pinDirectory` itself, so every spec gets it and there is one flow to keep
+ * correct rather than two that can drift.
  */
 async function pinFixture(page: Page, absPath: string): Promise<void> {
-  const onboardingCta = page.getByTestId("onboarding-step-2-cta");
-  if (await onboardingCta.isVisible().catch(() => false)) await onboardingCta.click();
-  else await page.getByTestId("dashboard-add-folder-btn").first().click();
-  const dialog = page.getByTestId("add-folders-dialog");
-  await dialog.waitFor({ state: "visible" });
-  const textbox = dialog.getByRole("textbox").first();
-  // Let the initial listing render so it can't clobber the fill below.
-  await dialog.getByRole("option").first().waitFor({ state: "visible" });
-  await textbox.fill(absPath);
-  await expect(textbox).toHaveValue(absPath);
-  // Selection is the per-row checkbox (keyed by full path), then commit.
-  const row = dialog.getByTestId(`path-picker-check-${absPath}`);
-  await row.waitFor({ state: "visible" });
-  await row.click();
-  await dialog.getByTestId("add-folders-commit").click();
-  await dialog.waitFor({ state: "hidden" });
+  await pinDirectory(page, absPath);
 }
 
 test.describe("KB folder slot", () => {

@@ -15,7 +15,7 @@ export const TESTIDS = {
   // Empty-state path: the LandingPage onboarding CTAs drive the same actions
   // (open pin dialog / spawn) and are the deterministic affordances on a
   // fresh container. Step CTAs are gated on `providersReady` (seeded key).
-  onboardingStep2Cta: "onboarding-step-2-cta", // "Add folder" → opens pin dialog
+  onboardingStep2Cta: "onboarding-step-2-cta", // "Add folder" → opens AddFoldersDialog
   onboardingStep3Cta: "onboarding-step-3-cta", // "Start session" → spawns
   // The "Add folder" CTAs open the multi-select AddFoldersDialog. The former
   // single-path PinDirectoryDialog (`pin-directory-dialog`) still EXISTS and
@@ -175,7 +175,15 @@ export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   // the full path surfaces the target's own row. Tick that row's checkbox —
   // the basket, not the browsed directory, is what the dialog commits.
   // `.first()` — the dialog grows a second textbox in new-folder mode.
-  await dialog.getByRole("textbox").first().fill(absPath);
+  const textbox = dialog.getByRole("textbox").first();
+  // The picker re-lists its initial directory on mount, and that late response
+  // can land AFTER an immediate fill and clobber it. Let the first listing
+  // render, then fill, then assert the value actually STUCK (auto-retrying)
+  // before selecting — otherwise the row below never appears and the spec dies
+  // at its timeout with no clue why.
+  await dialog.getByRole("option").first().waitFor({ state: "visible", timeout: 20_000 });
+  await textbox.fill(absPath);
+  await expect(textbox).toHaveValue(absPath);
   // Keyed by the FULL path, so no leaf-regex escaping is needed and a sibling
   // whose name contains the target's cannot be ticked instead.
   const check = dialog.getByTestId(`path-picker-check-${absPath}`);
