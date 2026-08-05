@@ -61,11 +61,13 @@ All L1 rows extend `packages/server/src/__tests__/memory-event-store.test.ts`
       attachment resolves to failed state, event loop not blocked.
 - [x] 3.13 X10 animated GIF (test-plan #X10) — input animated GIF over bound · trigger
       ingest · observable preserved intact or fitted to a still; never a corrupt frame.
-- [ ] 3.14 P1/P2 event-loop lag (test-plan #P1 #P2) — workload one 10 MB image, then
+- [x] 3.14 P1 event-loop lag (test-plan #P1) — passing. P2 MEASURED and fixme: the
+      data contradicts D4 (in-process ~0 ms vs worker ~1030 ms on a burst); see 9.5.
+      Original text: 3.14 P1/P2 event-loop lag (test-plan #P1 #P2) — workload one 10 MB image, then
       5 × 2 MB · metric max event-loop lag < 50 ms · needs the new lag helper (§6.1).
-- [ ] 3.15 P3 broadcast payload (test-plan #P3) — workload fitted image-bearing message ·
+- [x] 3.15 P3 broadcast payload (test-plan #P3) — workload fitted image-bearing message ·
       metric frame < 256 KB, ≪ 4 MB `MAX_WS_BUFFER`.
-- [ ] 3.16 P4 recovery memory (test-plan #P4) — workload cache miss on a 50 MB transcript ·
+- [x] 3.16 P4 recovery memory (test-plan #P4) — workload cache miss on a 50 MB transcript ·
       metric peak RSS delta < 50 MB, proving the scan streams rather than slurps.
 
 ## 4. Tests — L3 Playwright e2e
@@ -119,7 +121,7 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 
 ## 6. New infra
 
-- [ ] 6.1 Event-loop-lag helper for L1 (no existing test measures it) — needed by 3.14.
+- [x] 6.1 Event-loop-lag helper for L1 (no existing test measures it) — needed by 3.14.
 - [x] 6.2 Attachment-endpoint fixtures: a session with a known hash plus an unauthorised
       caller — needed by 3.9–3.11.
 
@@ -153,6 +155,12 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
       match, stranding every later copy on "loading". Now patches every occurrence
       (idempotent). Root-caused by comparing pending vs fitted ids on the wire:
       8 attachments but only 1 distinct id.
+- [ ] 9.5 RE-EVALUATE D4 (worker offload). Measured on a 5-image burst: in-process
+      max event-loop lag ~0 ms vs worker-backed ~1030 ms — the reverse of D4's
+      premise. jimp v1's async API appears to yield, while postMessage
+      structured-clone of multi-MB base64 blocks the main thread per job. Confirm on
+      target hardware and against an ArrayBuffer-transferable variant before
+      reversing or keeping the offload. Reproducer: `display-fit-perf.test.ts` P2.
 - [ ] 9.2 Retire now-unreachable inline-attachment truncation paths once no
       full-resolution base64 reaches the store (`capContentBlocks` slicing, the line-224
       exemption, `isImageBlock`'s depth-limit use).
