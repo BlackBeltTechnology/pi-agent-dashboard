@@ -1,14 +1,14 @@
-import { describe, expect, it } from "vitest";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import {
+  createMemoryEventStore,
+  DEFAULT_MAX_EVENT_DATA_SIZE,
+} from "../../persistence/memory-event-store.js";
 import {
   ATTACHMENT_FITTED_EVENT,
   buildFittedEvent,
   prepareEventForIngest,
 } from "../attachment-ingest.js";
-import {
-  createMemoryEventStore,
-  DEFAULT_MAX_EVENT_DATA_SIZE,
-} from "../../persistence/memory-event-store.js";
 
 /** A user message_start carrying `text` plus N base64 image blocks. */
 function userMessage(images: Array<{ data: string; mimeType: string }>): DashboardEvent {
@@ -134,6 +134,45 @@ describe("attachment-ingest", () => {
     expect(stored.data.__truncated).toBeUndefined();
     expect(stored.data.data).toBe(fitted); // survives intact, no truncation
     expect(bytesOf(stored.data)).toBeLessThanOrEqual(DEFAULT_MAX_EVENT_DATA_SIZE);
+  });
+
+  // --- MIME admission (CodeRabbit round 2) ---
+
+  it("admits only fittable mime types into pending", () => {
+    // The two gates disagreed: ingest stripped ANY image block, while the fit
+    // returned a non-allow-listed mime UNCHANGED. The result was a resolution
+    // event carrying the full-resolution bytes, which could only bust the
+    // per-event ceiling, truncate, and strand the block on "pending" forever.
+    const { event, pending } = prepareEventForIngest(
+      userMessage([
+        { data: "A".repeat(1000), mimeType: "image/svg+xml" },
+        { data: "B".repeat(1000), mimeType: "image/png" },
+      ]),
+    );
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0].mimeType).toBe("image/png");
+
+    const content = (event.data as any).message.content;
+    // The unfittable block is left exactly as it arrived — same ceiling it
+    // has always been subject to, no placeholder that can never resolve.
+    expect(content[1]).toEqual({ type: "image", data: "A".repeat(1000), mimeType: "image/svg+xml" });
+    expect(content[2].attachmentState).toBe("pending");
+    expect(content[2].data).toBe("");
+  });
+
+  it("mime admission is case- and parameter-insensitive", () => {
+    const { pending } = prepareEventForIngest(
+      userMessage([{ data: "A".repeat(100), mimeType: "IMAGE/PNG" }]),
+    );
+    expect(pending).toHaveLength(1);
+  });
+
+  it("an event with no fittable image block is returned by reference", () => {
+    const input = userMessage([{ data: "A".repeat(100), mimeType: "image/svg+xml" }]);
+    const { event, pending } = prepareEventForIngest(input);
+    expect(event).toBe(input); // no allocation on a path with nothing to do
+    expect(pending).toEqual([]);
   });
 
   it("a failed fit builds an explicit failed resolution, never a pending one", () => {

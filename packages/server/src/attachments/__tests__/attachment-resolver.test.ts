@@ -1,14 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { createAttachmentResolver } from "../attachment-resolver.js";
-import {
-  ATTACHMENT_FITTED_EVENT,
-  prepareEventForIngest,
-} from "../attachment-ingest.js";
+import { describe, expect, it, vi } from "vitest";
 import {
   createMemoryEventStore,
   DEFAULT_MAX_EVENT_DATA_SIZE,
 } from "../../persistence/memory-event-store.js";
+import {
+  ATTACHMENT_FITTED_EVENT,
+  prepareEventForIngest,
+} from "../attachment-ingest.js";
+import { createAttachmentResolver } from "../attachment-resolver.js";
 import type { FitWorkerPool } from "../fit-worker-pool.js";
 
 /** Pool stub that echoes a small fitted payload per block. */

@@ -20,6 +20,7 @@
  */
 import { createHash } from "node:crypto";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { isFittableImageMime } from "./image-mime.js";
 
 /** Wire event type carrying a resolved (or failed) attachment. */
 export const ATTACHMENT_FITTED_EVENT = "attachment_fitted";
@@ -40,7 +41,14 @@ export interface PreparedEvent {
   pending: PendingAttachment[];
 }
 
-/** True for a base64 image content block carrying real bytes. */
+/**
+ * True for a base64 image content block carrying real bytes THAT THE FIT CAN
+ * ACTUALLY HANDLE.
+ *
+ * The mime check is the admission gate, not a nicety: stripping a block the
+ * fit will decline to fit promises a resolution event that can never arrive
+ * (see `image-mime.ts`). An unfittable block is left inline, untouched.
+ */
 function isImageContentBlock(b: unknown): b is { type: string; data: string; mimeType: string } {
   if (!b || typeof b !== "object") return false;
   const r = b as Record<string, unknown>;
@@ -48,7 +56,8 @@ function isImageContentBlock(b: unknown): b is { type: string; data: string; mim
     r.type === "image" &&
     typeof r.data === "string" &&
     r.data.length > 0 &&
-    typeof r.mimeType === "string"
+    typeof r.mimeType === "string" &&
+    isFittableImageMime(r.mimeType)
   );
 }
 

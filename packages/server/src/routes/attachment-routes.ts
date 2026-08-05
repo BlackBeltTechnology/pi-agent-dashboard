@@ -68,8 +68,12 @@ export function registerAttachmentRoutes(
       // Belt-and-braces against content sniffing and inline execution.
       reply.header("X-Content-Type-Options", "nosniff");
       reply.header("Content-Security-Policy", "default-src 'none'; sandbox");
-      // Originals are immutable (content-addressed), so they cache forever.
-      reply.header("Cache-Control", "private, max-age=31536000, immutable");
+      // The bytes are content-addressed and therefore immutable, but they are
+      // also PRIVATE user screenshots behind an auth check. Caching them for a
+      // year wrote them to browser/proxy disk caches, where they outlive the
+      // session and the credential that unlocked them (CWE-524). Immutability
+      // is not a reason to persist someone's screen contents; re-fetch instead.
+      reply.header("Cache-Control", "no-store, private");
       reply.header("Content-Length", String(original.bytes.length));
       return reply.send(original.bytes);
     },

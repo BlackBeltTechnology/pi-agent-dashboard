@@ -13,7 +13,7 @@
  * See change: fit-attachments-for-display (task 5.1, D4).
  */
 import { isMainThread, parentPort } from "node:worker_threads";
-import { fitImageBlockForDisplay, type ImageBlockInput, type FitResult } from "./display-fit.js";
+import { type FitResult, fitImageBlockForDisplay, type ImageBlockInput } from "./display-fit.js";
 
 export interface FitRequest {
   jobId: number;

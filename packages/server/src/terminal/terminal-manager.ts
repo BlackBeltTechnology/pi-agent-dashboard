@@ -1,15 +1,19 @@
 /**
  * Server-side terminal session management with PTY lifecycle and output buffering.
  */
-import * as pty from "node-pty";
-import type { IPty } from "node-pty";
+
 import { randomBytes } from "node:crypto";
-import { fixPtyPermissions } from "../fix-pty-permissions.js";
-import type { TerminalSession, TerminalControlMessage } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { TerminalControlMessage, TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { IPty } from "node-pty";
+import * as pty from "node-pty";
 import type { WebSocket } from "ws";
+import { fixPtyPermissions } from "../fix-pty-permissions.js";
 
 const DEFAULT_BUFFER_SIZE = 256 * 1024; // 256KB
 
+import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { augmentEnvWithGitSource } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
+import { killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 // Delegate shell detection to the shared platform primitive. Back-compat
 // wrapper preserved so callers (and tests) that import `detectShell` from
 // this module continue to work. See change: consolidate-platform-handlers.
@@ -17,13 +21,10 @@ import {
   detectShell as platformDetectShell,
   getTerminalEnvHints as platformTerminalEnvHints,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/shell.js";
-import { killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
-import { augmentEnvWithGitSource } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
-import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
-  measureBytes,
   DEFAULT_MAX_EVENT_DATA_SIZE,
   DEFAULT_MAX_STRING_SIZE,
+  measureBytes,
 } from "../persistence/memory-event-store.js";
 
 /**

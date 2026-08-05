@@ -11,6 +11,7 @@ import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import { useMobile } from "../../hooks/useMobile.js";
+import { attachmentOriginalUrl } from "../../lib/chat/attachment-original-url.js";
 import { buildSelectionClipboardText } from "../../lib/chat/chat-selection-copy.js";
 import { buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, extendRangeWithSelection, isBurst, isGroup, rangeToRowIndexSpan, type SelectionRowSpan, virtualRowKey } from "../../lib/chat/chat-virtual-rows.js";
 import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../../lib/chat/collapse-retried-errors.js";
@@ -18,32 +19,31 @@ import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSup
 // in App.tsx (sticky above the command input). See change:
 // unify-status-banner-and-terminal-limit-stop.
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/chat/event-reducer.js";
-import { formatMessageTime } from "../../lib/util/format.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { formatMessageTime } from "../../lib/util/format.js";
 import { buildTurnSummaries, type TurnSummary } from "../../lib/util/lineDelta.js";
 import { isOutOfCwd, normalizeUnderCwd } from "../../lib/util/normalize-path.js";
-import { BashOutputCard } from "./BashOutputCard.js";
 import { ChangeSummaryBlock } from "../diff/ChangeSummaryBlock.js";
-import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
-import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
-import { CopyButton } from "../primitives/CopyButton.js";
-import { MissingToolInlineError } from "./MissingToolInlineError.js";
+import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
 import { FilePreviewHost, FilePreviewProvider } from "../preview/FilePreviewContext.js";
 import { ImageLightbox } from "../preview/ImageLightbox.js";
-import { attachmentOriginalUrl } from "../../lib/chat/attachment-original-url.js";
-import { InlineTerminalCard } from "../terminal/InlineTerminalCard.js";
-import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
-import { RawEventCard } from "./RawEventCard.js";
+import { CopyButton } from "../primitives/CopyButton.js";
 import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
-import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
+import { InlineTerminalCard } from "../terminal/InlineTerminalCard.js";
+import type { ToolContext } from "../tool-renderers/index.js";
+import { BashOutputCard } from "./BashOutputCard.js";
+import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
+import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
+import { MissingToolInlineError } from "./MissingToolInlineError.js";
+import { RawEventCard } from "./RawEventCard.js";
+import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolBurstGroup } from "./ToolBurstGroup.js";
 import { ToolCallStep } from "./ToolCallStep.js";
-import type { ToolContext } from "../tool-renderers/index.js";
 
 interface Props {
   sessionId?: string;

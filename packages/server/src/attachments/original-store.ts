@@ -30,6 +30,11 @@ import { createInterface } from "node:readline";
 export const ALLOWED_IMAGE_MIME: ReadonlySet<string> = new Set([
   "image/png",
   "image/jpeg",
+  // Non-standard alias of image/jpeg that real clients still emit. The fit
+  // gate accepts it, so omitting it here admitted an attachment that rendered
+  // fitted but 404'd the moment the user clicked to zoom. Widens the served
+  // surface by an ALIAS of a format already served, not by a new format.
+  "image/jpg",
   "image/gif",
   "image/webp",
 ]);

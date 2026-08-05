@@ -1,11 +1,11 @@
-import { afterAll, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
-import { registerAttachmentRoutes } from "../attachment-routes.js";
+import { afterAll, describe, expect, it } from "vitest";
 import type { SessionManager } from "../../session/memory-session-manager.js";
+import { registerAttachmentRoutes } from "../attachment-routes.js";
 
 const cleanup: string[] = [];
 afterAll(() => { for (const r of cleanup) rmSync(r, { recursive: true, force: true }); });
@@ -63,6 +63,21 @@ describe("GET /api/sessions/:sessionId/attachments/:attachmentId", () => {
 
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
     expect(String(res.headers["content-security-policy"])).toContain("default-src 'none'");
+    await app.close();
+  });
+
+  it("CWE-524: user image bytes are never written to a browser/proxy cache", async () => {
+    // This endpoint is authenticated and serves private user screenshots.
+    // A long-lived `max-age` persisted those bytes to disk, readable after
+    // the session ended and by anyone with access to the cache.
+    const file = transcriptWith([{ data: PNG_B64, mimeType: "image/png" }]);
+    const app = buildApp({ s1: { sessionFile: file } });
+    const res = await app.inject({ url: `/api/sessions/s1/attachments/${sha(PNG_B64)}` });
+
+    const cc = String(res.headers["cache-control"]);
+    expect(cc).toContain("no-store");
+    expect(cc).not.toMatch(/max-age=(?!0)\d+/);
+    expect(cc).not.toContain("immutable");
     await app.close();
   });
 

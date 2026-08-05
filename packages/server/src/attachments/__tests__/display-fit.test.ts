@@ -1,11 +1,29 @@
-import { describe, expect, it } from "vitest";
 import { Jimp, JimpMime } from "jimp";
+import { describe, expect, it } from "vitest";
 import {
   DISPLAY_MAX_BYTES,
+  DISPLAY_MAX_DECODE_PIXELS,
   DISPLAY_MAX_EDGE,
+  DISPLAY_MAX_INPUT_BYTES,
   fitImageBlockForDisplay,
   isAnimatedGif,
+  readImageDimensions,
 } from "../display-fit.js";
+
+/**
+ * A PNG that DECLARES `width`x`height` in its IHDR but carries no pixel data.
+ * This is the shape of a decompression bomb: a few bytes on the wire, a
+ * `width*height*4` byte bitmap once decoded.
+ */
+function forgedPngHeader(width: number, height: number): Buffer {
+  const buf = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0);
+  buf.writeUInt32BE(13, 8);
+  buf.write("IHDR", 12, "ascii");
+  buf.writeUInt32BE(width, 16);
+  buf.writeUInt32BE(height, 20);
+  return buf;
+}
 
 /** Build a base64 PNG of the given pixel dimensions. */
 async function pngBase64(width: number, height: number): Promise<string> {
@@ -157,6 +175,55 @@ describe("display-fit — output byte budget", () => {
   it("the budget leaves headroom under the per-event ceiling", () => {
     // The derivative rides its own event, whose envelope also costs bytes.
     expect(DISPLAY_MAX_BYTES).toBeLessThan(262_144);
+  });
+
+  // --- pre-decode guards (CodeRabbit round 2) ---
+
+  describe("pre-decode size guard", () => {
+    it("reads declared dimensions from a PNG header without decoding it", () => {
+      expect(readImageDimensions(forgedPngHeader(20_000, 20_000))).toEqual({
+        width: 20_000,
+        height: 20_000,
+      });
+    });
+
+    it("rejects a declared-oversize image BEFORE Jimp allocates its bitmap", async () => {
+      // 20000x20000 = 400 MP = ~1.6 GB of RGBA bitmap. The byte budget is
+      // checked on OUTPUT, so without this guard the allocation happens first
+      // and the process can OOM before any budget applies.
+      const data = forgedPngHeader(20_000, 20_000).toString("base64");
+      const out = await fitImageBlockForDisplay({ data, mimeType: "image/png" });
+      expect(out.failed).toBe(true);
+      expect(out.data).toBe(data); // input echoed back, never decoded
+    });
+
+    it("rejects an input whose declared pixel count exceeds the ceiling by one", async () => {
+      const side = Math.ceil(Math.sqrt(DISPLAY_MAX_DECODE_PIXELS)) + 1;
+      const data = forgedPngHeader(side, side).toString("base64");
+      const out = await fitImageBlockForDisplay({ data, mimeType: "image/png" });
+      expect(out.failed).toBe(true);
+    });
+
+    it("rejects an input over the raw byte cap without decoding it", async () => {
+      const data = Buffer.alloc(DISPLAY_MAX_INPUT_BYTES + 1).toString("base64");
+      const out = await fitImageBlockForDisplay({ data, mimeType: "image/png" });
+      expect(out.failed).toBe(true);
+    });
+
+    it("a real screenshot-sized image is NOT caught by the guard", async () => {
+      // The guard must bound bombs, not reject legitimate 5K screenshots.
+      const data = await pngBase64(2560, 1440);
+      const out = await fitImageBlockForDisplay({ data, mimeType: "image/png" });
+      expect(out.failed).toBeFalsy();
+      expect(out.fitted).toBe(true);
+    }, 30_000);
+
+    it("a supported mime whose header cannot be parsed is failed, not decoded", async () => {
+      // Fail CLOSED: if we cannot bound the allocation, we do not attempt it.
+      const data = Buffer.from("not actually a png at all").toString("base64");
+      const out = await fitImageBlockForDisplay({ data, mimeType: "image/png" });
+      expect(out.failed).toBe(true);
+    });
   });
 
   it("a low-entropy image is untouched by the budget ladder (still PNG)", async () => {

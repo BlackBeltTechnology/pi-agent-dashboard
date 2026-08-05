@@ -1,8 +1,9 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { isFittableImageMime } from "../image-mime.js";
 import {
   ALLOWED_IMAGE_MIME,
   findOriginalInTranscript,
@@ -68,10 +69,22 @@ describe("original-store — attachment id validation (X3 path safety)", () => {
 
 describe("original-store — content-type allow-list (E14/E15)", () => {
   it("E14: allows exactly the supported image types", () => {
-    for (const m of ["image/png", "image/jpeg", "image/gif", "image/webp"]) {
+    for (const m of ["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"]) {
       expect(isAllowedImageMime(m)).toBe(true);
     }
     expect([...ALLOWED_IMAGE_MIME].every((m) => m.startsWith("image/"))).toBe(true);
+  });
+
+  it("every fittable mime is also servable, so a fitted image can always zoom", () => {
+    // The gates diverged on `image/jpg`: admitted + fitted by ingest, refused
+    // by the originals endpoint, so the thumbnail rendered and the zoom 404'd.
+    for (const m of ["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"]) {
+      expect(isFittableImageMime(m), `fittable ${m} must be servable`).toBe(true);
+      expect(isAllowedImageMime(m)).toBe(true);
+    }
+    // The reverse does NOT have to hold, and the serving gate stays stricter.
+    expect(isFittableImageMime("image/svg+xml")).toBe(false);
+    expect(isAllowedImageMime("image/svg+xml")).toBe(false);
   });
 
   it("E15: refuses active-content and non-image types", () => {

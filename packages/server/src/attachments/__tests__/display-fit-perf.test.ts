@@ -1,15 +1,15 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
 import { Jimp, JimpMime } from "jimp";
-import { createFitWorkerPool } from "../fit-worker-pool.js";
-import { buildFittedEvent } from "../attachment-ingest.js";
-import { findOriginalInTranscript } from "../original-store.js";
-import { DISPLAY_MAX_BYTES } from "../display-fit.js";
-import { startLagMonitor } from "../../test-support/event-loop-lag.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_MAX_EVENT_DATA_SIZE } from "../../persistence/memory-event-store.js";
+import { startLagMonitor } from "../../test-support/event-loop-lag.js";
+import { buildFittedEvent } from "../attachment-ingest.js";
+import { DISPLAY_MAX_BYTES } from "../display-fit.js";
+import { createFitWorkerPool } from "../fit-worker-pool.js";
+import { findOriginalInTranscript } from "../original-store.js";
 
 /** Default browser-gateway back-pressure ceiling (`browser-gateway.ts`). */
 const MAX_WS_BUFFER = 4 * 1024 * 1024;

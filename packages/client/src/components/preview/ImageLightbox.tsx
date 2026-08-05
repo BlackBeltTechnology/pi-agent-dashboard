@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
 import { useEscapeDismiss } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
-import { DialogPortal } from "../primitives/DialogPortal.js";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
+import { DialogPortal } from "../primitives/DialogPortal.js";
 
 const BACKDROP_ID = "lightbox-backdrop";
 

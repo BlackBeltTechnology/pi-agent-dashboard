@@ -604,7 +604,7 @@ export function reduceSubagentEvent(event: DashboardEvent, ceiling: number): Das
   const ENTRY_FINAL = clamp(Math.round(E * 0.45), 1_500, 6_000);
 
   const n = origEntries.length;
-  let kHead = Math.min(K_HEAD, n);
+  const kHead = Math.min(K_HEAD, n);
   let kTail = Math.min(K_TAIL, n - kHead);
 
   // Decrement K_TAIL while the intermediate per-entry budget underflows MID_FLOOR.

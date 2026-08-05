@@ -4,17 +4,17 @@
 
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { WebSocket } from "ws";
-import { extractStatsFromEvents } from "../session/event-status-extraction.js";
+import {
+  type PendingAttachment,
+  prepareEventForIngest,
+} from "../attachments/attachment-ingest.js";
+import { createAttachmentResolver } from "../attachments/attachment-resolver.js";
 import type { StoredEvent } from "../persistence/memory-event-store.js";
 import { pluginIntentCache } from "../plugin-intent-cache.js";
+import { extractStatsFromEvents } from "../session/event-status-extraction.js";
 import { compactEventsForReplay } from "../session/replay-compaction.js";
 import { truncateToolResultForReplay } from "../session/replay-truncate.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
-import {
-  prepareEventForIngest,
-  type PendingAttachment,
-} from "../attachments/attachment-ingest.js";
-import { createAttachmentResolver } from "../attachments/attachment-resolver.js";
 
 /**
  * Raised 50 → 200. Each batch is one client React commit, so a large warm

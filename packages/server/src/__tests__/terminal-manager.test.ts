@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_MAX_EVENT_DATA_SIZE } from "../persistence/memory-event-store.js";
 import {
   capTranscript,
   createTerminalManager,
@@ -6,7 +7,6 @@ import {
   detectShell,
   type TerminalManager,
 } from "../terminal/terminal-manager.js";
-import { DEFAULT_MAX_EVENT_DATA_SIZE } from "../persistence/memory-event-store.js";
 
 // Mock node-pty
 const mockPtyWrite = vi.fn();

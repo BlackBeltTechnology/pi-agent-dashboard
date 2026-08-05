@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
 import { createInitialState, reduceEvent } from "../chat/event-reducer.js";
 
 const ATT = "a".repeat(64);

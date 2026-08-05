@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
 import { Jimp, JimpMime } from "jimp";
-import { createFitWorkerPool } from "../fit-worker-pool.js";
+import { describe, expect, it } from "vitest";
 import { DISPLAY_MAX_EDGE } from "../display-fit.js";
+import { createFitWorkerPool } from "../fit-worker-pool.js";
 
 async function oversizePng(): Promise<string> {
   const img = new Jimp({ width: 1600, height: 900, color: 0x2244aaff });

@@ -17,10 +17,11 @@
  *
  * See change: fit-attachments-for-display (task 5.1, test-plan #X7 #X8).
  */
-import { Worker } from "node:worker_threads";
+
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { fitBlocks, type FitRequest, type FitResponse } from "./fit-worker.js";
+import { Worker } from "node:worker_threads";
+import { type FitRequest, type FitResponse, fitBlocks } from "./fit-worker.js";
 
 export interface FitWorkerPoolOptions {
   /** Worker slots. Clamped to `[1, +∞)`. */
@@ -137,12 +138,42 @@ export function createFitWorkerPool(opts: FitWorkerPoolOptions = {}): FitWorkerP
     }
   }
 
-  /** In-process settle: run the fit on the main thread. */
+  // ── In-process fallback admission ──────────────────────────────────
+  // A fallback fit runs jimp on the MAIN thread. Unbounded, a burst of pastes
+  // (or a pool with workers disabled) runs N simultaneous decodes there — the
+  // exact event-loop stall the worker pool exists to prevent, and a cheap DoS.
+  // The fallback therefore honours the SAME slot count as the worker path;
+  // excess fits wait their turn instead of piling onto the event loop.
+  let fallbackActive = 0;
+  const fallbackWaiters: Array<() => void> = [];
+
+  async function acquireFallbackSlot(): Promise<void> {
+    if (fallbackActive < size) {
+      fallbackActive++;
+      return;
+    }
+    await new Promise<void>((r) => fallbackWaiters.push(r));
+    fallbackActive++;
+  }
+
+  function releaseFallbackSlot(): void {
+    fallbackActive--;
+    fallbackWaiters.shift()?.();
+  }
+
+  /** In-process settle: run the fit on the main thread, capped at `size`. */
   async function fallbackSettle(p: Pending): Promise<void> {
     if (p.timeoutHandle) { clearTimeout(p.timeoutHandle); p.timeoutHandle = null; }
     jobs.delete(p.id);
     freeSlot(p);
-    finish(p, await fitBlocks(p.payload));
+    await acquireFallbackSlot();
+    try {
+      finish(p, await fitBlocks(p.payload));
+    } finally {
+      // Must release even if the fit throws, or the cap leaks a slot per
+      // failure and eventually wedges every fallback fit forever.
+      releaseFallbackSlot();
+    }
     drainQueue();
   }
 
