@@ -288,6 +288,25 @@ describe("resource-activation-routes \u2014 guard and trust gate (real write)", 
     expect(JSON.parse(res.body).data.trustRequired).toBe(true);
   });
 
+  it("does not let defaultProjectTrust:always proceed over an inherited refusal", async () => {
+    // pi resolves the inherited refusal and would ignore the file, so proceeding
+    // would reinstate exactly the false success this gate removes.
+    const skill = writeDirSkill(agentDir, "gskill");
+    const nested = path.join(cwd, "nested");
+    fs.mkdirSync(nested, { recursive: true });
+    await recordTrust(cwd, false);
+    setDefaultProjectTrust("always");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/resources/toggle",
+      payload: { scope: "local", cwd: nested, type: "skill", filePath: skill, enabled: false },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).data.trustRequired).toBe(true);
+    expect(fs.existsSync(path.join(nested, ".pi", "settings.json"))).toBe(false);
+  });
+
   it("lets defaultProjectTrust decide when nothing is recorded [E37]", async () => {
     const skill = writeDirSkill(agentDir, "gskill");
     const { ProjectTrustStore } = await piCore();

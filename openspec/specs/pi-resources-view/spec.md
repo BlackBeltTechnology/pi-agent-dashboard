@@ -279,7 +279,7 @@ The Resources surface of `PiResourcesView` (rendered on both the folder settings
 Activating a control SHALL issue `POST /api/resources/toggle` with `{ scope, cwd?, type, filePath, enabled, packageSource? }` and optimistically reflect the new state. The server SHALL persist via pi's `SettingsManager`, writing the pi-standard form for the resource's origin per the `cross-scope-resource-disable` capability:
 
 - a loose resource under the toggled scope's own base directory uses a force-exclude pattern relative to that base directory — `relative(baseDir, filePath)`, exactly the pattern pi's own resolver and `config-selector` compute;
-- a package-contributed resource uses an `autoload: false` delta entry in the scope's `packages` array, carrying a force-exclude relative to the package root;
+- a package-contributed resource at **local** scope uses an `autoload: false` delta entry in the project's `packages` array, carrying a force-exclude relative to the package root; at **global** scope it instead mutates the existing entry in place, adding an ordinary filter and no `autoload: false`, because pi discards a second same-scope entry for one package identity;
 - a loose resource under a different scope's base directory uses a re-declaration of **its own file** plus a home-independent anchored glob exclusion.
 
 Re-enabling SHALL remove the entries the disable added and SHALL NOT write a force-include.

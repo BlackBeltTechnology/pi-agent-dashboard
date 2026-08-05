@@ -94,6 +94,10 @@ const EXPLICIT_NOTE =
   "pi only applies a folder's .pi/settings.json when the folder is trusted. " +
   "Choose how to trust this folder before the setting is written.";
 
+const INHERITED_REFUSAL_NOTE =
+  "A parent folder is recorded as not trusted, so pi treats this folder as untrusted too " +
+  "and would ignore the setting. Trust this folder explicitly to override that.";
+
 /**
  * Resolve trust for a project-scope toggle. Never writes settings; on `prompt`
  * the caller must return the options to the client and retry after the decision
@@ -121,8 +125,14 @@ export async function resolveToggleTrust(
     };
   }
 
+  // An INHERITED refusal means pi currently resolves this folder as untrusted,
+  // so no default may silently proceed over it — `always` would write a file pi
+  // then ignores, which is the false success this gate exists to remove. The
+  // user is prompted instead, and can override by trusting this folder itself
+  // (exactly what pi's own prompt allows).
+  const inheritedRefusal = entry?.decision === false;
   const dflt = settingsManager.getDefaultProjectTrust();
-  if (dflt === "always") return { outcome: "proceed" };
+  if (dflt === "always" && !inheritedRefusal) return { outcome: "proceed" };
   if (dflt === "never") {
     return {
       outcome: "refused",
@@ -132,12 +142,12 @@ export async function resolveToggleTrust(
     };
   }
 
-  const implicitlyTrusted = !hasTrustRequiringProjectResources(cwd);
+  const implicitlyTrusted = !inheritedRefusal && !hasTrustRequiringProjectResources(cwd);
   return {
     outcome: "prompt",
     options: trustOptionsFor(cwd),
     implicitlyTrusted,
-    message: implicitlyTrusted ? IMPLICIT_NOTE : EXPLICIT_NOTE,
+    message: inheritedRefusal ? INHERITED_REFUSAL_NOTE : implicitlyTrusted ? IMPLICIT_NOTE : EXPLICIT_NOTE,
   };
 }
 

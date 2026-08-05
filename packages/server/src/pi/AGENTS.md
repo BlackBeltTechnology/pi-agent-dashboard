@@ -14,4 +14,4 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `resource-activation-toggle.ts` | Writes the pi-standard settings form for a resource's ORIGIN (4 forms; project package delta needs… → see `resource-activation-toggle.ts.AGENTS.md` |
 | `resource-entry-ownership.ts` | Machine-local record of the plain settings entries this dashboard wrote, at… → see `resource-entry-ownership.ts.AGENTS.md` |
 | `resource-origin.ts` | Origin classification by longest-prefix path match + narrow mirrors of unexported pi semantics… → see `resource-origin.ts.AGENTS.md` |
-| `resource-toggle-trust.ts` | Project-trust gate for the resource-activation write. `resolveToggleTrust` → proceed|refused|prompt… → see `resource-toggle-trust.ts.AGENTS.md` |
+| `resource-toggle-trust.ts` | Project-trust gate for the resource-activation write. `resolveToggleTrust` → proceed \| refused \| prompt… → see `resource-toggle-trust.ts.AGENTS.md` |

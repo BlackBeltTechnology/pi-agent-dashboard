@@ -2,7 +2,7 @@ Test tasks below are folded from `test-plan.md`; each carries its scenario Tripl
 Harness exemplars: L1 server → `packages/server/src/__tests__/resource-activation-toggle.test.ts`;
 L1 routes → `resource-activation-routes.test.ts`; L1 scanner → `pi-resource-scanner.test.ts`;
 L1 client → `packages/client/src/lib/__tests__/resources-api.test.ts`;
-L3 → `tests/e2e/openspec-artifact-dialog.spec.ts` (harness port from `.pi-test-harness.json#dashboardPort`).
+L3 → written as `tests/e2e/resource-activation-trust.spec.ts`, modelled on `tests/e2e/openspec-artifact-dialog.spec.ts` (harness port from `.pi-test-harness.json#dashboardPort`).
 
 ## 1. Origin classification
 
@@ -83,11 +83,11 @@ L3 → `tests/e2e/openspec-artifact-dialog.spec.ts` (harness port from `.pi-test
 
 ## 9. Client surface
 
-- [x] 9.1 Test: trust dialog blocks convergence · folder Resources surface for a folder with no recorded decision · user disables a resource · a dialog presents the options and the control has not converged to disabled; see tests/e2e/openspec-artifact-dialog.spec.ts (test-plan #F1)
-- [x] 9.2 Test: dismissal reverts · the trust dialog open · user dismisses without choosing · control converges back and no settings or trust file is written; see tests/e2e/openspec-artifact-dialog.spec.ts (test-plan #F2)
-- [x] 9.3 Test: failures surface · a toggle the server rejects with a message · response received · control reverts and the message is presented, with a request that never reached the server reported distinctly; see tests/e2e/openspec-artifact-dialog.spec.ts (test-plan #F3)
-- [x] 9.4 Test: row stays where acted on · a global resource in the global section of the folder surface · disable then re-enable · after disable the row stays put and indicates the folder controls activation, after re-enable the original grouping returns; see tests/e2e/openspec-artifact-dialog.spec.ts (test-plan #F4)
-- [x] 9.5 Test: repository-wide notice · the folder Resources surface · user disables a resource · the surface states the change is written to the tracked `.pi/settings.json` and shared, and that each toggle produces a whole-file diff; see tests/e2e/openspec-artifact-dialog.spec.ts (test-plan #F5)
+- [x] 9.1 Test: trust dialog blocks convergence · folder Resources surface for a folder with no recorded decision · user disables a resource · a dialog presents the options and the control has not converged to disabled; see tests/e2e/resource-activation-trust.spec.ts (test-plan #F1)
+- [x] 9.2 Test: dismissal reverts · the trust dialog open · user dismisses without choosing · control converges back and no settings or trust file is written; see tests/e2e/resource-activation-trust.spec.ts (test-plan #F2)
+- [x] 9.3 Test: failures surface · a toggle the server rejects with a message · response received · control reverts and the message is presented, with a request that never reached the server reported distinctly; see tests/e2e/resource-activation-trust.spec.ts (test-plan #F3)
+- [x] 9.4 Test: row stays where acted on · a global resource in the global section of the folder surface · disable then re-enable · after disable the row stays put and indicates the folder controls activation, after re-enable the original grouping returns; see tests/e2e/resource-activation-trust.spec.ts (test-plan #F4)
+- [x] 9.5 Test: repository-wide notice · the folder Resources surface · user disables a resource · the surface states the change is written to the tracked `.pi/settings.json` and shared, and that each toggle produces a whole-file diff; see tests/e2e/resource-activation-trust.spec.ts (test-plan #F5)
 - [x] 9.6 Implement error surfacing in `useResourceActivation`, the trust dialog, the scope-flip presentation, and the repository-scope notice; make 9.1–9.5 pass
 - [x] 9.7 `npm run build && curl -X POST http://localhost:8000/api/restart`; verify in all four themes
 

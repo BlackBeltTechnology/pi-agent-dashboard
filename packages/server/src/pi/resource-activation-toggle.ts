@@ -276,6 +276,7 @@ export async function applyResourceToggle(req: ToggleRequest): Promise<ToggleRes
     afterFlush: [],
   };
 
+
   const failure =
     origin.kind === "package"
       ? writePackage(ctx, req.packageSource)
@@ -287,7 +288,18 @@ export async function applyResourceToggle(req: ToggleRequest): Promise<ToggleRes
   await settingsManager.flush();
   // Ownership is recorded only once the settings write actually landed, so a
   // failed flush cannot leave a record claiming an entry that was never written.
-  for (const commit of ctx.afterFlush) commit();
+  // The settings write itself has succeeded by now — the resource IS in the
+  // requested state — so a failed ownership write does not fail the toggle. Its
+  // only consequence is the documented conservative one: a later re-enable
+  // cannot prove it wrote the plain entry and leaves that (inert) entry behind.
+  for (const commit of ctx.afterFlush) {
+    if (!commit()) {
+      console.warn(
+        `[resource-activation-toggle] ownership record not persisted for ${filePath}; ` +
+          "a later re-enable will remove the exclusion but leave the path entry in place",
+      );
+    }
+  }
   return { ok: true };
 }
 
@@ -304,14 +316,23 @@ interface WriteContext {
   homeDir: string;
   candidates: Candidate[];
   resolved: ResolvedPaths;
-  /** Side effects to run only after the settings write has landed. */
-  afterFlush: Array<() => void>;
+  /** Side effects to run only after the settings write has landed. `false` = did not persist. */
+  afterFlush: Array<() => boolean>;
 }
 
-/** The base directory pi evaluates this scope's array against. */
+/**
+ * The base directory pi evaluates this scope's array against for THIS resource.
+ *
+ * pi matches each resource using its OWN base dir, so the equivalence-class
+ * strip must use the same one. At global scope that is always the resource's
+ * own base — `~/.pi/agent` or `~/.agents`, which are different directories; the
+ * directional guard already rejects the project origins here. At project scope
+ * the project array is evaluated against `<cwd>/.pi`, except for a resource
+ * pi reported under an `.agents` base.
+ */
 function evaluationBase(ctx: WriteContext): string {
-  if (ctx.origin.kind === "agents-loose") return ctx.origin.baseDir;
-  return ctx.isProject ? path.join(ctx.cwd, ".pi") : ctx.agentDir;
+  if (!ctx.isProject) return ctx.origin.baseDir;
+  return ctx.origin.kind === "agents-loose" ? ctx.origin.baseDir : path.join(ctx.cwd, ".pi");
 }
 
 function persistLoose(sm: PiSettingsManager, isProject: boolean, arrKey: ArrayKey, updated: string[]): void {
@@ -405,11 +426,13 @@ function writeGlobalLoose(ctx: WriteContext): ToggleResult | null {
     if (isOwnedEntry(ctx.cwd, ctx.arrKey, plainEntry)) {
       updated = updated.filter((e) => e !== plainEntry);
       ctx.afterFlush.push(() => clearOwnedEntry(ctx.cwd, ctx.arrKey, plainEntry));
+
     }
   } else {
     if (!updated.includes(plainEntry)) {
       updated.push(plainEntry);
       ctx.afterFlush.push(() => recordOwnedEntry(ctx.cwd, ctx.arrKey, plainEntry));
+
     }
     updated.push(globEntry);
   }
@@ -461,7 +484,12 @@ function writePackage(ctx: WriteContext, packageSource?: string): ToggleResult |
     else delete pkg[ctx.arrKey];
 
     const hasFilters = ARRAY_KEYS.some((k) => pkg[k] !== undefined);
-    if (isDelta && !hasFilters) {
+    // Only a PROJECT delta is ours to remove — this module never creates one at
+    // global scope (an absent package 404s there), so a global
+    // `{ source, autoload: false }` entry is always user-authored and removing
+    // it would delete their whole package declaration along with a deliberate
+    // `autoload: false`.
+    if (isDelta && !hasFilters && ctx.isProject) {
       // The delta existed only to carry this exclusion.
       packages.splice(idx, 1);
     } else if (hasFilters || pkg.autoload !== undefined) {

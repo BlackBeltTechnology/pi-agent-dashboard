@@ -48,15 +48,18 @@ function load(): OwnershipMap {
 
 let tmpCounter = 0;
 
-function save(map: OwnershipMap): void {
+/** `false` when the record could not be persisted — callers must not assume it landed. */
+function save(map: OwnershipMap): boolean {
   const p = storePath();
   try {
     fs.mkdirSync(path.dirname(p), { recursive: true });
     const tmp = `${p}.${process.pid}.${tmpCounter++}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(map, null, 2), "utf8");
     fs.renameSync(tmp, p);
+    return true;
   } catch (err) {
     console.warn(`[resource-entry-ownership] failed to persist: ${(err as Error)?.message}`);
+    return false;
   }
 }
 
@@ -65,27 +68,26 @@ export function isOwnedEntry(cwd: string, key: OwnedArrayKey, entry: string): bo
   return (load()[projectKey(cwd)]?.[key] ?? []).includes(entry);
 }
 
-/** Record that this dashboard added `entry`. Idempotent. */
-export function recordOwnedEntry(cwd: string, key: OwnedArrayKey, entry: string): void {
+/** Record that this dashboard added `entry`. Idempotent. `false` = not persisted. */
+export function recordOwnedEntry(cwd: string, key: OwnedArrayKey, entry: string): boolean {
   const map = load();
   const proj = (map[projectKey(cwd)] ??= {});
   const list = (proj[key] ??= []);
-  if (!list.includes(entry)) {
-    list.push(entry);
-    save(map);
-  }
+  if (list.includes(entry)) return true;
+  list.push(entry);
+  return save(map);
 }
 
-/** Drop the ownership record for `entry`, pruning empty containers. */
-export function clearOwnedEntry(cwd: string, key: OwnedArrayKey, entry: string): void {
+/** Drop the ownership record for `entry`, pruning empty containers. `false` = not persisted. */
+export function clearOwnedEntry(cwd: string, key: OwnedArrayKey, entry: string): boolean {
   const map = load();
   const proj = map[projectKey(cwd)];
   const list = proj?.[key];
-  if (!list) return;
+  if (!list) return true;
   const next = list.filter((e) => e !== entry);
-  if (next.length === list.length) return;
+  if (next.length === list.length) return true;
   if (next.length > 0) proj[key] = next;
   else delete proj[key];
   if (Object.keys(proj).length === 0) delete map[projectKey(cwd)];
-  save(map);
+  return save(map);
 }

@@ -650,6 +650,25 @@ describe("re-enable and ownership", () => {
     expect(await isEnabled(tmpDir, "extensions", ext)).toBe(false);
   });
 
+  it("never removes a user-authored autoload:false entry at global scope", async () => {
+    // This module only ever CREATES a delta at project scope, so a global
+    // `{ source, autoload: false }` entry is always the user's own — removing it
+    // on re-enable would delete their whole package declaration.
+    const root = installNpmPackage("probe-pkg", ["alpha", "beta"]);
+    fs.writeFileSync(
+      path.join(agentDir, "settings.json"),
+      JSON.stringify({ packages: [{ source: "npm:probe-pkg", autoload: false, skills: ["-skills/beta/SKILL.md"] }] }),
+    );
+    const beta = path.join(root, "skills", "beta", "SKILL.md");
+
+    expectOk(await toggle({ scope: "global", filePath: beta, enabled: true }));
+
+    const packages = readGlobalSettings().packages as any[];
+    expect(packages).toHaveLength(1);
+    expect(packages[0].source).toBe("npm:probe-pkg");
+    expect(packages[0].autoload).toBe(false);
+  });
+
   it("removes an emptied delta entry entirely", async () => {
     const root = installNpmPackage("probe-pkg", ["alpha", "beta"]);
     fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:probe-pkg"] }));
@@ -757,6 +776,23 @@ describe("stripping, guard and ambiguity", () => {
     const state = await observe(tmpDir, "skills");
     expect(state.get(projectSkill)?.enabled).toBe(false);
     expect(state.get(agentsSkill)?.enabled).toBe(true);
+  });
+
+  it("strips a stale exclusion for a ~/.agents resource at global scope", async () => {
+    // pi evaluates a `~/.agents` resource against `~/.agents`, not the agent
+    // dir, so the equivalence-class strip must use the resource's own base.
+    const userAgents = path.join(HOME, ".agents");
+    const skill = writeDirSkill(userAgents, "ag-global");
+    fs.writeFileSync(
+      path.join(agentDir, "settings.json"),
+      JSON.stringify({ skills: ["-skills/ag-global/SKILL.md"] }),
+    );
+    expect(await isEnabled(tmpDir, "skills", skill)).toBe(false);
+
+    expectOk(await toggle({ scope: "global", filePath: skill, enabled: true }));
+
+    expect((readGlobalSettings().skills as string[]) ?? []).toHaveLength(0);
+    expect(await isEnabled(tmpDir, "skills", skill)).toBe(true);
   });
 
   it("leaves entries for other resources untouched", async () => {

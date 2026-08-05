@@ -2164,13 +2164,26 @@ Cross-refs:
 
 ## I disabled a global skill for this project and it came back — why?
 
-Pre-fix: a project-scope toggle wrote a relative force-exclude — `-skills/<name>/SKILL.md` — for a globally-defined resource. pi evaluates a relative pattern against the resource's OWN base directory. A global skill resolves against `~/.pi/agent`; the pattern matched nothing. Entry inert. pi still reported enabled. Toggle looked like success.
+Pre-fix: project-scope toggle wrote relative force-exclude — `-skills/<name>/SKILL.md` — for globally-defined resource.
+pi evaluates relative pattern against resource's OWN base directory.
+Global skill resolves against `~/.pi/agent`.
+Pattern matched nothing.
+Entry inert.
+pi still reported enabled.
+Toggle looked like success.
 
-Fix: disabling a global-loose resource now re-declares the resource's own FILE as a `~`-prefixed plain entry plus an anchored glob exclusion — `~/.pi/agent/skills/<name>/SKILL.md` + `!**/.pi/agent/skills/<name>/**`. pi matches both forms.
+Fix: disabling global-loose resource re-declares resource's own FILE as `~`-prefixed plain entry plus anchored glob exclusion — `~/.pi/agent/skills/<name>/SKILL.md` + `!**/.pi/agent/skills/<name>/**`.
+pi matches both forms.
 
-- Only NEWLY STARTED sessions see the change. `PackageManager.resolve()` runs at session start. Use the Reload affordance.
-- Untrusted folder: toggle now prompts for a trust decision instead of silently succeeding. pi ignores a folder's `.pi/settings.json` without a recorded trust decision.
-- Unparseable `.pi/settings.json` (e.g. containing comments): toggle now fails loudly (HTTP 409) instead of reporting success. pi's write is a whole-file `JSON.parse` → `JSON.stringify` round trip; comments fail the parse and pi silently skips the write.
+- Only NEWLY STARTED sessions see the change.
+- `PackageManager.resolve()` runs at session start.
+- Use the Reload affordance.
+- Untrusted folder: toggle now prompts for trust decision instead of silently succeeding.
+- pi ignores folder's `.pi/settings.json` without recorded trust decision.
+- Unparseable `.pi/settings.json` (e.g. containing comments): toggle now fails loudly (HTTP 409) instead of reporting success.
+- pi's write is whole-file `JSON.parse` → `JSON.stringify` round trip.
+- Comments fail the parse.
+- pi silently skips the write.
 
 See change: project-scope-disable-global-resources.
 

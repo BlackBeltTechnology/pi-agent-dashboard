@@ -50,6 +50,7 @@ export function ResourceTrustDialog({ cwd, message, options, onChoose, onDismiss
       >
         <div
           role="dialog"
+          aria-modal="true"
           aria-labelledby="resource-trust-title"
           data-testid="resource-trust-dialog"
           className="bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-xl p-6 max-w-md w-full mx-4"
