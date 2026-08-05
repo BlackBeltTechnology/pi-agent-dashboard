@@ -55,6 +55,7 @@ import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/se
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 
 import { assertNodeVersionSupported } from "./auth/node-guard.js";
+import { recordExitIntent } from "./persistence/boot-state.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import {
   findBundledExtension,
@@ -213,6 +214,28 @@ async function runForeground(config: ServerConfig): Promise<void> {
   } catch {
     /* advisory only — never block startup */
   }
+
+  // OS-initiated shutdown (systemd stop, `kill`, a reboot, Ctrl-C). Without a
+  // handler the process died with no trace, so the next boot could not tell an
+  // OS shutdown from a crash AND pending `.meta.json` writes were lost. Record
+  // the intent (recovery ALLOWED — after a reboot those sessions are gone and
+  // will never reattach), flush, exit.
+  //
+  // Write-once semantics keep this from fighting `spawnRestart`'s
+  // SIGTERM→SIGKILL ladder: `/api/restart` already recorded `"restart"` before
+  // the ladder runs, so the later `"signal"` is a no-op.
+  // See change: fix-recovery-exit-intent (D4).
+  let signalHandled = false;
+  const onExitSignal = (signal: NodeJS.Signals): void => {
+    if (signalHandled) return;
+    signalHandled = true;
+    console.log(`[dashboard] ${signal} received — flushing and exiting`);
+    try { recordExitIntent("signal"); } catch { /* best-effort */ }
+    try { server.flush(); } catch { /* best-effort */ }
+    process.exit(0);
+  };
+  process.on("SIGTERM", onExitSignal);
+  process.on("SIGINT", onExitSignal);
 
   await server.start();
 }

@@ -1,0 +1,968 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Workspace add-flow — redesign mocks</title>
+<style>
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858; --text-faint:#3a3a3a;
+  --border-primary:#252525; --border-secondary:#333333; --border-subtle:rgba(255,255,255,.06);
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-purple:#a855f7;
+  --accent-red:#ef4444; --accent-orange:#f97316;
+  --shadow-card:rgba(0,0,0,.4); --elevation-rim:rgba(255,255,255,.10);
+}
+html[data-theme="light"]{
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#777777; --text-muted:#aaaaaa; --text-faint:#d0d0d0;
+  --border-primary:#e0e0e0; --border-secondary:#cccccc; --border-subtle:rgba(0,0,0,.06);
+  --shadow-card:rgba(0,0,0,.08); --elevation-rim:rgba(255,255,255,.9);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:32px 24px 96px; background:var(--bg-primary); color:var(--text-secondary);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+.page{max-width:1180px;margin:0 auto}
+h1{font-size:20px;color:var(--text-primary);margin:0 0 4px;font-weight:650;letter-spacing:-.01em}
+.sub{color:var(--text-tertiary);font-size:13px;margin:0 0 28px}
+h2{font-size:15px;color:var(--text-primary);margin:40px 0 2px;font-weight:600}
+h2 .n{color:var(--accent-blue);font-variant-numeric:tabular-nums;margin-right:7px}
+.h2sub{color:var(--text-tertiary);font-size:12.5px;margin:0 0 16px}
+mono,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+.sec{border-top:1px solid var(--border-primary);padding-top:6px}
+.themebar{position:fixed;top:12px;right:16px;display:flex;gap:6px;z-index:99}
+.themebar button{
+  font:inherit;font-size:11.5px;padding:5px 11px;border-radius:7px;cursor:pointer;
+  background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary);
+}
+.themebar button[aria-pressed="true"]{background:var(--accent-blue);color:#fff;border-color:transparent}
+
+/* ---------- annotation ---------- */
+.note{
+  border-left:2px solid var(--accent-blue);background:color-mix(in srgb,var(--accent-blue) 7%,transparent);
+  padding:9px 13px;border-radius:0 8px 8px 0;font-size:12.5px;color:var(--text-secondary);margin:14px 0
+}
+.note b{color:var(--text-primary);font-weight:600}
+.bad{border-left-color:var(--accent-red);background:color-mix(in srgb,var(--accent-red) 7%,transparent)}
+.good{border-left-color:var(--accent-green);background:color-mix(in srgb,var(--accent-green) 7%,transparent)}
+.tag{
+  display:inline-block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
+  padding:2px 7px;border-radius:999px;vertical-align:middle
+}
+.tag.rec{background:color-mix(in srgb,var(--accent-green) 18%,transparent);color:var(--accent-green)}
+.tag.alt{background:var(--bg-tertiary);color:var(--text-tertiary)}
+.tag.no{background:color-mix(in srgb,var(--accent-red) 16%,transparent);color:var(--accent-red)}
+.grid{display:grid;gap:18px}
+.g3{grid-template-columns:repeat(auto-fit,minmax(268px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(360px,1fr))}
+.stage{
+  background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:12px;padding:18px
+}
+.stage>h3{
+  margin:0 0 3px;font-size:12.5px;color:var(--text-primary);font-weight:600;
+  display:flex;align-items:center;gap:8px;justify-content:space-between
+}
+.stage>p{margin:0 0 14px;font-size:11.5px;color:var(--text-tertiary);line-height:1.45}
+
+/* ---------- shared control primitives (mirror real dashboard classes) ---------- */
+svg.i{display:block;flex:none;fill:currentColor}
+.iconbtn{
+  display:inline-flex;align-items:center;justify-content:center;gap:1px;
+  height:20px;min-width:20px;padding:0 2px;border:0;background:transparent;border-radius:5px;
+  color:var(--text-tertiary);cursor:pointer;position:relative
+}
+.iconbtn:hover{color:var(--accent-blue);background:color-mix(in srgb,var(--accent-blue) 10%,transparent)}
+.iconbtn.pinned{color:var(--accent-yellow)}
+.iconbtn:focus-visible{outline:2px solid var(--accent-blue);outline-offset:1px}
+
+/* ---------- folder card (replica of renderGroup) ---------- */
+.fwrap{position:relative;padding-top:9px}
+.nub{
+  position:absolute;top:0;left:14px;width:78px;height:12px;pointer-events:none;
+  background:color-mix(in srgb,var(--accent-blue) 5%,var(--bg-primary));
+  border:1px solid color-mix(in srgb,var(--accent-blue) 22%,var(--border-subtle));
+  border-bottom:0;border-radius:8px 8px 0 0
+}
+.fcard{
+  position:relative;background:color-mix(in srgb,var(--accent-blue) 5%,var(--bg-primary));
+  border:1px solid color-mix(in srgb,var(--accent-blue) 22%,var(--border-subtle));
+  border-radius:14px;padding:6px;
+  box-shadow:inset 0 1px 0 var(--elevation-rim),0 2px 4px var(--shadow-card)
+}
+.frow{display:flex;gap:6px;padding:4px}
+.gutter{display:flex;flex-direction:column;align-items:center;color:var(--text-tertiary);padding-top:1px}
+.gutter .grip{margin-top:4px;color:var(--text-faint);font-size:9px;letter-spacing:-1px;line-height:.8}
+.fmain{flex:1;min-width:0}
+.fhead{display:flex;align-items:center;gap:6px}
+.fname{
+  display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden;
+  font-size:12px;font-weight:500;color:var(--text-secondary)
+}
+.fname .parent{color:var(--text-tertiary);font-family:ui-monospace,Menlo,monospace;font-size:11px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  /* parent path absorbs the squeeze first — it may shrink to nothing */
+  flex:0 1 auto;min-width:0}
+.fname .leaf{
+  font-weight:700;font-size:15px;color:var(--text-primary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  /* the folder NAME is the payload — keeps a legible floor before it ellipses */
+  flex:0 1 auto;min-width:6ch
+}
+.cnt{font-size:10px;color:var(--text-muted);flex:none}
+.cluster{margin-left:auto;display:flex;align-items:center;gap:1px;flex:none;white-space:nowrap}
+.fbar{
+  display:flex;align-items:center;gap:6px;margin-top:7px;padding-top:7px;
+  border-top:1px solid var(--border-subtle)
+}
+.chip{
+  display:inline-flex;align-items:center;gap:4px;font-size:10.5px;padding:3px 8px;border-radius:6px;
+  border:1px solid var(--border-secondary);background:var(--bg-tertiary);color:var(--text-tertiary);cursor:pointer
+}
+
+/* ---------- old +ws ---------- */
+.oldws{
+  font-size:10px;padding:1px 4px;border-radius:4px;border:0;background:transparent;
+  color:var(--text-tertiary);cursor:pointer;font-family:inherit
+}
+.oldws:hover{color:var(--accent-blue)}
+.ghostbox{outline:1px dashed var(--accent-red);outline-offset:2px;border-radius:5px}
+
+/* ---------- popover ---------- */
+.pop{
+  position:absolute;right:0;top:calc(100% + 5px);width:236px;z-index:40;
+  background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:10px;
+  box-shadow:0 10px 26px var(--shadow-card),inset 0 1px 0 var(--elevation-rim);padding:5px;
+  text-align:left
+}
+.pop.static{position:static;width:236px;box-shadow:none;margin-top:0}
+.pop .lbl{
+  font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-muted);
+  padding:5px 9px 3px;font-weight:700
+}
+.pop .item{
+  width:100%;display:flex;align-items:center;gap:8px;padding:6px 9px;border:0;background:transparent;
+  border-radius:6px;color:var(--text-secondary);font:inherit;font-size:12px;cursor:pointer;text-align:left
+}
+.pop .item:hover{background:var(--bg-tertiary);color:var(--text-primary)}
+.pop .item .swatch{width:7px;height:7px;border-radius:2px;flex:none}
+.pop .item.cur{color:var(--accent-green)}
+.pop .item.blue{color:var(--accent-blue)}
+.pop .item[disabled]{color:var(--text-muted);cursor:default;background:none}
+.pop .div{height:1px;background:var(--border-subtle);margin:4px 2px}
+.pop .empty{padding:7px 9px;font-size:11.5px;color:var(--text-muted);font-style:italic}
+.kbd{
+  margin-left:auto;font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--text-muted);
+  border:1px solid var(--border-secondary);border-radius:4px;padding:0 4px
+}
+
+/* ---------- session card replica ---------- */
+.scard{
+  background:var(--bg-primary);border:1px solid var(--border-subtle);border-left:3px solid var(--accent-green);
+  border-radius:10px;padding:9px 10px;box-shadow:inset 0 1px 0 var(--elevation-rim),0 2px 4px var(--shadow-card)
+}
+.sh{display:flex;align-items:center;gap:6px}
+.sname{font-size:13px;font-weight:650;color:var(--text-primary)}
+.smeta{font-size:11px;color:var(--text-tertiary);margin-top:2px;font-family:ui-monospace,Menlo,monospace}
+.sbtns{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
+.sbtn{
+  display:inline-flex;align-items:center;gap:4px;font-size:10.5px;padding:3px 8px;border-radius:6px;
+  border:1px solid;background:transparent;cursor:pointer;font-family:inherit
+}
+.sbtn.b{color:var(--accent-blue);border-color:color-mix(in srgb,var(--accent-blue) 40%,transparent)}
+.sbtn.g{color:var(--accent-green);border-color:color-mix(in srgb,var(--accent-green) 40%,transparent)}
+.sbtn.o{color:var(--accent-orange);border-color:color-mix(in srgb,var(--accent-orange) 40%,transparent)}
+
+/* ---------- dialog / explorer ---------- */
+.dlg{
+  background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:14px;
+  box-shadow:0 18px 48px var(--shadow-card),inset 0 1px 0 var(--elevation-rim);overflow:hidden
+}
+.dlg-h{
+  display:flex;align-items:center;gap:9px;padding:13px 15px;border-bottom:1px solid var(--border-primary);
+  background:var(--bg-tertiary)
+}
+.dlg-h h4{margin:0;font-size:13.5px;color:var(--text-primary);font-weight:650}
+.dlg-h .x{margin-left:auto}
+.dlg-b{padding:13px 15px}
+/* breadcrumb */
+.crumbs{
+  display:flex;align-items:center;gap:1px;flex-wrap:wrap;background:var(--bg-tertiary);
+  border:1px solid var(--border-secondary);border-radius:8px;padding:5px 7px
+}
+.crumb{
+  display:inline-flex;align-items:center;gap:4px;font-size:11.5px;padding:2px 6px;border-radius:5px;border:0;
+  background:transparent;color:var(--text-tertiary);cursor:pointer;font-family:ui-monospace,Menlo,monospace
+}
+.crumb:hover{background:var(--bg-secondary);color:var(--text-primary)}
+.crumb.last{color:var(--text-primary);font-weight:650}
+.crumbs .sep{color:var(--text-faint);display:flex}
+.filter{
+  display:flex;align-items:center;gap:7px;margin-top:8px;background:var(--bg-primary);
+  border:1px solid var(--border-secondary);border-radius:8px;padding:7px 10px;color:var(--text-tertiary)
+}
+.filter input{
+  flex:1;background:transparent;border:0;outline:none;color:var(--text-primary);font:inherit;font-size:12.5px
+}
+.filter input::placeholder{color:var(--text-muted)}
+/* explorer list */
+.list{
+  margin-top:8px;border:1px solid var(--border-secondary);border-radius:9px;background:var(--bg-primary);
+  overflow:hidden
+}
+.row{
+  display:flex;align-items:center;gap:9px;padding:0 9px;height:36px;cursor:pointer;
+  border-bottom:1px solid var(--border-subtle);position:relative
+}
+.row:last-child{border-bottom:0}
+.row:hover{background:var(--bg-tertiary)}
+.row.sel{background:color-mix(in srgb,var(--accent-blue) 11%,transparent)}
+.row.sel::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent-blue)}
+.cb{
+  width:17px;height:17px;flex:none;display:grid;place-items:center;border-radius:4px;
+  color:var(--text-faint);background:transparent;border:0;cursor:pointer;padding:0
+}
+.cb:hover{color:var(--text-tertiary)}
+.row.sel .cb{color:var(--accent-blue)}
+.cb:focus-visible{outline:2px solid var(--accent-blue);outline-offset:1px}
+.row .fi{color:var(--accent-blue);opacity:.75;flex:none}
+.row .nm{
+  flex:1;min-width:0;font-size:12.5px;color:var(--text-secondary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+.row.sel .nm,.row:hover .nm{color:var(--text-primary)}
+.row .badges{display:flex;align-items:center;gap:4px;flex:none}
+.bdg{
+  font-size:9.5px;font-weight:700;letter-spacing:.03em;padding:1.5px 5px;border-radius:4px;
+  display:inline-flex;align-items:center;gap:3px
+}
+.bdg.git{color:var(--accent-green);background:color-mix(in srgb,var(--accent-green) 14%,transparent)}
+.bdg.pi{color:#22d3ee;background:color-mix(in srgb,#22d3ee 14%,transparent)}
+.bdg.live{color:var(--accent-purple);background:color-mix(in srgb,var(--accent-purple) 15%,transparent)}
+.row .open{
+  flex:none;color:var(--text-faint);display:flex;border-radius:5px;padding:2px;margin-right:-2px
+}
+.row:hover .open{color:var(--accent-blue);background:color-mix(in srgb,var(--accent-blue) 12%,transparent)}
+.row.up .nm{color:var(--text-tertiary);font-family:ui-monospace,Menlo,monospace}
+.row.create{color:var(--accent-blue)}
+.row.create .nm{color:var(--accent-blue)}
+/* basket */
+.basket{
+  display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:10px;padding:8px 10px;
+  background:var(--bg-tertiary);border:1px solid var(--border-secondary);border-radius:8px;min-height:38px
+}
+.basket .bl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:700}
+.pill{
+  display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:3px 5px 3px 8px;border-radius:999px;
+  background:color-mix(in srgb,var(--accent-blue) 15%,transparent);color:var(--text-primary);
+  border:1px solid color-mix(in srgb,var(--accent-blue) 32%,transparent);
+  font-family:ui-monospace,Menlo,monospace
+}
+.pill button{
+  border:0;background:transparent;color:var(--text-tertiary);cursor:pointer;display:flex;padding:0;border-radius:50%
+}
+.pill button:hover{color:var(--accent-red)}
+.basket .none{font-size:11.5px;color:var(--text-muted);font-style:italic}
+/* destination */
+.dest{margin-top:12px;border-top:1px solid var(--border-primary);padding-top:12px}
+.dest .dl{
+  font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:700;
+  margin-bottom:8px;display:flex;align-items:center;gap:7px
+}
+.dest .dl .hint{text-transform:none;letter-spacing:0;font-weight:400;color:var(--text-faint);font-size:11px}
+.optrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.opt{
+  display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:5px 10px;border-radius:7px;
+  border:1px solid var(--border-secondary);background:var(--bg-primary);color:var(--text-secondary);cursor:pointer
+}
+.opt:hover{border-color:var(--text-muted);color:var(--text-primary)}
+.opt.on{
+  background:color-mix(in srgb,var(--accent-blue) 15%,transparent);color:var(--text-primary);
+  border-color:color-mix(in srgb,var(--accent-blue) 50%,transparent)
+}
+.opt .rdo{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--text-muted);flex:none;display:grid;place-items:center}
+.opt.on .rdo{border-color:var(--accent-blue)}
+.opt.on .rdo::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent-blue)}
+.opt .swatch{width:7px;height:7px;border-radius:2px;flex:none}
+.opt.newws{color:var(--accent-blue);border-style:dashed}
+.emptyws{
+  display:flex;align-items:center;gap:8px;font-size:12px;padding:7px 10px;border-radius:7px;
+  background:var(--bg-primary);border:1px dashed var(--border-secondary);color:var(--text-muted);font-style:italic
+}
+.dlg-f{
+  display:flex;align-items:center;gap:8px;padding:12px 15px;border-top:1px solid var(--border-primary);
+  background:var(--bg-tertiary)
+}
+.btn{
+  display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12.5px;padding:8px 15px;border-radius:8px;
+  border:1px solid var(--border-secondary);background:transparent;color:var(--text-secondary);cursor:pointer
+}
+.btn:hover{color:var(--text-primary);background:var(--bg-secondary)}
+.btn.ghost{border-color:transparent}
+.btn.pri{
+  background:var(--accent-blue);border-color:transparent;color:#fff;font-weight:600;
+  box-shadow:0 1px 0 var(--elevation-rim) inset
+}
+.btn.pri:hover{background:color-mix(in srgb,var(--accent-blue) 85%,#fff)}
+.btn.pri[disabled]{opacity:.45;cursor:default}
+.dlg-f .sp{margin-left:auto}
+
+/* ---------- before/after ---------- */
+.ba{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
+.deadend{
+  display:grid;place-items:center;text-align:center;padding:34px 20px;background:var(--bg-primary);
+  border:1px solid var(--border-primary);border-radius:11px;min-height:238px;align-content:center;gap:6px
+}
+.deadend .ic{color:var(--text-faint);margin-bottom:4px}
+.deadend h5{margin:0;font-size:14.5px;color:var(--text-primary);font-weight:650}
+.deadend p{margin:0;font-size:12px;color:var(--text-tertiary);max-width:330px}
+.homeok{
+  background:var(--bg-primary);border:1px solid var(--border-primary);border-radius:11px;padding:16px;
+  min-height:238px;display:flex;flex-direction:column;gap:10px
+}
+.homeok .hh{display:flex;align-items:center;gap:8px;padding-bottom:9px;border-bottom:1px solid var(--border-subtle)}
+.homeok .hh .p{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--text-tertiary)}
+.homeok .hh .l{font-size:15px;font-weight:700;color:var(--text-primary)}
+.promptbox{
+  margin-top:auto;background:var(--bg-tertiary);border:1px solid var(--border-secondary);border-radius:9px;
+  padding:10px 12px;color:var(--text-muted);font-size:12.5px;display:flex;align-items:center;gap:8px
+}
+.srow{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary)}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+table.cmp{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+table.cmp th,table.cmp td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border-primary);vertical-align:top}
+table.cmp th{color:var(--text-primary);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+table.cmp td:first-child{color:var(--text-tertiary);white-space:nowrap}
+.sizebar{display:flex;align-items:flex-end;justify-content:center;gap:34px;padding:14px 4px 4px}
+.sizeitem{text-align:center}
+.sizeitem .cap{font-size:10.5px;color:var(--text-tertiary);margin-top:9px;font-family:ui-monospace,Menlo,monospace}
+.zoomwrap{
+  height:64px;display:grid;place-items:center;
+  background:repeating-linear-gradient(45deg,var(--bg-tertiary) 0 6px,transparent 6px 12px);
+  border-radius:8px;padding:0 18px
+}
+.zoomwrap .iconbtn{transform:scale(3);transform-origin:center}
+.zoomwrap.z2 .iconbtn{transform:scale(2)}
+.sizeitem .cap b{color:var(--accent-blue);font-weight:700}
+.measure{outline:1px dashed color-mix(in srgb,var(--accent-blue) 55%,transparent);outline-offset:3px;border-radius:5px}
+</style>
+</head>
+<body>
+<div class="themebar">
+  <button data-t="dark" aria-pressed="true">Dark</button>
+  <button data-t="light" aria-pressed="false">Light</button>
+</div>
+
+<div class="page">
+  <h1>Workspace add-flow — redesign mocks</h1>
+  <p class="sub">
+    Tokens + card geometry lifted from <mono>packages/client/src/index.css</mono> and
+    <mono>SessionList.renderGroup</mono>. All glyphs are real <mono>@mdi/js</mono> paths — zero emoji.
+  </p>
+
+  <!-- ============ 1 ============ -->
+  <div class="sec">
+    <h2><span class="n">1</span>The small “add to workspace” button</h2>
+    <p class="h2sub">
+      Stays in <b>both</b> places it lives today — the folder row and the session card. Only the
+      <em>affordance</em> changes: the stray <mono>+ws</mono> text token becomes a compact icon button.
+    </p>
+  </div>
+
+  <div class="note bad">
+    <b>Why <mono>+ws</mono> fails.</b> 10px text, <mono>absolute top-1 right-7</mono>, no icon, no border, ~22×16px
+    hit box. It floats outside the row’s icon cluster, so proximity/grouping gives the eye no hint it belongs to
+    the folder — and “ws” is jargon that only reads as “workspace” once you already know.
+  </div>
+
+  <h3 style="font-size:12.5px;color:var(--text-primary);margin:22px 0 10px">The idea: <b>folder-plus + micro-caret</b>, sized into the existing icon cluster</h3>
+
+  <div class="grid g3">
+    <div class="stage">
+      <h3><span>V1 — icon + caret <span class="tag rec">recommended</span></span></h3>
+      <p><mono>mdiFolderPlus</mono> + <mono>mdiMenuDown</mono>. Folder-with-plus is the universal “add this folder to
+        a collection” glyph (VS Code, Finder, Drive). The caret is the Material convention for “opens a menu”.</p>
+      <div class="sizebar">
+        <div class="sizeitem">
+          <button class="iconbtn measure" title="Add to workspace…" aria-label="Add to workspace">
+            <i data-mdi="folderPlus" data-s="13"></i><i data-mdi="menuDown" data-s="10"></i>
+          </button>
+          <div class="cap">28×20 <b>1×</b></div>
+        </div>
+        <div class="sizeitem">
+          <div class="zoomwrap">
+            <button class="iconbtn" title="Add to workspace…" aria-label="Add to workspace">
+              <i data-mdi="folderPlus" data-s="13"></i><i data-mdi="menuDown" data-s="10"></i>
+            </button>
+          </div>
+          <div class="cap"><b>3×</b></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <h3><span>V2 — icon only <span class="tag alt">smallest</span></span></h3>
+      <p>Drops the caret: 8px narrower, but loses the “this opens a menu” signal, so the popover becomes a
+        surprise. Use only if horizontal space gets critical on mobile.</p>
+      <div class="sizebar">
+        <div class="sizeitem">
+          <button class="iconbtn measure" title="Add to workspace…" aria-label="Add to workspace">
+            <i data-mdi="folderPlus" data-s="13"></i>
+          </button>
+          <div class="cap">20×20 <b>1×</b></div>
+        </div>
+        <div class="sizeitem">
+          <div class="zoomwrap">
+            <button class="iconbtn" title="Add to workspace…" aria-label="Add to workspace">
+              <i data-mdi="folderPlus" data-s="13"></i>
+            </button>
+          </div>
+          <div class="cap"><b>3×</b></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <h3><span>V3 — hover-expand <span class="tag alt">optional</span></span></h3>
+      <p>Icon at rest, reveals the verb on hover/focus. Teaches the glyph once — but it reflows the cluster on
+        hover, so keep it for desktop only.</p>
+      <div class="sizebar">
+        <div class="sizeitem">
+          <button class="iconbtn measure" id="v3" title="Add to workspace…" aria-label="Add to workspace"
+                  style="gap:5px;padding:0 6px">
+            <i data-mdi="folderPlus" data-s="13"></i>
+            <span id="v3l" style="font-size:11px;max-width:0;overflow:hidden;white-space:nowrap;transition:max-width .16s">Add to…</span>
+            <i data-mdi="menuDown" data-s="10"></i>
+          </button>
+          <div class="cap">20 → 84 px <b>1×</b></div>
+        </div>
+        <div class="sizeitem">
+          <div class="zoomwrap z2" style="padding:0 12px">
+            <button class="iconbtn" id="v3b" title="Add to workspace…" aria-label="Add to workspace"
+                    style="gap:5px;padding:0 6px">
+              <i data-mdi="folderPlus" data-s="13"></i>
+              <span id="v3bl" style="font-size:11px;overflow:hidden;white-space:nowrap">Add to…</span>
+              <i data-mdi="menuDown" data-s="10"></i>
+            </button>
+          </div>
+          <div class="cap"><b>2×</b> hovered</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note good">
+    <b>Why V1 reads correctly without a text label.</b>
+    <table class="cmp">
+      <tr><th style="width:150px">Convention</th><th>How V1 satisfies it</th></tr>
+      <tr><td>Recognisable glyph</td><td>Folder + plus = “add a folder to something”. Already used for this exact verb across every major IDE + file manager.</td></tr>
+      <tr><td>Menu disclosure</td><td>The caret promises a choice follows — you don’t fear a destructive one-click action.</td></tr>
+      <tr><td>Grouping (Gestalt)</td><td>Sits <em>inside</em> the row’s icon cluster next to pin, so it inherits “these organise the folder”.</td></tr>
+      <tr><td>Accessible name</td><td><mono>aria-label</mono> + <mono>title</mono> carry the full verb: “Add to workspace…”. Icon alone is never the only cue.</td></tr>
+      <tr><td>Touch target</td><td>20px visual, padded to 44px on <mono>md:</mono>-down — same trick the row’s other icon buttons use.</td></tr>
+    </table>
+  </div>
+
+  <h3 style="font-size:12.5px;color:var(--text-primary);margin:26px 0 10px">In situ — cluster order <mono>sort · add-to · home · pin</mono></h3>
+  <div class="grid g2">
+    <div class="stage">
+      <h3><span>Folder row — before</span><span class="tag no">today</span></h3>
+      <p>The <mono>+ws</mono> token sits in its own absolute layer, detached from the icons.</p>
+      <div class="fwrap">
+        <div class="nub"></div>
+        <div class="fcard">
+          <div class="frow">
+            <div class="gutter"><i data-mdi="chevronDown" data-s="14"></i><span class="grip">⋮⋮</span></div>
+            <div class="fmain">
+              <div class="fhead">
+                <span class="fname">
+                  <i data-mdi="folderOpen" data-s="13"></i>
+                  <span class="parent">/home/botond/</span><span class="leaf">work</span>
+                </span>
+                <span class="cnt">(3)</span>
+                <span class="cluster">
+                  <button class="oldws ghostbox">+ws</button>
+                  <button class="iconbtn"><i data-mdi="sortVariant" data-s="13"></i></button>
+                  <button class="iconbtn"><i data-mdi="openInNew" data-s="13"></i></button>
+                  <button class="iconbtn"><i data-mdi="pin" data-s="14"></i></button>
+                </span>
+              </div>
+              <div class="fbar">
+                <span class="chip"><i data-mdi="sourceBranch" data-s="11"></i>Init git</span>
+                <span class="chip" style="margin-left:auto"><i data-mdi="cog" data-s="12"></i></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <h3><span>Folder row — after</span><span class="tag rec">V1</span></h3>
+      <p>Joins the cluster, left of <mono>pin</mono> — <mono>add-to</mono> chooses the workspace,
+        <mono>pin</mono> is the visibility switch (unpin = gone). Click it →</p>
+      <div class="fwrap">
+        <div class="nub"></div>
+        <div class="fcard">
+          <div class="frow">
+            <div class="gutter"><i data-mdi="chevronDown" data-s="14"></i><span class="grip">⋮⋮</span></div>
+            <div class="fmain">
+              <div class="fhead">
+                <span class="fname">
+                  <i data-mdi="folderOpen" data-s="13"></i>
+                  <span class="parent">/home/botond/</span><span class="leaf">work</span>
+                </span>
+                <span class="cnt">(3)</span>
+                <span class="cluster">
+                  <button class="iconbtn"><i data-mdi="sortVariant" data-s="13"></i></button>
+                  <span style="position:relative">
+                    <button class="iconbtn measure" id="popbtn" title="Add to workspace…" aria-label="Add to workspace"
+                            aria-haspopup="menu" aria-expanded="false">
+                      <i data-mdi="folderPlus" data-s="13"></i><i data-mdi="menuDown" data-s="10"></i>
+                    </button>
+                    <div class="pop" id="pop" role="menu" hidden>
+                      <div class="lbl">Add to workspace</div>
+                      <button class="item" role="menuitem"><span class="swatch" style="background:var(--accent-blue)"></span>Frontend</button>
+                      <button class="item" role="menuitem"><span class="swatch" style="background:var(--accent-purple)"></span>Backend</button>
+                      <button class="item" role="menuitem"><span class="swatch" style="background:var(--accent-orange)"></span>Infra</button>
+                      <div class="div"></div>
+                      <button class="item blue" role="menuitem"><i data-mdi="plus" data-s="13"></i>New workspace…</button>
+                    </div>
+                  </span>
+                  <button class="iconbtn"><i data-mdi="openInNew" data-s="13"></i></button>
+                  <button class="iconbtn"><i data-mdi="pin" data-s="14"></i></button>
+                </span>
+              </div>
+              <div class="fbar">
+                <span class="chip"><i data-mdi="sourceBranch" data-s="11"></i>Init git</span>
+                <span class="chip" style="margin-left:auto"><i data-mdi="cog" data-s="12"></i></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:12px;font-size:11.5px;color:var(--text-tertiary)">↑ click the button — the popover is live.</p>
+    </div>
+  </div>
+
+  <h3 style="font-size:12.5px;color:var(--text-primary);margin:26px 0 4px">Every icon fits the top-right — at any sidebar width</h3>
+  <p style="font-size:11.5px;color:var(--text-tertiary);margin:0 0 12px">
+    The cluster is <mono>flex:none; white-space:nowrap</mono>; the <em>name</em> absorbs the squeeze via
+    <mono>text-overflow:ellipsis</mono>. All four icons stay pinned to the corner — they never wrap to a second row.
+  </p>
+  <div class="grid g3">
+    <div class="stage">
+      <h3><span>Sidebar 300 px</span></h3>
+      <div class="fwrap" style="width:284px">
+        <div class="nub"></div>
+        <div class="fcard">
+          <div class="frow">
+            <div class="gutter"><i data-mdi="chevronDown" data-s="14"></i></div>
+            <div class="fmain"><div class="fhead">
+              <span class="fname"><i data-mdi="folderOpen" data-s="13"></i>
+                <span class="parent">/home/botond/</span><span class="leaf">work</span></span>
+              <span class="cnt">(3)</span>
+              <span class="cluster">
+                <button class="iconbtn"><i data-mdi="sortVariant" data-s="13"></i></button>
+                <button class="iconbtn" title="Add to workspace…"><i data-mdi="folderPlus" data-s="13"></i><i data-mdi="menuDown" data-s="10"></i></button>
+                <button class="iconbtn"><i data-mdi="openInNew" data-s="13"></i></button>
+                <button class="iconbtn pinned" title="Unpin — removes it from the sidebar"><i data-mdi="pin" data-s="14"></i></button>
+              </span>
+            </div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <h3><span>Sidebar 260 px</span></h3>
+      <div class="fwrap" style="width:244px">
+        <div class="nub"></div>
+        <div class="fcard">
+          <div class="frow">
+            <div class="gutter"><i data-mdi="chevronDown" data-s="14"></i></div>
+            <div class="fmain"><div class="fhead">
+              <span class="fname"><i data-mdi="folderOpen" data-s="13"></i>
+                <span class="parent">/home/botond/</span><span class="leaf">pi-packages</span></span>
+              <span class="cnt">(7)</span>
+              <span class="cluster">
+                <button class="iconbtn"><i data-mdi="sortVariant" data-s="13"></i></button>
+                <button class="iconbtn" title="Add to workspace…"><i data-mdi="folderPlus" data-s="13"></i><i data-mdi="menuDown" data-s="10"></i></button>
+                <button class="iconbtn"><i data-mdi="openInNew" data-s="13"></i></button>
+                <button class="iconbtn pinned" title="Unpin — removes it from the sidebar"><i data-mdi="pin" data-s="14"></i></button>
+              </span>
+            </div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <h3><span>Sidebar 220 px <span class="tag alt">floor</span></span></h3>
+      <div class="fwrap" style="width:204px">
+        <div class="nub"></div>
+        <div class="fcard">
+          <div class="frow">
+            <div class="gutter"><i data-mdi="chevronDown" data-s="14"></i></div>
+            <div class="fmain"><div class="fhead">
+              <span class="fname"><i data-mdi="folderOpen" data-s="13"></i>
+                <span class="parent">/home/botond/Documents/</span><span class="leaf">general</span></span>
+              <span class="cnt">(1)</span>
+              <span class="cluster">
+                <button class="iconbtn"><i data-mdi="sortVariant" data-s="13"></i></button>
+                <button class="iconbtn" title="Add to workspace…"><i data-mdi="folderPlus" data-s="13"></i><i data-mdi="menuDown" data-s="10"></i></button>
+                <button class="iconbtn"><i data-mdi="openInNew" data-s="13"></i></button>
+                <button class="iconbtn pinned" title="Unpin — removes it from the sidebar"><i data-mdi="pin" data-s="14"></i></button>
+              </span>
+            </div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:18px">
+    <div class="stage">
+      <h3><span>Session card — same button, kept</span><span class="tag rec">unchanged placement</span></h3>
+      <p>A session’s cwd is often a loose folder. The identical glyph in the card’s header cluster means one
+        learned symbol works in both scopes.</p>
+      <div class="scard">
+        <div class="sh">
+          <span class="dot" style="background:var(--accent-green)"></span>
+          <span class="sname">reopen</span>
+          <span class="cluster">
+            <button class="iconbtn"><i data-mdi="pencil" data-s="12"></i></button>
+            <button class="iconbtn measure" title="Add cwd to workspace…" aria-label="Add cwd to workspace">
+              <i data-mdi="folderPlus" data-s="13"></i><i data-mdi="menuDown" data-s="10"></i>
+            </button>
+            <button class="iconbtn"><i data-mdi="eyeOff" data-s="12"></i></button>
+            <button class="iconbtn"><i data-mdi="close" data-s="13"></i></button>
+          </span>
+        </div>
+        <div class="smeta">anthropic/claude-opus-4-8 (medium) · Idle</div>
+        <div class="sbtns">
+          <button class="sbtn b"><i data-mdi="sourceBranch" data-s="11"></i>Fork</button>
+          <button class="sbtn g"><i data-mdi="plus" data-s="11"></i>Session</button>
+          <button class="sbtn o"><i data-mdi="sourceBranch" data-s="11"></i>Worktree</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <h3><span>Popover — empty state</span><span class="tag alt">no workspaces yet</span></h3>
+      <p>When none exist we say so plainly and offer the two things that <em>are</em> possible — never a blank menu.</p>
+      <div class="pop static" role="menu">
+        <div class="lbl">Add to workspace</div>
+        <div class="empty">No workspaces yet</div>
+        <div class="div"></div>
+        <button class="item blue" role="menuitem"><i data-mdi="plus" data-s="13"></i>New workspace…</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 2 ============ -->
+  <div class="sec" style="margin-top:44px">
+    <h2><span class="n">2</span>Add Folders — a real explorer, not a path prompt</h2>
+    <p class="h2sub">
+      Row click <b>navigates into</b> the folder (explorer convention). The <b>checkbox</b> selects.
+      Two independent things, never fighting for the same click.
+    </p>
+  </div>
+
+  <div class="note bad">
+    <b>What’s wrong today.</b> <mono>PathPicker</mono> renders <mono>⬆</mono> for the parent row, <mono>📁</mono> for every
+    folder and <mono>＋</mono> for create — emoji, so they shift with platform font and ignore
+    <mono>currentColor</mono>/theme. Clicking a row both descends <em>and</em> becomes the answer, so there’s no way to
+    pick more than one folder.
+  </div>
+
+  <div class="dlg" style="max-width:660px">
+    <div class="dlg-h">
+      <i data-mdi="folderPlus" data-s="17" style="color:var(--accent-blue)"></i>
+      <h4>Add folders</h4>
+      <button class="iconbtn x"><i data-mdi="close" data-s="16"></i></button>
+    </div>
+    <div class="dlg-b">
+      <div class="crumbs">
+        <button class="crumb"><i data-mdi="home" data-s="12"></i></button>
+        <span class="sep"><i data-mdi="chevronRight" data-s="12"></i></span>
+        <button class="crumb">home</button>
+        <span class="sep"><i data-mdi="chevronRight" data-s="12"></i></span>
+        <button class="crumb last">botond</button>
+      </div>
+      <div class="filter">
+        <i data-mdi="magnify" data-s="14"></i>
+        <input placeholder="Filter this folder…" />
+        <span class="kbd">↵ open</span>
+      </div>
+
+      <div class="list" id="list">
+        <div class="row up" data-nav>
+          <span class="cb" style="visibility:hidden"></span>
+          <i class="fi" data-mdi="arrowUp" data-s="15" style="color:var(--text-tertiary)"></i>
+          <span class="nm">..</span>
+        </div>
+
+        <div class="row" data-name="work">
+          <button class="cb" data-check aria-label="Select work"><i data-mdi="checkboxBlankOutline" data-s="16"></i></button>
+          <i class="fi" data-mdi="folder" data-s="15"></i>
+          <span class="nm">work</span>
+          <span class="badges">
+            <span class="bdg live"><i data-mdi="circle" data-s="7"></i>3 sessions</span>
+            <span class="bdg git">git</span>
+          </span>
+          <span class="open" data-nav title="Open"><i data-mdi="chevronRight" data-s="15"></i></span>
+        </div>
+
+        <div class="row" data-name="pi-packages">
+          <button class="cb" data-check aria-label="Select pi-packages"><i data-mdi="checkboxBlankOutline" data-s="16"></i></button>
+          <i class="fi" data-mdi="folder" data-s="15"></i>
+          <span class="nm">pi-packages</span>
+          <span class="badges"><span class="bdg git">git</span><span class="bdg pi">pi</span></span>
+          <span class="open" data-nav title="Open"><i data-mdi="chevronRight" data-s="15"></i></span>
+        </div>
+
+        <div class="row" data-name="Documents">
+          <button class="cb" data-check aria-label="Select Documents"><i data-mdi="checkboxBlankOutline" data-s="16"></i></button>
+          <i class="fi" data-mdi="folder" data-s="15"></i>
+          <span class="nm">Documents</span>
+          <span class="badges"><span class="bdg live"><i data-mdi="circle" data-s="7"></i>1 session</span></span>
+          <span class="open" data-nav title="Open"><i data-mdi="chevronRight" data-s="15"></i></span>
+        </div>
+
+        <div class="row" data-name="scratch">
+          <button class="cb" data-check aria-label="Select scratch"><i data-mdi="checkboxBlankOutline" data-s="16"></i></button>
+          <i class="fi" data-mdi="folder" data-s="15"></i>
+          <span class="nm">scratch</span>
+          <span class="badges"></span>
+          <span class="open" data-nav title="Open"><i data-mdi="chevronRight" data-s="15"></i></span>
+        </div>
+
+        <div class="row create">
+          <span class="cb"><i data-mdi="plus" data-s="15"></i></span>
+          <i class="fi" data-mdi="folderPlusOutline" data-s="15"></i>
+          <span class="nm">Create folder here…</span>
+        </div>
+      </div>
+
+      <div class="basket" id="basket">
+        <span class="bl">Selected</span>
+        <span class="none" id="bnone">Nothing selected — tick a checkbox</span>
+      </div>
+
+      <div class="dest">
+        <div class="dl">Add to workspace <span class="hint">— optional; a folder lives in exactly one</span></div>
+        <div class="optrow" id="wsopts">
+          <button class="opt on" data-ws="none"><span class="rdo"></span>None</button>
+          <button class="opt" data-ws="fe"><span class="rdo"></span><span class="swatch" style="background:var(--accent-blue)"></span>Frontend</button>
+          <button class="opt" data-ws="be"><span class="rdo"></span><span class="swatch" style="background:var(--accent-purple)"></span>Backend</button>
+          <button class="opt" data-ws="infra"><span class="rdo"></span><span class="swatch" style="background:var(--accent-orange)"></span>Infra</button>
+          <button class="opt newws"><i data-mdi="plus" data-s="13"></i>New workspace…</button>
+        </div>
+      </div>
+    </div>
+    <div class="dlg-f">
+      <button class="btn ghost"><i data-mdi="folderPlusOutline" data-s="14"></i>New folder</button>
+      <span class="sp"></span>
+      <button class="btn">Cancel</button>
+      <button class="btn pri" id="addbtn" disabled>Add folders</button>
+    </div>
+  </div>
+
+  <div class="note" style="max-width:660px">
+    <b>Row anatomy.</b>
+    <mono>[ checkbox ] [ folder ] name … [ badges ] [ chevron ]</mono> —
+    checkbox = <em>select</em>, everything else = <em>open</em>. The trailing chevron is the explicit
+    “descend” affordance so the gesture is discoverable, not just implied by the row being clickable.
+    <mono>3 sessions</mono> badges mark <b>loose cwds you already work in</b> — the folders most worth adding,
+    surfaced without typing a path.
+  </div>
+
+  <div class="note good" style="max-width:660px">
+    <b>Pin is implicit — there is no pin choice.</b> Adding a folder <em>is</em> pinning it; that’s what makes it
+    visible. So the dialog asks exactly one question (which workspace, if any) instead of two. Unpinning from the
+    row cluster removes the folder from the sidebar <em>instantly</em> — pin is the visibility switch, not a
+    separate destination.
+  </div>
+
+  <div class="grid g2" style="margin-top:18px">
+    <div class="stage">
+      <h3><span>Destination — no workspaces exist</span><span class="tag alt">empty state</span></h3>
+      <p>“<b>IF they exist, if not show none</b>”: the radio row collapses to a plain statement plus the create
+        escape hatch — the only thing left to decide.</p>
+      <div class="dest" style="border-top:0;padding-top:0">
+        <div class="dl">Add to workspace</div>
+        <div class="emptyws"><i data-mdi="informationOutline" data-s="14"></i>None — no workspaces yet</div>
+        <div class="optrow" style="margin-top:8px">
+          <button class="opt newws"><i data-mdi="plus" data-s="13"></i>New workspace…</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <h3><span>Emoji → MDI swap</span><span class="tag rec">theme-safe</span></h3>
+      <p>Every glyph becomes a real <mono>@mdi/js</mono> path inheriting <mono>currentColor</mono>.</p>
+      <table class="cmp">
+        <tr><th style="width:96px">Was</th><th>Becomes</th></tr>
+        <tr><td><span style="font-size:15px">⬆</span> parent</td>
+            <td><i data-mdi="arrowUp" data-s="15" style="display:inline-block;vertical-align:-3px"></i> <mono>mdiArrowUp</mono></td></tr>
+        <tr><td><span style="font-size:15px">📁</span> folder</td>
+            <td><i data-mdi="folder" data-s="15" style="display:inline-block;vertical-align:-3px;color:var(--accent-blue)"></i> <mono>mdiFolder</mono></td></tr>
+        <tr><td><span style="font-size:15px">＋</span> create</td>
+            <td><i data-mdi="folderPlusOutline" data-s="15" style="display:inline-block;vertical-align:-3px"></i> <mono>mdiFolderPlusOutline</mono></td></tr>
+        <tr><td><mono>git</mono> / <mono>pi</mono> text</td><td>Kept as text badges — they’re labels, not icons.</td></tr>
+        <tr><td>—</td><td><i data-mdi="magnify" data-s="15" style="display:inline-block;vertical-align:-3px"></i> <mono>mdiMagnify</mono> on filter,
+          <i data-mdi="chevronRight" data-s="15" style="display:inline-block;vertical-align:-3px"></i> <mono>mdiChevronRight</mono> on open</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ 3 ============ -->
+  <div class="sec" style="margin-top:44px">
+    <h2><span class="n">3</span>The home dead-end — deleted</h2>
+    <p class="h2sub">Every folder row already navigates to its home page. So the home page must always be able to render one.</p>
+  </div>
+
+  <div class="ba">
+    <div class="stage">
+      <h3><span>Before</span><span class="tag no">dead end</span></h3>
+      <p>The eligibility guard rejects any cwd that isn’t pinned or a workspace member — including folders with
+        live sessions. The row promises a page the guard refuses to draw.</p>
+      <div class="deadend">
+        <div class="ic"><i data-mdi="folderOutline" data-s="40"></i></div>
+        <h5>This folder isn’t available as a home page</h5>
+        <p>Pin /home/botond/work to start sessions from its home page.</p>
+        <button class="btn" style="margin-top:10px;color:var(--accent-blue);border-color:color-mix(in srgb,var(--accent-blue) 40%,transparent)">Pin this folder</button>
+      </div>
+    </div>
+
+    <div class="stage">
+      <h3><span>After</span><span class="tag rec">guard removed</span></h3>
+      <p>Drop the gate: if we can group sessions under a cwd, we can render its home. Organising stays a
+        <em>choice</em> (the cluster button) instead of a toll gate.</p>
+      <div class="homeok">
+        <div class="hh">
+          <i data-mdi="folderOpen" data-s="16" style="color:var(--accent-blue)"></i>
+          <span class="p">/home/botond/</span><span class="l">work</span>
+          <span class="cluster">
+            <button class="iconbtn" title="Add to workspace…"><i data-mdi="folderPlus" data-s="13"></i><i data-mdi="menuDown" data-s="10"></i></button>
+            <button class="iconbtn" title="Pin"><i data-mdi="pin" data-s="14"></i></button>
+          </span>
+        </div>
+        <div class="srow"><span class="dot" style="background:var(--accent-green)"></span>reopen <span style="color:var(--text-muted);font-size:11px">· idle</span></div>
+        <div class="srow"><span class="dot" style="background:var(--accent-yellow)"></span>pi core <span style="color:var(--text-muted);font-size:11px">· working</span></div>
+        <div class="srow"><span class="dot" style="background:var(--accent-purple)"></span>b05 <span style="color:var(--text-muted);font-size:11px">· needs you</span></div>
+        <div class="promptbox"><i data-mdi="plus" data-s="14"></i>Start a session in work…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note good">
+    <b>Net effect.</b> Adding a folder stops being a prerequisite for using it. Pin and workspace become
+    organisation — opt-in, reversible, reachable from the folder row, the session card, the home page header, and
+    the multi-select dialog. No surface can strand you any more.
+  </div>
+</div>
+
+<script>
+const P={
+ folderPlus:"M13 19C13 19.34 13.04 19.67 13.09 20H4C2.9 20 2 19.11 2 18V6C2 4.89 2.89 4 4 4H10L12 6H20C21.1 6 22 6.89 22 8V13.81C21.12 13.3 20.1 13 19 13C15.69 13 13 15.69 13 19M20 18V15H18V18H15V20H18V23H20V20H23V18H20Z",
+ folderPlusOutline:"M13 19C13 19.34 13.04 19.67 13.09 20H4C2.9 20 2 19.11 2 18V6C2 4.89 2.89 4 4 4H10L12 6H20C21.1 6 22 6.89 22 8V13.81C21.39 13.46 20.72 13.22 20 13.09V8H4V18H13.09C13.04 18.33 13 18.66 13 19M20 18V15H18V18H15V20H18V23H20V20H23V18H20Z",
+ folder:"M10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6H12L10,4Z",
+ folderOpen:"M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z",
+ folderOutline:"M20,18H4V8H20M20,6H12L10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6Z",
+ chevronRight:"M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z",
+ chevronDown:"M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z",
+ menuDown:"M7,10L12,15L17,10H7Z",
+ arrowUp:"M13,20H11V8L5.5,13.5L4.08,12.08L12,4.16L19.92,12.08L18.5,13.5L13,8V20Z",
+ plus:"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z",
+ pin:"M16,12V4H17V2H7V4H8V12L6,14V16H11.2V22H12.8V16H18V14L16,12Z",
+ cog:"M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z",
+ magnify:"M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z",
+ checkboxMarked:"M10,17L5,12L6.41,10.58L10,14.17L17.59,6.58L19,8M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z",
+ checkboxBlankOutline:"M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3M19,5V19H5V5H19Z",
+ sourceBranch:"M13,14C9.64,14 8.54,15.35 8.18,16.24C9.25,16.7 10,17.76 10,19A3,3 0 0,1 7,22A3,3 0 0,1 4,19C4,17.69 4.83,16.58 6,16.17V7.83C4.83,7.42 4,6.31 4,5A3,3 0 0,1 7,2A3,3 0 0,1 10,5C10,6.31 9.17,7.42 8,7.83V13.12C8.88,12.47 10.16,12 12,12C14.67,12 15.56,10.66 15.85,9.77C14.77,9.32 14,8.25 14,7A3,3 0 0,1 17,4A3,3 0 0,1 20,7C20,8.34 19.12,9.5 17.91,9.86C17.65,11.29 16.68,14 13,14M7,18A1,1 0 0,0 6,19A1,1 0 0,0 7,20A1,1 0 0,0 8,19A1,1 0 0,0 7,18M7,4A1,1 0 0,0 6,5A1,1 0 0,0 7,6A1,1 0 0,0 8,5A1,1 0 0,0 7,4M17,6A1,1 0 0,0 16,7A1,1 0 0,0 17,8A1,1 0 0,0 18,7A1,1 0 0,0 17,6Z",
+ close:"M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z",
+ openInNew:"M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z",
+ sortVariant:"M3,13H15V11H3M3,6V8H21V6M3,18H9V16H3V18Z",
+ home:"M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z",
+ pencil:"M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z",
+ eyeOff:"M11.83,9L15,12.16C15,12.11 15,12.05 15,12A3,3 0 0,0 12,9C11.94,9 11.89,9 11.83,9M7.53,9.8L9.08,11.35C9.03,11.56 9,11.77 9,12A3,3 0 0,0 12,15C12.22,15 12.44,14.97 12.65,14.92L14.2,16.47C13.53,16.8 12.79,17 12,17A5,5 0 0,1 7,12C7,11.21 7.2,10.47 7.53,9.8M2,4.27L4.28,6.55L4.73,7C3.08,8.3 1.78,10 1,12C2.73,16.39 7,19.5 12,19.5C13.55,19.5 15.03,19.2 16.38,18.66L18.74,21L20,19.73L3.27,3M12,7A5,5 0 0,1 17,12C17,12.64 16.87,13.26 16.64,13.82L19.57,16.75C21.07,15.5 22.27,13.86 23,12C21.27,7.61 17,4.5 12,4.5C10.6,4.5 9.26,4.75 8,5.2L10.17,7.35C10.74,7.13 11.35,7 12,7Z",
+ circle:"M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z",
+ informationOutline:"M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"
+};
+document.querySelectorAll("i[data-mdi]").forEach(el=>{
+  const p=P[el.dataset.mdi]; if(!p) return;
+  const s=el.dataset.s||14;
+  el.outerHTML=`<svg class="i" width="${s}" height="${s}" viewBox="0 0 24 24"${el.getAttribute("style")?` style="${el.getAttribute("style")}"`:""}${el.className?` class="i ${el.className}"`:""}><path d="${p}"/></svg>`;
+});
+
+// theme
+document.querySelectorAll(".themebar button").forEach(b=>b.onclick=()=>{
+  document.documentElement.dataset.theme=b.dataset.t;
+  document.querySelectorAll(".themebar button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
+});
+
+// V3 hover-expand
+const v3=document.getElementById("v3"),v3l=document.getElementById("v3l");
+if(v3){const on=()=>v3l.style.maxWidth="60px",off=()=>v3l.style.maxWidth="0";
+  v3.addEventListener("mouseenter",on);v3.addEventListener("focus",on);
+  v3.addEventListener("mouseleave",off);v3.addEventListener("blur",off);}
+
+// popover
+const pb=document.getElementById("popbtn"),pop=document.getElementById("pop");
+if(pb){
+  pb.onclick=e=>{e.stopPropagation();const o=!pop.hidden;pop.hidden=o;pb.setAttribute("aria-expanded",String(!o));};
+  document.addEventListener("click",e=>{if(!pop.hidden&&!pop.contains(e.target)){pop.hidden=true;pb.setAttribute("aria-expanded","false");}});
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){pop.hidden=true;pb.setAttribute("aria-expanded","false");}});
+}
+
+// explorer: checkbox selects, row navigates
+const sel=new Set(), basket=document.getElementById("basket"),
+      bnone=document.getElementById("bnone"), addbtn=document.getElementById("addbtn");
+function paintBasket(){
+  basket.querySelectorAll(".pill").forEach(p=>p.remove());
+  bnone.style.display=sel.size?"none":"";
+  [...sel].forEach(n=>{
+    const s=document.createElement("span");s.className="pill";
+    s.innerHTML=`${n}<button aria-label="Remove ${n}"><svg class="i" width="12" height="12" viewBox="0 0 24 24"><path d="${P.close}"/></svg></button>`;
+    s.querySelector("button").onclick=()=>{sel.delete(n);sync();};
+    basket.appendChild(s);
+  });
+  addbtn.disabled=!sel.size;
+  addbtn.textContent=sel.size?`Add ${sel.size} folder${sel.size>1?"s":""}`:"Add folders";
+}
+function sync(){
+  document.querySelectorAll("#list .row[data-name]").forEach(r=>{
+    const on=sel.has(r.dataset.name);
+    r.classList.toggle("sel",on);
+    const cb=r.querySelector(".cb svg path");
+    if(cb) cb.setAttribute("d",on?P.checkboxMarked:P.checkboxBlankOutline);
+  });
+  paintBasket();
+}
+document.querySelectorAll("#list .row[data-name]").forEach(r=>{
+  r.querySelector("[data-check]").onclick=e=>{
+    e.stopPropagation();
+    const n=r.dataset.name; sel.has(n)?sel.delete(n):sel.add(n); sync();
+  };
+  r.onclick=()=>{ // navigate
+    const c=document.querySelector(".crumbs");
+    c.querySelectorAll(".crumb").forEach(x=>x.classList.remove("last"));
+    const sep=document.createElement("span");sep.className="sep";
+    sep.innerHTML=`<svg class="i" width="12" height="12" viewBox="0 0 24 24"><path d="${P.chevronRight}"/></svg>`;
+    const b=document.createElement("button");b.className="crumb last";b.textContent=r.dataset.name;
+    c.append(sep,b);
+  };
+});
+sync();
+
+// destination
+document.querySelectorAll("#wsopts .opt[data-ws]").forEach(o=>o.onclick=()=>{
+  document.querySelectorAll("#wsopts .opt[data-ws]").forEach(x=>x.classList.remove("on"));
+  o.classList.add("on");
+});
+</script>
+</body>
+</html>

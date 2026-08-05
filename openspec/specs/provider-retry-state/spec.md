@@ -5,138 +5,215 @@ TBD - created by archiving change fix-provider-retry-infinite-loop. Update Purpo
 ## Requirements
 ### Requirement: Reducer tracks in-flight retry state
 
-The event reducer SHALL maintain a `retryState` field on `SessionState` describing the current LLM-provider retry phase. The field SHALL be set on `auto_retry_start` and cleared on `auto_retry_end`, `agent_start`, and `agent_end`.
+The event reducer SHALL maintain a `retryState` field on `SessionState` describing the current
+retry, covering BOTH an in-flight attempt and the wait between attempts. The field SHALL be set
+on the waiting signal and on `auto_retry_start`, and cleared on `auto_retry_end`, `agent_start`,
+and `agent_settled`.
+
+`agent_end` SHALL NOT clear `retryState`, because pi fires one `agent_end` per attempt and only
+`agent_settled` is terminal. Clearing on `agent_end` would erase the retry state between every
+attempt.
 
 The shape SHALL be:
 ```ts
 retryState?: {
-  attempt: number;       // 1-based attempt number
-  maxAttempts: number;   // total attempts pi-coding-agent will make
-  delayMs: number;       // milliseconds between this attempt and the next
-  reason: string;        // errorMessage that triggered this retry
-  startedAt: number;     // event.timestamp at auto_retry_start
+  attempt: number;        // 1-based
+  maxAttempts: number;    // pi's retry.maxRetries; 0 = unknown
+  delayMs: number;        // computed from pi's settings; 0 = unknown
+  nextAttemptAt?: number; // absolute epoch ms of the next attempt when known
+  waiting: boolean;       // true between attempts, false while an attempt is in flight
+  reason: string;         // errorMessage that triggered this retry
+  startedAt: number;      // event.timestamp when this retry record was set
 }
 ```
 
-#### Scenario: auto_retry_start sets retryState
-- **WHEN** an `auto_retry_start` event arrives with `data: { attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "rate limit exceeded" }`
-- **THEN** `SessionState.retryState` SHALL equal `{ attempt: 1, maxAttempts: 3, delayMs: 2000, reason: "rate limit exceeded", startedAt: <event.timestamp> }`
+There is no `phase` discriminator: the dashboard runs no retry loop of its own, so pi's is the
+only retry that exists.
+
+**Runtime status only.** `retryState` describes what is happening *now* — waiting, which attempt,
+when the next attempt lands. It SHALL NOT carry, and no session surface SHALL render, pi's retry
+POLICY values (`baseDelayMs`, the provider sub-block, or any editable knob). `maxAttempts` is
+retained solely to suppress a spurious waiting signal on the final attempt and SHALL NOT be rendered
+as a denominator. pi has no persisted per-session retry policy
+(`setAutoRetryEnabled` → the global setter), so no session surface SHALL present a per-session or
+project-scoped retry editor; policy is edited only in the global surface (capability
+`pi-retry-settings`).
+
+#### Scenario: auto_retry_start sets an in-flight retryState
+
+- **WHEN** an `auto_retry_start` event arrives with `data: { attempt: 2, maxAttempts: 3, delayMs: 4000, errorMessage: "rate limit exceeded" }`
+- **THEN** `SessionState.retryState` SHALL equal `{ attempt: 2, maxAttempts: 3, delayMs: 4000, waiting: false, reason: "rate limit exceeded", startedAt: <event.timestamp> }`
 - **AND** `SessionState.lastError` SHALL remain unchanged
 
+#### Scenario: Waiting signal sets a waiting retryState
+
+- **WHEN** a waiting signal arrives with `data: { attempt: 2, delayMs: 4000, nextAttemptAt: 1700000004000, errorMessage: "overloaded" }`
+- **THEN** `SessionState.retryState.waiting` SHALL be `true`
+- **AND** `SessionState.retryState.attempt` SHALL be `2`
+- **AND** `SessionState.retryState.nextAttemptAt` SHALL be `1700000004000`
+
+#### Scenario: agent_end preserves the retry state
+
+- **GIVEN** `retryState` is set with `waiting: true`
+- **WHEN** an `agent_end` event arrives
+- **THEN** the existing `lastError` extraction logic SHALL run
+- **AND** `SessionState.retryState` SHALL remain set
+
+#### Scenario: agent_settled clears the retry state
+
+- **GIVEN** `retryState` is set
+- **WHEN** an `agent_settled` event arrives
+- **THEN** `SessionState.retryState` SHALL be cleared to undefined
+
 #### Scenario: auto_retry_end with success clears retryState
-- **WHEN** `retryState` is set
-- **AND** an `auto_retry_end` event arrives with `data: { success: true, attempt: 2 }`
+
+- **WHEN** `retryState` is set AND an `auto_retry_end` arrives with `data: { success: true, attempt: 2 }`
 - **THEN** `SessionState.retryState` SHALL be cleared to undefined
 - **AND** `SessionState.lastError` SHALL remain unchanged
 
-#### Scenario: auto_retry_end with failure clears retryState and surfaces error early
-- **WHEN** `retryState` is set
-- **AND** an `auto_retry_end` event arrives with `data: { success: false, attempt: 3, finalError: "Rate limit exceeded" }`
-- **AND** `SessionState.lastError` is currently undefined
+#### Scenario: auto_retry_end with failure clears retryState and sets lastError
+
+- **WHEN** `auto_retry_end` arrives with `data: { success: false, attempt: 3, finalError: "Rate limit exceeded" }`
 - **THEN** `SessionState.retryState` SHALL be cleared
 - **AND** `SessionState.lastError` SHALL be set to `{ message: "Rate limit exceeded", timestamp: <event.timestamp> }`
 
-#### Scenario: auto_retry_end after lastError already set
-- **WHEN** `auto_retry_end` arrives with `success: false` and a `finalError`
-- **AND** `SessionState.lastError` is already set (e.g. by an earlier `agent_end`)
-- **THEN** `SessionState.retryState` SHALL be cleared
-- **AND** `SessionState.lastError` SHALL NOT be overwritten
-
 #### Scenario: agent_start defensively clears stale retryState
-- **WHEN** `retryState` is set (e.g. session reload mid-retry)
-- **AND** an `agent_start` event arrives
+
+- **WHEN** `retryState` is set (e.g. session reload mid-retry) AND an `agent_start` arrives
 - **THEN** `SessionState.retryState` SHALL be cleared to undefined
 
-#### Scenario: agent_end defensively clears retryState
-- **WHEN** `retryState` is set
-- **AND** an `agent_end` event arrives
-- **THEN** `SessionState.retryState` SHALL be cleared after the existing `lastError` extraction logic runs
-
 #### Scenario: auto_retry_end ignored when retryState is undefined
-- **WHEN** `SessionState.retryState` is undefined
-- **AND** an `auto_retry_end` event arrives
+
+- **WHEN** `SessionState.retryState` is undefined AND an `auto_retry_end` event arrives
 - **THEN** `SessionState.retryState` SHALL remain undefined
 - **AND** `SessionState.lastError` SHALL NOT be modified by this event
 
 ### Requirement: Retry banner in chat view
 
-The dashboard SHALL surface in-flight provider retries via the unified `SessionBanner` component (see capability `session-status-banner`), rendered in the `retrying` variant when `SessionState.retryState` is set. The previous standalone `<RetryBanner>` component is REMOVED; banner placement moves from inside `ChatView` to sticky above the `CommandInput`.
+The dashboard SHALL surface retries via the unified `SessionBanner` component (see capability
+`session-status-banner`) whenever `SessionState.retryState` is set, covering both the waiting
+and in-flight sub-states.
 
-In the `retrying` variant the banner SHALL display:
+The surface SHALL display:
 
-- Attempt phrasing. When `retryState.maxAttempts > 0` AND `retryState.delayMs > 0`, the phrasing SHALL include current attempt and max attempts plus a live countdown to `startedAt + delayMs`, refreshed at least once per second, never going below 0. When either is `<= 0` (sentinel — indeterminate retry; bridge does not know pi's retry settings), the banner SHALL show an indeterminate "retrying…" message instead.
-- A "Stop retrying" button that triggers the same `wrappedHandleAbort` flow as the main Stop button.
-- The original `reason` string, truncated to a single line with overflow ellipsis.
+- **Attempt phrasing.** The attempt number SHALL be rendered bare ("attempt 7"). The surface
+  SHALL NEVER render "of N": `maxRetries` is user-configurable and typically large, so a
+  denominator is noise rather than information.
+- **Countdown.** When `nextAttemptAt` is known the surface SHALL render a live countdown to it,
+  refreshed at least once per second and never below 0. When only `delayMs > 0` is known the
+  surface SHALL render a countdown to `startedAt + delayMs`, and SHALL switch to
+  "still waiting… (N s elapsed)" once that instant has passed while the retry is still pending.
+  When `delayMs` is 0 the surface SHALL render elapsed-only.
+- **A "Stop retrying" control** that aborts the session, thereby ending pi's retry chain.
+- The originating `reason` string.
 
-#### Scenario: Banner visible during retry with known countdown
-- **WHEN** `retryState = { attempt: 2, maxAttempts: 3, delayMs: 4000, reason: "rate limit exceeded", startedAt: 1700000000000 }`
-- **THEN** the unified `SessionBanner` SHALL be visible in the `retrying` variant
-- **AND** the banner SHALL include text identifying attempt 2 of 3
-- **AND** a "Stop retrying" button SHALL be rendered
+#### Scenario: Waiting state shows an exact countdown
 
-#### Scenario: Banner shows indeterminate state when delayMs is sentinel -1
-- **WHEN** `retryState = { attempt: 1, maxAttempts: -1, delayMs: -1, reason: "rate limit exceeded", startedAt: 0 }`
-- **THEN** the banner SHALL be visible in the `retrying` variant
-- **AND** the banner SHALL show "retrying…" without a countdown
-- **AND** a "Stop retrying" button SHALL be rendered
+- **WHEN** `retryState = { attempt: 7, maxAttempts: 100, delayMs: 60000, nextAttemptAt: <now + 42s>, waiting: true, reason: "overloaded", startedAt: <now> }`
+- **THEN** the surface SHALL show a countdown of 42 s decreasing at least once per second
+- **AND** the surface SHALL show "attempt 7" without "of"
 
-#### Scenario: Banner countdown reaches zero and stays
-- **WHEN** the banner is mounted with `startedAt + delayMs` already elapsed AND `delayMs > 0`
-- **THEN** the displayed countdown SHALL be `0` (not negative)
-- **AND** the banner SHALL remain visible until `retryState` is cleared
+#### Scenario: Overrun countdown degrades to elapsed
 
-#### Scenario: Stop retrying button triggers abort
-- **GIVEN** the banner is in `retrying` variant
-- **WHEN** the user clicks "Stop retrying"
-- **THEN** `wrappedHandleAbort()` SHALL be invoked for the selected session
-- **AND** an `abort` message SHALL be sent for the current session
-- **AND** the banner SHALL clear once `retryState` is cleared (typically within ≤200ms via the bridge's synthetic auto_retry_end)
+- **GIVEN** a `waiting: true` record whose countdown target has passed
+- **WHEN** the retry is still pending
+- **THEN** the surface SHALL render "still waiting… (N s elapsed)" instead of a zeroed countdown
 
-#### Scenario: Banner clears on auto_retry_end
-- **GIVEN** the banner is in `retrying` variant
-- **WHEN** an `auto_retry_end` event arrives (success or failure)
-- **THEN** the banner SHALL no longer render in the `retrying` variant
-- **AND** the banner SHALL transition to `error` / `limit-exceeded` (if `lastError` is set) or `hidden`
+#### Scenario: Zero delay renders elapsed-only
+
+- **WHEN** `retryState.delayMs` is 0 and `nextAttemptAt` is absent
+- **THEN** the surface SHALL render an elapsed-only waiting line with no countdown
+
+#### Scenario: Stop retrying aborts the session
+
+- **GIVEN** the surface carries any `retryState`
+- **WHEN** the user activates "Stop retrying"
+- **THEN** an `abort` SHALL be dispatched for the session
+
+#### Scenario: Surface persists across attempts
+
+- **GIVEN** the surface is rendering a waiting retry for attempt 3
+- **WHEN** attempt 4 starts and then fails
+- **THEN** the surface SHALL remain visible throughout
+- **AND** the attempt counter SHALL advance rather than resetting
 
 ### Requirement: Session card amber dot during retry
 
-A session card in the sidebar SHALL render an amber pulsing status dot when its `SessionState.retryState` is set AND `SessionState.lastError` is undefined. This visual SHALL be distinct from the existing red error dot and the default idle/streaming/ended dots.
+A session card in the sidebar SHALL render an amber (working-token) pulsing status mark whenever
+its `SessionState.retryState` is set AND `SessionState.lastError` is undefined, in both the
+waiting and in-flight sub-states. This visual SHALL be distinct from the red error mark and the
+default idle/streaming/ended marks, and SHALL carry a non-hue channel (a shape/icon marker) so
+it is distinguishable without colour.
 
-#### Scenario: Amber dot during retry
+The per-attempt number and countdown are surfaced on the `SessionBanner` (including its collapsed
+pill), NOT on every sidebar card: duplicating a live countdown onto each card would require a
+per-card timer in a render-hot component for information the banner already carries. The card's
+job is only to mark "this session is retrying".
+
+#### Scenario: Amber mark during retry (both sub-states)
+
 - **WHEN** the session has `retryState` set and `lastError` is undefined
-- **THEN** the session card status dot SHALL be amber and pulsing
+- **THEN** the session card status mark SHALL be the amber working token, pulsing
 
-#### Scenario: Red error dot wins over amber
+#### Scenario: Red error mark wins over amber
+
 - **WHEN** the session has both `retryState` set AND `lastError` set
-- **THEN** the session card status dot SHALL be red (lastError takes precedence)
+- **THEN** the session card status mark SHALL be red (lastError takes precedence)
 
-#### Scenario: Dot returns to default after retry clears
-- **WHEN** `retryState` is cleared (success or failure)
-- **AND** `lastError` is undefined
-- **THEN** the session card status dot SHALL return to its non-error default
+#### Scenario: Mark returns to default after retry clears
+
+- **WHEN** `retryState` is cleared (success or stop) AND `lastError` is undefined
+- **THEN** the session card status mark SHALL return to its non-error default
+
+#### Scenario: No policy values on any session surface
+
+- **WHEN** any session surface renders a retry (banner, collapsed pill, or sidebar card)
+- **THEN** it SHALL NOT display `baseDelayMs`, `retry.provider.*`, or any other editable policy value
+- **AND** it SHALL NOT offer a control that edits retry policy
+
+#### Scenario: Marking uses an MDI mark, never an emoji
+
+- **WHEN** a retry is marked on any surface
+- **THEN** the mark SHALL be an MDI icon / token-driven indicator
+- **AND** no emoji SHALL be used
 
 ### Requirement: Bridge synthesizes auto_retry_start from observed message_end
 
-The bridge SHALL maintain a per-session retry tracker. Retry detection SHALL be derived from OBSERVED pi behavior, NOT from a regex classifier. The bridge SHALL NOT test any `RETRYABLE_PATTERN` / copy of pi's internal `_isRetryableError`.
+The bridge SHALL maintain a per-session retry tracker. Retry detection SHALL be derived from
+OBSERVED pi behavior, NOT from a regex classifier. The bridge SHALL NOT test any
+`RETRYABLE_PATTERN` / copy of pi's internal `_isRetryableError`.
 
-Rule: when pi emits `message_end` whose `message.role === "assistant"` AND `message.stopReason === "error"`, the bridge SHALL record a pending failure for the session (it does NOT yet know whether pi will retry). When pi subsequently emits a fresh assistant `message_start` for the same agent turn (i.e. before any `agent_end` for that turn and with no intervening user prompt), that observed new attempt SHALL cause the bridge to forward a synthesized `event_forward` with `eventType: "auto_retry_start"` and `data: { attempt: <1-based observed-attempt counter>, maxAttempts: -1, delayMs: -1, errorMessage: <observed errorMessage> }`. The session SHALL be marked as in retry until cleared.
+The observed sequence is one full `agent_start` … `agent_end` cycle per attempt, terminated by
+a single `agent_settled`. An error `agent_end` therefore means "another attempt is coming" and
+SHALL produce both `auto_retry_start` for the completed attempt and a waiting signal; only
+`agent_settled` terminates the chain. See capability `bridge-retry-observability` for the full
+rules.
 
-`maxAttempts: -1` and `delayMs: -1` are sentinels: pi does not expose its retry settings to extensions, so the dashboard SHALL render an indeterminate "retrying…" UI instead of a countdown. During pi's backoff sleep (before the next `message_start`), the surface SHALL show the error without a "retrying…" sub-line; the sub-line appears when the next attempt is observed.
+`maxAttempts` and `delayMs` SHALL be derived read-only from pi's retry settings, defaulting to
+`3` and `2000`, and SHALL be `0` when the settings cannot be read. The `-1` sentinels are
+REMOVED. The bridge SHALL NOT write pi's settings.
 
-#### Scenario: Observed new attempt after an error triggers synthesized auto_retry_start
-- **GIVEN** the bridge forwarded a `message_end` with `message: { role: "assistant", stopReason: "error", errorMessage: "overloaded" }` (pending failure recorded)
-- **WHEN** the bridge observes a fresh assistant `message_start` for the same agent turn with no intervening user prompt
-- **THEN** the bridge SHALL forward an `event_forward` with `event.eventType === "auto_retry_start"`
-- **AND** the synthesized event SHALL have `data.attempt >= 1`, `data.maxAttempts === -1`, `data.delayMs === -1`, `data.errorMessage === "overloaded"`
+#### Scenario: Error agent_end triggers synthesized retry events
 
-#### Scenario: No regex gate on the error message
-- **GIVEN** the bridge forwarded a `message_end` with `errorMessage: "prompt is too long: 300000 tokens > 200000 maximum"` (a string pi will NOT retry)
-- **WHEN** no fresh assistant `message_start` follows (pi ends the turn with `agent_end` error)
-- **THEN** NO `auto_retry_start` SHALL be synthesized (because no new attempt was observed, NOT because a regex rejected the string)
+- **GIVEN** the bridge forwarded a `message_end` with `stopReason: "error"` and
+  `errorMessage: "overloaded"`
+- **WHEN** the matching `agent_end` is observed and no `agent_settled` terminates the chain
+- **THEN** the bridge SHALL forward an `event_forward` with
+  `event.eventType === "auto_retry_start"`
+- **AND** the synthesized event SHALL have `data.attempt >= 1`, `data.maxAttempts === 3`,
+  `data.delayMs > 0`, `data.errorMessage === "overloaded"`
 
-#### Scenario: Successful assistant message_end clears retry tracker and synthesizes auto_retry_end
+#### Scenario: Waiting signal covers pi's sleep
+
+- **GIVEN** the bridge observed an error `agent_end`
+- **WHEN** pi is sleeping before the next attempt
+- **THEN** the dashboard SHALL have received a waiting signal for that session
+- **AND** the surface SHALL show a pending retry rather than a silent settled error
+
+#### Scenario: Successful message_end clears the tracker and synthesizes auto_retry_end
+
 - **GIVEN** the bridge previously synthesized `auto_retry_start` for session X
-- **WHEN** the bridge forwards a subsequent `message_end` with `message: { role: "assistant", stopReason: "end_turn" }`
+- **WHEN** the bridge forwards a subsequent `message_end` with `stopReason: "end_turn"`
 - **THEN** the bridge SHALL forward a synthesized `auto_retry_end { success: true, attempt: <last attempt> }`
 - **AND** the retry tracker SHALL clear its in-flight flag for session X
 

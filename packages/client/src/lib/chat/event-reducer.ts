@@ -321,15 +321,22 @@ export interface SessionState {
    */
   notice?: { message: string; timestamp: number };
   /**
-   * In-flight LLM-provider auto-retry state. Set on `auto_retry_start`,
-   * cleared on `auto_retry_end` / `agent_start` / `agent_end`. Drives the
-   * `SessionBanner` UI (retrying variant) and the session-card amber dot.
-   * See change: fix-provider-retry-infinite-loop.
+   * LLM-provider auto-retry state, covering BOTH the wait between attempts
+   * (`waiting: true`, set on `auto_retry_waiting`) and an in-flight attempt
+   * (`waiting: false`, set on `auto_retry_start`). Cleared on `auto_retry_end`,
+   * `agent_start`, and `agent_settled` — but NOT on `agent_end`, because pi
+   * fires one `agent_end` per attempt and only `agent_settled` is terminal.
+   * Drives the `SessionBanner` UI and the session-card amber dot.
+   * See change: retry-forever-with-stop-control.
    */
   retryState?: {
     attempt: number;
     maxAttempts: number;
     delayMs: number;
+    /** Absolute epoch ms of the next attempt, when known (waiting phase). */
+    nextAttemptAt?: number;
+    /** true between attempts, false while an attempt is in flight. */
+    waiting: boolean;
     reason: string;
     startedAt: number;
   };
@@ -1078,6 +1085,10 @@ export interface BannerRetry {
   attempt: number;
   maxAttempts: number;
   delayMs: number;
+  /** Absolute epoch ms of the next attempt, when known (waiting phase). */
+  nextAttemptAt?: number;
+  /** true between attempts, false while an attempt is in flight. */
+  waiting: boolean;
   startedAt: number;
   reason: string;
 }
@@ -1099,6 +1110,8 @@ export function deriveBannerState(state: SessionState): BannerState {
       attempt: state.retryState.attempt,
       maxAttempts: state.retryState.maxAttempts,
       delayMs: state.retryState.delayMs,
+      nextAttemptAt: state.retryState.nextAttemptAt,
+      waiting: state.retryState.waiting,
       startedAt: state.retryState.startedAt,
       reason: state.retryState.reason,
     };
@@ -1166,7 +1179,10 @@ export function reduceEvent(
         // See change: unify-error-retry-lifecycle.
         next.lastError = undefined;
       }
-      next.retryState = undefined;
+      // retryState is NOT cleared here: pi fires one agent_end PER attempt, so
+      // clearing would wipe the waiting/in-flight state between every attempt.
+      // Only agent_settled (the sole terminal signal) clears it.
+      // See change: retry-forever-with-stop-control.
       break;
     }
 
@@ -1180,6 +1196,33 @@ export function reduceEvent(
       // adopt-pi-074-080-features (A.1).
       next.isStreaming = false;
       next.status = "idle";
+      // Sole terminal signal for a retry chain — clear the retry state. The
+      // matching auto_retry_end (bridge-synthesized before this settle) already
+      // set lastError on failure. See change: retry-forever-with-stop-control.
+      next.retryState = undefined;
+      break;
+    }
+
+    case "auto_retry_waiting": {
+      // The wait between attempts: pi is sleeping before the next try. Carries a
+      // real delay + absolute next-attempt time so the surface renders an exact
+      // countdown. No fresh-error guard here — this signal is EXPECTED to arrive
+      // right after an error agent_end (which sets lastError).
+      // See change: retry-forever-with-stop-control.
+      const attempt = typeof data.attempt === "number" ? data.attempt : 1;
+      const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
+      const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
+      const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
+      const reason = typeof data.errorMessage === "string" ? data.errorMessage : "Provider error";
+      next.retryState = {
+        attempt,
+        maxAttempts,
+        delayMs,
+        nextAttemptAt,
+        waiting: true,
+        reason,
+        startedAt: event.timestamp,
+      };
       break;
     }
 
@@ -1202,10 +1245,19 @@ export function reduceEvent(
         break;
       }
       const attempt = typeof data.attempt === "number" ? data.attempt : 1;
-      const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 1;
+      const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
+      const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
       const reason = typeof data.errorMessage === "string" ? data.errorMessage : "Provider error";
-      next.retryState = { attempt, maxAttempts, delayMs, reason, startedAt: event.timestamp };
+      next.retryState = {
+        attempt,
+        maxAttempts,
+        delayMs,
+        nextAttemptAt,
+        waiting: false,
+        reason,
+        startedAt: event.timestamp,
+      };
       break;
     }
 

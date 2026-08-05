@@ -40,6 +40,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
+
+/** The offer lands only after the grace window closes. See change: fix-recovery-exit-intent (D6). */
+const OFFER_WAIT_MS = RECOVERY_REATTACH_GRACE_MS + 800;
 
 function seedCandidate(sessionsDir: string, id: string, meta: Record<string, unknown>): string {
   const cwdDir = path.join(sessionsDir, id.slice(0, 4)); // distinct cwd per candidate
@@ -141,7 +145,7 @@ describe("recovery offer is gated by process liveness (keeper + bridge)", () => 
     await new Promise<void>((resolve) => {
       browser.on("open", () => {
         browser.on("message", (raw) => { try { msgs.push(JSON.parse(raw.toString())); } catch {} });
-        setTimeout(resolve, 300);
+        setTimeout(resolve, OFFER_WAIT_MS);
       });
     });
     bridge.close();
@@ -156,7 +160,7 @@ describe("recovery offer is gated by process liveness (keeper + bridge)", () => 
     // Gated out: keeper reclaim proves KEEPER alive; BRIDGE's reattach retracts it.
     expect(offeredIds).not.toContain(KEEPER);
     expect(offeredIds).not.toContain(BRIDGE);
-  }, 15_000);
+  }, 45_000);
 
   // Auto-mode Class 1: a keeper-alive candidate SHALL NOT be auto-resumed. The
   // gate runs synchronously in start() (before the deferred resume), so the

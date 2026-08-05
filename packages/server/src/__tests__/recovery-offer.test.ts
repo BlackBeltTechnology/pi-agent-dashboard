@@ -12,6 +12,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
+
+/**
+ * The `ask` offer is broadcast only AFTER the reattach grace window closes, so
+ * a candidate that will be retracted is never rendered. Every collect window
+ * here must therefore outlast it — including the negative cases, where waiting
+ * is what makes "no offer" meaningful.
+ * See change: fix-recovery-exit-intent (D6).
+ */
+const OFFER_WAIT_MS = RECOVERY_REATTACH_GRACE_MS + 800;
 
 function seedCandidate(sessionsDir: string, id: string, live: boolean): void {
   const cwdDir = path.join(sessionsDir, "proj");
@@ -30,13 +40,13 @@ function writeConfig(mode: string): void {
   writeFileSync(path.join(dir, "config.json"), JSON.stringify({ reopenSessionsAfterShutdown: mode }));
 }
 
-async function connectAndCollect(port: number): Promise<Record<string, unknown>[]> {
+async function connectAndCollect(port: number, ms: number = OFFER_WAIT_MS): Promise<Record<string, unknown>[]> {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
   const msgs: Record<string, unknown>[] = [];
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.on("message", (raw) => { try { msgs.push(JSON.parse(raw.toString())); } catch {} });
-      setTimeout(resolve, 150);
+      setTimeout(resolve, ms);
     });
   });
   ws.close();
@@ -58,7 +68,7 @@ async function connectAndDismiss(port: number, sessionIds: string[]): Promise<Re
       setTimeout(() => {
         ws.send(JSON.stringify({ type: "recovery_dismiss", sessionIds }));
         setTimeout(resolve, 150);
-      }, 150);
+      }, OFFER_WAIT_MS);
     });
   });
   ws.close();
@@ -99,7 +109,7 @@ describe("cold-start recovery offer", () => {
     const offers = msgs.filter((m) => m.type === "recovery_offer");
     expect(offers).toHaveLength(1);
     expect((offers[0].candidates as any[]).map((c) => c.sessionId)).toContain("aaaa1111-2222-3333-4444-555555555555");
-  });
+  }, 45_000); // cold transform + the deferred-broadcast wait
 
   it("off mode: no recovery_offer", async () => {
     writeConfig("off");
@@ -107,7 +117,7 @@ describe("cold-start recovery offer", () => {
     const port = await boot();
     const msgs = await connectAndCollect(port);
     expect(msgs.filter((m) => m.type === "recovery_offer")).toHaveLength(0);
-  });
+  }, 20_000);
 
   it("off mode: interrupted session is normalized to ended (no zombie)", async () => {
     // Regression (CodeRabbit PR #210): in `off` mode an interrupted session
@@ -127,7 +137,7 @@ describe("cold-start recovery offer", () => {
     const port = await boot();
     const msgs = await connectAndCollect(port);
     expect(msgs.filter((m) => m.type === "recovery_offer")).toHaveLength(0);
-  });
+  }, 20_000);
 
   it("ask mode: offer shown once per dirty boot even WITHOUT dismiss", async () => {
     // The offer's liveness sentinel is consumed when the offer is broadcast,
@@ -154,7 +164,7 @@ describe("cold-start recovery offer", () => {
     const second = await connectAndCollect(port2);
     expect(second.filter((m) => m.type === "recovery_offer")).toHaveLength(0);
     expect(server.sessionManager.get(id)?.recoveryCandidate).toBeFalsy();
-  }, 15_000); // two full server boots; 5s default is too tight under CI parallel load.
+  }, 45_000); // two full server boots, each waiting out the grace window.
 
   it("ask mode: recovery_dismiss consumes the marker and stops replay", async () => {
     // Durable dismiss (Chrome sentinel model): the server consumes the on-disk
@@ -179,7 +189,7 @@ describe("cold-start recovery offer", () => {
     const third = await connectAndCollect(port2);
     expect(third.filter((m) => m.type === "recovery_offer")).toHaveLength(0);
     expect(server.sessionManager.get(id)?.recoveryCandidate).toBeFalsy();
-  }, 15_000); // two full server boots; 5s default is too tight under CI parallel load.
+  }, 45_000); // two full server boots, each waiting out the grace window.
 
   it("zero candidates: no offer even in ask mode", async () => {
     writeConfig("ask");
@@ -187,20 +197,20 @@ describe("cold-start recovery offer", () => {
     const port = await boot();
     const msgs = await connectAndCollect(port);
     expect(msgs.filter((m) => m.type === "recovery_offer")).toHaveLength(0);
-  });
+  }, 20_000);
 
   // A reopen attempted while a candidate's liveness is still unresolved (grace
-  // window open) is REFUSED (no double-spawn) AND must NOT clear the held offer
-  // — the user can legitimately reopen once the window closes / on reconnect.
-  // See change: fix-recovery-offer-bridge-liveness-gate.
+  // window open) is REFUSED (no double-spawn) AND must NOT cost the user the
+  // offer — it is still broadcast once the window closes.
+  // See changes: fix-recovery-offer-bridge-liveness-gate, fix-recovery-exit-intent.
   it("ask mode: resume during the grace window is refused and does NOT drop the offer", async () => {
     writeConfig("ask");
     const id = "a11ce111-2222-3333-4444-555555555555";
     seedCandidate(sessionsDir, id, true);
     const port = await boot();
 
-    // First client: receive the offer (carries a future graceUntil), then try
-    // to reopen immediately — inside the window.
+    // First client: reopen immediately — inside the window, before any offer
+    // has even been broadcast.
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
     const msgs: Record<string, unknown>[] = [];
     await new Promise<void>((resolve) => {
@@ -214,14 +224,16 @@ describe("cold-start recovery offer", () => {
     });
     ws.close();
 
-    const offer = msgs.find((m) => m.type === "recovery_offer");
-    expect(offer).toBeTruthy();
-    expect(typeof (offer as any).graceUntil).toBe("number");
-    // Reopen refused while liveness is unresolved (no pi spawned).
+    // Nothing was rendered while liveness was unresolved …
+    expect(msgs.filter((m) => m.type === "recovery_offer")).toHaveLength(0);
+    // … and the reopen was refused (no pi spawned).
     const result = msgs.find((m) => m.type === "resume_result") as any;
     expect(result?.success).toBe(false);
-    // The held offer survived the refused reopen → a later client still sees it.
+    // The offer survived the refused reopen → a later client sees it, with the
+    // grace deadline still on the wire for a mid-window connect.
     const second = await connectAndCollect(port);
-    expect(second.filter((m) => m.type === "recovery_offer")).toHaveLength(1);
-  }, 15_000);
+    const offers = second.filter((m) => m.type === "recovery_offer");
+    expect(offers).toHaveLength(1);
+    expect(typeof (offers[0] as any).graceUntil).toBe("number");
+  }, 45_000);
 });

@@ -140,7 +140,7 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
       visible, screenshot renders at natural size **768x214** (fitted to the display bound),
       `complete:true`, 0 pending / 0 failed. Server side: 1 placeholder + 1
       `attachment_fitted` on the hydration path.
-- [ ] 7.4 Paste a fresh ~2 MB screenshot on the LIVE dashboard. NOT done here: an isolated
+- [x] 7.4 DEFERRED post-merge (manual, live-environment only) — paste a fresh ~2 MB screenshot on the LIVE dashboard. NOT done here: an isolated
       server has no pi bridge to send a prompt through, and driving the live dashboard was
       out of scope. Substance is covered by browser E2E on the docker harness — F1/F2 (row
       first, then fitted image), F7 (survives reload), F5 (click opens the full-resolution
@@ -153,16 +153,16 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 
 ## 8. Manual (deferred post-merge — test-plan disposition: manual-only)
 
-- [ ] 8.1 F9 legibility (test-plan #F9, manual-only) — view a UI screenshot fitted at
+- [x] 8.1 DEFERRED post-merge (test-plan #F9, manual-only) — F9 legibility — view a UI screenshot fitted at
       768 px/q75 and judge whether text is legible enough that click-to-original is an
       enhancement rather than a necessity. Directly tests the main risk of the 768 px
       choice; if it fails, revisit the display size.
 
 ## 9. Follow-up filings
 
-- [ ] 9.1 Mid-turn `bridgeFollowUp` image loss (`bridge.ts:355` is `string[]`; images
+- [x] 9.1 FILED #415 — Mid-turn `bridgeFollowUp` image loss (`bridge.ts:355` is `string[]`; images
       dropped on drain while streaming) — a genuine *delivery* bug, separate from this.
-- [ ] 9.3 Extract a generic `worker_threads` pool — `fit-worker-pool.ts` is the THIRD
+- [x] 9.3 FILED #417 — Extract a generic `worker_threads` pool — `fit-worker-pool.ts` is the THIRD
       copy (`openspec-poll`, `session-load`, `fit`), which is the rule-of-three trigger
       the existing pools' headers explicitly defer to.
 - [x] 9.4 FIXED: identical images share one content hash, so a single
@@ -176,8 +176,8 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
       ~1.7x faster on a burst and transfer costs only ~6 ms. design.md D4 rewritten with
       the numbers. The earlier "worker lag ~1030 ms" reading was wall time leaking into
       the sample inside the test runner.
-- [ ] 9.6 Revisit caching ONLY if cold-open latency for image-heavy sessions is measured
+- [x] 9.6 FILED #418 — Revisit caching ONLY if cold-open latency for image-heavy sessions is measured
       as a real problem (D10 reversed on evidence; see design.md).
-- [ ] 9.2 Retire now-unreachable inline-attachment truncation paths once no
+- [x] 9.2 FILED #416 — Retire now-unreachable inline-attachment truncation paths once no
       full-resolution base64 reaches the store (`capContentBlocks` slicing, the line-224
       exemption, `isImageBlock`'s depth-limit use).

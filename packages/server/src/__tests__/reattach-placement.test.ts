@@ -10,8 +10,8 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
-import { createMemorySessionManager, type SessionManager } from "../session/memory-session-manager.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
+import { createMemorySessionManager, type SessionManager } from "../session/memory-session-manager.js";
 import {
   applyReattachPolicy,
   decideReattachAction,
@@ -39,6 +39,7 @@ function makePrefs(): PreferencesStore {
     setWorkspaceCollapsed: () => false,
     addFolderToWorkspace: () => false,
     removeFolderFromWorkspace: () => false,
+    moveFolderToWorkspace: () => false,
     reorderWorkspaceFolders: () => false,
     reorderWorkspaces: () => false,
     flush: () => {},

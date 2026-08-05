@@ -16,6 +16,7 @@ import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
+import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
 import { suggestTrustEntries } from "../../lib/gateway/gateway-config-ops.js";
 import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../../lib/git/git-api.js";
@@ -30,6 +31,7 @@ import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
+import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ModelSelector } from "./ModelSelector.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
@@ -300,6 +302,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 }) {
   const { language, setLanguage, t } = useI18n();
   const [, navigate] = useLocation();
+  /** Settings pages scroll pane — the popover clipping boundary for this surface. */
+  const settingsPaneRef = useRef<HTMLDivElement>(null);
   const [config, setConfig] = useState<Config | null>(null);
   const [original, setOriginal] = useState<Config | null>(null);
   const [llmProviders, setLlmProviders] = useState<LlmProvider[]>([]);
@@ -829,6 +833,18 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             wrapper that would collapse its height). See change:
             directory-settings-page-and-scoped-md-editing. */}
         <div data-testid="settings-content" className="flex-1 min-h-0 min-w-0 flex flex-col">
+          {/* The settings pages scroll in `settingsPaneRef` below — that pane is
+              what clips a popover opened inside it (e.g. the Default Model
+              selector), so it provides itself as the popover boundary.
+
+              The provider sits ABOVE the branch, but the ref is attached only
+              inside the third branch. On the `instructions` and resource-grid
+              branches `.current` is null and the hook falls back to the
+              viewport — correct today because neither hosts a popover consumer.
+              A popover added to either branch must attach the ref to that
+              branch's own scroll pane, or it will silently measure against the
+              viewport again. See change: fix-popover-pane-bounded-height. */}
+          <PopoverBoundaryProvider value={settingsPaneRef}>
           {activeTab === "instructions" ? (
             <InstructionsPage />
           ) : activeTab in RESOURCE_TAB_TYPE ? (
@@ -855,7 +871,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
               </div>
             </div>
           ) : (
-          <div className="p-4 space-y-6 max-w-3xl overflow-y-auto">
+          <div ref={settingsPaneRef} className="p-4 space-y-6 max-w-3xl overflow-y-auto">
 
             {activeTab === "general" && (
               <>
@@ -1145,6 +1161,15 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     </p>
                   </div>
                 </Section>
+                {/* "Retry", not "Provider Retry": three of the six fields
+                    (`enabled`, `maxRetries`, `baseDelayMs`) are turn-level, not
+                    provider-scoped. The provider trio keeps its own subhead.
+                    Filed under Sessions, not Providers: the observable effect is
+                    on a session (waiting / attempt n / countdown / Stop), and the
+                    sibling turn-lifecycle timeouts already live here. */}
+                <Section title={t("settings.retry", undefined, "Retry")}>
+                  <RetrySettingsSection />
+                </Section>
                 <SettingsSectionSlot tab="sessions" />
               </>
             )}
@@ -1393,6 +1418,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
           </div>
           )}
+          </PopoverBoundaryProvider>
         </div>
       </div>
 

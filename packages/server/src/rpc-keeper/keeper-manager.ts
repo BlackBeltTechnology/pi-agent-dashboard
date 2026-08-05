@@ -125,6 +125,13 @@ export interface KeeperManager {
   killKeeper(sessionId: string): boolean;
   /** Scan sessions dir; return live keeper+pi pairs; unlink stale entries. */
   discoverExistingKeepers(): Promise<KeeperEntry[]>;
+  /**
+   * Side-effect-free liveness probe for ONE session: is a keeper process
+   * still holding this session's pi? Unlike `discoverExistingKeepers` it
+   * neither unlinks stale sidecars nor kills orphans, so it is safe to call
+   * on a hot path (the resume guard). See change: fix-recovery-exit-intent.
+   */
+  isKeeperAlive(sessionId: string): boolean;
   /** For tests / introspection. */
   readonly sessionsDir: string;
 }
@@ -386,12 +393,18 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
     return result;
   }
 
+  function isKeeperAlive(sessionId: string): boolean {
+    const keeperPid = readPidSidecar(pidPathFor(sessionsDir, sessionId, platform));
+    return keeperPid !== null && isProcessAlive(keeperPid) && isPiAlive(sessionId, keeperPid);
+  }
+
   return {
     spawnKeeperFor,
     writeRpc,
     writeRpcToSockPath,
     killKeeper,
     discoverExistingKeepers,
+    isKeeperAlive,
     sessionsDir,
   };
 }

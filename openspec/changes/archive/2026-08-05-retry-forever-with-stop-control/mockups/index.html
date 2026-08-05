@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Error banner — visible waiting, Stop retrying, collapse-not-dismiss</title>
+<style>
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-red:#ef4444; --accent-orange:#f97316;
+  }
+  [data-theme="light"] {
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg-secondary); color:var(--text-secondary);
+    font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .page { max-width:900px; margin:0 auto; padding:24px 20px 90px; }
+  h1 { color:var(--text-primary); font-size:21px; margin:0 0 4px; }
+  h2 { color:var(--text-primary); font-size:14px; margin:30px 0 2px; }
+  .lede,.note { color:var(--text-tertiary); font-size:12px; margin:0 0 10px; }
+  .note b { color:var(--text-secondary); }
+  code { background:var(--bg-tertiary); padding:1px 5px; border-radius:4px; font-size:11.5px; color:var(--text-secondary); }
+  .bar { position:sticky; top:0; z-index:9; background:var(--bg-secondary); border-bottom:1px solid var(--border-subtle);
+    padding:10px 0; margin-bottom:6px; display:flex; gap:8px; align-items:center; }
+  .bar button { background:var(--bg-tertiary); color:var(--text-secondary); border:1px solid var(--border-secondary);
+    border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer; }
+
+  /* card = InlineMessage severity=error */
+  .card { position:relative; border:1px solid color-mix(in srgb,var(--accent-red) 40%,transparent);
+    background:color-mix(in srgb,var(--accent-red) 9%,var(--bg-primary)); border-radius:12px;
+    padding:8px 12px 8px 14px; overflow:hidden; }
+  .card::before { content:""; position:absolute; inset:0 auto 0 0; width:3px; background:var(--accent-red); }
+  .card.warn { border-color:color-mix(in srgb,var(--accent-orange) 40%,transparent);
+    background:color-mix(in srgb,var(--accent-orange) 9%,var(--bg-primary)); }
+  .card.warn::before { background:var(--accent-orange); }
+  .strip { position:absolute; inset:0 0 auto 0; height:2px; overflow:hidden; }
+  .strip::after { content:""; position:absolute; inset:0; width:35%;
+    background:linear-gradient(90deg,transparent,var(--accent-orange),transparent);
+    animation:sweep 1.5s linear infinite; }
+  @keyframes sweep { from{transform:translateX(-120%)} to{transform:translateX(360%)} }
+  .row { display:flex; gap:9px; align-items:flex-start; }
+  .ico { color:var(--accent-red); flex:0 0 auto; margin-top:1px; }
+  .card.warn .ico { color:var(--accent-orange); }
+  .msg { flex:1 1 auto; color:var(--text-primary); font-size:12.5px; font-weight:700; white-space:pre-wrap; word-break:break-word; }
+  .sub { color:var(--text-tertiary); font-size:11.5px; margin-top:3px; display:flex; align-items:center; gap:6px; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--accent-orange); animation:pulse 1.1s ease-in-out infinite; flex:0 0 auto; }
+  @keyframes pulse { 0%,100%{opacity:.25} 50%{opacity:1} }
+  .acts { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px; }
+  .btn { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; padding:2px 9px; border-radius:999px;
+    border:1px solid currentColor; background:transparent; color:var(--text-secondary); cursor:pointer; }
+  .btn.stopretry { color:var(--accent-orange); }
+  .btn.primary { color:var(--accent-blue); }
+  .x { position:absolute; top:6px; right:8px; border:0; background:transparent; color:var(--text-muted);
+    font-size:14px; line-height:1; cursor:pointer; padding:2px 4px; border-radius:4px; }
+  .case { border:1px solid var(--border-primary); border-radius:10px; background:var(--bg-primary); padding:14px; margin:8px 0 4px; }
+  .caselabel { font-size:10px; letter-spacing:.6px; text-transform:uppercase; color:var(--text-muted); margin-bottom:9px; }
+  .tag { display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.5px; padding:2px 7px; border-radius:999px;
+    text-transform:uppercase; margin-left:7px; vertical-align:middle; }
+  .tag.new { background:color-mix(in srgb,var(--accent-green) 16%,transparent); color:var(--accent-green); }
+  .tag.today { background:color-mix(in srgb,var(--text-muted) 22%,transparent); color:var(--text-tertiary); }
+  .set { border:1px solid var(--border-primary); border-radius:10px; background:var(--bg-primary); padding:16px; }
+  .field { display:flex; gap:12px; align-items:center; margin:0 0 6px; }
+  .field label { color:var(--text-primary); font-size:12.5px; min-width:230px; }
+  select,input[type=number] { background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border-secondary);
+    border-radius:6px; padding:4px 8px; font-size:12px; }
+  .hint { color:var(--text-tertiary); font-size:11.5px; margin:0 0 14px; }
+  .toggle { width:34px; height:19px; border-radius:999px; background:var(--accent-blue); position:relative; flex:0 0 auto; }
+  .toggle::after{content:"";position:absolute;top:2px;right:2px;width:15px;height:15px;border-radius:50%;background:#fff}
+  pre.flow { background:var(--bg-primary); border:1px solid var(--border-primary); border-radius:10px; padding:14px;
+    color:var(--text-tertiary); font-size:11.5px; overflow:auto; }
+  .warnbox { border:1px solid color-mix(in srgb,var(--accent-orange) 45%,transparent); border-radius:10px;
+    background:color-mix(in srgb,var(--accent-orange) 8%,var(--bg-primary)); padding:12px 14px; font-size:12px; }
+  .warnbox b { color:var(--accent-orange); }
+
+  /* MDI icons as inline sprite refs — no emoji anywhere */
+  svg.i { width:14px; height:14px; fill:currentColor; flex:0 0 auto; vertical-align:-2px; }
+  svg.i.sm { width:12px; height:12px; }
+  svg.i.lg { width:16px; height:16px; }
+  /* collapsed one-line pill — what dismiss produces while a retry is pending */
+  .pillbar { display:flex; align-items:center; gap:8px; min-height:30px; }
+  .pillbar .etxt { color:var(--text-primary); font-size:11.5px; font-weight:700;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .pillbar .meta { color:var(--text-tertiary); font-size:11.5px; flex:0 0 auto; }
+  .pillbar .grow { flex:1 1 auto; min-width:0; display:flex; gap:6px; align-items:baseline; }
+  .pillbar .acts { margin-top:0; flex-wrap:nowrap; }
+  /* settings: schedule preview + scope disclosure */
+  .seq { font:10.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--text-tertiary);
+    margin-top:3px; word-break:break-word; }
+  .preview { border:1px solid var(--border-primary); border-radius:8px; background:var(--bg-tertiary);
+    padding:9px 11px; font-size:11.5px; color:var(--text-tertiary); margin-top:12px; }
+  .preview b { color:var(--text-primary); }
+  .scope { display:flex; gap:7px; align-items:flex-start; margin-top:10px; font-size:11.5px;
+    border:1px solid color-mix(in srgb,var(--accent-blue) 40%,transparent); border-radius:8px;
+    background:color-mix(in srgb,var(--accent-blue) 8%,var(--bg-primary)); padding:9px 11px; color:var(--text-secondary); }
+  .scope svg { color:var(--accent-blue); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="alert" viewBox="0 0 24 24"><path d="M13 14H11V9H13M13 18H11V16H13M1 21H23L12 2L1 21Z"/></symbol><symbol id="octagon" viewBox="0 0 24 24"><path d="M13 13H11V7H13M11 15H13V17H11M15.73 3H8.27L3 8.27V15.73L8.27 21H15.73L21 15.73V8.27L15.73 3Z"/></symbol><symbol id="stop" viewBox="0 0 24 24"><path d="M18,18H6V6H18V18Z"/></symbol><symbol id="refresh" viewBox="0 0 24 24"><path d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></symbol><symbol id="copy" viewBox="0 0 24 24"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></symbol><symbol id="close" viewBox="0 0 24 24"><path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/></symbol><symbol id="chevup" viewBox="0 0 24 24"><path d="M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z"/></symbol><symbol id="chevdown" viewBox="0 0 24 24"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></symbol></svg>
+<div class="page">
+  <div class="bar">
+    <button onclick="document.documentElement.dataset.theme='dark'">dark</button>
+    <button onclick="document.documentElement.dataset.theme='light'">light</button>
+    <span class="note" style="margin:0">mockup only — no code changed · v4 — rebased on measured pi 0.81.1 behaviour</span>
+  </div>
+
+  <h1>Error card: visible waiting · one Stop retrying · collapse, never vanish</h1>
+  <p class="lede">v4 — <b>pi owns the retry loop; the dashboard configures it and renders it.</b>
+  “Retry forever” is now just <code>retry.maxRetries</code> in pi's own settings, exposed in
+  Settings below. There is <b>no dashboard-side loop</b>: re-driving a turn is impossible
+  (<code>resume mode:"continue"</code> is refused for a live session and only reopens an ended one idle),
+  and pi never settles the turn while its budget remains — so nothing needs re-driving.
+  No phase mark, no error fingerprinting, and the <b>waiting-between-attempts</b> phase is finally visible.</p>
+
+  <div class="case" style="margin-bottom:18px"><div class="caselabel">what changed since v3 — all of it measured, not assumed</div>
+    <div style="font-size:11.5px;line-height:1.75">
+      <div><b style="color:var(--accent-orange)">The phase mark is gone.</b> There is only one retry phase (pi's), so there is nothing to disambiguate.</div>
+      <div><b style="color:var(--accent-orange)">The 5–60 s ceiling is gone.</b> pi's delay is <code>baseDelayMs · 2^(n-1)</code>, hardcoded and uncapped;
+      capping it needs an upstream change we cannot make. Robert's measured 5–60 s window survives only as the
+      <code>abort-latch.ts</code> rationale, not as a schedule.</div>
+      <div><b style="color:var(--accent-orange)">The one-shot Retry is gone.</b> It needed the same missing re-drive mechanism.</div>
+      <div><b style="color:var(--accent-green)">Settings arrived.</b> v3 said “zero settings”; the settings ARE the feature now.</div>
+    </div>
+  </div>
+
+  <h2>A · today, exactly as it renders <span class="tag today">as-is</span></h2>
+  <p class="note"><b>Worse than v3 assumed.</b> The retry sub-line does not appear for an instant — it <b>never appears at all</b>.
+  pi ends a full agent turn per attempt (<code>agent_start → message_end(error) → agent_end</code>, one <code>agent_settled</code> at the end),
+  and <code>RetryTracker.observeAgentEnd</code> deletes the pending failure on every <code>agent_end</code>. Replaying pi's real order through the
+  shipped tracker yields <b>auto_retry_start emitted: 0</b>. So the user just gets this same settled card N times.</p>
+  <div class="case"><div class="caselabel">state: retrying (today) — indistinguishable from a dead session</div>
+    <div class="card"><button class="x"><svg class="i"><use href="#close"/></svg></button>
+      <div class="row"><span class="ico"><svg class="i lg"><use href="#alert"/></svg></span><div class="msg">overloaded_error: Overloaded</div></div>
+      <div class="acts"><button class="btn"><svg class="i sm"><use href="#copy"/></svg> Copy</button></div>
+    </div>
+    <p class="note" style="margin:9px 0 0">No attempt count, no countdown, no Stop. ✕ hides it while pi keeps retrying underneath.</p>
+  </div>
+
+  <h2>B · waiting for the next attempt <span class="tag new">new — the missing state</span></h2>
+  <p class="note">pi is sleeping <code>baseDelayMs · 2^(n-1)</code> here and the card went silent. Now: live countdown + “Stop retrying”.
+  The countdown is <b>exact</b>, not approximate — the delay is computed from the same settings the dashboard writes, anchored on the
+  <code>agent_end</code> timestamp (measured accurate to ~8 ms in the lab).</p>
+  <div class="case"><div class="caselabel">state: waiting between attempts · exact countdown</div>
+    <div class="card warn"><div class="strip"></div><button class="x" title="Collapse"><svg class="i"><use href="#chevup"/></svg></button>
+      <div class="row"><span class="ico"><svg class="i lg"><use href="#alert"/></svg></span><div class="msg">overloaded_error: Overloaded</div></div>
+      <div class="sub"><span class="dot"></span>attempt 7 · next attempt in 38s</div>
+      <div class="acts">
+        <button class="btn stopretry"><svg class="i sm"><use href="#stop"/></svg> Stop retrying</button>
+        <button class="btn"><svg class="i sm"><use href="#copy"/></svg> Copy</button>
+      </div>
+    </div>
+    <p class="note" style="margin:9px 0 0">Bare “attempt 7” — never “of N”. With <code>maxRetries</code> user-set and typically large,
+    a denominator is noise. ✕ is now a <b>collapse</b> (state D), not a close.</p>
+  </div>
+
+  <h2>C · attempt in flight</h2>
+  <div class="case"><div class="caselabel">state: retrying · attempt in flight</div>
+    <div class="card warn"><div class="strip"></div><button class="x" title="Collapse"><svg class="i"><use href="#chevup"/></svg></button>
+      <div class="row"><span class="ico"><svg class="i lg"><use href="#alert"/></svg></span><div class="msg">overloaded_error: Overloaded</div></div>
+      <div class="sub"><span class="dot"></span>attempt 8 · retrying now…</div>
+      <div class="acts">
+        <button class="btn stopretry"><svg class="i sm"><use href="#stop"/></svg> Stop retrying</button>
+        <button class="btn"><svg class="i sm"><use href="#copy"/></svg> Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <h2>D · collapsed — one line, still steerable <span class="tag new">new — replaces “dismiss hides it”</span></h2>
+  <p class="note">This is what ✕ produces while a retry is pending. It keeps the error, the attempt, the countdown, <b>Stop retrying</b>,
+  and an expand chevron. A live retry can therefore never become invisible — which was the whole problem with the old F.</p>
+  <div class="case"><div class="caselabel">state: waiting · collapsed pill</div>
+    <div class="card warn" style="padding:6px 10px 6px 14px">
+      <div class="pillbar">
+        <span class="ico"><svg class="i"><use href="#alert"/></svg></span>
+        <span class="grow"><span class="etxt">overloaded_error: Overloaded</span><span class="meta">· attempt 7 · next in 38s</span></span>
+        <span class="acts">
+          <button class="btn stopretry"><svg class="i sm"><use href="#stop"/></svg> Stop retrying</button>
+          <button class="btn" title="Expand"><svg class="i sm"><use href="#chevdown"/></svg></button>
+        </span>
+      </div>
+    </div>
+    <p class="note" style="margin:9px 0 0">Collapse is sticky <b>for this failure chain only</b> — attempts 8, 9, 10 stay collapsed
+    (it does not pop back open every attempt), but a later unrelated failure opens expanded again.</p>
+  </div>
+
+  <h2>E · settled — retrying has stopped <span class="tag today">no Retry control</span></h2>
+  <p class="note">Reached via <b>Stop retrying</b> / the session Stop, or when pi exhausts <code>maxRetries</code>.
+  <b>There is no Retry button</b>: a manual re-drive needs the same mechanism that does not exist, and the old
+  <code>send_prompt</code> re-send is not coming back (it duplicated the user turn). Only now is ✕ a real, state-clearing dismiss.</p>
+  <div class="case"><div class="caselabel">state: settled · retrying stopped</div>
+    <div class="card"><button class="x" title="Dismiss"><svg class="i"><use href="#close"/></svg></button>
+      <div class="row"><span class="ico"><svg class="i lg"><use href="#octagon"/></svg></span><div class="msg">overloaded_error: Overloaded</div></div>
+      <div class="sub">retrying stopped after 7 attempts</div>
+      <div class="acts">
+        <button class="btn"><svg class="i sm"><use href="#copy"/></svg> Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <h2>F · sidebar session card <span class="tag new">new detail</span></h2>
+  <p class="note">Amber pulsing dot while retrying, red once it settles. Colour is never the only channel — the text carries the
+  same information (WCAG 1.4.1).</p>
+  <div class="case"><div class="caselabel">sidebar · retrying vs settled vs idle</div>
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <div style="display:flex;gap:9px;align-items:flex-start;border:1px solid var(--border-primary);border-radius:9px;background:var(--bg-tertiary);padding:8px 10px">
+        <span class="dot" style="margin-top:5px"></span>
+        <span><span style="color:var(--text-primary);font-size:12.5px;font-weight:600">pi-agent-dashboard</span>
+        <span style="display:block;color:var(--accent-orange);font-size:11px">retrying · attempt 7 · next in 38s</span></span>
+      </div>
+      <div style="display:flex;gap:9px;align-items:flex-start;border:1px solid var(--border-primary);border-radius:9px;background:var(--bg-tertiary);padding:8px 10px">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--accent-red);margin-top:5px;flex:0 0 auto"></span>
+        <span><span style="color:var(--text-primary);font-size:12.5px;font-weight:600">api-gateway</span>
+        <span style="display:block;color:var(--accent-red);font-size:11px">overloaded_error</span></span>
+      </div>
+      <div style="display:flex;gap:9px;align-items:flex-start;border:1px solid var(--border-primary);border-radius:9px;background:var(--bg-tertiary);padding:8px 10px">
+        <span style="width:6px;height:6px;border-radius:50%;background:var(--text-muted);margin-top:5px;flex:0 0 auto"></span>
+        <span><span style="color:var(--text-primary);font-size:12.5px;font-weight:600">docs-site</span>
+        <span style="display:block;color:var(--text-tertiary);font-size:11px">idle</span></span>
+      </div>
+    </div>
+  </div>
+
+  <h2>Settings → Provider retry <span class="tag new">new — this IS the feature now</span></h2>
+  <p class="note">The exact inversion of v3. These are <b>pi's own</b> knobs, written merge-preserving to
+  <code>~/.pi/agent/settings.json</code>. Ships with pi's defaults, so installing the dashboard changes nothing until you opt in.</p>
+  <div class="set">
+    <div class="field"><label>Enabled</label><span class="toggle"></span></div>
+    <p class="hint">pi retries transient provider failures. Off = a turn dies on the first error.</p>
+
+    <div class="field"><label>Max attempts</label><input type="number" value="24" min="0" step="1"></div>
+    <p class="hint">pi default <b>3</b>. No clamp — verified: <code>maxRetries: 8</code> produced 9 attempts.</p>
+
+    <div class="field"><label>Base delay (ms)</label><input type="number" value="2000" min="1" step="100"></div>
+    <p class="hint">pi default <b>2000</b>. The delay <b>doubles every attempt</b> and has no ceiling.</p>
+
+    <div class="preview">
+      Delay before each attempt — total before the turn finally fails: <b>388.4 days</b>
+      <div class="seq">2 s → 4 s → 8 s → 16 s → 32 s → 1.1 min → … → 194.2 days</div>
+    </div>
+
+    <div class="warnbox" style="margin-top:10px">
+      <b>24 attempts keeps one turn alive for ~388 days.</b> That is allowed — Stop ends it instantly — but the last gap
+      alone is 194 days. Warned, never capped: a UI cap is bypassed by editing the file, so it buys nothing.
+    </div>
+
+    <div class="scope">
+      <svg class="i"><use href="#alert"/></svg>
+      <span><b style="color:var(--text-primary)">Global setting.</b> Also applies to pi sessions you start outside the dashboard.
+      Saving reloads connected sessions — pi reads its settings only at session construction, so a write alone would do nothing.</span>
+    </div>
+
+    <p class="hint" style="margin:12px 0 0">Deliberately <b>not</b> exposed: <code>retry.provider.*</code>. That layer honors the
+    provider's own retry-after exactly — but emits no event and no callback, so the session would render as “streaming” for hours.</p>
+  </div>
+
+  <h2>Lifecycle — one phase, pi's</h2>
+  <pre class="flow">
+ MEASURED event shape (pi 0.81.1) — one FULL agent turn per attempt:
+
+   agent_start ─▶ message_end(error) ─▶ agent_end          attempt 1  ┐
+   [sleep base·2^0]                                                   │
+   agent_start ─▶ message_end(error) ─▶ agent_end          attempt 2  │ chain
+   [sleep base·2^1]                                                   │
+   agent_start ─▶ message_end(error) ─▶ agent_end ─▶ agent_settled   ┘ TERMINAL
+
+ THE BUG THIS FIXES: the tracker treats each agent_end as terminal and wipes the
+ pending failure, so observeMessageStart never fires → auto_retry_start emitted: 0.
+
+ CORRECTED RULE
+   error message_end   ─▶ record pending failure           (unchanged)
+   error agent_end     ─▶ attempt over, ANOTHER IS COMING:
+                          emit auto_retry_start + waiting signal,
+                          nextAttemptAt = agent_end ts + base·2^(n-1)   → [B] countdown
+                          (suppressed once attempt >= maxAttempts)
+   agent_settled       ─▶ SOLE terminal signal: emit auto_retry_end, clear    → [E]
+
+ "Stop retrying" / session Stop
+   ─▶ ctx.abort() → AgentSession.abort() → abortRetry() cancels the sleep
+      MEASURED: abort sent 15806ms into a 16s sleep → auto_retry_end at 15808ms (2 ms)
+   ─▶ [E] settled. No Retry control.
+ dismiss (✕) while pending ─▶ [D] COLLAPSE, never hide. Sticky for this chain only.
+ dismiss (✕) once settled  ─▶ real clear.
+  </pre>
+
+  <h2>Accepted consequence</h2>
+  <div class="warnbox">
+    <b>Overshoot on long outages — up to ~1× the outage length.</b> pi's delay doubles with no ceiling, so the next attempt always
+    lands at roughly 2× elapsed time. For a 5 h quota reset at defaults, attempt 13 fires at 4.55 h (still locked out) and
+    attempt 14 at 9.1 h — about 4 h late. This is <b>scale-invariant</b>: tuning <code>baseDelayMs</code> shifts which attempt lands
+    where, never the ratio. A 60 s ceiling would fix it and needs a one-line upstream change we cannot make.
+    <div style="margin-top:9px;color:var(--text-secondary)">
+      <b style="color:var(--text-primary)">What is NOT a consequence any more:</b> a deterministic failure does not loop forever.
+      v3's dashboard loop re-drove anything without judging it; pi's own classifier still governs here, so a bad API key,
+      <code>insufficient_quota</code> or a context overflow settles immediately instead of retrying.
+    </div>
+  </div>
+</div>
+</body>
+</html>

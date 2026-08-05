@@ -16,6 +16,7 @@ import {
 	mdiArrowUpBold,
 	mdiCheckCircle,
 	mdiDotsVertical,
+	mdiClockOutline,
 	mdiInformationOutline,
 	mdiLoading,
 	mdiRestore,
@@ -47,6 +48,31 @@ export interface PackageRowProps {
 	latestVersion?: string | null;
 	updateAvailable?: boolean;
 	busy?: boolean;
+	/**
+	 * This row's operation is enqueued behind a running one. Renders a
+	 * `queued` pill and a "Queued" action label so the click the user just
+	 * made is visibly accounted for rather than silently swallowed.
+	 * See change: unify-pi-core-into-package-queue (D9).
+	 */
+	queued?: boolean;
+	/**
+	 * Disables ONLY the moveTracker-backed controls (Move, Reset to
+	 * published) while any package operation is running.
+	 *
+	 * Why these and nothing else: every other control enqueues onto the
+	 * source-keyed `packageQueue`, so a mid-flight click is safe — it becomes
+	 * a visible `queued` entry. Move and Reset-to-npm bypass that queue
+	 * (`moveTracker`, `lib/nav/move-tracker.ts`): they are `moveId`-keyed and
+	 * carry partial-success semantics (install OK / remove failed), which do
+	 * not fit the source-keyed `statusFor(source)` contract, so they cannot be
+	 * queued without a second identity axis. Until they are migrated they take
+	 * the server busy lock directly with no retry, so leaving them enabled
+	 * would produce exactly the silent 409 this change exists to remove.
+	 * See change: unify-pi-core-into-package-queue (D9).
+	 */
+	locked?: boolean;
+	/** Tooltip explaining why `locked` disabled a control. */
+	lockedReason?: string;
 	progress?: string;
 	error?: string;
 	canUpdate?: boolean;
@@ -132,6 +158,9 @@ export function PackageRow({
 	latestVersion,
 	updateAvailable,
 	busy,
+	queued,
+	locked,
+	lockedReason,
 	progress,
 	error,
 	canUpdate = true,
@@ -164,6 +193,7 @@ export function PackageRow({
 	const {
 		flipUp: menuFlipUp,
 		maxHeight: menuMaxHeight,
+		minHeight: menuMinHeight,
 		anchorRight: menuAnchorRight,
 		maxWidth: menuMaxWidth,
 	} = usePopoverFlip(menuTriggerRef, { open: menuOpen, estimatedWidth: 160, boundaryRef });
@@ -196,6 +226,17 @@ export function PackageRow({
 					<div className="flex items-center gap-2 flex-wrap">
 						<span className="text-[var(--text-primary)] font-medium">{displayName}</span>
 						<Badge className={SOURCE_BADGE_STYLE[sourceType]}>{sourceType}</Badge>
+						{queued && (
+							<Badge className="border-[var(--accent-primary)]/40 text-[var(--accent-primary)]">
+								<span
+									className="flex items-center gap-0.5"
+									data-testid={testId ? `${testId}-queued` : undefined}
+								>
+									<Icon path={mdiClockOutline} size={0.4} />
+									{i18nT("common.queued", undefined, "Queued")}
+								</span>
+							</Badge>
+						)}
 						{isBundled && (
 							<Badge className="border-amber-500/40 text-amber-400">bundled</Badge>
 						)}
@@ -229,7 +270,8 @@ export function PackageRow({
 							)}
 							<button
 								onClick={() => setResetConfirmOpen(true)}
-								disabled={busy}
+								disabled={busy || locked}
+								title={locked ? lockedReason : undefined}
 								className="text-[10px] text-[var(--accent-primary)] hover:underline disabled:opacity-50 flex items-center gap-0.5"
 								data-testid={testId ? `${testId}-reset-inline` : undefined}
 							>
@@ -282,14 +324,27 @@ export function PackageRow({
 						</button>
 					)}
 					{updateAvailable && canUpdate && onUpdate && (
+						// Disabled only while THIS row's own op is pending (running or
+						// queued) — never because some other row is busy. A click during
+						// another op enqueues and surfaces as `queued`, so the button
+						// stays live. See change: unify-pi-core-into-package-queue (D9).
 						<button
 							onClick={onUpdate}
-							disabled={busy}
+							disabled={busy || queued}
+							title={queued ? i18nT("packages.queuedHint", undefined, "Waiting for the current operation to finish") : undefined}
 							className="px-2 py-0.5 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 disabled:opacity-50 flex items-center gap-1"
 							data-testid={testId ? `${testId}-update` : undefined}
 						>
-							{busy ? <Icon path={mdiLoading} size={0.45} spin /> : <Icon path={mdiArrowUpBold} size={0.45} />}
-							{i18nT("common.update", undefined, "Update")}
+							{busy ? (
+								<Icon path={mdiLoading} size={0.45} spin />
+							) : queued ? (
+								<Icon path={mdiClockOutline} size={0.45} />
+							) : (
+								<Icon path={mdiArrowUpBold} size={0.45} />
+							)}
+							{queued
+								? i18nT("common.queued", undefined, "Queued")
+								: i18nT("common.update", undefined, "Update")}
 						</button>
 					)}
 					{hasMenu && (
@@ -305,7 +360,7 @@ export function PackageRow({
 							</button>
 							{menuOpen && (
 								<div
-									style={{ maxHeight: menuMaxHeight, maxWidth: menuMaxWidth }}
+									style={{ maxHeight: menuMaxHeight, minHeight: menuMinHeight, maxWidth: menuMaxWidth }}
 									className={`absolute z-10 min-w-[160px] overflow-y-auto rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-lg py-1 text-xs ${
 										menuAnchorRight ? "right-0" : "left-0"
 									} ${menuFlipUp ? "bottom-full mb-1" : "top-full mt-1"}`}
@@ -313,8 +368,8 @@ export function PackageRow({
 									{showMove && (
 										<button
 											className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-											disabled={!!moveDisabledReason || busy}
-											title={moveDisabledReason}
+											disabled={!!moveDisabledReason || busy || locked}
+											title={moveDisabledReason ?? (locked ? lockedReason : undefined)}
 											onClick={() => { setMenuOpen(false); onMove?.(); }}
 											data-testid={testId ? `${testId}-move` : undefined}
 										>
@@ -333,7 +388,8 @@ export function PackageRow({
 									{canResetToNpm && (
 										<button
 											className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-											disabled={busy}
+											disabled={busy || locked}
+											title={locked ? lockedReason : undefined}
 											onClick={() => { setMenuOpen(false); setResetConfirmOpen(true); }}
 											data-testid={testId ? `${testId}-reset-to-published` : undefined}
 										>

@@ -27,6 +27,48 @@ export type ListSessionsResponse = ApiResponse<DashboardSession[]>;
 
 export type FetchEventContentResponse = ApiResponse<DashboardEvent>;
 
+// pi retry policy (pi-retry-settings capability). pi's OWN native retry knobs,
+// read from / written to the GLOBAL `~/.pi/agent/settings.json` `retry` block.
+// The dashboard keeps no parallel policy and runs no retry loop; this is a thin
+// editor over pi's settings. GLOBAL only -- pi has no persisted per-session
+// retry policy (`setAutoRetryEnabled` delegates to the global setter), so there
+// is no project-scoped or per-session variant.
+// See change: retry-forever-with-stop-control.
+
+/** pi's `retry.provider.*` sub-block (provider/SDK-level request controls). */
+export interface PiRetryProviderPolicy {
+  /** Provider/SDK request timeout (ms). Absent = SDK default. */
+  timeoutMs?: number;
+  /** Provider/SDK retry attempts. pi default 0. */
+  maxRetries: number;
+  /** Max server-requested delay (ms) before failing. pi default 60000; 0 disables the limit. */
+  maxRetryDelayMs: number;
+}
+
+export interface PiRetryPolicy {
+  /** pi retries transient provider failures. */
+  enabled: boolean;
+  /** Max agent-level retry attempts. No clamp -- pi accepts any non-negative int. */
+  maxRetries: number;
+  /** Base backoff (ms); pi's delay is `baseDelayMs * 2^(attempt-1)`, uncapped. */
+  baseDelayMs: number;
+  /** Provider/SDK-level controls. A wait taken here emits NO event (invisible). */
+  provider: PiRetryProviderPolicy;
+}
+
+export type GetPiRetryPolicyResponse = ApiResponse<PiRetryPolicy>;
+
+/** PUT body -- all fields required (the client always sends the full policy). */
+export type PutPiRetryPolicyRequest = PiRetryPolicy;
+
+export interface PutPiRetryPolicyResult {
+  policy: PiRetryPolicy;
+  /** How many connected sessions were reloaded to apply the new policy. */
+  reloadedSessions: number;
+}
+
+export type PutPiRetryPolicyResponse = ApiResponse<PutPiRetryPolicyResult>;
+
 // ── Session Spawn ───────────────────────────────────────────────────
 
 export interface SpawnSessionRequest {

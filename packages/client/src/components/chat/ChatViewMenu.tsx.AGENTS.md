@@ -5,3 +5,7 @@ Discord-style ⚙ View popover mounted in chat toolbar. Edits per-session `displ
 See change: opt-in-out-of-cwd-session-diffs — adds "Show out-of-workspace diffs" Row toggling `showOutOfCwdSessionDiffs` override.
 
 See change: fix-popover-container-clip — reads `usePopoverBoundary()`, passes `boundaryRef` (chat pane) to usePopoverFlip so the `right-0` popover measures the offset pane, not the viewport (no left-clip).
+
+## fix-popover-pane-bounded-height
+
+- Applies BOTH `minHeight` and `maxHeight` (`style={{ maxHeight, minHeight, maxWidth }}`). Keeps the default 120 floor — its ~20-row content always exceeds it, so the floor is a no-op here.

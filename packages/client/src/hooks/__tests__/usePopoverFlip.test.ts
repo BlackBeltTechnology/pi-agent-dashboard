@@ -54,6 +54,18 @@ function makeTrigger(rect: Partial<DOMRect>) {
   return { current: el } as React.RefObject<HTMLElement>;
 }
 
+/**
+ * Install a spying `scrollHeight` getter on a mock element. Reading a content
+ * metric like `scrollHeight` forces a synchronous reflow, and the measure path
+ * runs on every window `resize`/`scroll` plus boundary `scroll`/resize — so the
+ * hook must never touch one. See change: fix-popover-pane-bounded-height.
+ */
+function spyScrollHeight(el: HTMLElement) {
+  const spy = vi.fn(() => 400);
+  Object.defineProperty(el, "scrollHeight", { get: spy, configurable: true });
+  return spy;
+}
+
 interface MockBoundary {
   ref: React.RefObject<HTMLElement>;
   el: HTMLElement & { __fire: (type: string) => void };
@@ -140,12 +152,130 @@ describe("usePopoverFlip", () => {
     expect(result.current.maxHeight).toBe(892);
   });
 
-  it("clamps maxHeight with a 120px floor", () => {
+  // 2.5 (was: "clamps maxHeight with a 120px floor"). The floor no longer
+  // inflates `maxHeight`; it moved to `minHeight`, itself capped by the space.
+  it("does NOT inflate maxHeight to the floor when space is short", () => {
     // Tiny viewport so the chosen-direction space is below the floor.
     setViewportHeight(150);
     const ref = makeRef(60, 90);
     const { result } = renderHook(() => usePopoverFlip(ref, { open: true }));
-    expect(result.current.maxHeight).toBe(120);
+    // spaceBelow = 150 - 90 - 8 = 52; spaceAbove = 60 - 8 = 52 → no flip.
+    expect(result.current.maxHeight).toBe(52);
+    expect(result.current.minHeight).toBe(52);
+  });
+
+  describe("height bounds — maxHeight (bound) vs minHeight (floor)", () => {
+    let originalRO: typeof ResizeObserver | undefined;
+    beforeEach(() => {
+      roCallbacks = [];
+      originalRO = globalThis.ResizeObserver;
+      globalThis.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
+    });
+    afterEach(() => {
+      globalThis.ResizeObserver = originalRO as typeof ResizeObserver;
+    });
+
+    it("H1 maxHeight equals the available space when it is below the floor", () => {
+      setViewportHeight(150);
+      const ref = makeRef(60, 90);
+      const { result } = renderHook(() =>
+        usePopoverFlip(ref, { open: true, minPopoverHeight: 260 }),
+      );
+      // Available space 52 < floor 260 → the bound stays 52, never the floor.
+      expect(result.current.maxHeight).toBe(52);
+    });
+
+    it("H2 minHeight equals min(floor, availableSpace)", () => {
+      setViewportHeight(1000);
+      const ample = makeRef(100, 130); // spaceBelow = 862
+      const { result: r1 } = renderHook(() => usePopoverFlip(ample, { open: true }));
+      expect(r1.current.minHeight).toBe(120); // default floor, space is larger
+
+      const { result: r2 } = renderHook(() =>
+        usePopoverFlip(ample, { open: true, minPopoverHeight: 260 }),
+      );
+      expect(r2.current.minHeight).toBe(260); // configured floor, space is larger
+    });
+
+    it("H3 minHeight collapses onto maxHeight when space is below the floor", () => {
+      setViewportHeight(150);
+      const ref = makeRef(60, 90);
+      const { result } = renderHook(() =>
+        usePopoverFlip(ref, { open: true, minPopoverHeight: 260 }),
+      );
+      expect(result.current.minHeight).toBe(result.current.maxHeight);
+      expect(result.current.minHeight).toBe(52);
+    });
+
+    it("H4 maxHeight is never inflated above available space — downward", () => {
+      setViewportHeight(1000);
+      const ref = makeRef(100, 130);
+      const { result } = renderHook(() =>
+        usePopoverFlip(ref, { open: true, minPopoverHeight: 260 }),
+      );
+      expect(result.current.flipUp).toBe(false);
+      expect(result.current.maxHeight).toBe(862); // 1000 - 130 - 8
+    });
+
+    it("H5 maxHeight is never inflated above available space — flipped up", () => {
+      setViewportHeight(200);
+      const ref = makeRef(100, 130);
+      const { result } = renderHook(() =>
+        usePopoverFlip(ref, { open: true, minPopoverHeight: 260 }),
+      );
+      // spaceBelow = 200 - 130 - 8 = 62 < 200 threshold; spaceAbove = 92 > 62 → flip up.
+      expect(result.current.flipUp).toBe(true);
+      expect(result.current.maxHeight).toBe(92);
+      expect(result.current.minHeight).toBe(92);
+    });
+
+    it("H6 clamps maxHeight at 0 when the trigger sits outside the boundary", () => {
+      setViewportHeight(1000);
+      // Trigger scrolled entirely below the pane → both spaces negative.
+      const b = makeBoundary({ top: 100, bottom: 400 });
+      const trigger = makeTrigger({ top: 402, bottom: 430 });
+      const { result } = renderHook(() =>
+        usePopoverFlip(trigger, { open: true, boundaryRef: b.ref }),
+      );
+      expect(result.current.maxHeight).toBeGreaterThanOrEqual(0);
+      expect(result.current.minHeight).toBeGreaterThanOrEqual(0);
+      expect(result.current.minHeight).toBeLessThanOrEqual(result.current.maxHeight);
+    });
+
+    it("H7 the measure path reads no content metrics (no forced reflow)", () => {
+      setViewportHeight(1000);
+      const b = makeBoundary({ top: 100, bottom: 400 });
+      const trigger = makeTrigger({ top: 200, bottom: 230 });
+      const triggerSpy = spyScrollHeight(trigger.current!);
+      const boundarySpy = spyScrollHeight(b.el);
+      const protoSpy = vi.spyOn(
+        Element.prototype,
+        "scrollHeight",
+        "get",
+      );
+
+      renderHook(() =>
+        usePopoverFlip(trigger, { open: true, minPopoverHeight: 260, boundaryRef: b.ref }),
+      );
+      // …on open.
+      expect(triggerSpy).not.toHaveBeenCalled();
+      expect(boundarySpy).not.toHaveBeenCalled();
+
+      // …on window scroll / resize.
+      act(() => {
+        window.dispatchEvent(new Event("scroll"));
+        window.dispatchEvent(new Event("resize"));
+      });
+      // …on boundary scroll / resize.
+      act(() => {
+        b.el.__fire("scroll");
+        for (const cb of roCallbacks) cb([], {} as ResizeObserver);
+      });
+
+      expect(triggerSpy).not.toHaveBeenCalled();
+      expect(boundarySpy).not.toHaveBeenCalled();
+      expect(protoSpy).not.toHaveBeenCalled();
+    });
   });
 
   it("re-evaluates on resize while open", () => {
