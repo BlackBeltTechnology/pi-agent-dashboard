@@ -37,11 +37,12 @@ Exemplar for every row below: `packages/extension/src/__tests__/connection.test.
 
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
-| P1 | R1 (hot-path overhead) | timed burst | L1 | automated | 1000 messages, synchronous no-op handler, single connection | total wall-clock to drain **< 250 ms** (guards against an accidental O(n²) queue implementation; a microtask hop per message should land far below this) | single run |
+| P1 | R1 (hot-path overhead) | timed burst | L1 | automated | 1000 messages, synchronous no-op handler, single connection | total wall-clock to drain **< 500 ms** (guards against an accidental O(n²) queue implementation; a microtask hop per message should land far below this) | single run |
 
-> **P1 threshold is a proposal, per C1.** 250 ms is deliberately loose — it is a
-> shape guard (linear vs quadratic), not a latency SLA. Confirm or replace the
-> number before the apply step authors this test.
+> **P1 threshold CONFIRMED at 500 ms** (C1 / task 3.2). Deliberately loose — it is
+> a shape guard (linear vs quadratic), not a latency SLA; the looser bound trades
+> sensitivity for CI-flake resistance and still catches a quadratic queue by
+> orders of magnitude.
 
 ### Frontend-quirk
 
