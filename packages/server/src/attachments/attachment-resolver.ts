@@ -13,6 +13,7 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import { buildFittedEvent, type PendingAttachment } from "./attachment-ingest.js";
+import { DISPLAY_MAX_BYTES } from "./display-fit.js";
 import type { FitWorkerPool } from "./fit-worker-pool.js";
 
 export interface AttachmentResolverDeps {
@@ -53,13 +54,27 @@ export function createAttachmentResolver(deps: AttachmentResolverDeps): Attachme
         for (const result of results) {
           const source = pending.find((p) => p.blockIndex === result.blockIndex);
           if (!source) continue;
+          // Last line of defence for the "never an indefinite placeholder"
+          // invariant: an over-budget payload would make THIS event exceed the
+          // per-event ceiling, and the store would replace it with
+          // `{__truncated}` — which drops `attachmentId`, so the client could
+          // never match it and the placeholder would spin forever. Degrade to
+          // an explicit failed state instead of shipping an unpublishable one.
+          const overBudget =
+            !result.failed && Buffer.byteLength(result.data, "utf8") > DISPLAY_MAX_BYTES;
+          if (overBudget) {
+            console.warn(
+              `[attachments] fitted derivative ${source.attachmentId.slice(0, 12)} exceeded the display budget; resolving failed`,
+            );
+          }
+          const failed = result.failed || overBudget;
           publish(
             sessionId,
             buildFittedEvent({
               attachmentId: source.attachmentId,
-              data: result.failed ? "" : result.data,
+              data: failed ? "" : result.data,
               mimeType: result.mimeType,
-              state: result.failed ? "failed" : "ready",
+              state: failed ? "failed" : "ready",
             }),
           );
         }

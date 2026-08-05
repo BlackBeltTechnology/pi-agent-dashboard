@@ -152,3 +152,41 @@ describe("attachment-resolver", () => {
     expect(pool.fit).not.toHaveBeenCalled();
   });
 });
+
+describe("attachment-resolver — over-budget guard", () => {
+  it("degrades an over-budget derivative to failed rather than an unpublishable event", async () => {
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    // A pool that (hypothetically) returns a derivative larger than the budget.
+    const pool = fakePool({
+      fit: vi.fn(async (req: any) => ({
+        jobId: 1,
+        results: req.blocks.map((b: any) => ({
+          blockIndex: b.blockIndex,
+          data: "Q".repeat(300_000),
+          mimeType: b.mimeType,
+          fitted: true,
+        })),
+      })),
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: (_s, _q, e) => emitted.push(e),
+    });
+    await resolver.resolve("s1", [
+      { attachmentId: "9".repeat(64), blockIndex: 1, data: "AA", mimeType: "image/png" },
+    ]);
+    warn.mockRestore();
+
+    expect(emitted).toHaveLength(1);
+    expect((emitted[0].data as any).state).toBe("failed");
+    // Crucially the event SURVIVES the store intact, so the client can still
+    // match its attachmentId and resolve the placeholder.
+    const stored = store.getEvent("s1", 1) as any;
+    expect(stored.data.__truncated).toBeUndefined();
+    expect(stored.data.attachmentId).toBe("9".repeat(64));
+  });
+});
+

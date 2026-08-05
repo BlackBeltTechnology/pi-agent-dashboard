@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Jimp, JimpMime } from "jimp";
 import {
+  DISPLAY_MAX_BYTES,
   DISPLAY_MAX_EDGE,
   fitImageBlockForDisplay,
   isAnimatedGif,
@@ -107,3 +108,64 @@ describe("display-fit", () => {
     expect(out.fitted).toBe(false);
   });
 });
+
+// A fitted derivative MUST fit the per-event ceiling. The measured 212 KB max
+// came from real screenshots (n=40); high-entropy images blow past it, and an
+// over-budget derivative made its OWN resolution event exceed the ceiling ->
+// {__truncated} -> attachmentId destroyed -> placeholder stuck "loading"
+// forever, violating "SHALL NOT leave an indefinite placeholder".
+// See change: fit-attachments-for-display (E1/E2/E3 budget guarantee).
+describe("display-fit — output byte budget", () => {
+  /** High-entropy noise: PNG cannot compress it, so a naive fit blows the budget. */
+  async function noisePng(w: number, h: number): Promise<string> {
+    const img = new Jimp({ width: w, height: h, color: 0x000000ff });
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const v = ((x * 2654435761) ^ (y * 40503)) >>> 0;
+        // Keep the RGBA word inside uint32 range.
+        img.setPixelColor((((v & 0xffffff) << 8) >>> 0) + 0xff, x, y);
+      }
+    }
+    return (await img.getBuffer(JimpMime.png)).toString("base64");
+  }
+
+  it("keeps a high-entropy image within the display byte budget", async () => {
+    const data = await noisePng(2000, 1400);
+    const out = await fitImageBlockForDisplay({ data, mimeType: "image/png" });
+
+    expect(out.failed).toBeFalsy();
+    expect(out.fitted).toBe(true);
+    expect(Buffer.byteLength(out.data, "utf8")).toBeLessThanOrEqual(DISPLAY_MAX_BYTES);
+    // Still a decodable image, not a corrupt truncation.
+    const img = await Jimp.read(Buffer.from(out.data, "base64"));
+    expect(Math.max(img.bitmap.width, img.bitmap.height)).toBeLessThanOrEqual(DISPLAY_MAX_EDGE);
+  }, 30_000);
+
+  it("the budget is measured in BASE64 bytes, matching what the store stores", async () => {
+    // Regression: the fit once budgeted RAW buffer bytes while the resolver
+    // budgeted the base64 payload (~4/3 larger), so derivatives the fit
+    // accepted were rejected downstream and resolved "failed" for no reason.
+    const data = await noisePng(2000, 1400);
+    const out = await fitImageBlockForDisplay({ data, mimeType: "image/png" });
+    expect(out.failed).toBeFalsy();
+    const base64Bytes = Buffer.byteLength(out.data, "utf8");
+    const rawBytes = Buffer.from(out.data, "base64").length;
+    expect(base64Bytes).toBeGreaterThan(rawBytes); // proves the units differ
+    expect(base64Bytes).toBeLessThanOrEqual(DISPLAY_MAX_BYTES);
+  }, 30_000);
+
+  it("the budget leaves headroom under the per-event ceiling", () => {
+    // The derivative rides its own event, whose envelope also costs bytes.
+    expect(DISPLAY_MAX_BYTES).toBeLessThan(262_144);
+  });
+
+  it("a low-entropy image is untouched by the budget ladder (still PNG)", async () => {
+    const img = new Jimp({ width: 1200, height: 800, color: 0x3366ccff });
+    const data = (await img.getBuffer(JimpMime.png)).toString("base64");
+    const out = await fitImageBlockForDisplay({ data, mimeType: "image/png" });
+    expect(out.fitted).toBe(true);
+    expect(out.mimeType).toBe("image/png"); // no needless lossy downgrade
+    expect(Buffer.byteLength(out.data, "utf8")).toBeLessThanOrEqual(DISPLAY_MAX_BYTES);
+  }, 30_000);
+});
+

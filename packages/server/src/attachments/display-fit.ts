@@ -31,6 +31,38 @@ export const DISPLAY_MAX_EDGE = 768;
 /** JPEG quality for re-encoded derivatives. Measured max output 212 KB at q75. */
 export const DISPLAY_JPEG_QUALITY = 75;
 
+/**
+ * Hard byte budget for a derivative's base64 payload.
+ *
+ * The derivative rides its OWN `attachment_fitted` event, which is subject to
+ * the same per-event ceiling as everything else. An over-budget derivative made
+ * that event exceed the ceiling, so the store replaced it with `{__truncated}`
+ * — destroying the `attachmentId` the client patches by and stranding the
+ * attachment on "loading" forever, which the spec explicitly forbids.
+ *
+ * The measured 212 KB worst case came from real screenshots (n=40); it is a
+ * SAMPLE, not a bound. High-entropy images (detailed photos, dithered or noisy
+ * content) exceed it, so the fit now ENFORCES the budget rather than assuming
+ * it. Sits below the 256 KiB ceiling with headroom for the event envelope.
+ *
+ * Measured against the BASE64 payload, not the raw buffer — base64 is ~4/3 the
+ * size and it is the base64 string that is stored, serialized and measured by
+ * the event store. Budgeting raw bytes here while the caller budgets base64
+ * would reject derivatives this module considered acceptable.
+ * See change: fit-attachments-for-display.
+ */
+export const DISPLAY_MAX_BYTES = 240_000;
+
+/** Base64-encoded length of `n` raw bytes (what actually gets stored). */
+function base64Length(n: number): number {
+  return Math.ceil(n / 3) * 4;
+}
+
+/** Progressively lossier JPEG rungs tried when PNG output busts the budget. */
+const QUALITY_LADDER = [DISPLAY_JPEG_QUALITY, 60, 45, 30] as const;
+/** Extra dimension halvings attempted before giving up entirely. */
+const MAX_DOWNSCALES = 2;
+
 export interface ImageBlockInput {
   /** Base64 payload (no data-URL prefix). */
   data: string;
@@ -122,15 +154,36 @@ export async function fitImageBlockForDisplay(block: ImageBlockInput): Promise<F
     // PNG in → PNG out keeps screenshots lossless-ish; everything else goes to
     // JPEG at the measured quality. A PNG screenshot is the main use case.
     const png = block.mimeType.toLowerCase() === "image/png";
-    const outBuf = png
-      ? await img.getBuffer(JimpMime.png)
-      : await img.getBuffer(JimpMime.jpeg, { quality: DISPLAY_JPEG_QUALITY });
+    if (png) {
+      const pngBuf = await img.getBuffer(JimpMime.png);
+      if (base64Length(pngBuf.length) <= DISPLAY_MAX_BYTES) {
+        return { data: pngBuf.toString("base64"), mimeType: "image/png", fitted: true };
+      }
+      // Too big to keep lossless — fall through to the JPEG ladder rather than
+      // emitting a derivative that cannot survive its own event.
+    }
 
-    return {
-      data: outBuf.toString("base64"),
-      mimeType: png ? "image/png" : "image/jpeg",
-      fitted: true,
-    };
+    // Budget ladder: drop quality first (cheap, preserves dimensions), then
+    // halve dimensions. Guarantees the returned payload fits DISPLAY_MAX_BYTES
+    // or reports failure — it never returns something over budget.
+    for (let downscale = 0; downscale <= MAX_DOWNSCALES; downscale++) {
+      if (downscale > 0) {
+        img.resize({
+          w: Math.max(1, Math.round(img.bitmap.width / 2)),
+          h: Math.max(1, Math.round(img.bitmap.height / 2)),
+        });
+      }
+      for (const quality of QUALITY_LADDER) {
+        const buf = await img.getBuffer(JimpMime.jpeg, { quality });
+        if (base64Length(buf.length) <= DISPLAY_MAX_BYTES) {
+          return { data: buf.toString("base64"), mimeType: "image/jpeg", fitted: true };
+        }
+      }
+    }
+
+    // Unreducible within the budget. Report failure so the attachment resolves
+    // to an explicit failed state instead of an indefinite placeholder.
+    return { ...unchanged, failed: true };
   } catch {
     // Undecodable / unsupported-by-jimp input. Never propagate: the caller must
     // still be able to store the message row and show an honest failed state.

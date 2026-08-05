@@ -28,7 +28,7 @@
 All L1 rows extend `packages/server/src/__tests__/memory-event-store.test.ts`
 (harness exemplar: that file's `createMemoryEventStore(neverPinned)` fixtures).
 
-- [ ] 3.1 E1/E2/E3 fitting bounds the event (test-plan #E1 #E2 #E3) — input 10.5 MB / 2.2 MB /
+- [x] 3.1 E1/E2/E3 fitting bounds the event (test-plan #E1 #E2 #E3) — input 10.5 MB / 2.2 MB /
       126 KB image · trigger ingest · observable stored event ≤ 256 KB with `data.message`.
       **Must fail before implementation.**
 - [x] 3.2 E4/E5/E6 no-upscale + fit boundary (test-plan #E4 #E5 #E6) — input 0.2 KB, 767 px,
@@ -75,7 +75,7 @@ All L3 rows go in `tests/e2e/`; harness exemplar
 glue) and `tests/e2e/chat-render-fx.spec.ts` (chat render assertions). Read the harness
 port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 
-- [ ] 4.1 F1/F2 two-phase render (test-plan #F1 #F2) — input message + 5 MB attachment ·
+- [x] 4.1 F1/F2 two-phase render (test-plan #F1 #F2) — input message + 5 MB attachment ·
       trigger send, then fitting completes · observable row present before any image,
       placeholder in the attachment position, converging to `<img>` in the same position
       with row count unchanged.
@@ -89,7 +89,7 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
       404 from the original endpoint · trigger user opens it · observable full-resolution
       original byte-identical to input; on failure the fitted image still renders and only
       zoom degrades.
-- [ ] 4.5 F7 replay renders images (test-plan #F7) — input session with image messages ·
+- [x] 4.5 F7 replay renders images (test-plan #F7) — input session with image messages ·
       trigger reload · observable every image-bearing row renders an image.
 - [ ] 4.6 F8 row-height stability (test-plan #F8) — input virtualized transcript with
       image rows · trigger scroll out and back · observable stable height, no collapse or
