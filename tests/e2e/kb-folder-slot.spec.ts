@@ -54,16 +54,18 @@ async function pinFixture(page: Page, absPath: string): Promise<void> {
   const onboardingCta = page.getByTestId("onboarding-step-2-cta");
   if (await onboardingCta.isVisible().catch(() => false)) await onboardingCta.click();
   else await page.getByTestId("dashboard-add-folder-btn").first().click();
-  const dialog = page.getByTestId("pin-directory-dialog");
+  const dialog = page.getByTestId("add-folders-dialog");
   await dialog.waitFor({ state: "visible" });
-  const textbox = dialog.getByRole("textbox");
+  const textbox = dialog.getByRole("textbox").first();
   // Let the initial listing render so it can't clobber the fill below.
   await dialog.getByRole("option").first().waitFor({ state: "visible" });
   await textbox.fill(absPath);
   await expect(textbox).toHaveValue(absPath);
-  const leaf = (absPath.split("/").filter(Boolean).pop() ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  await dialog.getByRole("option", { name: new RegExp(leaf) }).waitFor({ state: "visible" });
-  await dialog.getByRole("button", { name: /^select$/i }).click();
+  // Selection is the per-row checkbox (keyed by full path), then commit.
+  const row = dialog.getByTestId(`path-picker-check-${absPath}`);
+  await row.waitFor({ state: "visible" });
+  await row.click();
+  await dialog.getByTestId("add-folders-commit").click();
   await dialog.waitFor({ state: "hidden" });
 }
 

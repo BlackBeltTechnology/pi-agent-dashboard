@@ -37,13 +37,16 @@ function folderGroup(page: Page, basename: string): Locator {
  */
 async function pinFixture(page: Page, cwd: string): Promise<void> {
   await ensureGitSession(page);
-  const basename = cwd.split("/").filter(Boolean).pop() ?? cwd;
   await byTestId(page, "dashboardAddFolderBtn").first().click();
-  const dialog = byTestId(page, "pinDirectoryDialog");
+  const dialog = byTestId(page, "addFoldersDialog");
   await dialog.waitFor({ state: "visible" });
-  await dialog.getByRole("textbox").fill(cwd);
-  await dialog.getByRole("option", { name: new RegExp(`\\b${basename}\\b`) }).click();
-  await dialog.getByRole("button", { name: /^select$/i }).click();
+  await dialog.getByRole("textbox").first().fill(cwd);
+  // Row checkbox keyed by the FULL path — no word-boundary basename regex, so
+  // a sibling whose name contains this one cannot be selected instead.
+  const row = dialog.getByTestId(`path-picker-check-${cwd}`);
+  await row.waitFor({ state: "visible" });
+  await row.click();
+  await byTestId(dialog, "addFoldersCommit").click();
   await dialog.waitFor({ state: "hidden" });
 }
 

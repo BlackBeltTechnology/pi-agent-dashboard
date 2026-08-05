@@ -17,7 +17,14 @@ export const TESTIDS = {
   // fresh container. Step CTAs are gated on `providersReady` (seeded key).
   onboardingStep2Cta: "onboarding-step-2-cta", // "Add folder" → opens pin dialog
   onboardingStep3Cta: "onboarding-step-3-cta", // "Start session" → spawns
-  pinDirectoryDialog: "pin-directory-dialog",
+  // The add-folders flow is a multi-select explorer, NOT the old path prompt:
+  // the row body navigates, a per-row checkbox selects into a basket, and a
+  // commit button pins every basket entry. `pin-directory-dialog` died with the
+  // dialog-system unification (#90) and the map kept pointing at it, so every
+  // spec that pins a folder hung until its 180 s cap. See change:
+  // redesign-folder-workspace-add-flow.
+  addFoldersDialog: "add-folders-dialog",
+  addFoldersCommit: "add-folders-commit",
   // Accumulated-state path: once a folder/session exists the LandingPage
   // onboarding view is gone and the sidebar exposes these instead. The
   // ensureGitSession() helper falls back to them when the onboarding CTAs
@@ -97,8 +104,10 @@ export const TESTIDS = {
   specsBrowser: "specs-browser",
 } as const;
 
-export function byTestId(page: Page, key: keyof typeof TESTIDS): Locator {
-  return page.getByTestId(TESTIDS[key]);
+export function byTestId(scope: Page | Locator, key: keyof typeof TESTIDS): Locator {
+  // Accepts a Locator as well as a Page so a lookup can be scoped to a dialog
+  // or card; both expose the same `getByTestId`.
+  return scope.getByTestId(TESTIDS[key]);
 }
 
 /** Navigate to the dashboard root and wait for the shell to mount. */
@@ -138,11 +147,18 @@ async function visible(loc: Locator): Promise<boolean> {
 }
 
 /**
- * Open the pin-directory dialog, type an absolute path, confirm.
+ * Open the add-folders dialog, select one absolute path, commit.
+ *
  * Uses whichever "add folder" affordance the current state exposes:
  * the onboarding step-2 CTA (fresh container) or the sidebar button
  * (a folder/session already exists). Requires PI_E2E_SEED=1 so the
  * onboarding gate is cleared and the directory-listing endpoint is reachable.
+ *
+ * Pinning is IMPLICIT here — adding a folder IS pinning it, so the dialog
+ * offers no pin control. Typing the full path is still how the target row is
+ * reached (`parseInput` splits it into parent + filter, so the parent is
+ * listed and filtered down to the leaf), but selection is now the per-row
+ * checkbox plus a commit button, not a `Select` confirm.
  */
 export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   const onboardingCta = byTestId(page, "onboardingStep2Cta");
@@ -151,17 +167,18 @@ export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   } else {
     await byTestId(page, "dashboardAddFolderBtn").first().click();
   }
-  const dialog = byTestId(page, "pinDirectoryDialog");
+  const dialog = byTestId(page, "addFoldersDialog");
   await dialog.waitFor({ state: "visible" });
-  await dialog.getByRole("textbox").fill(absPath);
-  // PathPicker confirm needs the target listed under its parent dir. Escape
-  // regex metacharacters so a dir name like `a.b` matches literally.
-  const leaf = (absPath.split("/").filter(Boolean).pop() ?? "").replace(
-    /[.*+?^${}()|[\]\\]/g,
-    "\\$&",
-  );
-  await dialog.getByRole("option", { name: new RegExp(leaf) }).waitFor({ state: "visible" });
-  await dialog.getByRole("button", { name: /^select$/i }).click();
+  // `.first()` — the dialog grows a second textbox in new-folder mode.
+  await dialog.getByRole("textbox").first().fill(absPath);
+  // The row checkbox is keyed by the FULL path, so no leaf-regex escaping is
+  // needed and a directory named like another's prefix cannot be hit instead.
+  const row = dialog.getByTestId(`path-picker-check-${absPath}`);
+  await row.waitFor({ state: "visible" });
+  await row.click();
+  const commit = byTestId(dialog, "addFoldersCommit");
+  await expect(commit).toBeEnabled(); // proves the basket actually took the path
+  await commit.click();
   await dialog.waitFor({ state: "hidden" });
 }
 
