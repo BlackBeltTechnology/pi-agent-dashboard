@@ -127,14 +127,17 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 
 ## 7. Verify
 
-- [ ] 7.1 `npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗' /tmp/pi-test.log`.
-- [ ] 7.2 `npm run build` + `curl -X POST http://localhost:8000/api/restart`.
+- [x] 7.1 `npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗' /tmp/pi-test.log`.
+- [x] 7.2 `npm run build` + `curl -X POST http://localhost:8000/api/restart`.
 - [ ] 7.3 Acceptance — the original report: open session `019fca04`, scroll to "The layout
       is not ok"; the screenshot renders.
 - [ ] 7.4 Paste a fresh ~2 MB screenshot: row appears immediately, image swaps in, still
       renders after reload, and click opens the original.
-- [ ] 7.5 Update `packages/server/src/persistence/AGENTS.md` + the new worker/endpoint
-      directory rows (Documentation Update Protocol).
+- [x] 7.5 Docs (Documentation Update Protocol): 20/20 changed source files carry a row in
+      their NEAREST directory `AGENTS.md` (attachments/, routes/, test-support/, chat/,
+      persistence/, terminal/, tests/e2e/, docker/); `docs/architecture.md` gained a
+      two-phase-attachment section (protocol + data-flow change) via DocScribe, and its
+      `docs/AGENTS.md` row was amended.
 
 ## 8. Manual (deferred post-merge — test-plan disposition: manual-only)
 
