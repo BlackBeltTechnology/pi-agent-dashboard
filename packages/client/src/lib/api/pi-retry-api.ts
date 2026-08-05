@@ -28,7 +28,9 @@ export async function getPiRetryPolicy(): Promise<PiRetryPolicy> {
   const json = await fetchJson<GetPiRetryPolicyResponse>(`${getApiBase()}/api/pi-retry`, {
     credentials: "same-origin",
   });
-  if (!json.success) throw new Error(json.error ?? "Failed to read retry policy");
+  // `ApiResponse<T>` carries `data?: T`, so a `success` check alone does not
+  // narrow it — guard the payload too.
+  if (!json.success || !json.data) throw new Error(json.error ?? "Failed to read retry policy");
   return json.data;
 }
 
@@ -44,6 +46,6 @@ export async function putPiRetryPolicy(policy: PiRetryPolicy): Promise<PutPiRetr
     headers: { "content-type": "application/json" },
     body: JSON.stringify(policy),
   });
-  if (!json.success) throw new Error(json.error ?? "Failed to save retry policy");
+  if (!json.success || !json.data) throw new Error(json.error ?? "Failed to save retry policy");
   return json.data;
 }
