@@ -4,25 +4,55 @@
  *
  *   POST /api/resources/toggle  — flip a resource's activation for a scope,
  *                                 delegating the write to pi's SettingsManager.
+ *   POST /api/resources/trust   — persist the project-trust decision a toggle
+ *                                 asked for, so the toggle can be retried.
  *   POST /api/resources/reload  — reload the sessions governed by a scope so
  *                                 pi re-reads its resource arrays.
+ *
+ * A project-scope toggle of an untrusted folder returns `403` with
+ * `data.trustRequired` and the offered options rather than writing a file pi
+ * would ignore.
+ *
+ * Granting project trust is the most consequential write here — it decides
+ * whether every future pi session loads untrusted extensions from that folder —
+ * so the trust endpoint is doubly bounded: the client may name only an option
+ * *id* (the updates are re-derived server-side), and the folder must carry an
+ * outstanding trust challenge raised by a real toggle. A client can therefore
+ * neither choose the trust-store updates nor choose the path they apply to.
+ * See change: project-scope-disable-global-resources.
  *
  * Concurrency: per-settings-file write mutex around the read-modify-write, so
  * two concurrent toggles of different resources can't clobber each other
  * (mirrors file-routes.ts). See change: folder-resource-activation-toggle.
  */
 
+import * as path from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
+import { AGENT_DIR } from "../pi/pi-resource-activation.js";
 import {
   applyResourceToggle,
   settingsPathForScope,
   type ToggleScope,
   type ToggleType,
 } from "../pi/resource-activation-toggle.js";
+import { persistTrustDecision, trustOptionsFor } from "../pi/resource-toggle-trust.js";
 import type { NetworkGuard } from "./route-deps.js";
+
+/**
+ * Folders for which a toggle returned `trustRequired` and whose decision is
+ * still outstanding. The trust endpoint only acts on a folder in this set, so
+ * a caller cannot plant a durable trust record for a path of its choosing.
+ * Process-lifetime and in-memory: a restart simply makes the user re-toggle.
+ */
+const outstandingTrustChallenges = new Set<string>();
+
+/** Test seam: clear the outstanding challenges (simulates a fresh process). */
+export function __resetTrustChallenges(): void {
+  outstandingTrustChallenges.clear();
+}
 
 // Per-settings-file write serialization (see file-routes.ts for the rationale).
 const settingsWriteLocks = new Map<string, Promise<unknown>>();
@@ -97,12 +127,66 @@ export function registerResourceActivationRoutes(
 
     if (!result.ok) {
       reply.code(result.status);
+      if (result.trustRequired) {
+        if (body.cwd) outstandingTrustChallenges.add(path.resolve(body.cwd));
+        return {
+          success: false,
+          error: result.error,
+          data: {
+            trustRequired: true,
+            trustOptions: result.trustOptions,
+            implicitlyTrusted: result.implicitlyTrusted,
+          },
+        } satisfies ApiResponse;
+      }
       return { success: false, error: result.error } satisfies ApiResponse;
     }
 
     const affectedSessions = sessionsForScope(piGateway, sessionManager, scope, body.cwd);
     return { success: true, data: { affectedSessions } } satisfies ApiResponse;
   });
+
+  // ── Persist a project-trust decision for a folder ───────────────
+  fastify.post<{ Body: { cwd?: string; optionId?: string } }>(
+    "/api/resources/trust",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { cwd, optionId } = request.body ?? {};
+      if (!cwd || typeof cwd !== "string") {
+        reply.code(400);
+        return { success: false, error: "cwd is required" } satisfies ApiResponse;
+      }
+      if (!outstandingTrustChallenges.has(path.resolve(cwd))) {
+        reply.code(409);
+        return {
+          success: false,
+          error: "no outstanding trust decision for this folder",
+        } satisfies ApiResponse;
+      }
+      // Re-derive the options here: the client may only name one, never supply
+      // the trust-store updates itself.
+      const option = trustOptionsFor(cwd).find((o) => o.id === optionId);
+      if (!option) {
+        reply.code(400);
+        return { success: false, error: "unknown trust option" } satisfies ApiResponse;
+      }
+      try {
+        if (option.updates.length > 0) {
+          await persistTrustDecision(AGENT_DIR, option.updates);
+        }
+      } catch (err) {
+        // The toggle stays unapplied: reporting success here would leave the
+        // caller retrying a write pi will keep ignoring.
+        reply.code(500);
+        return {
+          success: false,
+          error: `failed to record the project trust decision: ${(err as Error)?.message ?? String(err)}`,
+        } satisfies ApiResponse;
+      }
+      outstandingTrustChallenges.delete(path.resolve(cwd));
+      return { success: true, data: { trusted: option.trusted } } satisfies ApiResponse;
+    },
+  );
 
   // ── Reload the sessions governed by a scope ─────────────────────
   fastify.post<{ Body: { scope?: string; cwd?: string } }>(

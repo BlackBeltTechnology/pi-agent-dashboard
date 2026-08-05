@@ -78,6 +78,11 @@ interface Props {
 }
 
 export function ResourceCardGrid({ data, type, scopes, showScopeFilter, onView, activation }: Props) {
+  // Toggles write at the SURFACE's scope. The folder surface (which includes
+  // `local`) disables a globally-defined resource for this folder only; the
+  // global Settings surface writes globally. See change:
+  // project-scope-disable-global-resources.
+  const toggleScope: ResourceScope = scopes.includes("local") ? "local" : "global";
   const [query, setQuery] = useState("");
   const [scopeFilter, setScopeFilter] = useState<"all" | ResourceScope>("all");
   const [provenanceFilter, setProvenanceFilter] = useState<ProvenanceFilter>("all");
@@ -185,6 +190,7 @@ export function ResourceCardGrid({ data, type, scopes, showScopeFilter, onView, 
               key={`${it.scope}:${it.packageSource ?? "loose"}:${it.resource.filePath}`}
               resource={it.resource}
               scope={it.scope}
+              toggleScope={toggleScope}
               packageName={it.packageName}
               packageSource={it.resource.packageSource ?? it.packageSource}
               sessionCwd={data.contributingSession?.differsFromFolder ? data.contributingSession.cwd : undefined}

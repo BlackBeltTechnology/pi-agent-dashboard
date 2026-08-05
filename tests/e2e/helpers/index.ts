@@ -17,15 +17,12 @@ export const TESTIDS = {
   // fresh container. Step CTAs are gated on `providersReady` (seeded key).
   onboardingStep2Cta: "onboarding-step-2-cta", // "Add folder" → opens pin dialog
   onboardingStep3Cta: "onboarding-step-3-cta", // "Start session" → spawns
-  // The onboarding "Add folder" affordance mounts AddFoldersDialog (multi-
-  // select basket + commit), NOT the retired PinDirectoryDialog. Its
-  // `pin-directory-dialog` testid is no longer reachable from this path.
+  // The "Add folder" CTAs open the multi-select AddFoldersDialog. The former
+  // single-path PinDirectoryDialog (`pin-directory-dialog`) is still reachable
+  // from Settings ▸ Packages, but no longer from these affordances.
+  // See change: project-scope-disable-global-resources (helper drift fix).
   addFoldersDialog: "add-folders-dialog",
   addFoldersCommit: "add-folders-commit",
-  // Retained for `worktree-init-feedback.spec.ts`, which rolls its own picker
-  // flow against this testid. That spec is broken on the same drift and is not
-  // repaired here (out of scope); the key stays so it still type-checks.
-  pinDirectoryDialog: "pin-directory-dialog",
   // Accumulated-state path: once a folder/session exists the LandingPage
   // onboarding view is gone and the sidebar exposes these instead. The
   // ensureGitSession() helper falls back to them when the onboarding CTAs
@@ -146,15 +143,11 @@ async function visible(loc: Locator): Promise<boolean> {
 }
 
 /**
- * Open the add-folders dialog, type an absolute path, tick it, commit.
+ * Open the pin-directory dialog, type an absolute path, confirm.
  * Uses whichever "add folder" affordance the current state exposes:
  * the onboarding step-2 CTA (fresh container) or the sidebar button
  * (a folder/session already exists). Requires PI_E2E_SEED=1 so the
  * onboarding gate is cleared and the directory-listing endpoint is reachable.
- *
- * Drives `AddFoldersDialog`: the picker's answer is the BASKET (tick a
- * checkbox), not a single-select confirm button — the old `Select` affordance
- * belonged to the retired `PinDirectoryDialog` and no longer exists here.
  */
 export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   const onboardingCta = byTestId(page, "onboardingStep2Cta");
@@ -165,20 +158,14 @@ export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   }
   const dialog = byTestId(page, "addFoldersDialog");
   await dialog.waitFor({ state: "visible" });
-  // PathPicker splits the typed value into parent + partial, so the full path
-  // lists the target itself under its parent.
+  // The picker lists the typed path's PARENT filtered by its leaf, so typing
+  // the full path surfaces the target's own row. Tick that row's checkbox —
+  // the basket, not the browsed directory, is what the dialog commits.
   await dialog.getByRole("textbox").first().fill(absPath);
-  // Escape regex metacharacters so a dir name like `a.b` matches literally.
-  const leaf = (absPath.split("/").filter(Boolean).pop() ?? "").replace(
-    /[.*+?^${}()|[\]\\]/g,
-    "\\$&",
-  );
-  await dialog.getByRole("option", { name: new RegExp(leaf) }).waitFor({ state: "visible" });
-  // Exact path testid, not the row label — unambiguous when sibling dirs share a prefix.
-  await dialog.locator(`[data-testid="path-picker-check-${absPath}"]`).click();
-  const commit = byTestId(page, "addFoldersCommit");
-  await expect(commit).toBeEnabled();
-  await commit.click();
+  const check = dialog.getByTestId(`path-picker-check-${absPath}`);
+  await check.waitFor({ state: "visible", timeout: 20_000 });
+  await check.click();
+  await byTestId(page, "addFoldersCommit").click();
   await dialog.waitFor({ state: "hidden" });
 }
 

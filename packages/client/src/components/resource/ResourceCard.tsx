@@ -17,7 +17,12 @@
  *   - agent → `◆ model` + `🔧 tools` badges
  *   - theme → palette swatch strip replaces the description row
  *
- * See change: resources-card-tabs.
+ * A globally-defined resource disabled at folder scope keeps its row in the
+ * section the user acted in, and gains a `folder-controlled` badge rather than
+ * silently jumping to the local section — the activation genuinely is a
+ * project-scope settings entry now, and hiding that would be a lie.
+ *
+ * See change: resources-card-tabs, project-scope-disable-global-resources.
  */
 
 import type { PiResource } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
@@ -38,8 +43,15 @@ const TYPE_ICON: Record<PiResource["type"], string> = {
 
 interface Props {
   resource: PiResource;
-  /** Scope this card belongs to — drives the scope badge and the toggle target. */
+  /** Scope this card belongs to — drives the scope badge. */
   scope: ResourceScope;
+  /**
+   * Scope the toggle WRITES to — the surface's scope, not the resource's.
+   * On the folder surface a globally-defined resource is disabled at `local`
+   * scope (that is the cross-scope disable this surface exists to offer);
+   * writing at the resource's own `global` scope would disable it everywhere.
+   */
+  toggleScope: ResourceScope;
   /** Package name when package-contributed; undefined → loose. */
   packageName?: string;
   /** Raw package source string (pi settings key) used by the activation write. */
@@ -53,12 +65,13 @@ interface Props {
   activation?: ResourceActivationController;
 }
 
-export function ResourceCard({ resource, scope, packageName, packageSource, sessionCwd, onView, activation }: Props) {
+export function ResourceCard({ resource, scope, toggleScope, packageName, packageSource, sessionCwd, onView, activation }: Props) {
   const isAgent = resource.type === "agent";
   const isTheme = resource.type === "theme";
   // Agents have no pi activation dimension → no toggle, never dimmed.
   const enabled = isAgent ? true : activation ? activation.isEnabled(resource) : resource.enabled;
   const showToggle = !isAgent && !!activation;
+  const folderControlled = scope === "global" && !!activation?.isFolderControlled(resource);
 
   return (
     <div
@@ -77,7 +90,7 @@ export function ResourceCard({ resource, scope, packageName, packageSource, sess
           <ActivationToggle
             resource={resource}
             enabled={enabled}
-            onToggle={() => activation?.toggle(resource, scope, packageSource)}
+            onToggle={() => activation?.toggle(resource, toggleScope, packageSource)}
           />
         )}
       </div>
@@ -104,6 +117,19 @@ export function ResourceCard({ resource, scope, packageName, packageSource, sess
           <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-orange-500/12 text-[var(--accent-orange,#ea580c)]" data-testid="badge-source">📦 {packageName}</span>
         ) : (
           <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]" data-testid="badge-source">{i18nT("common.loose", undefined, "loose")}</span>
+        )}
+        {folderControlled && (
+          <span
+            className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/12 text-[var(--accent-orange,#ea580c)]"
+            data-testid="badge-folder-controlled"
+            title={i18nT(
+              "resources.folderControlsActivationHint",
+              undefined,
+              "This folder's .pi/settings.json now controls whether this resource loads.",
+            )}
+          >
+            ⚑ {i18nT("resources.folderControlsActivation", undefined, "folder controls activation")}
+          </span>
         )}
         {isAgent && resource.model && (
           <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-[var(--accent-primary)]" data-testid="badge-model">◆ {resource.model}</span>
