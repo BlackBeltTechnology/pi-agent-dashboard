@@ -16,7 +16,7 @@ export interface ChatImage {
   data: string;
   mimeType: string;
   /**
-   * sha256 of the original bytes, present when the server used the two-phase
+   * sha256 of the original base64 text, present when the server used the two-phase
    * attachment path. Addresses this block for the later `attachment_fitted`
    * resolution and for fetching the full-resolution original.
    * See change: fit-attachments-for-display (D12).

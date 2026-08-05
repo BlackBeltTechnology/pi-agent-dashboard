@@ -41,12 +41,19 @@ events reconstructed on replay.
 - **THEN** it SHALL NOT be upscaled
 - **AND** it SHALL remain visually unchanged
 
-#### Scenario: The message survives at any attachment size
+#### Scenario: The message survives at any fittable attachment size
 
-- **WHEN** a message carries an attachment of any size
+- **WHEN** a message carries an attachment INSIDE the two-phase boundary, at any size
 - **THEN** the stored event SHALL retain `data.message` with the user's text
 - **AND** it SHALL NOT be replaced by the truncation placeholder
 - **AND** the transcript SHALL render a row for that message
+
+This guarantee is scoped to blocks the fit admits, because only those have their bytes
+removed from the row. A block OUTSIDE the boundary keeps its bytes inline and stays
+subject to the per-event ceiling, so an oversized one can still collapse the event to
+the truncation placeholder and take the row with it — reachable today via an animated
+GIF over the ceiling (exempt from fitting by D11) or a non-fittable MIME type. Bounding
+that path is tracked as issue #424; it is NOT claimed here.
 
 #### Scenario: Replayed sessions are fitted too
 

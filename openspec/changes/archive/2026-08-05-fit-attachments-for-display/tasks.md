@@ -184,6 +184,10 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
       the sample inside the test runner.
 - [x] 9.6 FILED #418 — Revisit caching ONLY if cold-open latency for image-heavy sessions is measured
       as a real problem (D10 reversed on evidence; see design.md).
-- [x] 9.2 FILED #416 — Retire now-unreachable inline-attachment truncation paths once no
-      full-resolution base64 reaches the store (`capContentBlocks` slicing, the line-224
-      exemption, `isImageBlock`'s depth-limit use).
+- [x] 9.2 FILED #416 — Retire inline-attachment truncation paths that the two-phase flow
+      makes unreachable FOR FITTABLE STATIC IMAGES (`capContentBlocks` slicing, the
+      line-224 exemption, `isImageBlock`'s depth-limit use). Scoped deliberately: those
+      paths are still LIVE for blocks outside the two-phase boundary — animated GIFs
+      (exempt from fitting, D11) and non-fittable MIME keep full-resolution bytes inline,
+      so "no full-resolution base64 reaches the store" is NOT true in general. Retiring
+      them wholesale would drop the only bound those blocks have (see #424).

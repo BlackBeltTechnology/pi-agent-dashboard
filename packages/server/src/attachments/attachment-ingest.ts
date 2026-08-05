@@ -10,8 +10,10 @@
  * `buildFittedEvent` wraps it as its own `attachment_fitted` event which is
  * stored + broadcast normally. The client reducer patches the pending block.
  *
- * Blocks are addressed by `attachmentId` = sha256 of the ORIGINAL bytes, not
- * by sequence number. That choice matters: the client's live fold
+ * Blocks are addressed by `attachmentId` = sha256 of the ORIGINAL BASE64 TEXT
+ * (the exact `block.data` string, not the decoded bytes — `original-store`
+ * hashes the same string, so the two agree by construction), not by sequence
+ * number. That choice matters: the client's live fold
  * (`foldLiveEvents`) is append-only and never sees a seq, replay can reorder
  * relative to the row, and the same hash is the key the originals endpoint
  * needs anyway. (Fitted derivatives are NOT cached — D10.)
@@ -26,7 +28,7 @@ import { isFittableImageMime } from "./image-mime.js";
 export const ATTACHMENT_FITTED_EVENT = "attachment_fitted";
 
 export interface PendingAttachment {
-  /** sha256 of the original bytes; addresses the block across both phases. */
+  /** sha256 of the original base64 text; addresses the block across both phases. */
   attachmentId: string;
   /** Index into the message's `content` array. */
   blockIndex: number;
@@ -61,7 +63,16 @@ function isImageContentBlock(b: unknown): b is { type: string; data: string; mim
   );
 }
 
-/** Content-address a block by its original bytes. */
+/**
+ * Content-address a block by its original base64 text.
+ *
+ * Hashes the STRING, not the decoded bytes: `findOriginalInTranscript` hashes
+ * the same stored string, so ingest and recovery agree without decoding every
+ * candidate block during the scan. Caveat: base64 has several valid spellings
+ * of the same bytes, so this digest is encoding-sensitive — safe today because
+ * there is exactly ONE producer (below), and the stored string is the one that
+ * was hashed.
+ */
 export function attachmentIdFor(base64: string): string {
   return createHash("sha256").update(base64, "utf8").digest("hex");
 }

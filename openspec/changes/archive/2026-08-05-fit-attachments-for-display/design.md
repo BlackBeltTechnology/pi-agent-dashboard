@@ -210,7 +210,7 @@ which is no worse than current behaviour. Never emit a corrupt frame (scenario X
 
 The fitted bytes reach the client as a SEPARATE stored+broadcast event carrying
 `{attachmentId, data, mimeType, state}` (`buildFittedEvent`); the block is addressed by
-the sha256 of the ORIGINAL bytes, NOT by `{targetSeq, blockIndex}` — the live fold is
+the sha256 of the ORIGINAL BASE64 TEXT, NOT by `{targetSeq, blockIndex}` — the live fold is
 append-only and never sees a seq, and `state` lets a FAILED fit resolve the placeholder
 honestly instead of leaving it pending. The client reducer gains one additive case
 that patches the already-folded message. Rejected: re-broadcasting the row at the same
