@@ -23,6 +23,15 @@ export interface RestartParams {
   loader: string;
   /** Port the server listens on */
   port: number;
+  /**
+   * Pi gateway port the server is currently bound to. Propagated as
+   * `--pi-port` for the same reason `port` is (see below): without it the
+   * child falls back to the 9999 default and every already-running pi bridge,
+   * still dialling the old port, can never reconnect.
+   * Omitted / 9999 => nothing to preserve, no flag emitted.
+   * See change: restore-ask-user-tool-state-on-reconnect.
+   */
+  piPort?: number;
   /** Extra args to pass to `cli start` (e.g. ["--dev"]) */
   extraArgs: string[];
   /** Override Node binary (defaults to process.execPath) */
@@ -72,7 +81,24 @@ export function buildOrchestratorScript(params: RestartParams): string {
   // extraArgs win via cli.ts:parseArgs left-to-right semantics (last
   // occurrence wins). See spec server-restart — "Restart orchestrator
   // preserves the bound port". See change: fix-restart-port-loss.
-  const startArgs = ["start", "--port", String(params.port), ...params.extraArgs];
+  // The gateway port needs the identical treatment, and its absence is worse
+  // than a wrong dashboard port: the dashboard port is republished on restart,
+  // but the gateway port is what EXISTING bridges are already connected to. Lose
+  // it and every live session silently fails to re-register — the session simply
+  // disappears from the dashboard. Mirrors the `--port` rule exactly, including
+  // sitting BEFORE extraArgs so an explicit caller override still wins.
+  // See change: restore-ask-user-tool-state-on-reconnect.
+  const piPortArgs =
+    params.piPort !== undefined && params.piPort !== 9999
+      ? ["--pi-port", String(params.piPort)]
+      : [];
+  const startArgs = [
+    "start",
+    "--port",
+    String(params.port),
+    ...piPortArgs,
+    ...params.extraArgs,
+  ];
   const spawnArgs: string[] = params.loader
     ? buildNodeImportArgvParts({
         loader: params.loader,

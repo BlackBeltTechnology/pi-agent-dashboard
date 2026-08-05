@@ -56,3 +56,73 @@ describe("extractSessionUpdates", () => {
     expect(extractSessionUpdates(makeEvent("turn_start"))).toBeNull();
   });
 });
+
+// ── The `hasPendingPrompt` fold (M1) ──
+// See change: restore-ask-user-tool-state-on-reconnect, test-plan #E4–#E8.
+describe("extractSessionUpdates — hasPendingPrompt fold", () => {
+  it("#E4 lets a live tool win: tool_execution_start is not folded", () => {
+    const updates = extractSessionUpdates(
+      makeEvent("tool_execution_start", { toolName: "bash" }),
+      true,
+    );
+    expect(updates).toEqual({ currentTool: "bash" });
+  });
+
+  it("#E5 folds agent_start's empty currentTool to ask_user", () => {
+    const updates = extractSessionUpdates(makeEvent("agent_start"), true);
+    expect(updates).toEqual({ status: "streaming", currentTool: "ask_user" });
+  });
+
+  it("#E6 folds agent_end's empty currentTool to ask_user (idle + ask_user is legal)", () => {
+    const updates = extractSessionUpdates(makeEvent("agent_end"), true);
+    expect(updates).toEqual({ status: "idle", currentTool: "ask_user" });
+  });
+
+  it("#E7 folds tool_execution_end's empty currentTool to ask_user", () => {
+    const updates = extractSessionUpdates(
+      makeEvent("tool_execution_end", { toolName: "Read" }),
+      true,
+    );
+    expect(updates).toEqual({ currentTool: "ask_user" });
+  });
+
+  it("#E4 folds a tool_execution_start with a missing toolName (empty ⇒ ask_user)", () => {
+    const updates = extractSessionUpdates(makeEvent("tool_execution_start"), true);
+    expect(updates).toEqual({ currentTool: "ask_user" });
+  });
+
+  it("#E5 leaves model_select untouched — absent currentTool means unchanged, not empty", () => {
+    const updates = extractSessionUpdates(
+      makeEvent("model_select", { model: { provider: "anthropic", id: "claude-opus-4-6" } }),
+      true,
+    );
+    expect(updates).toEqual({ model: "anthropic/claude-opus-4-6" });
+    expect(updates).not.toHaveProperty("currentTool");
+  });
+
+  it("#E8 is byte-identical to the pre-change output for every handled event type when no prompt is pending", () => {
+    const events = [
+      makeEvent("agent_start"),
+      makeEvent("agent_end"),
+      makeEvent("tool_execution_start", { toolName: "Read" }),
+      makeEvent("tool_execution_end", { toolName: "Read" }),
+      makeEvent("model_select", {
+        model: { provider: "anthropic", id: "claude-opus-4-6" },
+        thinkingLevel: "high",
+      }),
+    ];
+    // The pre-change call shape is the single-argument one; the default must
+    // agree with an explicit `false` and with the values asserted above.
+    const expected = [
+      { status: "streaming", currentTool: null },
+      { status: "idle", currentTool: null },
+      { currentTool: "Read" },
+      { currentTool: null },
+      { model: "anthropic/claude-opus-4-6", thinkingLevel: "high" },
+    ];
+    for (const [i, event] of events.entries()) {
+      expect(extractSessionUpdates(event, false)).toEqual(expected[i]);
+      expect(extractSessionUpdates(event)).toEqual(expected[i]);
+    }
+  });
+});

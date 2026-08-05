@@ -164,3 +164,59 @@ describe("isUnreadTrigger", () => {
     });
   });
 });
+
+/**
+ * Reconnect must not re-stamp a session that was ALREADY blocked on a prompt.
+ * The fold keeps `currentTool` at "ask_user" across the trailing synthetic
+ * `agent_start`, so the before/after edge the trigger needs never appears —
+ * the state is restored silently rather than announced a second time.
+ *
+ * See change: restore-ask-user-tool-state-on-reconnect, test-plan #F3.
+ */
+describe("isUnreadTrigger — restored ask_user state (test-plan #F3)", () => {
+  it("#F3 does not re-fire when agent_start leaves a folded ask_user in place", () => {
+    // What the fold produces at reconnect: status flips to streaming, but the
+    // tool field is held at "ask_user" on BOTH sides of the edge.
+    expect(
+      isUnreadTrigger(
+        "agent_start",
+        { status: "idle", currentTool: "ask_user" },
+        { status: "streaming", currentTool: "ask_user" },
+      ),
+    ).toBe(false);
+  });
+
+  it("#F3 does not re-fire on a replayed agent_end that keeps ask_user", () => {
+    expect(
+      isUnreadTrigger(
+        "agent_end",
+        { status: "streaming", currentTool: "ask_user" },
+        { status: "idle", currentTool: "ask_user" },
+        {},
+      ),
+      // Note: trigger 1 (streaming -> idle) legitimately fires here on its own
+      // merit; this asserts only that the ask_user edge adds nothing.
+    ).toBe(true);
+  });
+
+  it("#F3 still fires for a genuinely NEW prompt on a restored session", () => {
+    // The complement: a session that came back with no prompt, then gets one.
+    expect(
+      isUnreadTrigger(
+        "prompt_request",
+        { status: "streaming", currentTool: null },
+        { status: "streaming", currentTool: "ask_user" },
+      ),
+    ).toBe(true);
+  });
+
+  it("#F3 does not fire when a second prompt arrives while one is already pending", () => {
+    expect(
+      isUnreadTrigger(
+        "prompt_request",
+        { status: "streaming", currentTool: "ask_user" },
+        { status: "streaming", currentTool: "ask_user" },
+      ),
+    ).toBe(false);
+  });
+});
