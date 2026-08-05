@@ -86,9 +86,14 @@ export interface FitResult {
  *
  * Resizing an animated GIF through jimp flattens it to a single frame, so D11
  * exempts them from fitting entirely rather than silently destroying the
- * animation. Detection scans for a second Image Descriptor block (`0x2C`)
- * rather than decoding: a GIF89a stream contains one descriptor per frame.
- * Bounded by a frame-count short-circuit, so a large GIF costs a single pass.
+ * animation.
+ *
+ * HEURISTIC, not a parser: this counts `0x2C` BYTES and short-circuits at two.
+ * It does NOT walk the GIF block stream, so a still GIF whose colour table or
+ * LZW data happens to contain two `0x2C` bytes is reported as animated. That
+ * error is fail-SAFE — such an image is merely skipped from fitting and stays
+ * subject to the existing ceiling — but it is a false positive, not exactness.
+ * A real block-stream walk is tracked as a follow-up.
  */
 export function isAnimatedGif(bytes: Buffer): boolean {
   if (bytes.length < 6) return false;
