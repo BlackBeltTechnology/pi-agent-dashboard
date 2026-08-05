@@ -220,6 +220,78 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   ' "${PI_DIR}/agent/settings.json" "${LOCAL_PKG_DIR}"
   echo "[test-entrypoint] PI_E2E_SEED: decorated local install registered → ${LOCAL_PKG_DIR}"
 
+  # --- Plugin-page fixture states (change: plugin-settings-pages) ---
+  # Two user-installed plugins in ~/.pi/dashboard/plugins/ whose STATUS is the
+  # point, not their behaviour. The plugin settings page must render host chrome
+  # + the right banner for each, and the nav rail must keep both (membership
+  # keys on `enabled`, not `loaded` — design D4).
+  #   e2e-broken     server entry throws on load     -> status.error
+  #   e2e-needs-req  requires an absent pi extension -> missingRequirements
+  # Both claim `settings-section` so they earn a page and a nav child.
+  # Idempotent: each is written only when its manifest is absent.
+  PLUGINS_DIR="${PI_DIR}/dashboard/plugins"
+
+  BROKEN_DIR="${PLUGINS_DIR}/e2e-broken"
+  mkdir -p "${BROKEN_DIR}"
+  if [ ! -f "${BROKEN_DIR}/package.json" ]; then
+    printf '%s\n' '{ "name": "e2e-broken-plugin", "version": "0.0.1", "type": "module" }' \
+      > "${BROKEN_DIR}/package.json"
+  fi
+  if [ ! -f "${BROKEN_DIR}/dashboard-plugin.json" ]; then
+    cat > "${BROKEN_DIR}/dashboard-plugin.json" <<'JSON'
+{
+  "id": "e2e-broken",
+  "displayName": "E2E Broken",
+  "server": "./server.js",
+  "claims": [{ "slot": "settings-section", "component": "Settings" }]
+}
+JSON
+  fi
+  if [ ! -f "${BROKEN_DIR}/server.js" ]; then
+    printf '%s\n' 'throw new Error("Bridge path conflict: e2e-broken cannot load");' \
+      > "${BROKEN_DIR}/server.js"
+  fi
+  echo "[test-entrypoint] PI_E2E_SEED: errored plugin fixture ready → ${BROKEN_DIR}"
+
+  NEEDS_REQ_DIR="${PLUGINS_DIR}/e2e-needs-req"
+  mkdir -p "${NEEDS_REQ_DIR}"
+  if [ ! -f "${NEEDS_REQ_DIR}/package.json" ]; then
+    printf '%s\n' '{ "name": "e2e-needs-req-plugin", "version": "0.0.1", "type": "module" }' \
+      > "${NEEDS_REQ_DIR}/package.json"
+  fi
+  if [ ! -f "${NEEDS_REQ_DIR}/dashboard-plugin.json" ]; then
+    cat > "${NEEDS_REQ_DIR}/dashboard-plugin.json" <<'JSON'
+{
+  "id": "e2e-needs-req",
+  "displayName": "E2E Needs Requirement",
+  "requires": { "piExtensions": ["pi-e2e-absent-extension"] },
+  "claims": [{ "slot": "settings-section", "component": "Settings" }]
+}
+JSON
+  fi
+  echo "[test-entrypoint] PI_E2E_SEED: unmet-requirement plugin fixture ready → ${NEEDS_REQ_DIR}"
+
+  # A plugin that DEPENDS on another, so disabling the dependency cascades and
+  # the toggle raises the cascade-confirm dialog. No monorepo plugin declares
+  # dependsOn, so without this fixture the cascade path is unreachable at L3.
+  DEPENDENT_DIR="${PLUGINS_DIR}/e2e-dependent"
+  mkdir -p "${DEPENDENT_DIR}"
+  if [ ! -f "${DEPENDENT_DIR}/package.json" ]; then
+    printf '%s\n' '{ "name": "e2e-dependent-plugin", "version": "0.0.1", "type": "module" }' \
+      > "${DEPENDENT_DIR}/package.json"
+  fi
+  if [ ! -f "${DEPENDENT_DIR}/dashboard-plugin.json" ]; then
+    cat > "${DEPENDENT_DIR}/dashboard-plugin.json" <<'JSON'
+{
+  "id": "e2e-dependent",
+  "displayName": "E2E Dependent",
+  "dependsOn": ["e2e-needs-req"],
+  "claims": [{ "slot": "settings-section", "component": "Settings" }]
+}
+JSON
+  fi
+  echo "[test-entrypoint] PI_E2E_SEED: dependency-cascade plugin fixture ready → ${DEPENDENT_DIR}"
+
   # --- Flow-plugin e2e peers, selected by PI_TEST_PEERS (change: add-flow-plugin-e2e-tests) ---
   # Variants: both | no-am | legacy | bad-registration. UNSET => skipped entirely
   # (non-flow specs run exactly as before). The pi-flows engine + anthropic peer

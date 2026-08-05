@@ -38,11 +38,11 @@ export function FlowsSettings(): React.ReactElement {
     await send({ type: "plugin_config_write", id: "flows", config: { editFlow: valuesRef.current } });
   }, [send]);
   const reset = useCallback(() => setEditFlow(baseRef.current), []);
-  useSettingsDraftSource({ id: "plugin:flows", page: "plugins", isDirty, commit, reset });
+  useSettingsDraftSource({ id: "plugin:flows", isDirty, commit, reset });
 
   return (
-    <section className="border border-[var(--border-primary)] rounded-lg p-4">
-      <h3 className="text-sm font-semibold mb-0.5">{t("flowsHeading", undefined, "Flows")}</h3>
+    // No self-header: the host owns identity + status chrome (design D1).
+    <div>
       <p className="text-xs text-[var(--text-tertiary)] mb-3">
         Multi-agent workflow orchestration. Applies globally; sessions inherit this default.
       </p>
@@ -63,6 +63,6 @@ export function FlowsSettings(): React.ReactElement {
           </span>
         </span>
       </label>
-    </section>
+    </div>
   );
 }
