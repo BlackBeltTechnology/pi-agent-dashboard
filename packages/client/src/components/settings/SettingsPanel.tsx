@@ -858,7 +858,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
         {dirtyPageEntries.length > 0 && (
           <span
             data-testid="settings-dirty-page-count"
-            title={t("settings.unsavedOnPage", undefined, "Unsaved changes on this page")}
+            title={t(
+              "settings.unsavedPageCount",
+              undefined,
+              `${dirtyPageEntries.length} page(s) with unsaved changes`,
+            )}
             className="px-1.5 py-0.5 rounded text-[11px] font-medium bg-amber-400/20 text-amber-400 border border-amber-400/40"
           >
             {dirtyPageEntries.length}
@@ -933,11 +937,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     pluginNavChildren.map((p) => {
                       const childActive = activePluginId === p.id;
                       const st = p.status;
-                      const dot = st?.error
-                        ? "bg-[var(--accent-red)]"
+                      const health = st?.error
+                        ? { cls: "bg-[var(--accent-red)]", label: "error" }
                         : st?.loaded === false
-                          ? "bg-[var(--accent-yellow)]"
-                          : "bg-[var(--accent-green)]";
+                          ? { cls: "bg-[var(--accent-yellow)]", label: "not loaded" }
+                          : { cls: "bg-[var(--accent-green)]", label: "loaded" };
                       return (
                         <button
                           key={`plugins/${p.id}`}
@@ -951,8 +955,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                           }`}
                         >
                           <span
-                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`}
+                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${health.cls}`}
                             data-testid={`nav-plugin-status-${p.id}`}
+                            role="img"
+                            aria-label={health.label}
+                            title={health.label}
                           />
                           <span className="truncate">{p.displayName}</span>
                           {dirtyPages.has(`plugins/${p.id}`) && (
@@ -1423,6 +1430,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   row={activePluginRow}
                   toggle={pluginToggle}
                   onLeaveGuard={pluginDisableGuard}
+                  onNavigate={requestRailNavigate}
                 />
               ) : (
                 <>

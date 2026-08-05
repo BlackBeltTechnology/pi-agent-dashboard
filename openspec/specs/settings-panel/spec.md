@@ -28,7 +28,7 @@ The panel SHALL provide these pages (nav groups in brackets):
 - **Security** [Network]: `auth.providers`, `auth.allowedUsers`, `auth.bypassUrls`, `auth.bypassHosts` (Trusted Networks)
 - **Providers** [Extensions]: Provider Authentication, LLM Providers, API Proxy
 - **Packages** [Extensions]: installed pi packages
-- **Plugins** [Extensions]: plugin activation + inline settings
+- **Plugins** [Extensions]: plugin activation index, with each plugin's settings on its own `/settings/plugins/<pluginId>` page
 - **OpenSpec** [Extensions]: `openspec.enabled` polling tuning, OpenSpec Workflow Profile
 - **Developer** [Advanced]: Diagnostics, Tools, Spawn Failures, `devBuildOnReload`, editor, chat-display debug events, capture-pi-output
 
@@ -701,7 +701,7 @@ name/description search filter SHALL be provided.
 
 ### Requirement: Plugins nav group lists enabled plugins with settings
 
-The `plugins` entry in the settings navigation rail SHALL be expandable. Its children SHALL be exactly those plugins that are **enabled in config** AND register at least one `settings-section` claim, sorted alphabetically by display name. Each child SHALL link to `/settings/plugins/<pluginId>` and SHALL display a status dot reflecting the plugin's health (`loaded`, `not loaded`, `error`).
+The `plugins` entry in the settings navigation rail SHALL be expandable. Its children SHALL be exactly those plugins that are **enabled in config** AND CONTRIBUTE SETTINGS, sorted alphabetically by display name. "Contributes settings" SHALL mean the plugin registers at least one `settings-section` refs claim OR has a `settings-section` intent in the intent store — the same predicate that governs route eligibility and the activation-index affordance. `PluginRow.claims` is manifest-derived and does NOT carry intents, so a claims-only test would strand an intent-only contribution: rendered by the slot, but with no nav child and no reachable route. Each child SHALL link to `/settings/plugins/<pluginId>` and SHALL display a status dot reflecting the plugin's health (`loaded`, `not loaded`, `error`).
 
 Membership SHALL key on the plugin's `enabled` flag, NOT on `loaded`. A plugin that is enabled but failed to load, or has unsatisfied requirements, SHALL remain listed.
 
@@ -710,6 +710,11 @@ A disabled plugin SHALL NOT appear as a nav child. It SHALL remain reachable fro
 #### Scenario: Enabled plugin with settings is listed
 - **WHEN** plugin `roles` is enabled and claims `settings-section`
 - **THEN** the `Plugins` nav group SHALL contain a `Roles` child linking to `/settings/plugins/roles`
+
+#### Scenario: Intent-only plugin is listed and routable
+- **WHEN** plugin `x` is enabled, registers NO `settings-section` refs claim, and a `settings-section` intent for `x` is present in the intent store
+- **THEN** the `Plugins` nav group SHALL contain an `x` child linking to `/settings/plugins/x`
+- **AND** `/settings/plugins/x` SHALL render the plugin page rather than falling back to the activation index
 
 #### Scenario: Enabled but failed plugin stays listed
 - **WHEN** plugin `automation` is enabled, claims `settings-section`, and its status is `{ loaded: false, error: "..." }`

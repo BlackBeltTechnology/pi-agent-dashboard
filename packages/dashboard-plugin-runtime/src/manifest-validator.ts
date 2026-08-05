@@ -107,8 +107,16 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
 
   // settings-section: `tab` is accepted but inert. Every `settings-section`
   // claim renders on its owning plugin's page (`/settings/plugins/<id>`), so
-  // rejecting an unknown value would fail a manifest over a field nothing
-  // reads. See change: plugin-settings-pages (design D3).
+  // rejecting an unknown VALUE would fail a manifest over a field nothing
+  // reads. The TYPE is still enforced: `tab` is copied onto the normalized
+  // claim, so a non-string would violate the manifest type it is cast to.
+  // See change: plugin-settings-pages (design D3).
+  if (slotId === "settings-section" && c.tab !== undefined && typeof c.tab !== "string") {
+    throw new ManifestValidationError(
+      pluginId,
+      `claims[${index}].tab must be a string if provided`,
+    );
+  }
 
   // optional string fields
   for (const field of [

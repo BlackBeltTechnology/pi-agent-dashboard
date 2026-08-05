@@ -43,6 +43,15 @@ async function railGoto(page: Page, label: string | RegExp) {
 }
 
 /**
+ * Click a PLUGIN child in the rail. Targeted by testid, not accessible name:
+ * the child's name includes its status-dot text equivalent ("loaded Hermes
+ * Memory"), so a name match would be brittle.
+ */
+async function railGotoPlugin(page: Page, id: string) {
+  await page.getByTestId("settings-nav-rail").getByTestId(`nav-plugin-${id}`).click();
+}
+
+/**
  * Dirty a BUILT-IN page. Uses the Developer page's `Dev Build on Reload`
  * toggle: flipping it is always an edit regardless of the persisted value (so
  * a spec that Saves cannot make a later spec's edit a silent no-op), and
@@ -91,8 +100,10 @@ test.describe("plugin settings pages (L3)", () => {
 
   test.afterEach(async ({ page }) => {
     // Leave every plugin enabled for the next spec regardless of failure point.
-    for (const id of ["subagents", "flows", DIRTY_PLUGIN]) {
-      await page.request.post(`/api/plugins/${id}/toggle`, { data: { enabled: true } });
+    // ASSERTED, not fire-and-forget: a silently-failed re-enable would leak a
+    // disabled plugin into every later spec and surface as an unrelated failure.
+    for (const id of ["subagents", "flows", "e2e-needs-req", "e2e-dependent", DIRTY_PLUGIN]) {
+      await setPluginEnabled(page.request, id, true);
     }
   });
 
@@ -276,7 +287,7 @@ test.describe("plugin settings pages (L3)", () => {
     await dirtyBuiltInPage(page);
 
     // In-document navigation — a reload would discard the built-in draft.
-    await railGoto(page, "Hermes Memory");
+    await railGotoPlugin(page, DIRTY_PLUGIN);
     await dirtyPluginPage(page, { navigate: false });
 
     const bar = page.getByTestId("settings-save-bar");
@@ -298,7 +309,7 @@ test.describe("plugin settings pages (L3)", () => {
   // (test-plan #F10) — one Save, one fan-out; the contract is unchanged.
   test("a single Save commits both a built-in and a plugin page", async ({ page }) => {
     await dirtyBuiltInPage(page);
-    await railGoto(page, "Hermes Memory");
+    await railGotoPlugin(page, DIRTY_PLUGIN);
     await dirtyPluginPage(page, { navigate: false });
     await expect(page.getByTestId("settings-dirty-page-count")).toHaveText("2");
 
@@ -337,6 +348,32 @@ test.describe("plugin settings pages (L3)", () => {
     await expect(
       page.getByTestId("settings-nav-rail").getByTestId("nav-dirty-developer"),
     ).toBeVisible();
+  });
+
+  // A dependency cascade must be confirmable from the plugin page too: the
+  // activation index also renders the dialog, but it is not on this route.
+  test("the cascade confirm is reachable from the plugin page", async ({ page }) => {
+    // `e2e-dependent` dependsOn `e2e-needs-req`, so disabling the dependency
+    // cascades to it (harness fixture — no monorepo plugin declares dependsOn).
+    await gotoSettings(page, "/settings/plugins/e2e-needs-req");
+    await page.getByTestId("plugin-page-toggle-e2e-needs-req").click();
+    await expect(page.getByTestId("plugins-cascade-dialog")).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("plugins-cascade-cancel").click();
+    await expect(page.getByTestId("plugins-cascade-dialog")).toHaveCount(0);
+  });
+
+  // The back affordance is an exit from a plugin page, so it must hit the same
+  // guard rail navigation does — plugin draft state dies on unmount.
+  test("the back-to-index affordance guards unsaved plugin edits", async ({ page }) => {
+    const edited = await dirtyPluginPage(page);
+
+    await page.getByTestId("plugin-page-back-to-index").click();
+
+    const cancel = page.getByRole("button", { name: /cancel/i });
+    await expect(cancel).toBeVisible({ timeout: 10_000 });
+    await cancel.click();
+    expect(new URL(page.url()).pathname).toBe(`/settings/plugins/${DIRTY_PLUGIN}`);
+    await expect(page.getByTestId(DIRTY_FIELD)).toHaveValue(edited);
   });
 
   // (test-plan #X5) — design Open Question 3: the confirm must resolve BEFORE

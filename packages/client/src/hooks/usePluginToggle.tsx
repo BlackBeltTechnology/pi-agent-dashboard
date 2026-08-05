@@ -226,13 +226,31 @@ export function usePluginToggle(list: PluginList): PluginToggle {
     return { cascade, blockers: impact.blockers };
   }
 
+  // Resolve the server's boot id ON DEMAND. Relying on the mount-time snapshot
+  // means a failed/slow initial `/api/health` leaves it null forever, and the
+  // restart-required banner never appears — the user sees a flipped checkbox
+  // with no hint that the change is inert until restart, and no "Restart now".
+  async function resolveStartedAt(): Promise<string | null> {
+    if (serverStartedAt) return serverStartedAt;
+    try {
+      const res = await fetch(`${getApiBase()}/api/health`);
+      const body = await res.json();
+      if (typeof body.startedAt !== "string") return null;
+      if (mounted.current) setServerStartedAt(body.startedAt);
+      return body.startedAt;
+    } catch {
+      return null;
+    }
+  }
+
   async function performToggle(row: PluginRow, next: boolean) {
     const id = row.id;
     setToggling((s) => ({ ...s, [id]: true }));
     setToggleErrors((s) => ({ ...s, [id]: undefined }));
     try {
       const result = await togglePlugin(id, next);
-      if (serverStartedAt) setPendingToggleStartedAt(serverStartedAt);
+      const startedAt = await resolveStartedAt();
+      if (startedAt) setPendingToggleStartedAt(startedAt);
       // The server persisted the flip but reports runtime state until a
       // restart, so record the desired state here; `result.cascade` names the
       // other ids the same write flipped.

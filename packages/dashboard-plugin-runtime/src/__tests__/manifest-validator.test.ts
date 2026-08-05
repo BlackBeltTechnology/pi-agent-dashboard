@@ -79,6 +79,17 @@ describe("validateManifest — invalid cases", () => {
   // the enumerated set is no longer a load failure. Kept here (in the
   // invalid-cases block it used to fail in) as the regression sentinel.
   // (test-plan #E12)
+  it("still rejects a non-string tab", () => {
+    // The VALUE is inert, but `tab` is copied onto the normalized claim, so the
+    // TYPE still has to hold. (plugin-settings-pages)
+    expect(() =>
+      validateManifest({
+        ...validManifest,
+        claims: [{ slot: "settings-section", tab: 42 }],
+      }),
+    ).toThrow(ManifestValidationError);
+  });
+
   it("accepts an unknown tab value for settings-section", () => {
     const manifest = validateManifest({
       ...validManifest,

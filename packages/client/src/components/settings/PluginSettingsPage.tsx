@@ -25,7 +25,6 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { mdiPackageVariantClosed, mdiRestart } from "@mdi/js";
 import Icon from "@mdi/react";
-import { useLocation } from "wouter";
 import type { PluginToggle } from "../../hooks/usePluginToggle.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { PluginRow } from "../../lib/package/plugins-api.js";
@@ -70,6 +69,7 @@ export function PluginSettingsPage({
   row,
   toggle,
   onLeaveGuard,
+  onNavigate,
 }: {
   row: PluginRow;
   toggle: PluginToggle;
@@ -79,8 +79,13 @@ export function PluginSettingsPage({
    * drops the nav child (design Open Question 3).
    */
   onLeaveGuard?: () => Promise<boolean>;
+  /**
+   * Leave this page. MUST route through the host's guarded navigation, not a
+   * raw `navigate` — plugin draft state dies on unmount, so an unguarded exit
+   * discards unsaved edits silently (design D5a).
+   */
+  onNavigate: (to: string) => void;
 }) {
-  const [, navigate] = useLocation();
   const isEnabled = row.status?.enabled !== false;
   const statusError = row.status?.error;
   const toggleError = toggle.toggleErrorFor(row.id);
@@ -93,6 +98,11 @@ export function PluginSettingsPage({
 
   return (
     <div className="space-y-4" data-testid={`plugin-settings-page-${row.id}`}>
+      {/* The toggle above can require a dependency cascade; without this mount
+          the confirm never appears and the toggle silently no-ops, because the
+          activation index (which also renders it) is not on this route. */}
+      <toggle.CascadeDialog />
+
       {/* ── Host chrome (constructed unconditionally) ── */}
       <div
         className="border border-[var(--border-secondary)] rounded bg-[var(--bg-secondary)]"
@@ -215,7 +225,7 @@ export function PluginSettingsPage({
 
       <button
         type="button"
-        onClick={() => navigate("/settings/plugins")}
+        onClick={() => onNavigate("/settings/plugins")}
         className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
         data-testid="plugin-page-back-to-index"
       >

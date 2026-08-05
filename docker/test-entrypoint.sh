@@ -265,6 +265,25 @@ JSON
     echo "[test-entrypoint] PI_E2E_SEED: seeded unmet-requirement plugin fixture → ${NEEDS_REQ_DIR}"
   fi
 
+  # A plugin that DEPENDS on another, so disabling the dependency cascades and
+  # the toggle raises the cascade-confirm dialog. No monorepo plugin declares
+  # dependsOn, so without this fixture the cascade path is unreachable at L3.
+  DEPENDENT_DIR="${PLUGINS_DIR}/e2e-dependent"
+  if [ ! -f "${DEPENDENT_DIR}/package.json" ]; then
+    mkdir -p "${DEPENDENT_DIR}"
+    printf '%s\n' '{ "name": "e2e-dependent-plugin", "version": "0.0.1", "type": "module" }' \
+      > "${DEPENDENT_DIR}/package.json"
+    cat > "${DEPENDENT_DIR}/dashboard-plugin.json" <<'JSON'
+{
+  "id": "e2e-dependent",
+  "displayName": "E2E Dependent",
+  "dependsOn": ["e2e-needs-req"],
+  "claims": [{ "slot": "settings-section", "component": "Settings" }]
+}
+JSON
+    echo "[test-entrypoint] PI_E2E_SEED: seeded dependency-cascade plugin fixture → ${DEPENDENT_DIR}"
+  fi
+
   # --- Flow-plugin e2e peers, selected by PI_TEST_PEERS (change: add-flow-plugin-e2e-tests) ---
   # Variants: both | no-am | legacy | bad-registration. UNSET => skipped entirely
   # (non-flow specs run exactly as before). The pi-flows engine + anthropic peer
