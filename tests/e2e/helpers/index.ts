@@ -17,7 +17,12 @@ export const TESTIDS = {
   // fresh container. Step CTAs are gated on `providersReady` (seeded key).
   onboardingStep2Cta: "onboarding-step-2-cta", // "Add folder" → opens pin dialog
   onboardingStep3Cta: "onboarding-step-3-cta", // "Start session" → spawns
-  pinDirectoryDialog: "pin-directory-dialog",
+  // The "Add folder" CTAs open the multi-select AddFoldersDialog. The former
+  // single-path PinDirectoryDialog (`pin-directory-dialog`) is still reachable
+  // from Settings ▸ Packages, but no longer from these affordances.
+  // See change: project-scope-disable-global-resources (helper drift fix).
+  addFoldersDialog: "add-folders-dialog",
+  addFoldersCommit: "add-folders-commit",
   // Accumulated-state path: once a folder/session exists the LandingPage
   // onboarding view is gone and the sidebar exposes these instead. The
   // ensureGitSession() helper falls back to them when the onboarding CTAs
@@ -151,17 +156,16 @@ export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   } else {
     await byTestId(page, "dashboardAddFolderBtn").first().click();
   }
-  const dialog = byTestId(page, "pinDirectoryDialog");
+  const dialog = byTestId(page, "addFoldersDialog");
   await dialog.waitFor({ state: "visible" });
-  await dialog.getByRole("textbox").fill(absPath);
-  // PathPicker confirm needs the target listed under its parent dir. Escape
-  // regex metacharacters so a dir name like `a.b` matches literally.
-  const leaf = (absPath.split("/").filter(Boolean).pop() ?? "").replace(
-    /[.*+?^${}()|[\]\\]/g,
-    "\\$&",
-  );
-  await dialog.getByRole("option", { name: new RegExp(leaf) }).waitFor({ state: "visible" });
-  await dialog.getByRole("button", { name: /^select$/i }).click();
+  // The picker lists the typed path's PARENT filtered by its leaf, so typing
+  // the full path surfaces the target's own row. Tick that row's checkbox —
+  // the basket, not the browsed directory, is what the dialog commits.
+  await dialog.getByRole("textbox").first().fill(absPath);
+  const check = dialog.getByTestId(`path-picker-check-${absPath}`);
+  await check.waitFor({ state: "visible", timeout: 20_000 });
+  await check.click();
+  await byTestId(page, "addFoldersCommit").click();
   await dialog.waitFor({ state: "hidden" });
 }
 

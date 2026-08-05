@@ -1,3 +1,3 @@
 # ResourceCard.tsx — index
 
-One pi-resource as a card. Exports `ResourceCard`. Scope/source badges, path line, `ActivationToggle` (omitted for `agent` — no pi activation dim). Agent variant: `◆ model`+`🔧 tools` badges. Theme variant: swatch strip from `resource.colors` replaces desc. See change: resources-card-tabs.
+One pi-resource as a card. Exports `ResourceCard`. Scope/source badges, path line, `ActivationToggle` (omitted for `agent` — no pi activation dim). Agent variant: `◆ model`+`🔧 tools` badges. Theme variant: swatch strip from `resource.colors` replaces desc. A global resource disabled at folder scope keeps its row in the section acted in and gains a `badge-folder-controlled` pill (`activation.isFolderControlled`) rather than jumping sections — the activation genuinely is a project-scope settings entry now. See changes: resources-card-tabs, project-scope-disable-global-resources.
