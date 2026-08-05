@@ -9,3 +9,4 @@ Thin pi-skill package `@blackbelt-technology/pi-dashboard-distill-session-knowle
 | `README.md` | Public npm readme. Install + NL triggers; points at engine package. |
 | `package.json` | Public: `pi.skills=[".pi/skills/distill-session-knowledge"]`, `publishConfig.access=public`, MIT, `files[]` (.pi/skills/ README NOTICE), `dependencies["@blackbelt-technology/pi-dashboard-session-distiller"]=^` (engine, workspace-linked in-repo). |
 | `.pi/skills/distill-session-knowledge/SKILL.md` | The skill. NL-triggered miner discipline; invokes engine via published `distill-session-knowledge` bin (no repo-relative path). |
+| `.pi/skills/distill-session-knowledge/SKILL.md` | Skill. Offline-mine pi session JSONL into verified reusable artifacts. Dry-run default. Routes to skill_manage / memory / docs+ctx_index. Wraps `packages/session-distiller` orchestrator. |

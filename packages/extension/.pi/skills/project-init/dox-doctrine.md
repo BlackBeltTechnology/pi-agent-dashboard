@@ -9,6 +9,11 @@ lacks the `<!-- dox-doctrine -->` marker: the WRITE discipline plus one READ
 variant (kb-wired or manual). The sections below are delimited so the seeder
 can compose the right block.
 
+The MAINTAIN section at the end sits deliberately **outside** those markers: it is
+reference for whoever repairs a drifted tree, not a per-turn rule, so it is never
+seeded into a root `AGENTS.md` and costs nothing per turn. Reach it on demand via
+`kb_search "dox maintenance"`.
+
 <!-- dox:write:start -->
 ## Documentation Update Protocol (WRITE discipline)
 
@@ -102,3 +107,40 @@ When your reflex is the left column, do the right column instead:
 then add the missing directory `AGENTS.md` row per the WRITE discipline. The tree
 goes first.
 <!-- dox:read:manual:end -->
+
+## Maintaining a drifted tree (NOT seeded — reference only)
+
+Three failure modes account for most rot. None is caught by a naive "does the row
+exist" check, and two are invisible to tooling that only hashes files.
+
+**1. Moving a file rots OTHER rows' prose.** A lint hashes the file behind each
+row; it does not validate paths written *inside* a row's purpose text. So a
+directory reorg leaves cross-references pointing at paths that no longer exist,
+and the tree still lints clean. Observed cost: a subagent routing rule cited two
+deleted directories for weeks, so the trigger could never fire and the agent was
+never spawned. **After any move, grep the whole tree for the old path.**
+`kb dox lint` reports this as `broken-ref`.
+
+**2. An orphan row is usually a RELOCATION, not garbage.** When a row's file no
+longer exists, the file has typically moved rather than died. Deleting the row
+throws away a written purpose; the fix is to move it to the node that now owns
+the file, creating that node if absent. Never let rows bubble up to the root
+`AGENTS.md` because an intermediate directory lacks its own — the root must stay
+a per-file-index-free doctrine file.
+
+**3. `stale` means bytes changed, NOT that the row is wrong.** Staleness is a
+content hash against a last-acknowledged value. A row is a one-line purpose
+summary, not an export manifest: it may legitimately omit everything a diff
+added. Two tempting responses are both wrong — bulk re-acknowledging launders
+real drift, and a "does the row still name symbols present in the file"
+heuristic produces false positives (it will flag a row that correctly documents
+a symbol as *removed*). Judge each row against the actual diff since its
+acknowledged state: `kb dox triage` recovers that diff by finding the commit
+whose blob matches the acked hash, and can hand it to a cheap model.
+
+**Corollary — before trusting any cleanup pass:** a scan tuned only for recall
+drowns in false positives. Ranking one repo's candidate path references produced
+548 raw hits for roughly 4 real defects; the discriminator that mattered was
+requiring the first path segment to be a real top-level entry of *this* repo,
+which rejects URL routes, MIME types, npm specifiers and descriptions of other
+projects' layouts.

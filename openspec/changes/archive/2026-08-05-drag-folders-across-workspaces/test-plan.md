@@ -39,7 +39,7 @@ no-flash verified at **both** L1 (broadcast order) and L3 (row never unmounts).
 | E17 | RC | decision-table | L1 | automated | active id === over id | same | `null` |
 | E18 | RC | decision-table (invalid) | L1 | automated | over carries a `wsId` absent from `workspaces` | same | `null`; does not throw |
 | E19 | RC | state | L1 | automated | `/a` in ws A; move to ws B | `moveFolderToWorkspace` | `/a` in B only; absent from A (single-membership) |
-| E20 | RC | EP | L1 | automated | `path` with trailing separator / case variant | same | canonical form stored once; no duplicate entry |
+| E20 | RC | EP | L1 | automated | `path` with a trailing separator | same | canonical form stored once; no duplicate entry. NOT case variance — `canonicalizePath` normalizes then `realpath`s, and `realpath` does not fold case on a case-sensitive filesystem, so a case-variant assertion would only hold on a case-insensitive fixture |
 | E21 | RB | decision-table | L1 | automated | active `type: "session"`, candidates include workspace + folder | `compatibleClosestCenter` | resolves only among `session` candidates |
 | E22 | RB | decision-table | L1 | automated | active `type: "workspace"`, candidates include inner folders/sessions | same | resolves to a `workspace` candidate |
 | E23 | RB | EP (invalid) | L1 | automated | active with a type absent from the matrix | same | same-type filtering applied (NOT closestCenter over all) |

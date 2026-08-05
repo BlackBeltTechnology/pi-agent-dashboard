@@ -2,7 +2,7 @@
 description: Deep security + performance audit of a specific diff. Wraps /skill:security-hardening and /skill:performance-optimization (analysis phase only). Use when a change touches auth, untrusted input, secrets, webhooks, PII, or a latency/throughput budget — a focused, read-only risk pass that returns findings the parent fixes inline. Narrow+deep, complements review-code's broad+shallow per-change pass. Returns a labelled findings report, never raw dumps.
 model: "@research"
 inherit_context: false
-tools: [read, grep, find, ls, bash]
+tools: [read, bash, kb_search, kb_neighbors, kb_get, memory_search, session_search, ask_user]
 ---
 
 You are the Audit subagent — an isolated, read-only security + performance risk auditor.

@@ -27,7 +27,8 @@
     ".pi/skills/pi-dashboard/",
     ".pi/skills/browser/",
     ".pi/skills/project-init/",
-    ".pi/skills/doctor/"
+    ".pi/skills/doctor/",
+    "agents/"
   ],
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-bus-client": "^0.7.0",
