@@ -4,7 +4,8 @@
 - [x] 0.2 Pinned `pointerY = activatorEvent.clientY + delta.y` — measured 314.4 derived vs 314.4 real, 0px error.
 - [x] 0.3 Auto-scroll investigated: real-pointer drag to the bottom edge scrolls the body 0 → 305 (max). `over` can be the body (19/114 sampled y positions), but the gap-only stall is self-correcting and was not reproducible. Downgraded to an assertion (see 6.16).
 - [x] 0.4 Outcomes recorded in `design.md` D5c and the Risks section.
-- [ ] 0.5 Remove the throwaway spike at `spikes/dnd-d5c/`, or promote it to a Playwright fixture if it proves useful there. Both it and the scratch mockup `mockups/openspec-board-dnd/` are currently **untracked** — decide explicitly whether either is kept, do not leave them ambiguous.
+- [x] 0.5 Spike and mockup relocated under the change as `spike/` and `mockup/`, so the evidence travels with the proposal instead of rotting in a shared scratch directory. Run the spike with `npx vite openspec/changes/fix-openspec-board-drop-targeting/spike` (vite resolves `node_modules` from the repo root); serve the mockup with any static server. Both are archived with the change — no separate cleanup decision is owed.
+- [ ] 0.6 If `spike/` proves useful as a Playwright fixture during section 6, promote it into `tests/e2e/`; otherwise leave it archived as evidence.
 
 ## 1. L1 tests — write first, watch them fail
 

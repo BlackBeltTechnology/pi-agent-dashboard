@@ -22,7 +22,7 @@ Three defects in `OpenSpecBoardView.tsx` combine:
 
 Measured on the live board (`/folder/<cwd>/openspec`, 9 columns): every column body renders at `clientHeight` 378px against `scrollHeight` up to **2468px**. In **8 of 9 columns** the space below the last card is *negative* (−536px, −2036px, −822px …) — the only "drop at end" region is an 8px padding strip that sits **below the scroll fold**, i.e. zero reachable pixels.
 
-An interactive mockup at `mockups/openspec-board-dnd/index.html` reproduces the defect (`Fixes: OFF`) and validates the fix (`Fixes: ON`). With fixes off, hovering the last card at 20%/50%/80% of its height all yield "position 4 of 5"; only 97% reaches last.
+An interactive mockup at `openspec/changes/fix-openspec-board-drop-targeting/mockup/index.html` reproduces the defect (`Fixes: OFF`) and validates the fix (`Fixes: ON`). Serve it with any static server. With fixes off, hovering the last card at 20%/50%/80% of its height all yield "position 4 of 5"; only 97% reaches last.
 
 ## What Changes
 
