@@ -1,6 +1,6 @@
 ---
 name: doubt-driven-review
-description: In-flight adversarial check on a non-trivial decision BEFORE it stands — distinct from post-hoc code review of a finished diff. Use on triggers like "stress-test this decision", "are we sure about this", "verify before commit", "poke holes in this", when working in unfamiliar code, or when an irreversible/high-stakes step (migration, prod deploy, public API) is about to be taken. Does not replace the project's code-review or openspec-verify gates; it runs earlier, while course-correction is cheap.
+description: 'In-flight adversarial check on a non-trivial decision BEFORE it stands — distinct from post-hoc review of a finished diff. Use on "stress-test this decision", "are we sure about this", "verify before commit", "poke holes in this", when working in unfamiliar code, or before an irreversible step (migration, prod deploy, public API). Runs earlier than code-review, while course-correction is cheap.'
 ---
 
 # Doubt-Driven Development

@@ -1,6 +1,6 @@
 ---
 name: node-inspect-debugger
-description: See runtime state a console.log cannot reach — set real breakpoints, step, and dump the scope chain of a paused Node/TypeScript process. Use on triggers like "set a breakpoint", "inspect runtime state", "console.log isn't enough", "step through this", "what's in this closure at runtime", "attach a debugger". Carries a jiti launch recipe verified against this repo's TypeScript loader. Not a logging or observability-setup workflow.
+description: 'See runtime state a console.log cannot reach — set real breakpoints, step, and dump the scope chain of a paused Node/TypeScript process. Use on "set a breakpoint", "inspect runtime state", "console.log isn''t enough", "step through this", "what''s in this closure at runtime", "attach a debugger". Not a logging or observability-setup workflow.'
 related_skills: systematic-debugging, observability-instrumentation
 ---
 

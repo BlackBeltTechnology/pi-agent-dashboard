@@ -1,6 +1,6 @@
 ---
 name: code-quality
-description: Drive static-analysis code quality in pi-agent-dashboard with Biome (analyze → fix → test). Two modes — changed-files (the goal-loop daily driver, scoped to git diff vs develop) and whole-repo (explicit, scoped cleanup). Owns the procedure; the goal-plugin's judge owns when-to-stop via the `quality:changed` exit code. Use when asked to "improve code quality", "lint and fix", "clean up warnings", "fix Biome issues", "run static analysis", or when setting a code-quality goal. Skip for one-line edits.
+description: 'Drive static-analysis code quality in pi-agent-dashboard with Biome (analyze → fix → test), in changed-files or whole-repo mode. Use when asked to "improve code quality", "lint and fix", "clean up warnings", "fix Biome issues", "run static analysis", or when setting a code-quality goal. Skip for one-line edits.'
 ---
 
 # Code Quality (Biome)

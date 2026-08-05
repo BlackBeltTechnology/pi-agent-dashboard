@@ -1,13 +1,6 @@
 ---
 name: release-revoke
-description: >
-  Revoke or rollback a pi-agent-dashboard release. Deletes the GitHub
-  Release (draft or published), removes the git tag locally and on
-  origin, deprecates the npm package version (since `npm unpublish` is
-  blocked after 72h / for packages with dependents), and optionally
-  reverts the `chore(release): vX.Y.Z` commit. Use when the user says
-  "revoke release", "rollback release", "delete release", "unpublish
-  vX.Y.Z", "yank release".
+description: 'Revoke or rollback a pi-agent-dashboard release: delete the GitHub Release, remove the git tag locally and on origin, deprecate the npm version (`npm unpublish` is blocked after 72h), and optionally revert the release commit. Use when the user says "revoke release", "rollback release", "delete release", "unpublish vX.Y.Z", "yank release".'
 license: MIT
 metadata:
   author: pi-dashboard
