@@ -22,16 +22,39 @@ message.
   run to completion in wire order, closing the race for all callers.
 - Preserve ordering semantics for every existing message type on the hot path;
   add tests covering the `set_model` → `send_prompt` ordering.
+- Bypass the queue for an **immediate lane of three types** — `prompt_response`
+  (a reply correlated by request id; queueing it behind the handler awaiting it
+  would deadlock permanently), `server_restarting` (a time-critical lifecycle
+  signal delivered immediately before the socket closes), and `kill_process`
+  (pgid-keyed, and the only mechanism able to terminate a child that is itself
+  occupying the queue). Cancellation stays serialized: bypassing `abort` would
+  let it run *ahead* of the `send_prompt` it cancels and silently lose the
+  cancellation.
 - Define an **explicit inbound back-pressure bound** (separate from the outgoing
-  `maxBufferSize`) so a slow handler cannot grow the queue without limit.
+  `maxBufferSize`) so a slow handler cannot grow the queue without limit, with
+  drop-newest + an observable dropped count.
 - Define **failure isolation**: a throwing/rejecting handler is logged and the
   pump continues with the next message, never stalling the queue.
+- **Discard pending inbound on disconnect** so a dead socket's backlog cannot
+  head-of-line-block the reconnected one.
 - Once landed, the client-side gate in `openspec-dialog-model-effort-selector`
   becomes a redundant belt-and-suspenders (kept, not removed, in that change).
 
+## Discipline Skills
+
+`doubt-driven-review` (ordering/lifecycle invariants the compiler cannot verify —
+run in planning, 3 cycles), `scenario-design` (test-plan manifest),
+`performance-optimization` (task 2.12 hot-path budget),
+`systematic-debugging` (if a reconnect/epoch test goes red mid-implementation),
+`review-code` (before commit).
+
 ## Impact
 
-- Affected: `packages/extension/src/connection.ts` (message pump hot path).
+- Affected: `packages/extension/src/connection.ts` (message pump hot path);
+  `packages/shared/src/protocol.ts` (one additive, optional `ProcessMetrics`
+  field for the overflow-refusal count — bridge→server diagnostics, NOT a
+  server→bridge wire-protocol change); the extension test files that assume
+  synchronous dispatch.
 - Risk: touches every inbound message; needs ordering + back-pressure tests
   before landing. This proposal is the **placeholder/follow-up filing** required
   by `openspec-dialog-model-effort-selector` task 1.5 — not yet planned or
