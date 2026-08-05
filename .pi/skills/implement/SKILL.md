@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Disciplined implementation in pi-agent-dashboard. Pairs (a) the 3-component rebuild matrix — extension→reload, server→restart, client→build+restart, openspec-apply→full rebuild — with (b) the project's code discipline rules (TDD, simplicity-first, surgical changes). Use when starting to write code, after editing src/extension|src/server|src/client, when unsure what to rebuild after a change, or before committing. Loads on triggers like "I changed the bridge", "rebuild and restart", "implement X", "after edit", "TDD this", "how do I land this change". Skip for trivial edits.
+description: 'Disciplined implementation in pi-agent-dashboard: the 3-component rebuild matrix (extension→reload, server→restart, client→build+restart) plus the project''s code discipline rules. Use when starting to write code, after editing extension/server/client, when unsure what to rebuild, or before committing. Triggers: "I changed the bridge", "rebuild and restart", "implement X", "after edit", "TDD this".'
 ---
 
 # Implement

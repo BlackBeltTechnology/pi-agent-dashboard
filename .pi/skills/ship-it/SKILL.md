@@ -1,6 +1,6 @@
 ---
 name: ship-it
-description: "Worktree-side implementation orchestrator for an OpenSpec change. Idempotent: gates automated scenarios on filesystem reality (test file exists + passes in the docker harness), not the tasks.md checkbox. Owns the red-test fix loop (never re-invokes apply on a checked task), runs the docker harness on its auto-derived port with always-teardown, then drives ship-change INLINE with a manifest-aware defer. Boundary-reverse escape hatch writes SHIP_IT_BLOCKED.md. Runnable headless. Triggers: \"ship it\", \"build and ship this change\", \"run ship-it\", \"implement + test + land in the worktree\"."
+description: 'Worktree-side implementation orchestrator for an OpenSpec change. Idempotent: gates automated scenarios on filesystem reality, owns the red-test fix loop, runs the docker harness with always-teardown, then drives ship-change inline. Escape hatch writes SHIP_IT_BLOCKED.md. Runnable headless. Triggers: "ship it", "build and ship this change", "run ship-it", "implement + test + land in the worktree".'
 metadata:
   version: "1.0"
   scope: project

@@ -11,6 +11,8 @@ import {
   buildEnabledMap,
   resolveActivation as defaultResolveActivation,
   lookupEnabled,
+  type ResolvedPaths,
+  type ResolvedResource,
   type ResolveActivationFn,
 } from "./pi-resource-activation.js";
 
@@ -47,7 +49,10 @@ export function parseFrontmatter(
   } else {
     const singleLine = yaml.match(/^description:\s*(.+)$/m);
     if (singleLine) {
-      description = singleLine[1].trim();
+      // Strip YAML quoting so `description: ""` reads as empty, not as two
+      // quote characters — pi's load gate rejects it and so must we.
+      // See change: fix-skill-discovery-parity.
+      description = singleLine[1].trim().replace(/^(['"])([\s\S]*)\1$/, "$2");
     }
   }
 
@@ -204,7 +209,7 @@ function discoverAgents(agentsDir: string): PiResource[] {
 }
 
 function emptyScope(): PiResourceScope {
-  return { extensions: [], skills: [], prompts: [], agents: [] };
+  return { extensions: [], skills: [], prompts: [], agents: [], themes: [] };
 }
 
 // ── Scope Scanners ──────────────────────────────────────────────────
@@ -217,6 +222,7 @@ export function scanLocalResources(cwd: string): PiResourceScope {
     skills: discoverSkills(path.join(piDir, "skills")),
     prompts: discoverPrompts(path.join(piDir, "prompts")),
     agents: discoverAgents(path.join(piDir, "agents")),
+    themes: [],
   };
 }
 
@@ -227,6 +233,7 @@ export function scanGlobalResources(globalDir: string): PiResourceScope {
     skills: discoverSkills(path.join(globalDir, "skills")),
     prompts: discoverPrompts(path.join(globalDir, "prompts")),
     agents: discoverAgents(path.join(globalDir, "agents")),
+    themes: [],
   };
 }
 
@@ -344,6 +351,7 @@ function scanPackageDir(pkgDir: string): PiResourceScope {
     skills: discoverSkills(path.join(pkgDir, "skills")),
     prompts: discoverPrompts(path.join(pkgDir, "prompts")),
     agents: discoverAgents(path.join(pkgDir, "agents")),
+    themes: [],
   };
 }
 
@@ -411,6 +419,132 @@ function applyActivationToScope(scope: PiResourceScope, map: Map<string, boolean
   for (const r of scope.skills) r.enabled = lookupEnabled(map, r.filePath);
   for (const r of scope.prompts) r.enabled = lookupEnabled(map, r.filePath);
   for (const r of scope.agents) r.enabled = lookupEnabled(map, r.filePath);
+  for (const r of scope.themes) r.enabled = lookupEnabled(map, r.filePath);
+}
+
+// ── Resolver-sourced discovery (D1 / D2) ────────────────────────────
+//
+// Skills, prompts and themes come from pi's own `PackageManager.resolve()`
+// output rather than a parallel filesystem walk. `metadata.scope` supplies the
+// local/global bucket, `metadata.origin` + `metadata.source` the package
+// provenance, and `enabled` the activation state — all already computed by pi.
+// See change: fix-skill-discovery-parity.
+
+/** pi's `scope` enum → the dashboard's local/global bucket. `temporary` is local. */
+function bucketForScope(scope: string): "local" | "global" {
+  return scope === "user" ? "global" : "local";
+}
+
+/**
+ * pi's source identity (`npm:<name>`, `local:<abs path>`) → a comparable key.
+ * Version suffixes are stripped so `npm:foo@1.2.3` and `npm:foo` match.
+ */
+function normalizeSource(source: string): string {
+  const withoutScheme = source.replace(/^(npm|local|git):/, "");
+  return withoutScheme.replace(/@[^/@]*$/, "").replace(/\/+$/, "");
+}
+
+/**
+ * Name a resolved resource. `SKILL.md` takes its containing directory's
+ * basename (pi's own convention); any other file takes its stem.
+ */
+function nameForResolved(filePath: string): string {
+  const base = path.basename(filePath);
+  if (base === "SKILL.md") return path.basename(path.dirname(filePath));
+  return base.replace(/\.[^.]+$/, "");
+}
+
+/**
+ * pi's load gate (`loadSkillFromFile`): a skill with no non-empty frontmatter
+ * `description` is not loaded, so it is not reported. Unreadable or
+ * unparseable frontmatter yields no description and is therefore omitted too —
+ * the scan still completes. No name-based exclusion rule is used.
+ */
+function resolvedToSkill(r: ResolvedResource): PiResource | null {
+  const content = safeReadFile(r.path);
+  if (content === undefined) return null;
+  let fm: ReturnType<typeof parseFrontmatter>;
+  try {
+    fm = parseFrontmatter(content);
+  } catch {
+    return null;
+  }
+  const description = fm.description?.trim();
+  if (!description) return null;
+  return {
+    name: fm.name ?? nameForResolved(r.path),
+    description,
+    filePath: r.path,
+    type: "skill",
+    enabled: r.enabled,
+  };
+}
+
+function resolvedToPrompt(r: ResolvedResource): PiResource {
+  const content = safeReadFile(r.path);
+  const fm = content ? parseFrontmatter(content, true) : {};
+  return {
+    name: fm.name ?? nameForResolved(r.path),
+    description: fm.description,
+    filePath: r.path,
+    type: "prompt",
+    enabled: r.enabled,
+  };
+}
+
+function resolvedToTheme(r: ResolvedResource): PiResource {
+  return {
+    name: nameForResolved(r.path),
+    filePath: r.path,
+    type: "theme",
+    enabled: r.enabled,
+  };
+}
+
+/**
+ * Route resolver-sourced resources into the payload: package-origin entries go
+ * to their matching package row; an unmatched source is still reported in the
+ * scope bucket, labelled with the raw `metadata.source`. Nothing is dropped.
+ */
+function distributeResolved(
+  entries: ResolvedResource[],
+  build: (r: ResolvedResource) => PiResource | null,
+  key: "skills" | "prompts" | "themes",
+  local: PiResourceScope,
+  global: PiResourceScope,
+  packages: PiPackageInfo[],
+): void {
+  const bySource = new Map<string, PiPackageInfo>();
+  for (const pkg of packages) {
+    bySource.set(normalizeSource(pkg.source), pkg);
+    bySource.set(pkg.name, pkg);
+  }
+
+  for (const entry of entries) {
+    const resource = build(entry);
+    if (!resource) continue;
+    const bucket = bucketForScope(entry.metadata?.scope ?? "project");
+    if (entry.metadata?.origin === "package") {
+      const source = entry.metadata.source ?? "";
+      const pkg = bySource.get(normalizeSource(source)) ?? bySource.get(source);
+      if (pkg) {
+        pkg.resources[key].push(resource);
+        continue;
+      }
+      // Unmatched source — report it anyway, labelled with the raw string.
+      resource.packageSource = source;
+    }
+    (bucket === "global" ? global : local)[key].push(resource);
+  }
+}
+
+function totalOf(key: "skills" | "prompts" | "themes", local: PiResourceScope, global: PiResourceScope, packages: PiPackageInfo[]): number {
+  return local[key].length + global[key].length + packages.reduce((n, p) => n + p.resources[key].length, 0);
+}
+
+/** True when pi resolved nothing at all across the three resolver-owned types. */
+function resolverReturnedNothing(resolved: ResolvedPaths): boolean {
+  return (resolved.skills?.length ?? 0) === 0 && (resolved.prompts?.length ?? 0) === 0 && (resolved.themes?.length ?? 0) === 0;
 }
 
 export async function scanPiResources(cwd: string, options?: ScanOptions): Promise<PiResourcesResult> {
@@ -436,18 +570,52 @@ export async function scanPiResources(cwd: string, options?: ScanOptions): Promi
 
   const allPackages = [...localPackages, ...dedupedGlobal];
 
-  // Consume pi's own resolver to stamp `enabled` on every scanned resource.
-  // One `resolve()` for the cwd covers local, global, and package resources.
-  // On failure the map is empty → every resource keeps its `enabled: true`
-  // default. See change: folder-resource-activation-toggle.
+  // Consume pi's own resolver. It is the source of truth for skills, prompts
+  // and themes (D1) and for `enabled` on every resource type. A `null` return
+  // — pi unavailable, resolution threw, or the 5s timeout expired — falls back
+  // to the walk above and marks the payload degraded.
+  // See change: folder-resource-activation-toggle, fix-skill-discovery-parity.
   const resolveFn = options?.resolveActivation ?? defaultResolveActivation;
-  const resolved = await resolveFn(cwd, globalDir);
-  if (resolved) {
+  let resolved: ResolvedPaths | null;
+  try {
+    resolved = await resolveFn(cwd, globalDir);
+  } catch {
+    resolved = null;
+  }
+
+  if (!resolved) {
+    return { local, global, packages: allPackages, degraded: true };
+  }
+
+  // A successful-but-empty resolve that the fallback walk contradicts is a
+  // failure shape too: shipping an authoritative empty list is worse than the
+  // bug. Only the fallback's own findings can contradict it.
+  const fallbackFound = totalOf("skills", local, global, allPackages) + totalOf("prompts", local, global, allPackages);
+  if (resolverReturnedNothing(resolved) && fallbackFound > 0) {
     const map = buildEnabledMap(resolved);
     applyActivationToScope(local, map);
     applyActivationToScope(global, map);
     for (const pkg of allPackages) applyActivationToScope(pkg.resources, map);
+    return { local, global, packages: allPackages, degraded: true };
   }
+
+  // Resolver is authoritative — discard the walk's skills/prompts and rebuild
+  // all three resolver-owned types from `ResolvedPaths`. `extensions` and
+  // `agents` stay scanner-discovered (pi has no `agents` resource type).
+  for (const scope of [local, global, ...allPackages.map((p) => p.resources)]) {
+    scope.skills = [];
+    scope.prompts = [];
+    scope.themes = [];
+  }
+  distributeResolved(resolved.skills ?? [], resolvedToSkill, "skills", local, global, allPackages);
+  distributeResolved(resolved.prompts ?? [], resolvedToPrompt, "prompts", local, global, allPackages);
+  distributeResolved(resolved.themes ?? [], resolvedToTheme, "themes", local, global, allPackages);
+
+  // `enabled` for the scanner-owned types still comes from the same resolve().
+  const map = buildEnabledMap(resolved);
+  applyActivationToScope(local, map);
+  applyActivationToScope(global, map);
+  for (const pkg of allPackages) applyActivationToScope(pkg.resources, map);
 
   return {
     local,

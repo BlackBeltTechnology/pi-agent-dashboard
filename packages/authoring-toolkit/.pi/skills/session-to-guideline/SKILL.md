@@ -1,15 +1,6 @@
 ---
 name: session-to-guideline
-description: >
-  Turn a pi session into a Markdown "how-we-did-it" collaboration guideline. Reads a
-  session's JSONL transcript, extracts the user's goal, every steering/correction turn,
-  the tools/files/searches used, and any skills or memories created — then synthesizes a
-  reusable playbook explaining how the task was performed WITH the AI: which prompts
-  worked, what had to be steered, which skills were created and why they're effective,
-  and how to reproduce the result faster.
-  Use when: "document this session", "write up how we did X with the AI", "make a
-  guideline from this session", "turn this session into a playbook/tutorial",
-  "summarize what we built and how I steered it".
+description: 'Turn a pi session into a Markdown "how-we-did-it" collaboration guideline: reads the session''s JSONL transcript and synthesizes a reusable playbook of which prompts worked, what had to be steered, and how to reproduce the result faster. Use when: "document this session", "write up how we did X with the AI", "make a guideline from this session", "turn this session into a playbook/tutorial".'
 ---
 
 # Session → Collaboration Guideline

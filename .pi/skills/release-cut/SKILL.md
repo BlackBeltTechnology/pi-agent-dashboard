@@ -1,17 +1,6 @@
 ---
 name: release-cut
-description: >
-  Cut a new pi-agent-dashboard release. Promotes `## [Unreleased]` in
-  CHANGELOG.md to a versioned section, bumps all workspace package.json
-  versions per SemVer, commits, tags `v<version>`, and pushes — which
-  triggers the Release workflow that publishes **every non-private workspace**
-  (~32 `@blackbelt-technology/*` packages as of v0.6.0 — count grows over time;
-  derive live with `for f in package.json packages/*/package.json; do node -e
-  "const p=require('./$f'); if(!p.private) console.log(p.name)"; done`) via
-  `npm publish -ws --include-workspace-root`, plus the Electron artifacts
-  and creates a GitHub Release (published automatically for production
-  tags `vX.Y.Z`; draft for pre-release tags `vX.Y.Z-rc.N`). Use when the user says "cut a
-  release", "release vX.Y.Z", "publish a new version", "tag a release".
+description: 'Cut a new pi-agent-dashboard release: promote `## [Unreleased]` in CHANGELOG.md, bump every workspace package.json per SemVer, commit, tag `v<version>`, and push — triggering the Release workflow that publishes every non-private workspace, builds the Electron artifacts, and creates a GitHub Release. Use on "cut a release", "release vX.Y.Z", "publish a new version", "tag a release".'
 license: MIT
 metadata:
   author: pi-dashboard

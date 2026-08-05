@@ -109,12 +109,30 @@ export async function getPiCore(registry: ToolRegistry = getDefaultRegistry()): 
  */
 export type ResolveActivationFn = (cwd: string, agentDir?: string) => Promise<ResolvedPaths | null>;
 
+/**
+ * Upper bound on `PackageManager.resolve()`. It sits on the `/api/pi-resources`
+ * critical path and can perform network I/O for temporary git sources, so a
+ * hang would stall the resources payload. Expiry is treated exactly like a
+ * throw: `null`, which the scanner reports as degraded.
+ * See change: fix-skill-discovery-parity (test-plan C1).
+ */
+export const RESOLVE_TIMEOUT_MS = 5000;
+
 export const resolveActivation: ResolveActivationFn = async (cwd, agentDir = AGENT_DIR) => {
   try {
     const { DefaultPackageManager, SettingsManager } = await getPiCore();
     const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: true });
     const pm = new DefaultPackageManager({ cwd, agentDir, settingsManager });
-    return (await pm.resolve(async () => "skip")) as ResolvedPaths;
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), RESOLVE_TIMEOUT_MS);
+      timer.unref?.();
+    });
+    try {
+      return (await Promise.race([pm.resolve(async () => "skip"), timeout])) as ResolvedPaths | null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   } catch {
     return null;
   }

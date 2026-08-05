@@ -1,6 +1,6 @@
 ---
 name: ci-troubleshoot
-description: Diagnose failed GitHub Actions runs for pi-agent-dashboard. Maps the 6-workflow taxonomy (ci.yml, ci-electron.yml, _electron-build.yml, publish.yml, sync-release-version.yml, deploy-site.yml), walks the release pipeline (prepare→publish→electron→github-release with strict needs[] contract), surfaces known failure modes (lockfile mismatch, bad Node version, CHANGELOG already-versioned, npm publish ordering, no-bash-on-Windows lint, missing node-pty prebuilds, GO/NO-GO bundle-server guard), and shows how to read `gh run` logs and retrigger failed jobs. Use when a CI run is red, a release is stuck, a workflow won't dispatch, or you need to understand which workflow does what. For triggering a release see `release-cut`; for revoking one see `release-revoke`.
+description: 'Diagnose failed GitHub Actions runs for pi-agent-dashboard: the 6-workflow taxonomy, the release pipeline, known failure modes, and how to read `gh run` logs and retrigger jobs. Use when a CI run is red, a release is stuck, a workflow won''t dispatch, or you need to know which workflow does what. See `release-cut` to trigger a release, `release-revoke` to revoke one.'
 ---
 
 # CI Troubleshoot

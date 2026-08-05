@@ -1,6 +1,6 @@
 ---
 name: document-converter
-description: Convert documents bidirectionally via the pi-doc-engine facade. Ingest PDF/DOCX/PPTX/XLSX to provenance-stamped Markdown for kb (with selectable OCR). Produce templated DOCX/PDF from Markdown with diagrams (mmdc or styled nano-banana), TOC, cover page, and round-trip extract/edit/merge. Use on requests like "convert this PDF to markdown", "ingest these docs into kb", "make a DOCX from markdown with our template", "render this spec to PDF", "OCR this scanned Hungarian PDF", "edit this DOCX and merge back", "fill frontmatter", "auto-size tables".
+description: 'Convert documents bidirectionally via the pi-doc-engine facade: ingest PDF/DOCX/PPTX/XLSX to provenance-stamped Markdown (with OCR), and produce templated DOCX/PDF from Markdown with diagrams, TOC and round-trip merge. Use on "convert this PDF to markdown", "ingest these docs into kb", "make a DOCX from markdown with our template", "render this spec to PDF", "OCR this scanned PDF".'
 ---
 
 # Document Converter

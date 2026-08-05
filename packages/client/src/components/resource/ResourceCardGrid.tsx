@@ -27,7 +27,11 @@ const TYPE_TO_KEY = {
   prompt: "prompts",
   agent: "agents",
   theme: "themes",
-} as const satisfies Record<string, keyof PiResourceScope | "themes">;
+} as const satisfies Record<string, keyof PiResourceScope>;
+
+/** Provenance filter values. `all` is the default. See change: fix-skill-discovery-parity. */
+const PROVENANCE_VALUES = ["all", "active", "not-loaded", "loaded-elsewhere"] as const;
+type ProvenanceFilter = (typeof PROVENANCE_VALUES)[number];
 
 export type ResourceType = keyof typeof TYPE_TO_KEY;
 
@@ -45,9 +49,7 @@ interface FlatItem {
 
 function collect(data: PiResourcesResult, type: ResourceType, scopes: ResourceScope[]): FlatItem[] {
   const key = TYPE_TO_KEY[type];
-  // `themes` is not part of PiResourceScope today (no scanner) → always empty.
-  const fromScope = (s: PiResourceScope): PiResourceScope["skills"] =>
-    (key in s ? (s[key as keyof PiResourceScope] as PiResourceScope["skills"]) : []);
+  const fromScope = (s: PiResourceScope): PiResourceScope["skills"] => s[key] ?? [];
 
   const items: FlatItem[] = [];
   for (const scope of scopes) {
@@ -78,21 +80,41 @@ interface Props {
 export function ResourceCardGrid({ data, type, scopes, showScopeFilter, onView, activation }: Props) {
   const [query, setQuery] = useState("");
   const [scopeFilter, setScopeFilter] = useState<"all" | ResourceScope>("all");
+  const [provenanceFilter, setProvenanceFilter] = useState<ProvenanceFilter>("all");
 
   const items = useMemo(() => collect(data, type, scopes), [data, type, scopes]);
+
+  // Provenance exists only for skills, and only when the payload carries a
+  // join (not scan-only, not degraded). See change: fix-skill-discovery-parity.
+  const showProvenance = type === "skill" && !data.scanOnly && !data.degraded;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter((it) => {
       if (showScopeFilter && scopeFilter !== "all" && it.scope !== scopeFilter) return false;
+      if (showProvenance && provenanceFilter !== "all" && (it.resource.status ?? "active") !== provenanceFilter) return false;
       if (!q) return true;
       const hay = `${it.resource.name} ${it.resource.description ?? ""}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [items, query, scopeFilter, showScopeFilter]);
+  }, [items, query, scopeFilter, showScopeFilter, showProvenance, provenanceFilter]);
 
   return (
     <div data-testid="resource-card-grid" data-type={type}>
+      {type === "skill" && data.degraded && (
+        <p data-testid="resource-grid-degraded" className="mb-3 text-[11px] text-[var(--text-tertiary)]">
+          {i18nT(
+            "common.resourcesDegraded",
+            undefined,
+            "pi's resolver was unavailable — this is a filesystem fallback and may not match the session.",
+          )}
+        </p>
+      )}
+      {type === "skill" && !data.degraded && data.scanOnly && (
+        <p data-testid="resource-grid-scan-only" className="mb-3 text-[11px] text-[var(--text-tertiary)]">
+          {i18nT("common.resourcesScanOnly", undefined, "No single session is reporting skills for this folder.")}
+        </p>
+      )}
       <div className="flex items-center gap-3 mb-3">
         <div className="relative flex-1 max-w-xs">
           <Icon path={mdiMagnify} size={0.6} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
@@ -104,6 +126,27 @@ export function ResourceCardGrid({ data, type, scopes, showScopeFilter, onView, 
             className="w-full pl-7 pr-2 py-1.5 text-xs rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)]"
           />
         </div>
+        {showProvenance && (
+          <div className="flex gap-0.5 p-0.5 rounded-lg bg-[var(--bg-tertiary)]" data-testid="resource-provenance-filter" role="tablist">
+            {PROVENANCE_VALUES.map((p) => (
+              <button
+                key={p}
+                type="button"
+                role="tab"
+                data-provenance={p}
+                aria-selected={provenanceFilter === p}
+                onClick={() => setProvenanceFilter(p)}
+                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                  provenanceFilter === p
+                    ? "bg-[var(--bg-primary)] text-[var(--text-primary)] font-semibold shadow-sm"
+                    : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                }`}
+              >
+                {i18nT(`auto.${p}`, undefined, p)}
+              </button>
+            ))}
+          </div>
+        )}
         {showScopeFilter && (
           <div className="flex gap-0.5 p-0.5 rounded-lg bg-[var(--bg-tertiary)]" data-testid="resource-scope-filter" role="tablist">
             {(["all", "local", "global"] as const).map((s) => (
@@ -140,7 +183,8 @@ export function ResourceCardGrid({ data, type, scopes, showScopeFilter, onView, 
               resource={it.resource}
               scope={it.scope}
               packageName={it.packageName}
-              packageSource={it.packageSource}
+              packageSource={it.resource.packageSource ?? it.packageSource}
+              sessionCwd={data.contributingSession?.differsFromFolder ? data.contributingSession.cwd : undefined}
               onView={() => onView(it.resource.filePath, it.resource.name)}
               activation={activation}
             />

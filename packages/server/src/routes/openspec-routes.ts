@@ -27,6 +27,7 @@ import {
   toggleTask,
 } from "../openspec/openspec-tasks.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
+import { joinSkillProvenance, sessionCommandRegistry, type SkillReporter } from "../pi/session-skill-registry.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Callback to broadcast an openspec_update after a successful toggle. */
@@ -294,7 +295,14 @@ export function registerOpenSpecRoutes(
       if (!data) {
         data = await directoryService.refreshPiResources(cwd);
       }
-      return { success: true, data } satisfies ApiResponse;
+      // Join the scan against what a session attached to this folder actually
+      // loaded, so a skill can be told apart from one merely present on disk.
+      // See change: fix-skill-discovery-parity.
+      const reporters: SkillReporter[] = sessionManager
+        .listAll()
+        .filter((s) => s.cwd === cwd && sessionCommandRegistry.hasReported(s.id))
+        .map((s) => ({ sessionId: s.id, cwd: s.cwd, commands: sessionCommandRegistry.get(s.id) ?? [] }));
+      return { success: true, data: joinSkillProvenance(data, reporters, cwd) } satisfies ApiResponse;
     },
   );
 
