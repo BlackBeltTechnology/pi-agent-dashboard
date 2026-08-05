@@ -15,14 +15,21 @@
  *
  * See change: unify-settings-save-contract.
  */
-import React, { createContext, useContext, useEffect, useRef } from "react";
+import type React from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 
 /** A buffered settings source contributing to the unified Save. */
 export interface SettingsDraftSource {
   /** Stable unique id (e.g. "display-prefs", "plugin:roles"). */
   id: string;
-  /** Settings page id this source lives on (for per-page dirty dots). */
-  page: string;
+  /**
+   * Settings page id this source lives on (for per-page dirty dots).
+   *
+   * Optional: a source registered from inside a plugin settings page has its
+   * page assigned by the host (`plugins/<pluginId>`), so plugins omit it.
+   * See change: plugin-settings-pages (design D5).
+   */
+  page?: string;
   /** True when the source has unsaved edits. */
   isDirty: boolean;
   /** Persist the source's draft. MUST reject on failure (kept dirty + retry). */
@@ -48,6 +55,37 @@ export interface SettingsDraftRegistry {
 
 const SettingsDraftContext = createContext<SettingsDraftRegistry | null>(null);
 
+/**
+ * Owning plugin id for the settings page currently mounted, or `null` outside
+ * one. `PluginSettingsPage` provides it; `useSettingsDraftSource` reads it to
+ * file every source registered beneath that page under `plugins/<id>`.
+ *
+ * The rewrite MUST live in the hook, not in the registry: `draftRegistry` is a
+ * `useMemo`'d closure created in `SettingsPanel` scope, above where the plugin
+ * page mounts, so it cannot read a descendant's context.
+ * See change: plugin-settings-pages (design D5).
+ */
+const PluginSettingsPageContext = createContext<string | null>(null);
+
+export function PluginSettingsPageProvider({
+  pluginId,
+  children,
+}: {
+  pluginId: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <PluginSettingsPageContext.Provider value={pluginId}>
+      {children}
+    </PluginSettingsPageContext.Provider>
+  );
+}
+
+/** The plugin id owning the settings page this subtree renders in, if any. */
+export function usePluginSettingsPageId(): string | null {
+  return useContext(PluginSettingsPageContext);
+}
+
 export function SettingsDraftProvider({
   registry,
   children,
@@ -71,12 +109,17 @@ export function SettingsDraftProvider({
  */
 export function useSettingsDraftSource(source: SettingsDraftSource): void {
   const registry = useContext(SettingsDraftContext);
+  const hostPluginId = useContext(PluginSettingsPageContext);
   const commitRef = useRef(source.commit);
   const resetRef = useRef(source.reset);
   commitRef.current = source.commit;
   resetRef.current = source.reset;
 
-  const { id, page, isDirty } = source;
+  const { id, isDirty } = source;
+  // Host override: inside a plugin settings page the host owns the page id, so
+  // a plugin cannot point its dirty dot at a page its settings do not appear on
+  // (design D5). Outside one, the source's own `page` stands.
+  const page = hostPluginId ? `plugins/${hostPluginId}` : (source.page ?? "general");
 
   useEffect(() => {
     if (!registry) return;

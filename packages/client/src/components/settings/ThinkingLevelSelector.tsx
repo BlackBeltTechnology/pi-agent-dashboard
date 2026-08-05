@@ -33,7 +33,7 @@ export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Pr
   // In the composer/chat pane (NOT immune): measure against that offset
   // `overflow` pane, left-preserving. See change: fix-popover-container-clip.
   const boundaryRef = usePopoverBoundary();
-  const { flipUp, maxHeight, anchorRight } = usePopoverFlip(triggerRef, {
+  const { flipUp, maxHeight, minHeight, anchorRight } = usePopoverFlip(triggerRef, {
     open,
     estimatedWidth: 128, // w-32 natural width
     preferredAnchor: "left",
@@ -74,7 +74,7 @@ export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Pr
           id={dropdownId}
           role="listbox"
         >
-          <div className="overflow-y-auto" style={{ maxHeight }}>
+          <div className="overflow-y-auto" style={{ maxHeight, minHeight }}>
             {levelsToRender.map((level) => (
               <button
                 key={level}

@@ -114,6 +114,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
   const {
     flipUp: sheetFlipUp,
     maxHeight: sheetMaxHeight,
+    minHeight: sheetMinHeight,
     anchorRight: sheetAnchorRight,
     maxWidth: sheetMaxWidth,
   } = usePopoverFlip(sheetTriggerRef, { open: sheetOpen, estimatedWidth: 140, boundaryRef });
@@ -248,7 +249,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
           {sheetOpen && (
             <div
               data-testid="worktree-actions-mobile-sheet"
-              style={{ maxHeight: sheetMaxHeight, maxWidth: sheetMaxWidth }}
+              style={{ maxHeight: sheetMaxHeight, minHeight: sheetMinHeight, maxWidth: sheetMaxWidth }}
               className={`absolute z-50 flex flex-col gap-1 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded p-1 min-w-[140px] ${
                 sheetAnchorRight ? "right-0" : "left-0"
               } ${sheetFlipUp ? "bottom-full mb-1" : "top-full mt-1"}`}

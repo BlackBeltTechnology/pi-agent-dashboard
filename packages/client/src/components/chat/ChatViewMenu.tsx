@@ -50,7 +50,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
   // layouts), not the viewport, so the `right-0` popover flips before its label
   // column is guillotined by the pane edge. See change: fix-popover-container-clip.
   const boundaryRef = usePopoverBoundary();
-  const { flipUp, maxHeight, anchorRight, maxWidth } = usePopoverFlip(triggerRef, {
+  const { flipUp, maxHeight, minHeight, anchorRight, maxWidth } = usePopoverFlip(triggerRef, {
     open,
     estimatedWidth: 256, // w-64 natural width
     boundaryRef,
@@ -128,7 +128,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
       {open && (
         <div
           data-testid="chat-view-popover"
-          style={{ maxHeight, maxWidth }}
+          style={{ maxHeight, minHeight, maxWidth }}
           className={`absolute z-30 w-64 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg p-2 text-xs ${
             anchorRight ? "right-0" : "left-0"
           } ${flipUp ? "bottom-full mb-1" : "top-full mt-1"}`}

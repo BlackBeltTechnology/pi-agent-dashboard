@@ -513,7 +513,7 @@ describe("ChatView", () => {
     it("does not render retry-banner when retryState is set", () => {
       const state = {
         ...createInitialState(),
-        retryState: { attempt: 1, maxAttempts: 3, delayMs: 2000, reason: "rate limit", startedAt: 0 },
+        retryState: { attempt: 1, maxAttempts: 3, delayMs: 2000, waiting: false, reason: "rate limit", startedAt: 0 },
       };
       const { container } = render(
         <ThemeProvider>
@@ -585,7 +585,7 @@ describe("ChatView", () => {
     it("chat view stays banner-free even when both retryState and lastError are set", () => {
       const state = {
         ...createInitialState(),
-        retryState: { attempt: 2, maxAttempts: 3, delayMs: 4000, reason: "x", startedAt: 0 },
+        retryState: { attempt: 2, maxAttempts: 3, delayMs: 4000, waiting: false, reason: "x", startedAt: 0 },
         lastError: { message: "boom", timestamp: 0 },
       };
       const { container } = render(

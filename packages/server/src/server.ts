@@ -18,6 +18,8 @@ import {
   reconcilePluginBridgePackages,
   registerAllPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
+import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
+import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import { isRecoveryCandidate, mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -68,6 +70,7 @@ import { createPendingGoalLinkRegistry } from "./pending/pending-goal-link-regis
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
+import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
 import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } from "./persistence/memory-event-store.js";
 import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
@@ -96,6 +99,7 @@ import { registerPackageRoutes } from "./routes/package-routes.js";
 import { registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
+import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
@@ -184,6 +188,13 @@ export interface ServerConfig {
 export interface DashboardServer {
   start(): Promise<void>;
   stop(): Promise<void>;
+  /**
+   * Flush pending session-metadata + preference writes WITHOUT tearing the
+   * server down. Used by the signal handler, where the process is about to
+   * die anyway and a full `stop()` (which SIGTERMs every spawned pi) would be
+   * the wrong teardown. See change: fix-recovery-exit-intent (D4).
+   */
+  flush(): void;
   sessionManager: SessionManager;
   eventStore: EventStore;
   browserGateway: BrowserGateway;
@@ -214,18 +225,6 @@ export interface DashboardServer {
   sessionOrderManager: SessionOrderManager;
 }
 
-/**
- * Recovery reattach grace window (ms). After cold start, a recovery candidate
- * whose bridge re-registers (comes alive) within this window is a survivor of a
- * plain restart — not a genuine loss — so it is retracted from the offer and its
- * on-disk liveness marker consumed. Keeper-carried sessions are gated
- * synchronously at broadcast time; this window covers non-keeper (tmux / TUI /
- * mDNS-discovery) bridges whose liveness is only revealed on async reattach.
- * Sized above typical mDNS-discovery + WS-reconnect latency. In `auto` mode the
- * resume itself is deferred by this window so a reattaching session is never
- * double-spawned. See change: fix-recovery-offer-bridge-liveness-gate.
- */
-const RECOVERY_REATTACH_GRACE_MS = 2500;
 
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
@@ -291,6 +290,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // (pre-feature or fallback) still classify on `live` alone (task 4.1).
   // See change: reopen-sessions-after-shutdown.
   const liveEpoch = Date.now();
+  // Open this boot's record BEFORE classification: the previous boot rolls
+  // into the ring, so each restored session's `liveEpoch` resolves to the
+  // intent that ended the boot which owned it.
+  // See change: fix-recovery-exit-intent.
+  stampBootStart(liveEpoch);
   const sessionOrderManager = createSessionOrderManager(preferencesStore);
   const pendingForkRegistry = createPendingForkRegistry();
   // Maps spawnToken → originating browser requestId. Surfaced as
@@ -319,12 +323,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const recoveryCandidates: DashboardSession[] = [];
   for (const session of scanResult.sessions) {
     const restored = { ...session, dataUnavailable: true };
-    const candidate = recoveryMode !== "off" && isRecoveryCandidate({
+    // Positive `exitIntent` gate: a boot that ended by `/api/restart` or
+    // `/api/shutdown` left its sessions RUNNING and told every bridge to stay
+    // away for longer than the reattach grace window, so those sessions will
+    // reattach — after any window that could retract them. Suppress outright,
+    // with no timing dependency. See change: fix-recovery-exit-intent.
+    const ownerIntent = resolveExitIntent(session.liveEpoch);
+    const diskCandidate = recoveryMode !== "off" && isRecoveryCandidate({
       live: session.live,
       status: session.status,
       closedReason: session.closedReason,
       kind: session.kind,
     });
+    const candidate = diskCandidate && isRecoveryAllowed(ownerIntent);
+    if (diskCandidate && !candidate) {
+      console.info(
+        `[recovery] ${session.id}: suppressed-by-intent (boot ${session.liveEpoch} exited via ${ownerIntent})`,
+      );
+    }
     if (candidate) {
       // Collect for the offer / auto-resume BEFORE normalization, so the
       // candidate carries its resume metadata (sessionFile, cwd, name, model,
@@ -356,6 +372,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const liveRecoveryCandidates = new Map<string, DashboardSession>(
     recoveryCandidates.map((c) => [c.id, c]),
   );
+  if (liveRecoveryCandidates.size > 0) {
+    console.info(`[recovery] ${liveRecoveryCandidates.size} candidate(s) after the exit-intent gate; awaiting liveness`);
+  }
   let recoveryOfferBroadcast = false;
   let recoveryGraceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -1113,6 +1132,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const networkGuard = createNetworkGuard(config.resolvedTrustedNetworks ?? [], { localToken });
 
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
+  // pi retry policy editor. Reload fan-out dispatches `/reload` to every
+  // connected session so a saved policy applies without a manual restart
+  // (pi reads its settings only at session construction). See change:
+  // retry-forever-with-stop-control.
+  registerPiRetryRoutes(fastify, {
+    networkGuard,
+    reloadConnectedSessions: () => {
+      const ids = piGateway.getConnectedSessionIds();
+      for (const id of ids) {
+        piGateway.sendToSession(id, { type: "send_prompt", sessionId: id, text: "/reload" });
+      }
+      return ids.length;
+    },
+  });
   registerGitRoutes(fastify, {
     networkGuard, sessionManager, browserGateway, worktreeInitRegistry,
     sendToSession: (id, msg) => piGateway.sendToSession(id, msg),
@@ -1709,6 +1742,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     directoryService,
     sessionOrderManager,
 
+    flush() {
+      metaPersistence.flushAll();
+      preferencesStore.flush();
+    },
+
     httpPort() {
       const addr = fastify.server.address();
       if (addr && typeof addr === "object") return addr.port;
@@ -2210,31 +2248,42 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       if (liveRecoveryCandidates.size > 0) {
         const mode = recoveryMode;
         if (mode === "ask") {
-          // Deadline until which Class-2 liveness is unresolved; the client keeps
-          // Reopen non-actionable until then. See change: fix-recovery-offer-bridge-liveness-gate.
+          // Deadline until which Class-2 liveness is unresolved. Retained on the
+          // wire for a client that connects mid-window (it renders the
+          // non-actionable "verifying" state). See change: fix-recovery-offer-bridge-liveness-gate.
           recoveryGraceUntil = Date.now() + RECOVERY_REATTACH_GRACE_MS;
-          pendingRecoveryOffer = buildRecoveryOffer([...liveRecoveryCandidates.values()]);
-          recoveryOfferBroadcast = true;
-          // Reaches any already-connected clients; onConnect replays to the rest.
-          browserGateway.broadcastToAll(pendingRecoveryOffer);
-          // Consume each offered candidate's on-disk liveness sentinel so the
-          // offer is shown ONCE per dirty boot: a later cold start (no NEW
-          // unclean shutdown) will NOT re-classify these sessions, regardless
-          // of whether the user reopens, dismisses (×), or just hides the
-          // session card. Without this, `restore()`'s in-memory-only
-          // normalization leaves `live:true` on disk, so every cold boot
-          // re-offers a session the user already dealt with (the phantom).
-          // The in-memory `pendingRecoveryOffer` still drives within-boot
-          // reconnect replay; Reopen re-stamps `{live:true,liveEpoch}` on the
-          // resumed session's next activity (event-wiring). Mirrors the
-          // marker clears in `recovery_dismiss` and clean `stop()`.
-          // See change: fix-recovery-offer-dismiss-and-phantom-reopen.
-          for (const cand of liveRecoveryCandidates.values()) {
-            if (cand.sessionFile) metaPersistence.setLiveness(cand.sessionFile, { live: false });
-          }
-          // Stop retracting once the grace window closes: a reattach after this
-          // must NOT revoke a legitimate offer for a genuine loss.
-          recoveryGraceTimer = setTimeout(() => { liveRecoveryCandidates.clear(); }, RECOVERY_REATTACH_GRACE_MS);
+          // DEFER the broadcast until liveness is finalized. Broadcasting now
+          // and merely disabling the button still renders a card for every
+          // candidate that is about to be retracted — the flash-then-vanish
+          // offer users actually complain about. Wait out the window, then
+          // broadcast ONCE with the survivors. See change: fix-recovery-exit-intent (D6).
+          recoveryGraceTimer = setTimeout(() => {
+            const survivors = [...liveRecoveryCandidates.values()];
+            // Stop retracting: a reattach after this must NOT revoke a
+            // legitimate offer for a genuine loss.
+            liveRecoveryCandidates.clear();
+            console.info(`[recovery] grace window closed; offering ${survivors.length} candidate(s)`);
+            if (survivors.length === 0) return;
+            pendingRecoveryOffer = buildRecoveryOffer(survivors);
+            recoveryOfferBroadcast = true;
+            // Reaches any already-connected clients; onConnect replays to the rest.
+            browserGateway.broadcastToAll(pendingRecoveryOffer);
+            // Consume each offered candidate's on-disk liveness sentinel so the
+            // offer is shown ONCE per dirty boot: a later cold start (no NEW
+            // unclean shutdown) will NOT re-classify these sessions, regardless
+            // of whether the user reopens, dismisses (×), or just hides the
+            // session card. Without this, `restore()`'s in-memory-only
+            // normalization leaves `live:true` on disk, so every cold boot
+            // re-offers a session the user already dealt with (the phantom).
+            // The in-memory `pendingRecoveryOffer` still drives within-boot
+            // reconnect replay; Reopen re-stamps `{live:true,liveEpoch}` on the
+            // resumed session's next activity (event-wiring). Mirrors the
+            // marker clear in `recovery_dismiss`.
+            // See change: fix-recovery-offer-dismiss-and-phantom-reopen.
+            for (const cand of survivors) {
+              if (cand.sessionFile) metaPersistence.setLiveness(cand.sessionFile, { live: false });
+            }
+          }, RECOVERY_REATTACH_GRACE_MS);
           recoveryGraceTimer.unref?.();
         } else if (mode === "auto") {
           // Defer the resume by the grace window so a session whose bridge
@@ -2297,15 +2346,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       removePid();
       idleTimer.cancel();
       directoryService.stopPolling();
+      // SIGTERMs every dashboard-spawned pi: after this the sessions below are
+      // GONE and can never reattach.
       browserGateway.shutdownHeadlessProcesses();
-      // Clean teardown (idle timer / app quit) is intentional: clear the
-      // liveness marker for every still-running session so cold start does
-      // NOT classify them as interrupted recovery candidates. No
-      // `closedReason` — this is a clean stop, not a manual close.
-      // See change: reopen-sessions-after-shutdown.
-      for (const s of sessionManager.listActive()) {
-        if (s.sessionFile) metaPersistence.setLiveness(s.sessionFile, { live: false });
-      }
+      // Record `exitIntent:"idle"` instead of erasing the evidence. `stop()`
+      // reaches here from the idle timer — the server chose to stop, the user
+      // closed nothing — so the sessions it just killed stay recoverable. Clearing
+      // their `live` markers here (the old behaviour) is what destroyed the
+      // recovery signal for a reboot preceded by an idle auto-stop. Per-session
+      // user intent still lives in `closedReason:"manual"`; marker consumption
+      // on dismiss / retract / offer-broadcast is unchanged.
+      // See change: fix-recovery-exit-intent (D3).
+      recordExitIntent("idle");
       metaPersistence.flushAll();
       metaPersistence.dispose();
       // Cancel the deferred boot reconcile + dispose supervisor (pending backoff

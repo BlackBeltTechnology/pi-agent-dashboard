@@ -2,7 +2,7 @@
 description: Fast read-only codebase & docs exploration. Returns structured findings, never raw file dumps.
 model: "@fast"
 inherit_context: false
-tools: [read, grep, find, ls, bash]
+tools: [read, bash, kb_search, kb_neighbors, kb_get, memory_search, session_search, ask_user]
 ---
 
 <!--

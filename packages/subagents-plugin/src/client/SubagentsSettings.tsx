@@ -51,21 +51,19 @@ export function SubagentsSettings() {
 		}
 	}, [t]);
 	const reset = useCallback(() => setDraft(baseline), [baseline]);
-	useSettingsDraftSource({ id: "plugin:subagents", page: "general", isDirty, commit, reset });
+	useSettingsDraftSource({ id: "plugin:subagents", isDirty, commit, reset });
 	const checked = draft;
 
 	return (
-		<section className="space-y-3 p-4">
-			<header>
-				<h3 className="text-sm font-semibold text-[var(--text-primary)]">
-					{t("subagentInspectorHeading", undefined, "Subagent Inspector")}
-				</h3>
-				<p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
-					{t("producerSettingsPre", undefined, "Settings for the ")}
-					<code className="font-mono">pi-dashboard-subagents</code>
-					{t("producerSettingsPost", undefined, " producer.")}
-				</p>
-			</header>
+		<div className="space-y-3">
+			{/* No self-header: the host owns identity + status chrome on
+			    `/settings/plugins/<id>`, so a second heading double-headers
+			    (design D1). See change: plugin-settings-pages. */}
+			<p className="text-[11px] text-[var(--text-tertiary)]">
+				{t("producerSettingsPre", undefined, "Settings for the ")}
+				<code className="font-mono">pi-dashboard-subagents</code>
+				{t("producerSettingsPost", undefined, " producer.")}
+			</p>
 
 			{/*
 			  Soft (runtime) relationship with the Roles plugin — no manifest
@@ -113,6 +111,6 @@ export function SubagentsSettings() {
 					</span>
 				</span>
 			</label>
-		</section>
+		</div>
 	);
 }

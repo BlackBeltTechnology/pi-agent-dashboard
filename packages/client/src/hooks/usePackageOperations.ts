@@ -7,6 +7,8 @@
  *     op across the whole client. Multiple components observing this
  *     hook see the same op, even one initiated by a different component.
  *   - `install / remove / update`: thin wrappers over `packageQueue.enqueue`.
+ *   - `coreUpdate`: pi-core wrapper over the same queue (see change:
+ *     unify-pi-core-into-package-queue).
  *   - `clearOperation`: no-op kept for backwards-compat (the queue
  *     auto-clears success after 3 s and clears errors on next enqueue).
  *
@@ -26,6 +28,7 @@ import {
   type PackageOperationStatus,
   type PackageScope,
   packageQueue,
+  piCoreSource,
   type RunningOp,
 } from "../lib/package/package-queue.js";
 import {
@@ -130,6 +133,23 @@ export function usePackageOperations(
     [enqueue],
   );
 
+  /**
+   * Enqueue a pi-core package update. `name` is the full scoped npm name
+   * from `PiCorePackage.name` (e.g. `@mariozechner/pi-coding-agent`), NOT
+   * a `npm:`-prefixed source. `scope: "global"` is a non-meaningful
+   * placeholder — `/api/pi-core/update` ignores it and resolves the
+   * install location per-package from `PiCorePackage.installSource`.
+   * See change: unify-pi-core-into-package-queue.
+   */
+  const coreUpdate = useCallback((name: string) => {
+    packageQueue.enqueue({
+      source: piCoreSource(name),
+      kind: "pi-core",
+      action: "update",
+      scope: "global",
+    });
+  }, []);
+
   const statusFor = useCallback(
     (source: string): PackageOperationStatus => packageQueue.getStateForSource(source),
     [],
@@ -220,6 +240,7 @@ export function usePackageOperations(
     install,
     remove,
     update,
+    coreUpdate,
     move,
     resetToNpm,
     moveStateFor,
@@ -229,6 +250,8 @@ export function usePackageOperations(
     messageFor,
     queueDepth: snap.depth,
     runningSource: running?.source ?? null,
+    /** True while any op — extension or pi-core — holds the single-flight slot. */
+    isAnyRunning: running !== null,
     /** Backwards-compat: WS messages now flow through the queue's own
      * window listener, so handleMessage is a no-op kept only so existing
      * consumers (if any) don't crash on call. */

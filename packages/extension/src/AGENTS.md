@@ -33,6 +33,7 @@ Files in this directory. One row per source file.
 | `multiselect-list.ts` | TUI multi-select component implementing pi-tui `ComponentLike`. Exports `MultiSelectList`, `ComponentLike`. → see `multiselect-list.ts.AGENTS.md` |
 | `multiselect-polyfill.ts` | Polyfill `ctx.ui.multiselect`. Exports `polyfillMultiselect`, `PolyfillCtx`. → see `multiselect-polyfill.ts.AGENTS.md` |
 | `openspec-cli-shim.ts` | Provision bare `openspec` in-session: shim pinned CLI onto `process.env.PATH` at bridge init (fail-soft). Exports `provisionOpenspecCli`,… → see `openspec-cli-shim.ts.AGENTS.md` |
+| `pi-retry-settings.ts` | READ-ONLY reader for pi's own retry policy. Exports `readPiRetrySettings({home?,cwd?,readFile?,fileExists?})`, `PiRetrySettings`, `PI_RETRY_DEFAULTS` (`maxRetries:3`, `baseDelayMs:2000`). Merges global `~/.pi/agent/settings.json` then project `<cwd>/.pi/settings.json` (project wins). Present-but-unparseable file → `baseDelayMs:0` → surface renders elapsed-only instead of a fabricated countdown. Never throws, never writes. Feeds `RetryTracker`'s `delayMs`/`maxAttempts` display math. See change: retry-forever-with-stop-control. |
 | `process-metrics.ts` | Lightweight process metrics collector for bridge heartbeats. → see `process-metrics.ts.AGENTS.md` |
 | `process-scanner.ts` | Detect child processes of a pi session. Exports `getOwnPgid`, `captureChildPgids`, `scanTrackedProcesses`,… → see `process-scanner.ts.AGENTS.md` |
 | `project-trust.ts` | `project_trust` auto-decision (pure gate + defensive cwd read). → see `project-trust.ts.AGENTS.md` |

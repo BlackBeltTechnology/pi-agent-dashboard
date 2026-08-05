@@ -465,6 +465,58 @@ describe("SessionList dashboard add buttons", () => {
   });
 });
 
+describe("SessionList add-to-workspace affordance", () => {
+  it("renders a labelled Workspace pill (not the cryptic +ws) on a top-level folder", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+            workspaces={[{ id: "ws1", name: "WS", folders: [], collapsed: false }]}
+            onAddFolderToWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    const btn = screen.getByTestId("add-to-workspace-btn-/root/proj");
+    expect(btn.textContent).toContain("Workspace");
+    expect(btn.textContent).not.toContain("+ws");
+  });
+
+  it("opens the AddToWorkspaceMenu on click", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+            workspaces={[{ id: "ws1", name: "WS", folders: [], collapsed: false }]}
+            onAddFolderToWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByTestId("add-to-workspace-btn-/root/proj"));
+    // The menu surfaces the "+ New workspace…" entry.
+    expect(screen.getByText("+ New workspace…")).toBeTruthy();
+  });
+
+  it("hides the add-to-workspace button when no workspace exists and no create handler", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(screen.queryByTestId("add-to-workspace-btn-/root/proj")).toBeNull();
+  });
+});
+
 describe("SessionList workspace-scope Add Folder", () => {
   const expandedWs = { id: "ws1", name: "WS One", collapsed: false, folders: [] as string[] };
 
@@ -484,8 +536,10 @@ describe("SessionList workspace-scope Add Folder", () => {
     );
     const addBtn = screen.getByTestId("workspace-add-folder-btn-ws1");
     fireEvent.click(addBtn);
-    // Opens the workspace-scoped folder picker (PinDirectoryDialog).
-    expect(screen.getByText("Pin Directory")).toBeTruthy();
+    // Opens the multi-select Add Folders dialog with THIS workspace preselected
+    // as the destination. See change: redesign-folder-workspace-add-flow.
+    expect(screen.getByTestId("add-folders-dialog")).toBeTruthy();
+    expect(screen.getByTestId("add-folders-dest-ws1").getAttribute("aria-checked")).toBe("true");
   });
 
   it("hides the workspace Add Folder button when collapsed", () => {
@@ -700,5 +754,150 @@ describe("SessionList workspace-folder open affordance (enable-workspace-folder-
     expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
     fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
     expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+  });
+});
+
+// redesign-folder-workspace-add-flow — the `+ws` text token becomes a real
+// affordance living INSIDE the header icon cluster (order: sort · add-to ·
+// home · pin). PRESENTATION is add-to-workspace-affordance's labelled
+// `mdiViewGridPlus` + "Workspace" pill (which superseded this change's
+// icon-plus-caret while it was still unmerged); the SCOPE-keyed popover state
+// and the a11y contract asserted below remain this change's.
+describe("SessionList add-to-workspace button", () => {
+  const CWD = "/home/user/project";
+
+  function renderList(extra: Partial<React.ComponentProps<typeof SessionList>> = {}) {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: CWD })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            pinnedDirectories={[CWD]}
+            onUnpinDirectory={() => {}}
+            onCreateWorkspace={() => {}}
+            {...extra}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+  }
+
+  it("renders a labelled pill whose accessible name carries the add-to-workspace verb", () => {
+    renderList();
+    const btn = screen.getByTestId(`add-to-workspace-btn-${CWD}`);
+    // The visible label is the noun ("Workspace", per add-to-workspace-affordance);
+    // the accessible name still carries the full verb, so the two do not collapse.
+    expect(btn.getAttribute("aria-label")).toMatch(/add to workspace/i);
+    expect(btn.getAttribute("title")).toMatch(/add to workspace/i);
+    expect(btn.textContent).toMatch(/workspace/i);
+    // Glyph + label, never a bare text token.
+    expect(btn.querySelectorAll("svg path").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("exposes aria-haspopup and reflects popover state in aria-expanded", () => {
+    renderList();
+    const btn = screen.getByTestId(`add-to-workspace-btn-${CWD}`);
+    expect(btn.getAttribute("aria-haspopup")).toBe("menu");
+    expect(btn.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(btn);
+    expect(screen.getByTestId(`add-to-workspace-btn-${CWD}`).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("add-to-workspace-menu")).toBeTruthy();
+  });
+
+  it("renders no element with the literal text `+ws`", () => {
+    const { container } = render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: CWD })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            pinnedDirectories={[CWD]}
+            onCreateWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(container.textContent).not.toContain("+ws");
+  });
+
+  it("the popover offers no pin destination", () => {
+    renderList();
+    fireEvent.click(screen.getByTestId(`add-to-workspace-btn-${CWD}`));
+    const menu = screen.getByTestId("add-to-workspace-menu");
+    expect(menu.textContent).not.toMatch(/pin to dashboard/i);
+  });
+
+  it("sits inside the header action cluster in the order sort · add-to · home · pin", () => {
+    renderList();
+    const cluster = screen.getByTestId(`folder-header-cluster-${CWD}`);
+    const ids = Array.from(cluster.querySelectorAll("button[data-testid]")).map((b) =>
+      b.getAttribute("data-testid"),
+    );
+    expect(ids).toEqual([
+      `folder-urgency-sort-${CWD}`,
+      `add-to-workspace-btn-${CWD}`,
+      `folder-open-home-${CWD}`,
+      "unpin-dir-btn",
+    ]);
+  });
+
+  it("the cluster never wraps and the parent path yields before the folder name", () => {
+    renderList();
+    const cluster = screen.getByTestId(`folder-header-cluster-${CWD}`);
+    // flex:none + white-space:nowrap — the cluster absorbs no squeeze.
+    expect(cluster.className).toMatch(/\bflex-none\b/);
+    expect(cluster.className).toMatch(/\bwhitespace-nowrap\b/);
+    // The name region is the shrinkable one.
+    const name = screen.getByTestId(`folder-header-name-${CWD}`);
+    expect(name.className).toMatch(/\bmin-w-0\b/);
+    // Parent path may collapse entirely; the leaf keeps a legible floor.
+    const parent = screen.getByTestId(`folder-header-parent-${CWD}`);
+    const leaf = screen.getByTestId(`folder-header-leaf-${CWD}`);
+    expect(parent.className).toMatch(/min-w-0/);
+    expect(leaf.className).toMatch(/min-w-\[6ch\]/);
+  });
+});
+
+// redesign-folder-workspace-add-flow — the same glyph appears on the session
+// card header cluster, targeting the session's own cwd, so one learned symbol
+// works in both scopes (mockups/add-flow.html, "Session card — same button").
+describe("SessionCard add-to-workspace icon button", () => {
+  const CWD = "/home/user/project";
+
+  function renderList() {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ id: "s1", cwd: CWD })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            pinnedDirectories={[CWD]}
+            onUnpinDirectory={() => {}}
+            onCreateWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+  }
+
+  it("renders on the card header with an accessible name naming the cwd scope", () => {
+    renderList();
+    const btn = screen.getByTestId("session-card-add-to-workspace-s1");
+    expect(btn.getAttribute("aria-label")).toMatch(/add cwd to workspace/i);
+    expect(btn.getAttribute("aria-haspopup")).toBe("menu");
+    expect(btn.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("opens its own popover without also opening the folder header's", () => {
+    renderList();
+    fireEvent.click(screen.getByTestId("session-card-add-to-workspace-s1"));
+    // Exactly one popover on screen — the card's, not the same-cwd folder row's.
+    expect(screen.getAllByTestId("add-to-workspace-menu")).toHaveLength(1);
+    expect(screen.getByTestId(`add-to-workspace-btn-${CWD}`).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByTestId("session-card-add-to-workspace-s1").getAttribute("aria-expanded")).toBe("true");
   });
 });

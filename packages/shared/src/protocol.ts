@@ -145,6 +145,14 @@ export interface ProcessMetrics {
    * fix-stuck-tool-card-on-dropped-event.
    */
   droppedBufferedFrames?: number;
+  /**
+   * Cumulative count of INBOUND messages the bridge refused because its
+   * serialized inbound queue was full (server→bridge hop drop). Distinct from
+   * `droppedBufferedFrames`, which counts the outgoing send ring. Surfaced
+   * because the refusal warning is rate-limited to one per 5 s, so the log
+   * alone can hide a burst. See change: serialize-bridge-message-pump.
+   */
+  refusedInboundFrames?: number;
 }
 
 export interface SessionHeartbeatMessage {

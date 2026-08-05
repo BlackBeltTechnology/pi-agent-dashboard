@@ -2,9 +2,10 @@
 // kb CLI (Phase 1): index | search | neighbors | backlinks | get | config
 // Run (dev): NODE_OPTIONS=--experimental-sqlite tsx src/cli.ts <cmd> ...
 // Shipped bin builds to dist/cli.js (build step deferred).
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { frontmatterConfigHash, loadConfig, type ResolvedConfig, type ResolvedSource } from "./config.js";
+import { ackTargets, applyDecisions, buildWorkItems } from "./dox-triage.js";
 import { agentsChain, doxInit, doxLint } from "./dox.js";
 import { evaluate, type GoldenItem } from "./eval.js";
 import { runIndexAtomic } from "./index-run.js";
@@ -114,6 +115,8 @@ Usage:
   kb agents <path>                  nearest AGENTS.md chain (root→nearest); --fallback-manifest
   kb dox init [--dry-run]           scaffold a DOX AGENTS.md tree (path rows only)
   kb dox lint [--json] [--fix]      audit DOX tree drift
+  kb dox triage [--json] [--limit N]  triage STALE rows vs the git diff since ack
+              [--apply <d.json> [--write]] [--ack <targets.json>]
   kb eval    --golden <file.json> [--limit N] [--doc-type ...] [--no-reindex]
   kb config   show resolved config
 Global: --cwd <dir>  --config <file>`;
@@ -168,6 +171,31 @@ function main() {
       if (flags.json) console.log(JSON.stringify(r, null, 2));
       else for (const i of r.issues) console.log(`${i.kind}\t${i.agentsFile}${i.path ? "\t" + i.path : ""}\t${i.detail}`);
       if (r.issues.length) process.exit(1);
+      return;
+    }
+    if (sub === "triage") {
+      const stalenessFile = (flags["staleness-file"] as string) ?? join(cwd, ".pi/dashboard/kb/dox-staleness.json");
+      if (flags.apply) {
+        const decisions = JSON.parse(readFileSync(flags.apply as string, "utf8"));
+        const r = applyDecisions({ cwd, decisions, write: !!flags.write });
+        for (const s of r.skipped) console.error(`skipped: ${s}`);
+        console.log(`${flags.write ? "applied" : "dry-run"}: ${r.rewritten} rewritten, ${r.kept} kept`);
+        if (!flags.write) console.log("re-run with --write to apply");
+        return;
+      }
+      if (flags.ack) {
+        const targets = JSON.parse(readFileSync(flags.ack as string, "utf8"));
+        console.log(`re-acked ${ackTargets({ cwd, targets, stalenessFile })} entries`);
+        return;
+      }
+      const staleness = existsSync(stalenessFile) ? JSON.parse(readFileSync(stalenessFile, "utf8")) : {};
+      const items = buildWorkItems({ cwd, issues: doxLint({ cwd }).issues, staleness, limit: flags.limit ? Number(flags.limit) : undefined });
+      if (flags.json) { console.log(JSON.stringify(items, null, 2)); return; }
+      const noBase = items.filter((i) => !i.baselineFound);
+      console.log(`stale rows: ${items.length}`);
+      console.log(`  with a recoverable diff : ${items.length - noBase.length}`);
+      console.log(`  no baseline (needs eyes): ${noBase.length}`);
+      for (const i of items) console.log(`  ${i.baselineFound ? "diff" : "????"}\t${i.agentsFile}\t${i.row}`);
       return;
     }
     console.error(`unknown dox subcommand: ${sub}`); process.exit(2);
