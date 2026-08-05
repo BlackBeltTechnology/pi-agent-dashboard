@@ -344,6 +344,13 @@ test.describe("chat attachments — two-phase render", () => {
       )
       .toBeLessThanOrEqual(768);
 
+    // Measure while the row is definitely mounted. Measuring after the filler
+    // turns would race the virtualizer, which may already have unmounted it.
+    const anchorRow = page.getByText("height anchor row").first();
+    await expect(anchorRow).toBeVisible({ timeout: 30_000 });
+    const before = await anchorRow.boundingBox();
+    expect(before, "anchor row should be measurable while mounted").not.toBeNull();
+
     // Push the image row out of the window with filler turns.
     for (let i = 0; i < 6; i++) {
       await composer.fill(`filler ${i}`);
@@ -351,16 +358,14 @@ test.describe("chat attachments — two-phase render", () => {
       await expect(page.getByText(`filler ${i}`).first()).toBeVisible({ timeout: 60_000 });
     }
 
-    const anchorRow = page.getByText("height anchor row").first();
-    const before = await anchorRow.boundingBox();
-    expect(before, "anchor row should be measurable before scrolling away").not.toBeNull();
-
     const scroller = page.getByTestId("chat-scroll-container");
     await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
     await page.waitForTimeout(500);
     await scroller.evaluate((el) => { el.scrollTop = 0; });
     await page.waitForTimeout(1000);
 
+    // Scrolling back must REMOUNT the row; wait for that rather than assuming.
+    await expect(anchorRow).toBeVisible({ timeout: 30_000 });
     const after = await anchorRow.boundingBox();
     expect(after, "anchor row should still be measurable after scrolling back").not.toBeNull();
     // The virtualized row must not collapse when remeasured post-decode; a
@@ -388,7 +393,7 @@ test.describe("chat attachments — two-phase render", () => {
   //
   // Tracked as task 9.4. Marked fixme so the suite stays green and honest;
   // flip back to `test(` when the root cause is fixed.
-  test.fixme("P5: an image-heavy session replays without dropping a gateway frame", async ({
+  test("P5: an image-heavy session replays without dropping a gateway frame", async ({
     page,
     request,
   }) => {

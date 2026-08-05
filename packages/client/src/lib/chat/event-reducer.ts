@@ -1232,8 +1232,15 @@ export function reduceEvent(
       if (!attachmentId) break;
       const state_ = data.state === "failed" ? "failed" : "ready";
       let patched = false;
+      // Patch EVERY occurrence, not just the first. `attachmentId` is the sha256
+      // of the bytes, so the same screenshot pasted twice legitimately appears
+      // under one id in several rows (and can repeat within a single row).
+      // Stopping at the first match left every later copy stuck on "loading"
+      // forever. One resolution is authoritative for all of them, and applying
+      // it repeatedly is idempotent.
+      // See change: fit-attachments-for-display (task 9.4).
       const messages = next.messages.map((m) => {
-        if (patched || !m.images) return m;
+        if (!m.images) return m;
         if (!m.images.some((img) => img.attachmentId === attachmentId)) return m;
         patched = true;
         return {

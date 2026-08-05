@@ -124,4 +124,56 @@ describe("attachment_fitted reduction (two-phase render)", () => {
     expect(img.data).toBe("TEVHQUNZ");
     expect(img.attachmentState).toBeUndefined();
   });
+
+  it("9.4: ONE resolution resolves EVERY occurrence of the same content hash", () => {
+    // attachmentId is the sha256 of the bytes, so pasting the same screenshot
+    // twice yields the SAME id in two different rows. The reducer used to stop
+    // at the first match, leaving every later copy stuck on "loading" forever.
+    let state = createInitialState();
+    state = reduceEvent(state, pendingRow(ATT)); // same id
+    state = reduceEvent(state, pendingRow(ATT)); // in three separate rows
+    state = reduceEvent(state, pendingRow(ATT));
+
+    state = reduceEvent(state, fitted(ATT, "ready", "RFVQRQ=="));
+
+    const rows = userMsg(state);
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.images![0].attachmentState).toBe("ready");
+      expect(row.images![0].data).toBe("RFVQRQ==");
+    }
+  });
+
+  it("9.4b: a failed resolution also applies to every occurrence", () => {
+    let state = createInitialState();
+    state = reduceEvent(state, pendingRow(ATT));
+    state = reduceEvent(state, pendingRow(ATT));
+    state = reduceEvent(state, fitted(ATT, "failed", ""));
+    for (const row of userMsg(state)) {
+      expect(row.images![0].attachmentState).toBe("failed");
+    }
+  });
+
+  it("9.4c: duplicate ids within ONE message all resolve", () => {
+    const twoSame: DashboardEvent = {
+      eventType: "message_start",
+      timestamp: 1,
+      data: {
+        message: {
+          role: "user",
+          content: [
+            { type: "text", text: "two copies" },
+            { type: "image", data: "", mimeType: "image/png", attachmentId: ATT, attachmentState: "pending" },
+            { type: "image", data: "", mimeType: "image/png", attachmentId: ATT, attachmentState: "pending" },
+          ],
+        },
+      },
+    };
+    let state = reduceEvent(createInitialState(), twoSame);
+    state = reduceEvent(state, fitted(ATT, "ready", "Qk9USA=="));
+    const imgs = userMsg(state)[0].images!;
+    expect(imgs).toHaveLength(2);
+    for (const img of imgs) expect(img.attachmentState).toBe("ready");
+  });
 });
+

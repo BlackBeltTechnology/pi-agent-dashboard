@@ -94,8 +94,7 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 - [x] 4.6 F8 row-height stability (test-plan #F8) — input virtualized transcript with
       image rows · trigger scroll out and back · observable stable height, no collapse or
       overlap. Guards the existing `chat-view` invariant.
-- [ ] 4.7 P5 image-heavy replay (test-plan #P5) — WRITTEN but `test.fixme`: reveals a
-      real defect (see 9.4), not a test problem. (test-plan #P5) — workload 20 image-bearing messages ·
+- [x] 4.7 P5 image-heavy replay (test-plan #P5) — passing after the 9.4 fix. (test-plan #P5) — workload 20 image-bearing messages ·
       trigger replay · observable completes with no gateway frame dropped.
 
 ## 5. Implement
@@ -149,13 +148,11 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 - [ ] 9.3 Extract a generic `worker_threads` pool — `fit-worker-pool.ts` is the THIRD
       copy (`openspec-poll`, `session-load`, `fit`), which is the rule-of-three trigger
       the existing pools' headers explicitly defer to.
-- [ ] 9.4 BUG: an image-heavy session (~8 attachments) leaves placeholders stuck
-      "loading" after reload. Fitted events ARE stored and broadcast (WS probe: 16
-      blocks / 16 pending / 16 attachment_fitted, server idle, no errors) — the client
-      does not apply them at that scale. Suspects: MAX_REPLAY_EVENTS batch slicing
-      separating a row from its resolution; client hydration ceiling; duplicate
-      row+resolution sets from the live AND replay paths fitting the same blocks.
-      Reproducer: `tests/e2e/chat-attachment-two-phase.spec.ts` P5 (currently fixme).
+- [x] 9.4 FIXED: identical images share one content hash, so a single
+      `attachment_fitted` resolves several rows. The reducer stopped at the FIRST
+      match, stranding every later copy on "loading". Now patches every occurrence
+      (idempotent). Root-caused by comparing pending vs fitted ids on the wire:
+      8 attachments but only 1 distinct id.
 - [ ] 9.2 Retire now-unreachable inline-attachment truncation paths once no
       full-resolution base64 reaches the store (`capContentBlocks` slicing, the line-224
       exemption, `isImageBlock`'s depth-limit use).
