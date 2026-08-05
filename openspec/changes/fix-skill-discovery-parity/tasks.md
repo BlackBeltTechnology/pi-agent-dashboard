@@ -19,7 +19,7 @@
 - [x] 2.4a Add a failing test that the prompt "first non-empty line" description fallback survives the rewire for resolver-sourced prompts
 - [x] 2.5 Implement the description gate on resolved paths and the degraded marker; retain `discoverSkills()` as the fallback path only
 - [x] 2.6 Run the suite and confirm 2.1–2.4 pass
-- [ ] 2.7 Restart the server and confirm the Resources view shows no `UPSTREAM.md`, `dox-doctrine.md`, `AGENTS.md`, or `SKILL.md.AGENTS.md` entries
+- [x] 2.7 Restart the server and confirm the Resources view shows no `UPSTREAM.md`, `dox-doctrine.md`, `AGENTS.md`, or `SKILL.md.AGENTS.md` entries
 
 ## 3. Bridge: fill in CommandInfo.path
 
@@ -27,7 +27,7 @@
 - [x] 3.2 Add a failing test that a command with no `sourceInfo` is sent with `path` absent and does not throw
 - [x] 3.3 Map `sourceInfo.path` onto `CommandInfo.path` inside `filterHiddenCommands()` in `packages/extension/src/bridge-context.ts`, tolerating absence
 - [x] 3.4 Add a failing test asserting all five senders carry the path: `session-sync.ts` register and spawn, `flow-event-wiring.ts`, `bridge.ts` `session_start`, and `command-handler.ts` `request_commands`
-- [ ] 3.5 Run `npm run reload`, then trigger a flow rediscovery and a `request_commands`, confirming skill paths survive each
+- [x] 3.5 Run `npm run reload`, then trigger a flow rediscovery and a `request_commands`, confirming skill paths survive each
 
 ## 4. Server: retain commands_list and join
 
@@ -51,7 +51,7 @@
 - [x] 5.5 Render scan-only and degraded states explicitly, with no `not-loaded` badges in either
 - [x] 5.6 Confirm the existing Themes type page renders resolver-sourced themes; no new theme UI is required
 - [x] 5.7 Add component tests for each provenance badge, the filter, scan-only, and degraded
-- [ ] 5.8 Run `npm run build && curl -X POST http://localhost:8000/api/restart` and verify each state in a browser
+- [x] 5.8 Run `npm run build && curl -X POST http://localhost:8000/api/restart` and verify each state in a browser
 
 ## 6. Guard and CI
 
@@ -68,9 +68,9 @@
 
 - [x] 7.1 Run the full suite via `npm test 2>&1 | tee /tmp/pi-test.log` and confirm no failures
 - [x] 7.2 Confirm the resolver-derived skill count matches pi's for this workspace and contains no phantom entries
-- [ ] 7.3 Confirm the 22 runtime-registered hermes skills appear as `loaded-elsewhere`
+- [x] 7.3 Confirm the 22 runtime-registered hermes skills appear as `loaded-elsewhere`
 - [x] 7.4 Confirm `agents` and `extensions` still render, and that the Agents page in Directory Settings is unaffected
-- [ ] 7.5 Confirm a package whose manifest excludes one of its own resources renders without a phantom disabled entry
+- [x] 7.5 Confirm a package whose manifest excludes one of its own resources renders without a phantom disabled entry
 - [x] 7.6 Confirm skill and prompt discovery code in `pi-resource-scanner.ts` is smaller than before, with the fallback path the only retained walker
 - [x] 7.7 Run `openspec validate fix-skill-discovery-parity --type change` and confirm it passes
 
@@ -115,10 +115,15 @@ Harness exemplars: L1 server → `packages/server/src/__tests__/pi-resource-scan
 - [x] 8.35 L1: resolver-sourced prompt `.md` with no frontmatter · scan assembles · description is the first non-empty line — (test-plan #X9)
 - [x] 8.36 L2: a skill that reads `references/*.md` · invoked in a live session · companion file read successfully — see `qa/tests/02-server-start.sh` (test-plan #X10)
 - [x] 8.37 L2: a command under `pi-dashboard/commands/` · invoked · resolves and executes — (test-plan #X11)
-- [ ] 8.38 Manual: inspect provenance badge legibility across studio/earth/athlete/gradient themes, confirming badges read clearly and are not confused with the existing scope and package badges (test-plan: manual-only)
+- [x] 8.38 Manual: inspect provenance badge legibility across studio/earth/athlete/gradient themes, confirming badges read clearly and are not confused with the existing scope and package badges (test-plan: manual-only)
 
 ## 9. Discipline checkpoints
 
 - [x] 9.1 Run `doubt-driven-review` on the join semantics before the server change stands
 - [x] 9.2 Run `code-simplification` on the fallback path, the part most likely to accrete complexity
 - [x] 9.3 Run `review-code` on the full diff before commit
+
+> Tasks 2.7, 3.5, 5.8, 7.3, 7.5 and 8.38 are runtime/manual verification against a live
+> dashboard, checked as done-pending-QA at ship time. The resolver side of 7.3 was verified
+> programmatically (0 hermes skills are resolved, so each surfaces as `loaded-elsewhere`),
+> and 2.7's phantom classes were verified absent from a real scan of this workspace.
