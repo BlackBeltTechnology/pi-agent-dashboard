@@ -68,7 +68,7 @@ this is the reason the semantics are coherent.
 *Alternative considered:* make unpin also detach from the workspace, so pin is the single visibility switch
 everywhere. Rejected — it destroys workspace organisation as a side effect of a visibility gesture.
 
-### 3. `mdiFolderPlus` + `mdiMenuDown`, sized into the existing cluster
+### 3. `mdiFolderPlus` + `mdiMenuDown`, sized into the existing cluster — REVERSED
 
 The affordance must read without a text label at ~20px. Folder-plus is the established glyph for "add a folder to
 a collection" (VS Code, Finder, Drive); the caret is the Material convention for "opens a menu", which pre-empts
@@ -79,6 +79,14 @@ proximity. `aria-label` + `title` carry the full verb so the icon is never the s
 *Alternatives considered:* icon-only (8px narrower, but loses the menu signal, so the popover is a surprise);
 hover-expand to a labelled pill (teaches the verb once, but reflows the cluster on hover and is useless on
 touch). Both are mocked in `mockups/add-flow.html` for comparison; V1 wins on signal-per-pixel.
+
+**REVERSED.** While this change sat unmerged, `add-to-workspace-affordance` shipped to `develop` and promoted a
+PERMANENTLY labelled pill (`mdiViewGridPlus` + the text "Workspace") to a main spec. The decision above bet that
+the verb could be carried by glyph shape alone at ~20px; the competing change bet on legibility and won on
+evidence — the reconciled build showed the pill reads at a glance where the caret did not. What survives from
+this decision: cluster placement, cluster order `sort · add-to · home · pin`, the ≥44px touch target, and the
+`aria-label`/`title`/`aria-haspopup`/`aria-expanded` contract (a visible noun is not an accessible name).
+The caret is gone; the pill's own border now carries the "this opens something" signal.
 
 ### 4. Multi-select is an opt-in mode on `PathPicker`, not a new component
 

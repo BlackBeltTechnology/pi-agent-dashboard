@@ -465,6 +465,58 @@ describe("SessionList dashboard add buttons", () => {
   });
 });
 
+describe("SessionList add-to-workspace affordance", () => {
+  it("renders a labelled Workspace pill (not the cryptic +ws) on a top-level folder", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+            workspaces={[{ id: "ws1", name: "WS", folders: [], collapsed: false }]}
+            onAddFolderToWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    const btn = screen.getByTestId("add-to-workspace-btn-/root/proj");
+    expect(btn.textContent).toContain("Workspace");
+    expect(btn.textContent).not.toContain("+ws");
+  });
+
+  it("opens the AddToWorkspaceMenu on click", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+            workspaces={[{ id: "ws1", name: "WS", folders: [], collapsed: false }]}
+            onAddFolderToWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByTestId("add-to-workspace-btn-/root/proj"));
+    // The menu surfaces the "+ New workspace…" entry.
+    expect(screen.getByText("+ New workspace…")).toBeTruthy();
+  });
+
+  it("hides the add-to-workspace button when no workspace exists and no create handler", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(screen.queryByTestId("add-to-workspace-btn-/root/proj")).toBeNull();
+  });
+});
+
 describe("SessionList workspace-scope Add Folder", () => {
   const expandedWs = { id: "ws1", name: "WS One", collapsed: false, folders: [] as string[] };
 
@@ -705,10 +757,13 @@ describe("SessionList workspace-folder open affordance (enable-workspace-folder-
   });
 });
 
-// redesign-folder-workspace-add-flow — the `+ws` text token becomes a compact
-// mdiFolderPlus + mdiMenuDown icon button living INSIDE the header icon
-// cluster (order: sort · add-to · home · pin), per mockups/add-flow.html.
-describe("SessionList add-to-workspace icon button", () => {
+// redesign-folder-workspace-add-flow — the `+ws` text token becomes a real
+// affordance living INSIDE the header icon cluster (order: sort · add-to ·
+// home · pin). PRESENTATION is add-to-workspace-affordance's labelled
+// `mdiViewGridPlus` + "Workspace" pill (which superseded this change's
+// icon-plus-caret while it was still unmerged); the SCOPE-keyed popover state
+// and the a11y contract asserted below remain this change's.
+describe("SessionList add-to-workspace button", () => {
   const CWD = "/home/user/project";
 
   function renderList(extra: Partial<React.ComponentProps<typeof SessionList>> = {}) {
@@ -729,13 +784,16 @@ describe("SessionList add-to-workspace icon button", () => {
     );
   }
 
-  it("renders an icon button whose accessible name carries the add-to-workspace verb", () => {
+  it("renders a labelled pill whose accessible name carries the add-to-workspace verb", () => {
     renderList();
     const btn = screen.getByTestId(`add-to-workspace-btn-${CWD}`);
+    // The visible label is the noun ("Workspace", per add-to-workspace-affordance);
+    // the accessible name still carries the full verb, so the two do not collapse.
     expect(btn.getAttribute("aria-label")).toMatch(/add to workspace/i);
     expect(btn.getAttribute("title")).toMatch(/add to workspace/i);
-    // Icon button, not a text token: renders SVG paths, no literal glyph text.
-    expect(btn.querySelectorAll("svg path").length).toBeGreaterThanOrEqual(2);
+    expect(btn.textContent).toMatch(/workspace/i);
+    // Glyph + label, never a bare text token.
+    expect(btn.querySelectorAll("svg path").length).toBeGreaterThanOrEqual(1);
   });
 
   it("exposes aria-haspopup and reflects popover state in aria-expanded", () => {

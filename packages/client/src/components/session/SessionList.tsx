@@ -2,7 +2,7 @@ import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiFolderPlus, mdiMenuDown, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
+import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -844,38 +844,48 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
    * thin flag-flip. See change: redesign-folder-workspace-add-flow.
    */
   function renderGroupWithWorkspaceMenu(group: DirectoryGroup, isPinned: boolean) {
-    return renderGroup(group, isPinned, false, undefined, true);
+    const workspaceAction =
+      onCreateWorkspace || (workspaces && workspaces.length > 0)
+        ? renderAddToWorkspaceButton(
+            group.cwd,
+            t("sessionList.addToWorkspace", undefined, "Add to workspace"),
+            `folder:${group.cwd}`,
+            `add-to-workspace-btn-${group.cwd}`,
+            "ml-auto",
+          )
+        : null;
+    return renderGroup(group, isPinned, false, undefined, workspaceAction);
   }
 
   /**
-   * Compact add-to-workspace affordance: `mdiFolderPlus` + a `mdiMenuDown`
-   * disclosure caret, sized to the sibling cluster icons. The caret is the
-   * Material convention for "opens a menu", so the popover is never a surprise.
-   * `aria-label` + `title` carry the full verb; `aria-expanded` tracks the
-   * popover. See change: redesign-folder-workspace-add-flow.
+   * Add-to-workspace affordance: an `mdiViewGridPlus` + "Workspace" pill.
+   * PRESENTATION is add-to-workspace-affordance's labelled pill (a bare icon
+   * or the old `+ws` token did not read as "add to a workspace"). BEHAVIOUR is
+   * ours: the popover flag is keyed by SCOPE, and `aria-label`/`title` carry
+   * the full verb while `aria-expanded` tracks the popover.
+   * See change: redesign-folder-workspace-add-flow.
    */
-  function renderAddToWorkspaceButton(cwd: string, label: string, scopeKey: string, testId: string) {
+  function renderAddToWorkspaceButton(cwd: string, label: string, scopeKey: string, testId: string, wrapperClass = "") {
     const owningWsId = folderWorkspaceMap.get(cwd) ?? null;
     // Keyed by SCOPE, not by cwd: a session card and its folder row share a cwd,
     // so a cwd-keyed flag would pop both menus at once.
     const menuOpen = addToWsMenuFor === scopeKey;
     return (
-      <span className="relative inline-flex">
+      <span className={`relative inline-flex ${wrapperClass}`}>
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             setAddToWsMenuFor(menuOpen ? null : scopeKey);
           }}
-          className="focus-ring inline-flex items-center justify-center gap-px px-0.5 py-0.5 min-h-[44px] md:min-h-0 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-blue)]"
+          className="focus-ring text-xs px-2 py-1 min-h-[44px] md:min-h-0 rounded border inline-flex items-center gap-0.5 text-blue-500 border-blue-500/40 bg-blue-500/5 hover:text-blue-400 hover:border-blue-500/70"
           title={label}
           aria-label={label}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           data-testid={testId}
         >
-          <Icon path={mdiFolderPlus} size={0.55} />
-          <Icon path={mdiMenuDown} size={0.42} />
+          <Icon path={mdiViewGridPlus} size={0.55} /> {t("sessionList.workspace", undefined, "Workspace")}
         </button>
         {menuOpen && (
           <AddToWorkspaceMenu
@@ -900,7 +910,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     );
   }
 
-  function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string, withWorkspaceMenu: boolean = false) {
+  function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string, headerAction?: React.ReactNode) {
     const displayPath = truncatePathMiddle(group.cwd, 45);
     const lastSlash = displayPath.lastIndexOf('/');
     const parentPath = lastSlash >= 0 ? displayPath.slice(0, lastSlash + 1) : '';
@@ -1024,20 +1034,15 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             >
               <Icon path={mdiSortVariant} size={0.5} />
             </button>
-            {/* Add-to-workspace — top-level rows only (a workspace-tier folder
-                already has its membership). Sits between sort and open-home so
-                it borrows the cluster's "these organise the folder" meaning. */}
-            {withWorkspaceMenu && (onCreateWorkspace || (workspaces && workspaces.length > 0)) &&
-              renderAddToWorkspaceButton(
-                group.cwd,
-                t("sessionList.addToWorkspace", undefined, "Add to workspace…"),
-                `folder:${group.cwd}`,
-                `add-to-workspace-btn-${group.cwd}`,
-              )}
             {/* Pin/Unpin toggle. Hidden inside a workspace container — pin
                 is irrelevant for visibility/ordering there. The pin state
                 itself is preserved on the server (orthogonal to workspace
                 membership). See change: folder-workspaces. */}
+            {/* Add-to-workspace pill — top-level rows only (a workspace-tier
+                folder already has its membership). Sits between sort and
+                open-home so it borrows the cluster's "these organise the
+                folder" meaning; its ml-auto right-aligns the cluster. */}
+            {headerAction}
             {/* Open the directory home page. Distinct from the collapse toggle
                 (the name row) and the drag gutter (a sibling) — stopPropagation
                 keeps the click from toggling collapse or starting a reorder.
@@ -1052,7 +1057,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                   e.stopPropagation();
                   navigate(buildFolderHomeUrl(group.cwd));
                 }}
-                className="px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                className={`${headerAction ? "" : "ml-auto "}px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]`}
                 title={t("sessionList.openFolderHome", undefined, "Open folder home")}
                 aria-label={t("sessionList.openFolderHome", undefined, "Open folder home")}
                 data-testid={`folder-open-home-${group.cwd}`}
@@ -1067,7 +1072,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                   if (isPinned) onUnpinDirectory?.(group.cwd);
                   else onPinDirectory?.(group.cwd);
                 }}
-                className={`px-1 py-0.5 rounded ${isPinned ? "text-yellow-400 hover:text-yellow-300" : "text-[var(--text-tertiary)] hover:text-yellow-400"}`}
+                className={`${headerAction ? "" : "ml-auto "}px-1 py-0.5 rounded ${isPinned ? "text-yellow-400 hover:text-yellow-300" : "text-[var(--text-tertiary)] hover:text-yellow-400"}`}
                 title={isPinned ? t("sessionList.unpinDirectory", undefined, "Unpin directory") : t("sessionList.pinDirectory", undefined, "Pin directory")}
                 data-testid={isPinned ? "unpin-dir-btn" : "pin-dir-btn"}
               >
