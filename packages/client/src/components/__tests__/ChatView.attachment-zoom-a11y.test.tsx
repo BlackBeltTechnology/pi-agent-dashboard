@@ -15,8 +15,8 @@
  *
  * See change: fit-attachments-for-display (CodeRabbit round 2, a11y).
  */
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { type ChatImage, createInitialState } from "../../lib/chat/event-reducer.js";
 import { ChatView } from "../chat/ChatView.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
@@ -44,6 +44,14 @@ function renderChat(images: ChatImage[]) {
     </ThemeProvider>,
   );
 }
+
+// This project does NOT enable vitest `globals`, so RTL's automatic cleanup
+// never runs — a rendered ChatView stays mounted after its test ends and its
+// TanStack Virtual timer can fire after jsdom tears the window down, which
+// surfaces as an unhandled `ReferenceError: window is not defined` that fails
+// the whole run even when every assertion passed. Every sibling ChatView spec
+// unmounts explicitly for this reason.
+afterEach(cleanup);
 
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};
