@@ -262,8 +262,79 @@ export function doxInit(opts: DoxInitOptions): DoxInitPlan {
 
 // --- dox lint ---
 
+/**
+ * Pull repo-path REFERENCES out of a row's purpose cell.
+ *
+ * The lint hashes the file behind each row but never validates paths written
+ * inside the prose, so a directory move silently rots cross-references (this is
+ * how a routing rule kept pointing at two deleted dirs). The hard part is not
+ * finding candidates — it is rejecting the ~99% that are not repo paths at all:
+ * URL routes, MIME types, npm specifiers, `~`/absolute paths, model ids, code
+ * fragments like `get/list/remove`, and descriptions of OTHER projects' layouts.
+ *
+ * Discriminators, in order of how much noise each removes:
+ *  1. first segment must be a real top-level entry of THIS repo — kills
+ *     `lib/validations.ts` (consumer-project prose) and `provider/model`
+ *  2. must carry a source-file extension or be a glob — kills bare route paths
+ *  3. structural rejects: leading `~` or `/`, `@` scopes, and any char that
+ *     cannot appear in a path we would write (`:?="'()[]{}<>` , whitespace…)
+ */
+export function extractRefPaths(cell: string, topLevel: Set<string>): string[] {
+  const out: string[] = [];
+  for (const m of cell.matchAll(/`([^`]+)`/g)) {
+    const raw = m[1].trim();
+    if (!raw.includes("/")) continue;
+    if (/^[~/@]/.test(raw)) continue; // home, absolute, npm scope
+    if (/[:?="'()[\]{}<>|,;!#\s]/.test(raw)) continue; // routes, code, prose, placeholders
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional non-ASCII guard
+    if (/[^\x20-\x7e]/.test(raw)) continue;
+    const p = raw.replace(/^\.\//, "").replace(/\/$/, "");
+    if (!p.includes("/")) continue;
+    if (!topLevel.has(p.split("/")[0])) continue;
+    if (!/\.[a-z0-9]{1,5}$/i.test(p) && !p.includes("*")) continue;
+    // Build output and excluded trees (`packages/electron/out/*`, `.worktrees/*`)
+    // are legitimately absent until built/created — flagging them is noise, and a
+    // check that cries wolf gets ignored.
+    if (DEFAULT_EXCLUDE.test(p)) continue;
+    out.push(p);
+  }
+  return out;
+}
+
+/** Cheap glob test for `*` / `**` reference paths (no dependency on a matcher). */
+function globHit(pattern: string, cwd: string): boolean {
+  const rx = new RegExp(
+    `^${pattern
+      .split("/")
+      .map((s) =>
+        s
+          .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+          .replace(/\*\*/g, "\u0001")
+          .replace(/\*/g, "[^/]*")
+          .replace(/\u0001/g, ".*"),
+      )
+      .join("/")}$`,
+  );
+  const walk = (dir: string, rel: string): boolean => {
+    let entries: import("node:fs").Dirent[] = [];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    for (const e of entries) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (DEFAULT_EXCLUDE.test(r)) continue;
+      if (rx.test(r)) return true;
+      if (e.isDirectory() && walk(join(dir, e.name), r)) return true;
+    }
+    return false;
+  };
+  return walk(cwd, "");
+}
+
 export interface DoxIssue {
-  kind: "stale" | "orphan" | "missing" | "missing-companion" | "broken-pointer" | "over-threshold";
+  kind: "stale" | "orphan" | "missing" | "missing-companion" | "broken-pointer" | "broken-ref" | "over-threshold";
   agentsFile: string;
   path?: string;
   detail: string;
@@ -293,6 +364,16 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
   const cwd = opts.cwd;
   const issues: DoxIssue[] = [];
   let fixed = 0;
+
+  // Top-level entries of THIS repo — the primary discriminator that stops
+  // broken-ref from firing on prose that merely looks path-shaped.
+  const topLevelEntries = new Set<string>();
+  try {
+    for (const e of readdirSync(cwd, { withFileTypes: true })) topLevelEntries.add(e.name);
+  } catch {
+    /* empty cwd — leave the set empty, which disables broken-ref entirely */
+  }
+  const seenRefs = new Set<string>();
 
   // find all AGENTS.md
   const agentsFiles: string[] = [];
@@ -341,6 +422,17 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
       const m = inDox ? line.match(/^\|\s*`([^`]+)`\s*\|/) : null;
       if (!m) { if (opts.fix) survivingRows.push(line); continue; }
       const rp = m[1];
+      // Cross-references inside the PURPOSE cell. Rot here is invisible to the
+      // hash check, because the row's own file is untouched by the move.
+      const purposeCell = line.slice(line.indexOf("|", line.indexOf("`" + rp + "`")) + 1);
+      for (const ref of extractRefPaths(purposeCell, topLevelEntries)) {
+        if (seenRefs.has(ref)) continue;
+        seenRefs.add(ref);
+        const hit = ref.includes("*")
+          ? globHit(ref, cwd)
+          : existsSync(join(cwd, ref)) || existsSync(join(afDir, ref));
+        if (!hit) issues.push({ kind: "broken-ref", agentsFile: afRel, path: ref, detail: `broken-ref: row prose cites ${ref}, which does not exist` });
+      }
       const abs = resolveRowPath(afDir, cwd, rp);
       const rel = relative(cwd, abs);
       rowPaths.add(rel);

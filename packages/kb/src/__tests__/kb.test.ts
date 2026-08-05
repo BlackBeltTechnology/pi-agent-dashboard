@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { KbStore } from "../types.js";
 import { resolveAll, classifyRef, sourceIdentity, filesystemResolver, npmResolver, httpsResolver } from "../sources.js";
 import { isTrusted, recordTrust, canonicalSource } from "../trust.js";
-import { agentsChain, doxInit, doxLint, countInlineRows, parseRowPaths } from "../dox.js";
+import { agentsChain, doxInit, doxLint, countInlineRows, parseRowPaths, extractRefPaths } from "../dox.js";
 import { createServer, type Server } from "node:http";
 
 describe("chunker", () => {
@@ -487,6 +487,75 @@ describe("dox: source-aware kb dox init (migrate-file-index deltas)", () => {
     doxInit({ cwd: sub, dryRun: true });
     expect(existsSync(join(sub, "src", "AGENTS.md"))).toBe(false);
     rmSync(sub, { recursive: true, force: true });
+  });
+});
+
+describe("dox: broken path references inside row prose", () => {
+  // The lint hashes the FILE BEHIND a row but never validates paths written
+  // INSIDE a row's purpose text. That blind spot let a routing rule point at
+  // two deleted directories for weeks. False positives are the whole risk here:
+  // an ad-hoc scan of this repo produced 548 raw hits for ~4 real defects.
+  const topLevel = new Set(["packages", "docs", "scripts", "qa"]);
+
+  it("extracts a plain repo-relative source path", () => {
+    expect(extractRefPaths("Wraps `packages/server/src/session-api.ts` for reads.", topLevel))
+      .toEqual(["packages/server/src/session-api.ts"]);
+  });
+
+  it.each([
+    ["URL route", "Mounts `/folder/:encodedCwd/view` overlay."],
+    ["MIME type", "Serves `application/pdf` inline."],
+    ["code fragment", "Exports `get/list/remove` helpers."],
+    ["npm specifier", "Re-exports `@blackbelt-technology/pi-dashboard-shared`."],
+    ["scoped subpath", "Imports `@mdi/js` icons."],
+    ["home path", "Tails `~/.pi/dashboard/server.log`."],
+    ["absolute path", "Mounts `/mnt/test-lower` read-only."],
+    ["model id", "Defaults to `anthropic/claude-haiku-4-5`."],
+    ["placeholder", "Writes `openspec/changes/<name>/proposal.md`."],
+    ["prose with spaces", "See `some dir/other file.ts` maybe."],
+    ["unknown top-level", "Consumer projects put it in `lib/validations.ts`."],
+    ["no extension", "Resolves `provider/model` pairs."],
+    ["build output", "Zips `packages/electron/out/make/*.dmg` for release."],
+    ["excluded tree", "Prunes `.worktrees/*` checkouts."],
+  ])("ignores %s", (_label, cell) => {
+    expect(extractRefPaths(cell, topLevel)).toEqual([]);
+  });
+
+  it("flags a stale reference but not a live sibling in the same cell", () => {
+    const cell = "Moved from `packages/server/src/old.ts` to `packages/server/src/new.ts`.";
+    expect(extractRefPaths(cell, topLevel)).toEqual([
+      "packages/server/src/old.ts",
+      "packages/server/src/new.ts",
+    ]);
+  });
+
+  it("reports broken-ref for a referenced file that does not exist", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kb-doxref-"));
+    mkdirSync(join(dir, "packages", "srv"), { recursive: true });
+    writeFileSync(join(dir, "packages", "srv", "real.ts"), "export const a = 1;\n");
+    writeFileSync(
+      join(dir, "AGENTS.md"),
+      "# DOX\n\n| `packages/srv/real.ts` | Mirrors `packages/srv/gone.ts` logic. |\n",
+    );
+    const r = doxLint({ cwd: dir });
+    const refs = r.issues.filter((i) => i.kind === "broken-ref");
+    expect(refs).toHaveLength(1);
+    expect(refs[0].path).toBe("packages/srv/gone.ts");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("does NOT report broken-ref when the referenced file exists", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kb-doxref-ok-"));
+    mkdirSync(join(dir, "packages", "srv"), { recursive: true });
+    writeFileSync(join(dir, "packages", "srv", "real.ts"), "export const a = 1;\n");
+    writeFileSync(join(dir, "packages", "srv", "other.ts"), "export const b = 2;\n");
+    writeFileSync(
+      join(dir, "AGENTS.md"),
+      "# DOX\n\n| `packages/srv/real.ts` | Mirrors `packages/srv/other.ts` logic. |\n",
+    );
+    const r = doxLint({ cwd: dir });
+    expect(r.issues.filter((i) => i.kind === "broken-ref")).toHaveLength(0);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
