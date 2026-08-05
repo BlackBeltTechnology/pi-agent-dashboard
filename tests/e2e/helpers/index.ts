@@ -17,12 +17,14 @@ export const TESTIDS = {
   // fresh container. Step CTAs are gated on `providersReady` (seeded key).
   onboardingStep2Cta: "onboarding-step-2-cta", // "Add folder" → opens pin dialog
   onboardingStep3Cta: "onboarding-step-3-cta", // "Start session" → spawns
-  // The add-folders flow is a multi-select explorer, NOT the old path prompt:
-  // the row body navigates, a per-row checkbox selects into a basket, and a
-  // commit button pins every basket entry. `pin-directory-dialog` died with the
-  // dialog-system unification (#90) and the map kept pointing at it, so every
-  // spec that pins a folder hung until its 180 s cap. See change:
-  // redesign-folder-workspace-add-flow.
+  // The "Add folder" CTAs open the multi-select AddFoldersDialog. The former
+  // single-path PinDirectoryDialog (`pin-directory-dialog`) still EXISTS and
+  // still renders that testid, but is only reachable from Settings ▸ Packages
+  // — no longer from these affordances. The map kept pointing at it, so every
+  // spec that pins a folder hung until its 180 s cap.
+  // The flow differs too: the row body navigates, a per-row checkbox selects
+  // into a basket, and a commit button pins every basket entry.
+  // See change: project-scope-disable-global-resources (helper drift fix).
   addFoldersDialog: "add-folders-dialog",
   addFoldersCommit: "add-folders-commit",
   // Accumulated-state path: once a folder/session exists the LandingPage
@@ -169,13 +171,16 @@ export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   }
   const dialog = byTestId(page, "addFoldersDialog");
   await dialog.waitFor({ state: "visible" });
+  // The picker lists the typed path's PARENT filtered by its leaf, so typing
+  // the full path surfaces the target's own row. Tick that row's checkbox —
+  // the basket, not the browsed directory, is what the dialog commits.
   // `.first()` — the dialog grows a second textbox in new-folder mode.
   await dialog.getByRole("textbox").first().fill(absPath);
-  // The row checkbox is keyed by the FULL path, so no leaf-regex escaping is
-  // needed and a directory named like another's prefix cannot be hit instead.
-  const row = dialog.getByTestId(`path-picker-check-${absPath}`);
-  await row.waitFor({ state: "visible" });
-  await row.click();
+  // Keyed by the FULL path, so no leaf-regex escaping is needed and a sibling
+  // whose name contains the target's cannot be ticked instead.
+  const check = dialog.getByTestId(`path-picker-check-${absPath}`);
+  await check.waitFor({ state: "visible", timeout: 20_000 });
+  await check.click();
   const commit = byTestId(dialog, "addFoldersCommit");
   await expect(commit).toBeEnabled(); // proves the basket actually took the path
   await commit.click();
