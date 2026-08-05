@@ -232,10 +232,12 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   PLUGINS_DIR="${PI_DIR}/dashboard/plugins"
 
   BROKEN_DIR="${PLUGINS_DIR}/e2e-broken"
+  mkdir -p "${BROKEN_DIR}"
   if [ ! -f "${BROKEN_DIR}/package.json" ]; then
-    mkdir -p "${BROKEN_DIR}"
     printf '%s\n' '{ "name": "e2e-broken-plugin", "version": "0.0.1", "type": "module" }' \
       > "${BROKEN_DIR}/package.json"
+  fi
+  if [ ! -f "${BROKEN_DIR}/dashboard-plugin.json" ]; then
     cat > "${BROKEN_DIR}/dashboard-plugin.json" <<'JSON'
 {
   "id": "e2e-broken",
@@ -244,16 +246,20 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   "claims": [{ "slot": "settings-section", "component": "Settings" }]
 }
 JSON
+  fi
+  if [ ! -f "${BROKEN_DIR}/server.js" ]; then
     printf '%s\n' 'throw new Error("Bridge path conflict: e2e-broken cannot load");' \
       > "${BROKEN_DIR}/server.js"
-    echo "[test-entrypoint] PI_E2E_SEED: seeded errored plugin fixture → ${BROKEN_DIR}"
   fi
+  echo "[test-entrypoint] PI_E2E_SEED: errored plugin fixture ready → ${BROKEN_DIR}"
 
   NEEDS_REQ_DIR="${PLUGINS_DIR}/e2e-needs-req"
+  mkdir -p "${NEEDS_REQ_DIR}"
   if [ ! -f "${NEEDS_REQ_DIR}/package.json" ]; then
-    mkdir -p "${NEEDS_REQ_DIR}"
     printf '%s\n' '{ "name": "e2e-needs-req-plugin", "version": "0.0.1", "type": "module" }' \
       > "${NEEDS_REQ_DIR}/package.json"
+  fi
+  if [ ! -f "${NEEDS_REQ_DIR}/dashboard-plugin.json" ]; then
     cat > "${NEEDS_REQ_DIR}/dashboard-plugin.json" <<'JSON'
 {
   "id": "e2e-needs-req",
@@ -262,17 +268,19 @@ JSON
   "claims": [{ "slot": "settings-section", "component": "Settings" }]
 }
 JSON
-    echo "[test-entrypoint] PI_E2E_SEED: seeded unmet-requirement plugin fixture → ${NEEDS_REQ_DIR}"
   fi
+  echo "[test-entrypoint] PI_E2E_SEED: unmet-requirement plugin fixture ready → ${NEEDS_REQ_DIR}"
 
   # A plugin that DEPENDS on another, so disabling the dependency cascades and
   # the toggle raises the cascade-confirm dialog. No monorepo plugin declares
   # dependsOn, so without this fixture the cascade path is unreachable at L3.
   DEPENDENT_DIR="${PLUGINS_DIR}/e2e-dependent"
+  mkdir -p "${DEPENDENT_DIR}"
   if [ ! -f "${DEPENDENT_DIR}/package.json" ]; then
-    mkdir -p "${DEPENDENT_DIR}"
     printf '%s\n' '{ "name": "e2e-dependent-plugin", "version": "0.0.1", "type": "module" }' \
       > "${DEPENDENT_DIR}/package.json"
+  fi
+  if [ ! -f "${DEPENDENT_DIR}/dashboard-plugin.json" ]; then
     cat > "${DEPENDENT_DIR}/dashboard-plugin.json" <<'JSON'
 {
   "id": "e2e-dependent",
@@ -281,8 +289,8 @@ JSON
   "claims": [{ "slot": "settings-section", "component": "Settings" }]
 }
 JSON
-    echo "[test-entrypoint] PI_E2E_SEED: seeded dependency-cascade plugin fixture → ${DEPENDENT_DIR}"
   fi
+  echo "[test-entrypoint] PI_E2E_SEED: dependency-cascade plugin fixture ready → ${DEPENDENT_DIR}"
 
   # --- Flow-plugin e2e peers, selected by PI_TEST_PEERS (change: add-flow-plugin-e2e-tests) ---
   # Variants: both | no-am | legacy | bad-registration. UNSET => skipped entirely
