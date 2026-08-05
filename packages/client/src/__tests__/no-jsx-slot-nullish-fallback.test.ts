@@ -24,10 +24,11 @@
  *
  * See change: fix-slot-fallback-masks-content.
  */
-import { describe, it, expect } from "vitest";
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as url from "node:url";
+import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const CLIENT_SRC = path.resolve(__dirname, "..");
@@ -36,6 +37,9 @@ const CLIENT_SRC = path.resolve(__dirname, "..");
 const SCAN_FILES = [
   "App.tsx",
   "components/SessionCard.tsx",
+  // Removing 15 `SettingsSectionSlot` mounts touched `??` chains here.
+  // See change: plugin-settings-pages (task 3.4).
+  "components/settings/SettingsPanel.tsx",
 ];
 
 /**

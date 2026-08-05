@@ -87,17 +87,12 @@ export function AutomationSettings(): React.ReactElement {
     setScanGlobal(b.baseScanGlobal);
     setDefaultModel(b.baseModel);
   }, []);
-  useSettingsDraftSource({ id: "plugin:automation", page: "plugins", isDirty, commit, reset });
+  useSettingsDraftSource({ id: "plugin:automation", isDirty, commit, reset });
 
   return (
-    <section
-      className="border border-[var(--border-secondary)] rounded-lg p-4 space-y-3"
-      data-testid="automation-plugin-settings"
-    >
-      <header>
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">{t("automations", undefined, "Automations")}</h3>
-        <p className="text-xs text-[var(--text-secondary)]">{t("settingsGlobalNote", undefined, "Plugin settings apply globally across all repos.")}</p>
-      </header>
+    // No self-header: the host owns identity + status chrome (design D1).
+    <div className="space-y-3" data-testid="automation-plugin-settings">
+      <p className="text-xs text-[var(--text-secondary)]">{t("settingsGlobalNote", undefined, "Plugin settings apply globally across all repos.")}</p>
 
       <label className="block text-xs text-[var(--text-secondary)]">
         <span className="block mb-0.5">{t("defaultVisibilityLabel", undefined, "Default run visibility")}</span>
@@ -155,6 +150,6 @@ export function AutomationSettings(): React.ReactElement {
           data-testid="automation-default-model"
         />
       </label>
-    </section>
+    </div>
   );
 }
