@@ -1,6 +1,6 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { addInteractiveRequest, applyPromptReceived, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
+import { addInteractiveRequest, applyPromptReceived, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, humanizeProviderError, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
@@ -2638,6 +2638,37 @@ describe("extractAgentEndError", () => {
         { role: "assistant", stopReason: "end_turn" },
       ],
     })).toBeUndefined();
+  });
+
+  it("humanizes a JSON envelope errorMessage", () => {
+    expect(extractAgentEndError({
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', content: [] }],
+    })).toBe("overloaded_error: Overloaded");
+  });
+});
+
+describe("humanizeProviderError", () => {
+  it("humanizes an Anthropic overloaded JSON envelope to 'type: message'", () => {
+    const raw =
+      '{"type":"error","error":{"details":null,"type":"overloaded_error","message":"Overloaded"},"request_id":"req_x"}';
+    expect(humanizeProviderError(raw)).toBe("overloaded_error: Overloaded");
+  });
+
+  it("renders the bare message when the envelope has no type", () => {
+    expect(humanizeProviderError('{"error":{"message":"Service unavailable"}}')).toBe("Service unavailable");
+  });
+
+  it("passes plain (non-JSON) strings through unchanged", () => {
+    expect(humanizeProviderError("Rate limit exceeded")).toBe("Rate limit exceeded");
+  });
+
+  it("passes malformed JSON through unchanged", () => {
+    expect(humanizeProviderError("{not valid json")).toBe("{not valid json");
+  });
+
+  it("passes an envelope without error.message through unchanged", () => {
+    const raw = '{"type":"error","error":{"type":"overloaded_error"}}';
+    expect(humanizeProviderError(raw)).toBe(raw);
   });
 });
 

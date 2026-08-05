@@ -1016,13 +1016,36 @@ export function findLastUserPrompt(
   return null;
 }
 
+/**
+ * Humanize a provider error string. pi forwards some provider failures as a raw
+ * JSON envelope (e.g. `{"type":"error","error":{"type":"overloaded_error",
+ * "message":"Overloaded"},...}`). Render that as a compact `type: message` (or
+ * just `message` when no type) instead of dumping the JSON. Any non-JSON string,
+ * malformed JSON, or envelope without a string `error.message` passes through
+ * UNCHANGED. Pure. See change: humanize-provider-error-json.
+ */
+export function humanizeProviderError(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return raw;
+  try {
+    const parsed = JSON.parse(trimmed) as { error?: { type?: unknown; message?: unknown } };
+    const err = parsed?.error;
+    const message = typeof err?.message === "string" ? err.message.trim() : "";
+    if (!message) return raw;
+    const type = typeof err?.type === "string" ? err.type.trim() : "";
+    return type ? `${type}: ${message}` : message;
+  } catch {
+    return raw;
+  }
+}
+
 /** Extract error info from agent_end event's messages array. */
 export function extractAgentEndError(data: Record<string, unknown>): string | undefined {
   const messages = data.messages;
   if (!Array.isArray(messages) || messages.length === 0) return undefined;
   const last = messages[messages.length - 1] as Record<string, unknown> | undefined;
   if (!last || last.stopReason !== "error") return undefined;
-  return (last.errorMessage as string) || "An unknown error occurred";
+  return humanizeProviderError((last.errorMessage as string) || "An unknown error occurred");
 }
 
 /**
@@ -1200,7 +1223,8 @@ export function reduceEvent(
       const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
       const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
-      const reason = typeof data.errorMessage === "string" ? data.errorMessage : "Provider error";
+      const reason =
+        typeof data.errorMessage === "string" ? humanizeProviderError(data.errorMessage) : "Provider error";
       next.retryState = {
         attempt,
         maxAttempts,
@@ -1235,7 +1259,8 @@ export function reduceEvent(
       const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
       const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
-      const reason = typeof data.errorMessage === "string" ? data.errorMessage : "Provider error";
+      const reason =
+        typeof data.errorMessage === "string" ? humanizeProviderError(data.errorMessage) : "Provider error";
       next.retryState = {
         attempt,
         maxAttempts,
