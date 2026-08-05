@@ -87,7 +87,7 @@ export function AutomationSettings(): React.ReactElement {
     setScanGlobal(b.baseScanGlobal);
     setDefaultModel(b.baseModel);
   }, []);
-  useSettingsDraftSource({ id: "plugin:automation", page: "plugins", isDirty, commit, reset });
+  useSettingsDraftSource({ id: "plugin:automation", isDirty, commit, reset });
 
   return (
     <section

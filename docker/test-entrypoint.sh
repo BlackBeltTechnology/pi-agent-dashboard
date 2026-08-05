@@ -220,6 +220,51 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   ' "${PI_DIR}/agent/settings.json" "${LOCAL_PKG_DIR}"
   echo "[test-entrypoint] PI_E2E_SEED: decorated local install registered → ${LOCAL_PKG_DIR}"
 
+  # --- Plugin-page fixture states (change: plugin-settings-pages) ---
+  # Two user-installed plugins in ~/.pi/dashboard/plugins/ whose STATUS is the
+  # point, not their behaviour. The plugin settings page must render host chrome
+  # + the right banner for each, and the nav rail must keep both (membership
+  # keys on `enabled`, not `loaded` — design D4).
+  #   e2e-broken     server entry throws on load     -> status.error
+  #   e2e-needs-req  requires an absent pi extension -> missingRequirements
+  # Both claim `settings-section` so they earn a page and a nav child.
+  # Idempotent: each is written only when its manifest is absent.
+  PLUGINS_DIR="${PI_DIR}/dashboard/plugins"
+
+  BROKEN_DIR="${PLUGINS_DIR}/e2e-broken"
+  if [ ! -f "${BROKEN_DIR}/package.json" ]; then
+    mkdir -p "${BROKEN_DIR}"
+    printf '%s\n' '{ "name": "e2e-broken-plugin", "version": "0.0.1", "type": "module" }' \
+      > "${BROKEN_DIR}/package.json"
+    cat > "${BROKEN_DIR}/dashboard-plugin.json" <<'JSON'
+{
+  "id": "e2e-broken",
+  "displayName": "E2E Broken",
+  "server": "./server.js",
+  "claims": [{ "slot": "settings-section", "component": "Settings" }]
+}
+JSON
+    printf '%s\n' 'throw new Error("Bridge path conflict: e2e-broken cannot load");' \
+      > "${BROKEN_DIR}/server.js"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded errored plugin fixture → ${BROKEN_DIR}"
+  fi
+
+  NEEDS_REQ_DIR="${PLUGINS_DIR}/e2e-needs-req"
+  if [ ! -f "${NEEDS_REQ_DIR}/package.json" ]; then
+    mkdir -p "${NEEDS_REQ_DIR}"
+    printf '%s\n' '{ "name": "e2e-needs-req-plugin", "version": "0.0.1", "type": "module" }' \
+      > "${NEEDS_REQ_DIR}/package.json"
+    cat > "${NEEDS_REQ_DIR}/dashboard-plugin.json" <<'JSON'
+{
+  "id": "e2e-needs-req",
+  "displayName": "E2E Needs Requirement",
+  "requires": { "piExtensions": ["pi-e2e-absent-extension"] },
+  "claims": [{ "slot": "settings-section", "component": "Settings" }]
+}
+JSON
+    echo "[test-entrypoint] PI_E2E_SEED: seeded unmet-requirement plugin fixture → ${NEEDS_REQ_DIR}"
+  fi
+
   # --- Flow-plugin e2e peers, selected by PI_TEST_PEERS (change: add-flow-plugin-e2e-tests) ---
   # Variants: both | no-am | legacy | bad-registration. UNSET => skipped entirely
   # (non-flow specs run exactly as before). The pi-flows engine + anthropic peer

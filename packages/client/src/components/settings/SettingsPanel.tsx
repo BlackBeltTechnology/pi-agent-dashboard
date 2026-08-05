@@ -1,4 +1,4 @@
-import { type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry, SettingsSectionSlot, useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
@@ -12,39 +12,40 @@ import { useDebugToolsVisible } from "../../hooks/useDebugToolsVisible.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
+import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
-import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
+import { type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
 import { suggestTrustEntries } from "../../lib/gateway/gateway-config-ops.js";
 import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../../lib/git/git-api.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
-import { type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
+import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
-import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
-import { DiagnosticsSection } from "./DiagnosticsSection.js";
-import { DialogPortal } from "../primitives/DialogPortal.js";
+import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
+import { KnownServersSection } from "../connectivity/KnownServersSection.js";
+import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
+import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
+import { PairingView } from "../connectivity/PairingView.js";
 import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
-import { KnownServersSection } from "../connectivity/KnownServersSection.js";
-import { ModelProxySection } from "./ModelProxySection.js";
-import { ModelSelector } from "./ModelSelector.js";
-import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
 import { PackageBrowser } from "../packages/PackageBrowser.js";
 import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDialog.js";
 import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
-import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
-import { PairingView } from "../connectivity/PairingView.js";
 import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
-import { ProviderAuthSection } from "./ProviderAuthSection.js";
+import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
+import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { ResourceGridPanel } from "../resource/ResourceGridPanel.js";
+import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
+import { DiagnosticsSection } from "./DiagnosticsSection.js";
+import { ModelProxySection } from "./ModelProxySection.js";
+import { ModelSelector } from "./ModelSelector.js";
+import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
+import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
-import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -252,9 +253,12 @@ const SETTINGS_PAGE_ALIASES: Record<string, string> = {
   advanced: "developer",
   servers: "remote",
 };
-// `instructions` is a built-in global Instructions page, not a plugin-claimable
-// settings tab — so it is added to the client-side route whitelist only, NOT to
-// the shared VALID_SETTINGS_TABS (which gates the plugin slot contract).
+// `instructions` is a built-in global Instructions page, so it is added to the
+// client-side route whitelist only, NOT to the shared VALID_SETTINGS_TABS.
+// (Since plugin-settings-pages, VALID_SETTINGS_TABS no longer gates the plugin
+// slot contract at all — `claim.tab` is inert and every `settings-section`
+// claim renders on `/settings/plugins/<id>`. It remains the built-in page-id
+// enumeration consumed by the route whitelist and the registry lint.)
 // See change: directory-settings-page-and-scoped-md-editing.
 // `gateway` is a built-in Network-group page (tunnel providers UI), added to
 // the client route whitelist only (not a plugin-claimable slot).
@@ -354,13 +358,57 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     },
   );
   const restarting = restart.pending;
-  // Dual-URL routing: canonical `/settings/:page?`, legacy `/settings?tab=<id>`.
-  // A single mounted panel resolves the active page from the URL so the shared
-  // unsaved draft survives page changes. See change: reorganize-settings-into-pages.
-  const [, routeParams] = useRoute("/settings/:page?");
+  // Dual-URL routing: canonical `/settings/:page?/:sub?`, legacy
+  // `/settings?tab=<id>`. A single mounted panel resolves the active page from
+  // the URL so the shared unsaved draft survives page changes.
+  //
+  // `:sub` is interpreted ONLY when `:page === "plugins"` (design D2) — every
+  // other page ignores a trailing segment rather than growing an accidental
+  // sub-route. `activeTab` stays the flat page-id union; `activePluginId`
+  // carries `:sub`. See change: reorganize-settings-into-pages,
+  // plugin-settings-pages.
+  const [, routeParams] = useRoute("/settings/:page?/:sub?");
   const routePage = routeParams?.page;
   const resolvedRoutePage = resolveSettingsPage(routePage);
   const activeTab = resolvedRoutePage ?? "general";
+  const activePluginId = resolvedRoutePage === "plugins" ? (routeParams?.sub ?? null) : null;
+
+  // Plugin rows back the nav children, the plugin page, and the Save Bar's
+  // `Plugins › <name>` labels. See change: plugin-settings-pages (task 4.2).
+  const pluginList = usePluginList();
+  const pluginToggle = usePluginToggle(pluginList);
+  const pluginRows = pluginList.rows;
+  const activePluginRow = activePluginId
+    ? pluginRows.find((r) => r.id === activePluginId) ?? null
+    : null;
+  // "Contributes settings" must cover BOTH contribution forms, or an
+  // intent-only plugin (no refs claim in its manifest — e.g. a JSON-Schema
+  // descriptor broadcast) would be gated out of the nav AND bounced to the
+  // not-found notice, so its intent would never reach the slot that renders it.
+  // `PluginRow.claims` is built from the manifest alone
+  // (`plugin-activation-routes.ts`), so intents are invisible to it.
+  // See change: plugin-settings-pages (design D7).
+  const settingsIntents = useSlotIntents("settings-section", null);
+  const contributesSettings = useCallback(
+    (r: (typeof pluginRows)[number]) =>
+      r.claims.some((c) => c.slot === "settings-section") || settingsIntents.has(r.id),
+    [settingsIntents],
+  );
+  // A page exists only for a plugin that actually contributes settings; an
+  // unknown id or a settings-less plugin falls back to the activation index
+  // plus a notice (design D2).
+  const activePluginHasSettings = !!activePluginRow && contributesSettings(activePluginRow);
+  // Nav children: enabled AND contributing settings, alphabetical by display
+  // name. Keys on `enabled`, NOT `loaded` — a plugin that failed to load is
+  // exactly when the user needs to reach its page (design D4).
+  const pluginNavChildren = useMemo(
+    () =>
+      pluginRows
+        .filter((r) => r.status?.enabled !== false && contributesSettings(r))
+        .slice()
+        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    [pluginRows, contributesSettings],
+  );
 
   // Global-scope resource card pages (Resources nav group). One fetch backs the
   // nav count pills + the active page grid. See change: resources-card-tabs.
@@ -387,10 +435,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   }, [piResources.data]);
 
   useEffect(() => {
-    // 1) valid route param → nothing to do (already canonical).
+    // 1) valid route param → nothing to do (already canonical). An alias is
+    //    rewritten, preserving the plugin sub-segment so a deep link to
+    //    `/settings/plugins/<id>` never bounces to General.
     if (resolvedRoutePage) {
       if (resolvedRoutePage !== routePage) {
-        navigate(`/settings/${resolvedRoutePage}`, { replace: true });
+        const sub = activePluginId ? `/${activePluginId}` : "";
+        navigate(`/settings/${resolvedRoutePage}${sub}`, { replace: true });
       }
       return;
     }
@@ -403,7 +454,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     const legacy = new URLSearchParams(window.location.search).get("tab");
     const resolvedLegacy = resolveSettingsPage(legacy);
     navigate(`/settings/${resolvedLegacy ?? "general"}`, { replace: true });
-  }, [routePage, resolvedRoutePage, navigate]);
+  }, [routePage, resolvedRoutePage, activePluginId, navigate]);
 
   // Windows-only live git/sh source readout from /api/health. null on
   // macOS/Linux (section hidden). See change: embed-git-bash-on-windows.
@@ -498,6 +549,15 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     for (const s of draftSources.values()) if (s.isDirty) pages.add(s.page);
     return pages;
   }, [configPartial, llmChanged, draftSources]);
+
+  // Plugin draft state lives in the plugin component and dies on unmount, so
+  // leaving a dirty plugin page must guard. Scoped to THIS page's sources —
+  // keying off the panel-level `isDirty` would block a user with unsaved Server
+  // edits from opening any other page (design D5a).
+  const activePluginPageDirty = useMemo(() => {
+    if (!activePluginId) return false;
+    return dirtyPages.has(`plugins/${activePluginId}`);
+  }, [activePluginId, dirtyPages]);
 
   const handleDiscard = useCallback(() => {
     if (original) setConfig(JSON.parse(JSON.stringify(original)));
@@ -603,6 +663,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
   // ── Unsaved-changes navigation guards ─────────────────────────────────────
   const [pendingNav, setPendingNav] = useState<string | null>(null);
+  // Resolver for a pending "disable this plugin while its page is dirty" prompt.
+  const [disableGuard, setDisableGuard] = useState<((ok: boolean) => void) | null>(null);
   const isDirtyRef = useRef(isDirty);
   isDirtyRef.current = isDirty;
 
@@ -611,6 +673,27 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     if (isDirtyRef.current) setPendingNav(to);
     else navigate(to);
   }, [navigate]);
+
+  // Rail navigation between settings pages. Guards ONLY when leaving a plugin
+  // page with unsaved edits of its own — built-in draft state lives in this
+  // panel's `useState` and survives the switch. See design D5a.
+  const pluginPageDirtyRef = useRef(activePluginPageDirty);
+  pluginPageDirtyRef.current = activePluginPageDirty;
+  const requestRailNavigate = useCallback((to: string) => {
+    if (pluginPageDirtyRef.current) setPendingNav(to);
+    else navigate(to);
+  }, [navigate]);
+
+  // Disabling the plugin whose page is open must resolve unsaved edits BEFORE
+  // the rail drops the nav child, or a dirty source ends up filed under a page
+  // with no entry (design Open Question 3). Resolves `false` when the user
+  // cancels, leaving the toggle untouched.
+  const pluginDisableGuard = useCallback(async () => {
+    if (!pluginPageDirtyRef.current) return true;
+    return await new Promise<boolean>((resolve) => {
+      setDisableGuard(() => resolve);
+    });
+  }, []);
 
   // Back arrow: resolve through the depth-aware `onBack` (launching route) when
   // provided, else fall back to the card list. Routed through the same dirty
@@ -746,6 +829,19 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     },
   ];
 
+  // Save Bar attribution: every dirty page, named and navigable. Plugin pages
+  // read `Plugins › <Display Name>`. No cap — wrapping is accepted (Non-Goals).
+  // See change: plugin-settings-pages (design D5).
+  const dirtyPageEntries = Array.from(dirtyPages).map((page) => {
+    if (page.startsWith("plugins/")) {
+      const id = page.slice("plugins/".length);
+      const name = pluginRows.find((r) => r.id === id)?.displayName ?? id;
+      return { page, label: `${t("settings.plugins", undefined, "Plugins")} › ${name}`, to: `/settings/${page}` };
+    }
+    const item = navGroups.flatMap((g) => g.items).find((i) => i.id === page);
+    return { page, label: item?.label ?? page, to: `/settings/${page}` };
+  });
+
   return (
     <SettingsDraftProvider registry={draftRegistry}>
     <div className="flex-1 flex flex-col min-w-0 h-full">
@@ -759,6 +855,15 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           <Icon path={mdiArrowLeft} size={0.8} />
         </button>
         <h1 className="text-lg font-bold text-[var(--text-primary)]">{t("common.settings", undefined, "Settings")}</h1>
+        {dirtyPageEntries.length > 0 && (
+          <span
+            data-testid="settings-dirty-page-count"
+            title={t("settings.unsavedOnPage", undefined, "Unsaved changes on this page")}
+            className="px-1.5 py-0.5 rounded text-[11px] font-medium bg-amber-400/20 text-amber-400 border border-amber-400/40"
+          >
+            {dirtyPageEntries.length}
+          </span>
+        )}
         <div className="flex-1" />
         <button
           onClick={() => { setMessage(null); restart.run(); }}
@@ -796,13 +901,19 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 {group.label}
               </div>
               {group.items.map((item) => {
-                const active = activeTab === item.id;
+                // Top-level entries compare against `activeTab`; the `plugins`
+                // parent is active only on the activation index, never when a
+                // child page is open (design D8a).
+                const active =
+                  item.id === "plugins"
+                    ? activeTab === "plugins" && !activePluginId
+                    : activeTab === item.id;
                 return (
+                  <div key={item.id} className="contents md:block">
                   <button
-                    key={item.id}
-                    onClick={() => navigate("/settings/" + item.id)}
+                    onClick={() => requestRailNavigate("/settings/" + item.id)}
                     aria-current={active ? "page" : undefined}
-                    className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
                       active
                         ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
                         : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
@@ -818,6 +929,43 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       />
                     )}
                   </button>
+                  {item.id === "plugins" &&
+                    pluginNavChildren.map((p) => {
+                      const childActive = activePluginId === p.id;
+                      const st = p.status;
+                      const dot = st?.error
+                        ? "bg-[var(--accent-red)]"
+                        : st?.loaded === false
+                          ? "bg-[var(--accent-yellow)]"
+                          : "bg-[var(--accent-green)]";
+                      return (
+                        <button
+                          key={`plugins/${p.id}`}
+                          onClick={() => requestRailNavigate(`/settings/plugins/${p.id}`)}
+                          aria-current={childActive ? "page" : undefined}
+                          data-testid={`nav-plugin-${p.id}`}
+                          className={`w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] whitespace-nowrap transition-colors cursor-pointer ${
+                            childActive
+                              ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
+                              : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`}
+                            data-testid={`nav-plugin-status-${p.id}`}
+                          />
+                          <span className="truncate">{p.displayName}</span>
+                          {dirtyPages.has(`plugins/${p.id}`) && (
+                            <span
+                              data-testid={`nav-dirty-plugins/${p.id}`}
+                              title={t("settings.unsavedOnPage", undefined, "Unsaved changes on this page")}
+                              className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 );
               })}
             </div>
@@ -845,14 +993,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 globalPill
                 onViewFile={(filePath, title) => navigate(buildPiResourceFileUrl(filePath, title))}
               />
-              {/* Per-page plugin slot mounts (literal ids for the registry lint). */}
-              <div className="px-3">
-                {activeTab === "skills" && <SettingsSectionSlot tab="skills" />}
-                {activeTab === "agents" && <SettingsSectionSlot tab="agents" />}
-                {activeTab === "extensions" && <SettingsSectionSlot tab="extensions" />}
-                {activeTab === "prompts" && <SettingsSectionSlot tab="prompts" />}
-                {activeTab === "themes" && <SettingsSectionSlot tab="themes" />}
-              </div>
             </div>
           ) : (
           <div className="p-4 space-y-6 max-w-3xl overflow-y-auto">
@@ -872,7 +1012,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   />
                 </Section>
                 <DisplayPrefsSection />
-                <SettingsSectionSlot tab="general" />
               </>
             )}
 
@@ -976,7 +1115,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     })}
                   />
                 </Section>
-                <SettingsSectionSlot tab="server" />
               </>
             )}
 
@@ -1145,7 +1283,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     </p>
                   </div>
                 </Section>
-                <SettingsSectionSlot tab="sessions" />
               </>
             )}
 
@@ -1154,7 +1291,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             {activeTab === "remote" && (
               <>
                 <ServersTab />
-                <SettingsSectionSlot tab="remote" />
               </>
             )}
 
@@ -1231,7 +1367,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 <Section title={t("settings.pairedDevices", undefined, "Paired Devices")}>
                   <PairedDevicesSection />
                 </Section>
-                <SettingsSectionSlot tab="security" />
               </>
             )}
 
@@ -1272,7 +1407,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     availableModels={availableModels}
                   />
                 </Section>
-                <SettingsSectionSlot tab="providers" />
               </>
             )}
 
@@ -1280,15 +1414,28 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
               <>
                 <UnifiedPackagesSection />
                 <GlobalPackagesBrowseAndDialogs />
-                <SettingsSectionSlot tab="packages" />
               </>
             )}
 
             {activeTab === "plugins" && (
-              <>
-                <PluginsSection />
-                <SettingsSectionSlot tab="plugins" />
-              </>
+              activePluginRow && activePluginHasSettings ? (
+                <PluginSettingsPage
+                  row={activePluginRow}
+                  toggle={pluginToggle}
+                  onLeaveGuard={pluginDisableGuard}
+                />
+              ) : (
+                <>
+                  {/* Unknown id, or an installed plugin with no settings → the
+                      activation index plus a notice, never a blank page or an
+                      empty-bodied plugin page (design D2). Held until the list
+                      loads so a notice never flashes for a real plugin. */}
+                  {activePluginId && !pluginList.loading && !activePluginHasSettings && (
+                    <PluginNotFoundNotice pluginId={activePluginId} />
+                  )}
+                  <PluginsSection list={pluginList} toggle={pluginToggle} />
+                </>
+              )
             )}
 
             {activeTab === "openspec" && (
@@ -1358,7 +1505,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 </Section>
                 {/* See change: add-openspec-profile-settings. */}
                 <OpenSpecProfileSection />
-                <SettingsSectionSlot tab="openspec" />
               </>
             )}
 
@@ -1387,7 +1533,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 <SpawnFailuresSection />
                 {/* See change: auto-canvas (task 5.2). */}
                 <CanvasTypesSettingsSection selectedCwd={selectedCwd} />
-                <SettingsSectionSlot tab="developer" />
               </>
             )}
 
@@ -1409,6 +1554,19 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
               ? t("settings.unsavedOne", undefined, "unsaved change")
               : t("settings.unsavedMany", undefined, "unsaved changes")}
           </span>
+          <div className="flex flex-wrap items-center gap-1.5" data-testid="save-bar-pages">
+            {dirtyPageEntries.map((e) => (
+              <button
+                key={e.page}
+                type="button"
+                onClick={() => requestRailNavigate(e.to)}
+                data-testid={`save-bar-page-${e.page}`}
+                className="px-2 py-0.5 rounded text-[11px] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] hover:bg-[var(--bg-surface)]"
+              >
+                {e.label}
+              </button>
+            ))}
+          </div>
           <div className="flex-1" />
           <button
             onClick={handleDiscard}
@@ -1437,6 +1595,28 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
         onSave={confirmSaveLeave}
         onDiscard={confirmDiscardLeave}
         onCancel={() => setPendingNav(null)}
+      />
+    )}
+
+    {/* Disable-while-dirty: resolves BEFORE the toggle fires, so the rail never
+        drops the nav child out from under a dirty source (design OQ3). */}
+    {disableGuard !== null && (
+      <UnsavedChangesDialog
+        saving={saving}
+        onSave={async () => {
+          const ok = await handleSave();
+          setDisableGuard(null);
+          disableGuard(ok);
+        }}
+        onDiscard={() => {
+          handleDiscard();
+          setDisableGuard(null);
+          disableGuard(true);
+        }}
+        onCancel={() => {
+          setDisableGuard(null);
+          disableGuard(false);
+        }}
       />
     )}
     </SettingsDraftProvider>

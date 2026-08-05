@@ -381,7 +381,11 @@ export default function App() {
   // routes. See change: add-directory-home-page.
   const [folderHomeMatch, folderHomeParams] = useRoute("/folder/:encodedCwd");
   const [folderEditorMatch, folderEditorParams] = useRoute("/folder/:encodedCwd/editor");
-  const [settingsMatch] = useRoute("/settings/:page?");
+  // Second optional segment carries the plugin id on `/settings/plugins/<id>`.
+  // `SettingsPanel` owns the interpretation (only under `plugins`); the shell
+  // just has to MATCH the deeper URL, or a bookmarked plugin page falls through
+  // to the dashboard root. See change: plugin-settings-pages (design D2).
+  const [settingsMatch] = useRoute("/settings/:page?/:sub?");
   const [tunnelSetupMatch] = useRoute("/tunnel-setup");
   // Shell-owned overlay routes (overlay-url-routing).
   const [openspecPreviewMatch, openspecPreviewParams] = useRoute("/folder/:encodedCwd/openspec/:changeName/:artifactId");

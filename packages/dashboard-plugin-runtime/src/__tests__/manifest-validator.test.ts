@@ -75,17 +75,16 @@ describe("validateManifest — invalid cases", () => {
     }
   });
 
-  it("throws on unknown tab value for settings-section", () => {
-    try {
-      validateManifest({
-        ...validManifest,
-        claims: [{ slot: "settings-section", tab: "nonexistent" }],
-      });
-      expect.fail("should have thrown");
-    } catch (e) {
-      expect(e).toBeInstanceOf(ManifestValidationError);
-      expect((e as ManifestValidationError).reason).toContain("nonexistent");
-    }
+  // `tab` is inert since plugin-settings-pages (design D3), so a value outside
+  // the enumerated set is no longer a load failure. Kept here (in the
+  // invalid-cases block it used to fail in) as the regression sentinel.
+  // (test-plan #E12)
+  it("accepts an unknown tab value for settings-section", () => {
+    const manifest = validateManifest({
+      ...validManifest,
+      claims: [{ slot: "settings-section", tab: "nonexistent" }],
+    });
+    expect(manifest.claims[0].tab).toBe("nonexistent");
   });
 
   it("throws on duplicate tool-renderer claims for same toolName", () => {

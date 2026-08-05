@@ -51,7 +51,7 @@ export function SubagentsSettings() {
 		}
 	}, [t]);
 	const reset = useCallback(() => setDraft(baseline), [baseline]);
-	useSettingsDraftSource({ id: "plugin:subagents", page: "general", isDirty, commit, reset });
+	useSettingsDraftSource({ id: "plugin:subagents", isDirty, commit, reset });
 	const checked = draft;
 
 	return (

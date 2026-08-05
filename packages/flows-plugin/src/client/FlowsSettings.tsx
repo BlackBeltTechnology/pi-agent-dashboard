@@ -38,7 +38,7 @@ export function FlowsSettings(): React.ReactElement {
     await send({ type: "plugin_config_write", id: "flows", config: { editFlow: valuesRef.current } });
   }, [send]);
   const reset = useCallback(() => setEditFlow(baseRef.current), []);
-  useSettingsDraftSource({ id: "plugin:flows", page: "plugins", isDirty, commit, reset });
+  useSettingsDraftSource({ id: "plugin:flows", isDirty, commit, reset });
 
   return (
     <section className="border border-[var(--border-primary)] rounded-lg p-4">

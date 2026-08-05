@@ -12,7 +12,6 @@ import {
   type SettingsTab,
   SLOT_DEFINITIONS,
   type SlotId,
-  VALID_SETTINGS_TABS,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 
 export class ManifestValidationError extends Error {
@@ -106,15 +105,10 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     }
   }
 
-  // settings-section: validate optional tab field
-  if (slotId === "settings-section" && c.tab !== undefined) {
-    if (!VALID_SETTINGS_TABS.includes(c.tab as SettingsTab)) {
-      throw new ManifestValidationError(
-        pluginId,
-        `claims[${index}].tab "${c.tab}" is not a valid settings tab. Valid tabs: ${VALID_SETTINGS_TABS.join(", ")}`,
-      );
-    }
-  }
+  // settings-section: `tab` is accepted but inert. Every `settings-section`
+  // claim renders on its owning plugin's page (`/settings/plugins/<id>`), so
+  // rejecting an unknown value would fail a manifest over a field nothing
+  // reads. See change: plugin-settings-pages (design D3).
 
   // optional string fields
   for (const field of [

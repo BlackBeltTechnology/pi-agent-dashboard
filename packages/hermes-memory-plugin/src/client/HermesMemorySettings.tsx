@@ -12,7 +12,7 @@
  *
  * See change: add-hermes-memory-settings-plugin.
  */
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DEFAULTS, FIELD_DESCRIPTORS, KNOWN_KEYS, type MemoryConfig } from "../shared/hermes-config.js";
@@ -29,7 +29,6 @@ export function HermesMemorySettings(): React.ReactElement {
   const [effective, setEffective] = useState<EffectiveConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
 
   // Editable state: current value per key + the set of user-overridden keys.
@@ -115,18 +114,21 @@ export function HermesMemorySettings(): React.ReactElement {
     : DEFAULTS.memoryPolicyStyle;
   const showCustomText = effectiveStyle === "custom";
 
-  const save = useCallback(async () => {
-    setSaving(true);
-    setSaveError(null);
-    try {
+  // Register with the host's unified Save. The plugin no longer owns a save
+  // affordance of its own — the global Save Bar commits these edits and files
+  // them under `plugins/hermes-memory` (the host assigns the page id).
+  // See change: plugin-settings-pages (design D5).
+  useSettingsDraftSource({
+    id: "plugin:hermes-memory",
+    isDirty: changedCount > 0 && !hasErrors,
+    commit: async () => {
       await putConfig(buildResolvedConfig(values, overridden));
       await load();
-    } catch (e) {
-      setSaveError(errMsg(e));
-    } finally {
-      setSaving(false);
-    }
-  }, [values, overridden, load]);
+    },
+    reset: () => {
+      void load();
+    },
+  });
 
   if (loadError) {
     return (
@@ -210,44 +212,27 @@ export function HermesMemorySettings(): React.ReactElement {
         );
       })}
 
-      {/* sticky save bar */}
-      <div className="fixed left-0 right-0 bottom-0 bg-[var(--bg-secondary)] border-t border-[var(--border-secondary)] z-10">
-        <div className="max-w-[760px] mx-auto px-5 py-2.5 flex items-center gap-2.5">
-          <span
-            className={`text-[12px] ${changedCount ? "text-[var(--accent-yellow)]" : "text-[var(--text-tertiary)]"}`}
-            data-testid="hermes-change-status"
-          >
-            {changedCount
-              ? t("nChanged", { count: changedCount }, `${changedCount} field${changedCount > 1 ? "s" : ""} changed · not yet saved`)
-              : t("noChanges", undefined, "No changes")}
-          </span>
-          {saveError && <span className="text-[12px] text-[var(--accent-red)]">{saveError}</span>}
-          <span className="ml-auto" />
-          <button
-            type="button"
-            className="text-[12.5px] px-3.5 py-1.5 rounded-md bg-transparent text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-            onClick={() => setShowRaw(true)}
-          >
-            {t("viewRawJson", undefined, "View raw JSON")}
-          </button>
-          <button
-            type="button"
-            className="text-[12.5px] px-3.5 py-1.5 rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-45"
-            disabled={changedCount === 0 || saving}
-            onClick={() => void load()}
-          >
-            {t("revert", undefined, "Revert")}
-          </button>
-          <button
-            type="button"
-            className="text-[12.5px] px-3.5 py-1.5 rounded-md bg-[var(--accent-primary)] text-white font-semibold disabled:opacity-45 disabled:cursor-not-allowed"
-            disabled={changedCount === 0 || hasErrors || saving}
-            onClick={() => void save()}
-            data-testid="hermes-save"
-          >
-            {saving ? t("saving", undefined, "Saving…") : t("save", undefined, "Save")}
-          </button>
-        </div>
+      {/* No save footer: the host Settings panel owns Save/Discard through the
+          global Save Bar, and a `position: fixed` bar here overlaid every
+          settings page. See change: plugin-settings-pages (design D5). */}
+      <div className="flex items-center gap-2.5">
+        <span
+          className={`text-[12px] ${changedCount ? "text-[var(--accent-yellow)]" : "text-[var(--text-tertiary)]"}`}
+          data-testid="hermes-change-status"
+        >
+          {changedCount
+            ? t("nChanged", { count: changedCount }, `${changedCount} field${changedCount > 1 ? "s" : ""} changed · not yet saved`)
+            : t("noChanges", undefined, "No changes")}
+        </span>
+        {saveError && <span className="text-[12px] text-[var(--accent-red)]">{saveError}</span>}
+        <span className="ml-auto" />
+        <button
+          type="button"
+          className="text-[12.5px] px-3.5 py-1.5 rounded-md bg-transparent text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+          onClick={() => setShowRaw(true)}
+        >
+          {t("viewRawJson", undefined, "View raw JSON")}
+        </button>
       </div>
 
       {showRaw && (
