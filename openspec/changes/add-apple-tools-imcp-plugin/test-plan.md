@@ -66,7 +66,7 @@ Stage: design   Generated: 2026-08-03
 | F1 | Missing-requirement rendering | state-transition | L3 | automated | plugin row with an unsatisfied `paths` requirement | Plugins tab rendered | a warning pill naming the requirement is present; the block is NOT empty (regression guard for the three-category client bug) |
 | F2 | Missing-requirement rendering | decision-table | L3 | automated | unsatisfied `paths` requirement | Plugins tab rendered | NO inline `[Install]` button (a path has no package source) |
 | F3 | Missing-requirement rendering | decision-table | L3 | automated | unsatisfied `pi-mcp-adapter` `piExtensions` requirement | Plugins tab rendered | `[Install via Packages tab]` link, NOT an inline `[Install]` button (no curated entry) |
-| F4 | Settings section placement | state-transition | L3 | automated | plugin enabled | settings-gear (`plugin-expand-<id>`) on the plugin row clicked | section renders INSIDE that row's `plugin-settings-<id>` container (containment is the invariant; the Plugins tab stays mounted across nav, so absence-elsewhere is not observable) |
+| F4 | Settings section placement | state-transition | L3 | automated | plugin enabled | settings-gear (`plugin-expand-<id>`) on the plugin row clicked | navigates to `/settings/plugins/<id>`; section renders INSIDE `plugin-settings-page-<id>`, exactly once, and is absent from the plugins index (develop's `plugin-settings-pages` moved settings off the row) |
 | F5 | Settings section placement | decision-table | L3 | automated | plugin toggled off | Plugins tab rendered | `plugins-restart-required-banner` appears; the claim is filtered only AFTER a server restart (toggle returns `restartRequired`) |
 | F6 | Panel state readout | state-transition | L3 | manual-only | unprovisioned macOS host | panel rendered | displays the shared checker's terminal state; vocabulary identical to the CLI's for the same host |
 | F7 | Cache invalidation | state-transition | L3 | manual-only | panel showing an unprovisioned state | `[Run installer]` completes, then config write | cache cleared on both events; panel converges to the new state without a manual reload |
@@ -125,10 +125,13 @@ where the probe is injectable:
   (`install.test.ts`, `doctor.test.ts` — doctor/CLI parity, #X18).
 
 **F4 and F5** kept `automated` but their observables were corrected to the
-product's real contract: the Plugins tab stays mounted across settings nav (so
-"renders on no other page" is not observable), and toggling a plugin off returns
-`restartRequired` and raises `plugins-restart-required-banner` rather than
-unmounting the claim immediately.
+product's real contract. F5: toggling a plugin off returns `restartRequired` and
+raises `plugins-restart-required-banner` rather than unmounting the claim
+immediately. F4: `develop` landed `plugin-settings-pages` mid-flight, moving
+every `settings-section` contribution onto `/settings/plugins/<id>`; the gear now
+navigates rather than expanding inline, so the observable is containment within
+`plugin-settings-page-<id>` plus absence from the index. No production code
+changed — the claim carries over automatically because it declares no `tab`.
 
 ## Coverage summary
 

@@ -72,7 +72,7 @@ test.describe("apple-tools — missing-requirement surfacing", () => {
 });
 
 test.describe("apple-tools — settings panel", () => {
-  test("#F4: the settings section renders inline beneath the plugin's own row", async ({
+  test("#F4: the settings section renders on the plugin's OWN settings page", async ({
     page,
   }) => {
     await openPluginsTab(page);
@@ -80,22 +80,24 @@ test.describe("apple-tools — settings panel", () => {
     const row = page.getByTestId("plugin-row-apple-tools");
     await expect(row).toBeVisible({ timeout: 30_000 });
 
-    // The settings-gear affordance on the row expands the inline section.
+    // The settings-gear affordance on the row navigates to the plugin's page
+    // (`/settings/plugins/<id>`); settings are never rendered inline in the
+    // list. See the `plugin-settings-pages` change on develop.
     await page.getByTestId("plugin-expand-apple-tools").click();
 
-    // The section renders inside the plugin's OWN row container.
-    const host = page.getByTestId("plugin-settings-apple-tools");
+    const host = page.getByTestId("plugin-settings-page-apple-tools");
     await expect(host).toBeVisible({ timeout: 15_000 });
     await expect(host.getByTestId("apple-tools-settings")).toBeVisible({ timeout: 15_000 });
 
-    // Containment IS the invariant: exactly one instance, inside this row's
-    // own settings host. (The Plugins tab stays mounted across settings nav, so
-    // "absent from other pages" is not an observable property — test-plan.md
-    // §Implementation amendment.)
+    // Containment IS the invariant: exactly one instance, inside this plugin's
+    // own page host — never leaking onto another plugin's page or the index.
     await expect(page.getByTestId("apple-tools-settings")).toHaveCount(1);
-    await expect(
-      page.getByTestId("plugin-row-apple-tools").getByTestId("apple-tools-settings"),
-    ).toHaveCount(1);
+    await expect(page).toHaveURL(/\/settings\/plugins\/apple-tools$/);
+
+    // Back to the index: the section must not render there.
+    await page.getByTestId("plugin-page-back-to-index").click();
+    await page.getByTestId("plugins-section").waitFor({ state: "visible", timeout: 15_000 });
+    await expect(page.getByTestId("apple-tools-settings")).toHaveCount(0);
   });
 
   test("#F8: on a non-macOS host the panel is inert — no [Run installer]", async ({ page }) => {
@@ -118,10 +120,6 @@ test.describe("apple-tools — settings panel", () => {
 
   test("#F5: toggling the plugin off raises the restart-required banner", async ({ page }) => {
     await openPluginsTab(page);
-
-    // Expand first so the section is mounted, then disable.
-    await page.getByTestId("plugin-expand-apple-tools").click();
-    await expect(page.getByTestId("apple-tools-settings")).toBeVisible({ timeout: 15_000 });
 
     const toggle = page.getByTestId("plugin-toggle-apple-tools");
     await expect(toggle).toBeVisible({ timeout: 30_000 });

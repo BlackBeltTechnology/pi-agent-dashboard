@@ -214,7 +214,19 @@ plugin config store holds `imcpServerPath` alone. Keeping them in `mcp.json`
 makes the panel's controls actually take effect — an earlier implementation
 persisted them into our own config store, where nothing consumed them.
 
-**Why under the plugin row** rather than a dedicated settings page: `openspec/specs/dashboard-plugin-loader/spec.md:1043` requires plugin `settings-section` claims to render only beneath the owning plugin's row, keeps `claim.tab` inert at runtime, and forbids `SettingsPanel.tsx` from importing `SettingsSectionSlot`. An earlier draft of this design specified a dedicated `apple-tools` page; that would have required amending a deliberate recent decision and adding a `SettingsTab` union member — both outside this change's scope. Conforming costs this panel nothing it needs.
+**Superseded during implementation — settings now live on a dedicated page.**
+While this change was in its worktree, `develop` landed `plugin-settings-pages`,
+which moved every plugin's `settings-section` contribution out of the Plugins
+list and onto its own route `/settings/plugins/<id>` (`PluginsSection.tsx`:
+"Settings are never rendered inline here"). The row's settings-gear now
+*navigates* there instead of expanding inline. This change conforms: it still
+declares a plain `settings-section` claim with **no `tab` field**, so it is
+carried to the plugin's own page automatically and needs no code change — only
+the scenario's observable moved (`plugin-settings-page-<id>` rather than an
+inline row container). The paragraph below records the original reasoning, which
+still holds for why this change never added a `SettingsTab` union member.
+
+**Why not a bespoke settings page of our own** (original reasoning): `openspec/specs/dashboard-plugin-loader/spec.md:1043` requires plugin `settings-section` claims to render only beneath the owning plugin's row, keeps `claim.tab` inert at runtime, and forbids `SettingsPanel.tsx` from importing `SettingsSectionSlot`. An earlier draft of this design specified a dedicated `apple-tools` page; that would have required amending a deliberate recent decision and adding a `SettingsTab` union member — both outside this change's scope. Conforming costs this panel nothing it needs.
 
 ### 6. Skill checks provisioning on load
 
