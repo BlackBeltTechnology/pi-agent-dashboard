@@ -32,6 +32,7 @@ import { CopyButton } from "../primitives/CopyButton.js";
 import { MissingToolInlineError } from "./MissingToolInlineError.js";
 import { FilePreviewHost, FilePreviewProvider } from "../preview/FilePreviewContext.js";
 import { ImageLightbox } from "../preview/ImageLightbox.js";
+import { attachmentOriginalUrl } from "../../lib/chat/attachment-original-url.js";
 import { InlineTerminalCard } from "../terminal/InlineTerminalCard.js";
 import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
@@ -99,8 +100,11 @@ interface Props {
 function ImageAttachments({
   images,
   onImageLoad,
+  sessionId,
 }: {
   images: ChatImage[];
+  /** Owning session — scopes the full-resolution originals request. */
+  sessionId?: string;
   /**
    * Fired when an attached `<img>` finishes decoding. In the virtualized
    * transcript the owning row is first measured pre-decode (img ~0px); this
@@ -109,7 +113,9 @@ function ImageAttachments({
    */
   onImageLoad?: (e: React.SyntheticEvent<HTMLImageElement>) => void;
 }) {
-  const [lightboxSrc, setLightboxSrc] = useState<{ src: string; alt: string } | null>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<
+    { src: string; alt: string; fallbackSrc?: string } | null
+  >(null);
   // Track decoded images so the reserved loading box is dropped once the real
   // intrinsic size is known (a bounded box avoids the near-zero pre-decode
   // measurement without distorting small decoded images).
@@ -159,13 +165,29 @@ function ImageAttachments({
                 setLoaded((prev) => (prev.has(i) ? prev : new Set(prev).add(i)));
                 onImageLoad?.(e);
               }}
-              onClick={() => setLightboxSrc({ src, alt: `Attachment ${i + 1}` })}
+              onClick={() => {
+                // Zoom shows the ORIGINAL when one is recoverable; the inline
+                // image is only a 768 px display derivative. Falls back to that
+                // derivative if the original cannot be served, so a failure
+                // degrades the zoom alone (test-plan #F5 #F6).
+                const original = attachmentOriginalUrl(sessionId, img.attachmentId);
+                setLightboxSrc({
+                  src: original ?? src,
+                  alt: `Attachment ${i + 1}`,
+                  fallbackSrc: original ? src : undefined,
+                });
+              }}
             />
           );
         })}
       </div>
       {lightboxSrc && (
-        <ImageLightbox src={lightboxSrc.src} alt={lightboxSrc.alt} onClose={() => setLightboxSrc(null)} />
+        <ImageLightbox
+          src={lightboxSrc.src}
+          alt={lightboxSrc.alt}
+          fallbackSrc={lightboxSrc.fallbackSrc}
+          onClose={() => setLightboxSrc(null)}
+        />
       )}
     </>
   );
@@ -867,7 +889,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                 <div className={bubbleMax}>
                   {msg.images && msg.images.length > 0 && (
                     <div className="mb-2">
-                      <ImageAttachments images={msg.images} onImageLoad={(e) => requestRowMeasure(e.currentTarget)} />
+                      <ImageAttachments images={msg.images} sessionId={sessionId} onImageLoad={(e) => requestRowMeasure(e.currentTarget)} />
                     </div>
                   )}
                   <SkillInvocationCard
@@ -889,7 +911,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
               {msg.streamingBehavior && <StreamingBehaviorBadge behavior={msg.streamingBehavior} />}
               <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
                 {msg.images && msg.images.length > 0 && (
-                  <ImageAttachments images={msg.images} onImageLoad={(e) => requestRowMeasure(e.currentTarget)} />
+                  <ImageAttachments images={msg.images} sessionId={sessionId} onImageLoad={(e) => requestRowMeasure(e.currentTarget)} />
                 )}
                 {msg.content && (
                   <MessageBubble
@@ -1149,7 +1171,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         <div data-testid="pending-prompt-card" data-status={state.pendingPrompt.status} className="mt-4 mb-4 flex justify-end">
           <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax} ${state.pendingPrompt.status === "sending" ? "opacity-60 prompt-sending-fx prompt-edge-pulse" : ""}`}>
             {state.pendingPrompt.images && state.pendingPrompt.images.length > 0 && (
-              <ImageAttachments images={state.pendingPrompt.images} />
+              <ImageAttachments images={state.pendingPrompt.images} sessionId={sessionId} />
             )}
             <div className="flex items-start gap-2">
               <div className="flex-1">

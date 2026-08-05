@@ -58,3 +58,36 @@ describe("ImageLightbox", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+// Transcript attachments open the full-resolution ORIGINAL, with the fitted
+// derivative as fallback so a failed original degrades only the zoom.
+// See change: fit-attachments-for-display (task 5.9b, test-plan #F6).
+describe("ImageLightbox — original/fallback (F6)", () => {
+  const ORIGINAL = "/api/sessions/s1/attachments/" + "a".repeat(64);
+  const FITTED = "data:image/png;base64,Zml0dGVk";
+
+  it("shows the original first when one is supplied", () => {
+    render(<ImageLightbox src={ORIGINAL} alt="a" fallbackSrc={FITTED} onClose={vi.fn()} />);
+    const img = document.body.querySelector("[data-testid='lightbox-image']")!;
+    expect(img.getAttribute("src")).toBe(ORIGINAL);
+    expect(img.getAttribute("data-degraded")).toBeNull();
+  });
+
+  it("F6: falls back to the fitted image when the original fails to load", () => {
+    render(<ImageLightbox src={ORIGINAL} alt="a" fallbackSrc={FITTED} onClose={vi.fn()} />);
+    let img = document.body.querySelector("[data-testid='lightbox-image']")!;
+    act(() => { fireEvent.error(img); });
+    img = document.body.querySelector("[data-testid='lightbox-image']")!;
+    expect(img.getAttribute("src")).toBe(FITTED);
+    expect(img.getAttribute("data-degraded")).toBe("true");
+  });
+
+  it("without a fallback a failed load leaves the src alone (no blank swap)", () => {
+    render(<ImageLightbox src={ORIGINAL} alt="a" onClose={vi.fn()} />);
+    let img = document.body.querySelector("[data-testid='lightbox-image']")!;
+    act(() => { fireEvent.error(img); });
+    img = document.body.querySelector("[data-testid='lightbox-image']")!;
+    expect(img.getAttribute("src")).toBe(ORIGINAL);
+  });
+});
+

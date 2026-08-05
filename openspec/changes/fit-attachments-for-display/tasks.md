@@ -114,7 +114,8 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 - [x] 5.11 D11: animated-GIF detection → bypass fitting, keep existing ceiling handling.
 - [x] 5.9a Client: reducer `attachment_fitted` case + placeholder/failed rendering
       (`ChatImage.attachmentId`/`attachmentState`, `ChatView` pending + failed states).
-- [ ] 5.9b Client: click-to-original overlay (depends on the originals endpoint, 5.7).
+- [x] 5.9b Client: click-to-original overlay — zoom opens the full-resolution
+      original, falling back to the inline fitted derivative on failure (F6).
 
 ## 6. New infra
 
