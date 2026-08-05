@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
-import { parseRows, replaceRowPurpose, resolveBaseline, buildWorkItems } from "../dox-stale-triage.mjs";
+import { buildWorkItems, parseRows, replaceRowPurpose, resolveBaseline } from "../dox-triage.js";
 
-const sha = (s) => createHash("sha256").update(s).digest("hex");
-const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" });
+const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" });
 
-describe("dox-stale-triage: row parsing", () => {
+describe("dox-triage: row parsing", () => {
   const md = [
     "# DOX — pkg/src",
     "",
@@ -44,9 +44,9 @@ describe("dox-stale-triage: row parsing", () => {
   });
 });
 
-describe("dox-stale-triage: baseline resolution from a content hash", () => {
-  let repo;
-  let v1Sha;
+describe("dox-triage: baseline resolution from a content hash", () => {
+  let repo: string;
+  let v1Sha: string;
 
   beforeAll(() => {
     repo = mkdtempSync(join(tmpdir(), "dox-triage-"));
@@ -100,8 +100,8 @@ describe("dox-stale-triage: baseline resolution from a content hash", () => {
   });
 });
 
-describe("dox-stale-triage: work items", () => {
-  let repo;
+describe("dox-triage: work items", () => {
+  let repo: string;
 
   beforeAll(() => {
     repo = mkdtempSync(join(tmpdir(), "dox-triage-wi-"));

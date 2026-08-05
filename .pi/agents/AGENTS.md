@@ -7,12 +7,14 @@ beating user/bundled/package tiers. Frontmatter schema: `description`, `model`,
 comma-string form is silently dropped and the agent inherits every parent tool.
 `ctx_*` tools do not propagate into subagent sessions; `grep`/`find`/`ls` are not tools.
 
+Note: `DoxTriage` ships from `packages/extension/agents/` (package tier), not here —
+same convention as the pi-dashboard/browser/doctor skills. One source of truth.
+
 | File | Purpose |
 |------|---------|
 | `Audit.md` | Deep security + performance audit of a specific diff. Model `@research`, inherit_context false. |
 | `DocScribe.md` | Write docs/ prose for a completed change, in caveman style, per the repo's Documentation Update Protocol. Model `@compact`, inherit_context false. |
 | `DocSummarize.md` | Summarize large or multiple documents (PDF/DOCX/PPTX/XLSX/HTML/CSV/TXT/MD). Model `@research`, inherit_context false. |
-| `DoxTriage.md` | Judge whether a DOX AGENTS.md row is still accurate after its source file changed. Model `@fast`, inherit_context false. |
 | `Explore.md` | Fast read-only codebase & docs exploration. Model `@fast`, inherit_context false. |
 | `KbLookup.md` | Read-only knowledge-base lookup. Model `@fast`, inherit_context false. |
 | `SessionGuideline.md` | Turn a pi session JSONL into a how-we-did-it playbook. Model `@research`, inherit_context false. |
