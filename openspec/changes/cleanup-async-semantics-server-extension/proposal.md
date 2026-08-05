@@ -2,16 +2,17 @@
 
 ## Why
 
-53 floating promises sit in the two packages where "fire and forget" is least
-safe: `packages/extension` (37) and `packages/server` (16). These are the
+54 floating promises sit in the two packages where "fire and forget" is least
+safe: `packages/extension` (37) and `packages/server` (17). These are the
 WebSocket message pump, the PTY/terminal paths, session spawn, and the process
 tracker — the exact subsystems `debug-dashboard` exists to unstick, and the exact
 failure signature its FAQ describes (silent unhandled rejection → a session that
 never registers, a restart loop, a spawn that yields no card).
 
-This is deliberately a **separate change** from `cleanup-lint-debt-mechanical`.
-Its sibling is mechanical; this one is not. Every site here is a semantic
-decision with three different wrong answers:
+This is deliberately a **separate change** from `cleanup-client-plugin-promises`,
+which owns the same rule outside these two packages. The split is by blast
+radius, not by rule: every site here is a semantic decision with three different
+wrong answers, made in the hottest subsystems the project has:
 
 | Fix | Risk if wrong |
 |---|---|
@@ -19,16 +20,19 @@ decision with three different wrong answers:
 | `void` it | silences a rejection that should surface — makes the bug *less* diagnosable, not more |
 | `.catch(log)` | correct default, but wrong if the caller must observe failure |
 
-A blanket codemod across these 53 sites would be a regression generator. The
+A blanket codemod across these 54 sites would be a regression generator. The
 change therefore treats each site as a reviewed decision with a recorded
 rationale, not as a lint-satisfying edit.
+
+> Counts re-probed over the whole `packages/` tree after doubt-driven-review
+> cycle 1 on the sibling change; the earlier draft said 53 (server 16).
 
 ## What Changes
 
 - **Fix 37 `noFloatingPromises` findings in `packages/extension/src`** — the
   bridge message pump, RPC dispatch, session-state poll, heartbeat watchdog, and
   auto-namer paths.
-- **Fix 16 `noFloatingPromises` findings in `packages/server/src`** — session
+- **Fix 17 `noFloatingPromises` findings in `packages/server/src`** — session
   lifecycle, process management, tunnel, and persistence paths.
 - **Classify every site before editing it.** Each fix is one of `await`
   (ordering is load-bearing), `void` (genuinely fire-and-forget AND rejection is
@@ -56,7 +60,13 @@ rationale, not as a lint-satisfying edit.
 
 - Any rule severity flip (`add-typeaware-lint-gate`).
 - Any fix outside `packages/server` and `packages/extension`
-  (`cleanup-lint-debt-mechanical`).
+  (`cleanup-client-plugin-promises`).
+- **`noMisusedPromises` in server/extension.** This change owns *floating*
+  promises only; the 2 server misused-promise sites belong to
+  `cleanup-client-plugin-promises`. This change touches `noFloatingPromises`
+  exclusively.
+- Dependency declarations (`cleanup-undeclared-dependencies`) and import cycles
+  (`cleanup-import-cycles`).
 - Refactoring the async architecture. This change fixes unhandled rejections; it
   does not redesign the message pump, and it does not convert callback paths to
   promises.
@@ -66,7 +76,7 @@ rationale, not as a lint-satisfying edit.
 ## Impact
 
 - `packages/extension/src/**` — 37 sites, concentrated in the bridge.
-- `packages/server/src/**` — 16 sites.
+- `packages/server/src/**` — 17 sites.
 - **Behaviour risk is real and asymmetric**: an incorrectly-added `await` inside
   the WS message pump or a PTY read loop changes ordering and can stall a live
   session. This is the highest-risk change in the ladder.
@@ -74,6 +84,11 @@ rationale, not as a lint-satisfying edit.
 
 ## Open Questions
 
+- **This change is deliberately behaviour-changing, and that is the point.**
+  `await` serializes and surfaces errors; `.catch()` adds handling that did not
+  exist; `void` documents a discard. The invariant to hold is "no intended change
+  to observable product behaviour" — not "behaviour-preserving", which is false
+  for every site here.
 - **Should `void` be permitted at all here?** Banning it forces every site to
   either await or handle, which is safer but larger. Permitting it keeps the diff
   small but re-hides exactly the class of bug this change exists to surface.
