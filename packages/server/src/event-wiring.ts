@@ -1554,6 +1554,18 @@ export function wireEvents(deps: EventWiringDeps): void {
     // `tool_execution_start` wins the race.
     // See change: restore-ask-user-tool-state-on-reconnect (D1/D6a).
     if (msg.type === "prompt_request") {
+      // Only track for a session the server still owns. `trackPromptRequest`
+      // creates an entry for ANY id, while every clear path only removes an
+      // entry that already exists — so a `prompt_request` that races or trails
+      // `onUnregister` would recreate the registry after the unregister cleanup
+      // has run, with nothing left to clear it. Under the reaper's pending-ask
+      // union (D5) that is a permanent `hasPendingAsk: true`: a dead session
+      // that can never be reclaimed, i.e. exactly the leak D6b closes.
+      // `unregister` keeps the record and flips it to `"ended"`, so a bare
+      // existence check is not enough — the dead session is still `get`-able.
+      // See change: restore-ask-user-tool-state-on-reconnect.
+      const owner = sessionManager.get(sessionId);
+      if (!owner || owner.status === "ended") return;
       browserGateway.trackPromptRequest(sessionId, msg as any);
       const promptId = (msg as any).promptId as string | undefined;
       if (replayingSessions.has(sessionId)) {

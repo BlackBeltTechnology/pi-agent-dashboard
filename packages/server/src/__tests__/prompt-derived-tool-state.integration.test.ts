@@ -379,11 +379,14 @@ describe("prompt-derived currentTool (integration)", () => {
 
   it("#X7/#X8 unregistering a session clears both pending registries", async () => {
     await boot();
+    // One bridge socket per session: the gateway keys a session to its socket,
+    // so registering a second id on the SAME socket ends the first.
     const bridge = await openBridge();
+    const bridge2 = await openBridge();
     await registerLive(bridge, "s1");
-    await registerLive(bridge, "s2");
+    await registerLive(bridge2, "s2");
     promptRequest(bridge, "s1", "p1");
-    promptRequest(bridge, "s2", "p2");
+    promptRequest(bridge2, "s2", "p2");
     await wait(120);
     expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(true);
 
@@ -395,6 +398,28 @@ describe("prompt-derived currentTool (integration)", () => {
     expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(false);
     // A sibling session's prompts are untouched.
     expect(server.browserGateway.hasPendingPromptRequests("s2")).toBe(true);
+  });
+
+  it("#X7 a late prompt_request for an unregistered session does not resurrect the registry", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    promptRequest(bridge, "s1", "p1");
+    await wait(120);
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(true);
+
+    server.sessionManager.unregister("s1");
+    await wait(120);
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(false);
+
+    // A prompt_request that raced the unregister (or arrives after it) must NOT
+    // create a fresh entry: `onUnregister` has already run, so nothing would
+    // ever clear it again and the session would be permanently unreapable via
+    // the reaper's `hasPendingAsk` union — reintroducing the exact leak this
+    // change closes.
+    promptRequest(bridge, "s1", "late");
+    await wait(200);
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(false);
   });
 
   it("#X6 the replay exit drains the collected set but NEVER the live registry", async () => {

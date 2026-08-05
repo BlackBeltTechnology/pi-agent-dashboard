@@ -186,7 +186,7 @@ describe("isUnreadTrigger — restored ask_user state (test-plan #F3)", () => {
     ).toBe(false);
   });
 
-  it("#F3 does not re-fire on a replayed agent_end that keeps ask_user", () => {
+  it("#F3 fires on a replayed agent_end via trigger 1 alone — the ask_user edge adds nothing", () => {
     expect(
       isUnreadTrigger(
         "agent_end",

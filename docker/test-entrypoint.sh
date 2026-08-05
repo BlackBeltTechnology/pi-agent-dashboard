@@ -468,16 +468,13 @@ echo "[test-entrypoint] SMOKE PASSED → dashboard ready on http://localhost:${P
 # exits immediately, so `tail -f /dev/null` holds the pipe open. `setsid` detaches
 # it from PID 1's process group so a restart cannot cascade into it.
 INDEPENDENT_LOG="${PI_DIR}/dashboard/independent-session.log"
-# DEFAULT OFF. The fixture itself works (it registers as `source:"tui"` and
-# survives `/api/restart`), but it cannot yet complete the reconnect it exists
-# for: on restart the server rebinds the gateway on the DEFAULT 9999 rather than
-# ${PI_GATEWAY_PORT}, and races the old socket:
-#   Pi gateway listening on port 9999
-#   [crash-safety] uncaughtException (suppressed): listen EADDRINUSE 0.0.0.0:9999
-#   Pi gateway listening on port 9999
-# so the bridge never re-registers. Until that is fixed, leaving this ON would
-# add a permanent extra session card to EVERY spec's view for no benefit.
-# Enable with PI_E2E_INDEPENDENT_SESSION=1 when working that follow-up.
+# DEFAULT OFF. Enabled explicitly by tests/e2e/global-setup.ts (and by hand for
+# manual QA) because it adds a session card every spec would otherwise see.
+# The session registers as `source:"tui"`, survives `/api/restart`, and
+# re-registers over the bridge — which requires the `--pi-port` propagation fix
+# in packages/server/src/spawn-process/restart-helper.ts, without which the
+# restarted gateway falls back to 9999 and no live bridge can reconnect.
+# Consumed by the reconnect scenario in tests/e2e/faux-ask.spec.ts (#F6).
 if [ "${PI_E2E_INDEPENDENT_SESSION:-0}" = "1" ] && [ "${PI_E2E_SEED:-}" = "1" ]; then
   INDEPENDENT_CWD="${INDEPENDENT_SESSION_CWD:-/fixtures/sample-git}"
   if [ -d "${INDEPENDENT_CWD}" ]; then

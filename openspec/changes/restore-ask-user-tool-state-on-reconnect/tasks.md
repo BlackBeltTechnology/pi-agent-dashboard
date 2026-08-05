@@ -85,7 +85,7 @@ Test tasks below are folded from `test-plan.md`; each carries its manifest id. T
 
 ## 10. Ship gates
 
-- [x] 10.1 `npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log` — full suite green (server 3605/3605, client incl. SessionCard 111/111; the 53 remaining failures are all in `pi-image-fit-extension` (`Jimp is not a constructor`) and `pi-dashboard-bus-client` (`spawnSync`), verified byte-identical with the whole change stashed — pre-existing, untouched packages)
+- [x] 10.1 `npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log` — server suite 3650/3650 and the client suites pass. `npm test` does NOT exit clean: 53 tests still fail in `pi-image-fit-extension` (`Jimp is not a constructor`) and `pi-dashboard-bus-client` (`spawnSync`). Verified byte-identical with the entire change stashed, so they are pre-existing in packages this change never touches — but the literal ship gate "full suite green" is NOT met and is knowingly accepted
 - [ ] 10.2 `curl -X POST http://localhost:8000/api/restart` (server-only, jiti, no build, no extension reload)
 - [x] 10.3 Run `doubt-driven-review` on the diff, focused on the wire-ordering invariant and on the fold/direct-write pair agreeing about precedence
 - [x] 10.4 Run `review-code` before commit
