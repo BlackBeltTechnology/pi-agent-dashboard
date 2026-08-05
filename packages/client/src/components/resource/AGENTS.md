@@ -8,3 +8,4 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `ResourceCard.tsx` | One pi-resource as a card. Exports `ResourceCard`. Scope/source badges, path line, `ActivationToggle`… → see `ResourceCard.tsx.AGENTS.md` |
 | `ResourceCardGrid.tsx` | Auto-fill grid of `ResourceCard` for one type. Exports `ResourceCardGrid`, `ResourceType`, `countResources`. → see `ResourceCardGrid.tsx.AGENTS.md` |
 | `ResourceGridPanel.tsx` | Loading/error/refresh chrome + `ResourceReloadBanner` around `ResourceCardGrid`. Exports `ResourceGridPanel`. → see `ResourceGridPanel.tsx.AGENTS.md` |
+| `ResourceTrustDialog.tsx` | Project-trust dialog for a folder-scope toggle. Exports `ResourceTrustDialog`. → see `ResourceTrustDialog.tsx.AGENTS.md` |
