@@ -1708,24 +1708,22 @@ export default function App() {
           {/* Single-card error-lifecycle surface. Sticky above the command
               input: ONE card showing the error string plus a live retry
               sub-line (bare attempt + countdown from pi's own retry settings).
-              "Stop retrying" (onAbort → handleAbort) cancels pi's retry chain
-              by aborting; it is the sole abort control, and the always-present
-              session Stop has the identical effect (both honored even while the
-              card is collapsed). While a retry is pending the dismiss control
-              degrades to COLLAPSE inside the component (onDismiss is not invoked
-              then); onDismiss fires — clearing the settled error — only once no
-              retry sub-status is carried. See change:
-              retry-forever-with-stop-control. */}
+              Observe-only: pi owns the retry loop; the banner has NO Stop
+              retrying control (the always-present session Stop is the sole
+              abort entry point) and NO collapse. While a retry is pending the
+              surface shows status + Copy only and clears itself on a
+              confirmed-good resume; onDismiss fires — clearing the settled
+              error — only once no retry sub-status is carried. See change:
+              error-banner-observe-only. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}
-            onAbort={handleAbort}
             onDismiss={selectedId ? () => {
               setSessionStates((prev) => {
                 const next = new Map(prev);
                 const current = next.get(selectedId!);
-                // Clear-only, reachable only on a settled error (the component
-                // collapses instead of calling this while a retry is pending).
-                // Never aborts. See change: retry-forever-with-stop-control.
+                // Clear-only, reachable only on a settled error (no dismiss is
+                // rendered while a retry is pending). Never aborts.
+                // See change: error-banner-observe-only.
                 if (current?.lastError || current?.retryState) {
                   next.set(selectedId!, { ...current, lastError: undefined, retryState: undefined });
                 }
