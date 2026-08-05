@@ -17,8 +17,8 @@ import { mdiMagnify } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useMemo, useState } from "react";
 import type { ResourceActivationController } from "../../hooks/useResourceActivation.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { ResourceScope } from "../../lib/api/resources-api.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ResourceCard } from "./ResourceCard.js";
 
 const TYPE_TO_KEY = {
@@ -92,7 +92,10 @@ export function ResourceCardGrid({ data, type, scopes, showScopeFilter, onView, 
     const q = query.trim().toLowerCase();
     return items.filter((it) => {
       if (showScopeFilter && scopeFilter !== "all" && it.scope !== scopeFilter) return false;
-      if (showProvenance && provenanceFilter !== "all" && (it.resource.status ?? "active") !== provenanceFilter) return false;
+      // A disabled skill carries no status by design (the join gives disabled
+      // precedence), so it belongs to no provenance bucket rather than to
+      // `active`. See change: fix-skill-discovery-parity.
+      if (showProvenance && provenanceFilter !== "all" && it.resource.status !== provenanceFilter) return false;
       if (!q) return true;
       const hay = `${it.resource.name} ${it.resource.description ?? ""}`.toLowerCase();
       return hay.includes(q);

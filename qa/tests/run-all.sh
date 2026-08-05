@@ -19,6 +19,7 @@ TESTS=(
   "09-image-fit-extension.sh"   # @blackbelt-technology/pi-image-fit install + dep-tree sanity. See change: pi-image-fit-extension.
   "10-faux-model.sh"            # faux prompt round-trip; skips (SKIP: + exit 0) when pi absent. See change: add-faux-model-integration-tests.
   "13-openspec-offline-regen.sh" # offline `npx --no-install openspec init` regen stamps generatedBy 1.6.0. See change: provision-openspec-cli-in-sessions.
+  "14-pi-resources-parity.sh"   # /api/pi-resources p95 budget + companion-file / bundled-command probes. See change: fix-skill-discovery-parity.
 )
 
 PASSED=0

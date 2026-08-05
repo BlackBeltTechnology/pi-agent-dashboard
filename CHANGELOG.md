@@ -12,9 +12,51 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- Skill cards in the Resources view now carry provenance. The server joins pi's
+  resolved skills against what an attached session actually loaded (from the
+  `commands_list` it already sends) on canonicalized real paths, so a card reads
+  `active`, `not loaded`, or `loaded elsewhere` — the last of which finally makes
+  runtime-registered skills (`~/.pi/agent/pi-hermes-memory/skills/`, an ancestor
+  `.agents/skills` chain, `--skill`, `skillPaths`) visible, with the path the
+  session reported. Provenance is a per-card badge plus a grid filter value: no
+  new sections, groups, or nesting. When no single session has reported (none, or
+  more than one), or when pi's resolver was unavailable, the grid says so
+  explicitly instead of implying a loaded set.
+- Themes discovered by pi's resolver now appear on the existing Themes page.
+- `scripts/check-skill-frontmatter.mjs`, a skill frontmatter guard wired into CI.
+  It fails only on what pi treats as fatal (missing, empty, or unparseable
+  `description` — pi drops such a skill), and warns on pi's 1024/64/charset/hyphen
+  limits plus a 400-character repository description budget. Every finding is
+  labelled `pi` or `repository` so a house rule is never mistaken for pi's.
+
 ### Changed
 
+- The Resources view now sources skills, prompts, and themes from pi's own
+  resolver (`PackageManager.resolve()`) instead of a parallel filesystem walk,
+  and applies pi's load gate on top. Scope and package origin come from the
+  resolver's metadata as per-card attributes. `extensions` and `agents` remain
+  scanner-discovered (pi has no `agents` resource type).
+- Skill descriptions across the repository were trimmed to the new 400-character
+  budget, preserving their trigger phrasing. `ship-change`,
+  `frontend-mockup-loop`, and `anti-slop-frontend` are exempt: an existing
+  requirement locks their wording.
+
 ### Fixed
+
+- Phantom skills are gone from the Resources view. `UPSTREAM.md`,
+  `dox-doctrine.md`, `AGENTS.md`, and `*.AGENTS.md` were being listed as skills
+  the dashboard's own walk had invented; pi never loaded them. Files beneath
+  `.worktrees/` and inside a built Electron bundle are likewise no longer
+  reported.
+- `resolveActivation()` is now bounded by a 5-second timeout and falls back to
+  the filesystem walk when pi is unavailable, resolution throws, or the resolver
+  returns an empty result the walk contradicts. The payload is flagged as a
+  degraded fallback rather than presented as pi's answer.
+
+**Note:** package resources excluded by a package's own manifest patterns are
+now absent from the Resources view rather than shown as disabled, matching pi,
+which does not load them either. There is consequently no activation toggle for
+them.
 
 ## [0.7.0] - 2026-07-24
 

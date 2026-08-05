@@ -5,8 +5,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { PiResource, PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { joinSkillProvenance, SessionCommandRegistry } from "../pi/session-skill-registry.js";
 

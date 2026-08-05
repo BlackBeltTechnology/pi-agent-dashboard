@@ -16,16 +16,39 @@
  * `path`. See change: fix-skill-discovery-parity.
  */
 import * as fs from "node:fs";
-import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { PiResource, PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-/** Resolve symlinks/hoisted copies so two spellings of one file join. */
-function canonical(p: string): string {
+/**
+ * Resolve symlinks/hoisted copies so two spellings of one file join.
+ *
+ * On ENOENT the raw string is returned. That is the right fallback for a path
+ * that never existed, but it means a skill deleted between the scan and the
+ * join can miss its counterpart (one side canonicalizes, the other does not)
+ * and be mislabelled for one request. The next poll corrects it.
+ */
+export function canonicalPath(p: string): string {
   try {
     return fs.realpathSync(p);
   } catch {
     return p;
   }
+}
+
+/**
+ * Per-join memo over `canonicalPath`. `realpathSync` walks the filesystem and
+ * the join calls it once per resolved skill plus once per live skill, on an
+ * HTTP path the client polls; one workspace easily has ~60 of each.
+ */
+function makeCanonicalizer(): (p: string) => string {
+  const memo = new Map<string, string>();
+  return (p) => {
+    const hit = memo.get(p);
+    if (hit !== undefined) return hit;
+    const resolved = canonicalPath(p);
+    memo.set(p, resolved);
+    return resolved;
+  };
 }
 
 function skillCommands(commands: CommandInfo[]): CommandInfo[] {
@@ -38,6 +61,12 @@ function skillCommands(commands: CommandInfo[]): CommandInfo[] {
  * Settling rule (test-plan C2): a non-empty skill set is **never** replaced by
  * an empty one. A reload sends a transitional list with no skills, and without
  * this rule every resolved skill would momentarily read `not-loaded`.
+ *
+ * Accepted consequence: a session that genuinely drops to zero skills (every
+ * skill file deleted or disabled) keeps reporting its last non-empty set until
+ * it sends a non-empty list again or unregisters. C2 chose the unconditional
+ * rule over a time window; masking a rare real-zero state is preferred to the
+ * mass `not-loaded` flip a window would still let through.
  */
 export class SessionCommandRegistry {
   private readonly bySession = new Map<string, CommandInfo[]>();
@@ -96,6 +125,55 @@ function everySkillScope(result: PiResourcesResult): PiResource[][] {
 }
 
 /**
+ * Stamp every resolved skill and return the live keys they claimed. A resolved
+ * path is never "elsewhere", disabled or not, so it is claimed even when its
+ * status is left alone — otherwise the leftover pass would duplicate it.
+ */
+function stampResolvedStatuses(
+  result: PiResourcesResult,
+  livePaths: Map<string, CommandInfo>,
+  canonical: (p: string) => string,
+): Set<string> {
+  const matched = new Set<string>();
+  for (const scope of everySkillScope(result)) {
+    for (const skill of scope) {
+      const key = canonical(skill.filePath);
+      const isLive = livePaths.has(key);
+      if (isLive) matched.add(key);
+      // Disabled takes precedence over the join: `getSkills()` applies no
+      // `enabled` filter, so absence from the live set proves nothing.
+      if (skill.enabled === false) continue;
+      skill.status = isLive ? "active" : "not-loaded";
+    }
+  }
+  return matched;
+}
+
+/**
+ * Add the session's live-but-unresolved skills: runtime registration,
+ * `~/.pi/agent/skills`, an ancestor `.agents/skills` chain, an explicit
+ * `--skill`, or `skillPaths` in settings.
+ */
+function appendLoadedElsewhere(
+  result: PiResourcesResult,
+  livePaths: Map<string, CommandInfo>,
+  matched: Set<string>,
+): void {
+  for (const [key, cmd] of livePaths) {
+    if (matched.has(key)) continue;
+    result.local.skills.push({
+      name: cmd.name,
+      description: cmd.description,
+      filePath: cmd.path as string,
+      type: "skill",
+      enabled: true,
+      status: "loaded-elsewhere",
+      sessionPath: cmd.path as string,
+    });
+  }
+}
+
+/**
  * Stamp `status` on every resolved skill and append the session's
  * unresolved-but-loaded skills as `loaded-elsewhere` entries.
  *
@@ -113,6 +191,7 @@ export function joinSkillProvenance(
   if (reporters.length !== 1) return { ...scanned, scanOnly: true };
 
   const result = cloneForJoin(scanned);
+  const canonical = makeCanonicalizer();
   const reporter = reporters[0];
   const live = skillCommands(reporter.commands);
   const withPath = live.filter((c) => typeof c.path === "string" && c.path.length > 0);
@@ -121,45 +200,26 @@ export function joinSkillProvenance(
     // join must say so loudly rather than flip every skill to `not-loaded`.
     return { ...result, scanOnly: true, pathlessCommands: true };
   }
+  if (withPath.length < live.length) {
+    // Partial loss is the same silent regression in miniature: the affected
+    // entries simply vanish from the join. Say so rather than swallow it.
+    console.warn(
+      `[skill-join] ${live.length - withPath.length}/${live.length} skill commands from session ${reporter.sessionId} carry no path`,
+    );
+  }
 
   const livePaths = new Map<string, CommandInfo>();
   for (const cmd of withPath) livePaths.set(canonical(cmd.path as string), cmd);
 
-  const matched = new Set<string>();
-  for (const scope of everySkillScope(result)) {
-    for (const skill of scope) {
-      const key = canonical(skill.filePath);
-      // A resolved path is never "elsewhere", disabled or not — claim it before
-      // the leftover pass so it is not duplicated as `loaded-elsewhere`.
-      if (livePaths.has(key)) matched.add(key);
-      // Disabled takes precedence over the join: `getSkills()` applies no
-      // `enabled` filter, so absence from the live set proves nothing.
-      if (skill.enabled === false) continue;
-      skill.status = livePaths.has(key) ? "active" : "not-loaded";
-    }
-  }
-
-  // Live-but-unresolved: runtime registration, `~/.pi/agent/skills`, an
-  // ancestor `.agents/skills` chain, `--skill`, or `skillPaths` in settings.
-  for (const [key, cmd] of livePaths) {
-    if (matched.has(key)) continue;
-    result.local.skills.push({
-      name: cmd.name,
-      description: cmd.description,
-      filePath: cmd.path as string,
-      type: "skill",
-      enabled: true,
-      status: "loaded-elsewhere",
-      sessionPath: cmd.path as string,
-    });
-  }
+  const matched = stampResolvedStatuses(result, livePaths, canonical);
+  appendLoadedElsewhere(result, livePaths, matched);
 
   return {
     ...result,
     contributingSession: {
       sessionId: reporter.sessionId,
       cwd: reporter.cwd,
-      differsFromFolder: folderCwd !== undefined && canonical(reporter.cwd) !== canonical(folderCwd),
+      differsFromFolder: folderCwd !== undefined && canonicalPath(reporter.cwd) !== canonicalPath(folderCwd),
     },
   };
 }

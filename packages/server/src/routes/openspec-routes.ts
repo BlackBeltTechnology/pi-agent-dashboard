@@ -17,7 +17,6 @@ import {
 import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { type DirectoryService, hasOpenSpecRoot } from "../directory-service.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
 import { scanOpenSpecArchive } from "../openspec/openspec-archive.js";
 import {
   LineMismatchError,
@@ -27,7 +26,8 @@ import {
   toggleTask,
 } from "../openspec/openspec-tasks.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
-import { joinSkillProvenance, sessionCommandRegistry, type SkillReporter } from "../pi/session-skill-registry.js";
+import { canonicalPath, joinSkillProvenance, type SkillReporter, sessionCommandRegistry } from "../pi/session-skill-registry.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Callback to broadcast an openspec_update after a successful toggle. */
@@ -298,9 +298,13 @@ export function registerOpenSpecRoutes(
       // Join the scan against what a session attached to this folder actually
       // loaded, so a skill can be told apart from one merely present on disk.
       // See change: fix-skill-discovery-parity.
+      // Match on the canonicalized path, exactly as the join does: a worktree
+      // or symlinked cwd that differs only by spelling still belongs to this
+      // folder, and an exact compare would silently degrade it to scan-only.
+      const folderKey = canonicalPath(cwd);
       const reporters: SkillReporter[] = sessionManager
         .listAll()
-        .filter((s) => s.cwd === cwd && sessionCommandRegistry.hasReported(s.id))
+        .filter((s) => canonicalPath(s.cwd) === folderKey && sessionCommandRegistry.hasReported(s.id))
         .map((s) => ({ sessionId: s.id, cwd: s.cwd, commands: sessionCommandRegistry.get(s.id) ?? [] }));
       return { success: true, data: joinSkillProvenance(data, reporters, cwd) } satisfies ApiResponse;
     },

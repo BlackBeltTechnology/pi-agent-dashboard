@@ -11,9 +11,9 @@ import {
   buildEnabledMap,
   resolveActivation as defaultResolveActivation,
   lookupEnabled,
+  type ResolveActivationFn,
   type ResolvedPaths,
   type ResolvedResource,
-  type ResolveActivationFn,
 } from "./pi-resource-activation.js";
 
 // ── Frontmatter Parsing ─────────────────────────────────────────────
@@ -542,6 +542,18 @@ function totalOf(key: "skills" | "prompts" | "themes", local: PiResourceScope, g
   return local[key].length + global[key].length + packages.reduce((n, p) => n + p.resources[key].length, 0);
 }
 
+/**
+ * Stamp `enabled` across every scope from one resolve(). Both the degraded and
+ * the authoritative path need it: the scanner-owned types (`extensions`,
+ * `agents`) get their activation state from nowhere else.
+ */
+function stampEnabled(resolved: ResolvedPaths, local: PiResourceScope, global: PiResourceScope, packages: PiPackageInfo[]): void {
+  const map = buildEnabledMap(resolved);
+  applyActivationToScope(local, map);
+  applyActivationToScope(global, map);
+  for (const pkg of packages) applyActivationToScope(pkg.resources, map);
+}
+
 /** True when pi resolved nothing at all across the three resolver-owned types. */
 function resolverReturnedNothing(resolved: ResolvedPaths): boolean {
   return (resolved.skills?.length ?? 0) === 0 && (resolved.prompts?.length ?? 0) === 0 && (resolved.themes?.length ?? 0) === 0;
@@ -592,10 +604,7 @@ export async function scanPiResources(cwd: string, options?: ScanOptions): Promi
   // bug. Only the fallback's own findings can contradict it.
   const fallbackFound = totalOf("skills", local, global, allPackages) + totalOf("prompts", local, global, allPackages);
   if (resolverReturnedNothing(resolved) && fallbackFound > 0) {
-    const map = buildEnabledMap(resolved);
-    applyActivationToScope(local, map);
-    applyActivationToScope(global, map);
-    for (const pkg of allPackages) applyActivationToScope(pkg.resources, map);
+    stampEnabled(resolved, local, global, allPackages);
     return { local, global, packages: allPackages, degraded: true };
   }
 
@@ -612,10 +621,7 @@ export async function scanPiResources(cwd: string, options?: ScanOptions): Promi
   distributeResolved(resolved.themes ?? [], resolvedToTheme, "themes", local, global, allPackages);
 
   // `enabled` for the scanner-owned types still comes from the same resolve().
-  const map = buildEnabledMap(resolved);
-  applyActivationToScope(local, map);
-  applyActivationToScope(global, map);
-  for (const pkg of allPackages) applyActivationToScope(pkg.resources, map);
+  stampEnabled(resolved, local, global, allPackages);
 
   return {
     local,

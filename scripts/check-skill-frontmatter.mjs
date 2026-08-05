@@ -21,7 +21,7 @@
  *
  * See change: fix-skill-discovery-parity, fix-skill-frontmatter-yaml.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 
@@ -79,16 +79,51 @@ function finding(severity, source, rule, file, message) {
   return { severity, source, rule, file, message };
 }
 
+/** `description` rules: missing is fatal to pi; the two length caps only warn. */
+function checkDescription(file, skillId, parsed) {
+  const description = typeof parsed?.description === "string" ? parsed.description : undefined;
+  if (!description || description.trim().length === 0) {
+    return [finding("error", "pi", "description-missing", file, "`description` must be a non-empty string")];
+  }
+
+  const findings = [];
+  if (description.length > PI_MAX_DESCRIPTION_LENGTH) {
+    findings.push(
+      finding("warning", "pi", "description-too-long", file, `description is ${description.length} chars (pi limit ${PI_MAX_DESCRIPTION_LENGTH})`),
+    );
+  }
+  if (description.length > REPO_DESCRIPTION_BUDGET && !BUDGET_EXEMPT_SKILLS.has(skillId)) {
+    findings.push(
+      finding("warning", "repository", "description-over-budget", file, `description is ${description.length} chars (repository budget ${REPO_DESCRIPTION_BUDGET})`),
+    );
+  }
+  return findings;
+}
+
+/** `name` rules: all of pi's, all warnings (pi warns and loads). */
+function checkName(file, parsed) {
+  const name = typeof parsed?.name === "string" ? parsed.name : undefined;
+  if (!name) return [];
+
+  const findings = [];
+  if (name.length > PI_MAX_NAME_LENGTH) {
+    findings.push(finding("warning", "pi", "name-too-long", file, `name is ${name.length} chars (pi limit ${PI_MAX_NAME_LENGTH})`));
+  }
+  if (!/^[a-z0-9-]+$/.test(name)) {
+    findings.push(finding("warning", "pi", "name-charset", file, "name must match ^[a-z0-9-]+$"));
+  } else if (/^-|-$|--/.test(name)) {
+    findings.push(finding("warning", "pi", "name-hyphens", file, "name must not have leading, trailing, or consecutive hyphens"));
+  }
+  return findings;
+}
+
 /**
  * Analyse one `SKILL.md`. Returns findings; the caller decides how to report.
  * `file` is used verbatim in findings, and its containing directory basename
  * is the skill identity used for the budget exemption.
  */
 export function analyzeSkillFile(file, text) {
-  const findings = [];
-  const skillId = basename(dirname(file));
   const fm = extractFrontmatter(text);
-
   if (fm === null) {
     return [finding("error", "pi", "frontmatter-missing", file, "missing `---`-fenced frontmatter block")];
   }
@@ -100,35 +135,7 @@ export function analyzeSkillFile(file, text) {
     return [finding("error", "pi", "frontmatter-unparseable", file, `frontmatter is not valid YAML: ${err.message}`)];
   }
 
-  const description = typeof parsed?.description === "string" ? parsed.description : undefined;
-  if (!description || description.trim().length === 0) {
-    findings.push(finding("error", "pi", "description-missing", file, "`description` must be a non-empty string"));
-  } else {
-    if (description.length > PI_MAX_DESCRIPTION_LENGTH) {
-      findings.push(
-        finding("warning", "pi", "description-too-long", file, `description is ${description.length} chars (pi limit ${PI_MAX_DESCRIPTION_LENGTH})`),
-      );
-    }
-    if (description.length > REPO_DESCRIPTION_BUDGET && !BUDGET_EXEMPT_SKILLS.has(skillId)) {
-      findings.push(
-        finding("warning", "repository", "description-over-budget", file, `description is ${description.length} chars (repository budget ${REPO_DESCRIPTION_BUDGET})`),
-      );
-    }
-  }
-
-  const name = typeof parsed?.name === "string" ? parsed.name : undefined;
-  if (name) {
-    if (name.length > PI_MAX_NAME_LENGTH) {
-      findings.push(finding("warning", "pi", "name-too-long", file, `name is ${name.length} chars (pi limit ${PI_MAX_NAME_LENGTH})`));
-    }
-    if (!/^[a-z0-9-]+$/.test(name)) {
-      findings.push(finding("warning", "pi", "name-charset", file, "name must match ^[a-z0-9-]+$"));
-    } else if (/^-|-$|--/.test(name)) {
-      findings.push(finding("warning", "pi", "name-hyphens", file, "name must not have leading, trailing, or consecutive hyphens"));
-    }
-  }
-
-  return findings;
+  return [...checkDescription(file, basename(dirname(file)), parsed), ...checkName(file, parsed)];
 }
 
 /** Analyse every `SKILL.md` under `root`. */

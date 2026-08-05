@@ -24,8 +24,8 @@ import type { PiResource } from "@blackbelt-technology/pi-dashboard-shared/rest-
 import { mdiBookOpenPageVariant, mdiPalette, mdiPuzzleOutline, mdiRobotOutline, mdiTextBoxOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type { ResourceActivationController } from "../../hooks/useResourceActivation.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { ResourceScope } from "../../lib/api/resources-api.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ActivationToggle } from "./resource-tree.js";
 
 const TYPE_ICON: Record<PiResource["type"], string> = {

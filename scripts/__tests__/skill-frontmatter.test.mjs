@@ -9,9 +9,10 @@
  *
  * See change: fix-skill-discovery-parity (test-plan E11, E12, E13, E14).
  */
-import { readFileSync } from 'node:fs';
+
 import { execFileSync } from 'node:child_process';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   analyzeRepository,
@@ -160,6 +161,3 @@ describe('repository is error-free', () => {
     expect(overBudget.map((f) => f.file)).toEqual([]);
   });
 });
-
-// Keep `resolve` referenced for the path helpers above.
-void resolve;
