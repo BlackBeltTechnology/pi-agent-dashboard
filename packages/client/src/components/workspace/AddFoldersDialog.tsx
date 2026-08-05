@@ -21,7 +21,7 @@
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
-import { mdiClose, mdiInformationOutline, mdiPlus } from "@mdi/js";
+import { mdiClose, mdiInformationOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useMemo, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -230,7 +230,6 @@ export function AddFoldersDialog({
               className="focus-ring mt-2 inline-flex items-center gap-1 min-h-6 px-1 -mx-1 rounded text-xs text-[var(--accent-blue)] hover:underline"
               data-testid="add-folders-dest-new"
             >
-              <Icon path={mdiPlus} size={0.6} />
               {i18nT("folders.newWorkspace", undefined, "+ New workspace…")}
             </button>
           )}
