@@ -62,7 +62,10 @@ export type TrustGateResult =
 
 /** Dashboard-authored equivalents of pi's own trust options, minus session-only. */
 export function trustOptionsFor(cwd: string): TrustOption[] {
-  const target = path.resolve(cwd);
+  // Canonical spelling, matching how pi's store normalises its keys — a
+  // symlinked project would otherwise write one record and read another, and
+  // prompt again immediately after approval.
+  const target = canonical(cwd);
   const parent = path.dirname(target);
   const options: TrustOption[] = [
     { id: "trust", label: "Trust", trusted: true, updates: [{ path: target, decision: true }] },
