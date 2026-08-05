@@ -191,3 +191,24 @@ mid-window.
 - **WHEN** the grace window closes
 - **THEN** that candidate SHALL NOT appear in any broadcast offer
 - **AND** its on-disk liveness marker SHALL be consumed
+
+#### Scenario: Offer is non-actionable during the grace window
+
+- **GIVEN** an `ask`-mode recovery offer broadcast on cold start
+- **WHEN** a client renders it before the grace deadline has passed
+- **THEN** the Reopen action SHALL be disabled (a "verifying" state) and Dismiss SHALL remain available
+- **AND** the offer message SHALL carry the grace deadline
+
+#### Scenario: Reopen becomes actionable once liveness is finalized
+
+- **GIVEN** an `ask`-mode offer whose grace window has passed with no bridge reattach
+- **WHEN** the client re-evaluates the offer
+- **THEN** Reopen SHALL be actionable and resume the candidate on click
+
+#### Scenario: Resume is refused while liveness is unresolved
+
+- **GIVEN** a candidate whose liveness is still unresolved within the grace window
+- **WHEN** a `resume_session` with `mode: "continue"` arrives for it
+- **THEN** the server SHALL refuse it (no pi spawned) and report a resume failure
+- **AND** once the window closes the same reopen SHALL succeed for a genuinely-lost candidate
+

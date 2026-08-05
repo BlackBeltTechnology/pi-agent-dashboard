@@ -68,8 +68,8 @@ guard, and the global Save reported "Settings saved" while the retry edit sat un
 - [x] 9.6 Title the enclosing section "Retry" (not "Provider Retry" — 3 of 6 fields are turn-level) and delete the body's duplicate `<h3>`, which rendered the title twice
 - [x] 9.7 Rewrite the 4 button-driven tests to drive the registry contract via a capturing `SettingsDraftProvider`; add coverage for: registers on `sessions`, no private Save button, clean-on-load, dirty-after-edit, clean-after-commit, Discard restores, failing PUT rejects + stays dirty, unregisters on unmount
 - [x] 9.8 Extend `specs/pi-retry-settings/spec.md` with the Sessions-placement + unified-Save requirement and its scenarios
-- [ ] 9.9 Run the rewritten suite — BLOCKED in the integration worktree: `@blackbelt-technology/dashboard-plugin-runtime` does not resolve there (no workspace symlinks; same pre-existing gap as §7.1's 58 failures). Source typechecked via the docker client build; behaviour verified live on the harness (dirty dot on Sessions, unified Save wrote `maxRetries: 11`, unrelated keys preserved, no project `settings.json`). Needs `pnpm install` in the worktree to execute.
-- [ ] 9.10 Correct the stale `docs/architecture.md` claims (DocScribe): `retry.provider.*` IS surfaced (line 175 says it is not), the write covers all six fields not three (line 167), and the editor lives on the Sessions tab with no private Save
+- [x] 9.9 Run the rewritten suite — DONE: CI ran the full suite green on the merged branch (11,772 tests, `pnpm install` present in CI). The worktree-local `dashboard-plugin-runtime` resolution gap (§7.1) never affected CI. Behaviour also verified live on the harness (dirty dot on Sessions, unified Save wrote `maxRetries: 11`, unrelated keys preserved, no project `settings.json`).
+- [x] 9.10 Correct the stale `docs/architecture.md` claims (DocScribe) — DONE in commit `1a34d5ea` (docs(architecture): correct three false retry claims): `retry.provider.*` surfaced, the write covers all six fields, and the editor lives on the Sessions tab with no private Save.
 
 ## 8. Docs
 
