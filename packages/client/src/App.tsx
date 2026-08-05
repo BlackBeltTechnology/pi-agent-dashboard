@@ -1431,6 +1431,7 @@ export default function App() {
       }}
       onReorderWorkspaces={(ids) => send({ type: "reorder_workspaces", ids })}
       onReorderWorkspaceFolders={(id, paths) => send({ type: "reorder_workspace_folders", id, paths })}
+      onMoveFolderToWorkspace={(path, toWorkspaceId, index) => send({ type: "move_folder_to_workspace", path, toWorkspaceId, index })}
       // folder-workspaces — optimistic UI is intentionally omitted: server
       // is the single source of truth and broadcasts `workspaces_updated`
       // for every mutation, so we just dispatch and let the broadcast
