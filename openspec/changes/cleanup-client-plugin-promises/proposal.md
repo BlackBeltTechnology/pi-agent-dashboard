@@ -1,9 +1,12 @@
 # Fix promise handling in the client and plugin packages
 
-> Rung 1b of the local-review-gate ladder. Split out of
-> `cleanup-lint-debt-mechanical` after doubt-driven-review cycle 3: that change
-> was calling 99 semantic decisions "mechanical" while its own sibling had been
-> split off for being 54 of exactly the same kind.
+> Rung 1b of the local-review-gate ladder (see commit `4b71d80d2` for the split
+> rationale; the predecessor `cleanup-lint-debt-mechanical` was retired). It was
+> calling 99 semantic decisions "mechanical" while its own sibling had been split
+> off for being 54 of exactly the same kind.
+>
+> Revised after adversarial review: the scope was **still** counted over
+> `packages/` while the ratchet checks repo-root, orphaning one finding.
 
 ## Why
 
@@ -23,7 +26,7 @@ correct.** Each site is a decision with three wrong answers:
 
 | Fix | Risk if wrong |
 |---|---|
-| `await` | serializes; in React, can turn an event handler into a blocking path |
+| `await` | in React: update-after-unmount, stale closures, and lost races — **not** "blocks the handler" (an async handler returns immediately; the earlier draft had this wrong). Adding `await` can also turn the call site into a new `noMisusedPromises` finding. |
 | `void` | silences a rejection that should surface — makes the bug less diagnosable |
 | `.catch(handler)` | usually right, but wrong when the caller must observe failure |
 
@@ -31,8 +34,14 @@ A blanket codemod across 99 sites would be a regression generator.
 
 ## Measured baseline
 
-Re-derive before implementing (`npx biome lint --config-path=<probe> . --max-diagnostics=20000`);
-the tree moves — this count drifted 141 → 142 during planning alone.
+Re-derive before implementing — the tree moves (this count drifted 141 → 142 →
+143 during planning alone). Use `--only`, **not** a probe config; the
+`--config-path` form fails Biome's ignore-file resolution:
+
+```bash
+npx biome lint --only=lint/nursery/noFloatingPromises . --max-diagnostics=20000
+npx biome lint --only=lint/nursery/noMisusedPromises . --max-diagnostics=20000
+```
 
 | Rule | Package | Sites |
 |---|---|---|
@@ -41,10 +50,18 @@ the tree moves — this count drifted 141 → 142 during planning alone.
 | | roles-plugin | 5 |
 | | shell | 3 |
 | | electron, subagents-plugin, automation-plugin | 1 each |
+| | **`scripts/nightly-verdaccio-serve.mjs:70`** | **1** |
 | `noMisusedPromises` | electron | 6 |
 | | client | 3 |
 | | **server** | 2 |
-| **total** | | **99** |
+| **total** | | **100** |
+
+**Repo-root floating total is 143, not 142.** The extra site is
+`scripts/nightly-verdaccio-serve.mjs:70` (`main();`) — outside `packages/`
+entirely, and previously owned by **no rung**. Because the ratchet graduates on
+`biome lint .` at repo-root and `scripts/` is not grandfathered,
+`noFloatingPromises` could never have reached zero. **This change claims it.**
+Cycles (17) and misused (11) have no such orphans — verified.
 
 The 2 `packages/server` **misused**-promise sites belong here, not to the
 async-semantics sibling — that change owns *floating* promises in
@@ -53,9 +70,19 @@ in the pre-split proposal.
 
 ## What Changes
 
-- **Classify every site before editing it.** Each fix is `await` (ordering is
-  load-bearing), `void` (genuinely fire-and-forget AND the rejection is already
-  handled downstream), or `.catch(handler)` (the rejection must be observed).
+- **Claim the `scripts/` orphan.** One floating promise outside `packages/`;
+  without it the rule cannot graduate.
+- **Classify every site before editing it.** The scheme has **five** buckets, not
+  three — the original three could not express two common correct fixes:
+
+  | Fix | When |
+  |---|---|
+  | `await` | ordering is load-bearing |
+  | **return the promise** | the caller can and should own it (common in React lifecycle/event paths) |
+  | **`Promise.all` / `allSettled`** | parallel fan-out currently leaking each promise individually |
+  | `.catch(handler)` | the rejection must be observed but not awaited |
+  | `void` | genuinely fire-and-forget AND the rejection is already handled downstream |
+
   `void` requires a stated reason — it is the only option that can hide a defect.
 - **Check for an existing global rejection handler first.** If the client or
   electron main process installs `unhandledRejection` / `onunhandledrejection`,
@@ -66,6 +93,17 @@ in the pre-split proposal.
   roles-plugin, shell, electron, subagents-plugin, automation-plugin.
 - **Fix the 11 misused-promise sites** in electron (6), client (3), server (2).
 - **No severity flips.** `add-typeaware-lint-gate` owns those.
+
+**Blast-radius caveat, stated rather than hidden:** the 6 electron
+`noMisusedPromises` sites are **main-process** (`src/main.ts:531,557,607,654`,
+`server-lifecycle.ts:454`, `doctor-window.ts:52`). By risk they belong with the
+sibling's server/extension work; they are here only because the split was drawn
+by *package name*. Treat them with the sibling's per-site rigour, not the
+client's.
+
+**Merge coupling:** this change and `cleanup-async-semantics-server-extension`
+both edit `packages/server` (this: 2 misused; sibling: 17 floating). Whichever
+lands second must rebase, and neither may assume the other's state.
 
 ## Capabilities
 
@@ -98,8 +136,13 @@ in the pre-split proposal.
   `packages/subagents-plugin/**` (1), `packages/automation-plugin/**` (1).
 - **This change is deliberately behaviour-changing.** `await` serializes and
   surfaces errors; `.catch()` adds handling that did not exist; `void` documents
-  a discard. The invariant to hold is **"no intended change to observable product
-  behaviour"** — not "behaviour-preserving", which is false for every site here.
+  a discard.
+- **The invariant needs to be testable, and "no intended change to observable
+  product behaviour" is not.** "Intended" is author-internal and unfalsifiable,
+  and these 100 sites have no baseline behaviour spec — that is precisely why
+  they are defects. `scenario-design` must replace it with something a test can
+  fail: per-surface behavioural assertions on the affected client paths, not a
+  global claim.
 - No protocol, persistence, or public API change.
 
 ## Open Questions
@@ -115,6 +158,18 @@ in the pre-split proposal.
 - **Should `void` be permitted at all?** Banning it forces every site to await or
   handle — safer, larger. Permitting it keeps the diff small but re-hides the bug
   class this change exists to surface.
+
+## Verification
+
+**There is currently no named regression guard for 73 client + electron sites.**
+The sibling change names `ws-broadcast-load-harness` for its hot paths; this
+change named nothing, and the cited discipline skills are *review* practices, not
+verification. `scenario-design` must supply:
+
+- per-surface E2E assertions (`tests/e2e/`) for the client paths whose promise
+  handling changes,
+- an electron main-process check for the 6 misused sites,
+- and a concrete answer to "how would we know if a `void` hid a real failure?"
 
 ## Discipline Skills
 

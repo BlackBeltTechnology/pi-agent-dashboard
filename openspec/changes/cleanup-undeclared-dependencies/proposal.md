@@ -1,10 +1,12 @@
 # Declare every undeclared dependency and grandfather the rest
 
-> Rung 1a of the local-review-gate ladder. Split out of
-> `cleanup-lint-debt-mechanical` after doubt-driven-review cycle 3 found that
-> change was carrying three unrelated kinds of work. This rung is the genuinely
-> **mechanical** part: manifest declarations and Biome overrides. No promise
-> semantics, no module restructuring.
+> Rung 1a of the local-review-gate ladder (see commit `4b71d80d2` for the split
+> rationale; the predecessor `cleanup-lint-debt-mechanical` was retired). This
+> rung is the genuinely **mechanical** part: manifest declarations and Biome
+> overrides. No promise semantics, no module restructuring.
+>
+> Revised after adversarial review: the prescribed probe command did not run, and
+> the verification oracle could not detect the defect class it was introduced for.
 
 ## Why
 
@@ -32,8 +34,12 @@ Two prior planning cycles produced wrong numbers, both times because the
 authoritative baseline is the command, not any number in this document:
 
 ```bash
-npx biome lint --config-path=<probe-config> . --max-diagnostics=20000
+npx biome lint --only=correctness/noUndeclaredDependencies . --max-diagnostics=20000
 ```
+
+Use `--only`, **not** `--config-path`. A probe config outside the repo fails with
+*"Biome couldn't find an ignore file"* because Biome's VCS resolver walks up from
+the config path — the earlier prescribed command did not run as written.
 
 Repo-root scope is load-bearing: `biome lint .` reaches root `scripts/`,
 `examples/`, `tests/e2e/`, `qa/scripts/`, `.pi/skills/**/scripts/`, `.pi/flows/**`
@@ -87,10 +93,15 @@ As-of snapshot (Biome 2.5.1, repo root, current `develop`) — **1398 total**:
   for a consumer. Declaring it would write **unresolvable metadata into a
   published manifest** — the exact failure `workspace-publishing` forbids.
   Suppress at the call site and record why.
-- **`react` in `packages/shared` is not a runtime dependency.** The import is
-  `import type` only and `ui-primitives.ts` documents *"no React runtime cost for
-  non-renderer consumers"*. `dependencies` would ship React to every consumer of a
-  published package and break the single-instance invariant.
+- **`react` in `packages/shared` IS declared — just not in `dependencies`.**
+  Biome flags the import regardless of it being `import type`, so a declaration
+  (or an explicit suppression) is required to reach zero; omitting it leaves the
+  rule red. But `dependencies` would ship React to every consumer of a published
+  package and break the single-instance invariant, and `ui-primitives.ts`
+  documents *"no React runtime cost for non-renderer consumers"*. Therefore:
+  `peerDependencies` (optional) or `devDependencies`. The same reasoning applies
+  to `demo-plugin`. **Declare-vs-suppress must be decided per finding in
+  `design.md`; "it's type-only" is not by itself a resolution.**
 - **Decide a policy for the 28 out-of-`packages/` findings.** Root `scripts/`
   imports (`jiti`, `yaml`) are real tooling deps undeclared at root → declare.
   `examples/`, `openspec/changes/**/spike/`, `.pi/flows/**` fixtures are not
@@ -114,20 +125,35 @@ As-of snapshot (Biome 2.5.1, repo root, current `develop`) — **1398 total**:
 - `workspace-publishing` — 12 manifests stop importing undeclared packages.
   Whether that constitutes *compliance* is an Open Question: an optional peer at
   `"*"` is neither concrete nor guaranteed-resolvable.
+  **Spec-scope gap:** the existing spec enumerates only `shared`, `extension`,
+  `server`, `client` and the root metapackage as published workspaces. This
+  change touches 12, of which 7+ are plugins the spec never covers. The delta
+  must either extend that enumeration or explicitly record that plugin packages
+  are outside it — it may not silently assume generalisation.
 
 ## Verification
 
 The existing oracle **cannot prove this change correct.** `quality:changed`
 (biome + tsc + vitest) runs inside the monorepo where hoisting resolves
-everything; a manifest that lies still passes. Proving the dependency work
-requires leaving the workspace:
+everything; a manifest that lies still passes.
 
-- `npm pack` each touched **public** package, install the tarball into a clean
-  fixture outside the repo, and assert the entry point imports.
-- Or `publint` / `@arethetypeswrong/cli` against the packed tarballs.
+Three candidate oracles were considered. **Two of them do not work**, and saying
+so is part of the design:
 
-This oracle does not exist in the repo today; standing it up is part of this
-change.
+| Oracle | Verdict |
+|---|---|
+| `publint` / `@arethetypeswrong/cli` | **Insufficient.** They validate `exports` maps and type resolution — **not** dependency resolvability. They cannot detect an undeclared dep masked by hoisting, i.e. exactly this defect class. |
+| `npm pack` + clean install + "assert the entry point imports" | **Unreliable as stated.** `extension`'s `pi-ai` import is a deliberate `try/catch` that degrades gracefully, so its absence is not an error. Entry points also need host context (a pi session, fastify, an electron runtime) a bare fixture lacks, so failures would be unrelated to declarations. Cross-workspace deps at `^0.7.0` resolve to the **published** 0.7.0, meaning the fixture tests released code, not the change. |
+| **Static resolution check against the packed file list** | **The workable one.** For each touched public package: `npm pack`, expand the tarball, walk every import specifier in the shipped files, and assert each resolves to a declaration in that package's own manifest (dep / peer / optional-peer) or a Node builtin. This tests the actual invariant — "the manifest describes what the shipped code imports" — without executing anything. |
+
+The workable oracle does not exist in the repo today; standing it up is part of
+this change and is the substance of the new capability.
+
+**The override half needs its own verification.** The rule is `off` in
+`biome.json` until `add-typeaware-lint-gate` enables it, so every override added
+here is a no-op that CI cannot exercise. Verification must therefore run the
+`--only` probe explicitly and assert zero — otherwise this change ships unproven
+configuration.
 
 ## Non-Goals
 
@@ -171,7 +197,35 @@ change.
   version currently resolves before declaring a range, or the declaration
   silently pins something different from what ships today.
 - **Is the 12-manifest list complete?** It was derived from the probe, but the
-  probe is a snapshot; re-derive before implementing.
+  probe is a snapshot; re-derive before implementing. The declare-vs-override
+  boundary for the 82 in-`packages/` non-test findings is **not yet specified per
+  finding** — an implementer cannot currently derive the manifest edit set from
+  this proposal. `design.md` must produce that mapping explicitly.
+- **Does `dagre-d3-es` resolve for a consumer?** It is imported via a deep
+  subpath (`/src/dagre/index.js`); if the package restricts subpaths via
+  `exports`, declaring the dependency does not make the import resolvable.
+  Declaring is necessary but may not be sufficient.
+- **Override ordering.** Biome overrides are last-wins; the new build/config
+  block interacts with the existing `packages/client/**` a11y override. The
+  over-match guardrail checks `src/**` non-match but not sibling shadowing.
+
+## Adjacent findings — reported, not fixed
+
+Surfaced by review; **out of scope** per the surgical-changes rule, recorded so
+they are not lost:
+
+- `packages/bus-client` is `private: false` with **no `publishConfig.access`** —
+  a live violation of the same `workspace-publishing` requirement this change
+  cites, in a package this change does not otherwise touch.
+- `packages/client` declares `files: ["dist/"]` but
+  `exports["./chat-embed"] → "./src/chat-embed/index.ts"` — an exported subpath
+  that the published tarball does not contain.
+- `scripts/sync-versions.js` keeps only internal `@blackbelt-technology/*`
+  specifiers in lockstep, so two plugins could declare `fastify` at different
+  majors undetected. The "lockstep versioning" the spec claims is partial.
+- `typebox` was checked for the `@pi/anthropic-messages` phantom-name failure
+  mode and is **fine** — the unscoped `typebox@1.3.10` genuinely exists
+  (`@sinclair/typebox` is a different package). No action needed.
 
 ## Discipline Skills
 
