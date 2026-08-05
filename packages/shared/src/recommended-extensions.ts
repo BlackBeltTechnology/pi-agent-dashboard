@@ -477,6 +477,25 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		dashboardPlugin: "apple-tools",
 		requires: { piExtensions: ["pi-mcp-adapter"] },
 	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-video-transcription",
+		source: "npm:@blackbelt-technology/pi-dashboard-video-transcription",
+		displayName: "pi-dashboard-video-transcription",
+		fallbackDescription:
+			"Pi skill + CLI (pi-transcribe) that transcribes local video/audio " +
+			"in-place to speaker-diarized SRT via the Soniox async API, with " +
+			"long-recording chunking and idempotent re-runs. Full TypeScript port " +
+			"of the standalone skill (no Python). Needs ffmpeg/ffprobe on PATH and " +
+			"a SONIOX_API_KEY.",
+		status: "optional",
+		unlocks: [
+			"video-transcription skill (/transcribe audio/video to speaker-diarized SRT)",
+			"pi-transcribe CLI",
+		],
+		// The transcriber shells out to ffmpeg/ffprobe for audio extraction and
+		// duration probing; both are probed on PATH via the shared ToolRegistry.
+		requires: { binaries: ["ffmpeg", "ffprobe"] },
+	},
 ];
 
 /**

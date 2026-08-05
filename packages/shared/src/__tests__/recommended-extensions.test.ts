@@ -31,6 +31,7 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"@blackbelt-technology/pi-dashboard-eng-disciplines",
 				"@blackbelt-technology/pi-dashboard-authoring-toolkit",
 				"@blackbelt-technology/pi-dashboard-apple-tools",
+				"@blackbelt-technology/pi-dashboard-video-transcription",
 			].sort(),
 		);
 	});
@@ -170,6 +171,7 @@ describe("getRecommendedByStatus", () => {
 				"@blackbelt-technology/pi-dashboard-eng-disciplines",
 				"@blackbelt-technology/pi-dashboard-authoring-toolkit",
 				"@blackbelt-technology/pi-dashboard-apple-tools",
+				"@blackbelt-technology/pi-dashboard-video-transcription",
 			].sort(),
 		);
 	});
