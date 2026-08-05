@@ -1371,6 +1371,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     getSubscriberCount: (id) => browserGateway.getSubscriberCount(id),
     listTerminalCwds: () => terminalManager.list().map((t) => t.cwd),
     hasPendingUiRequest: (id) => browserGateway.hasPendingUiRequest(id),
+    hasPendingPromptRequests: (id) => browserGateway.hasPendingPromptRequests(id),
     killBySessionId: (id) => browserGateway.headlessPidRegistry.killBySessionId(id),
     sendStopAfterTurn: (id) =>
       piGateway.sendToSession(id, { type: "stop_after_turn", sessionId: id }),
