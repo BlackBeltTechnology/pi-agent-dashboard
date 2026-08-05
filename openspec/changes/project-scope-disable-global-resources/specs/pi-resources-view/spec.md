@@ -8,9 +8,11 @@ Activating a control SHALL issue `POST /api/resources/toggle` with `{ scope, cwd
 
 - a loose resource under the toggled scope's own base directory uses a force-exclude pattern relative to that base directory — `relative(baseDir, filePath)`, exactly the pattern pi's own resolver and `config-selector` compute;
 - a package-contributed resource uses an `autoload: false` delta entry in the scope's `packages` array, carrying a force-exclude relative to the package root;
-- a loose resource under a different scope's base directory uses a re-declaration of its containing directory plus a force-exclude by absolute path.
+- a loose resource under a different scope's base directory uses a re-declaration of **its own file** plus a home-independent anchored glob exclusion.
 
-A toggle the server cannot persist in a form pi will honour SHALL return a failure rather than a success.
+Re-enabling SHALL remove the entries the disable added and SHALL NOT write a force-include.
+
+A toggle the server cannot persist in a form pi will honour SHALL return a failure rather than a success, and a toggle in an untrusted folder SHALL return a trust prompt rather than a success.
 
 #### Scenario: Loose extension toggled off at folder scope persists an exclusion
 - **GIVEN** a folder with a loose extension `.pi/extensions/my-ext.ts` and no exclusion for it in `.pi/settings.json`
@@ -29,16 +31,18 @@ A toggle the server cannot persist in a form pi will honour SHALL return a failu
 #### Scenario: Global resource toggled off at folder scope survives a refresh
 - **GIVEN** a global loose skill `~/.pi/agent/skills/image-to-3d-threejs/SKILL.md` browsed on the folder Resources surface
 - **WHEN** the user disables its row
-- **THEN** the folder's `.pi/settings.json#skills` gains the containing directory entry and an absolute force-exclude for that file
+- **THEN** the folder's `.pi/settings.json#skills` gains that skill's own file entry and a home-independent exclusion for it
 - **AND** `~/.pi/agent/settings.json` is not written
 - **AND** the row still renders disabled after the surface is refreshed
-- **AND** a session started in that folder from a terminal also treats the skill as disabled
+- **AND** a session **newly started** in that folder from a terminal also treats the skill as disabled
+- **AND** a collaborator resolving the same committed settings file under a different home directory also sees it disabled
 
-#### Scenario: Re-enabling replaces the exclusion with a force-include
+#### Scenario: Re-enabling removes the exclusion
 - **GIVEN** a settings file whose `extensions` array force-excludes `-extensions/my-ext.ts`
 - **WHEN** the user enables that row
 - **THEN** the client POSTs `/api/resources/toggle` with `{ scope: "local", type: "extension", filePath: "<abs>/.pi/extensions/my-ext.ts", enabled: true }`
-- **AND** the `-extensions/my-ext.ts` entry is stripped and a `+extensions/my-ext.ts` force-include entry is written to that scope's `extensions` array (matching pi's own config format)
+- **AND** the `-extensions/my-ext.ts` entry is removed from that scope's `extensions` array
+- **AND** no `+extensions/my-ext.ts` force-include entry is written
 
 #### Scenario: Package-contributed resource toggled off never uninstalls the package
 - **GIVEN** a scope with `packages: ["npm:pi-skills"]` contributing a skill `brave-search`
@@ -81,7 +85,7 @@ A toggle the server cannot persist in a form pi will honour SHALL return a failu
 
 ### Requirement: A resource whose activation the project has taken over SHALL remain where the user acted on it
 
-Disabling a globally-defined resource at folder scope re-declares its directory in project settings, which causes pi to report that resource at project scope rather than user scope. The surface SHALL NOT let the row silently relocate to a different scope section as a result of the user's own toggle.
+Disabling a globally-defined resource at folder scope re-declares its file in project settings, which causes pi to report that resource at project scope rather than user scope. The surface SHALL NOT let the row silently relocate to a different scope section as a result of the user's own toggle.
 
 #### Scenario: A disabled global resource stays in view
 - **GIVEN** a global skill listed in the global section of the folder Resources surface
@@ -93,6 +97,29 @@ Disabling a globally-defined resource at folder scope re-declares its directory 
 - **GIVEN** a global resource previously disabled at folder scope
 - **WHEN** the user re-enables it
 - **THEN** the row is grouped exactly as it was before the disable
+
+### Requirement: The surface SHALL present a trust dialog when the folder is untrusted
+
+When a toggle returns a trust-required result, the surface SHALL present the trust options the server supplied — trusting the folder, trusting its parent folder, or declining — rather than a generic error, and SHALL apply the original toggle once a choice is made.
+
+#### Scenario: Untrusted folder raises a trust dialog
+- **GIVEN** the folder Resources surface for a folder with no recorded trust decision
+- **WHEN** the user disables a resource
+- **THEN** a dialog presents the trust options supplied by the server
+- **AND** the control does not yet show the resource as disabled
+
+#### Scenario: Approving trust completes the original toggle
+- **GIVEN** the trust dialog is open
+- **WHEN** the user selects a trust option
+- **THEN** the choice is persisted
+- **AND** the resource the user originally toggled is disabled
+- **AND** the dialog closes
+
+#### Scenario: Dismissing the dialog reverts the control
+- **GIVEN** the trust dialog is open
+- **WHEN** the user dismisses it without choosing
+- **THEN** the control returns to its previous state
+- **AND** no settings or trust file is written
 
 ### Requirement: The surface SHALL state that a folder-scope disable is repository-wide
 

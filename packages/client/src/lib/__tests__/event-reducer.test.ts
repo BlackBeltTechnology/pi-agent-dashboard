@@ -2984,10 +2984,29 @@ describe("auto_retry events (provider-retry-state)", () => {
       attempt: 1,
       maxAttempts: 3,
       delayMs: 2000,
+      waiting: false,
       reason: "rate limit exceeded",
       startedAt: 5000,
     });
     expect(state.lastError).toBeUndefined();
+  });
+
+  it("sets a waiting retryState on auto_retry_waiting (with nextAttemptAt)", () => {
+    let state = createInitialState();
+    state = reduceEvent(state, {
+      eventType: "auto_retry_waiting",
+      timestamp: 5000,
+      data: { attempt: 2, maxAttempts: 3, delayMs: 4000, nextAttemptAt: 1700000004000, errorMessage: "overloaded" },
+    });
+    expect(state.retryState).toEqual({
+      attempt: 2,
+      maxAttempts: 3,
+      delayMs: 4000,
+      nextAttemptAt: 1700000004000,
+      waiting: true,
+      reason: "overloaded",
+      startedAt: 5000,
+    });
   });
 
   it("clears retryState on auto_retry_end with success", () => {
@@ -3050,12 +3069,12 @@ describe("auto_retry events (provider-retry-state)", () => {
     expect(state.retryState).toBeUndefined();
   });
 
-  it("agent_end defensively clears retryState while still extracting lastError", () => {
+  it("agent_end PRESERVES retryState while still extracting lastError (per-attempt, not terminal)", () => {
     let state = createInitialState();
     state = reduceEvent(state, {
-      eventType: "auto_retry_start",
+      eventType: "auto_retry_waiting",
       timestamp: 5000,
-      data: { attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "x" },
+      data: { attempt: 1, maxAttempts: 3, delayMs: 2000, nextAttemptAt: 7000, errorMessage: "x" },
     });
     state = reduceEvent(state, {
       eventType: "agent_end",
@@ -3066,8 +3085,21 @@ describe("auto_retry events (provider-retry-state)", () => {
         ],
       },
     });
-    expect(state.retryState).toBeUndefined();
+    // agent_end is one attempt boundary, not the end of the chain — retryState survives.
+    expect(state.retryState).toBeDefined();
+    expect(state.retryState!.attempt).toBe(1);
     expect(state.lastError).toEqual({ message: "final boom", timestamp: 8000 });
+  });
+
+  it("agent_settled clears retryState (sole terminal signal)", () => {
+    let state = createInitialState();
+    state = reduceEvent(state, {
+      eventType: "auto_retry_waiting",
+      timestamp: 5000,
+      data: { attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "x" },
+    });
+    state = reduceEvent(state, { eventType: "agent_settled", timestamp: 9000, data: {} });
+    expect(state.retryState).toBeUndefined();
   });
 
   it("auto_retry_end without prior retryState is a no-op", () => {
@@ -3161,16 +3193,20 @@ describe("deriveBannerState (unified SessionBanner selector)", () => {
     const s = createInitialState();
     s.retryState = {
       attempt: 3,
-      maxAttempts: -1,
-      delayMs: -1,
+      maxAttempts: 0,
+      delayMs: 60000,
+      nextAttemptAt: 1700000060000,
+      waiting: true,
       reason: "rate limit",
       startedAt: 1700000000000,
     };
     expect(deriveBannerState(s)).toEqual({
       retry: {
         attempt: 3,
-        maxAttempts: -1,
-        delayMs: -1,
+        maxAttempts: 0,
+        delayMs: 60000,
+        nextAttemptAt: 1700000060000,
+        waiting: true,
         startedAt: 1700000000000,
         reason: "rate limit",
       },
@@ -3197,8 +3233,9 @@ describe("deriveBannerState (unified SessionBanner selector)", () => {
     const s = createInitialState();
     s.retryState = {
       attempt: 2,
-      maxAttempts: -1,
-      delayMs: -1,
+      maxAttempts: 3,
+      delayMs: 4000,
+      waiting: false,
       reason: "rate limit",
       startedAt: 0,
     };
@@ -3206,7 +3243,7 @@ describe("deriveBannerState (unified SessionBanner selector)", () => {
     const banner = deriveBannerState(s);
     expect(banner).toEqual({
       error: { kind: "error", message: "429" },
-      retry: { attempt: 2, maxAttempts: -1, delayMs: -1, startedAt: 0, reason: "rate limit" },
+      retry: { attempt: 2, maxAttempts: 3, delayMs: 4000, waiting: false, startedAt: 0, reason: "rate limit" },
     });
   });
 
@@ -3238,9 +3275,9 @@ describe("error-lifecycle: composed surface end-to-end", () => {
     return { error: "error" in b && !!b.error, retry: "retry" in b && !!b.retry };
   }
 
-  it("error → retry-on-top → fail (no flicker) → retry → confirmed-good clear", () => {
+  it("error → waiting → in-flight → fail (retry survives agent_end) → settle clears", () => {
     let s: SessionState = createInitialState();
-    // 1. Turn fails terminally — error anchor appears.
+    // 1. First attempt fails — error anchor appears (agent_end is per-attempt).
     s = reduceEvent(s, {
       eventType: "agent_end",
       timestamp: 1000,
@@ -3248,40 +3285,49 @@ describe("error-lifecycle: composed surface end-to-end", () => {
     });
     expect(bannerHas(s)).toEqual({ error: true, retry: false });
 
-    // 2. Retry/continuation turn starts — error anchor persists (no optimistic
-    //    clear on agent_start), isStreaming flips true.
-    s = reduceEvent(s, { eventType: "agent_start", timestamp: 2000, data: {} });
-    expect(s.lastError!.message).toBe("429 rate limited");
-
-    // 3. Auto-retry begins ON TOP of the persistent error anchor (composed).
-    //    isStreaming is true so the fresh-error guard does not drop it.
+    // 2. Bridge emits the waiting signal — retry sub-line appears ON TOP of the
+    //    persistent error anchor, with a countdown.
     s = reduceEvent(s, {
-      eventType: "auto_retry_start",
-      timestamp: 2100,
-      data: { attempt: 2, maxAttempts: -1, delayMs: -1, errorMessage: "429 rate limited" },
+      eventType: "auto_retry_waiting",
+      timestamp: 1010,
+      data: { attempt: 1, maxAttempts: 3, delayMs: 2000, nextAttemptAt: 3010, errorMessage: "429 rate limited" },
     });
     expect(bannerHas(s)).toEqual({ error: true, retry: true });
-    expect(s.lastError!.message).toBe("429 rate limited");
+    expect(s.retryState!.waiting).toBe(true);
 
-    // 4. The retry fails again — error updates WITHOUT a hidden frame.
+    // 3. The retry attempt starts — agent_start defensively clears retryState,
+    //    then the deferred auto_retry_start re-sets it in flight. lastError
+    //    persists throughout.
+    s = reduceEvent(s, { eventType: "agent_start", timestamp: 3010, data: {} });
+    expect(s.retryState).toBeUndefined();
+    s = reduceEvent(s, {
+      eventType: "auto_retry_start",
+      timestamp: 3011,
+      data: { attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "429 rate limited" },
+    });
+    expect(bannerHas(s)).toEqual({ error: true, retry: true });
+    expect(s.retryState!.waiting).toBe(false);
+
+    // 4. The attempt fails again — agent_end is NOT terminal, so the retry
+    //    sub-line SURVIVES (another attempt is coming). error updates.
     s = reduceEvent(s, {
       eventType: "agent_end",
-      timestamp: 2400,
+      timestamp: 3200,
       data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "still 429", content: [] }] },
     });
-    expect(bannerHas(s)).toEqual({ error: true, retry: false });
+    expect(bannerHas(s)).toEqual({ error: true, retry: true });
     expect(s.lastError!.message).toBe("still 429");
 
-    // 5. Manual retry: new turn starts (error still visible).
-    s = reduceEvent(s, { eventType: "agent_start", timestamp: 3000, data: {} });
-    expect(s.lastError!.message).toBe("still 429");
-
-    // 6. Confirmed-good response clears the whole surface (real pi-ai 'stop').
+    // 5. The chain terminates (stop / success). agent_settled is the SOLE
+    //    terminal signal — it clears the retry sub-line; the confirmed-good
+    //    message_end clears the error anchor.
+    s = reduceEvent(s, { eventType: "agent_start", timestamp: 4000, data: {} });
     s = reduceEvent(s, {
       eventType: "message_end",
-      timestamp: 3100,
+      timestamp: 4100,
       data: { message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "fixed" }] } },
     });
+    s = reduceEvent(s, { eventType: "agent_settled", timestamp: 4200, data: {} });
     expect(bannerHas(s)).toEqual({ error: false, retry: false });
     expect(deriveBannerState(s)).toEqual({ variant: "hidden" });
   });

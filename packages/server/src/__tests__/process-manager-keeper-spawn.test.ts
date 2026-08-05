@@ -80,6 +80,7 @@ function makeFakeKeeperManager(
       return true;
     },
     discoverExistingKeepers: async () => [],
+    isKeeperAlive: () => false,
   };
   return { km, state: full };
 }

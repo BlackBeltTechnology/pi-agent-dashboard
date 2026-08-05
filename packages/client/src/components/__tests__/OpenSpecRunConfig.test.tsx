@@ -174,3 +174,111 @@ describe("confirm-before-send gate", () => {
     }
   });
 });
+
+/**
+ * The run-config row is the 9th popover-consumer SURFACE: it mounts the
+ * existing `ModelSelector` + `ThinkingLevelSelector` call sites inside the
+ * OpenSpec launch dialogs and provides the Dialog panel as their clipping
+ * boundary. The panel is `max-h-[80vh] overflow-y-auto`, so an unbounded
+ * popover would grow its scroll extent (second scrollbar) exactly like the
+ * Settings pane did.
+ *
+ * See change: fix-popover-pane-bounded-height.
+ */
+describe("run-config row — bounded popover height (9th consumer surface)", () => {
+  /** Stub an element's rect (jsdom has no layout: every rect is zeros). */
+  function stubRect(el: Element, rect: Partial<DOMRect>) {
+    const full = {
+      top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0,
+      toJSON: () => ({}), ...rect,
+    } as DOMRect;
+    el.getBoundingClientRect = () => full;
+  }
+
+  /** Render the row inside a `role="dialog"` panel, as the real Dialog does. */
+  function renderInDialog(value: OpenSpecRunConfigValue) {
+    const utils = render(
+      <RunConfigHarness value={value}>
+        {/* Mirrors packages/client-utils/src/Dialog.tsx:83-91 — the panel that
+            carries role="dialog" + max-h-[80vh] overflow-y-auto. */}
+        <div role="dialog" aria-modal="true" data-testid="fake-dialog-panel">
+          <Host onSend={vi.fn()} />
+        </div>
+      </RunConfigHarness>,
+    );
+    return { ...utils, panel: screen.getByTestId("fake-dialog-panel") };
+  }
+
+  it("resolves its boundary to the dialog panel, not the viewport", () => {
+    const { panel } = renderInDialog(makeRunConfig());
+    // A short dialog panel well inside jsdom's 768px viewport.
+    stubRect(panel, { top: 100, bottom: 400, left: 0, right: 600 });
+    const trigger = screen.getByTestId("model-selector-button");
+    stubRect(trigger, { top: 300, bottom: 320, left: 0, right: 200 });
+
+    fireEvent.click(trigger);
+    const dropdown = screen.getByTestId("model-dropdown");
+
+    // spaceAbove = 300 - 100 - 8 = 192; spaceBelow = 400 - 320 - 8 = 72 → flips up.
+    // Measured against the VIEWPORT it would instead be 768 - 320 - 8 = 440,
+    // which is what a missing boundary would produce.
+    expect(dropdown.style.maxHeight).toBe("192px");
+  });
+
+  it("contrast: with no dialog ancestor the same rects fall back to the viewport", () => {
+    // Proves the assertion above is load-bearing rather than tautological: drop
+    // the `role="dialog"` ancestor and `closest()` finds nothing, so the hook
+    // measures `window.innerHeight` (768 in jsdom) and returns a bound the
+    // panel could never have honoured.
+    render(
+      <RunConfigHarness value={makeRunConfig()}>
+        <Host onSend={vi.fn()} />
+      </RunConfigHarness>,
+    );
+    const trigger = screen.getByTestId("model-selector-button");
+    stubRect(trigger, { top: 300, bottom: 320, left: 0, right: 200 });
+
+    fireEvent.click(trigger);
+    // spaceBelow = 768 - 320 - 8 = 440 (viewport), NOT the 192px pane bound.
+    expect(screen.getByTestId("model-dropdown").style.maxHeight).toBe("440px");
+  });
+
+  it("caps the 260px list floor at the available space so it cannot overflow the panel", () => {
+    const { panel } = renderInDialog(makeRunConfig());
+    stubRect(panel, { top: 100, bottom: 400, left: 0, right: 600 });
+    const trigger = screen.getByTestId("model-selector-button");
+    stubRect(trigger, { top: 300, bottom: 320, left: 0, right: 200 });
+
+    fireEvent.click(trigger);
+    const dropdown = screen.getByTestId("model-dropdown");
+
+    // ModelSelector opts into LIST_POPOVER_MIN_HEIGHT (260), but only 192px is
+    // available: minHeight = min(260, 192) = 192. The floor collapses onto the
+    // bound instead of inflating past the panel edge.
+    expect(dropdown.style.minHeight).toBe("192px");
+    expect(dropdown.style.maxHeight).toBe("192px");
+    expect(Number.parseFloat(dropdown.style.minHeight)).toBeLessThanOrEqual(
+      Number.parseFloat(dropdown.style.maxHeight),
+    );
+  });
+
+  it("applies BOTH bounds to every popover in the row", () => {
+    renderInDialog(makeRunConfig());
+
+    // Model selector (opts into the 260 floor).
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    const modelDropdown = screen.getByTestId("model-dropdown");
+    expect(modelDropdown.style.maxHeight).not.toBe("");
+    expect(modelDropdown.style.minHeight).not.toBe("");
+
+    // Thinking-level selector (keeps the default 120 floor). Its bounds live on
+    // the inner scroll region.
+    fireEvent.click(screen.getByTestId("thinking-level-button"));
+    const levelScroll = screen
+      .getByTestId("thinking-level-dropdown")
+      .querySelector<HTMLElement>(".overflow-y-auto");
+    expect(levelScroll).not.toBeNull();
+    expect(levelScroll?.style.maxHeight).not.toBe("");
+    expect(levelScroll?.style.minHeight).not.toBe("");
+  });
+});
