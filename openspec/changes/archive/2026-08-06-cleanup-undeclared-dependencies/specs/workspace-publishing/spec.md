@@ -68,6 +68,26 @@ This requirement applies to the root metapackage and to **every** workspace unde
 - **WHEN** reading the root `package.json`
 - **THEN** `publishConfig.access` SHALL be `"public"`
 
+#### Scenario: Shared has public publishConfig
+
+- **WHEN** reading `packages/shared/package.json`
+- **THEN** `publishConfig.access` SHALL be `"public"`
+
+#### Scenario: Extension has public publishConfig
+
+- **WHEN** reading `packages/extension/package.json`
+- **THEN** `publishConfig.access` SHALL be `"public"`
+
+#### Scenario: Server has public publishConfig
+
+- **WHEN** reading `packages/server/package.json`
+- **THEN** `publishConfig.access` SHALL be `"public"`
+
+#### Scenario: Client has public publishConfig
+
+- **WHEN** reading `packages/client/package.json`
+- **THEN** `publishConfig.access` SHALL be `"public"`
+
 #### Scenario: Every non-private workspace has public publishConfig
 
 - **WHEN** enumerating every `packages/*/package.json` that does not declare `"private": true`
