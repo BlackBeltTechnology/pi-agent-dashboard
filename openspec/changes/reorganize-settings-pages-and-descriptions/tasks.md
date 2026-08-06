@@ -127,4 +127,4 @@ Both rows follow `tests/e2e/plugin-settings-pages.spec.ts`. Read the dashboard p
 - [x] 13.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` — green.
 - [x] 13.2 `npx tsc --noEmit` — green, confirming no call site omits `hint`.
 - [x] 13.3 `npm run quality:changed` — clean.
-- [ ] 13.4 Update `packages/client/src/components/settings/AGENTS.md` purpose rows.
+- [x] 13.4 Update `packages/client/src/components/settings/AGENTS.md` purpose rows.
