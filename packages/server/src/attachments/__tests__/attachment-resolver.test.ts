@@ -112,6 +112,36 @@ describe("attachment-resolver", () => {
     for (const e of emitted) expect((e.data as any).state).toBe("failed");
   });
 
+  it("an emit failure does not rewrite a persisted ready resolution as failed", async () => {
+    // `publish` PERSISTS before it emits. If the broadcast throws, the outer
+    // catch used to append failed events for every attachment — turning a
+    // stored `ready` resolution into `failed` over a pure transport problem,
+    // and making `resolve` reject despite its fire-and-forget contract.
+    const store = createMemoryEventStore(() => false);
+    const pool = fakePool();
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: () => {
+        throw new Error("socket gone");
+      },
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      resolver.resolve("s1", [
+        { attachmentId: "1".repeat(64), blockIndex: 0, data: "AA", mimeType: "image/png" },
+      ]),
+    ).resolves.toBeUndefined();
+    err.mockRestore();
+
+    // Read back what was PERSISTED (seq 1 is the resolution — nothing else was
+    // inserted in this test), which is the state a later replay will serve.
+    const stored = store.getEvent("s1", 1) as any;
+    expect(stored?.eventType, "the resolution should be persisted").toBe(ATTACHMENT_FITTED_EVENT);
+    expect(stored.data.state).toBe("ready");
+    expect(store.getEvent("s1", 2), "no failed event should be appended").toBeUndefined();
+  });
+
   it("X7b: a pool that omits a result still settles that placeholder", async () => {
     const store = createMemoryEventStore(() => false);
     const emitted: DashboardEvent[] = [];

@@ -242,6 +242,20 @@ describe("display-fit — output byte budget", () => {
       expect(isAnimatedGif(truncated)).toBe(false);
     });
 
+    it("a second frame whose LZW chain never terminates is not animated", () => {
+      // `imageDataStart` validates the descriptor header only. A descriptor
+      // followed by a sub-block length that runs off the end is not a complete
+      // frame, and counting it leaves a malformed GIF inline at full size.
+      const complete = buildGif(1);
+      const truncated = Buffer.concat([
+        complete.subarray(0, complete.length - 1),
+        Buffer.from([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0x00]), // descriptor, no LCT
+        Buffer.from([0x02]), // LZW minimum code size
+        Buffer.from([0x05, 0x01, 0x02]), // claims 5 bytes, supplies 2, no terminator
+      ]);
+      expect(isAnimatedGif(truncated)).toBe(false);
+    });
+
     it("reports a single-frame GIF as still", () => {
       expect(isAnimatedGif(buildGif(1))).toBe(false);
     });

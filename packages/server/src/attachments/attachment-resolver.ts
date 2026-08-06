@@ -37,7 +37,17 @@ export function createAttachmentResolver(deps: AttachmentResolverDeps): Attachme
 
   function publish(sessionId: string, event: DashboardEvent): void {
     const seq = eventStore.insertEvent(sessionId, event);
-    emit(sessionId, seq, eventStore.getEvent(sessionId, seq) ?? event);
+    try {
+      emit(sessionId, seq, eventStore.getEvent(sessionId, seq) ?? event);
+    } catch (err) {
+      // The resolution is already PERSISTED; only the broadcast failed. Letting
+      // this escape reached the outer catch, which appended a failed event for
+      // every attachment — rewriting a stored `ready` resolution as `failed`
+      // over a pure transport problem, and rejecting `resolve` despite its
+      // fire-and-forget contract. A subscriber that missed the frame gets it
+      // from replay, because the stored event is intact.
+      console.error(`[attachments] emit failed for session ${sessionId}:`, err);
+    }
   }
 
   /**

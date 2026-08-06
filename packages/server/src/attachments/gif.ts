@@ -41,7 +41,14 @@ export function isAnimatedGif(bytes: Buffer): boolean {
   let i = 13;
   if (packed & 0x80) i += 3 * (1 << ((packed & 0x07) + 1));
 
-  /** Skip a length-prefixed sub-block chain, terminated by a zero length. */
+  /**
+   * Skip a length-prefixed sub-block chain, returning the offset just past its
+   * zero terminator — or -1 when the chain runs off the end.
+   *
+   * Reporting truncation matters: a chain that never terminates is not a
+   * complete frame, and counting it as one leaves a malformed GIF inline at
+   * full size (ingest declines anything it believes is animated).
+   */
   const skipSubBlocks = (from: number): number => {
     let p = from;
     while (p < bytes.length) {
@@ -49,7 +56,7 @@ export function isAnimatedGif(bytes: Buffer): boolean {
       if (len === 0) return p + 1; // terminator consumed
       p += 1 + len;
     }
-    return bytes.length; // truncated
+    return -1; // truncated: no terminator
   };
 
   /**
@@ -76,6 +83,16 @@ export function isAnimatedGif(bytes: Buffer): boolean {
     return p > buf.length ? -1 : p;
   };
 
+  /**
+   * Offset just past a COMPLETE frame beginning at `at`, or -1 when the stream
+   * is truncated anywhere inside it — descriptor, colour table, LZW byte, or an
+   * unterminated sub-block chain.
+   */
+  const frameEnd = (at: number): number => {
+    const dataStart = imageDataStart(bytes, at);
+    return dataStart < 0 ? -1 : skipSubBlocks(dataStart);
+  };
+
   let frames = 0;
   while (i < bytes.length) {
     const block = bytes[i];
@@ -83,15 +100,20 @@ export function isAnimatedGif(bytes: Buffer): boolean {
     if (block === 0x21) {
       // Extension: introducer, label, then a sub-block chain.
       if (i + 2 > bytes.length) return frames > 1;
-      i = skipSubBlocks(i + 2);
+      const next = skipSubBlocks(i + 2);
+      if (next < 0) return frames > 1; // truncated extension: stop, do not guess
+      i = next;
       continue;
     }
     if (block === 0x2c) {
-      const dataStart = imageDataStart(bytes, i);
-      if (dataStart < 0) return false; // truncated descriptor: not a frame
+      // Count only COMPLETE frames: a truncated one is not evidence of
+      // animation, and over-reporting leaves a malformed GIF inline at full
+      // size because ingest declines anything it believes is animated.
+      const end = frameEnd(i);
+      if (end < 0) return false;
       frames++;
-      if (frames > 1) return true; // two COMPLETE descriptors is proof
-      i = skipSubBlocks(dataStart);
+      if (frames > 1) return true; // two COMPLETE frames is proof
+      i = end;
       continue;
     }
     // Unknown byte where a block header belongs: the stream is malformed, so

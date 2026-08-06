@@ -84,7 +84,10 @@ describe("display-fit perf — event-loop offload (P1/P2)", () => {
   // near-zero lag figures, which is not a stable thing to assert. If you want a
   // perf gate here, assert THROUGHPUT (worker burst wall time < in-process), and
   // measure it outside vitest.
-  it.skip("P2: a concurrent burst blocks the loop far less on workers than in-process", async () => {
+  // DISPOSITION: test-plan #P2 is DEFERRED, not automated — `it.skip` means it
+  // contributes no coverage, and the plan's totals count it as deferred so the
+  // suite cannot appear to gate something it never runs.
+  it.skip("P2 [DEFERRED]: a concurrent burst blocks the loop far less on workers than in-process", async () => {
     const makeBlocks = async () =>
       await Promise.all(
         Array.from({ length: 5 }, async (_, i) => ({

@@ -80,7 +80,7 @@ Measured constants these scenarios assert against:
 - Requirements covered: 6/6
 - Scenarios by class: edge 15 · perf 5 · frontend 9 · error 10 (39 total)
 - Scenarios by level: L1 26 · L2 0 · L3 12 · manual-only 1
-- Scenarios by disposition: automated 38 · manual-only 1
+- Scenarios by disposition: automated 37 · deferred 1 (P2, skipped) · manual-only 1
 
 ## New infra needed
 
