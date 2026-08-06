@@ -144,6 +144,7 @@ export default async function activate(ctx: any): Promise<void> {
           mod = await import("@blackbelt-technology/pi-anthropic-messages");
         } catch {
           // @ts-expect-error legacy pre-rescope name; resolved dynamically
+          // biome-ignore lint/correctness/noUndeclaredDependencies: @pi/anthropic-messages returns E404 on the registry. It is a legacy pre-rescope name reached only through this dynamic-import fallback; declaring it would write an unresolvable dependency into a published manifest. Mirrored by the publish-correctness checker's reasoned allowlist.
           mod = await import("@pi/anthropic-messages");
         }
       }

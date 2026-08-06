@@ -105,21 +105,24 @@
     "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
     "@earendil-works/pi-ai": "^0.75.5",
     "@playwright/test": "1.61.1",
+    "jiti": "^2.7.0",
     "jsdom": "^29.0.2",
     "jsqr": "^1.4.0",
     "patch-package": "^8.0.1",
+    "semver": "^7.7.1",
     "tsx": "^4.21.0",
     "typescript": "^5.7.0",
-    "vitest": "^4.0.0"
+    "vitest": "^4.0.0",
+    "yaml": "^2.9.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
-    "typebox": "*"
+    "@earendil-works/pi-ai": ">=0.75.5",
+    "@earendil-works/pi-coding-agent": ">=0.80.10",
+    "@earendil-works/pi-tui": ">=0.80.10",
+    "@mariozechner/pi-ai": ">=0.73.1",
+    "@mariozechner/pi-coding-agent": ">=0.73.1",
+    "@mariozechner/pi-tui": ">=0.73.1",
+    "typebox": ">=1.3.6"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {

@@ -39,6 +39,14 @@ jobs:
       # See change: fix-skill-discovery-parity.
       - name: Skill frontmatter guard
         run: node scripts/check-skill-frontmatter.mjs
+      # Publish-correctness gate. Stricter than Biome's noUndeclaredDependencies:
+      # it derives each workspace's shipped file set from `npm pack --dry-run`
+      # and refuses a devDependency as justification for a shipped import,
+      # because npm does not install devDependencies for a consumer. Catches the
+      # manifest regression before release rather than after publication.
+      # See change: cleanup-undeclared-dependencies.
+      - name: Verify published imports are declared
+        run: node scripts/verify-published-imports.mjs
       - run: pnpm run lint
       # Hard-gates Tier A (error-severity) regressions; Tier B/C (warn) only annotate.
       - name: Biome static analysis (Tier A gate, warn-tier annotate)

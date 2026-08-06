@@ -36,7 +36,10 @@
     "dist",
     "src",
     "engine",
-    ".pi/skills/"
+    ".pi/skills/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "keywords": [
     "pi-package",

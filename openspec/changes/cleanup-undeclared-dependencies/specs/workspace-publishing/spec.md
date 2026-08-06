@@ -10,7 +10,9 @@ Additionally, **every non-private workspace under `packages/` SHALL declare ever
 
 A `devDependency` SHALL NOT satisfy an import in a shipped file, because dev dependencies are not installed for consumers. A package imported only by files outside the packed file set MAY be a `devDependency`.
 
-Declared ranges SHALL be concrete. A range of `"*"` SHALL NOT be used for any dependency in any field of a non-private workspace, including optional peer dependencies.
+Declared ranges SHALL be concrete. A range of `"*"` SHALL NOT be used for any dependency in any field of a non-private workspace, including optional peer dependencies. This applies to the root metapackage as well as to every non-private workspace under `packages/`.
+
+A concrete range for an optional, host-provided peer SHALL NOT be assumed to be a caret range. Where an existing `"*"` is replaced, a lower-bound range (`>=<resolving-version>`) SHALL be preferred over a caret, because a caret narrows which host versions satisfy the peer and would break already-published consumers that a `"*"` previously admitted. Concreteness is the requirement; tightening is not.
 
 A dependency that is host-provided and imported through a guarded dynamic import SHALL be declared as a `peerDependency` with `peerDependenciesMeta.<name>.optional: true` and a concrete range — optionality is expressed by the metadata, not by a wildcard range.
 
@@ -40,8 +42,14 @@ A dependency that is host-provided and imported through a guarded dynamic import
 
 #### Scenario: No wildcard ranges in non-private workspaces
 
-- **WHEN** reading the `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies` of every non-private workspace under `packages/`
+- **WHEN** reading the `dependencies`, `devDependencies`, `peerDependencies`, and `optionalDependencies` of the root metapackage and of every non-private workspace under `packages/`
 - **THEN** no declared range SHALL be `"*"`
+
+#### Scenario: De-wildcarding an optional peer does not tighten it
+
+- **WHEN** an existing `"*"` range on a host-provided optional peer is replaced with a concrete range
+- **THEN** the replacement SHALL be a lower-bound range satisfied by the resolving version
+- **AND** it SHALL NOT be a caret range, which would exclude older hosts the `"*"` admitted
 
 #### Scenario: Optional host-provided dependencies are concrete optional peers
 
