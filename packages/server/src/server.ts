@@ -1422,9 +1422,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // any plugin whose `missingRequirements` flipped.
     // See change: add-plugin-activation-ui.
     if (result.success) {
-      void refreshRequirementProbesFor(null, {
-        listInstalled: () => packageManagerWrapper.listInstalled("global"),
-      }).then((changed) => {
+      void refreshRequirementProbesFor(
+        null,
+        {
+          listInstalled: () => packageManagerWrapper.listInstalled("global"),
+        },
+        (id) => getPluginConfigFromFile(loadConfig(), id) as Record<string, unknown>,
+      ).then((changed) => {
         for (const id of changed) {
           const status = getPluginStatusStore().getStatus(id);
           browserGateway.broadcast({
@@ -1822,6 +1826,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           requirementDeps: {
             listInstalled: () => packageManagerWrapper.listInstalled("global"),
           },
+          // Supplies the validated config a `requires.paths` ${configKey}
+          // placeholder resolves against. See change: add-apple-tools-imcp-plugin.
+          getPluginConfig: (id) =>
+            getPluginConfigFromFile(loadConfig(), id) as Record<string, unknown>,
           createContext: (plugin) => createServerPluginContext(
             {
               fastify,

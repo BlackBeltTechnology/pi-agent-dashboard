@@ -460,6 +460,23 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"session-to-guideline / skill-creator skills (author guidelines and new skills)",
 		],
 	},
+	{
+		// Apple PIM (iMCP) integration. See change: add-apple-tools-imcp-plugin.
+		id: "@blackbelt-technology/pi-dashboard-apple-tools",
+		source: "npm:@blackbelt-technology/pi-dashboard-apple-tools",
+		displayName: "pi-dashboard-apple-tools",
+		fallbackDescription:
+			"Provision and surface iMCP (Apple Calendar, Contacts, Reminders, " +
+			"Messages, Location, Maps, Weather) for pi. One-command installer, a " +
+			"dashboard provisioning panel, and an agent skill. macOS-only; no Apple Mail.",
+		status: "optional",
+		unlocks: [
+			"Apple PIM access via iMCP + pi-mcp-adapter",
+			"Provisioning panel + one-command installer",
+		],
+		dashboardPlugin: "apple-tools",
+		requires: { piExtensions: ["pi-mcp-adapter"] },
+	},
 ];
 
 /**

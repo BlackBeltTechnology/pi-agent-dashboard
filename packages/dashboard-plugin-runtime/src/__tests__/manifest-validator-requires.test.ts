@@ -34,6 +34,26 @@ describe("manifest validator — requires", () => {
     expect(m.requires).toEqual({ binaries: ["zrok"] });
   });
 
+  it("accepts the paths category (literal + ${configKey})", () => {
+    // see change: add-apple-tools-imcp-plugin
+    const m = validateManifest({
+      ...base,
+      requires: { paths: ["${imcpServerPath}", "/Applications/iMCP.app/Contents/MacOS/imcp-server"] },
+    });
+    expect(m.requires).toEqual({
+      paths: ["${imcpServerPath}", "/Applications/iMCP.app/Contents/MacOS/imcp-server"],
+    });
+  });
+
+  it("rejects a non-array paths field and duplicate path entries", () => {
+    expect(() => validateManifest({ ...base, requires: { paths: "/x" } })).toThrow(
+      ManifestValidationError,
+    );
+    expect(() => validateManifest({ ...base, requires: { paths: ["/x", "/x"] } })).toThrow(
+      /duplicate/,
+    );
+  });
+
   it("rejects non-object requires", () => {
     expect(() => validateManifest({ ...base, requires: "yes" })).toThrow(ManifestValidationError);
     expect(() => validateManifest({ ...base, requires: [] })).toThrow(ManifestValidationError);
