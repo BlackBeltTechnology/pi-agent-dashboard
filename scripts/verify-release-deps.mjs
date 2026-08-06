@@ -96,6 +96,28 @@ const RULES = [
       "jiti/tsx loader contract used by packages/server/bin/pi-dashboard.mjs.",
     minVersion: "4.21.0",
   },
+  ...["vite", "@vitejs/plugin-react", "@tailwindcss/vite", "tailwindcss"].map((dep) => ({
+    pkgPath: "packages/client/package.json",
+    dep,
+    kind: "dependencies",
+    evidence:
+      "fix-pi-install-node26-and-omit-dev-build task 1.4 — pi installs via " +
+      "`npm install --omit=dev`, which drops devDependencies. The client `prepare` " +
+      "script runs a Vite build, so its direct build-time requirements must be " +
+      "runtime dependencies or the git-install path dies with " +
+      "`Cannot find module 'vite/package.json'` (issue #357).",
+  })),
+  {
+    pkgPath: "packages/client/package.json",
+    dep: "tsx",
+    kind: "dependencies",
+    evidence:
+      "fix-pi-install-node26-and-omit-dev-build task 1.2 — `scripts/vite-build.mjs` " +
+      "imports `tsx/esm/api`; declared explicitly on the client instead of relying " +
+      "on the fragile hoist of the packages/server runtime tsx dep. Floor 4.21.0 " +
+      "matches the root/server pin.",
+    minVersion: "4.21.0",
+  },
 ];
 
 /**
@@ -179,11 +201,17 @@ export function checkOpenspecFloorConsistency(serverPkg, extensionPkg) {
   return null;
 }
 
-function collectFailures() {
+/**
+ * Evaluate every gate against a repo tree. Exported (with an injectable
+ * `repoRoot`) so the unit test can drive it against a tmp fixture tree instead
+ * of mutating tracked files or spawning the CLI.
+ * See change: fix-pi-install-node26-and-omit-dev-build (task 4.7).
+ */
+export function collectFailures({ repoRoot = REPO_ROOT } = {}) {
   const failures = [];
 
   for (const rule of RULES) {
-  const abs = path.join(REPO_ROOT, rule.pkgPath);
+  const abs = path.join(repoRoot, rule.pkgPath);
   let pkg;
   try {
     pkg = JSON.parse(readFileSync(abs, "utf-8"));
@@ -217,10 +245,10 @@ function collectFailures() {
 // Cross-consistency gate: server ↔ extension openspec floors must not drift.
 try {
   const serverPkg = JSON.parse(
-    readFileSync(path.join(REPO_ROOT, "packages/server/package.json"), "utf-8"),
+    readFileSync(path.join(repoRoot, "packages/server/package.json"), "utf-8"),
   );
   const extensionPkg = JSON.parse(
-    readFileSync(path.join(REPO_ROOT, "packages/extension/package.json"), "utf-8"),
+    readFileSync(path.join(repoRoot, "packages/extension/package.json"), "utf-8"),
   );
   const drift = checkOpenspecFloorConsistency(serverPkg, extensionPkg);
   if (drift) failures.push(drift);
@@ -231,9 +259,9 @@ try {
   // pi pin coherence gate: server dep ↔ piCompatibility.recommended ↔ Dockerfile.
   try {
     const serverPkg = JSON.parse(
-      readFileSync(path.join(REPO_ROOT, "packages/server/package.json"), "utf-8"),
+      readFileSync(path.join(repoRoot, "packages/server/package.json"), "utf-8"),
     );
-    const dockerfileText = readFileSync(path.join(REPO_ROOT, "docker/Dockerfile"), "utf-8");
+    const dockerfileText = readFileSync(path.join(repoRoot, "docker/Dockerfile"), "utf-8");
     const piDrift = checkPiPinCoherence(serverPkg, dockerfileText);
     if (piDrift) failures.push(piDrift);
   } catch (err) {

@@ -32,7 +32,7 @@ reference implementation lives next to this file in
 | Requirement | Version | Notes |
 |---|---|---|
 | React / React-DOM | **`^19.0.0`** | Hard requirement. Exactly **one** copy in the final bundle (§4). |
-| Node (build host) | **`>=22.19.0 <26`** | Matches this repo's `engines`. |
+| Node (build host) | **`>=22.19.0 <27`** | Matches this repo's `engines`. |
 | Bundler | Vite 6 (recommended) | Any bundler works if it can transform `.tsx` from `node_modules` and dedupe React (§4, §11). |
 | `wouter` | `^3.9.0` | Router context is required by `ChatView`. |
 | Tailwind CSS | v4 (`^4.1.0`) | The components are styled with Tailwind utility classes + CSS variables (§5). |

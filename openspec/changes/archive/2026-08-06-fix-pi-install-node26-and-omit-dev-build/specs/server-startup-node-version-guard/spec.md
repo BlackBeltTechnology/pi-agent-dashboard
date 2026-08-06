@@ -2,11 +2,11 @@
 
 ### Requirement: Refuse server start on Node outside engines range
 
-`packages/server/src/node-guard.ts` SHALL expose a pure predicate `isOutOfEnginesRange(version: string): boolean` returning `true` when the running Node falls outside the cap declared in root `package.json#engines.node` (`>=22.19.0 <27`). `assertNodeVersionSupported()` — called at the top of every server entry point (`cmdStart`, `runForeground`) — SHALL write `buildEnginesRangeMessage(version)` to stderr and exit with code `1` when the predicate is true. The check fires AFTER the existing `isAffectedNode` Fastify-bug guard so both messages remain distinguishable.
+`packages/server/src/auth/node-guard.ts` SHALL expose a pure predicate `isOutOfEnginesRange(version: string): boolean` returning `true` when the running Node falls outside the cap declared in root `package.json#engines.node` (`>=22.19.0 <27`). `assertNodeVersionSupported()` — called at the top of every server entry point (`cmdStart`, `runForeground`) — SHALL write `buildEnginesRangeMessage(version)` to stderr and exit with code `1` when the predicate is true. The check fires AFTER the existing `isAffectedNode` Fastify-bug guard so both messages remain distinguishable.
 
 Lockstep contract: the upper bound MUST track `package.json#engines.node`. When the cap moves, the predicate moves with it.
 
-CI lockstep contract: `.github/workflows/ci.yml` `standalone-install-smoke-linux` and `standalone-install-smoke-windows` matrices SHALL include every Node major in the engines range. Today that is `[22, 24, 25, 26]`.
+CI lockstep contract: the `.github/workflows/_smoke.yml` `standalone-install-smoke-linux` matrix SHALL include every SUPPORTED Node major. Today that set is `[22, 24, 25, 26]`. The supported set is a subset of what the engines range admits — `>=22.19.0 <27` also admits `23`, which is EOL and deliberately unlisted — so the matrix is checked against the declared supported set, not against the range bounds. (`standalone-install-smoke-windows` is pinned to a single `[22]` leg and is out of scope; `ci.yml` carries no Node-major matrix.)
 
 #### Scenario: Refuse Node 27 at startup
 
@@ -56,7 +56,7 @@ CI lockstep contract: `.github/workflows/ci.yml` `standalone-install-smoke-linux
 
 The nodejs/node#58515 affected-range predicate and the engines-cap predicate SHALL be defined once, in `packages/shared/src/node-version.ts`, and exported as `isAffectedNode(version)`, `isOutOfEnginesRange(version)`, and the combined `isUsableNodeVersion(version)` = `!isOutOfEnginesRange(version) && !isAffectedNode(version)`. No package SHALL maintain a private inline copy of either range.
 
-`packages/server/src/node-guard.ts` SHALL import `isAffectedNode` and `isOutOfEnginesRange` from `@blackbelt-technology/pi-dashboard-shared` and re-export them, preserving its existing public API and `assertNodeVersionSupported()` behavior. `packages/electron/src/lib/dependency-detector.ts` SHALL import `isUsableNodeVersion` from the same source.
+`packages/server/src/auth/node-guard.ts` SHALL import `isAffectedNode` and `isOutOfEnginesRange` from `@blackbelt-technology/pi-dashboard-shared` and re-export them, preserving its existing public API and `assertNodeVersionSupported()` behavior. `packages/electron/src/lib/dependency-detector.ts` SHALL import `isUsableNodeVersion` from the same source.
 
 Lockstep contract: when `package.json#engines.node` or the Fastify-affected range changes, only `packages/shared/src/node-version.ts` changes; every consumer tracks it automatically.
 
@@ -73,5 +73,6 @@ Lockstep contract: when `package.json#engines.node` or the Fastify-affected rang
 
 #### Scenario: Range is defined in exactly one place
 
+- **AND** the range SHALL additionally be asserted to match the `Required: …` string literal emitted by `buildEnginesRangeMessage`, which is a defining occurrence the arithmetic scan below cannot detect
 - **WHEN** the repository is scanned for the literal affected-range arithmetic (`major === 22 && minor < 19`, `major === 24 && minor >= 1 && minor < 3`) and the engines-cap arithmetic (`major >= 27`)
 - **THEN** the only defining occurrence SHALL be `packages/shared/src/node-version.ts` (consumers reference the exported predicates)

@@ -335,7 +335,7 @@ This requirement applies only to probe argv, not to runtime launch paths. The pr
 
 ### Requirement: System Node detection matches the server accept-set
 
-`detectSystemNode()` SHALL report a Node binary as found/usable if and only if its `--version` passes the shared `isUsableNodeVersion(version)` gate — i.e. the version is within `package.json#engines.node` (`>=22.19.0 <26`) AND not in the nodejs/node#58515 Fastify-affected range (v22.0–v22.18, v24.1–v24.2). The same gate SHALL apply to both the PATH/registry-based detection and the on-disk scan fallback (`scanForUsableNodeOnDisk`). The doctor SHALL NOT report a system Node as usable that the dashboard server would refuse to start on.
+`detectSystemNode()` SHALL report a Node binary as found/usable if and only if its `--version` passes the shared `isUsableNodeVersion(version)` gate — i.e. the version is within `package.json#engines.node` (`>=22.19.0 <27`) AND not in the nodejs/node#58515 Fastify-affected range (v22.0–v22.18, v24.1–v24.2). The same gate SHALL apply to both the PATH/registry-based detection and the on-disk scan fallback (`scanForUsableNodeOnDisk`). The doctor SHALL NOT report a system Node as usable that the dashboard server would refuse to start on.
 
 The on-disk scan SHALL remain Unix-only; on `win32` it SHALL NOT execute.
 
@@ -364,9 +364,9 @@ The on-disk scan SHALL remain Unix-only; on `win32` it SHALL NOT execute.
 - **WHEN** the resolved system Node reports any `v25.x.x`
 - **THEN** `detectSystemNode()` SHALL return `{ found: true, path: <node path> }`
 
-#### Scenario: Node 26 reported not usable
+#### Scenario: Node 27 reported not usable
 
-- **WHEN** the resolved system Node reports `v26.0.0` or newer AND no other usable Node is found on disk
+- **WHEN** the resolved system Node reports `v27.0.0` or newer AND no other usable Node is found on disk
 - **THEN** `detectSystemNode()` SHALL return `{ found: false }`
 
 #### Scenario: Node 21 reported not usable

@@ -6,8 +6,10 @@ independent points on a fresh machine, both still present in released `0.6.1`.
 - pi installs extensions via `npm install --omit=dev` with engine-strict.
 - Root `package.json#engines.node` caps `>=22.19.0 <26`; the single-source predicate
   `packages/shared/src/node-version.ts::isOutOfEnginesRange` mirrors it (`major >= 26`). The server
-  startup guard (`node-guard.ts`), the Electron doctor (`dependency-detector.ts`), and their tests
-  all track that predicate via a documented lockstep contract.
+  startup guard (`packages/server/src/auth/node-guard.ts`), the Electron doctor
+  (`dependency-detector.ts`), and their tests all track that predicate via a documented lockstep
+  contract. Caveat: the guard's `buildEnginesRangeMessage` hardcodes the range string
+  `Required: >=22.19.0 <26`, which the lockstep does NOT cover — it must be edited by hand.
 - The published npm tarball ships prebuilt `packages/dist/client` and does NOT run any workspace
   `prepare` on consumer install, so the npm path is unaffected by the build blocker. The git-clone
   path clones source (dist is gitignored), runs every workspace `prepare`, and the
@@ -44,17 +46,29 @@ Current build-time resolution of the client:
 
 Bumping to `<27` keeps the "cap = highest CI-validated major + refuse beyond" invariant the codebase
 already relies on. Removing the bound entirely would silently admit every future major untested,
-defeating the server startup guard's purpose. The cap changes in exactly two places
-(`package.json#engines.node` and `node-version.ts::isOutOfEnginesRange` `major >= 26 → >= 27`); every
-consumer + test tracks it through the existing single-source contract.
+defeating the server startup guard's purpose. The cap changes in **three** places:
+`package.json#engines.node`, `node-version.ts::isOutOfEnginesRange` (`major >= 26 → >= 27`), and the
+hardcoded `Required: >=22.19.0 <26` string in `buildEnginesRangeMessage`
+(`packages/server/src/auth/node-guard.ts`). The first two are the documented single-source contract;
+the third is a **hole in that contract** — a literal the lockstep never covered, which this change
+both fixes (task 2.4) and guards with a new repo-lint (task 2.5) so the next cap raise cannot miss
+it. Every other consumer + test tracks the cap through the predicate.
 
 _Alternative considered:_ open-ended `>=22.19.0`. Rejected — turns the refuse-to-start guard into a
 no-op for future majors and contradicts the spec's cap-history rationale.
 
 ### D2 — Validate Node 26 in CI before the cap lands
 
-Add a Node 26 leg to the `_smoke.yml` linux install matrix (and the `ci.yml` lockstep major list the
-`server-startup-node-version-guard` spec enforces). The cap raise is contingent on that leg passing —
+Add a Node 26 leg to the `_smoke.yml` `standalone-install-smoke-linux` install matrix — the sole
+Node-major matrix the `server-startup-node-version-guard` spec enforces (`ci.yml` has none). The
+Node 26 legs run **without** the `--config.engine-strict=false` override every other leg carries, so
+the `EBADENGINE` half of #357 is regression-tested rather than assumed: with the override in place,
+CI cannot distinguish "cap fixed" from "still refused". The override is safe to drop on Linux —
+`_smoke.yml`'s stated rationale (the transitive `appdmg` engine range) does not hold: `appdmg@0.6.6`
+declares `engines: >=8.5` with `os: [darwin]`, so it carries no upper bound and is platform-filtered
+out of Linux installs; the real historical cause per `.npmrc` was native compilation of
+`macos-alias`. The lockfile's only upper-bounded engines range (`>=6 <7 || >=8`) admits 26. The cap
+raise is contingent on that leg passing —
 if Node 26 surfaces a real incompatibility (Fastify, native deps), the change is blocked rather than
 shipping a broken cap. `isAffectedNode` needs no change (Node 26 is outside the Fastify-affected
 range).
@@ -95,9 +109,11 @@ Add `scripts/verify-release-deps.mjs` rules asserting the 5 client build deps li
 
 ## Migration Plan
 
-1. Land the client `package.json` deps move + `tsx` add; refresh `package-lock.json`.
+1. Land the client `package.json` deps move + `tsx` add; refresh `pnpm-lock.yaml` via `pnpm install`.
 2. Add the Node 26 CI smoke leg; confirm green.
-3. Raise the cap (`package.json#engines.node` + `node-version.ts`), update node-version tests.
+3. Raise the cap (`package.json#engines.node` + `node-version.ts` + the `buildEnginesRangeMessage`
+   range string in `packages/server/src/auth/node-guard.ts`), and correct the pre-existing
+   node-version + node-guard assertions that encode the old `<26` cap.
 4. Add the `verify-release-deps` rules.
 
 Rollback: revert the two cap lines (Node 26 support) and/or restore the client deps to
