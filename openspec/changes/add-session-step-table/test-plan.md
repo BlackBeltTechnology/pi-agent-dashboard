@@ -2,11 +2,11 @@
 
 Stage: apply   Generated: 2026-08-06
 
-## ⚠ Clarifications needed (3)
+## ⚠ Clarifications needed (2 open, 1 resolved)
 
 - [ ] **C1** — Blocks P1/P2. No peak-RSS threshold exists anywhere in the change; the spec says "a stated bound" without stating one. The bound cannot be derived from file size (whole-file Buffer + parsed event graph + retained `Trajectory` are live together). Candidates: measure the largest in-scope session first and set the bound at 2× that measurement, or fix a flat 512 MB ceiling, or drop the assertion and only report the number.
 - [ ] **C2** — Blocks B4/B5. The minimum per-cell positive count that suppresses the behavioural channel is required by the spec but never given a value. Candidates: 10 positives per cell, 20, or "suppress unless the Wilson interval half-width is below 0.15".
-- [ ] **C3** — Blocks E17. `doctrineEra` is pinned to "the commit that lands the `pipefail` fix", but that edit is uncommitted, so the SHA does not exist yet and `git log -S "set -o pipefail" -- AGENTS.md` returns nothing. The planning commit resolves this; until it lands, the era boundary has no referent.
+- [x] **C3** — RESOLVED. The `pipefail` fix is committed as **`dd5d49de2`**, and `git log -S "set -o pipefail" -- AGENTS.md` now resolves to exactly that commit. `doctrineEra` pins to it (task 6.5).
 
 > Resolve before the blocked scenarios (marked below) can be authored.
 
@@ -34,7 +34,7 @@ Stage: apply   Generated: 2026-08-06
 | E14 | Episode outcome ordering | state-transition | L1 | automated | episode with verdicts [green, red]; another [red, green]; another [red]; another with no test call | labels computed | `red-only`, `red-green`, `red-only`, `no-signal` respectively |
 | E15 | Destroyed verdict never inferred green | state-transition | L1 | automated | failing run piped `\| tee log` with no `pipefail`, result `isError:false`, no summary line | labels computed | step is `verdictObservable=false`; episode `unobservable`; never `green` |
 | E16 | Empty grep output is not green | EP | L1 | automated | test run piped to `grep FAIL` producing zero output | labels computed | verdict stays unobservable |
-| E17 | Doctrine era recorded | state-transition | L1 | automated | sessions timestamped before and after the pinned era boundary | extractor runs | rows carry distinct `doctrineEra`; every outcome statistic in the report is broken down by it — [NEEDS CLARIFICATION: input — see C3, the boundary SHA does not exist until the planning commit lands] |
+| E17 | Doctrine era recorded | state-transition | L1 | automated | sessions timestamped either side of `dd5d49de2` (2026-08-06) | extractor runs | rows carry distinct `doctrineEra`; every outcome statistic in the report is broken down by it |
 | E18 | Step + episode schema pinned | EP | L1 | automated | any fixture corpus | extractor runs | every step row carries all C7 fields incl. `errorFieldPresent`, `verdictObservable`, `labelSource`, `extractorVersion`, `doctrineEra`; every episode row carries its pinned field set |
 | E19 | pathKey stability and distinctness | EP | L1 | automated | two different absolute paths sharing a basename; the same path in two sessions | extractor runs twice | same path → identical key across runs; different paths → different keys; normalisation of `src/x.ts` vs `./src/x.ts` vs absolute is pinned by fixture |
 | E20 | Row order is total | BVA | L1 | automated | two sessions with identical `startedAt` to the second | extractor runs twice | byte-identical output; `sessionId`+`stepIndex` break the tie deterministically |
