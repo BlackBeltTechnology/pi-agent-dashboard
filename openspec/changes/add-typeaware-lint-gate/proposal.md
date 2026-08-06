@@ -12,8 +12,8 @@ the project owns until it manifests as a hung session in production.
 Biome 2.5.1 already ships the fix. The `types` domain (type-aware inference) and
 the structural `noImportCycles` / `noUndeclaredDependencies` rules are installed,
 cost ~2s across 1879 files, and are simply not enabled. A probe over the whole
-`packages/` tree found **170 structural findings** (142 floating promises, 11
-misused, 17 cycles) plus **1370 undeclared-dependency findings**, including a
+`packages/` tree found **171 structural findings** (143 floating promises, 11
+misused, 17 cycles) plus **1398 undeclared-dependency findings**, including a
 class of latent publish bugs across 12 manifests.
 
 This change flips the severities. It is deliberately the **last cleanup-dependent**
@@ -23,12 +23,20 @@ rung: the ratchet is one-way and requires a green tree first, so it is blocked o
 | Blocking change | Clears |
 |---|---|
 | `cleanup-undeclared-dependencies` | `noUndeclaredDependencies` (all 1398) |
-| `cleanup-client-plugin-promises` | 88 floating + all 11 misused |
-| `cleanup-async-semantics-server-extension` | 54 floating (server + extension) |
+| `cleanup-client-plugin-promises` | 88 floating (client, plugins, shell, `scripts/`) + 5 misused (client 3, server 2) |
+| `cleanup-async-semantics-server-extension` | 55 floating (extension 37, server 17, electron 1) + 6 misused (electron main) |
 | `cleanup-import-cycles` | all 17 cycles |
 
-`noFloatingPromises` reaches zero only when **two** of them have landed; a flip
-attempted after either alone will fail.
+Floating totals **143** (88 + 55), misused **11** (5 + 6). The electron sites
+moved to the async-semantics change during planning — the split is by blast
+radius, not package name.
+
+> The floating total is 143, not 142. A site-extraction filter matching only
+> `.ts/.tsx/.mjs/.js/.jsx` drops `packages/server/src/rpc-keeper/keeper.cjs:141`.
+> Include `.cjs` when re-deriving, or the gate will be flipped one site early.
+
+`noFloatingPromises` reaches zero only when **two** of them have landed;
+`noMisusedPromises` likewise. A flip attempted after either alone will fail.
 
 ## What Changes
 
