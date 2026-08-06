@@ -69,9 +69,21 @@ async function openPanel() {
   await waitFor(() => screen.getByText("Interface"));
 }
 
-/** Toggle a ToggleField by its visible label. */
-function toggle(label: string | RegExp) {
-  fireEvent.click(screen.getByText(label).closest("div")!.querySelector("button")!);
+/**
+ * Toggle a ToggleField by its visible label.
+ *
+ * Waits for the control to exist first: under full-suite contention the
+ * section's effects settle later than the "Interface" heading that openPanel
+ * waits on, and clicking too early leaves the draft source clean — which
+ * surfaced as a save bar that never appeared.
+ */
+async function toggle(label: string | RegExp) {
+  const btn = await waitFor(() => {
+    const found = screen.getByText(label).closest("div")?.querySelector("button");
+    if (!found) throw new Error(`no toggle button for ${label}`);
+    return found;
+  });
+  fireEvent.click(btn);
 }
 
 describe("settings persistence after the reorganisation", () => {
@@ -88,7 +100,7 @@ describe("settings persistence after the reorganisation", () => {
   // test-plan #F15 — the whole point of deleting the instant-apply toggle.
   it("buffers a debug-events toggle instead of PATCHing immediately", async () => {
     await openPanel();
-    toggle("Debug events");
+    await toggle("Debug events");
 
     // No write yet — the old DebugToolsToggle would have PATCHed here.
     expect(prefsPatches()).toHaveLength(0);
@@ -107,7 +119,7 @@ describe("settings persistence after the reorganisation", () => {
     gotoPage("Server");
     await waitFor(() => screen.getByText("Memory Limits"));
 
-    toggle(/Enable Watchdog/i);
+    await toggle(/Enable Watchdog/i);
 
     const saveBar = await waitFor(() => screen.getByTestId("settings-save-bar"));
     expect(within(saveBar).getByRole("button", { name: "Server" })).toBeTruthy();
@@ -170,7 +182,7 @@ describe("settings persistence after the reorganisation", () => {
     global.fetch = mockFetch({ prefsPatch: () => Promise.resolve({ ok: false, json: () => Promise.resolve({ success: false }) }) });
     await openPanel();
 
-    toggle("Debug events");
+    await toggle("Debug events");
     fireEvent.click(await waitFor(() => screen.getByTestId("save-btn")));
 
     await waitFor(() => expect(prefsPatches()).toHaveLength(1));

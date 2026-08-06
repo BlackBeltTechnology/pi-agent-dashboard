@@ -125,6 +125,26 @@ describe("shared settings field components — accessible description", () => {
   });
 });
 
+describe("shared settings field components — disabled state", () => {
+  // test-plan #F10 — D9 accepts that a disabled control's hint dims WITH the
+  // control, where the old sibling <p> stayed at full opacity. Asserted at
+  // component level because it is a property of the field root: on the page,
+  // the gated fields are a mix of `disabled` and conditional rendering.
+  it("dims the hint along with a disabled control", () => {
+    render(<NumberField label="Auto-collapse" value={30} onChange={noop} hint="Collapse after this many seconds." disabled />);
+
+    const hint = screen.getByText("Collapse after this many seconds.");
+    expect(hint.closest(".opacity-50"), "hint is not inside the dimmed field root").not.toBeNull();
+  });
+
+  it("leaves an enabled control's hint undimmed", () => {
+    render(<NumberField label="Auto-collapse" value={30} onChange={noop} hint="Collapse after this many seconds." />);
+
+    const hint = screen.getByText("Collapse after this many seconds.");
+    expect(hint.closest(".opacity-50")).toBeNull();
+  });
+});
+
 describe("shared settings field components — required hint prop", () => {
   // test-plan #E7 — the compiler is the gate (design D1). Each block below must
   // raise a type error; if the prop ever becomes optional the @ts-expect-error
