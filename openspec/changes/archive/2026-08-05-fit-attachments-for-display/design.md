@@ -84,12 +84,37 @@ Resize costs up to 874 ms; a user must never wait on it to see their own message
 A placeholder that never resolves (worker crash, unsupported format) must degrade to an
 honest failed-attachment state — never an empty box and never a missing row.
 
-### D4 — Resize runs off the event loop (settled)
+### D4 — Resize runs off the event loop (settled; rationale CORRECTED)
 
-jimp is pure JS and single-threaded; 874 ms of synchronous work on the ingest path would
-stall the server for every connected session. Resize runs in a worker; the assertion is
-on **event-loop lag**, not on resize latency, which is inherently unbounded for a 10 MB
-input.
+Resize runs in a `worker_threads` pool (`fit-worker-pool.ts`, size 2).
+
+**The original rationale was wrong.** It assumed jimp is pure-JS + single-threaded, so an
+inline resize would stall the event loop for its 174–874 ms. Measured, that does not
+happen: jimp v1's async API yields, so in-process fitting blocks the loop for ~0 ms.
+
+Measured on a 5 x 1.84 MB base64 burst (1600x1200 PNG), 3 consecutive runs, 16-CPU host,
+outside the test runner:
+
+| path | wall time | max event-loop lag |
+|---|---|---|
+| in-process | ~1710 ms | 0 ms |
+| worker pool (2 slots) | ~1030 ms | 1 ms |
+| `structuredClone` only | ~6 ms | 0 ms |
+
+**The decision stands, for different reasons:** the pool is ~1.7x faster on a burst
+(parallelism across slots) and keeps CPU-heavy decode/encode off the main thread's CPU
+share, at negligible lag cost. Payload transfer is NOT a bottleneck — cloning the base64
+across the boundary costs ~6 ms, disproving the concern that `postMessage` serialization
+would dominate.
+
+Caveats: measured on 16 CPUs; on a 2-core host the parallelism gain shrinks and each
+worker's decoded bitmap costs RSS, which is why `size` is a conservative 2.
+
+Measurement pitfall recorded for whoever revisits this: an earlier reading inside vitest
+reported ~1030 ms of "worker lag". That number was the burst's WALL TIME leaking into the
+sample (runner CPU contention + worker startup), not loop blocking. Measure this outside
+the test runner.
+
 
 ### D5 — Direct jimp, not the `pi-image-fit` extension (settled)
 
@@ -116,14 +141,19 @@ Fix by passing the store's effective cap. `DEFAULT_MAX_STRING_SIZE` is currently
 `const` (line 122) and must be exported. Arming and raising must land **together**:
 armed at today's 20 KB ceiling the assert throws (`24_000 ≥ 20_000`); at 256 KB it passes.
 
-### D7 — Originals: transcript is the record, cache is an optimisation (settled)
+### D7 — Originals: the transcript IS the record (settled; cache dropped by D10)
 
 pi already writes full-resolution bytes to the session JSONL, so no new durable store is
-required. The blob cache (2 GB LRU on disk) is a speed optimisation; a miss is recovered
-by **streaming** the transcript for the matching content hash — bounded memory, unbounded
-time, per the resolved gate.
+required. An original is recovered by **streaming** the transcript for the matching
+content hash — bounded memory, unbounded time, per the resolved gate.
 
-Consequence: eviction is always safe and there is no orphan-blob correctness problem.
+Originally this decision also kept a 2 GB LRU blob cache as a speed optimisation. **D10
+dropped it**, on the evidence that streaming recovery measured under 50 MB RSS against a
+~40 MB transcript (P4) and that the click-to-original path is explicitly not
+load-bearing. Transcript streaming is therefore the ONLY recovery path.
+
+Consequence: there is no cache, so no eviction policy and no orphan-blob correctness
+problem to reason about.
 
 ### D8 — Session-scoped, authenticated endpoint (settled)
 
@@ -134,12 +164,68 @@ from the existing `useImagePaste.SUPPORTED_IMAGE_TYPES` allow-list
 (`jpeg`/`png`/`gif`/`webp`) and are served with headers preventing interpretation as
 active content.
 
-### D9 — Terminal transcript coupling (OPEN)
+### D9 — Terminal transcript coupling (settled)
 
 `terminal-manager.ts:32` derives `DEFAULT_TRANSCRIPT_CAP_BYTES = 0.75 ×` the ceiling.
-Raising 20 KB → 256 KB moves the terminal cap 15 KB → 192 KB. Decouple, or accept and
-document the shift. Must be settled before the raise lands, since the assert validates
-the pair.
+Raising 20 KB → 256 KB moves the terminal cap 15 KB → 192 KB.
+
+**Decision: accept the shift and document it.** The derivation stays coupled — one
+constant, one rule. Inline terminal transcripts may now carry ~12× more bytes before the
+tail-keeping cap trims them. The boot assert continues to validate the pair.
+
+### D10 — Fitted derivatives are NOT cached (reversed; originally "cached")
+
+Originally settled as "cache the fitted derivative on disk, keyed by content hash", to
+avoid re-fitting on every replay. **Reversed after implementation, on evidence.**
+
+Two facts, both verified in code and by measurement, removed the justification:
+
+1. **Warm replay never re-fits.** `prepareEventForIngest` is called only in the COLD
+   `directoryService` branch of `subscription-handler.ts`. An ordinary reload takes the
+   warm branch, which replays stored events already containing the placeholder rows AND
+   their `attachment_fitted` events. Re-fitting happens only when the session's buffer has
+   been evicted entirely.
+2. **The two-phase render already hides the cold-open cost.** Rows render immediately;
+   fitting runs off the loop across the pool; images fill in progressively. Hiding that
+   latency is precisely what D3/D12 exist to do, so a cache would optimise a path whose
+   latency is not user-visible.
+
+`DISPLAY_MAX_BYTES` also bounds each derivative at 240 KB, so a cold re-fit is bounded
+work, not an unbounded tail.
+
+**D7 knock-on: the 2 GB LRU originals blob cache is dropped too.** Originals are recovered
+by streaming the session transcript, measured at <50 MB RSS for a ~40 MB transcript (P4).
+The transcript is authoritative (D7), so the cache was always an optimisation — and the
+click-to-original path is explicitly NOT load-bearing. Adding 2 GB of disk-cache
+machinery (eviction, cap accounting, cleanup, staleness) to accelerate it fails the
+simplicity bar.
+
+Revisit only if cold-open latency for image-heavy sessions is MEASURED as a problem; the
+scenarios that would have covered the caches (X4/X5) are dropped with them.
+
+
+### D11 — Animated GIFs are exempt from fitting (settled)
+
+jimp resize flattens animation. **Decision: detect animated GIFs and exempt them from
+fitting; they remain subject to the existing ceiling and truncate as they do today.**
+Animation is preserved when the payload is small; a large animated GIF still collapses,
+which is no worse than current behaviour. Never emit a corrupt frame (scenario X10).
+
+### D12 — Phase 2 ships as its own resolution event (settled)
+
+The fitted bytes reach the client as a SEPARATE stored+broadcast event carrying
+`{attachmentId, data, mimeType, state}` (`buildFittedEvent`); the block is addressed by
+the sha256 of the ORIGINAL BASE64 TEXT, NOT by `{targetSeq, blockIndex}` — the live fold is
+append-only and never sees a seq, and `state` lets a FAILED fit resolve the placeholder
+honestly instead of leaving it pending. The client reducer gains one additive case
+that patches the already-folded message. Rejected: re-broadcasting the row at the same
+`seq` — the client fold (`useSessionState.ts`, `foldLiveEvents`) is append-only, so a
+second fold of `message_start` duplicates the row; making it safe needs replace-by-seq
+semantics inside the reducer SHARED with replay and the virtualized row-height invariant
+(F8). Rejected: synchronous fit before first store — violates "row renders before image".
+
+Side benefit: the row event stays small and the ≤212 KB fitted payload rides its own
+event, so each is independently well under the 256 KiB ceiling.
 
 ## Risks / Trade-offs
 
@@ -158,13 +244,12 @@ the pair.
 
 ## Open Questions
 
-- **D9** — decouple the terminal cap derivation, or accept the 15 KB → 192 KB shift?
-- Should the fitted derivative be cached so replay does not re-resize every load, or is
-  re-fitting on ingest-from-replay acceptable?
 - Does the click-to-original overlay need progressive loading for a 10 MB original, or is
   a spinner sufficient?
-- Should animated GIFs be exempt from fitting (resize would flatten them), and if so do
-  they bypass the ceiling?
+
+Resolved: D9 (accept the 15 KB → 192 KB shift), D10 (do NOT cache fitted derivatives —
+reversed on evidence after implementation; the D7 originals blob cache is dropped with
+it), D11 (exempt animated GIFs from fitting, keep them under the ceiling).
 
 ## Established facts (verified; do not re-derive)
 

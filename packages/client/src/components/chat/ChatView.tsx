@@ -11,6 +11,7 @@ import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import { useMobile } from "../../hooks/useMobile.js";
+import { attachmentOriginalUrl } from "../../lib/chat/attachment-original-url.js";
 import { buildSelectionClipboardText } from "../../lib/chat/chat-selection-copy.js";
 import { buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, extendRangeWithSelection, isBurst, isGroup, rangeToRowIndexSpan, type SelectionRowSpan, virtualRowKey } from "../../lib/chat/chat-virtual-rows.js";
 import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../../lib/chat/collapse-retried-errors.js";
@@ -18,31 +19,31 @@ import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSup
 // in App.tsx (sticky above the command input). See change:
 // unify-status-banner-and-terminal-limit-stop.
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/chat/event-reducer.js";
-import { formatMessageTime } from "../../lib/util/format.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { formatMessageTime } from "../../lib/util/format.js";
 import { buildTurnSummaries, type TurnSummary } from "../../lib/util/lineDelta.js";
 import { isOutOfCwd, normalizeUnderCwd } from "../../lib/util/normalize-path.js";
-import { BashOutputCard } from "./BashOutputCard.js";
 import { ChangeSummaryBlock } from "../diff/ChangeSummaryBlock.js";
-import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
-import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
-import { CopyButton } from "../primitives/CopyButton.js";
-import { MissingToolInlineError } from "./MissingToolInlineError.js";
+import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
 import { FilePreviewHost, FilePreviewProvider } from "../preview/FilePreviewContext.js";
 import { ImageLightbox } from "../preview/ImageLightbox.js";
-import { InlineTerminalCard } from "../terminal/InlineTerminalCard.js";
-import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
-import { RawEventCard } from "./RawEventCard.js";
+import { CopyButton } from "../primitives/CopyButton.js";
 import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
-import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
+import { InlineTerminalCard } from "../terminal/InlineTerminalCard.js";
+import type { ToolContext } from "../tool-renderers/index.js";
+import { BashOutputCard } from "./BashOutputCard.js";
+import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
+import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
+import { MissingToolInlineError } from "./MissingToolInlineError.js";
+import { RawEventCard } from "./RawEventCard.js";
+import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolBurstGroup } from "./ToolBurstGroup.js";
 import { ToolCallStep } from "./ToolCallStep.js";
-import type { ToolContext } from "../tool-renderers/index.js";
 
 interface Props {
   sessionId?: string;
@@ -99,8 +100,11 @@ interface Props {
 function ImageAttachments({
   images,
   onImageLoad,
+  sessionId,
 }: {
   images: ChatImage[];
+  /** Owning session — scopes the full-resolution originals request. */
+  sessionId?: string;
   /**
    * Fired when an attached `<img>` finishes decoding. In the virtualized
    * transcript the owning row is first measured pre-decode (img ~0px); this
@@ -109,7 +113,9 @@ function ImageAttachments({
    */
   onImageLoad?: (e: React.SyntheticEvent<HTMLImageElement>) => void;
 }) {
-  const [lightboxSrc, setLightboxSrc] = useState<{ src: string; alt: string } | null>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<
+    { src: string; alt: string; fallbackSrc?: string } | null
+  >(null);
   // Track decoded images so the reserved loading box is dropped once the real
   // intrinsic size is known (a bounded box avoids the near-zero pre-decode
   // measurement without distorting small decoded images).
@@ -118,25 +124,89 @@ function ImageAttachments({
     <>
       <div className="flex gap-2 flex-wrap mb-2">
         {images.map((img, i) => {
+          // Two-phase attachment render: the row is delivered before its fitted
+          // image exists, so a block may be pending (no bytes yet) or failed.
+          // Rendering a data URL for those would show a broken-image glyph.
+          // See change: fit-attachments-for-display (D3/D12, test-plan #F1 #F3).
+          if (img.attachmentState === "pending") {
+            return (
+              <div
+                key={i}
+                data-testid="attachment-pending"
+                // `aria-label` on a roleless generic is ignored by assistive
+                // tech. `role="img"` makes this stand-in for the image expose
+                // its name, matching the real <img> it will become.
+                role="img"
+                className="min-w-[80px] min-h-[80px] w-[120px] h-[80px] rounded border border-white/20 bg-white/5 animate-pulse flex items-center justify-center text-[10px] text-white/40"
+                aria-label={`Attachment ${i + 1} loading`}
+              >
+                loading
+              </div>
+            );
+          }
+          if (img.attachmentState === "failed") {
+            return (
+              <div
+                key={i}
+                data-testid="attachment-failed"
+                className="min-w-[80px] min-h-[80px] w-[120px] h-[80px] rounded border border-red-500/40 bg-red-500/5 flex items-center justify-center text-[10px] text-red-300/70 text-center px-1"
+                role="img"
+                aria-label={`Attachment ${i + 1} failed to load`}
+              >
+                image unavailable
+              </div>
+            );
+          }
           const src = `data:${img.mimeType};base64,${img.data}`;
           const reserve = !loaded.has(i) ? "min-w-[80px] min-h-[80px]" : "";
           return (
-            <img
+            // A real <button>, not a click handler on the <img>: zoom is the
+            // ONLY route to the full-resolution original, and a bare img is
+            // mouse-only — no tab stop, no Enter/Space, nothing for a screen
+            // reader to announce. A native button gets all three from the user
+            // agent, so there is no hand-rolled key handling to keep correct.
+            <button
               key={i}
-              src={src}
-              alt={`Attachment ${i + 1}`}
-              className={`max-w-[300px] max-h-[300px] ${reserve} rounded border border-white/20 object-contain cursor-pointer`}
-              onLoad={(e) => {
-                setLoaded((prev) => (prev.has(i) ? prev : new Set(prev).add(i)));
-                onImageLoad?.(e);
+              type="button"
+              aria-label={`Zoom attachment ${i + 1}`}
+              className="p-0 border-0 bg-transparent cursor-pointer leading-none"
+              onClick={() => {
+                // Zoom shows the ORIGINAL when one is recoverable; the inline
+                // image is only a 768 px display derivative. Falls back to that
+                // derivative if the original cannot be served, so a failure
+                // degrades the zoom alone (test-plan #F5 #F6).
+                const original = attachmentOriginalUrl(sessionId, img.attachmentId);
+                setLightboxSrc({
+                  src: original ?? src,
+                  alt: `Attachment ${i + 1}`,
+                  fallbackSrc: original ? src : undefined,
+                });
               }}
-              onClick={() => setLightboxSrc({ src, alt: `Attachment ${i + 1}` })}
-            />
+            >
+              <img
+                src={src}
+                data-testid="attachment-image"
+                // Empty alt on purpose: the button above already carries the
+                // accessible name, so a described img would make AT announce
+                // the same control twice.
+                alt=""
+                className={`max-w-[300px] max-h-[300px] ${reserve} rounded border border-white/20 object-contain`}
+                onLoad={(e) => {
+                  setLoaded((prev) => (prev.has(i) ? prev : new Set(prev).add(i)));
+                  onImageLoad?.(e);
+                }}
+              />
+            </button>
           );
         })}
       </div>
       {lightboxSrc && (
-        <ImageLightbox src={lightboxSrc.src} alt={lightboxSrc.alt} onClose={() => setLightboxSrc(null)} />
+        <ImageLightbox
+          src={lightboxSrc.src}
+          alt={lightboxSrc.alt}
+          fallbackSrc={lightboxSrc.fallbackSrc}
+          onClose={() => setLightboxSrc(null)}
+        />
       )}
     </>
   );
@@ -838,7 +908,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                 <div className={bubbleMax}>
                   {msg.images && msg.images.length > 0 && (
                     <div className="mb-2">
-                      <ImageAttachments images={msg.images} onImageLoad={(e) => requestRowMeasure(e.currentTarget)} />
+                      <ImageAttachments images={msg.images} sessionId={sessionId} onImageLoad={(e) => requestRowMeasure(e.currentTarget)} />
                     </div>
                   )}
                   <SkillInvocationCard
@@ -860,7 +930,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
               {msg.streamingBehavior && <StreamingBehaviorBadge behavior={msg.streamingBehavior} />}
               <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
                 {msg.images && msg.images.length > 0 && (
-                  <ImageAttachments images={msg.images} onImageLoad={(e) => requestRowMeasure(e.currentTarget)} />
+                  <ImageAttachments images={msg.images} sessionId={sessionId} onImageLoad={(e) => requestRowMeasure(e.currentTarget)} />
                 )}
                 {msg.content && (
                   <MessageBubble
@@ -1120,7 +1190,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         <div data-testid="pending-prompt-card" data-status={state.pendingPrompt.status} className="mt-4 mb-4 flex justify-end">
           <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax} ${state.pendingPrompt.status === "sending" ? "opacity-60 prompt-sending-fx prompt-edge-pulse" : ""}`}>
             {state.pendingPrompt.images && state.pendingPrompt.images.length > 0 && (
-              <ImageAttachments images={state.pendingPrompt.images} />
+              <ImageAttachments images={state.pendingPrompt.images} sessionId={sessionId} />
             )}
             <div className="flex items-start gap-2">
               <div className="flex-1">

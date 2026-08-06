@@ -15,11 +15,15 @@ export const TESTIDS = {
   // Empty-state path: the LandingPage onboarding CTAs drive the same actions
   // (open pin dialog / spawn) and are the deterministic affordances on a
   // fresh container. Step CTAs are gated on `providersReady` (seeded key).
-  onboardingStep2Cta: "onboarding-step-2-cta", // "Add folder" → opens pin dialog
+  onboardingStep2Cta: "onboarding-step-2-cta", // "Add folder" → opens AddFoldersDialog
   onboardingStep3Cta: "onboarding-step-3-cta", // "Start session" → spawns
   // The "Add folder" CTAs open the multi-select AddFoldersDialog. The former
-  // single-path PinDirectoryDialog (`pin-directory-dialog`) is still reachable
-  // from Settings ▸ Packages, but no longer from these affordances.
+  // single-path PinDirectoryDialog (`pin-directory-dialog`) still EXISTS and
+  // still renders that testid, but is only reachable from Settings ▸ Packages
+  // — no longer from these affordances. The map kept pointing at it, so every
+  // spec that pins a folder hung until its 180 s cap.
+  // The flow differs too: the row body navigates, a per-row checkbox selects
+  // into a basket, and a commit button pins every basket entry.
   // See change: project-scope-disable-global-resources (helper drift fix).
   addFoldersDialog: "add-folders-dialog",
   addFoldersCommit: "add-folders-commit",
@@ -102,8 +106,10 @@ export const TESTIDS = {
   specsBrowser: "specs-browser",
 } as const;
 
-export function byTestId(page: Page, key: keyof typeof TESTIDS): Locator {
-  return page.getByTestId(TESTIDS[key]);
+export function byTestId(scope: Page | Locator, key: keyof typeof TESTIDS): Locator {
+  // Accepts a Locator as well as a Page so a lookup can be scoped to a dialog
+  // or card; both expose the same `getByTestId`.
+  return scope.getByTestId(TESTIDS[key]);
 }
 
 /** Navigate to the dashboard root and wait for the shell to mount. */
@@ -143,11 +149,18 @@ async function visible(loc: Locator): Promise<boolean> {
 }
 
 /**
- * Open the pin-directory dialog, type an absolute path, confirm.
+ * Open the add-folders dialog, select one absolute path, commit.
+ *
  * Uses whichever "add folder" affordance the current state exposes:
  * the onboarding step-2 CTA (fresh container) or the sidebar button
  * (a folder/session already exists). Requires PI_E2E_SEED=1 so the
  * onboarding gate is cleared and the directory-listing endpoint is reachable.
+ *
+ * Pinning is IMPLICIT here — adding a folder IS pinning it, so the dialog
+ * offers no pin control. Typing the full path is still how the target row is
+ * reached (`parseInput` splits it into parent + filter, so the parent is
+ * listed and filtered down to the leaf), but selection is now the per-row
+ * checkbox plus a commit button, not a `Select` confirm.
  */
 export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   const onboardingCta = byTestId(page, "onboardingStep2Cta");
@@ -161,11 +174,24 @@ export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   // The picker lists the typed path's PARENT filtered by its leaf, so typing
   // the full path surfaces the target's own row. Tick that row's checkbox —
   // the basket, not the browsed directory, is what the dialog commits.
-  await dialog.getByRole("textbox").first().fill(absPath);
+  // `.first()` — the dialog grows a second textbox in new-folder mode.
+  const textbox = dialog.getByRole("textbox").first();
+  // The picker re-lists its initial directory on mount, and that late response
+  // can land AFTER an immediate fill and clobber it. Let the first listing
+  // render, then fill, then assert the value actually STUCK (auto-retrying)
+  // before selecting — otherwise the row below never appears and the spec dies
+  // at its timeout with no clue why.
+  await dialog.getByRole("option").first().waitFor({ state: "visible", timeout: 20_000 });
+  await textbox.fill(absPath);
+  await expect(textbox).toHaveValue(absPath);
+  // Keyed by the FULL path, so no leaf-regex escaping is needed and a sibling
+  // whose name contains the target's cannot be ticked instead.
   const check = dialog.getByTestId(`path-picker-check-${absPath}`);
   await check.waitFor({ state: "visible", timeout: 20_000 });
   await check.click();
-  await byTestId(page, "addFoldersCommit").click();
+  const commit = byTestId(dialog, "addFoldersCommit");
+  await expect(commit).toBeEnabled(); // proves the basket actually took the path
+  await commit.click();
   await dialog.waitFor({ state: "hidden" });
 }
 

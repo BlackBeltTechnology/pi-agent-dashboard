@@ -37,6 +37,18 @@ export interface BrowserHandlerContext {
    * See change: configurable-chat-display.
    */
   metaPersistence?: MetaPersistence;
+  /**
+   * Optional display-fit pool.
+   *
+   * Hydration strips inline image bytes to a bounded placeholder
+   * UNCONDITIONALLY — the bound must not depend on whether a fitter happens to
+   * be configured, or a replayed image-bearing event trips the per-event
+   * ceiling and its row vanishes. This pool only decides how the placeholder
+   * RESOLVES: with one, to the fitted derivative; without, every placeholder
+   * settles to an explicit failed state rather than spinning.
+   * See change: fit-attachments-for-display (test-plan #E9).
+   */
+  fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool;
   directoryService?: DirectoryService;
   terminalManager?: TerminalManager;
   headlessPidRegistry: HeadlessPidRegistry;

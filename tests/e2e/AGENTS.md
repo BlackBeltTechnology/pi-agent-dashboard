@@ -5,6 +5,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | File | Purpose |
 |------|---------|
 | `bus-client-goal-plugin-action.spec.ts` | L3/P1 (change: add-dashboard-bus-client-scripting). Drives `BusClient` from host against the harness (port from `.pi-test-harness.json`): connect, spawn (spawn_result + new-session poll), `plugin("goal",…)` no-throw/no-drop, `plugin("flows",…)`→NoPluginHandlerError. Needs `PI_SPAWN_STRATEGY=headless`. |
+| `chat-attachment-two-phase.spec.ts` | Two-phase attachment render E2E (change: fit-attachments-for-display)… → see `chat-attachment-two-phase.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umbrella` (umbrella-own surface not gated by… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `reduce-chat-render-cpu-umbrella` (tasks 2.8/4.4/5.1). → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | Browser E2E gate for `virtualize-chat-transcript-tanstack` (Phase 2 Step B) + preserved `chat-scroll-lock`. → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
@@ -78,3 +79,4 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init feedback (Level 1, change: friendlier-worktree-init; automates… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
 | `tool-output-selection.spec.ts` | Playwright E2E for selectable tool-output links (task 3.2, change: selectable-tool-output-links). → see `tool-output-selection.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 (change: support-zrok-v2, F1/F2/F3). Stubs `/api/tunnel-status` (+`/api/tunnel-disconnect`) via `page.route`: F1 `/tunnel-setup` linux guide (Install/Enroll/Verify + docs.zrok.io + openziti cmd); F2 active `*.shares.zrok.io` → `tunnel-btn` green + v2 URL in title; F3 `gateway-forget-reserved` fires `POST /api/tunnel-disconnect {forget:true}`. |
+

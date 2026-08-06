@@ -4,9 +4,14 @@
 
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { WebSocket } from "ws";
-import { extractStatsFromEvents } from "../session/event-status-extraction.js";
+import {
+  type PendingAttachment,
+  prepareEventForIngest,
+} from "../attachments/attachment-ingest.js";
+import { createAttachmentResolver } from "../attachments/attachment-resolver.js";
 import type { StoredEvent } from "../persistence/memory-event-store.js";
 import { pluginIntentCache } from "../plugin-intent-cache.js";
+import { extractStatsFromEvents } from "../session/event-status-extraction.js";
 import { compactEventsForReplay } from "../session/replay-compaction.js";
 import { truncateToolResultForReplay } from "../session/replay-truncate.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
@@ -282,8 +287,22 @@ export function handleSubscribe(
       directoryService.loadSessionEvents(msg.sessionId, session.sessionFile, session.contextWindow).then(async (result) => {
         stopHeartbeat();
         if (result.success) {
+          // Hydration admits full-resolution inline images straight from the
+          // transcript, so it needs the SAME two-phase strip as the live path.
+          // Without it a reload resurrects the original bug: the event blows
+          // the per-event ceiling, collapses to {__truncated}, and the user's
+          // message row disappears on every replay.
+          // See change: fit-attachments-for-display (task 5.2, test-plan #E9).
+          const pendingAttachments: PendingAttachment[] = [];
           for (const evt of result.events) {
-            eventStore.insertEvent(msg.sessionId, evt);
+            // Strip UNCONDITIONALLY. Gating this on the pool meant a host
+            // without one hydrated full-resolution events — the exact bug the
+            // comment above describes. The bound must not depend on whether a
+            // fitter happens to be configured; placeholders are settled below
+            // either way.
+            const prepared = prepareEventForIngest(evt);
+            pendingAttachments.push(...prepared.pending);
+            eventStore.insertEvent(msg.sessionId, prepared.event);
           }
           const statsUpdates = extractStatsFromEvents(result.events);
           const metaUpdates: Record<string, unknown> = { dataUnavailable: false, ...statsUpdates };
@@ -300,6 +319,38 @@ export function handleSubscribe(
             await sendEventBatches(sub, msg.sessionId, stored, sendTo);
             replayPendingUiRequests(sub, msg.sessionId);
             replayUiState(sub, msg.sessionId, ctx);
+          }
+          // Fit AFTER the batches are on the wire: the rows (with their
+          // placeholders) render immediately and each image swaps in as its
+          // derivative lands, so hydration is never blocked on a resize.
+          // Detached — a fit failure can only degrade an attachment.
+          if (pendingAttachments.length > 0) {
+            // With no pool, stand in one that answers nothing: the resolver
+            // settles every unanswered placeholder to an explicit failed state,
+            // so a row can never keep a placeholder that no one will resolve.
+            const pool = ctx.fitWorkerPool ?? {
+              fit: async () => ({ jobId: 0, results: [] }),
+              dispose: async () => {},
+              inFlight: () => 0,
+            };
+            void createAttachmentResolver({
+              eventStore,
+              fitWorkerPool: pool,
+              emit: (sessionId, seq, event) => {
+                for (const sub of getSubscribers(sessionId)) {
+                  if (sub.readyState === sub.OPEN) {
+                    sendTo(sub, { type: "event", sessionId, seq, event });
+                  }
+                }
+              },
+            })
+              .resolve(msg.sessionId, pendingAttachments)
+              // Detached: `resolve` guards the fit, but not its publish calls.
+              // An escaping rejection here would be unhandled and take the
+              // process down, so hydration degrades the attachment instead.
+              .catch((err) => {
+                console.error(`[attachments] hydration resolve failed for ${msg.sessionId}:`, err);
+              });
           }
         } else if (result.error === "cancelled") {
           // The load was cancelled because the subscriber left before it

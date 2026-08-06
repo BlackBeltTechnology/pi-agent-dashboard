@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `attachment-original-url.ts` | Builds the full-resolution originals URL for a transcript attachment. Exports `attachmentOriginalUrl(sessionId, attachmentId)` -> `/api/sessions/<sid>/attachments/<id>` or `null`. MIRRORS the server's id contract (`^[0-9a-f]{64}$`) and returns `null` for a malformed id, so the zoom path never issues a request the server would only 400. `sessionId` is percent-encoded so it cannot escape its path segment. Consumed by `ChatView`'s ImageAttachments -> ImageLightbox `src`, with the inline fitted derivative passed as `fallbackSrc` (F6: a failing original degrades ONLY the zoom). See change: fit-attachments-for-display. |
 | `chat-selection-copy.ts` | Pure `buildSelectionClipboardText(range, container)`: rebuilds clipboard text for a transcript `copy`. → see `chat-selection-copy.ts.AGENTS.md` |
 | `chat-virtual-rows.ts` | Pure helpers for the windowed (TanStack Virtual) transcript. → see `chat-virtual-rows.ts.AGENTS.md` |
 | `coalesce-live-events.ts` | `foldLiveEvents(queued)` — pure fold that coalesces queued live WS events (`QueuedLiveEvent`) before dispatch. |
