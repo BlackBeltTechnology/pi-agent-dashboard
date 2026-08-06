@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings reorg + description coverage — mockup</title>
+<style>
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --bg-hover:rgba(255,255,255,.06);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333;
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-orange:#f97316; --accent-red:#ef4444;
+  --severity-info-bg:color-mix(in srgb,var(--accent-blue) 10%,var(--bg-tertiary));
+  --severity-info-fg:color-mix(in srgb,var(--accent-blue) 46%,var(--text-primary));
+  --severity-info-border:color-mix(in srgb,var(--accent-blue) 40%,transparent);
+  --severity-warning-bg:color-mix(in srgb,var(--accent-orange) 10%,var(--bg-tertiary));
+  --severity-warning-fg:color-mix(in srgb,var(--accent-orange) 46%,var(--text-primary));
+  --severity-warning-border:color-mix(in srgb,var(--accent-orange) 40%,transparent);
+  --focus-ring:var(--accent-blue);
+}
+[data-theme="light"]{
+  --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --bg-hover:rgba(0,0,0,.04);
+  --text-primary:#171717; --text-secondary:#404040; --text-tertiary:#5c5c5c; --text-muted:#8a8a8a;
+  --border-primary:#e5e5e5; --border-secondary:#d4d4d4;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;
+  background:var(--bg-tertiary);padding:1px 4px;border-radius:3px}
+
+.bar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+  padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border-primary)}
+.bar h1{font-size:13px;font-weight:600;margin:0 auto 0 0;color:var(--text-secondary)}
+.seg{display:flex;border:1px solid var(--border-secondary);border-radius:6px;overflow:hidden}
+.seg button{background:transparent;border:0;color:var(--text-tertiary);font:inherit;font-size:12px;
+  padding:6px 12px;cursor:pointer;min-height:32px}
+.seg button[aria-pressed="true"]{background:var(--accent-blue);color:#fff}
+.seg button:focus-visible{outline:2px solid var(--focus-ring);outline-offset:-2px}
+
+.shell{display:grid;grid-template-columns:196px 1fr;min-height:calc(100vh - 46px)}
+.rail{background:var(--bg-secondary);border-right:1px solid var(--border-primary);padding:12px 8px}
+.rail .grp{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-muted);
+  padding:10px 10px 4px}
+.rail button{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px;
+  padding:7px 10px;border-radius:6px;color:var(--text-tertiary);background:transparent;border:0;
+  font:inherit;font-size:13px;cursor:pointer;text-align:left;min-height:34px}
+.rail button:hover{background:var(--bg-hover)}
+.rail button[aria-current="page"]{background:var(--bg-tertiary);color:var(--text-primary);font-weight:600}
+.rail button:focus-visible{outline:2px solid var(--focus-ring);outline-offset:-2px}
+.cov{font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid transparent}
+.cov.bad{background:color-mix(in srgb,var(--accent-red) 12%,transparent);color:var(--accent-red);
+  border-color:color-mix(in srgb,var(--accent-red) 35%,transparent)}
+.cov.mid{background:color-mix(in srgb,var(--accent-orange) 12%,transparent);color:var(--accent-orange);
+  border-color:color-mix(in srgb,var(--accent-orange) 35%,transparent)}
+.cov.ok{background:color-mix(in srgb,var(--accent-green) 12%,transparent);color:var(--accent-green);
+  border-color:color-mix(in srgb,var(--accent-green) 35%,transparent)}
+
+.page{padding:20px 24px;max-width:780px}
+.page > * + *{margin-top:24px}
+.pagehead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.pagehead h2{font-size:17px;margin:0}
+.pagehead p{margin:0;font-size:12px;color:var(--text-tertiary);flex-basis:100%}
+
+h3.sec{font-size:13px;font-weight:600;margin:0 0 4px;padding-bottom:5px;
+  border-bottom:1px solid var(--border-secondary)}
+h4.sub{font-size:12px;font-weight:600;margin:14px 0 8px;color:var(--text-secondary)}
+.sec-hint{margin:0 0 12px;font-size:12px;color:var(--text-tertiary);max-width:66ch}
+.rows > * + *{margin-top:13px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:32px}
+.row .lab{font-size:13px;color:var(--text-secondary)}
+.hint{margin:4px 0 0;font-size:12px;color:var(--text-tertiary);max-width:66ch}
+.nohint{margin:4px 0 0;font-size:12px;color:var(--accent-red);opacity:.9}
+select,input[type=text],input[type=number]{background:var(--bg-tertiary);color:var(--text-primary);
+  border:1px solid var(--border-secondary);border-radius:6px;padding:6px 8px;font:inherit;font-size:13px;
+  min-height:32px}
+input[type=number]{width:112px;text-align:right}
+input[type=text]{width:224px}
+select{min-width:220px;max-width:100%}
+select:focus-visible,input:focus-visible,button:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+
+.tog{width:44px;height:26px;border-radius:13px;background:var(--bg-surface);
+  border:1px solid var(--border-secondary);position:relative;cursor:pointer;flex:none;padding:0}
+.tog::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;
+  background:var(--text-tertiary);transition:.15s}
+.tog[aria-checked="true"]{background:var(--accent-blue);border-color:var(--accent-blue)}
+.tog[aria-checked="true"]::after{left:21px;background:#fff}
+.dis{opacity:.45;pointer-events:none}
+
+.hero{border:1px solid var(--severity-info-border);background:var(--severity-info-bg);
+  border-radius:8px;padding:14px 16px}
+.hero .top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.hero .lbl{font-size:14px;font-weight:600;display:flex;align-items:center;gap:7px}
+.model-btn{display:flex;align-items:center;gap:8px;background:var(--bg-tertiary);
+  border:1px solid var(--border-secondary);border-radius:6px;padding:6px 10px;cursor:pointer;
+  color:var(--text-primary);font:inherit;font-size:13px;min-width:250px;justify-content:space-between;min-height:34px}
+.model-btn:hover{background:var(--bg-hover)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--accent-green);flex:none}
+.badge{font-size:10px;padding:1px 5px;border-radius:4px;background:var(--bg-surface);color:var(--text-tertiary)}
+.tag{font-size:10px;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border-radius:4px;
+  border:1px solid var(--border-secondary);color:var(--text-muted);margin-left:7px;white-space:nowrap}
+.moved{border:1px dashed var(--border-secondary);border-radius:8px;padding:11px 14px;
+  font-size:12px;color:var(--text-tertiary)}
+.moved b{color:var(--text-secondary)}
+.warn{border:1px solid var(--severity-warning-border);background:var(--severity-warning-bg);
+  color:var(--severity-warning-fg);border-radius:8px;padding:11px 14px;font-size:12px}
+table.audit{border-collapse:collapse;width:100%;font-size:12px}
+table.audit th,table.audit td{border-bottom:1px solid var(--border-primary);padding:6px 8px;text-align:left}
+table.audit th{color:var(--text-tertiary);font-weight:600}
+@media (max-width:760px){
+  .shell{grid-template-columns:1fr}
+  .rail{display:flex;gap:6px;overflow-x:auto;border-right:0;border-bottom:1px solid var(--border-primary);padding:8px}
+  .rail .grp{display:none}
+  .rail button{width:auto;white-space:nowrap}
+  .page{padding:16px}
+  .row{flex-direction:column;align-items:stretch;gap:6px;min-height:0}
+  .row .tog{align-self:flex-start}
+  select,input[type=text],input[type=number]{width:100%;min-width:0}
+  .model-btn{width:100%}
+}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1 id="crumb">Settings — reorganisation &amp; description-coverage mockup</h1>
+  <div class="seg" role="group" aria-label="Layout version">
+    <button id="b-before" aria-pressed="false">Before</button>
+    <button id="b-after" aria-pressed="true">After</button>
+  </div>
+  <div class="seg" role="group" aria-label="Theme">
+    <button id="t-dark" aria-pressed="true">Dark</button>
+    <button id="t-light" aria-pressed="false">Light</button>
+  </div>
+</div>
+
+<div class="shell">
+  <nav class="rail" id="rail" aria-label="Settings pages"></nav>
+  <main class="page" id="page" tabindex="-1"></main>
+</div>
+
+<script>
+/* ═══ model ═══
+   f(label, control, hint, opts) — hint === null means "ships with NO description".
+   Every AFTER field carries a hint; the coverage badge is computed, not typed. */
+const f = (label, ctl, hint, o = {}) => ({ label, ctl, hint, ...o });
+const S = (title, rows, hint) => ({ title, hint, rows });
+
+const MODEL_HERO = { hero: true };
+
+const PAGES = {
+  general: {
+    label: "General", group: "Dashboard",
+    before: [
+      S("Interface", [
+        f("Language", ["select", "English"], null),
+      ]),
+      S("Chat display", [
+        f("Token stats bar", ["tog", true], null),
+        f("Context usage bar", ["tog", true], null),
+        f("Reasoning blocks", ["tog", true], null),
+        f("Reasoning auto-collapse (seconds, 0 = never)", ["num", 30], null),
+        f("Keep reasoning open until turn ends", ["tog", false], null),
+        f("Keep tool groups collapsed by default", ["tog", false], null),
+        f("Tool result bodies", ["tog", true], null),
+        f("Turn metadata separators", ["tog", true], null),
+        f("Per-turn change summary", ["tog", true], null),
+        f("Reserve process line at idle", ["tog", false], null),
+        f("Debug events", ["tog", false], null),
+        f("Read", ["tog", true], null),
+        f("Bash", ["tog", true], null),
+        f("Edit / Write", ["tog", true], null),
+        f("Agent", ["tog", true], null),
+        f("Other", ["tog", true], null),
+      ], "Hide chat elements you don't need. Per-session overrides live in the chat view's View popover."),
+    ],
+    after: [
+      S("Interface", [
+        f("Language", ["select", "English"],
+          "UI language for the dashboard. Session content is never translated."),
+        f("PWA Display Name", ["text", "", "(auto from hostname)"],
+          "Home-screen / app-drawer label when the dashboard is installed as a PWA. Blank auto-derives from the request Host header — set it to tell installs from several machines apart.",
+          { moved: "from Sessions" }),
+      ]),
+      S("Chat display — what every message shows", [
+        f("Token stats bar", ["tog", true],
+          "Per-turn token counts and cost under each assistant message."),
+        f("Context usage bar", ["tog", true],
+          "Bar showing how full the model's context window is. Hide it if you never hit the limit."),
+        f("Turn metadata separators", ["tog", true],
+          "Thin rule between turns carrying model, duration, and timestamp."),
+        f("Per-turn change summary", ["tog", true],
+          "Table of files added/changed/deleted by each turn."),
+        f("Reserve process line at idle", ["tog", false],
+          "Keep the status line's height reserved while idle so the composer does not jump when a turn starts."),
+      ]),
+      S("Chat display — reasoning", [
+        f("Show reasoning blocks", ["tog", true],
+          "Show the model's thinking. Off hides it entirely and disables the two settings below."),
+        f("Auto-collapse after", ["num", 30, "s"],
+          "Collapse a finished reasoning block after this many seconds. 0 = never collapse.", { indent: true }),
+        f("Keep open until turn ends", ["tog", false],
+          "Ignore auto-collapse while the turn is still running.", { indent: true }),
+      ]),
+      S("Chat display — tool calls", [
+        f("Keep tool groups collapsed by default", ["tog", false],
+          "Consecutive tool calls open collapsed; click to expand."),
+        f("Show tool result bodies", ["tog", true],
+          "Show what a tool returned, not just that it ran."),
+        f("Read", ["tog", true], "File reads.", { compact: true }),
+        f("Bash", ["tog", true], "Shell commands.", { compact: true }),
+        f("Edit / Write", ["tog", true], "File mutations.", { compact: true }),
+        f("Agent", ["tog", true], "Subagent spawns.", { compact: true }),
+        f("Other", ["tog", true], "Every remaining tool, incl. MCP tools.", { compact: true }),
+        f("Debug events", ["tog", false],
+          "Raw protocol traffic (flow:list-flows, resources_discover, …). Noisy — for diagnosing the bridge.",
+          { moved: "merged from Developer ▸ Chat Display" }),
+      ], "Which tool types appear in the stream. Hiding a type never stops the tool running."),
+    ],
+    notes: [
+      ["warn", "<b>Duplicate section resolved.</b> Today <i>General ▸ “Chat display”</i> and <i>Developer ▸ “Chat Display”</i> are two sections whose titles differ only in casing, and both govern debug-event visibility. Merged here into the tool-calls group."],
+    ],
+  },
+
+  server: {
+    label: "Server", group: "Dashboard",
+    before: [
+      S("Server", [
+        f("HTTP Port", ["num", 8000], null),
+        f("Pi Gateway Port", ["num", 8001], null),
+        f("Auto Shutdown", ["tog", false], "Shut the server down when idle."),
+        f("Idle Seconds Before Shutdown", ["num", 3600], "How long to stay idle first."),
+      ]),
+      S("Gateway", [
+        f("Enable Gateway", ["tog", true], "Expose the dashboard through a public tunnel."),
+        f("Enable Watchdog", ["tog", true], null),
+        f("Probe Interval (seconds)", ["num", 60], null),
+        f("Failure Threshold", ["num", 2], null),
+        f("Probe Timeout (seconds)", ["num", 10], null),
+      ]),
+      S("Memory Limits", [
+        f("Max Events Per Session", ["num", 20000], null),
+        f("Max String Truncation (chars)", ["num", 0], null),
+        f("Max WebSocket Buffer (bytes)", ["num", 4194304], null),
+      ]),
+    ],
+    after: [
+      S("Ports", [
+        f("HTTP port", ["num", 8000],
+          "Port the dashboard web UI and REST API listen on. Changing it needs a restart and breaks bookmarked URLs. Default 8000."),
+        f("Pi gateway port", ["num", 8001],
+          "Port pi sessions connect their bridge WebSocket to. Must be free and reachable from every machine running pi. Default 8001."),
+      ], "Both take effect on the next server restart."),
+      S("Idle shutdown", [
+        f("Shut down when idle", ["tog", false],
+          "Stop the server once no session has been active for the window below. Off keeps it running forever."),
+        f("Idle before shutdown", ["num", 3600, "s"],
+          "Idle time before shutting down. Counts from the last session event, not the last page view.", { indent: true }),
+      ]),
+      S("Memory limits", [
+        f("Max events per session", ["num", 20000],
+          "Ring-buffer size per session. Older events are trimmed from the middle so the chat head survives. 0 = unlimited (grows without bound). Default 20000."),
+        f("Truncate string fields at", ["num", 0, "chars"],
+          "Cut long strings inside stored events to this length. 0 = never truncate. Raise memory pressure relief here before lowering the event cap."),
+        f("Max WebSocket buffer", ["num", 4194304, "bytes"],
+          "Once a browser's outgoing buffer exceeds this, messages are dropped rather than queued — protects the server from one slow client. 0 = no limit. Default 4 MB."),
+      ]),
+    ],
+    notes: [
+      ["moved", "<b>Moved out →</b> the <code>Gateway ▸ Watchdog</code> block leaves this page. A whole <b>Gateway</b> page already exists under <i>Network</i>; having watchdog probe settings here and tunnel settings there is a split brain. See the Gateway page."],
+    ],
+  },
+
+  sessions: {
+    label: "Sessions", group: "Dashboard",
+    before: [
+      S("Sessions", [
+        f("+Session Strategy", ["select", "Headless"], null),
+        f("Reattach Placement", ["select", "Always move to top (default)"],
+          "When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list."),
+        f("Reopen sessions after shutdown", ["select", "Ask (default)"],
+          "When sessions were running when the machine shut down or crashed, offer to reopen them on next launch."),
+        f("Put completed session first", ["tog", false],
+          "When a session finishes a turn or ends, move its card to the top of its tier."),
+        f("Put question session first", ["tog", true],
+          "When a session asks a question (ask_user), move its card to the top of the active tier."),
+        f("ask_user Prompt Timeout (seconds)", ["num", 300],
+          "How long an interactive ask_user prompt waits for an answer before auto-cancelling."),
+        f("+Session register timeout (ms)", ["num", 30000], null),
+        f("Show worktree spawn buttons in folders and OpenSpec rows", ["tog", true],
+          "UI preference only. Hides the folder +Worktree button and the per-change ⥂2+ button."),
+        f("Auto-name sessions", ["tog", true],
+          "Let pi automatically name new sessions by their topic using the fast model."),
+        f("Worktree auto-init", ["tog", false],
+          "After spawning a worktree, automatically run its declared worktreeInit hook."),
+        f("Git & Bash source (Windows)", ["select", "Auto — host when installed, else bundled"],
+          "Takes effect for newly spawned sessions. macOS/Linux ignore this setting."),
+        f("Default Model", ["model"], null, { tagged: "position 12 of 13" }),
+        f("PWA Display Name", ["text", "", "(auto from hostname)"],
+          "Shown on the home screen / app drawer when the dashboard is installed as a PWA."),
+      ]),
+      S("Retry", [f("Enable retry", ["tog", true], "pi's own retry policy.")]),
+    ],
+    after: [
+      S("New session defaults", [
+        f("Default model", ["model"],
+          "Applied only to <b>brand-new</b> sessions. A resumed session keeps the model it was started with. Leave empty to use pi's own default.",
+          MODEL_HERO),
+        f("Session strategy", ["select", "Headless"],
+          "How <code>+Session</code> launches pi. <b>Tmux</b> keeps an attachable terminal you can join from a shell; <b>headless</b> runs detached and is lighter."),
+        f("Auto-name sessions", ["tog", true],
+          "Let pi name new sessions by their topic using the fast model, instead of the folder name."),
+        f("Git &amp; Bash source", ["select", "Auto — host when installed, else bundled"],
+          "Currently active: <b>host</b> — <code>C:\\Program Files\\Git\\bin\\git.exe</code>. Takes effect for newly spawned sessions.",
+          { tagged: "Windows" }),
+      ], "What a brand-new session gets when you press <code>+Session</code>."),
+      S("Session list", [
+        f("Reattach placement", ["select", "Always move to top (default)"],
+          "Where a still-alive session's card lands when the dashboard restarts and it reconnects."),
+        f("Put completed session first", ["tog", false],
+          "On turn end, move the card to the top of its tier (active, resp. ended). Off leaves it in place."),
+        f("Put question session first", ["tog", true],
+          "When a session calls <code>ask_user</code>, move its card to the top of the active tier so it can't be missed."),
+      ], "Where a card sits in the folder list. Never affects the session itself."),
+      S("Lifecycle &amp; recovery", [
+        f("Reopen sessions after shutdown", ["select", "Ask (default)"],
+          "Sessions running at shutdown or crash can be restored on next launch. <b>Ask</b> prompts, <b>Auto</b> restores silently, <b>Never</b> ignores them."),
+        f("Session register timeout", ["num", 30000, "ms"],
+          "How long to wait for a spawned session to call home before showing a warning card. Raise it on slow machines. Default 30000. Range 5000–120000."),
+        f("ask_user prompt timeout", ["num", 300, "s"],
+          "How long an interactive prompt waits for an answer before auto-cancelling the turn. <code>-1</code> or <code>0</code> waits forever. Default 300 (5 min)."),
+      ], "Startup, waiting and crash-recovery timing."),
+      S("Worktrees", [
+        f("Show worktree spawn buttons", ["tog", true],
+          "UI only. Hides the folder <code>+Worktree</code> button and the per-change <code>⥂2+</code> button on OpenSpec rows. The REST endpoints stay reachable for tooling."),
+        f("Auto-run <code>worktreeInit</code> hook", ["tog", false],
+          "After spawning a worktree, run its declared init hook — but only when that hook is already trusted. An untrusted hook still needs a manual <b>Initialize</b> click."),
+      ]),
+      S("Retry", [
+        f("Enable retry", ["tog", true],
+          "Retry a failed model request instead of failing the turn. Off makes every provider hiccup surface as a turn error."),
+        f("Max retries", ["num", 5],
+          "Attempts after the first failure. The turn fails once they're exhausted.", { indent: true }),
+        f("Base delay", ["num", 1000, "ms"],
+          "First backoff step; each retry doubles it. Schedule: 1s → 2s → 4s → 8s → 16s (total ≈ 31s).", { indent: true }),
+      ], "pi's own retry policy — unchanged, stays last."),
+    ],
+    notes: [
+      ["moved", "<b>Moved out →</b> <code>PWA Display Name</code> now lives on <b>General ▸ Interface</b>. It labels the installed web app; it has nothing to do with sessions."],
+    ],
+  },
+
+  openspec: {
+    label: "OpenSpec", group: "Extensions",
+    before: [
+      S("Background polling (OpenSpec)", [
+        f("Enable OpenSpec", ["tog", true], "Poll watched folders for OpenSpec changes."),
+        f("Poll Interval (seconds, 5–3600)", ["num", 60], null),
+        f("Max Concurrent +Sessions (1–16)", ["num", 4], null),
+        f("Change Detection", ["select", "mtime (skip unchanged proposals)"], null),
+        f("Jitter (seconds, 0–60)", ["num", 5], null),
+      ]),
+    ],
+    after: [
+      S("Background polling", [
+        f("Enable OpenSpec polling", ["tog", true],
+          "Watch registered folders for OpenSpec changes and spawn sessions for them. Off disables every setting below."),
+        f("Poll interval", ["num", 60, "s"],
+          "Time between scans of every watched folder. Lower reacts faster and costs more filesystem I/O. Range 5–3600.", { indent: true }),
+        f("Jitter", ["num", 5, "s"],
+          "Random offset added to each interval so many folders don't all scan on the same tick. 0 disables. Range 0–60.", { indent: true }),
+        f("Change detection", ["select", "mtime (skip unchanged proposals)"],
+          "<b>mtime</b> re-reads a proposal only when its file timestamp moved — cheap, but misses same-second edits. <b>always</b> re-reads every tick.", { indent: true }),
+        f("Max concurrent sessions", ["num", 4],
+          "Upper bound on sessions polling spawns at once. Each one is a full pi process — raise only if your machine has the RAM. Range 1–16.", { indent: true }),
+      ], "Watch OpenSpec folders and spawn sessions for new work automatically."),
+    ],
+    notes: [],
+  },
+};
+
+/* ═══ render ═══ */
+const railEl = document.getElementById('rail'), pageEl = document.getElementById('page');
+const crumb = document.getElementById('crumb');
+let cur = 'sessions', showAfter = true;
+
+const coverage = (secs) => {
+  let t = 0, h = 0;
+  secs.forEach(s => s.rows.forEach(r => { t++; if (r.hint) h++; }));
+  return { t, h, pct: t ? Math.round(h / t * 100) : 100 };
+};
+
+function control(ctl, id, label) {
+  const [k, v, extra] = ctl;
+  if (k === 'tog') return `<button class="tog" role="switch" aria-checked="${v}" id="${id}" aria-label="${label}"></button>`;
+  if (k === 'num') return `<input type="number" id="${id}" value="${v}" aria-label="${label}">`;
+  if (k === 'text') return `<input type="text" id="${id}" value="${v}" placeholder="${extra || ''}" aria-label="${label}">`;
+  if (k === 'model') return `<button class="model-btn" id="${id}" aria-label="${label}"><span style="display:flex;align-items:center;gap:7px"><span class="dot"></span>anthropic / claude-sonnet-4-6</span><span><span class="badge">🧠</span> <span class="badge">👁</span> ▾</span></button>`;
+  return `<select id="${id}" aria-label="${label}"><option>${v}</option><option>Other option…</option></select>`;
+}
+
+function renderRow(r, i) {
+  const id = `c${i}`;
+  const unit = r.ctl[2] && r.ctl[0] === 'num' ? `<span class="tag">${r.ctl[2]}</span>` : '';
+  const tag = r.tagged ? `<span class="tag">${r.tagged}</span>` : '';
+  const moved = r.moved ? `<span class="tag">${r.moved}</span>` : '';
+  const label = `<label class="lab" for="${id}">${r.label}${unit}${tag}${moved}</label>`;
+  const plain = r.label.replace(/<[^>]+>/g, '');
+  if (r.hero) {
+    return `<div class="hero"><div class="top"><span class="lbl">✦ ${plain}</span>${control(r.ctl, id, plain)}</div>
+      <p class="hint">${r.hint}</p></div>`;
+  }
+  const body = `<div class="row">${label}${control(r.ctl, id, plain)}</div>` +
+    (r.hint ? `<p class="hint">${r.hint}</p>` : `<p class="nohint">⚠ no description — user must guess</p>`);
+  return `<div${r.indent ? ' style="padding-left:14px;border-left:2px solid var(--border-primary)"' : ''}>${body}</div>`;
+}
+
+function render() {
+  // rail
+  const groups = {};
+  Object.entries(PAGES).forEach(([k, p]) => (groups[p.group] ||= []).push([k, p]));
+  railEl.innerHTML = Object.entries(groups).map(([g, items]) => `<div class="grp">${g}</div>` +
+    items.map(([k, p]) => {
+      const c = coverage(showAfter ? p.after : p.before);
+      const cls = c.pct === 100 ? 'ok' : c.pct >= 50 ? 'mid' : 'bad';
+      return `<button data-p="${k}" ${k === cur ? 'aria-current="page"' : ''}>${p.label}<span class="cov ${cls}">${c.pct}%</span></button>`;
+    }).join('')).join('');
+  railEl.querySelectorAll('button').forEach(b => b.onclick = () => { cur = b.dataset.p; render(); pageEl.focus(); });
+
+  // page
+  const p = PAGES[cur], secs = showAfter ? p.after : p.before, c = coverage(secs);
+  crumb.textContent = `Settings ▸ ${p.label} — ${showAfter ? 'proposed' : 'current'}`;
+  let i = 0;
+  pageEl.innerHTML = `
+    <div class="pagehead"><h2>${p.label}</h2>
+      <span class="cov ${c.pct === 100 ? 'ok' : c.pct >= 50 ? 'mid' : 'bad'}">${c.h}/${c.t} options described</span>
+      <p>${showAfter ? 'Proposed grouping. Every option carries a one-line description.' : 'Current shipping layout.'}</p></div>
+    ${secs.map(s => `<section><h3 class="sec">${s.title}</h3>${s.hint ? `<p class="sec-hint">${s.hint}</p>` : ''}
+      <div class="rows">${s.rows.map(r => renderRow(r, i++)).join('')}</div></section>`).join('')}
+    ${showAfter ? (p.notes || []).map(([k, html]) => `<div class="${k}">${html}</div>`).join('') : ''}`;
+
+  pageEl.querySelectorAll('.tog').forEach(t => t.onclick = () =>
+    t.setAttribute('aria-checked', t.getAttribute('aria-checked') === 'true' ? 'false' : 'true'));
+}
+
+const bB = document.getElementById('b-before'), bA = document.getElementById('b-after');
+bB.onclick = () => { showAfter = false; bA.setAttribute('aria-pressed', 'false'); bB.setAttribute('aria-pressed', 'true'); render(); };
+bA.onclick = () => { showAfter = true; bA.setAttribute('aria-pressed', 'true'); bB.setAttribute('aria-pressed', 'false'); render(); };
+const tD = document.getElementById('t-dark'), tL = document.getElementById('t-light');
+tD.onclick = () => { document.documentElement.dataset.theme = 'dark'; tD.setAttribute('aria-pressed', 'true'); tL.setAttribute('aria-pressed', 'false'); };
+tL.onclick = () => { document.documentElement.dataset.theme = 'light'; tL.setAttribute('aria-pressed', 'true'); tD.setAttribute('aria-pressed', 'false'); };
+render();
+</script>
+</body>
+</html>

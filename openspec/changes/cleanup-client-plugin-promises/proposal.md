@@ -81,8 +81,8 @@ risk profile, not client risk profile): `packages/electron` — 6 misused
 (`main.ts:531,557,607,654`, `server-lifecycle.ts:454`, `doctor-window.ts:52`)
 plus 1 floating (`main.ts:675`).
 
-Floating graduation accounting: **143 = 88 (this change) + 54 (sibling: server
-17 + extension 37) + 1 (electron `main.ts:675`, handed to the sibling by D3).**
+Floating graduation accounting: **143 = 88 (this change) + 55 (sibling: server
+17 + extension 37 + electron `main.ts:675`, handed over by D3).**
 Misused: **11 = 5 (this change) + 6 (electron, handed to the sibling by D3).**
 
 **The electron handoff is a hard precondition, not a note.** As of this change's
@@ -198,8 +198,8 @@ rather than assume the other's patch still applies.
 
 - `code-quality-loop` — discharges the ratchet precondition for
   `noMisusedPromises` fully, and for `noFloatingPromises` jointly with
-  `cleanup-async-semantics-server-extension` (this change clears 88 of the 142
-  unique floating sites; that one clears the remaining 54 — server 16, extension
+  `cleanup-async-semantics-server-extension` (this change clears 88 of the 143
+  unique floating sites; that one clears the remaining 55 — server 17, extension
   37, electron 1).
 
 ## Non-Goals

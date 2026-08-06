@@ -20,6 +20,7 @@ TESTS=(
   "10-faux-model.sh"            # faux prompt round-trip; skips (SKIP: + exit 0) when pi absent. See change: add-faux-model-integration-tests.
   "13-openspec-offline-regen.sh" # offline `npx --no-install openspec init` regen stamps generatedBy 1.6.0. See change: provision-openspec-cli-in-sessions.
   "14-pi-resources-parity.sh"   # /api/pi-resources p95 budget + companion-file / bundled-command probes. See change: fix-skill-discovery-parity.
+  "15-omit-dev-build.sh"        # `npm/pnpm install --omit=dev` client build (#357); arm 2 skips below Node 26. See change: fix-pi-install-node26-and-omit-dev-build.
 )
 
 PASSED=0

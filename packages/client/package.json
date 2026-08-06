@@ -36,6 +36,7 @@
     "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-subagents-plugin": "^0.7.0",
     "@dnd-kit/core": "^6.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@git-diff-view/core": "^0.1.3",
@@ -45,6 +46,7 @@
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1",
     "@monaco-editor/react": "^4.7.0",
+    "@tailwindcss/vite": "^4.1.0",
     "@tanstack/react-virtual": "3.13.12",
     "@xterm/addon-attach": "^0.12.0",
     "@xterm/addon-fit": "^0.11.0",
@@ -67,12 +69,14 @@
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "tailwindcss": "^4.1.0",
+    "tsx": "^4.21.0",
+    "vite": "^6.0.0",
     "wouter": "^3.9.0",
     "yaml": "^2.6.1"
   },
   "devDependencies": {
     "@blackbelt-technology/demo-plugin": "^0.7.0",
-    "@tailwindcss/vite": "^4.1.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/dompurify": "^3.0.5",
@@ -80,11 +84,8 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "@vitejs/plugin-react": "^4.3.4",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^25.0.1",
-    "tailwindcss": "^4.1.0",
-    "vite": "^6.0.0",
     "vitest": "^4.0.0"
   }
 }

@@ -105,19 +105,36 @@
     "add-chat-gateway": "next-phase",
     "distill-hermes-memory-into-skills": "next-phase",
     "add-codegraph-code-plane": "next-phase",
-    "add-apple-tools-imcp-plugin": "ui",
-    "fit-attachments-for-display": "ui"
+    "fit-attachments-for-display": "ui",
+    "drag-folders-across-workspaces": "ui",
+    "plugin-settings-pages": "ui",
+    "serialize-bridge-message-pump": "ui",
+    "restore-ask-user-tool-state-on-reconnect": "ui",
+    "fix-skill-discovery-parity": "ui",
+    "project-scope-disable-global-resources": "ui",
+    "fix-pi-install-node26-and-omit-dev-build": "ui",
+    "reorganize-settings-pages-and-descriptions": "ui",
+    "cleanup-undeclared-dependencies": "ui",
+    "split-notify-from-prompt-request": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
-      "fix-pi-install-node26-and-omit-dev-build",
       "add-mid-turn-tool-oauth",
       "add-skill-tool-provisioning",
       "implement-it",
       "ship-browser-skill-and-electron-cdp",
-      "drag-folders-across-workspaces",
-      "serialize-bridge-message-pump",
-      "plugin-settings-pages"
+      "add-apple-tools-imcp-plugin",
+      "add-session-step-table",
+      "anchor-chat-selection-against-row-growth",
+      "cleanup-client-plugin-promises",
+      "cleanup-import-cycles",
+      "fix-openspec-board-drop-targeting",
+      "make-test-suite-deterministic",
+      "add-semgrep-knip-oracles",
+      "add-typeaware-lint-gate",
+      "cleanup-async-semantics-server-extension",
+      "fix-kb-search-retrieval-quality",
+      "wire-local-review-gate"
     ],
     "kowledge-base": [
       "add-lora-dataset-export-skill",
@@ -127,8 +144,11 @@
       "memory-retrieval-injection"
     ],
     "ui": [
+      "split-notify-from-prompt-request",
       "fit-attachments-for-display",
-      "add-apple-tools-imcp-plugin"
+      "fix-pi-install-node26-and-omit-dev-build",
+      "cleanup-undeclared-dependencies",
+      "reorganize-settings-pages-and-descriptions"
     ],
     "next-phase": [
       "add-codegraph-code-plane",

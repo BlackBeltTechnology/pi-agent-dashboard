@@ -125,22 +125,24 @@ describe("isOutOfEnginesRange", () => {
     expect(isOutOfEnginesRange("v22.19.0")).toBe(false);
   });
 
-  it("returns false for v22.22.x, v23.x, v24.x, v25.x within range", () => {
+  it("returns false for v22.22.x, v23.x, v24.x, v25.x, v26.x within range", () => {
     expect(isOutOfEnginesRange("v22.22.2")).toBe(false);
     expect(isOutOfEnginesRange("v23.5.0")).toBe(false);
     expect(isOutOfEnginesRange("v24.15.0")).toBe(false);
     expect(isOutOfEnginesRange("v25.0.0")).toBe(false);
     expect(isOutOfEnginesRange("v25.9.0")).toBe(false);
+    expect(isOutOfEnginesRange("v26.0.0")).toBe(false);
+    expect(isOutOfEnginesRange("v26.8.1")).toBe(false);
   });
 
-  it("returns true for v26.x and above (engines cap)", () => {
-    expect(isOutOfEnginesRange("v26.0.0")).toBe(true);
-    expect(isOutOfEnginesRange("v26.8.1")).toBe(true);
+  it("returns true for v27.x and above (engines cap)", () => {
     expect(isOutOfEnginesRange("v27.0.0")).toBe(true);
+    expect(isOutOfEnginesRange("v28.4.2")).toBe(true);
   });
 
   it("accepts versions without the v prefix", () => {
-    expect(isOutOfEnginesRange("26.0.0")).toBe(true);
+    expect(isOutOfEnginesRange("26.0.0")).toBe(false);
+    expect(isOutOfEnginesRange("27.0.0")).toBe(true);
     expect(isOutOfEnginesRange("22.19.0")).toBe(false);
     expect(isOutOfEnginesRange("25.0.0")).toBe(false);
   });
@@ -154,21 +156,32 @@ describe("isOutOfEnginesRange", () => {
 
 describe("buildEnginesRangeMessage", () => {
   it("interpolates the running version", () => {
-    expect(buildEnginesRangeMessage("v26.0.0")).toContain("v26.0.0");
+    expect(buildEnginesRangeMessage("v27.0.0")).toContain("v27.0.0");
   });
 
   it("names the engines range", () => {
-    expect(buildEnginesRangeMessage("v26.0.0")).toMatch(/>=22\.19\.0 <26/);
+    expect(buildEnginesRangeMessage("v27.0.0")).toMatch(/>=22\.19\.0 <27/);
   });
 
-  it("explains the EBADENGINE / floor link", () => {
-    const msg = buildEnginesRangeMessage("v26.0.0");
+  it("explains the EBADENGINE / engines-range link", () => {
+    const msg = buildEnginesRangeMessage("v27.0.0");
     expect(msg).toMatch(/EBADENGINE/);
     expect(msg).toMatch(/floor/);
   });
 
+  // Full remediation contract in one probe at the new refusal boundary.
+  // See change: fix-pi-install-node26-and-omit-dev-build (test-plan #E4).
+  it("names the version, the new range, and every remediation route", () => {
+    const msg = buildEnginesRangeMessage("v27.0.0");
+    expect(msg).toContain("cannot start on Node v27.");
+    expect(msg).toContain("Required: >=22.19.0 <27");
+    expect(msg).toContain("nvm install");
+    expect(msg).toContain('PATH="$HOME/.pi-dashboard/node/bin');
+    expect(msg).toContain("brew install node");
+  });
+
   it("suggests bundled-node escape hatch", () => {
-    const msg = buildEnginesRangeMessage("v26.0.0");
+    const msg = buildEnginesRangeMessage("v27.0.0");
     expect(msg).toMatch(/\.pi-dashboard\/node\/bin/);
   });
 });
