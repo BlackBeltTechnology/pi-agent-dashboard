@@ -722,6 +722,110 @@ Failure modes (placeholders are visible, not silent):
 
 See change: `chat-markdown-local-images-and-math`.
 
+### User image attachments — two-phase display fit
+
+Distinct path from local-image inlining above.
+That feature rides existing event/asset stream.
+Adds no HTTP route.
+This one adds `GET /api/sessions/:sessionId/attachments/:attachmentId`.
+Same `{type:"image"}` events.
+Different handling.
+
+**Problem.** pi delivers pasted screenshots as full-resolution base64 inside the event. Shape: `{type:"image", data, mimeType}`. `memory-event-store.ts` bounds each event by total serialized size. Over-ceiling event data replaced by `{__truncated}` placeholder. Result: image-bearing user message lost `data.message` entirely. Row never rendered. Silent. Measured size distribution n=1587 over 3137 transcripts: p50 125.7 KB, p90 757.3 KB, p99 2233.3 KB, max 10.5 MB.
+
+**Design.** Fit each image block to a DISPLAY derivative before store.
+768 px long edge.
+JPEG q75 when re-encoding.
+`DEFAULT_MAX_EVENT_DATA_SIZE` raised 20_000 -> 262_144 (256 KiB).
+Raise sound only WITH the fit.
+Raw payloads at 256 KiB cover just 74.9%.
+Fitted output bounded.
+`DEFAULT_TRANSCRIPT_CAP_BYTES` derives 0.75 x ceiling.
+Moves 15 KB -> 192 KiB (D9, accepted, coupling kept).
+
+**Two-phase flow** (key data-flow fact):
+
+```mermaid
+sequenceDiagram
+    participant pi as pi (agent)
+    participant bridge as Bridge (extension)
+    participant server as Dashboard server
+    participant fit as Fit worker pool
+    participant client as Browser (event-reducer)
+
+    pi->>bridge: pasted screenshot<br/>{type:"image", data: base64, mimeType}
+    bridge->>server: event_forward (image event)
+    server->>server: prepareEventForIngest()<br/>(attachment-ingest.ts) strips image bytes
+    server->>server: placeholder block<br/>{data:"", attachmentId, attachmentState:"pending"}<br/>attachmentId = sha256(original base64)
+    server->>client: row event stored + broadcast IMMEDIATELY
+    server->>fit: fit-worker-pool.ts fits off main loop<br/>(768px long edge, JPEG q75)
+    fit-->>server: fitted derivative
+    server->>client: SEPARATE stored+broadcast attachment_fitted<br/>{attachmentId, data, mimeType, state:"ready"|"failed"}
+    client->>client: event-reducer.ts patches pending block by attachmentId
+    client->>client: user clicks image → lightbox (fitted derivative as fallbackSrc)
+    client->>server: GET /api/sessions/:sessionId/attachments/:attachmentId<br/>(original bytes, zoom view)
+```
+
+- Phase 1: `prepareEventForIngest()` (`packages/server/src/attachments/attachment-ingest.ts`) strips image bytes, leaves placeholder block `{data:"", attachmentId, attachmentState:"pending"}`. Row event stored + broadcast IMMEDIATELY.
+- Phase 2: `fit-worker-pool.ts` fits off the main loop. `attachment-resolver.ts` emits a SEPARATE stored+broadcast event `attachment_fitted` with `{attachmentId, data, mimeType, state:"ready"|"failed"}`.
+- In-process fallback (workers disabled/unspawnable) capped at pool `size`. Unbounded fallback ran N concurrent jimp decodes on the MAIN thread. Exact event-loop stall the pool exists to prevent.
+- Client reducer (`event-reducer.ts`) patches the pending block by `attachmentId`.
+- `attachmentId` = sha256 of the ORIGINAL base64. Content-addressed.
+- Addressed by hash NOT by seq: client live fold is append-only and never sees a seq; replay can reorder; hash is also the originals-endpoint key.
+- One resolution patches EVERY occurrence of that hash (same screenshot pasted twice shares one id).
+- BOTH ingest paths fit: live `event-wiring.ts` AND session hydration in `subscription-handler.ts`. Hydration rebuilds events from the transcript with full-resolution bytes, so skipping it would re-trigger the original bug on reload.
+
+**MIME admission.** `image-mime.ts` (`packages/server/src/attachments/image-mime.ts`) single source of truth for which inline image mimes the pipeline takes OWNERSHIP of. Exports `isFittableImageMime(mime)`. Two gates consume it, MUST agree: `prepareEventForIngest` (what to strip into pending) + `fitImageBlockForDisplay` (what it can fit). They diverged once. Ingest stripped ANY image block. Fit returned non-allow-listed mime UNCHANGED. Resolution event then carried full-resolution bytes it existed to replace. Busted per-event ceiling. Truncated. Block stranded on "pending" forever. Block rejected here never PROMISED a resolution. Stays inline under existing ceiling. `image/svg+xml` absent on purpose. Script-bearing markup, not safely re-encodable bitmap. Deliberately jimp-free. Ingest path runs on the event loop for EVERY event.
+
+**Input-size guard.** Every other budget in module measures OUTPUT. `Jimp.read` allocates `width*height*4`. Driven by the HEADER. 20000x20000 PNG: few KB on the wire, ~1.6 GB decoded. Guard parses declared w/h from PNG/GIF/JPEG/WebP header. No pixel decode. Refuses >40 MP or >25 MB BEFORE decode. Constants `DISPLAY_MAX_DECODE_PIXELS` = 40_000_000, `DISPLAY_MAX_INPUT_BYTES` = 25_000_000. Exports `readImageDimensions(bytes)`. Fails CLOSED. Unparseable header ⇒ `failed`, never unbounded decode. 40 MP clears any real screen capture. 6K display ~20 MP.
+
+**Budget guarantee.** `DISPLAY_MAX_BYTES` = 240_000. Measured in BASE64 bytes (what the store stores). Below 256 KiB ceiling with envelope headroom. Fit enforces the budget. PNG first. Then JPEG quality ladder 75/60/45/30. Then up to 2 halvings. Reports `failed` if it cannot comply. Reason: over-budget derivative makes its OWN `attachment_fitted` event exceed the ceiling -> `{__truncated}` -> `attachmentId` destroyed -> placeholder stuck pending forever.
+
+**Originals endpoint.** `GET /api/sessions/:sessionId/attachments/:attachmentId` (`packages/server/src/routes/attachment-routes.ts`).
+Backed by session transcript (`original-store.ts`).
+Transcript already holds full-resolution bytes.
+No new durable store.
+Eviction inherently safe.
+Transcript scanned line-by-line.
+Peak memory bounded by largest entry, not file size.
+NOT load-bearing.
+Fitted image already inline.
+Failure degrades only the zoom view.
+Client passes fitted derivative as lightbox `fallbackSrc`.
+
+Gates, in order: `networkGuard`; session exists + has `sessionFile`, else 404.
+Then id shape-checked `^[0-9a-f]{64}$` (400).
+Check precedes transcript recovery, not every lookup.
+Request input never becomes a path component.
+Lookup scoped to that session's transcript.
+Valid digest from another session simply not found.
+No ownership table needed.
+Allow-list png/jpeg/jpg/gif/webp.
+`image/jpg` added. Alias of already-served format.
+Was fittable but not servable.
+Rendered fitted, 404'd on zoom.
+Test asserts invariant: fittable ⊆ servable.
+Lists cannot drift apart silently again.
+Serving stays stricter in general.
+`image/svg+xml` refused by both.
+Unknown session + unknown hash both return 404.
+Route cannot probe which session ids exist.
+Responses carry `nosniff` + `default-src 'none'; sandbox`.
+Cache-Control: `no-store, private`.
+Endpoint authenticated.
+Serves private user screenshots.
+Year-long `max-age` persisted bytes to browser/proxy disk caches.
+Bytes outlived session + credential that unlocked them (CWE-524).
+Content-addressing makes bytes immutable.
+Does NOT make them safe to persist.
+Cost: zoom re-fetches each time.
+Thumbnail unaffected.
+Fitted derivative already inline.
+
+**Animated GIF.** Exempt from fitting (D11). Resize would flatten animation. Detected by counting Image Descriptor `0x2C` blocks, short-circuit at 2. Stays subject to the existing ceiling.
+
+See change: fit-attachments-for-display.
+
 ### Edit Tool Diff Rendering (desktop vs mobile)
 `ToolCallStep` gates renderer mounting with `{expanded && <Renderer />}` — Edit cards default to collapsed, so no diff tokenization runs until the user expands. On expand, `EditToolRenderer` branches on `useMobile()` (the project-wide `width < 768px OR height < 600px` predicate):
 - **Desktop** (`!isMobile`): renders `<RichDiff oldText newText filePath maxHeight="20rem" />` — syntax-highlighted via `@git-diff-view/react` + lowlight, matching `FileDiffView` quality; height capped for chat scroll UX.
@@ -1060,6 +1164,65 @@ Why a separate system? Pi's `DefaultPackageManager` only manages packages listed
 
 Core update progress delivered via typed `pi_core_update_progress` / `pi_core_update_complete` browser-protocol messages (not `package_progress` channel). Fanned out to `UnifiedPackagesSection` + `PiUpdateBadge` via `pi-core-event` DOM event. Successful core update triggers `/reload` to connected pi sessions, same as extension updates.
 
+### Project-scope disable of global resources
+
+Disabling a resource for one project writes the pi-standard settings form for the resource's *origin*. Writer: `packages/server/src/pi/resource-activation-toggle.ts`. pi itself enforces the result — no dashboard-side enforcement, no spawn flags. Endpoint: `POST /api/resources/toggle`.
+
+**Origin classification — by path, never by metadata.**
+
+- Longest-prefix match of the resolved absolute path against candidate base dirs.
+- Candidates: every package root, every `.agents` base dir pi reported, `<cwd>/.pi`, `~/.pi/agent`, `~/.agents`. Module: `resource-origin.ts::collectOriginCandidates`.
+- NOT by `metadata.scope` / `metadata.source` / `metadata.baseDir`.
+- A project-scope disable of a global resource mutates exactly those fields: `scope` → `project`, `source` → `local`, `baseDir` undefined.
+- Metadata-keyed classifier cannot recognise, on re-enable, the resource it re-declared. Path stable across the operation; metadata not.
+- Longest-prefix order-independent. `cwd === $HOME` makes `<cwd>/.pi` a strict ancestor of `~/.pi/agent`; an ordered scan would misclassify.
+
+**Four origins, four project-scope forms:**
+
+| origin | written form |
+|---|---|
+| loose under `<cwd>/.pi` | `-<rel to .pi>` in `skills`/`extensions`/`prompts`/`themes` |
+| loose under an `.agents` base dir | `-<rel to that base dir>` |
+| package-contributed | `{ source, autoload: false, <type>: ["-<rel to package root>"] }` in `packages` |
+| loose under a global base dir | resource's own FILE as `~`-prefixed plain entry + anchored glob exclusion `!**/<agent dir rel to home>/<rel>` |
+
+**Package delta rules.**
+
+- `autoload: false` mandatory on a project delta; destructive to omit. Without it pi resolves the entry at project scope, misses the user install path, drops the package's entire contribution.
+- Delta form project-scope only. At global scope `dedupePackages` discards a second same-scope entry; the toggle mutates the existing entry in place.
+- Entries matched by normalised identity, never raw source string. npm → name without version. git → host/path unified across SSH + HTTPS. local → resolved path. (`packageIdentity` mirrors pi's `getPackageIdentity`.)
+- A genuinely project-owned non-delta entry keeps ordinary filter semantics; never gains `autoload: false`.
+
+**Global-loose rules.**
+
+- Re-declares the resource's own FILE, never a directory. Prompts, themes and flat `.md` skills have the shared root as their directory; re-declaring a root pulls every sibling into project-scope pattern evaluation.
+- Exclusion is an anchored glob. Absolute path machine-local; `~` pattern inert everywhere (`normalizeExactPattern` never expands `~`).
+- Re-enable removes the exclusion and writes nothing in its place. No `+` force-include.
+- Re-declared resource reports `scope: project` / `source: local`.
+
+**Ownership, trust, tracking.**
+
+- Plain-entry ownership recorded in `~/.pi/dashboard/resource-entry-ownership.json`, NOT in `.pi/settings.json`. Keeps the settings file pi-standard, one settings write per toggle, ownership machine-local.
+- Re-enable removes the plain entry only when this dashboard wrote it (`resource-entry-ownership.ts`). Un-owned entry left behind; residue inert.
+- `<cwd>/.pi/settings.json` git-tracked → a project-scope disable shared with collaborators + inherited by every worktree.
+- `POST /api/resources/trust` — persists a project-trust decision through pi's `ProjectTrustStore`. Client names an option id only (`trust` / `trust-parent` / `decline`); server re-derives that option's updates via `trustOptionsFor`. Requires an outstanding trust challenge raised by a real toggle — none → 409.
+- Toggle returns `trust_required` (403) when the folder needs a decision; client presents the dialog, then retries. Gate: `resource-toggle-trust.ts::resolveToggleTrust`.
+
+**`defaultProjectTrust` consequence.**
+
+- Toggle guarantees an explicit recorded trust decision exists after the write.
+- EXCEPT `defaultProjectTrust: always` — proceeds WITHOUT recording. Deliberate: folders the user merely toggled are not enrolled into a durable trust record.
+- CONSEQUENCE: tightening `always` → `ask`/`never` later stops previously written disables applying until the folder is trusted explicitly.
+- Writing `.pi/settings.json` itself makes a folder trust-requiring (`TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES` begins with `settings.json`). First toggle in a fresh folder prompts once where pi would not have.
+
+**Settings-write caveat.**
+
+- pi's write is NOT JSONC-preserving. `persistScopedSettings` does a whole-file `JSON.parse` → `JSON.stringify(mergedSettings, null, 2)` round trip: comments discarded, file reformatted.
+- A settings file containing comments fails to parse; pi retains `projectSettingsLoadError` and `saveProjectSettings` returns WITHOUT writing.
+- The toggle fails loudly (409) on a settings load error instead of reporting success.
+
+Only newly-started sessions see a change: `PackageManager.resolve()` runs at session start. `/api/resources/reload` reloads affected sessions. See change: project-scope-disable-global-resources.
+
 ### Settings → Packages tab
 
 - Settings tab renders single `<UnifiedPackagesSection>`.
@@ -1367,6 +1530,45 @@ Without the `session_state_reset` message (full replay path), replayed events wo
 **Replay status suppression**: During step 5, replayed events like `agent_start`/`agent_end` would normally trigger rapid `session_updated` broadcasts (e.g., `status: "streaming"` → `status: "idle"` for each turn), causing visible flicker on session cards. The server suppresses these status broadcasts while replaying, accumulating them in the session manager. Only the final status is broadcast after `replay_complete`. A 5-second safety timeout ensures the flag is cleared even if `replay_complete` never arrives (e.g., older bridge versions).
 
 **Agent streaming state recovery**: The bridge tracks `isAgentStreaming` in process-level `BridgeState` (survives reload). Set `true` on `agent_start`, `false` on `agent_end`/`session_shutdown`. Since the replay doesn't include `agent_start`/`agent_end` events, the session status would otherwise stay "active" (displayed as "Waiting for input") when the agent is mid-turn during reconnect.
+
+### ask_user Tool-State Restoration (bridge reconnect)
+
+Change: `restore-ask-user-tool-state-on-reconnect`. `ask_user` `tool_execution_start` is NOT a transcript entry, so never replayed. Bridge reconnect ends with synthetic `agent_start` that cleared `currentTool`. Prompt-blocked session rendered "Thinking…" forever. Two registries + derived-field fold fix it.
+
+#### Two prompt registries (NOT the same map)
+- `pendingUiRequests` — extension UI RPC prompts. Written by `trackUiRequest`; read by `hasPendingUiRequest()`.
+- `pendingPromptRequests` — PromptBus prompts. Written by `trackPromptRequest`; read by `hasPendingPromptRequests()`.
+- Both live in `packages/server/src/pairing/browser-gateway.ts`. Accessors return ids / booleans, never prompt payloads.
+- `onUnregister` clears BOTH via `clearPendingRequestsForSession(sessionId)`.
+- Leak ⇒ permanent `hasPendingAsk: true` ⇒ session never reapable.
+
+#### `currentTool` derived-field contract
+- `DashboardSession.currentTool` derived from live pi events by `extractSessionUpdates()` in `packages/server/src/session/event-status-extraction.ts`.
+- `tool_execution_start` → toolName. `tool_execution_end` → null. `agent_start` → null + streaming. `agent_end` → null + idle.
+- Two code paths → two mechanisms:
+  - M1 fold — `extractSessionUpdates(event, hasPendingPrompt)`. Event-derived update would leave `currentTool` empty + prompt pending ⇒ writes `"ask_user"`. LIVE events only, never replay. Function stays pure.
+  - M2 direct writes — `prompt_request` / `prompt_dismiss` / `prompt_cancel` branches in `packages/server/src/event-wiring.ts` sit OUTSIDE the `event_forward` block; never reach extractor. Write for themselves.
+- Precedence: live tool always wins. `tool_execution_start{bash}` → `bash`; registry not consulted.
+- `hasPendingPrompt: false` output byte-identical to pre-change.
+- `prompt_request` branch trigger-complete: evaluates unread trigger + `questionFirst` reorder itself. Correctness independent of race vs `tool_execution_start`.
+- New legal field pair: `status: "idle"` + `currentTool: "ask_user"` (agent_end while prompt pending).
+
+#### Replay exit reconcile
+- Both exits — `replay_complete` and 5s safety timeout — run reconcile → recompute → drain, fixed order.
+- `reconcilePromptRequests(sessionId, promptIds)` treats bridge re-sent `prompt_request` burst as authoritative snapshot; drops tracked entries absent. Recovers `prompt_dismiss` lost across socket drop.
+- Recompute one-directional: registry non-empty ⇒ `"ask_user"`; registry empty ⇒ leave event-derived value untouched.
+- Drain applies to ephemeral per-replay set (`replayPromptIds`), NEVER durable registry. Durable one backs browser-refresh dialog replay.
+- `replay_complete` guarded by `if (replayingSessions.delete(sessionId))` — only FIRST exit acts. OpenSpec-state cleanup OUTSIDE guard (idempotent); replay slower than 5s does not lose it.
+
+#### Reaper pending-ask union
+- `embed-lifecycle-controller.ts` wires `hasPendingAsk: (id) => hasPendingUiRequest(id) || hasPendingPromptRequests(id)`.
+- Explicit, not `currentTool` accident: `currentTool` vetoes only idle gear; `streamingGearVerdict` reads `hasPendingAsk`, never `currentTool`.
+
+#### Restart preserves gateway port
+- `packages/server/src/spawn-process/restart-helper.ts` propagates `--pi-port` alongside `--port`.
+- Without it: restarted server re-resolves `piPort` from file config (usually absent) ⇒ fallback 9999. Live pi bridges still dial old port; fail to re-register. Sessions vanish after restart.
+
+See change: `restore-ask-user-tool-state-on-reconnect`.
 
 ### Session File Deduplication
 When pi continues a session via `--session <file>`, it reuses the same JSONL file but may create a new session ID. The server detects this: when a new session registers with a `sessionFile` already associated with another session, the old session's `sessionFile` is cleared. This prevents the Resume button from loading the wrong conversation.

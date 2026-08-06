@@ -2162,6 +2162,35 @@ Cross-refs:
 - docs/architecture.md \u2014 Plugin Architecture \u2192 Plugin Bridge Registration
 - packages/shared/src/plugin-bridge-register.ts
 
+## I disabled a global skill for this project and it came back — why?
+
+Pre-fix: project-scope toggle wrote relative force-exclude — `-skills/<name>/SKILL.md` — for globally-defined resource.
+pi evaluates relative pattern against resource's OWN base directory.
+Global skill resolves against `~/.pi/agent`.
+Pattern matched nothing.
+Entry inert.
+pi still reported enabled.
+Toggle looked like success.
+
+Fix: disabling global-loose resource re-declares resource's own FILE as `~`-prefixed plain entry plus anchored glob exclusion — `~/.pi/agent/skills/<name>/SKILL.md` + `!**/.pi/agent/skills/<name>/**`.
+pi matches both forms.
+
+- Only NEWLY STARTED sessions see the change.
+- `PackageManager.resolve()` runs at session start.
+- Use the Reload affordance.
+- Untrusted folder: toggle now prompts for trust decision instead of silently succeeding.
+- pi ignores folder's `.pi/settings.json` without recorded trust decision.
+- Unparseable `.pi/settings.json` (e.g. containing comments): toggle now fails loudly (HTTP 409) instead of reporting success.
+- pi's write is whole-file `JSON.parse` → `JSON.stringify` round trip.
+- Comments fail the parse.
+- pi silently skips the write.
+
+See change: project-scope-disable-global-resources.
+
+Cross-refs:
+- packages/server/src/pi/resource-activation-toggle.ts
+- docs/architecture.md — Project-scope disable of global resources
+
 ## Why does abort feel slow on parallel flows?
 
 pi-flows < 0.2.x bug: `Promise.all` over child flows did not race the AbortSignal. Children aborted at iteration boundaries; parent awaited all in-flight branches. Abort latency = slowest child remaining work, not signal-to-unwind time.

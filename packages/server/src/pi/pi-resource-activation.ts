@@ -42,10 +42,21 @@ export interface ResolvedPaths {
   themes: ResolvedResource[];
 }
 
-/** pi package-source entry: bare string or object filter form. */
+/**
+ * pi package-source entry: bare string or object filter form. `autoload: false`
+ * marks a project-scope *delta* over a package the user declared globally —
+ * pi then resolves the package from the user install instead of a project one.
+ */
 export type PiPackageEntry =
   | string
-  | { source: string; extensions?: string[]; skills?: string[]; prompts?: string[]; themes?: string[] };
+  | {
+      source: string;
+      autoload?: boolean;
+      extensions?: string[];
+      skills?: string[];
+      prompts?: string[];
+      themes?: string[];
+    };
 
 /** Subset of pi's `Settings` this feature reads/writes. */
 export interface PiSettings {
@@ -70,6 +81,10 @@ export interface PiSettingsManager {
   setProjectThemePaths(paths: string[]): void;
   setPackages(packages: PiPackageEntry[]): void;
   setProjectPackages(packages: PiPackageEntry[]): void;
+  getDefaultProjectTrust(): "always" | "never" | "ask";
+  /** Non-null when the scope's settings file failed to parse; pi then silently skips its write. */
+  globalSettingsLoadError?: unknown;
+  projectSettingsLoadError?: unknown;
   flush(): Promise<void>;
 }
 
@@ -87,6 +102,16 @@ export interface PiModule {
   SettingsManager: {
     create(cwd: string, agentDir?: string, options?: { projectTrusted?: boolean }): PiSettingsManager;
   };
+  /** pi's persistent project-trust store, keyed by folder (nearest ancestor wins). */
+  ProjectTrustStore: new (agentDir: string) => {
+    get(cwd: string): boolean | null;
+    /** The nearest recorded decision and the folder it was recorded for. */
+    getEntry(cwd: string): { path: string; decision: boolean } | null;
+    set(cwd: string, decision: boolean | null): void;
+    setMany(updates: Array<{ path: string; decision: boolean | null }>): void;
+  };
+  /** True when `cwd` holds project config pi gates behind a trust decision. */
+  hasTrustRequiringProjectResources(cwd: string): boolean;
 }
 
 export const AGENT_DIR = path.join(os.homedir(), ".pi", "agent");
@@ -109,12 +134,30 @@ export async function getPiCore(registry: ToolRegistry = getDefaultRegistry()): 
  */
 export type ResolveActivationFn = (cwd: string, agentDir?: string) => Promise<ResolvedPaths | null>;
 
+/**
+ * Upper bound on `PackageManager.resolve()`. It sits on the `/api/pi-resources`
+ * critical path and can perform network I/O for temporary git sources, so a
+ * hang would stall the resources payload. Expiry is treated exactly like a
+ * throw: `null`, which the scanner reports as degraded.
+ * See change: fix-skill-discovery-parity (test-plan C1).
+ */
+export const RESOLVE_TIMEOUT_MS = 5000;
+
 export const resolveActivation: ResolveActivationFn = async (cwd, agentDir = AGENT_DIR) => {
   try {
     const { DefaultPackageManager, SettingsManager } = await getPiCore();
     const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: true });
     const pm = new DefaultPackageManager({ cwd, agentDir, settingsManager });
-    return (await pm.resolve(async () => "skip")) as ResolvedPaths;
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), RESOLVE_TIMEOUT_MS);
+      timer.unref?.();
+    });
+    try {
+      return (await Promise.race([pm.resolve(async () => "skip"), timeout])) as ResolvedPaths | null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   } catch {
     return null;
   }

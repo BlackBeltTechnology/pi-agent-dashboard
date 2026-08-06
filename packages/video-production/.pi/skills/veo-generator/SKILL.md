@@ -1,15 +1,6 @@
 ---
 name: veo-generator
-description: >
-  Render a scripted video project into mp4 clips with the Google Veo 3.1 API.
-  Reads a project's shot package (the shots/*.md format produced by the
-  veo-showreel-production-kit) and generates one clip per camera cut — reusing
-  the Full Veo prompt, negative prompt, seed, aspect/resolution, world-anchor
-  reference and first-frame storyboard sketch already written in each shot file.
-  Backed by the `pi-veo` CLI (a TypeScript port — no Python). API key is
-  configurable per project via a .env.
-  Use when: "render the Veo video for <project>", "generate the videos from the
-  shot scripts", "make the clips with Veo", "re-render shot 03B".
+description: 'Render a scripted video project into mp4 clips with the Google Veo 3.1 API. Reads a project''s shot package (shots/*.md), one clip per camera cut, reusing each shot''s prompt and sketch — world anchor only with `--with-reference`, seed unless `--no-seed`. Use on "render the Veo video for <project>", "generate the videos from the shot scripts", "make the clips with Veo".'
 ---
 
 # Veo Generator

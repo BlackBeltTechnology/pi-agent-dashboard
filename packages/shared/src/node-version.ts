@@ -1,7 +1,7 @@
 /**
  * Canonical Node.js version predicates — single source of truth.
  *
- * Both the dashboard server's startup guard (`packages/server/src/node-guard.ts`,
+ * Both the dashboard server's startup guard (`packages/server/src/auth/node-guard.ts`,
  * which re-exports `isAffectedNode` / `isOutOfEnginesRange`) and the Electron
  * doctor's system-Node detection (`packages/electron/src/lib/dependency-detector.ts`,
  * which consumes `isUsableNodeVersion`) import from here. No package keeps a
@@ -16,9 +16,9 @@
  *     to `< 22.19` in change `bump-pi-compat-to-0-75` (pi 0.75.0 raised its own
  *     Node floor to 22.19).
  *
- *   - engines cap from root `package.json#engines.node` (`>=22.19.0 <26`).
+ *   - engines cap from root `package.json#engines.node` (`>=22.19.0 <27`).
  *     Below the floor: npm refuses with EBADENGINE and pi 0.75+ assumes 22.19
- *     APIs. At/above the cap (`>=26`): untested.
+ *     APIs. At/above the cap (`>=27`): untested.
  *
  * Cap history: briefly `<25` in change `openspec-worktree-spawn-button`
  * (commit 63a8d531), on the theory that subprocess `npm ci` (worktree-spawn
@@ -28,9 +28,21 @@
  * Cap moved to `<26`, restoring Node 25 as a first-class target. The 22.x
  * Fastify cutoff widened `< 22.18` -> `< 22.19` in change `bump-pi-compat-to-0-75`
  * (pi 0.75.0 raised its own Node floor to 22.19).
+ * Cap moved `<26` -> `<27` in change `fix-pi-install-node26-and-omit-dev-build`:
+ * `pi install git:...` aborted with EBADENGINE on Node 26 (issue #357). Node 26
+ * is CI-validated by the `_smoke.yml` `standalone-install-smoke-linux` Node 26
+ * legs, which run WITHOUT `--config.engine-strict=false` so the EBADENGINE half
+ * of #357 stays regression-tested.
  *
  * Lockstep contract: when `package.json#engines.node` or the upstream Fastify
- * fix range changes, only this file changes. See change: unify-node-version-gate.
+ * fix range changes, only this file changes — plus the `_smoke.yml`
+ * `standalone-install-smoke-linux` Node-major set (currently `22, 24, 25, 26`),
+ * which must cover every supported major. (`ci.yml` carries a single
+ * `node-version: 22` setup-node step and no Node-major matrix.) The
+ * `Required: >=22.19.0 <27` literal in `buildEnginesRangeMessage`
+ * (`packages/server/src/auth/node-guard.ts`) is a third cap site the contract
+ * cannot express in code; it is guarded by the `node-cap-message-matches-engines`
+ * repo-lint instead. See change: unify-node-version-gate.
  */
 
 /**
@@ -54,9 +66,9 @@ export function isAffectedNode(version: string): boolean {
 }
 
 /**
- * True when Node is OUTSIDE the engines cap (`>=22.19.0 <26`):
+ * True when Node is OUTSIDE the engines cap (`>=22.19.0 <27`):
  *   - Too old: major < 22, OR major 22 with minor < 19.
- *   - Too new: major >= 26.
+ *   - Too new: major >= 27.
  */
 export function isOutOfEnginesRange(version: string): boolean {
   const m = version.match(NODE_VERSION_RE);
@@ -65,15 +77,15 @@ export function isOutOfEnginesRange(version: string): boolean {
   const minor = Number(m[2]);
   if (major < 22) return true;
   if (major === 22 && minor < 19) return true;
-  if (major >= 26) return true;
+  if (major >= 27) return true;
   return false;
 }
 
 /**
  * True when `version` is something the dashboard server will actually run on:
  * within the engines range AND not Fastify-affected. Accept-set:
- * Node 22.19+, 24.0, 24.3–24.x, 25.x. Rejected: 21.x, 22.0–22.18,
- * 24.1–24.2, 26+.
+ * Node 22.19+, 24.0, 24.3–24.x, 25.x, 26.x. Rejected: 21.x, 22.0–22.18,
+ * 24.1–24.2, 27+.
  */
 export function isUsableNodeVersion(version: string): boolean {
   // Unparseable / non-version strings are NOT usable. Without this guard a

@@ -596,6 +596,12 @@ export function registerSystemRoutes(
         cliPath,
         loader,
         port: config.port,
+        // Carry the bound gateway port across the restart. Without it the new
+        // process re-resolves it from the file config (which usually has no
+        // `piPort`), lands on the 9999 default, and every live pi bridge — still
+        // dialling the old port — fails to re-register.
+        // See change: restore-ask-user-tool-state-on-reconnect.
+        piPort: config.piPort,
         extraArgs,
         dev: useDev,
       });

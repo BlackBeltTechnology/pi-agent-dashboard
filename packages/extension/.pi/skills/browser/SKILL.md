@@ -1,16 +1,6 @@
 ---
 name: browser
-description: >
-  Browser automation via the `agent-browser` CLI. Use when the user needs to
-  interact with websites or Electron desktop apps — navigating pages, filling
-  forms, clicking buttons, taking screenshots, extracting data, testing web
-  apps, automating browser actions, visual UI verification, responsive checks,
-  hunting console errors, or driving the Pi Dashboard's Electron shell (main
-  window, wizard window, doctor window, tray, native menus). Triggers include
-  "open a website", "fill out a form", "click a button", "take a screenshot",
-  "scrape data", "test this web app", "automate browser", "test responsive",
-  "debug blank page", "automate Slack app", "control VS Code", "attach to
-  Electron app", "screenshot Pi Dashboard", "drive the wizard window".
+description: 'Browser automation via the `agent-browser` CLI. Use when the user needs to interact with websites or Electron desktop apps — navigating pages, filling forms, clicking buttons, screenshots, extracting data, testing web apps, visual UI verification, or driving the Pi Dashboard''s Electron shell. Triggers: "open a website", "take a screenshot", "test this web app", "automate browser".'
 license: Apache-2.0
 allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*)
 metadata:

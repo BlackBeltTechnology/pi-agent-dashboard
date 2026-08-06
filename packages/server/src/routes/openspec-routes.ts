@@ -17,7 +17,6 @@ import {
 import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { type DirectoryService, hasOpenSpecRoot } from "../directory-service.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
 import { scanOpenSpecArchive } from "../openspec/openspec-archive.js";
 import {
   LineMismatchError,
@@ -27,6 +26,8 @@ import {
   toggleTask,
 } from "../openspec/openspec-tasks.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
+import { isWithinFolder, joinSkillProvenance, type SkillReporter, sessionCommandRegistry } from "../pi/session-skill-registry.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Callback to broadcast an openspec_update after a successful toggle. */
@@ -294,7 +295,21 @@ export function registerOpenSpecRoutes(
       if (!data) {
         data = await directoryService.refreshPiResources(cwd);
       }
-      return { success: true, data } satisfies ApiResponse;
+      // Join the scan against what a session attached to this folder actually
+      // loaded, so a skill can be told apart from one merely present on disk.
+      // See change: fix-skill-discovery-parity.
+      // A session attached to this folder card may run in a worktree or a
+      // subdirectory of it, so membership is "at or beneath", canonicalized —
+      // an exact compare would exclude it and silently degrade to scan-only,
+      // making the `differsFromFolder` state unreachable.
+      // Ended sessions are excluded: the registry is pruned on
+      // `session_unregister`, which a crashed or expired session never sends,
+      // and a stale entry would collide with the live one and force scan-only.
+      const reporters: SkillReporter[] = sessionManager
+        .listAll()
+        .filter((s) => s.status !== "ended" && isWithinFolder(s.cwd, cwd) && sessionCommandRegistry.hasReported(s.id))
+        .map((s) => ({ sessionId: s.id, cwd: s.cwd, commands: sessionCommandRegistry.get(s.id) ?? [] }));
+      return { success: true, data: joinSkillProvenance(data, reporters, cwd) } satisfies ApiResponse;
     },
   );
 

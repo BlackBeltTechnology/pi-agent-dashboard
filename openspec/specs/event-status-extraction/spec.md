@@ -3,12 +3,12 @@
 ## Purpose
 
 Pure, side-effect-free extraction of session state updates from forwarded pi events. Given a single dashboard event (or a batch), derive partial session updates — status transitions, current tool name, model/thinking level, accumulated token/cost stats — and classify whether an event marks user-visible activity or demands the user's attention (unread). Fields that must be cleared are set to `null` (not `undefined`) so JSON serialisation does not leave stale values in the browser.
-
 ## Requirements
-
 ### Requirement: Session status and tool extraction
 
 The system SHALL derive partial session updates from a single event by its `eventType`, returning `null` when the event does not affect session status, tool, or model. When a field must be cleared it SHALL be set to `null` rather than omitted.
+
+Extraction SHALL additionally accept a `hasPendingPrompt` input describing whether the session is currently blocked on a prompt. When that input is `true` and the derived update would otherwise leave `currentTool` empty, the update SHALL set `currentTool` to `"ask_user"` instead. The reconciliation SHALL be part of computing the update — not a correction applied afterwards — so callers comparing the before-update and after-update values observe no transition. A live `tool_execution_start` naming a tool other than `ask_user` SHALL take precedence over the pending-prompt input. The function SHALL remain pure and SHALL NOT read the gateway, the session manager, or any socket.
 
 #### Scenario: Agent starts
 
@@ -37,6 +37,27 @@ The system SHALL derive partial session updates from a single event by its `even
 
 - **WHEN** an event of any other type is extracted
 - **THEN** the result is `null` and no session fields change
+
+#### Scenario: Agent starts while a prompt is pending
+
+- **WHEN** an `agent_start` event is extracted with `hasPendingPrompt: true`
+- **THEN** the update sets `status` to `streaming`
+- **AND** sets `currentTool` to `"ask_user"` rather than `null`
+
+#### Scenario: Tool execution ends while a prompt is pending
+
+- **WHEN** a `tool_execution_end` event is extracted with `hasPendingPrompt: true`
+- **THEN** the update sets `currentTool` to `"ask_user"` rather than `null`
+
+#### Scenario: Real tool outranks the pending prompt
+
+- **WHEN** a `tool_execution_start` with `toolName: "bash"` is extracted with `hasPendingPrompt: true`
+- **THEN** the update sets `currentTool` to `"bash"`
+
+#### Scenario: Reconciliation is inert without a pending prompt
+
+- **WHEN** any event is extracted with `hasPendingPrompt: false`
+- **THEN** the update is byte-identical to the update produced before this change
 
 ### Requirement: Model and thinking-level extraction
 
@@ -106,3 +127,4 @@ The system SHALL classify whether an event flips a session to unread, based on t
 
 - **WHEN** the event is none of the above (e.g. `message_end`, `tool_execution_*`, `model_select`, or git/process noise)
 - **THEN** the event is not an unread trigger (`false`)
+

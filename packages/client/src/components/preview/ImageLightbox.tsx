@@ -1,7 +1,8 @@
-import React, { useEffect, useRef } from "react";
 import { useEscapeDismiss } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
-import { DialogPortal } from "../primitives/DialogPortal.js";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
+import { DialogPortal } from "../primitives/DialogPortal.js";
 
 const BACKDROP_ID = "lightbox-backdrop";
 
@@ -9,11 +10,25 @@ interface Props {
   src: string;
   alt: string;
   onClose: () => void;
+  /**
+   * Shown when `src` fails to load. Used by transcript attachments, where
+   * `src` is the full-resolution original fetched on demand and the fallback
+   * is the fitted derivative already held inline: if the original cannot be
+   * served, the zoom degrades to the fitted image instead of an empty frame.
+   * See change: fit-attachments-for-display (task 5.9b, test-plan #F6).
+   */
+  fallbackSrc?: string;
 }
 
-export function ImageLightbox({ src, alt, onClose }: Props) {
+export function ImageLightbox({ src, alt, onClose, fallbackSrc }: Props) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+
+  // Reset on a new src so reopening a different attachment re-attempts its
+  // original rather than inheriting the previous one's fallback.
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [src]);
+  const effectiveSrc = failed && fallbackSrc ? fallbackSrc : src;
 
   // Escape dismissal routes through the shared escape-stack so an Escape closes
   // only the lightbox, not a dialog/overlay stacked beneath it.
@@ -54,8 +69,11 @@ export function ImageLightbox({ src, alt, onClose }: Props) {
           style={{ touchAction: "none" }}
         >
           <img
-            src={src}
+            src={effectiveSrc}
             alt={alt}
+            data-testid="lightbox-image"
+            data-degraded={failed && fallbackSrc ? "true" : undefined}
+            onError={() => setFailed(true)}
             className="max-w-[90vw] max-h-[90vh] object-contain select-none"
             style={{
               transform: `translate(${state.translateX}px, ${state.translateY}px) scale(${state.scale})`,

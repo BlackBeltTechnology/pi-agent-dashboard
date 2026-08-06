@@ -84,12 +84,13 @@
     "pretest:e2e:ui": "node -e \"process.env.PW_CHANNEL||require('child_process').execSync('playwright install chromium',{stdio:'inherit'})\"",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:chrome": "PW_CHANNEL=chrome playwright test",
+    "test:e2e:reconnect": "PI_E2E_INDEPENDENT_SESSION=1 playwright test faux-ask",
     "test:e2e:perf": "PW_PERF=1 PW_CHANNEL=chrome playwright test chat-render-perf",
     "pretest:e2e:electron": "node -e \"const fs=require('fs');if(process.env.PW_ELECTRON_BINARY||fs.existsSync('packages/electron/out')){process.exit(0)}require('child_process').execSync('npm run -w packages/electron package',{stdio:'inherit'})\"",
     "test:e2e:electron": "playwright test --config playwright.electron.config.ts"
   },
   "engines": {
-    "node": ">=22.19.0 <26"
+    "node": ">=22.19.0 <27"
   },
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-extension": "^0.7.0",

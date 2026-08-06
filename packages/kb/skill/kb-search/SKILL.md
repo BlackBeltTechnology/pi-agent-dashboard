@@ -1,12 +1,6 @@
 ---
 name: kb-search
-description: >
-  Search the local markdown knowledge base for facts, prior decisions,
-  definitions, people, error codes, config flags, and how-we-fixed-it notes.
-  ALWAYS search here BEFORE answering a project-specific question from memory,
-  guessing, or asking the user — the answer is usually already written down.
-  Use whenever you hit an unknown term, an unfamiliar entity, an error string,
-  or a "how do we do X / why did we choose Y" question.
+description: 'Search the local markdown knowledge base for facts, prior decisions, definitions, people, error codes, config flags, and how-we-fixed-it notes. ALWAYS search here BEFORE answering a project-specific question from memory, guessing, or asking the user. Use whenever you hit an unknown term, an unfamiliar entity, an error string, or a "how do we do X / why did we choose Y" question.'
 ---
 
 # kb-search — retrieve before you answer

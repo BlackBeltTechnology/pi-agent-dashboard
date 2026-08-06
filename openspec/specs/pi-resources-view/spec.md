@@ -276,7 +276,15 @@ When activated:
 
 The Resources surface of `PiResourcesView` (rendered on both the folder settings page and the global settings page) SHALL render, on each browsed extension / skill / prompt row, an enable/disable control bound to `PiResource.enabled`. The control SHALL flip activation only for its scope (local → the folder's `.pi/settings.json`; global → `~/.pi/agent/settings.json`); it SHALL NOT install, uninstall, move, or delete any resource or package. Installation management SHALL remain exclusively on the Packages tab / section.
 
-Activating a control SHALL issue `POST /api/resources/toggle` with `{ scope, cwd?, type, filePath, enabled, packageSource? }` and optimistically reflect the new state. The server SHALL persist via pi's `SettingsManager` using pi's own format: strip any existing entry for the resource's relative-path pattern, then push `-<relPath>` (disable) or `+<relPath>` (enable). `<relPath>` is `relative(baseDir, filePath)` where `baseDir` is the scope's config dir (`.pi` for local, `~/.pi/agent` for global) or, for a package resource, the package root — exactly the pattern pi's own resolver + `config-selector` compute.
+Activating a control SHALL issue `POST /api/resources/toggle` with `{ scope, cwd?, type, filePath, enabled, packageSource? }` and optimistically reflect the new state. The server SHALL persist via pi's `SettingsManager`, writing the pi-standard form for the resource's origin per the `cross-scope-resource-disable` capability:
+
+- a loose resource under the toggled scope's own base directory uses a force-exclude pattern relative to that base directory — `relative(baseDir, filePath)`, exactly the pattern pi's own resolver and `config-selector` compute;
+- a package-contributed resource at **local** scope uses an `autoload: false` delta entry in the project's `packages` array, carrying a force-exclude relative to the package root; at **global** scope it instead mutates the existing entry in place, adding an ordinary filter and no `autoload: false`, because pi discards a second same-scope entry for one package identity;
+- a loose resource under a different scope's base directory uses a re-declaration of **its own file** plus a home-independent anchored glob exclusion.
+
+Re-enabling SHALL remove the entries the disable added and SHALL NOT write a force-include.
+
+A toggle the server cannot persist in a form pi will honour SHALL return a failure rather than a success, and a toggle in an untrusted folder SHALL return a trust prompt rather than a success.
 
 #### Scenario: Loose extension toggled off at folder scope persists an exclusion
 - **GIVEN** a folder with a loose extension `.pi/extensions/my-ext.ts` and no exclusion for it in `.pi/settings.json`
@@ -292,11 +300,21 @@ Activating a control SHALL issue `POST /api/resources/toggle` with `{ scope, cwd
 - **AND** `~/.pi/agent/settings.json#skills` gains a `-skills/my.md` force-exclude entry (relative to `~/.pi/agent`)
 - **AND** no folder `.pi/settings.json` is written
 
-#### Scenario: Re-enabling replaces the exclusion with a force-include
+#### Scenario: Global resource toggled off at folder scope survives a refresh
+- **GIVEN** a global loose skill `~/.pi/agent/skills/image-to-3d-threejs/SKILL.md` browsed on the folder Resources surface
+- **WHEN** the user disables its row
+- **THEN** the folder's `.pi/settings.json#skills` gains that skill's own file entry and a home-independent exclusion for it
+- **AND** `~/.pi/agent/settings.json` is not written
+- **AND** the row still renders disabled after the surface is refreshed
+- **AND** a session **newly started** in that folder from a terminal also treats the skill as disabled
+- **AND** a collaborator resolving the same committed settings file under a different home directory also sees it disabled
+
+#### Scenario: Re-enabling removes the exclusion
 - **GIVEN** a settings file whose `extensions` array force-excludes `-extensions/my-ext.ts`
 - **WHEN** the user enables that row
 - **THEN** the client POSTs `/api/resources/toggle` with `{ scope: "local", type: "extension", filePath: "<abs>/.pi/extensions/my-ext.ts", enabled: true }`
-- **AND** the `-extensions/my-ext.ts` entry is stripped and a `+extensions/my-ext.ts` force-include entry is written to that scope's `extensions` array (matching pi's own config format)
+- **AND** the `-extensions/my-ext.ts` entry is removed from that scope's `extensions` array
+- **AND** no `+extensions/my-ext.ts` force-include entry is written
 
 #### Scenario: Package-contributed resource toggled off never uninstalls the package
 - **GIVEN** a scope with `packages: ["npm:pi-skills"]` contributing a skill `brave-search`
@@ -304,6 +322,14 @@ Activating a control SHALL issue `POST /api/resources/toggle` with `{ scope, cwd
 - **THEN** the client POSTs `/api/resources/toggle` with `{ scope: "local", type: "skill", filePath: "<abs>/skills/brave-search/SKILL.md", enabled: false, packageSource: "npm:pi-skills" }`
 - **AND** the `pi-skills` package entry is rewritten to object-form excluding `brave-search` from its skills
 - **AND** the `pi-skills` package remains installed
+
+#### Scenario: Package declared only globally is disabled at folder scope
+- **GIVEN** a folder whose own `settings.packages` does not declare `npm:pi-skills`, while `~/.pi/agent/settings.json` does
+- **WHEN** the user disables the `brave-search` row on the folder Resources surface
+- **THEN** the folder's `.pi/settings.json#packages` gains an `autoload: false` delta entry for `npm:pi-skills` excluding that skill
+- **AND** the request does not fail with "package not found in settings for scope"
+- **AND** the globally-declared `pi-skills` entry is not modified
+- **AND** the package's other skills remain enabled
 
 #### Scenario: Resources surface still exposes no install/uninstall control
 - **GIVEN** the Resources surface is open for a scope with installed packages
@@ -347,3 +373,136 @@ Because pi reads resource arrays at session start, running sessions are unaffect
 - **WHEN** the resources are scanned for that cwd
 - **THEN** the returned `PiResource` for `notes` has `enabled: false`
 
+### Requirement: Skill cards SHALL carry a provenance badge
+
+Provenance SHALL be conveyed by a per-card badge and a filter value, consistent with the flat card grid this capability already mandates. It SHALL NOT introduce stacked sections, groups, or nesting.
+
+A skill card SHALL indicate one of: loaded by the session, present for this folder but not loaded, or loaded by the session from outside this folder.
+
+#### Scenario: Active skill
+
+- **GIVEN** a skill with status `active`
+- **WHEN** the surface renders its card
+- **THEN** no provenance badge SHALL be shown
+
+#### Scenario: Loaded from outside this folder
+
+- **GIVEN** a skill with status `loaded-elsewhere`
+- **WHEN** the surface renders its card
+- **THEN** the card SHALL carry a badge marking it as loaded by the session but not found for this folder
+- **AND** the card SHALL show the path the session reported
+
+#### Scenario: Present but not loaded
+
+- **GIVEN** a skill with status `not-loaded`
+- **WHEN** the surface renders its card
+- **THEN** the card SHALL carry a badge marking it as present for this folder but not loaded
+
+#### Scenario: Provenance does not introduce grouping
+
+- **WHEN** cards of differing provenance are rendered
+- **THEN** they SHALL remain in one flat grid
+- **AND** no provenance section header, group header, or chevron SHALL be introduced
+
+#### Scenario: Provenance is filterable
+
+- **WHEN** the user narrows the grid by provenance
+- **THEN** the grid SHALL show only cards carrying the selected provenance
+
+### Requirement: A not-loaded card SHALL NOT assert an unverifiable cause
+
+Because discovery already omits paths that fail pi's load gate, a skill reaching `not-loaded` status has a valid description by construction. The surface SHALL therefore report the status without asserting a cause.
+
+#### Scenario: No cause is fabricated
+
+- **GIVEN** a skill with status `not-loaded`
+- **WHEN** the surface renders its card
+- **THEN** it SHALL report only that the session did not load it
+- **AND** it SHALL NOT assert a specific cause
+
+#### Scenario: Differing session scope is surfaced
+
+- **GIVEN** a `not-loaded` skill and a contributing session whose working directory differs from the scanned folder
+- **WHEN** the surface renders the card
+- **THEN** the differing working directory SHALL be shown as context
+
+### Requirement: Scan-only and degraded states SHALL be visible rather than implied
+
+When no session has reported, when several sessions have reported, or when the scan came from the degraded filesystem fallback, the surface SHALL say so and SHALL NOT present the list as a session's loaded skill set.
+
+#### Scenario: Scan-only payload
+
+- **GIVEN** a payload marked scan-only
+- **WHEN** the surface renders the skills grid
+- **THEN** it SHALL indicate that no single session is reporting skills
+- **AND** no card SHALL display a `not-loaded` badge
+
+#### Scenario: Degraded payload
+
+- **GIVEN** a payload marked degraded because pi's resolver was unavailable or returned a contradicted empty result
+- **WHEN** the surface renders the skills grid
+- **THEN** it SHALL indicate that the list is a fallback and may not match the session
+- **AND** no card SHALL display a `not-loaded` badge
+
+### Requirement: Toggle failures SHALL be surfaced to the user
+
+`useResourceActivation` SHALL, on any failed toggle, revert the optimistic flip **and** surface the failure reason to the user. A control that reverts with no explanation is indistinguishable from a control that does not work, which is how the underlying defect went unnoticed.
+
+#### Scenario: A rejected toggle explains itself
+- **GIVEN** a toggle the server rejects with a 400 and an error message
+- **WHEN** the response is received
+- **THEN** the control returns to its previous state
+- **AND** the server's error message is presented to the user
+
+#### Scenario: A network failure is distinguished from a rejection
+- **GIVEN** the toggle request throws before a response is received
+- **WHEN** the failure is handled
+- **THEN** the control returns to its previous state
+- **AND** the user is told the request did not reach the server
+
+### Requirement: A resource whose activation the project has taken over SHALL remain where the user acted on it
+
+Disabling a globally-defined resource at folder scope re-declares its file in project settings, which causes pi to report that resource at project scope rather than user scope. The surface SHALL NOT let the row silently relocate to a different scope section as a result of the user's own toggle.
+
+#### Scenario: A disabled global resource stays in view
+- **GIVEN** a global skill listed in the global section of the folder Resources surface
+- **WHEN** the user disables it
+- **THEN** the row remains in the section where the user acted
+- **AND** it indicates that this folder now controls the resource's activation
+
+#### Scenario: Re-enabling restores the original grouping
+- **GIVEN** a global resource previously disabled at folder scope
+- **WHEN** the user re-enables it
+- **THEN** the row is grouped exactly as it was before the disable
+
+### Requirement: The surface SHALL present a trust dialog when the folder is untrusted
+
+When a toggle returns a trust-required result, the surface SHALL present the trust options the server supplied — trusting the folder, trusting its parent folder, or declining — rather than a generic error, and SHALL apply the original toggle once a choice is made.
+
+#### Scenario: Untrusted folder raises a trust dialog
+- **GIVEN** the folder Resources surface for a folder with no recorded trust decision
+- **WHEN** the user disables a resource
+- **THEN** a dialog presents the trust options supplied by the server
+- **AND** the control does not yet show the resource as disabled
+
+#### Scenario: Approving trust completes the original toggle
+- **GIVEN** the trust dialog is open
+- **WHEN** the user selects a trust option
+- **THEN** the choice is persisted
+- **AND** the resource the user originally toggled is disabled
+- **AND** the dialog closes
+
+#### Scenario: Dismissing the dialog reverts the control
+- **GIVEN** the trust dialog is open
+- **WHEN** the user dismisses it without choosing
+- **THEN** the control returns to its previous state
+- **AND** no settings or trust file is written
+
+### Requirement: The surface SHALL state that a folder-scope disable is repository-wide
+
+Because `.pi/settings.json` is tracked in version control, a folder-scope disable is a committed decision inherited by collaborators and by every worktree of the branch. The surface SHALL make this scope explicit rather than implying a machine-local preference.
+
+#### Scenario: Folder scope communicates the shared blast radius
+- **GIVEN** the folder Resources surface
+- **WHEN** the user disables a resource
+- **THEN** the surface indicates the change is written to the repository's `.pi/settings.json` and shared with anyone using the folder
