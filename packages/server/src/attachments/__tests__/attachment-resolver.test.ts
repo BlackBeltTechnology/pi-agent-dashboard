@@ -142,6 +142,42 @@ describe("attachment-resolver", () => {
     expect(store.getEvent("s1", 2), "no failed event should be appended").toBeUndefined();
   });
 
+  it("hydration fits in bounded batches instead of one giant request", async () => {
+    // Hydration aggregates every image in the session. Sending them as ONE fit
+    // meant the whole set crossed to the worker in a single structured clone —
+    // a full-resolution copy of every attachment at once. Batch it, and still
+    // resolve all of them.
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    const pool = fakePool();
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: (_s, _q, event) => emitted.push(event),
+    });
+    const pending = Array.from({ length: 20 }, (_, i) => ({
+      attachmentId: String(i).padStart(64, "0"),
+      blockIndex: i,
+      data: "AA",
+      mimeType: "image/png",
+    }));
+
+    await resolver.resolve("s1", pending);
+
+    const calls = (pool.fit as unknown as { mock: { calls: Array<[{ blocks: unknown[] }]> } }).mock
+      .calls;
+    expect(calls.length, "20 blocks should not go out as one request").toBeGreaterThan(1);
+    for (const [req] of calls) {
+      expect(req.blocks.length, "each batch stays bounded").toBeLessThanOrEqual(8);
+    }
+    // Every attachment still resolves exactly once, in order.
+    expect(emitted).toHaveLength(20);
+    expect(emitted.map((e) => (e.data as any).attachmentId)).toEqual(
+      pending.map((p) => p.attachmentId),
+    );
+    for (const e of emitted) expect((e.data as any).state).toBe("ready");
+  });
+
   it("X7b: a pool that omits a result still settles that placeholder", async () => {
     const store = createMemoryEventStore(() => false);
     const emitted: DashboardEvent[] = [];

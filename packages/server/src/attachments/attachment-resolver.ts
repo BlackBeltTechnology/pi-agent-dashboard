@@ -32,6 +32,14 @@ export interface AttachmentResolver {
   resolve(sessionId: string, pending: PendingAttachment[]): Promise<void>;
 }
 
+/**
+ * Blocks per fit request. Bounds the full-resolution payload crossing to the
+ * worker at once during hydration, which aggregates every image in a session.
+ * A small multiple of the default pool size, so batches still keep every worker
+ * busy while capping what is in flight.
+ */
+const FIT_BATCH = 8;
+
 export function createAttachmentResolver(deps: AttachmentResolverDeps): AttachmentResolver {
   const { eventStore, fitWorkerPool, emit } = deps;
 
@@ -88,9 +96,11 @@ export function createAttachmentResolver(deps: AttachmentResolverDeps): Attachme
     );
   }
 
-  return {
-    async resolve(sessionId, pending) {
-      if (pending.length === 0) return;
+  /**
+   * Fit and publish ONE bounded batch. `settleUnanswered` indexes into the
+   * batch it was given, so each call must own a self-contained `pending`.
+   */
+  async function resolveBatch(sessionId: string, pending: PendingAttachment[]): Promise<void> {
       try {
         // Index into `pending` — NOT the message-relative blockIndex. Hydration
         // aggregates blocks from MANY message rows, so blockIndex repeats across
@@ -143,6 +153,19 @@ export function createAttachmentResolver(deps: AttachmentResolverDeps): Attachme
         // A pool that cannot deliver at all must still not strand placeholders.
         console.error(`[attachments] fit failed for session ${sessionId}:`, err);
         for (const p of pending) publishFailed(sessionId, p);
+      }
+  }
+
+  return {
+    async resolve(sessionId, pending) {
+      if (pending.length === 0) return;
+      // Hydration aggregates EVERY image in the session. As one request the
+      // whole set crosses to the worker in a single structured clone — a
+      // full-resolution copy of every attachment in flight at once. Batching
+      // bounds that payload, and rows resolve progressively instead of all at
+      // the end.
+      for (let i = 0; i < pending.length; i += FIT_BATCH) {
+        await resolveBatch(sessionId, pending.slice(i, i + FIT_BATCH));
       }
     },
   };

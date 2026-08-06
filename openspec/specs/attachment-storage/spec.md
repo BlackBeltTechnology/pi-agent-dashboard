@@ -8,26 +8,40 @@ An inline image arrives as full-resolution base64 inside the message event. Left
 pushes the event past the per-event storage ceiling, and the whole event — including the
 user's text — collapses to a truncation placeholder. The row silently disappears.
 
-This capability makes that outcome impossible. It bounds what an attachment can cost the
-event store, decouples the row's render from the cost of bounding it, and keeps the
-untouched original reachable on demand for full-resolution viewing.
+This capability makes that outcome impossible for every image the fit can produce a
+derivative for. It bounds what such an attachment can cost the event store, decouples the
+row's render from the cost of bounding it, and keeps the untouched original reachable on
+demand for full-resolution viewing.
+
+SCOPE. A block the fit DECLINES — an animated GIF, which D11 exempts so its animation is
+never flattened, or a non-fittable MIME type — is left inline and unmodified, and remains
+subject to the same per-event ceiling it always was. Such a block can still truncate its
+event. That residue is deliberate, not an oversight: fitting it would destroy it, and
+promising it a placeholder would strand the row. Bounding that path is tracked as #424.
+Every guarantee below is scoped accordingly.
 
 The governing priority, in order:
 
-1. The message row always renders, with the user's text intact.
-2. Every attachment reaches a terminal state — shown, or explicitly failed. Never an
-   indefinite placeholder.
+1. The message row always renders, with the user's text intact — for any message whose
+   images the fit admits (see SCOPE above).
+2. Every attachment that ENTERS the two-phase flow reaches a terminal state — shown, or
+   explicitly failed. Never an indefinite placeholder. A declined block never enters, and
+   so is never promised one.
 3. Bounding an attachment never blocks the server for unrelated sessions.
 4. Full-resolution originals stay reachable, but are never load-bearing for 1–3.
 
 ## Requirements
 ### Requirement: Images SHALL be fitted for display before an event is stored
 
-Each image content block SHALL be resized to a bounded display size before the event is
-stored or broadcast, so that no attachment can push an event past the per-event ceiling.
+Each FITTABLE image content block SHALL be resized to a bounded display size before the
+event is stored or broadcast, so that no fitted attachment can push an event past the
+per-event ceiling.
 
-Fitting SHALL be applied on every path that admits an image into the store, including
-events reconstructed on replay.
+Fitting SHALL be applied on every path that admits such an image into the store,
+including events reconstructed on replay.
+
+A block the fit declines SHALL NOT be resized and SHALL NOT be given a placeholder; it
+stays inline under the pre-existing ceiling behaviour (see SCOPE).
 
 #### Scenario: A large paste is fitted and its event stays bounded
 

@@ -133,6 +133,10 @@ function ImageAttachments({
               <div
                 key={i}
                 data-testid="attachment-pending"
+                // `aria-label` on a roleless generic is ignored by assistive
+                // tech. `role="img"` makes this stand-in for the image expose
+                // its name, matching the real <img> it will become.
+                role="img"
                 className="min-w-[80px] min-h-[80px] w-[120px] h-[80px] rounded border border-white/20 bg-white/5 animate-pulse flex items-center justify-center text-[10px] text-white/40"
                 aria-label={`Attachment ${i + 1} loading`}
               >
@@ -146,6 +150,7 @@ function ImageAttachments({
                 key={i}
                 data-testid="attachment-failed"
                 className="min-w-[80px] min-h-[80px] w-[120px] h-[80px] rounded border border-red-500/40 bg-red-500/5 flex items-center justify-center text-[10px] text-red-300/70 text-center px-1"
+                role="img"
                 aria-label={`Attachment ${i + 1} failed to load`}
               >
                 image unavailable

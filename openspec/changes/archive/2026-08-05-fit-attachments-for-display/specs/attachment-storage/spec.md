@@ -2,11 +2,15 @@
 
 ### Requirement: Images SHALL be fitted for display before an event is stored
 
-Each image content block SHALL be resized to a bounded display size before the event is
-stored or broadcast, so that no attachment can push an event past the per-event ceiling.
+Each FITTABLE image content block SHALL be resized to a bounded display size before the
+event is stored or broadcast, so that no fitted attachment can push an event past the
+per-event ceiling.
 
-Fitting SHALL be applied on every path that admits an image into the store, including
-events reconstructed on replay.
+Fitting SHALL be applied on every path that admits such an image into the store,
+including events reconstructed on replay.
+
+A block the fit declines SHALL NOT be resized and SHALL NOT be given a placeholder; it
+stays inline under the pre-existing ceiling behaviour (see SCOPE).
 
 #### Scenario: A large paste is fitted and its event stays bounded
 

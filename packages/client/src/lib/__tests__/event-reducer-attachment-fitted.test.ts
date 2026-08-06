@@ -151,7 +151,7 @@ describe("attachment_fitted reduction (two-phase render)", () => {
   });
 
   it("9.4: ONE resolution resolves EVERY occurrence of the same content hash", () => {
-    // attachmentId is the sha256 of the bytes, so pasting the same screenshot
+    // attachmentId is the sha256 of the original base64 text, so pasting the same screenshot
     // twice yields the SAME id in two different rows. The reducer used to stop
     // at the first match, leaving every later copy stuck on "loading" forever.
     let state = createInitialState();

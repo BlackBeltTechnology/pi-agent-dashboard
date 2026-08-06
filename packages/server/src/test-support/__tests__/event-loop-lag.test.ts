@@ -39,12 +39,10 @@ describe("startLagMonitor", () => {
     expect(seen, "peek must not under-report an in-progress block").toBeGreaterThan(50);
   });
 
-  it("reports near-zero lag for an unblocked loop", async () => {
-    const monitor = startLagMonitor(10);
-    await new Promise((r) => setTimeout(r, 60));
-    const lag = monitor.stop();
-
-    // Generous: CI hosts jitter. The point is that it is not ~100ms.
-    expect(lag).toBeLessThan(50);
-  });
+  // NO idle-loop assertion here on purpose. Asserting "lag stays under X while
+  // nothing blocks" measures the HOST, not the monitor: a GC pause or CPU
+  // contention inside the runner can exceed any threshold with no code blocking
+  // the loop, which makes the test fail nondeterministically. The two blocking
+  // cases above already pin the behaviour that matters — that a real block is
+  // never reported as zero.
 });

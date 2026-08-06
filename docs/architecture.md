@@ -782,7 +782,9 @@ Fitted image already inline.
 Failure degrades only the zoom view.
 Client passes fitted derivative as lightbox `fallbackSrc`.
 
-Gates, in order: id shape-checked `^[0-9a-f]{64}$` BEFORE any lookup.
+Gates, in order: `networkGuard`; session exists + has `sessionFile`, else 404.
+Then id shape-checked `^[0-9a-f]{64}$` (400).
+Check precedes transcript recovery, not every lookup.
 Request input never becomes a path component.
 Lookup scoped to that session's transcript.
 Valid digest from another session simply not found.

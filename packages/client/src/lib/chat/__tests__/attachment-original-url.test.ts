@@ -23,7 +23,12 @@ describe("attachmentOriginalUrl", () => {
   it("returns null for a malformed attachment id rather than requesting it", () => {
     // The server rejects these anyway; not issuing the request keeps the zoom
     // path from flashing a doomed fetch.
-    for (const bad of ["../etc", "A".repeat(64), "a".repeat(63), "nothex"]) {
+    // `${"a".repeat(64)}\n` is included deliberately: in Python/PCRE `$` also
+    // matches BEFORE a final newline, which would let a trailing terminator
+    // through. JavaScript `$` without the `m` flag matches only at end of
+    // input, so this is already rejected — pinned so a future rewrite (or a
+    // ported regex) cannot silently relax it.
+    for (const bad of ["../etc", "A".repeat(64), "a".repeat(63), "nothex", `${"a".repeat(64)}\n`]) {
       expect(attachmentOriginalUrl("s1", bad), bad).toBeNull();
     }
   });
