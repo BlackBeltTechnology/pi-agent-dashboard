@@ -83,10 +83,10 @@ PI_WORKSPACES="/abs/a:/abs/b" ./up.sh
 
 ## Running Tests
 
-Pipe once to a tmp file, then grep — never rerun to inspect errors:
+Pipe once to a tmp file, then grep — never rerun to inspect errors. Keep `pipefail` + the summary pattern: without them a failing run reports exit 0 and leaves no verdict in the transcript.
 ```bash
-npm test 2>&1 | tee /tmp/pi-test.log
-grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log
+set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log
+grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log
 ```
 
 ## Build & Restart Workflow
