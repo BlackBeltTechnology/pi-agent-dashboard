@@ -128,6 +128,13 @@ export interface PluginSpawnOptions {
    * change: scope-session-toolset-by-profile.
    */
   env?: Record<string, string>;
+  /**
+   * When set, RESUME the given session file's transcript (`--continue`) instead
+   * of spawning a fresh session. Used to re-run a flow in a stopped canonical
+   * session without discarding its history. See change:
+   * make-invoice-session-canonical (§6).
+   */
+  resumeSessionFile?: string;
 }
 
 /** Result of a plugin session-spawn request. */

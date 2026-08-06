@@ -16,5 +16,8 @@ export function pluginSpawnToSessionOptions(
     ...(opts.model ? { model: opts.model } : {}),
     ...(opts.guard ? { guard: true } : {}),
     ...(opts.env ? { env: opts.env } : {}),
+    // Resume the canonical transcript instead of a fresh spawn (§6 re-run).
+    // See change: make-invoice-session-canonical.
+    ...(opts.resumeSessionFile ? { sessionFile: opts.resumeSessionFile, mode: "continue" as const } : {}),
   };
 }

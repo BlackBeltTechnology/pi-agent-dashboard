@@ -12,6 +12,7 @@
  * add-invoicebot-rest-plugin.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createCanonicalSessionStore, defaultCanonicalStorePath } from "./canonical-session-store.js";
 import { selectEngine } from "./engine/select.js";
 import { mountInvoiceBotRoutes } from "./routes.js";
 import { createSessionLink, recordedSessionIdsFromDetails } from "./session-link.js";
@@ -34,6 +35,10 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       const result = await engine.query(cwd, { view: "runs", invoice_id: invoiceId });
       return recordedSessionIdsFromDetails(result.details);
     },
+    // Durable canonical invoice→session link (Decision 1, Option B) — survives a
+    // dashboard restart and follows a resume successor. See change:
+    // make-invoice-session-canonical.
+    canonicalStore: createCanonicalSessionStore(defaultCanonicalStorePath()),
     logger: { info: (m) => ctx.logger.info(m), warn: (m) => ctx.logger.warn(m) },
   });
 

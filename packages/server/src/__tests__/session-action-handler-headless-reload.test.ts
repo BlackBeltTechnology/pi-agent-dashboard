@@ -54,6 +54,9 @@ function makeCtx(
     },
     piGateway: {
       sendToSession: vi.fn().mockReturnValue(true),
+      // These cases model a LIVE session being forwarded to its bridge; the
+      // bridge-gated send path (§5) resumes only when NO live bridge exists.
+      isSessionConnected: vi.fn().mockReturnValue(true),
     },
     headlessPidRegistry: {
       getPid: (sid: string) => pidBySession[sid],

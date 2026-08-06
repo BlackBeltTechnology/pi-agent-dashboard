@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { FlowRunSpec } from "../engine/port.js";
 import { createSessionLink, recordedSessionIdsFromDetails, type SessionLinkDeps } from "../session-link.js";
+import { createCanonicalSessionStore, type CanonicalSessionStore } from "../canonical-session-store.js";
 
 const CWD = "/work/acme";
 const FLOW: FlowRunSpec = { flowName: "invoicebot:process", task: "source://inv1" };
@@ -24,7 +25,7 @@ interface Sess {
   automationRun?: { runId?: string; name?: string };
 }
 
-function makeDeps(sessions: Sess[]) {
+function makeDeps(sessions: Sess[], canonicalStore?: CanonicalSessionStore) {
   const store = new Map(sessions.map((s) => [s.id, s]));
   const emits: { sessionId: string; eventType: string; data: any }[] = [];
   const spawns: any[] = [];
@@ -32,13 +33,20 @@ function makeDeps(sessions: Sess[]) {
   let recordedIds: string[] = [];
   const deps: SessionLinkDeps = {
     spawnSession: async (opts) => { spawns.push(opts); return { success: true, spawnToken: "tok-1" }; },
-    emitEventToSession: (sessionId, eventType, data) => { if (!store.has(sessionId)) return false; emits.push({ sessionId, eventType, data }); return true; },
+    emitEventToSession: (sessionId, eventType, data) => {
+      const s = store.get(sessionId);
+      // An ended session has no live bridge — emit fails (models sendToSession=false).
+      if (!s || s.status === "ended") return false;
+      emits.push({ sessionId, eventType, data });
+      return true;
+    },
     getSession: (id) => store.get(id),
     listAll: () => [...store.values()],
     onEvent: (h) => { eventHandler = h; return () => { eventHandler = null; }; },
     resolveRecordedSessionIds: async () => recordedIds,
     logger: { info: () => {}, warn: () => {} },
     spawnBindTimeoutMs: 200,
+    ...(canonicalStore ? { canonicalStore } : {}),
   };
   return {
     deps,
@@ -241,6 +249,161 @@ describe("ensureScopedSession", () => {
     ctx.deps.spawnBindTimeoutMs = 5;
     link = createSessionLink(ctx.deps);
     expect(await link.ensureScopedSession(CWD, "inv-42")).toBeUndefined();
+  });
+});
+
+// Durable canonical identity via the dedicated store (Decision 1, Option B).
+// See change: make-invoice-session-canonical (§1 + §1b).
+describe("durable canonical identity (dedicated store)", () => {
+  let dir: string;
+  let storeFile: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "ib-canon-link-"));
+    storeFile = join(dir, "canonical-sessions.json");
+  });
+
+  it("1.1 reuses a live canonical session from the store — no spawn, no stamp needed", async () => {
+    const store = createCanonicalSessionStore(storeFile);
+    store.set(CWD, "inv-1", "canon-live");
+    // Stampless on purpose: the store binding is the authority, not automationRun.
+    ctx = makeDeps([{ id: "canon-live", cwd: CWD, status: "idle" }], store);
+    const link = createSessionLink(ctx.deps);
+    expect(await link.ensureScopedSession(CWD, "inv-1")).toBe("canon-live");
+    expect(ctx.spawns).toHaveLength(0);
+  });
+
+  it("1.2 returns an ended-but-restorable canonical id (sessionFile exists) — no spawn", async () => {
+    const file = join(dir, "canon.jsonl");
+    writeFileSync(file, "");
+    const store = createCanonicalSessionStore(storeFile);
+    store.set(CWD, "inv-2", "canon-ended");
+    ctx = makeDeps([{ id: "canon-ended", cwd: CWD, status: "ended", sessionFile: file }], store);
+    const link = createSessionLink(ctx.deps);
+    expect(await link.ensureScopedSession(CWD, "inv-2")).toBe("canon-ended");
+    expect(ctx.spawns).toHaveLength(0);
+  });
+
+  it("1.3 reconstructs the canonical id from the store after a restart (real disk round-trip)", async () => {
+    // Instance A records the link and writes it to disk.
+    createCanonicalSessionStore(storeFile).set(CWD, "inv-3", "canon-3");
+    // Restart: a BRAND-NEW store instance, in-memory cache gone, reads from disk.
+    const restarted = createCanonicalSessionStore(storeFile);
+    ctx = makeDeps([{ id: "canon-3", cwd: CWD, status: "active" }], restarted);
+    const link = createSessionLink(ctx.deps);
+    expect(await link.ensureScopedSession(CWD, "inv-3")).toBe("canon-3");
+    expect(ctx.spawns).toHaveLength(0);
+  });
+
+  it("1.4 ended canonical with a missing sessionFile re-spawns once and re-points the store", async () => {
+    const store = createCanonicalSessionStore(storeFile);
+    store.set(CWD, "inv-4", "canon-gone");
+    ctx = makeDeps([{ id: "canon-gone", cwd: CWD, status: "ended", sessionFile: join(dir, "gone.jsonl") }], store);
+    const link = createSessionLink(ctx.deps);
+    const pending = link.ensureScopedSession(CWD, "inv-4");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.spawns).toHaveLength(1);
+    const runId = ctx.spawns[0].automationRun.runId;
+    ctx.addSession({ id: "canon-fresh", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-4", runId } });
+    ctx.fire("canon-fresh");
+    expect(await pending).toBe("canon-fresh");
+    expect(store.get(CWD, "inv-4")).toBe("canon-fresh");
+  });
+
+  it("1b.1 re-points the store to a resume successor once it registers", async () => {
+    const file = join(dir, "canon5.jsonl");
+    writeFileSync(file, "");
+    const store = createCanonicalSessionStore(storeFile);
+    store.set(CWD, "inv-5", "canon-ended5");
+    ctx = makeDeps([{ id: "canon-ended5", cwd: CWD, status: "ended", sessionFile: file }], store);
+    const link = createSessionLink(ctx.deps);
+    // Resolve hands back the ended-restorable id AND arms a pending re-point.
+    expect(await link.ensureScopedSession(CWD, "inv-5")).toBe("canon-ended5");
+    expect(ctx.spawns).toHaveLength(0);
+    // Transport resumes it: a stampless successor session registers in the cwd.
+    ctx.addSession({ id: "successor5", cwd: CWD, status: "active" });
+    ctx.fire("successor5");
+    expect(store.get(CWD, "inv-5")).toBe("successor5");
+    expect(await link.ensureScopedSession(CWD, "inv-5")).toBe("successor5");
+    expect(ctx.spawns).toHaveLength(0);
+  });
+
+  it("1b re-point does not fire while a spawn is in flight for the cwd", async () => {
+    const store = createCanonicalSessionStore(storeFile);
+    // No live/restorable canonical → resolution spawns; meanwhile a stray
+    // registration in the cwd must NOT be mistaken for a resume successor.
+    ctx = makeDeps([], store);
+    const link = createSessionLink(ctx.deps);
+    const pending = link.ensureScopedSession(CWD, "inv-6");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.spawns).toHaveLength(1);
+    const runId = ctx.spawns[0].automationRun.runId;
+    // A stray stampless session appears mid-spawn — guard must ignore it.
+    ctx.addSession({ id: "stray", cwd: CWD, status: "active" });
+    ctx.fire("stray");
+    ctx.addSession({ id: "scoped6", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-6", runId } });
+    ctx.fire("scoped6");
+    expect(await pending).toBe("scoped6");
+    expect(store.get(CWD, "inv-6")).toBe("scoped6");
+  });
+});
+
+// dispatchFlow resolves the invoice's canonical session and reuses (live) or
+// resumes (ended/bridgeless) it; a new invoice still spawns exactly one.
+// See change: make-invoice-session-canonical (§6).
+describe("dispatchFlow canonical reuse/resume (§6)", () => {
+  let dir: string;
+  let storeFile: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "ib-canon-dispatch-"));
+    storeFile = join(dir, "canonical-sessions.json");
+  });
+
+  it("6.1 live canonical is reused — flow:run delivered, no spawn", async () => {
+    const store = createCanonicalSessionStore(storeFile);
+    store.set(CWD, "inv-1", "canon-live");
+    // Stampless live session (e.g. a resumed successor) — store is the authority.
+    ctx = makeDeps([{ id: "canon-live", cwd: CWD, status: "idle" }], store);
+    const link = createSessionLink(ctx.deps);
+    const sid = await link.dispatchFlow({ cwd: CWD, flow: FLOW, invoiceId: "inv-1" });
+    expect(sid).toBe("canon-live");
+    expect(ctx.spawns).toHaveLength(0);
+    expect(ctx.emits).toContainEqual({ sessionId: "canon-live", eventType: "flow:run", data: FLOW });
+    expect(store.get(CWD, "inv-1")).toBe("canon-live");
+  });
+
+  it("6.2 ended/bridgeless canonical resumes it and delivers — no fresh one-shot spawn", async () => {
+    const file = join(dir, "canon2.jsonl");
+    writeFileSync(file, "");
+    const store = createCanonicalSessionStore(storeFile);
+    store.set(CWD, "inv-2", "canon-ended");
+    ctx = makeDeps([{ id: "canon-ended", cwd: CWD, status: "ended", sessionFile: file }], store);
+    const link = createSessionLink(ctx.deps);
+    const p = link.dispatchFlow({ cwd: CWD, flow: FLOW, invoiceId: "inv-2" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.spawns).toHaveLength(1);
+    // The spawn is a RESUME of the canonical transcript, not a fresh one-shot.
+    expect(ctx.spawns[0].resumeSessionFile).toBe(file);
+    const runId = ctx.spawns[0].automationRun.runId;
+    ctx.addSession({ id: "resumed-succ", cwd: CWD, status: "active", automationRun: { name: FLOW.flowName, runId } });
+    ctx.fire("resumed-succ");
+    expect(await p).toBe("resumed-succ");
+    expect(ctx.emits).toContainEqual({ sessionId: "resumed-succ", eventType: "flow:run", data: FLOW });
+    expect(store.get(CWD, "inv-2")).toBe("resumed-succ"); // canonical re-pointed to the successor
+  });
+
+  it("6.3 no canonical session spawns exactly one and records it as canonical", async () => {
+    const store = createCanonicalSessionStore(storeFile);
+    ctx = makeDeps([], store);
+    const link = createSessionLink(ctx.deps);
+    const p = link.dispatchFlow({ cwd: CWD, flow: FLOW, invoiceId: "inv-3" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.spawns).toHaveLength(1);
+    expect(ctx.spawns[0].resumeSessionFile).toBeUndefined(); // fresh spawn, not a resume
+    const runId = ctx.spawns[0].automationRun.runId;
+    ctx.addSession({ id: "fresh-run", cwd: CWD, status: "active", automationRun: { name: FLOW.flowName, runId } });
+    ctx.fire("fresh-run");
+    expect(await p).toBe("fresh-run");
+    expect(store.get(CWD, "inv-3")).toBe("fresh-run");
   });
 });
 

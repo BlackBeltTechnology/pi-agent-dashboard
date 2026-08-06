@@ -23,4 +23,18 @@ describe("pluginSpawnToSessionOptions", () => {
     expect(out.guard).toBe(true);
     expect(out.model).toBe("m");
   });
+
+  // §6 re-run: a resumeSessionFile maps to a --continue resume of that transcript.
+  // See change: make-invoice-session-canonical.
+  it("maps resumeSessionFile to a continue resume (sessionFile + mode)", () => {
+    const out = pluginSpawnToSessionOptions({ cwd: "/work/acme", resumeSessionFile: "/work/acme/.s.jsonl" });
+    expect(out.sessionFile).toBe("/work/acme/.s.jsonl");
+    expect(out.mode).toBe("continue");
+  });
+
+  it("omits sessionFile/mode when no resume requested (fresh spawn unchanged)", () => {
+    const out = pluginSpawnToSessionOptions({ cwd: "/work/acme" });
+    expect(out).not.toHaveProperty("sessionFile");
+    expect(out).not.toHaveProperty("mode");
+  });
 });

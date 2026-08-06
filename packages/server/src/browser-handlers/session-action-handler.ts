@@ -207,7 +207,13 @@ export async function handleSendPrompt(
 
   const promptSession = sessionManager.get(msg.sessionId);
 
-  if (promptSession?.status === "ended") {
+  // Bridge-gated resume (Decision 5), not status-gated. Resume whenever the
+  // session has NO live bridge — a cleanly-ended session OR a phantom-active one
+  // (status still "active" but its process/bridge is gone). Gating on
+  // status==="ended" alone routes a phantom to the live-send branch below, where
+  // `sendToSession` returns false and the prompt is silently dropped (composer
+  // spins on "sending"). See change: make-invoice-session-canonical (§5).
+  if (promptSession && !piGateway.isSessionConnected(msg.sessionId)) {
     if (!promptSession.sessionFile) {
       console.error(`[dashboard] auto-resume failed: no session file for session ${msg.sessionId}`);
       return;
