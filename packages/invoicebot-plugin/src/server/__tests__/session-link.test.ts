@@ -199,14 +199,20 @@ describe("ensureScopedSession", () => {
     try {
       const file = join(dir, "session.jsonl");
       writeFileSync(file, "");
-      ctx.addSession({ id: "missing-file", cwd: CWD, status: "ended", sessionFile: join(dir, "gone.jsonl"), automationRun: { name: "invoicebot:process", runId: "r1" } });
-      ctx.addSession({ id: "resumable", cwd: CWD, status: "ended", sessionFile: file, automationRun: { name: "invoicebot:process", runId: "r2" } });
+      // §1c: recorded candidates must be the invoice's OWN scoped sessions — a
+      // bare `invoicebot:process` stamp is no longer adoptable as the card's
+      // chat session (it is indistinguishable from an unscoped intake-spawned
+      // run). This case still covers what it always meant to: newest-first
+      // ordering and the ended+file-exists resumability gate.
+      const scoped = "invoicebot-scoped:inv-42";
+      ctx.addSession({ id: "missing-file", cwd: CWD, status: "ended", sessionFile: join(dir, "gone.jsonl"), automationRun: { name: scoped, runId: "r1" } });
+      ctx.addSession({ id: "resumable", cwd: CWD, status: "ended", sessionFile: file, automationRun: { name: scoped, runId: "r2" } });
       ctx.setRecordedIds(["missing-file", "resumable"]);
       const link = createSessionLink(ctx.deps);
       expect(await link.ensureScopedSession(CWD, "inv-42")).toBe("resumable");
       expect(ctx.spawns).toHaveLength(0);
 
-      ctx.addSession({ id: "live-run", cwd: CWD, status: "streaming", automationRun: { name: "invoicebot:process", runId: "r3" } });
+      ctx.addSession({ id: "live-run", cwd: CWD, status: "streaming", automationRun: { name: scoped, runId: "r3" } });
       ctx.setRecordedIds(["live-run", "resumable"]);
       expect(await link.ensureScopedSession(CWD, "inv-42")).toBe("live-run");
     } finally {
@@ -433,5 +439,66 @@ describe("resolveSessionId", () => {
   it("returns null (no throw) when nothing matches", () => {
     const link = createSessionLink(ctx.deps);
     expect(link.resolveSessionId("unknown", CWD)).toBeNull();
+  });
+});
+
+// §1c — the CARD's canonical session must be a scoped-invoice session. The
+// shared intake automation records itself into the invoice's runs, and its
+// automationRun name ("invoicebot-intake") passes the loose `isInvoicebotSession`
+// prefix gate — so the card adopted a session running the GLOBAL "ask" profile
+// and greeted the operator with the Ask opener instead of the invoice opener.
+// See change: make-invoice-session-canonical (§1c).
+describe("ensureScopedSession — scoped-profile gate (§1c)", () => {
+  it("does NOT adopt a shared invoicebot-intake session; spawns a scoped one", async () => {
+    ctx.addSession({ id: "intake-9", cwd: CWD, automationRun: { name: "invoicebot-intake", runId: "ri" } });
+    ctx.setRecordedIds(["intake-9"]);
+    const link = createSessionLink(ctx.deps);
+    const p = link.ensureScopedSession(CWD, "inv-posta");
+    await new Promise((r) => setTimeout(r, 5));
+    // A spawn must have been requested — the intake session is not adopted.
+    expect(ctx.spawns.length).toBe(1);
+    expect(ctx.spawns[0].env).toMatchObject({ IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: "inv-posta" });
+    ctx.addSession({ id: "scoped-new", cwd: CWD, automationRun: { name: ctx.spawns[0].automationRun.name, runId: ctx.spawns[0].automationRun.runId } });
+    ctx.fire("scoped-new");
+    expect(await p).toBe("scoped-new");
+    expect(await p).not.toBe("intake-9");
+  });
+
+  it("adopts the invoice's own scoped session when one exists", async () => {
+    ctx.addSession({
+      id: "scoped-ok",
+      cwd: CWD,
+      status: "active",
+      automationRun: { name: "invoicebot-scoped:inv-posta", runId: "rs" },
+    });
+    ctx.setRecordedIds(["scoped-ok"]);
+    const link = createSessionLink(ctx.deps);
+    expect(await link.ensureScopedSession(CWD, "inv-posta")).toBe("scoped-ok");
+    expect(ctx.spawns.length).toBe(0);
+  });
+
+  it("does NOT adopt another invoice's scoped session", async () => {
+    ctx.addSession({
+      id: "scoped-other",
+      cwd: CWD,
+      status: "active",
+      automationRun: { name: "invoicebot-scoped:some-other-invoice", runId: "ro" },
+    });
+    ctx.setRecordedIds(["scoped-other"]);
+    const link = createSessionLink(ctx.deps);
+    const p = link.ensureScopedSession(CWD, "inv-posta");
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ctx.spawns.length).toBe(1);
+    ctx.addSession({ id: "scoped-mine", cwd: CWD, automationRun: { name: ctx.spawns[0].automationRun.name, runId: ctx.spawns[0].automationRun.runId } });
+    ctx.fire("scoped-mine");
+    expect(await p).toBe("scoped-mine");
+  });
+
+  it("dispatch (flow:run) still reuses a live intake session — the gate is card-only (1c.4)", async () => {
+    ctx.addSession({ id: "intake-live", cwd: CWD, status: "active", automationRun: { name: "invoicebot-intake", runId: "rl" } });
+    const link = createSessionLink(ctx.deps);
+    const sid = await link.dispatchFlow({ cwd: CWD, flow: FLOW, sessionId: "intake-live", invoiceId: "inv-posta" });
+    expect(sid).toBe("intake-live");
+    expect(ctx.spawns.length).toBe(0);
   });
 });

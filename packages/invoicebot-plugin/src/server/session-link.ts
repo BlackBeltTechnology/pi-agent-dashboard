@@ -123,6 +123,35 @@ function isInvoicebotSession(s: SessionShape | undefined, cwd: string): s is Ses
   );
 }
 
+/**
+ * The CARD's gate (§1c) — stricter than `isInvoicebotSession`. A session may be
+ * adopted as an invoice's canonical CHAT session only when it is that invoice's
+ * OWN scoped session.
+ *
+ * Why the loose prefix gate is wrong here: the shared `invoicebot-intake`
+ * automation records itself into the invoice's `invoice_runs`, and its name
+ * starts with "invoicebot", so it passed. But intake spawns with no bound
+ * invoice ⇒ no `IB_TOOLSET`/`IB_INVOICE_ID` ⇒ the session boots the GLOBAL "ask"
+ * profile and greets with the Ask opener instead of the invoice opener.
+ *
+ * Deliberately narrower than task 1c.3, which also wanted an `invoicebot:process`
+ * run "bound to the invoice" accepted: a bound and an intake-spawned process run
+ * are BOTH stamped `automationRun.name === "invoicebot:process"`, so they are
+ * indistinguishable from the session record — and the intake-spawned one is
+ * unscoped. Accepting the name would reinstate the very bug. Falling through
+ * costs one scoped spawn and always yields the correct surface.
+ *
+ * Scope-only: `reuseTarget`/`dispatchFlow` keep the loose gate (1c.4) — emitting
+ * `flow:run` into a live intake session is still correct.
+ */
+function isScopedInvoiceSession(
+  s: SessionShape | undefined,
+  cwd: string,
+  invoiceId: string,
+): s is SessionShape {
+  return isInvoicebotSession(s, cwd) && s.automationRun?.name === scopedAutomationName(invoiceId);
+}
+
 export function createSessionLink(deps: SessionLinkDeps): SessionLink {
   const invoiceToSession = new Map<string, string>();
   const scopedInvoiceToSession = new Map<string, string>();
@@ -311,7 +340,8 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
     const linked = scopedInvoiceToSession.get(key);
     if (!linked) return undefined;
     const session = deps.getSession(linked) as SessionShape | undefined;
-    if (isInvoicebotSession(session, cwd) && session.status !== "ended") return linked;
+    // §1c: scoped-gated — never keep a global/intake id as the card's session.
+    if (isScopedInvoiceSession(session, cwd, invoiceId) && session.status !== "ended") return linked;
     scopedInvoiceToSession.delete(key);
     return undefined;
   }
@@ -369,8 +399,15 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
     }
   }
 
-  function isUsableRecordedSession(session: SessionShape | undefined, cwd: string): session is SessionShape {
-    if (!isInvoicebotSession(session, cwd)) return false;
+  // §1c: gated on the invoice's OWN scoped session. `invoice_runs` records every
+  // session that touched the invoice — including the shared intake automation —
+  // so the loose invoicebot-prefix gate adopted a global-profile session here.
+  function isUsableRecordedSession(
+    session: SessionShape | undefined,
+    cwd: string,
+    invoiceId: string,
+  ): session is SessionShape {
+    if (!isScopedInvoiceSession(session, cwd, invoiceId)) return false;
     if (session.status !== "ended") return true;
     return !!session.sessionFile && existsSync(session.sessionFile);
   }
@@ -378,7 +415,7 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
   async function recordedUsableSession(cwd: string, invoiceId: string): Promise<string | undefined> {
     for (const id of await lookupRecordedIds(cwd, invoiceId)) {
       const session = deps.getSession(id) as SessionShape | undefined;
-      if (!isUsableRecordedSession(session, cwd)) continue;
+      if (!isUsableRecordedSession(session, cwd, invoiceId)) continue;
       scopedInvoiceToSession.set(scopedLinkKey(cwd, invoiceId), id);
       deps.canonicalStore?.set(cwd, invoiceId, id);
       if (session.status === "ended") enqueueResumeRepoint(cwd, invoiceId);
