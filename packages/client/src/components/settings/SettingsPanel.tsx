@@ -1028,7 +1028,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     {t("settings.interfaceDescription", undefined, "Choose the dashboard interface language. The selection is saved in this browser.")}
                   </p>
                   <SelectField
-                    hint={null}
+                    hint={i18nT("settings.hint.uiLanguage", undefined, "UI language for the dashboard. Session content is never translated.")}
                     label={t("settings.language", undefined, "Language")}
                     value={language}
                     options={LANGUAGE_OPTIONS}
@@ -1042,26 +1042,26 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             {activeTab === "server" && (
               <>
                 <Section title={i18nT("common.server", undefined, "Server")}>
-                  <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} hint={null} />
-                  <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} hint={null} />
+                  <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} hint={i18nT("settings.hint.httpPort", undefined, "Port the dashboard web UI and REST API listen on. Changing it needs a restart and breaks bookmarked URLs. Default 8000.")} />
+                  <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} hint={i18nT("settings.hint.piGatewayPort", undefined, "Port pi sessions connect their bridge WebSocket to. Must be free and reachable from every machine running pi. Default 8001.")} />
                   <ListenInterfaceField
                     bindHost={config.bindHost ?? "127.0.0.1"}
                     hasGuardConfig={hasGuardConfig(config)}
                     onChange={(v) => update((c) => { c.bindHost = v; })}
                   />
-                  <ToggleField label={t("settings.autoShutdown", undefined, "Auto Shutdown")} value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} hint={null} />
+                  <ToggleField label={t("settings.autoShutdown", undefined, "Auto Shutdown")} value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} hint={i18nT("settings.hint.autoShutdown", undefined, "Stop the server once no session has been active for the window below. Off keeps it running forever.")} />
                   {config.autoShutdown && (
-                    <NumberField label={i18nT("status.idleSecondsBeforeShutdown", undefined, "Idle Seconds Before Shutdown")} value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} hint={null} />
+                    <NumberField label={i18nT("status.idleSecondsBeforeShutdown", undefined, "Idle Seconds Before Shutdown")} value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} hint={i18nT("settings.hint.idleBeforeShutdown", undefined, "Idle time before shutting down. Counts from the last session event, not the last page view.")} />
                   )}
                 </Section>
                 <Section title={t("settings.tunnel", undefined, "Gateway")}>
-                  <ToggleField label={t("settings.enableZrokTunnel", undefined, "Enable Gateway")} value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} hint={null} />
+                  <ToggleField label={t("settings.enableZrokTunnel", undefined, "Enable Gateway")} value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} hint={i18nT("settings.hint.enableGateway", undefined, "Expose the dashboard through a public tunnel.")} />
                   <div className="mt-3 pt-3 border-t border-[var(--border-secondary)] space-y-2">
                     <p className="text-xs text-[var(--text-tertiary)]">
                       {i18nT("tunnel.watchdogProbesThePublicTunnelUrl", undefined, "Watchdog probes the public Gateway URL periodically and recycles it after consecutive failures (e.g. a zrok edge returning 502).")}
                     </p>
                     <ToggleField
-                      hint={null}
+                      hint={i18nT("settings.hint.enableWatchdog", undefined, "Probe the tunnel on a timer and restart it when it stops answering. Off leaves a dead tunnel dead until you notice.")}
                       label={t("settings.enableWatchdog", undefined, "Enable Watchdog")}
                       value={config.tunnel.watchdog?.enabled ?? true}
                       onChange={(v) => update((c) => {
@@ -1074,8 +1074,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       })}
                     />
                     <NumberField
-                      hint={null}
-                      label={t("settings.probeInterval", undefined, "Probe Interval (seconds)")}
+                      hint={i18nT("settings.hint.probeInterval", undefined, "Time between tunnel health probes. Lower detects a dead tunnel sooner and costs more requests.")}
+                      label={t("settings.probeInterval", undefined, "Probe interval")}
+                      unit="s"
                       value={Math.round((config.tunnel.watchdog?.intervalMs ?? 60000) / 1000)}
                       onChange={(v) => update((c) => {
                         c.tunnel.watchdog = {
@@ -1087,7 +1088,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       })}
                     />
                     <NumberField
-                      hint={null}
+                      hint={i18nT("settings.hint.failureThreshold", undefined, "Consecutive failed probes before the watchdog restarts the tunnel. Raise it on a flaky network to avoid needless restarts.")}
                       label={i18nT("settings.failureThreshold", undefined, "Failure Threshold")}
                       value={config.tunnel.watchdog?.failureThreshold ?? 2}
                       onChange={(v) => update((c) => {
@@ -1100,8 +1101,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       })}
                     />
                     <NumberField
-                      hint={null}
-                      label={t("settings.probeTimeout", undefined, "Probe Timeout (seconds)")}
+                      hint={i18nT("settings.hint.probeTimeout", undefined, "How long a single probe waits for an answer before counting as a failure.")}
+                      label={t("settings.probeTimeout", undefined, "Probe timeout")}
+                      unit="s"
                       value={Math.round((config.tunnel.watchdog?.probeTimeoutMs ?? 10000) / 1000)}
                       onChange={(v) => update((c) => {
                         c.tunnel.watchdog = {
@@ -1119,7 +1121,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     {t("settings.memoryLimitsDescription", undefined, "Controls for bounding server memory usage. Set to 0 to disable a limit. Requires server restart.")}
                   </p>
                   <NumberField
-                    hint={null}
+                    hint={i18nT("settings.hint.maxEventsPerSession", undefined, "Ring-buffer size per session. Older events are trimmed from the middle so the chat head survives. 0 = unlimited (grows without bound).")}
                     label={i18nT("session.maxEventsPerSession", undefined, "Max Events Per Session")}
                     value={config.memoryLimits?.maxEventsPerSession ?? 200}
                     onChange={(v) => update((c) => {
@@ -1128,8 +1130,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     })}
                   />
                   <NumberField
-                    hint={null}
-                    label={i18nT("settings.maxStringTruncationChars", undefined, "Max String Truncation (chars)")}
+                    hint={i18nT("settings.hint.maxStringTruncation", undefined, "Cut long strings inside stored events to this length. 0 = never truncate. Relieve memory pressure here before lowering the event cap.")}
+                    label={i18nT("settings.maxStringTruncationChars", undefined, "Max string truncation")}
+                    unit="chars"
                     value={config.memoryLimits?.maxStringFieldSize ?? 4000}
                     onChange={(v) => update((c) => {
                       if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
@@ -1137,8 +1140,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     })}
                   />
                   <NumberField
-                    hint={null}
-                    label={i18nT("settings.maxWebsocketBufferBytes", undefined, "Max WebSocket Buffer (bytes)")}
+                    hint={i18nT("settings.hint.maxWsBuffer", undefined, "Once a browser's outgoing buffer exceeds this, messages are dropped rather than queued — protects the server from one slow client. 0 = no limit.")}
+                    label={i18nT("settings.maxWebsocketBufferBytes", undefined, "Max WebSocket buffer")}
+                    unit="bytes"
                     value={config.memoryLimits?.maxWsBufferBytes ?? 4194304}
                     onChange={(v) => update((c) => {
                       if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
@@ -1153,7 +1157,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
               <>
                 <Section title={t("settings.sessions", undefined, "Sessions")}>
                   <SelectField
-                    hint={null}
+                    hint={i18nT("settings.hint.sessionStrategy", undefined, "How +Session launches pi. Tmux keeps an attachable terminal you can join from a shell; headless runs detached and is lighter.")}
                     label={t("settings.spawnStrategy", undefined, "+Session Strategy")}
                     value={config.spawnStrategy}
                     options={[{ value: "headless", label: "Headless" }, { value: "tmux", label: "Tmux" }]}
@@ -1194,7 +1198,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     hint={i18nT("session.whenASessionAsksAQuestion", undefined, "When a session asks a question (ask_user), move its card to the top of the active tier. Off keeps the card in place.")}
                   />
                   <NumberField
-                    label={i18nT("session.askUserPromptTimeoutSeconds", undefined, "ask_user Prompt Timeout (seconds)")}
+                    label={i18nT("session.askUserPromptTimeoutSeconds", undefined, "ask_user prompt timeout")}
+                    unit="s"
                     value={config.askUserPromptTimeoutSeconds ?? 300}
                     onChange={(v) => update((c) => { c.askUserPromptTimeoutSeconds = v; })}
                     hint={<>{i18nT("session.howLongAnInteractiveAskUser", undefined, "How long an interactive ask_user prompt waits for an answer before auto-cancelling. Use")} <code>-1</code> (or <code>0</code>{i18nT("common.toWaitForeverDefault3005", undefined, ") to wait forever. Default: 300 (5 min).")}</>}
@@ -1463,7 +1468,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     {i18nT("settings.controlsHowAggressivelyTheServerPolls", undefined, "Controls how aggressively the server polls")} <code>{i18nT("openspec.openspecList", undefined, "openspec list")}</code> and <code>{i18nT("openspec.openspecStatus", undefined, "openspec status")}</code> {i18nT("folders.forEachKnownDirectoryLongerInterval", undefined, "for each known directory. Longer interval → less CPU, slightly staler UI. Lower concurrency → smoother curve. Change detection")} <code>mtime</code> {i18nT("openspec.skipsRePollingUnchangedProposalsRecom", undefined, "skips re-polling unchanged proposals (recommended).")}
                   </p>
                   <ToggleField
-                    hint={null}
+                    hint={i18nT("settings.hint.enableOpenspecPolling", undefined, "Watch registered folders for OpenSpec changes and spawn sessions for them. Off disables every setting below.")}
                     label={t("settings.enableOpenSpec", undefined, "Enable OpenSpec")}
                     value={config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled}
                     onChange={(v) => update((c) => {
@@ -1479,8 +1484,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     return (
                       <>
                         <NumberField
-                          hint={null}
-                          label={i18nT("settings.pollIntervalSeconds53600", undefined, "Poll Interval (seconds, 5–3600)")}
+                          hint={i18nT("settings.hint.pollInterval", undefined, "Time between scans of every watched folder. Lower reacts faster and costs more filesystem I/O. Range 5–3600.")}
+                          label={i18nT("settings.pollIntervalSeconds53600", undefined, "Poll interval")}
+                          unit="s"
                           disabled={openspecOff}
                           value={config.openspec?.pollIntervalSeconds ?? DEFAULT_OPENSPEC_UI.pollIntervalSeconds}
                           onChange={(v) => update((c) => {
@@ -1489,8 +1495,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                           })}
                         />
                         <NumberField
-                          hint={null}
-                          label={i18nT("session.maxConcurrentSessions116", undefined, "Max Concurrent +Sessions (1–16)")}
+                          hint={i18nT("settings.hint.maxConcurrentSpawns", undefined, "Upper bound on sessions polling spawns at once. Each one is a full pi process — raise only if your machine has the RAM. Range 1–16.")}
+                          label={i18nT("session.maxConcurrentSessions116", undefined, "Max concurrent +Sessions")}
                           disabled={openspecOff}
                           value={config.openspec?.maxConcurrentSpawns ?? DEFAULT_OPENSPEC_UI.maxConcurrentSpawns}
                           onChange={(v) => update((c) => {
@@ -1499,7 +1505,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                           })}
                         />
                         <SelectField
-                          hint={null}
+                          hint={i18nT("settings.hint.changeDetection", undefined, "mtime re-reads a proposal only when its file timestamp moved — cheap, but misses same-second edits. always re-reads every tick.")}
                           label={i18nT("common.changeDetection", undefined, "Change Detection")}
                           disabled={openspecOff}
                           value={config.openspec?.changeDetection ?? DEFAULT_OPENSPEC_UI.changeDetection}
@@ -1513,8 +1519,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                           })}
                         />
                         <NumberField
-                          hint={null}
-                          label={i18nT("settings.jitterSeconds060", undefined, "Jitter (seconds, 0–60)")}
+                          hint={i18nT("settings.hint.jitter", undefined, "Random offset added to each interval so many folders don't all scan on the same tick. 0 disables. Range 0–60.")}
+                          label={i18nT("settings.jitterSeconds060", undefined, "Jitter")}
+                          unit="s"
                           disabled={openspecOff}
                           value={config.openspec?.jitterSeconds ?? DEFAULT_OPENSPEC_UI.jitterSeconds}
                           onChange={(v) => update((c) => {
@@ -1541,7 +1548,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 </Section>
                 {/* Configurable chat display (configurable-chat-display). */}
                 <Section title={t("settings.developer", undefined, "Developer")}>
-                  <ToggleField label={t("settings.devBuildOnReload", undefined, "Dev Build on Reload")} value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} hint={null} />
+                  <ToggleField label={t("settings.devBuildOnReload", undefined, "Dev Build on Reload")} value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} hint={i18nT("settings.hint.devBuildOnReload", undefined, "Rebuild the web client each time you reload sessions. Slower reloads, but you see client edits without a manual build.")} />
                   <ToggleField
                     label={t("settings.capturePiOutput", undefined, "Capture pi session output (debug)")}
                     value={config.keeperLog?.capturePiOutput ?? false}
@@ -1829,41 +1836,42 @@ function DisplayPrefsSection() {
       <p className="text-xs text-[var(--text-tertiary)] mb-2">
         {t("settings.chatDisplayDescription", undefined, "Hide chat elements you don't need. Per-session overrides live in the chat view's View popover.")}
       </p>
-      <ToggleField label={t("settings.tokenStatsBar", undefined, "Token stats bar")} value={prefs.tokenStatsBar} onChange={(v) => patch({ tokenStatsBar: v })} hint={null} />
-      <ToggleField label={t("settings.contextUsageBar", undefined, "Context usage bar")} value={prefs.contextUsageBar} onChange={(v) => patch({ contextUsageBar: v })} hint={null} />
-      <ToggleField label={t("settings.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} hint={null} />
+      <ToggleField label={t("settings.tokenStatsBar", undefined, "Token stats bar")} value={prefs.tokenStatsBar} onChange={(v) => patch({ tokenStatsBar: v })} hint={i18nT("settings.hint.tokenStatsBar", undefined, "Per-turn token counts and cost under each assistant message.")} />
+      <ToggleField label={t("settings.contextUsageBar", undefined, "Context usage bar")} value={prefs.contextUsageBar} onChange={(v) => patch({ contextUsageBar: v })} hint={i18nT("settings.hint.contextUsageBar", undefined, "Bar showing how full the model's context window is. Hide it if you never hit the limit.")} />
+      <ToggleField label={t("settings.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} hint={i18nT("settings.hint.reasoningBlocks", undefined, "Show the model's thinking. Off hides it entirely and disables the two settings below.")} />
       <NumberField
-        hint={null}
-        label={t("settings.reasoningAutoCollapse", undefined, "Reasoning auto-collapse (seconds, 0 = never)")}
+        hint={i18nT("settings.hint.reasoningAutoCollapse", undefined, "Collapse a finished reasoning block after this many seconds. 0 = never collapse.")}
+        label={t("settings.reasoningAutoCollapse", undefined, "Reasoning auto-collapse")}
+        unit="s"
         value={Math.round(prefs.reasoningAutoCollapseMs / 1000)}
         onChange={(v) => patch({ reasoningAutoCollapseMs: Math.max(0, v) * 1000 })}
         disabled={!prefs.reasoning}
       />
       <ToggleField
-        hint={null}
+        hint={i18nT("settings.hint.keepReasoningOpen", undefined, "Ignore auto-collapse while the turn is still running.")}
         label={t("settings.keepReasoningOpenUntilTurnEnds", undefined, "Keep reasoning open until turn ends")}
         value={prefs.keepReasoningOpenUntilTurnEnds}
         onChange={(v) => patch({ keepReasoningOpenUntilTurnEnds: v })}
         disabled={!prefs.reasoning}
       />
       <ToggleField
-        hint={null}
+        hint={i18nT("settings.hint.toolGroupsCollapsed", undefined, "Consecutive tool calls open collapsed; click to expand.")}
         label={t("settings.toolGroupDefaultCollapsed", undefined, "Keep tool groups collapsed by default")}
         value={prefs.toolGroupDefaultCollapsed}
         onChange={(v) => patch({ toolGroupDefaultCollapsed: v })}
       />
-      <ToggleField label={t("settings.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} onChange={(v) => patch({ toolResults: v })} hint={null} />
-      <ToggleField label={t("settings.turnMetadata", undefined, "Turn metadata separators")} value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} hint={null} />
-      <ToggleField label={t("settings.changeSummaryTable", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} onChange={(v) => patch({ changeSummaryTable: v })} hint={null} />
-      <ToggleField label={t("settings.reserveProcessLineAtIdle", undefined, "Reserve process line at idle")} value={prefs.reserveProcessLineAtIdle} onChange={(v) => patch({ reserveProcessLineAtIdle: v })} hint={null} />
-      <ToggleField label={t("settings.debugEvents", undefined, "Debug events")} value={prefs.debugTools} onChange={(v) => patch({ debugTools: v })} hint={null} />
+      <ToggleField label={t("settings.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} onChange={(v) => patch({ toolResults: v })} hint={i18nT("settings.hint.toolResultBodies", undefined, "Show what a tool returned, not just that it ran.")} />
+      <ToggleField label={t("settings.turnMetadata", undefined, "Turn metadata separators")} value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} hint={i18nT("settings.hint.turnMetadataSeparators", undefined, "Thin rule between turns carrying model, duration, and timestamp.")} />
+      <ToggleField label={t("settings.changeSummaryTable", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} onChange={(v) => patch({ changeSummaryTable: v })} hint={i18nT("settings.hint.perTurnChangeSummary", undefined, "Table of files added/changed/deleted by each turn.")} />
+      <ToggleField label={t("settings.reserveProcessLineAtIdle", undefined, "Reserve process line at idle")} value={prefs.reserveProcessLineAtIdle} onChange={(v) => patch({ reserveProcessLineAtIdle: v })} hint={i18nT("settings.hint.reserveProcessLine", undefined, "Keep the status line's height reserved while idle so the composer does not jump when a turn starts.")} />
+      <ToggleField label={t("settings.debugEvents", undefined, "Debug events")} value={prefs.debugTools} onChange={(v) => patch({ debugTools: v })} hint={i18nT("settings.hint.debugEvents", undefined, "Raw protocol traffic (flow:list-flows, resources_discover, …). Noisy — for diagnosing the bridge.")} />
       <div className="pt-2">
         <h3 className="text-xs font-semibold text-[var(--text-primary)] mb-2">{t("settings.toolCallsHeader", undefined, "Tool calls - show these types")}</h3>
-        <ToggleField label={t("settings.toolRead", undefined, "Read")} value={prefs.toolCalls.read} onChange={(v) => patch({ toolCalls: { read: v } })} hint={null} />
-        <ToggleField label={t("settings.toolBash", undefined, "Bash")} value={prefs.toolCalls.bash} onChange={(v) => patch({ toolCalls: { bash: v } })} hint={null} />
-        <ToggleField label={t("settings.toolEdit", undefined, "Edit / Write")} value={prefs.toolCalls.edit} onChange={(v) => patch({ toolCalls: { edit: v } })} hint={null} />
-        <ToggleField label={t("settings.toolAgent", undefined, "Agent")} value={prefs.toolCalls.agent} onChange={(v) => patch({ toolCalls: { agent: v } })} hint={null} />
-        <ToggleField label={t("settings.toolOther", undefined, "Other")} value={prefs.toolCalls.generic} onChange={(v) => patch({ toolCalls: { generic: v } })} hint={null} />
+        <ToggleField label={t("settings.toolRead", undefined, "Read")} value={prefs.toolCalls.read} onChange={(v) => patch({ toolCalls: { read: v } })} hint={i18nT("settings.hint.toolRead", undefined, "File reads.")} />
+        <ToggleField label={t("settings.toolBash", undefined, "Bash")} value={prefs.toolCalls.bash} onChange={(v) => patch({ toolCalls: { bash: v } })} hint={i18nT("settings.hint.toolBash", undefined, "Shell commands.")} />
+        <ToggleField label={t("settings.toolEdit", undefined, "Edit / Write")} value={prefs.toolCalls.edit} onChange={(v) => patch({ toolCalls: { edit: v } })} hint={i18nT("settings.hint.toolEditWrite", undefined, "File mutations.")} />
+        <ToggleField label={t("settings.toolAgent", undefined, "Agent")} value={prefs.toolCalls.agent} onChange={(v) => patch({ toolCalls: { agent: v } })} hint={i18nT("settings.hint.toolAgent", undefined, "Subagent spawns.")} />
+        <ToggleField label={t("settings.toolOther", undefined, "Other")} value={prefs.toolCalls.generic} onChange={(v) => patch({ toolCalls: { generic: v } })} hint={i18nT("settings.hint.toolOther", undefined, "Every remaining tool, incl. MCP tools.")} />
       </div>
       <div className="pt-2">
         <button

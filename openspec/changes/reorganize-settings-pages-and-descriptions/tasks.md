@@ -24,14 +24,14 @@ unless stated otherwise.
 
 ## 3. Author the 44 missing descriptions + move units out of labels
 
-- [ ] 3.1 General — Language plus the chat-display toggles (copy drafted in `mockups/sessions-settings-reorg/index.html`).
-- [ ] 3.2 Server — `port`, `piPort`, `maxEventsPerSession`, `maxStringFieldSize`, `maxWsBufferBytes`.
-- [ ] 3.3 Server — the `tunnel.watchdog.*` fields, which stay on the Server page (D2).
+- [x] 3.1 General — Language plus the chat-display toggles (copy drafted in `mockups/sessions-settings-reorg/index.html`).
+- [x] 3.2 Server — `port`, `piPort`, `maxEventsPerSession`, `maxStringFieldSize`, `maxWsBufferBytes`.
+- [x] 3.3 Server — the `tunnel.watchdog.*` fields, which stay on the Server page (D2).
 - [ ] 3.4 Sessions — `spawnStrategy`, `spawnRegisterTimeoutMs`, `defaultModel`.
-- [ ] 3.5 OpenSpec — poll interval, jitter, change detection, max concurrent spawns.
-- [ ] 3.6 For every label carrying a unit parenthetical, move the unit to `unit` and the range to the `hint` (e.g. `Poll Interval (seconds, 5–3600)` → label `Poll interval`, `unit="s"`, hint carrying `Range 5–3600`).
-- [ ] 3.7 Update the unit-bearing i18n keys in **all** dictionaries (en, zh-CN, hu) — `settings.probeInterval`, `settings.pollIntervalSeconds53600`, `settings.jitterSeconds060`, `session.maxConcurrentSessions116`, `session.askUserPromptTimeoutSeconds` — or introduce new keys and retire the old ones. Stripping the unit from the English fallback alone leaves zh-CN/hu rendering the unit twice (D5).
-- [ ] 3.8 Use `hint={null}` only where a description could merely restate the label — reserved for terms of art from an external spec (OAuth `Client ID`, `Client Secret`, `Issuer URL`).
+- [x] 3.5 OpenSpec — poll interval, jitter, change detection, max concurrent spawns.
+- [x] 3.6 For every label carrying a unit parenthetical, move the unit to `unit` and the range to the `hint` (e.g. `Poll Interval (seconds, 5–3600)` → label `Poll interval`, `unit="s"`, hint carrying `Range 5–3600`).
+- [x] 3.7 Update the unit-bearing i18n keys in **all** dictionaries (en, zh-CN, hu) — `settings.probeInterval`, `settings.pollIntervalSeconds53600`, `settings.jitterSeconds060`, `session.maxConcurrentSessions116`, `session.askUserPromptTimeoutSeconds` — or introduce new keys and retire the old ones. Stripping the unit from the English fallback alone leaves zh-CN/hu rendering the unit twice (D5).
+- [x] 3.8 Use `hint={null}` only where a description could merely restate the label — reserved for terms of art from an external spec (OAuth `Client ID`, `Client Secret`, `Issuer URL`).
 
 ## 4. Bespoke controls — label/unit cleanup only (D3)
 
@@ -86,7 +86,7 @@ All rows in this section extend `packages/client/src/components/__tests__/Settin
 - [ ] 10.11 Spawn timeout above maximum: same setup · user enters `120001` · not written, inline error renders, `save-btn` disabled. See `SettingsPanel.test.tsx` (test-plan #E11).
 - [ ] 10.12 Spawn timeout non-numeric: same setup · user enters `abc` parsing to `NaN` · not written, inline error renders, `save-btn` disabled. See `SettingsPanel.test.tsx` (test-plan #E12).
 - [ ] 10.13 Invalid spawn timeout is not sticky: field already invalid from the below-minimum case · user corrects the value to `30000` · the inline error disappears and `save-btn` becomes enabled again. See `SettingsPanel.test.tsx` (test-plan #E13).
-- [ ] 10.14 No locale renders a doubled unit: language set to `en`, `zh-CN`, then `hu` for each of `settings.probeInterval`, `settings.pollIntervalSeconds53600`, `settings.jitterSeconds060`, `session.maxConcurrentSessions116`, `session.askUserPromptTimeoutSeconds` · the owning field renders · in every locale the label text contains the unit token zero times and the unit appears exactly once, inside the `unit` chip. See `SettingsPanel.test.tsx` (test-plan #E14).
+- [x] 10.14 No locale renders a doubled unit: language set to `en`, `zh-CN`, then `hu` for each of `settings.probeInterval`, `settings.pollIntervalSeconds53600`, `settings.jitterSeconds060`, `session.maxConcurrentSessions116`, `session.askUserPromptTimeoutSeconds` · the owning field renders · in every locale the label text contains the unit token zero times and the unit appears exactly once, inside the `unit` chip. See `SettingsPanel.test.tsx` (test-plan #E14).
 - [ ] 10.15 Default model renders first: Sessions page · page renders · the `defaultModel` control precedes every other control on the page in DOM order, including the Retry section's. See `SettingsPanel.test.tsx` (test-plan #F1).
 - [ ] 10.16 Brand-new-only caveat is surfaced: Sessions page · the `defaultModel` callout renders · its description states the setting applies only to brand-new sessions and that a resumed session keeps its own model. See `SettingsPanel.test.tsx` (test-plan #F2).
 - [ ] 10.17 Callout uses severity tokens: Sessions page · the `defaultModel` callout renders · the callout element's class list references a `--severity-info-*` token rather than a raw Tailwind severity colour. See `SettingsPanel.test.tsx` (test-plan #F3).
