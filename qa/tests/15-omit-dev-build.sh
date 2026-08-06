@@ -29,8 +29,14 @@ export NVM_DIR="$HOME/.nvm"
 # shellcheck disable=SC1091
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-REPO_URL="${OMIT_DEV_REPO_URL:-https://github.com/BlackBeltTechnology/pi-agent-dashboard.git}"
-REPO_REF="${OMIT_DEV_REPO_REF:-develop}"
+# Default to the checkout this script lives in, at its CURRENT commit — so the
+# test exercises the code under test. Defaulting to remote `develop` would
+# silently validate a different tree than the one being changed (and always pass
+# on a branch that has not landed yet). Overrides stay for remote reproduction.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_URL="${OMIT_DEV_REPO_URL:-$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)}"
+REPO_REF="${OMIT_DEV_REPO_REF:-$(git -C "$SCRIPT_DIR" rev-parse HEAD)}"
+echo "Source under test: $REPO_URL @ $REPO_REF"
 
 # Resolve pnpm's omit-dev flag ONCE, up front. Newer pnpm majors prefer
 # `--omit=dev`; a silently-accepted no-op flag would make arm 3 vacuous (it
@@ -57,7 +63,10 @@ trap cleanup EXIT
 # node_modules and no packages/client/dist present.
 fresh_checkout() {
   local dest="$1"
-  git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$dest" >/dev/null 2>&1
+  # Clone then checkout, rather than `--depth 1 --branch`: REPO_REF defaults to a
+  # bare commit sha, which `--branch` does not accept.
+  git clone --no-checkout "$REPO_URL" "$dest" >/dev/null 2>&1 || return 1
+  git -C "$dest" checkout --quiet "$REPO_REF" || return 1
   if [ -e "$dest/node_modules" ] || [ -e "$dest/packages/client/dist" ]; then
     echo "FAIL: fresh checkout is not pristine (node_modules or client/dist present)"
     return 1
@@ -93,10 +102,14 @@ fi
 # --- Arm 2: npm, engine-strict ON (full-fidelity #357 repro) -----------------
 echo ""
 echo "--- Arm 2: npm install --omit=dev, engine-strict=true (Node >= 26) ---"
-if [ "$NODE_MAJOR" -lt 26 ]; then
-  echo "SKIP [arm2]: runner Node is v$NODE_MAJOR; arm 2 requires Node >= 26."
-  echo "             On Node 22 the engine-strict assertion passes trivially"
-  echo "             and proves nothing about the #357 EBADENGINE half."
+# Exactly 26, not `>= 26`: below 26 the engine-strict assertion passes trivially
+# (vacuous), and above 26 the arm would fail for the RIGHT reason (27+ is outside
+# the engines cap by design) while looking like a #357 regression.
+if [ "$NODE_MAJOR" -ne 26 ]; then
+  echo "SKIP [arm2]: runner Node is v$NODE_MAJOR; arm 2 requires Node 26 exactly."
+  echo "             Below 26 the engine-strict assertion passes trivially and"
+  echo "             proves nothing about the #357 EBADENGINE half; above 26 the"
+  echo "             engines cap refuses by design, which is not a regression."
   echo "             Re-run under \`nvm use 26\` for real coverage."
 else
   ARM2="$WORKDIR/arm2"

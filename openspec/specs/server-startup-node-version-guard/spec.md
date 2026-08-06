@@ -7,7 +7,7 @@ Preflight refuse-to-start guard that prevents the dashboard server from booting 
 Complements (does NOT replace) the existing Fastify-bug guard `isAffectedNode` — the two predicates target overlapping but distinct version ranges:
 
 - `isAffectedNode` — Node v22.0–v22.18 and v24.1–v24.2 (Fastify ajv-compiler `ERR_INTERNAL_ASSERTION`, nodejs/node#58515).
-- `isOutOfEnginesRange` — Node `<22.19.0` OR `>=26` (engines-cap mirror).
+- `isOutOfEnginesRange` — Node `<22.19.0` OR `>=27` (engines-cap mirror).
 ## Requirements
 ### Requirement: Refuse server start on Node outside engines range
 
