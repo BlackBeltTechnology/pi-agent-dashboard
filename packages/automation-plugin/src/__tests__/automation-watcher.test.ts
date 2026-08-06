@@ -9,6 +9,7 @@ import path from "node:path";
 import {
   createAutomationWatcher,
   matchesAutomationArtifact,
+  reconcileWatchers,
 } from "../server/automation-watcher.js";
 
 describe("matchesAutomationArtifact", () => {
@@ -60,9 +61,60 @@ describe("createAutomationWatcher (fs integration)", () => {
     expect(watcher.size()).toBe(0);
   });
 
+  it("attachedBases reflects the attached set", () => {
+    const watcher = createAutomationWatcher({ onChange: () => {}, logger: () => {} });
+    expect(watcher.attachedBases()).toEqual([]);
+    expect(watcher.attach(base)).toBe(true);
+    expect(watcher.attachedBases()).toEqual([base]);
+    watcher.detach(base);
+    expect(watcher.attachedBases()).toEqual([]);
+  });
+
   it("attach returns false for a missing automation dir (degrade)", () => {
     const watcher = createAutomationWatcher({ onChange: () => {}, logger: () => {} });
     const missing = path.join(base, "does-not-exist");
     expect(watcher.attach(missing)).toBe(false);
+  });
+});
+
+describe("reconcileWatchers (incremental attach — leak fix)", () => {
+  /** Fake watcher recording attach/detach calls without touching the fs. */
+  function fakeWatcher() {
+    const attached = new Set<string>();
+    const calls = { attach: [] as string[], detach: [] as string[] };
+    return {
+      attach: (b: string) => {
+        calls.attach.push(b);
+        if (attached.has(b)) return false;
+        attached.add(b);
+        return true;
+      },
+      detach: (b: string) => {
+        calls.detach.push(b);
+        attached.delete(b);
+      },
+      attachedBases: () => [...attached],
+      calls,
+    };
+  }
+
+  it("attaches new bases and detaches removed ones", () => {
+    const w = fakeWatcher();
+    reconcileWatchers(w, ["/a", "/b"]);
+    expect(w.attachedBases().sort()).toEqual(["/a", "/b"]);
+    reconcileWatchers(w, ["/b", "/c"]);
+    expect(w.attachedBases().sort()).toEqual(["/b", "/c"]);
+    expect(w.calls.detach).toContain("/a");
+  });
+
+  it("is a no-op in steady state — no detach churn (the leak fix)", () => {
+    const w = fakeWatcher();
+    reconcileWatchers(w, ["/a", "/b"]);
+    const detachesAfterInitial = w.calls.detach.length;
+    // Repeated reconciles with the same set must not tear watchers down.
+    reconcileWatchers(w, ["/a", "/b"]);
+    reconcileWatchers(w, ["/a", "/b"]);
+    expect(w.calls.detach.length).toBe(detachesAfterInitial);
+    expect(w.attachedBases().sort()).toEqual(["/a", "/b"]);
   });
 });
