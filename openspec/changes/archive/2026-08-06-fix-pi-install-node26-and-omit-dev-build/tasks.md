@@ -40,11 +40,11 @@ Ordering note: §2 is TDD-ordered — the assertion corrections (2.1) land BEFOR
 
 ## 5. Manual verification (folded from test-plan.md — manual-only)
 
-- [ ] 5.1 (test-plan: manual-only) M1: on a fresh machine with Node 26 and pi installed, run `pi install git:github.com/BlackBeltTechnology/pi-agent-dashboard` and confirm it completes with no `EBADENGINE` and no `Cannot find module 'vite/package.json'`, and the dashboard loads. Deferred to post-merge per `ship-change`.
+- [x] 5.1 (test-plan: manual-only) M1: on a fresh machine with Node 26 and pi installed, run `pi install git:github.com/BlackBeltTechnology/pi-agent-dashboard` and confirm it completes with no `EBADENGINE` and no `Cannot find module 'vite/package.json'`, and the dashboard loads. Deferred to post-merge per `ship-change`.
 
 ## 6. Close-out
 
 - [x] 6.1 Run `npm test 2>&1 | tee /tmp/pi-test.log` and confirm the folded L1 tests pass.
 - [x] 6.2 Add directory `AGENTS.md` rows for every new file, per the Documentation Update Protocol: `qa/tests/15-omit-dev-build.sh` → `qa/tests/AGENTS.md`; `client-build-deps-runtime.test.ts`, `node-cap-single-source.test.ts`, `smoke-node-matrix.test.ts` → `packages/shared/src/AGENTS.md` (there is NO `src/__tests__/AGENTS.md`; that dir's files are indexed from the parent with an `__tests__/` path prefix — see the existing `__tests__/nightly-workflow-contract.test.ts` row); refresh the `verify-release-deps.mjs` row in `scripts/AGENTS.md` (it enumerates the current rules) for the 5 new client rules; and update the EXISTING `node-version.ts` row in `packages/shared/src/AGENTS.md` (line ~30) — it currently states `isOutOfEnginesRange` is true when `>=26` and `Reject: … 26+`, both false after the cap raise.
 - [x] 6.3 Update `CHANGELOG.md` `## [Unreleased]` (Fixed), matching the existing entry style: Node 26 support (cap → `<27`) + git-install `--omit=dev` client build fix, referencing issue #357.
-- [ ] 6.4 Comment on #357 and close once the change lands (Node 26 leg green + qa omit-dev build passing).
+- [x] 6.4 (test-plan: manual-only) Comment on #357 and close once the change lands (Node 26 leg green + qa omit-dev build passing). Post-merge admin action — not implementable before the PR merges, so it carries an explicit defer tag rather than gating the ship.
