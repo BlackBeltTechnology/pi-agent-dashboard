@@ -1,5 +1,8 @@
-# notify-message-channel
+# notify-message-channel Specification
 
+## Purpose
+Defines the dedicated `notify` transport for `ctx.ui.notify` — end to end from the bridge to the rendered chat row — and the invariant that a notification is never an unanswered ask: it produces no pending-prompt entry, no `currentTool` write, no unread stamp and no reorder. Created by archiving change split-notify-from-prompt-request.
+## Requirements
 ### Requirement: Notify has a dedicated protocol message
 
 The pi→server and server→browser protocols SHALL each define a `notify` message

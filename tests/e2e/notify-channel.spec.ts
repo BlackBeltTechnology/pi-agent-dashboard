@@ -107,7 +107,8 @@ test.describe("notify channel — render-only, never a pending ask", () => {
     // row visible while the session was alive must not vanish after it ends.
     // `force_kill` travels on the browser socket, so open a throwaway one.
     await page.evaluate(async (id) => {
-      const ws = new WebSocket(`ws://${location.host}/ws`);
+      const scheme = location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${scheme}://${location.host}/ws`);
       await new Promise((resolve) => ws.addEventListener("open", resolve, { once: true }));
       ws.send(JSON.stringify({ type: "force_kill", sessionId: id }));
       await new Promise((r) => setTimeout(r, 1000));

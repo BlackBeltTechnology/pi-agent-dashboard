@@ -36,7 +36,12 @@ export default function activate(pi: ExtensionAPI): void {
     }),
     // pi passes the tool-call id FIRST; params are the second argument.
     async execute(_toolCallId: any, params: any) {
-      sessionCtx?.ui?.notify?.(params?.message, params?.level);
+      // Fail loudly: returning "notified" without a notify would make every
+      // spec that asserts on the rendered row vacuously green.
+      if (typeof sessionCtx?.ui?.notify !== "function") {
+        throw new Error("e2e_notify: ctx.ui.notify unavailable (session_start ctx not captured)");
+      }
+      sessionCtx.ui.notify(params?.message, params?.level);
       return { content: [{ type: "text", text: "notified" }] };
     },
   } as any);

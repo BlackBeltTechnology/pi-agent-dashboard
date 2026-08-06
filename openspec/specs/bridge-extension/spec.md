@@ -630,7 +630,7 @@ The bridge extension SHALL NOT attempt to install the `agent-browser` or `pi-age
 
 ### Requirement: Bridge SHALL flip `ctx.hasUI` to `true` after wiring the UI proxy
 
-After the bridge has installed PromptBus wrappers on `ctx.ui.confirm`, `ctx.ui.select`, `ctx.ui.input`, `ctx.ui.editor`, `ctx.ui.multiselect`, and `ctx.ui.notify` in the `session_start` handler, the bridge SHALL assign `ctx.hasUI = true` on the live `ctx` object.
+After the bridge has installed PromptBus wrappers on the dialog methods `ctx.ui.confirm`, `ctx.ui.select`, `ctx.ui.input`, `ctx.ui.editor` and `ctx.ui.multiselect`, and has installed the notify proxy on `ctx.ui.notify` (which sends the dedicated `notify` frame and never enters PromptBus), the bridge SHALL assign `ctx.hasUI = true` on the live `ctx` object.
 
 The assignment SHALL happen AFTER the bridge has captured the original `ctx.hasUI` value into its `cachedHasUI` state (used by `source-detector.detectSessionSource`). `cachedHasUI` MUST retain the pi-supplied original value; only the live `ctx.hasUI` is flipped.
 

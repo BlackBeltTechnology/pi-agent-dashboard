@@ -21,11 +21,17 @@ const levelColors: Record<string, string> = {
  * See change: split-notify-from-prompt-request.
  */
 export function NotifyRenderer({ params }: InteractiveRendererProps) {
+  // Validate rather than cast: params cross the wire, and a non-string message
+  // would reach MarkdownContent. See change: split-notify-from-prompt-request.
   const message =
-    (params.message as string | undefined) ??
-    (params.title as string | undefined) ??
-    "";
-  const level = (params.level as string | undefined) ?? "info";
+    typeof params.message === "string"
+      ? params.message
+      : typeof params.title === "string"
+        ? params.title
+        : "";
+  const level = typeof params.level === "string" && params.level in levelColors
+    ? params.level
+    : "info";
 
   if (!message) return null;
 

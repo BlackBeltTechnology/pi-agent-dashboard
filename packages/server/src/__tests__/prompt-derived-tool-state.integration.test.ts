@@ -718,8 +718,6 @@ describe("prompt-derived currentTool (integration)", () => {
     await expectCurrentTool("s1", "ask_user");
     const session = await getSession("s1");
     expect(session!.unread).toBe(true);
-    expect(messages.filter((m) => m.type === "prompt_request" && m.sessionId === "s1").length)
-      .toBeGreaterThanOrEqual(0);
     expect(toolUpdates(messages, "s1").some((m) => m.updates.currentTool === "ask_user")).toBe(true);
   });
 

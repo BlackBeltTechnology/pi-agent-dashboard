@@ -11,6 +11,7 @@ import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-sh
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
+import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
 import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
 import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
 import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
@@ -1704,10 +1705,18 @@ export function wireEvents(deps: EventWiringDeps): void {
     if (msg.type === "notify") {
       const owner = sessionManager.get(sessionId);
       if (!owner || owner.status === "ended") return;
+      // Validate before it reaches the log: a malformed frame would persist a
+      // non-string message or a duplicate/absent row key. `level` keeps the
+      // omitted-stays-omitted contract but is normalized when supplied — the
+      // send site cannot be trusted to have done it (older bridge, plugin).
+      const notifyId = (msg as any).notifyId;
+      const message = (msg as any).message;
+      if (typeof notifyId !== "string" || !notifyId || typeof message !== "string") return;
+      const level = (msg as any).level;
       handleNotify(sessionId, {
-        notifyId: (msg as any).notifyId,
-        message: (msg as any).message,
-        ...((msg as any).level === undefined ? {} : { level: (msg as any).level }),
+        notifyId,
+        message,
+        ...(level === undefined ? {} : { level: normalizeNotifyLevel(level) }),
       });
       return;
     }

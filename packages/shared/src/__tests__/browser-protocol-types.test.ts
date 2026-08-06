@@ -27,8 +27,12 @@ import type {
 } from "../protocol.js";
 import type { DecoratorDescriptor } from "../types.js";
 
-// Type-level assertion: if these types are NOT in the union, this will fail to compile.
-type AssertExtends<T, U> = T extends U ? true : never;
+// Type-level assertion: if these types are NOT in the union, this will fail to
+// compile. `AssertTrue` is what makes it bite — a bare `T extends U ? true :
+// never` alias is legal when it resolves to `never`, so the alias alone asserts
+// nothing. See change: split-notify-from-prompt-request.
+type AssertTrue<T extends true> = T;
+type AssertExtends<T, U> = AssertTrue<T extends U ? true : never>;
 type _PromptRequestInUnion = AssertExtends<BrowserPromptRequestMessage, ServerToBrowserMessage>;
 type _PromptDismissInUnion = AssertExtends<BrowserPromptDismissMessage, ServerToBrowserMessage>;
 type _PromptCancelInUnion = AssertExtends<BrowserPromptCancelMessage, ServerToBrowserMessage>;
