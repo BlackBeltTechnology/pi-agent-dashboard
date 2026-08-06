@@ -26,6 +26,7 @@ CHECKS · FIX ROUTING · DERIVES-FROM** (+ a `<id>.knowledge.hash` sidecar).
 | `build-reload` | three-component rebuild/reload gaps |
 | `install-topology` | npm-global / Electron / Docker / dev + topology fixes |
 | `model-resolution` | model:resolve handler, roles/preset, @role resolvability |
+| `apple-tools` | iMCP (Apple PIM) provisioning state for the apple-tools plugin |
 
 ## How to route
 

@@ -28,6 +28,18 @@ see [`docs/release-process.md`](docs/release-process.md).
   `description` — pi drops such a skill), and warns on pi's 1024/64/charset/hyphen
   limits plus a 400-character repository description budget. Every finding is
   labelled `pi` or `repository` so a house rule is never mistaken for pi's.
+- **Apple Tools (iMCP) plugin** (`@blackbelt-technology/pi-dashboard-apple-tools`):
+  one-command provisioning of iMCP (Apple Calendar, Contacts, Reminders,
+  Messages, Location, Maps, Weather) for pi via `pi-mcp-adapter`. Ships a
+  `pi-apple-tools-install [--check]` CLI (a pure, macOS-only, nine-state
+  provisioning machine), a dashboard provisioning panel (status readout,
+  run-installer, path override, directTools, server enable/disable), an
+  agent skill, and a `doctor` probe. macOS-only; Apple Mail is out of scope
+  (use `apple-mail-fast-export`).
+- **`paths` plugin-requirement category**: `PluginRequirements.paths` declares
+  absolute filesystem paths (e.g. `.app`-bundled binaries) that must exist,
+  with optional `${configKey}` interpolation from the plugin's validated
+  config. Surfaced as a non-actionable warning pill in the Plugins tab.
 
 ### Changed
 

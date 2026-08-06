@@ -23,6 +23,13 @@ export interface PluginRequirementReport {
   piExtensions: { name: string; satisfied: boolean }[];
   binaries: { name: string; satisfied: boolean; resolvedPath?: string }[];
   services: { name: string; satisfied: boolean; error?: string }[];
+  /**
+   * Absolute-path existence probes (see `PluginRequirements.paths`). `name`
+   * holds the resolved value when a `${configKey}` placeholder resolved, else
+   * the declared path verbatim. Always present; `[]` when no `paths` declared.
+   * See change: add-apple-tools-imcp-plugin.
+   */
+  paths: { name: string; satisfied: boolean }[];
 }
 
 /**
