@@ -6,7 +6,7 @@ Guide: embed pi-dashboard live agent chat (`ChatView` + `useSessionState`) into 
 6 steps: get source on disk → install React 19 + wouter + runtime deps → bundler transforms `@blackbelt-technology/*` source + dedupes React → Tailwind v4 + theme CSS vars → mount `<ChatView>` in providers + bounded-height container → open WS, `subscribe`, feed messages to `useSessionState().apply`.
 
 ## §1 Compatibility matrix
-React/React-DOM `^19.0.0` (exactly one copy). Node `>=22.19.0 <26`. Vite 6. `wouter ^3.9.0` (required). Tailwind v4 `^4.1.0`. `@blackbelt-technology/*` `0.5.4` lockstep.
+React/React-DOM `^19.0.0` (exactly one copy). Node `>=22.19.0 <27`. Vite 6. `wouter ^3.9.0` (required). Tailwind v4 `^4.1.0`. `@blackbelt-technology/*` `0.5.4` lockstep.
 
 ## §2 Get embeddable source on disk
 `chat-embed` ships raw `.tsx`; bundler owns transform. `pi-dashboard-web` publishes `files:["dist/"]` but `exports` points `./chat-embed` at `./src/chat-embed/index.ts` → plain install fails. Option A: publish `src/` (add to `files`, target state). Option B: git checkout + vite alias subpath → `vendor/.../packages/client/src/chat-embed/index.ts` (works today). Option C: vendor everything. Recommend B→A.

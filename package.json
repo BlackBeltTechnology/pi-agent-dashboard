@@ -90,7 +90,7 @@
     "test:e2e:electron": "playwright test --config playwright.electron.config.ts"
   },
   "engines": {
-    "node": ">=22.19.0 <26"
+    "node": ">=22.19.0 <27"
   },
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-extension": "^0.7.0",

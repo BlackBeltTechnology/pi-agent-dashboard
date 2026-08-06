@@ -46,6 +46,24 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- `pi install git:github.com/BlackBeltTechnology/pi-agent-dashboard` works again
+  (issue #357). It was failing at two independent points. First, the Node engines cap
+  refused Node 26: pi installs with engine-strict, so the install aborted with
+  `EBADENGINE` before anything ran. The cap is raised one major, `>=22.19.0 <26`
+  → `>=22.19.0 <27`, and Node 26 is now a CI-validated target — the new
+  `_smoke.yml` Node 26 install legs deliberately run *without* the
+  `--config.engine-strict=false` override the other legs carry, so the
+  `EBADENGINE` regression is tested rather than assumed. Node 27+ stays refused
+  until separately validated. Second, the git-clone path runs
+  `npm install --omit=dev`, which drops `devDependencies`; the web client's
+  `prepare` Vite build then died with `Cannot find module 'vite/package.json'`.
+  Its direct build-time requirements — `vite`, `@vitejs/plugin-react`,
+  `@tailwindcss/vite`, `tailwindcss`, and `tsx` — are now runtime
+  `dependencies`, with `tsx` declared explicitly instead of resolving by accident
+  through a hoist of the server's copy. A release gate plus repo-lints keep both
+  fixes from silently regressing. The published npm install path was never
+  affected (it ships a prebuilt client and runs no `prepare`).
+  (change: `fix-pi-install-node26-and-omit-dev-build`)
 - Phantom skills are gone from the Resources view. `UPSTREAM.md`,
   `dox-doctrine.md`, `AGENTS.md`, and `*.AGENTS.md` were being listed as skills
   the dashboard's own walk had invented; pi never loaded them. Files beneath
