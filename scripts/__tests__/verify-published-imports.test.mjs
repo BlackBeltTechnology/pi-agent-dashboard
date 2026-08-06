@@ -13,7 +13,7 @@
  * See change: cleanup-undeclared-dependencies
  * (test-plan E1–E14, X1–X3).
  */
-import { execFileSync } from 'node:child_process';
+
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -358,12 +358,8 @@ describe('the real repository passes the check', () => {
     expect(listWorkspaces(REPO_ROOT).length).toBeGreaterThanOrEqual(30);
   });
 
-  it('exits zero across the whole repository', () => {
-    // The CLI is the contract CI consumes, so assert the exit code, not the API.
-    const out = execFileSync('node', [join(REPO_ROOT, 'scripts', 'verify-published-imports.mjs')], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-    });
-    expect(out).toMatch(/0 error\(s\)/);
-  }, 120_000);
+  // The full-repository CLI run lives in `dependency-declarations.test.mjs`
+  // (P1), which asserts the exit code and the runtime budget together. Running
+  // it here too would pack 32 workspaces a second time, and the resulting CPU
+  // spike starves unrelated 5s-timeout tests sharing the run.
 });

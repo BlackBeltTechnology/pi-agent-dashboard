@@ -26,6 +26,17 @@ import { afterEach, describe, expect, it } from 'vitest';
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
 const RULE = 'lint/correctness/noUndeclaredDependencies';
 
+/**
+ * E15 is a `ci`-level scenario per the test plan. A repo-root Biome run over
+ * ~2800 files, executed in parallel with every other project, starves unrelated
+ * 5s-timeout tests. `npm run test:ci-scenarios` runs it alone.
+ *
+ * It is additionally enforced in CI by the existing `biome lint .` gate:
+ * `noUndeclaredDependencies` is now `error` in the base config, so any finding
+ * fails that step independently of this test.
+ */
+const CI_SCENARIOS = process.env.RUN_CI_SCENARIOS === '1';
+
 const biome = JSON.parse(readFileSync(join(REPO_ROOT, 'biome.json'), 'utf8'));
 
 /** The override block that turns the rule off for build/config entry points. */
@@ -68,7 +79,7 @@ function lintDiagnostics(args) {
  * The oracle
  * ------------------------------------------------------------------ */
 
-describe('repo-root findings reach zero (E15)', () => {
+describe.runIf(CI_SCENARIOS)('repo-root findings reach zero (E15)', () => {
   it('reports no undeclared-dependency diagnostics across the repository', () => {
     expect(lintDiagnostics(['lint', '.', '--max-diagnostics=20000'])).toEqual([]);
   }, 180_000);

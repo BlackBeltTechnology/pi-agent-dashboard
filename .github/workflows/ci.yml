@@ -47,6 +47,12 @@ jobs:
       # See change: cleanup-undeclared-dependencies.
       - name: Verify published imports are declared
         run: node scripts/verify-published-imports.mjs
+      # `ci`-level scenarios (test-plan E15, E26, P1). Held out of `pnpm test`
+      # because they shell out to `npm pack`/`npm publish --dry-run` across every
+      # workspace; run in parallel with the unit suite their CPU spike starves
+      # unrelated 5s-timeout tests. Run alone, sequentially, here.
+      - name: CI-level publish scenarios (dry-run set, repo-root probe, budget)
+        run: pnpm run test:ci-scenarios
       - run: pnpm run lint
       # Hard-gates Tier A (error-severity) regressions; Tier B/C (warn) only annotate.
       - name: Biome static analysis (Tier A gate, warn-tier annotate)
