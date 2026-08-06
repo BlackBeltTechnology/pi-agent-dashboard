@@ -46,6 +46,43 @@ describe("attachment-ingest", () => {
     expect(pending[0].data).toBe(huge); // originals handed to the worker intact
   });
 
+  it("X10c: an animated GIF is left inline — the fit declines it, so it gets no placeholder", () => {
+    // Same fixture as display-fit X10. `fitImageBlockForDisplay` returns it
+    // `exempt` (D11: never flatten an animation), so by the spec's two-phase
+    // boundary rule — "the gate that removes an attachment's bytes and the gate
+    // that fits them SHALL admit exactly the same set" — ingest must NOT strip
+    // it. Stripping promised a resolution the fit would never deliver, and the
+    // resolver's byte-budget guard then resolved it FAILED, so a pasted
+    // animated GIF disappeared instead of playing.
+    const animated = Buffer.from(
+      "R0lGODlhAQABAIAAAAAAAP///yH/C05FVFNDQVBFMi4wAwEAAAAh+QQJAAAAACwAAAAAAQABAAACAkQBACH5BAkAAAAALAAAAAABAAEAAAICRAEAOw==",
+      "base64",
+    ).toString("base64");
+
+    const { event, pending } = prepareEventForIngest(
+      userMessage([{ data: animated, mimeType: "image/gif" }]),
+    );
+
+    expect(pending, "an exempt block must not be promised a resolution").toHaveLength(0);
+    const block = (event.data as any).message.content[1];
+    expect(block.data, "animated GIF bytes must stay inline").toBe(animated);
+    expect(block.attachmentState).toBeUndefined();
+  });
+
+  it("X10d: a STILL GIF still takes the two-phase path", () => {
+    const still = Buffer.from(
+      "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+      "base64",
+    ).toString("base64");
+
+    const { event, pending } = prepareEventForIngest(
+      userMessage([{ data: still, mimeType: "image/gif" }]),
+    );
+
+    expect(pending).toHaveLength(1);
+    expect((event.data as any).message.content[1].attachmentState).toBe("pending");
+  });
+
   it("E7b: the stripped row survives the store instead of becoming {__truncated}", () => {
     const store = createMemoryEventStore(() => false);
     const huge = "B".repeat(10_500_000);

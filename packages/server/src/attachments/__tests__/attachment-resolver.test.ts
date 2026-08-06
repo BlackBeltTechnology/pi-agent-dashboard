@@ -112,6 +112,63 @@ describe("attachment-resolver", () => {
     for (const e of emitted) expect((e.data as any).state).toBe("failed");
   });
 
+  it("X7b: a pool that omits a result still settles that placeholder", async () => {
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    // Answers only the FIRST block. A partial answer is the dangerous case: the
+    // catch-all in `resolve` never fires, so nothing else can rescue block 1.
+    const pool = fakePool({
+      fit: vi.fn(async () => ({
+        jobId: 1,
+        results: [{ blockIndex: 0, data: "RklUVEVE", mimeType: "image/png", fitted: true }],
+      })) as unknown as FitWorkerPool["fit"],
+    });
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: (_s, _q, event) => emitted.push(event),
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await resolver.resolve("s1", [
+      { attachmentId: "e".repeat(64), blockIndex: 0, data: "AA", mimeType: "image/png" },
+      { attachmentId: "f".repeat(64), blockIndex: 1, data: "BB", mimeType: "image/png" },
+    ]);
+    warn.mockRestore();
+
+    expect(emitted, "every pending block must receive a resolution").toHaveLength(2);
+    const byId = new Map(emitted.map((e) => [(e.data as any).attachmentId, e]));
+    expect((byId.get("e".repeat(64))?.data as any).state).toBe("ready");
+    expect(
+      (byId.get("f".repeat(64))?.data as any).state,
+      "an unanswered block must fail explicitly, never stay pending",
+    ).toBe("failed");
+  });
+
+  it("X7c: a result whose blockIndex is out of range does not strand its placeholder", async () => {
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    const pool = fakePool({
+      fit: vi.fn(async () => ({
+        jobId: 1,
+        // blockIndex 7 does not exist in `pending` — hits the `continue`.
+        results: [{ blockIndex: 7, data: "RklUVEVE", mimeType: "image/png", fitted: true }],
+      })) as unknown as FitWorkerPool["fit"],
+    });
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: (_s, _q, event) => emitted.push(event),
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await resolver.resolve("s1", [
+      { attachmentId: "9".repeat(64), blockIndex: 0, data: "AA", mimeType: "image/png" },
+    ]);
+    warn.mockRestore();
+
+    expect(emitted).toHaveLength(1);
+    expect((emitted[0].data as any).state).toBe("failed");
+  });
+
   it("a failed individual block resolves failed without affecting its siblings", async () => {
     const store = createMemoryEventStore(() => false);
     const emitted: DashboardEvent[] = [];

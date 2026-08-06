@@ -702,7 +702,14 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Phase 2 runs detached: the row is already durable, so a fit failure can
       // only degrade an attachment, never the message.
       if (prepared.pending.length > 0) {
-        void resolvePendingAttachments(sessionId, prepared.pending);
+        // The catch is what makes the sentence above true. `resolve` guards the
+        // FIT, but its publish calls (`insertEvent`/`broadcastEvent`) sit
+        // outside that guard — and on a detached promise an escaping rejection
+        // is an UNHANDLED one, which terminates the process by default. Degrade
+        // the attachment, never the server.
+        void resolvePendingAttachments(sessionId, prepared.pending).catch((err) => {
+          console.error(`[attachments] resolve failed for session ${sessionId}:`, err);
+        });
       }
 
       // Spawned-session turn-outcome surfacing to server.log (live only).

@@ -181,17 +181,27 @@ export function createFitWorkerPool(opts: FitWorkerPoolOptions = {}): FitWorkerP
   const fallbackWaiters: Array<() => void> = [];
 
   async function acquireFallbackSlot(): Promise<void> {
-    if (fallbackActive < size) {
+    // Also yield to anyone already parked, so a late arrival cannot overtake a
+    // waiter that has been queued longer.
+    if (fallbackActive < size && fallbackWaiters.length === 0) {
       fallbackActive++;
       return;
     }
+    // Park. The releasing job HANDS ITS SLOT OVER rather than giving it back,
+    // so the count must NOT be incremented again on wake. Incrementing here
+    // admitted `size + 1`: `releaseFallbackSlot` decremented, then `drainQueue`
+    // — which runs synchronously right after it — could take the freed slot
+    // before the woken waiter resumed and incremented on top of it.
     await new Promise<void>((r) => fallbackWaiters.push(r));
-    fallbackActive++;
   }
 
   function releaseFallbackSlot(): void {
+    const next = fallbackWaiters.shift();
+    if (next) {
+      next(); // hand the slot straight over — occupancy is unchanged
+      return;
+    }
     fallbackActive--;
-    fallbackWaiters.shift()?.();
   }
 
   /** In-process settle: run the fit on the main thread, capped at `size`. */
@@ -203,10 +213,14 @@ export function createFitWorkerPool(opts: FitWorkerPoolOptions = {}): FitWorkerP
     // never be settled by shutdown and its caller's promise hung forever.
     await acquireFallbackSlot();
     try {
-      // Shutdown began while we waited for a slot: abandon the work rather
-      // than start a jimp decode nobody is left to receive.
-      if (!disposed && !p.resolved) {
-        finish(p, await fitBlocks(p.payload));
+      if (!p.resolved) {
+        // Shutdown began while we waited for a slot: abandon the WORK, but
+        // still SETTLE the caller. Returning without settling stranded the
+        // promise forever — `dispose()` has already drained `jobs`, so nothing
+        // else was left to answer it, and a `fit()` arriving after `dispose()`
+        // hung outright. An empty result is the same answer `dispose()` gives
+        // its own backlog.
+        finish(p, disposed ? { jobId: p.id, results: [] } : await fitBlocks(p.payload));
       }
     } finally {
       // Must release even if the fit throws, or the cap leaks a slot per

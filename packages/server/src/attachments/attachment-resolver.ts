@@ -40,6 +40,44 @@ export function createAttachmentResolver(deps: AttachmentResolverDeps): Attachme
     emit(sessionId, seq, eventStore.getEvent(sessionId, seq) ?? event);
   }
 
+  /**
+   * Settle every placeholder the pool did not answer for.
+   *
+   * The publish loop is driven by `results`, so a pool returning fewer results
+   * than blocks — or a `blockIndex` outside `pending` — would leave those
+   * placeholders spinning forever, the one outcome this module exists to
+   * prevent. Explicitly failed beats indefinitely pending.
+   */
+  function settleUnanswered(
+    sessionId: string,
+    pending: PendingAttachment[],
+    settled: ReadonlySet<number>,
+  ): void {
+    for (let i = 0; i < pending.length; i++) {
+      if (settled.has(i)) continue;
+      console.warn(
+        `[attachments] no fit result for ${pending[i].attachmentId.slice(0, 12)}; resolving failed`,
+      );
+      publishFailed(sessionId, pending[i]);
+    }
+  }
+
+  /** Resolve one placeholder to its honest failed state. */
+  function publishFailed(
+    sessionId: string,
+    a: { attachmentId: string; mimeType: string },
+  ): void {
+    publish(
+      sessionId,
+      buildFittedEvent({
+        attachmentId: a.attachmentId,
+        data: "",
+        mimeType: a.mimeType,
+        state: "failed",
+      }),
+    );
+  }
+
   return {
     async resolve(sessionId, pending) {
       if (pending.length === 0) return;
@@ -55,9 +93,16 @@ export function createAttachmentResolver(deps: AttachmentResolverDeps): Attachme
             mimeType: p.mimeType,
           })),
         });
+        // Which ORDINALS actually got an event. The loop below is driven by
+        // `results`, so a pool that returns fewer results than blocks — or one
+        // whose `blockIndex` falls outside `pending` — would otherwise leave
+        // those placeholders spinning forever, the one thing this module exists
+        // to prevent.
+        const settled = new Set<number>();
         for (const result of results) {
           const source = pending[result.blockIndex];
           if (!source) continue;
+          settled.add(result.blockIndex);
           // Last line of defence for the "never an indefinite placeholder"
           // invariant: an over-budget payload would make THIS event exceed the
           // per-event ceiling, and the store would replace it with
@@ -82,20 +127,12 @@ export function createAttachmentResolver(deps: AttachmentResolverDeps): Attachme
             }),
           );
         }
+
+        settleUnanswered(sessionId, pending, settled);
       } catch (err) {
         // A pool that cannot deliver at all must still not strand placeholders.
         console.error(`[attachments] fit failed for session ${sessionId}:`, err);
-        for (const p of pending) {
-          publish(
-            sessionId,
-            buildFittedEvent({
-              attachmentId: p.attachmentId,
-              data: "",
-              mimeType: p.mimeType,
-              state: "failed",
-            }),
-          );
-        }
+        for (const p of pending) publishFailed(sessionId, p);
       }
     },
   };

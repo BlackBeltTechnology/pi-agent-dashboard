@@ -22,6 +22,7 @@
  */
 import { createHash } from "node:crypto";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { isAnimatedGif } from "./gif.js";
 import { isFittableImageMime } from "./image-mime.js";
 
 /** Wire event type carrying a resolved (or failed) attachment. */
@@ -64,6 +65,30 @@ function isImageContentBlock(b: unknown): b is { type: string; data: string; mim
 }
 
 /**
+ * True when a block should enter the two-phase flow.
+ *
+ * Mime admission is not sufficient: the fit EXEMPTS animated GIFs (D11, never
+ * flatten an animation), and the spec's two-phase boundary requires that the
+ * gate removing an attachment's bytes and the gate fitting them admit exactly
+ * the same set. Stripping an animated GIF promised a resolution the fit would
+ * never produce, and the resolver's byte-budget guard then resolved it FAILED
+ * — so a pasted animated GIF vanished instead of playing. Left inline, it stays
+ * subject to the same per-event ceiling it always was.
+ *
+ * The probe decodes only GIF blocks, and only walks their block stream — no
+ * image decoding, so nothing heavyweight reaches the main thread.
+ */
+function entersTwoPhase(b: unknown): b is { type: string; data: string; mimeType: string } {
+  if (!isImageContentBlock(b)) return false;
+  if (b.mimeType.split(";", 1)[0].trim().toLowerCase() !== "image/gif") return true;
+  try {
+    return !isAnimatedGif(Buffer.from(b.data, "base64"));
+  } catch {
+    return true; // undecodable: let the fit path decide and fail honestly
+  }
+}
+
+/**
  * Content-address a block by its original base64 text.
  *
  * Hashes the STRING, not the decoded bytes: `findOriginalInTranscript` hashes
@@ -88,11 +113,11 @@ export function prepareEventForIngest(event: DashboardEvent): PreparedEvent {
   const message = data?.message as Record<string, unknown> | undefined;
   const content = message?.content;
   if (!Array.isArray(content)) return { event, pending: [] };
-  if (!content.some(isImageContentBlock)) return { event, pending: [] };
+  if (!content.some(entersTwoPhase)) return { event, pending: [] };
 
   const pending: PendingAttachment[] = [];
   const nextContent = content.map((block, blockIndex) => {
-    if (!isImageContentBlock(block)) return block;
+    if (!entersTwoPhase(block)) return block;
     const attachmentId = attachmentIdFor(block.data);
     pending.push({ attachmentId, blockIndex, data: block.data, mimeType: block.mimeType });
     // Placeholder: keeps the block's POSITION and mime so the client can

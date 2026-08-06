@@ -99,3 +99,60 @@ describe("fit-worker-pool in-process fallback", () => {
     await pool.dispose();
   }, 30_000);
 });
+
+describe("fit-worker-pool — shutdown and admission edge cases", () => {
+  it("a fit() arriving AFTER dispose() still settles", async () => {
+    active = 0;
+    peak = 0;
+    release.length = 0;
+
+    const pool = createFitWorkerPool({ useWorker: false, size: 1 });
+    await pool.dispose();
+
+    // `fit()` routes a post-dispose job to `fallbackSettle`, which skips the
+    // fit because shutdown began — but `dispose()` has already drained `jobs`,
+    // so nothing is left to settle it. The caller waits forever.
+    const settled = await Promise.race([
+      pool.fit({ blocks: [{ blockIndex: 0, data: "AAAA", mimeType: "image/png" }] }).then(() => "settled"),
+      new Promise((r) => setTimeout(() => r("HUNG"), 2_000)),
+    ]);
+    while (release.length > 0) release.shift()?.();
+
+    expect(settled, "a fit after dispose must settle, not hang").toBe("settled");
+  }, 30_000);
+
+  it("the fallback cap holds when a new fit arrives as a slot is freed", async () => {
+    active = 0;
+    peak = 0;
+    release.length = 0;
+
+    const pool = createFitWorkerPool({ useWorker: false, size: 1 });
+    const jobs = [
+      pool.fit({ blocks: [{ blockIndex: 0, data: "AAAA", mimeType: "image/png" }] }),
+    ];
+    await new Promise((r) => setImmediate(r));
+    // One parked waiter, then free the running fit and let a NEW caller arrive
+    // in the window before the waiter resumes.
+    //
+    // NOTE: this pins the cap for the ARRIVAL pattern only. The `size + 1`
+    // window it was written for lives on the `drainQueue` path, which runs
+    // synchronously after `releaseFallbackSlot`, and `queue` is only ever
+    // populated while workers are healthy — unreachable with `useWorker:false`.
+    // That window is closed structurally by handing the slot over instead of
+    // returning it; this test does not reproduce it.
+    jobs.push(pool.fit({ blocks: [{ blockIndex: 1, data: "AAAA", mimeType: "image/png" }] }));
+    release.shift()?.();
+    jobs.push(pool.fit({ blocks: [{ blockIndex: 2, data: "AAAA", mimeType: "image/png" }] }));
+
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setImmediate(r));
+      expect(active, "in-process fits must never exceed the pool size").toBeLessThanOrEqual(1);
+      release.shift()?.();
+    }
+    while (release.length > 0) release.shift()?.();
+    await Promise.all(jobs);
+    await pool.dispose();
+
+    expect(peak, "fallback admitted more than `size` concurrent fits").toBeLessThanOrEqual(1);
+  }, 30_000);
+});
