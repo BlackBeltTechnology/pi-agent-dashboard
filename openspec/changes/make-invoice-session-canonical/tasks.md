@@ -56,10 +56,11 @@
 
 ## 6. Re-run reuses/resumes the canonical session (dispatchFlow)
 
-- [ ] 6.1 Test-first: dispatch for an invoice with a live canonical session delivers to it (no spawn).
-- [ ] 6.2 Test-first: dispatch for an invoice with an ended/bridgeless canonical session resumes it and delivers (no fresh one-shot spawn).
-- [ ] 6.3 Test-first: dispatch for an invoice with no canonical session spawns exactly one and records it as canonical.
-- [ ] 6.4 Implement: `dispatchFlow` resolves the canonical session and reuses/resumes it; new invoice still spawns.
+- [x] 6.1 Test-first: dispatch for an invoice with a live canonical session delivers to it (no spawn).
+- [x] 6.2 Test-first: dispatch for an invoice with an ended/bridgeless canonical session resumes it and delivers (no fresh one-shot spawn).
+- [x] 6.3 Test-first: dispatch for an invoice with no canonical session spawns exactly one and records it as canonical.
+- [x] 6.4 Implement: `dispatchFlow` resolves the canonical session and reuses/resumes it; new invoice still spawns.
+      NOTE: committed 3ef4371a. Store-backed resolve → emit-to-live-bridge (reuse) → else resume transcript via `resumeSessionFile` (--continue), never a fresh one-shot; new invoice spawns + records. Added additive `PluginSpawnOptions.resumeSessionFile`.
 
 ## 7. Observability
 
