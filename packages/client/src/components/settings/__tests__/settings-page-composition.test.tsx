@@ -123,6 +123,127 @@ describe("settings page composition", () => {
     expect(screen.queryByText(/Chat Display/i)).toBeNull();
   });
 
+  // test-plan #F1
+  it("renders the default-model control before every other Sessions control", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoPage("Sessions");
+    await waitFor(() => screen.getByText(/Session Strategy/i));
+
+    const content = screen.getByTestId("settings-content");
+    const controls = content.querySelectorAll("input, select, button");
+    expect(controls.length).toBeGreaterThan(1);
+
+    const calloutLabel = screen.getByText(/Default model/i);
+    const callout = calloutLabel.closest("div")!.parentElement!;
+    // The very first control on the page must live inside the callout.
+    expect(callout.contains(controls[0])).toBe(true);
+  });
+
+  // test-plan #F2
+  it("states the brand-new-only caveat on the default-model callout", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoPage("Sessions");
+    await waitFor(() => screen.getByText(/Session Strategy/i));
+
+    expect(screen.getByText(/brand-new sessions/i)).toBeTruthy();
+    expect(screen.getByText(/resumed session keeps the model/i)).toBeTruthy();
+  });
+
+  // test-plan #F3
+  it("styles the default-model callout with severity-info tokens", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoPage("Sessions");
+    await waitFor(() => screen.getByText(/Session Strategy/i));
+
+    const calloutLabel = screen.getByText(/Default model/i);
+    const callout = calloutLabel.closest("div")!.parentElement!;
+    expect(callout.className).toMatch(/--severity-info-/);
+  });
+
+  // test-plan #F4
+  it("groups the Sessions page into the four concern sections, in order", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoPage("Sessions");
+    await waitFor(() => screen.getByText(/Session Strategy/i));
+
+    const content = screen.getByTestId("settings-content");
+    const text = content.textContent ?? "";
+    const order = ["New session defaults", "Session list", "Lifecycle & recovery", "Worktrees", "Retry"];
+    const positions = order.map((title) => text.indexOf(title));
+
+    positions.forEach((pos, i) => expect(pos, `"${order[i]}" section missing`).toBeGreaterThan(-1));
+    for (let i = 1; i < positions.length; i++) {
+      expect(positions[i], `${order[i]} must follow ${order[i - 1]}`).toBeGreaterThan(positions[i - 1]);
+    }
+  });
+
+  // test-plan #F7
+  it("nests the idle-shutdown delay beneath the toggle that gates it", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoPage("Server");
+    await waitFor(() => screen.getByText("Memory Limits"));
+
+    const gate = screen.getByText("Auto Shutdown");
+    const dependent = screen.getByText(/Idle before shutdown/i);
+    const group = dependent.closest('[data-testid="gated-group"]');
+
+    expect(group, "dependent is not inside a gated group").not.toBeNull();
+    // the gating toggle itself must sit OUTSIDE the indented group
+    expect(group!.contains(gate)).toBe(false);
+  });
+
+  // test-plan #F8
+  it("nests the reasoning dependents beneath the reasoning toggle", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+
+    const gate = screen.getByText("Reasoning blocks");
+    const autoCollapse = screen.getByText(/Reasoning auto-collapse/i);
+    const keepOpen = screen.getByText(/Keep reasoning open until turn ends/i);
+
+    const group = autoCollapse.closest('[data-testid="gated-group"]');
+    expect(group).not.toBeNull();
+    expect(group!.contains(keepOpen)).toBe(true);
+    expect(group!.contains(gate)).toBe(false);
+  });
+
+  // test-plan #F9
+  it("nests the OpenSpec polling knobs beneath the enable toggle", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoPage("OpenSpec");
+    await waitFor(() => screen.getByText("Enable OpenSpec"));
+
+    const gate = screen.getByText("Enable OpenSpec");
+    const group = screen.getByText(/Poll interval/i).closest('[data-testid="gated-group"]');
+
+    expect(group).not.toBeNull();
+    // Scoped to the group: the section intro prose also mentions "change
+    // detection", so a page-wide query is ambiguous.
+    for (const knob of ["Poll interval", "Max concurrent +Sessions", "Change Detection", "Jitter"]) {
+      expect(within(group as HTMLElement).getByText(knob), `${knob} not nested`).toBeTruthy();
+    }
+    expect(group!.contains(gate)).toBe(false);
+  });
+
+  // test-plan #F13 — D8: three visual sub-sections, one draft source.
+  it("shows a single General chip however many chat-display sub-sections are edited", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+
+    // one control from each of the three sub-sections
+    for (const label of ["Token stats bar", "Reasoning blocks", "Tool result bodies"]) {
+      fireEvent.click(screen.getByText(label).closest("div")!.querySelector("button")!);
+      const saveBar = await waitFor(() => screen.getByTestId("settings-save-bar"));
+      expect(within(saveBar).getAllByRole("button", { name: "General" })).toHaveLength(1);
+    }
+  });
+
   // test-plan #F6 — D2 dropped the Gateway move; this guards the reversal.
   it("keeps the tunnel watchdog fields on Server", async () => {
     render(<SettingsPanel />);

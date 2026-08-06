@@ -1060,7 +1060,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
             {activeTab === "server" && (
               <>
-                <Section title={i18nT("common.server", undefined, "Server")}>
+                <Section title={t("settings.ports", undefined, "Ports")}>
                   <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} hint={i18nT("settings.hint.httpPort", undefined, "Port the dashboard web UI and REST API listen on. Changing it needs a restart and breaks bookmarked URLs. Default 8000.")} />
                   <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} hint={i18nT("settings.hint.piGatewayPort", undefined, "Port pi sessions connect their bridge WebSocket to. Must be free and reachable from every machine running pi. Default 8001.")} />
                   <ListenInterfaceField
@@ -1068,9 +1068,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     hasGuardConfig={hasGuardConfig(config)}
                     onChange={(v) => update((c) => { c.bindHost = v; })}
                   />
+                </Section>
+                <Section title={t("settings.idleShutdown", undefined, "Idle shutdown")}>
                   <ToggleField label={t("settings.autoShutdown", undefined, "Auto Shutdown")} value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} hint={i18nT("settings.hint.autoShutdown", undefined, "Stop the server once no session has been active for the window below. Off keeps it running forever.")} />
                   {config.autoShutdown && (
-                    <NumberField label={i18nT("status.idleSecondsBeforeShutdown", undefined, "Idle Seconds Before Shutdown")} value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} hint={i18nT("settings.hint.idleBeforeShutdown", undefined, "Idle time before shutting down. Counts from the last session event, not the last page view.")} />
+                    <GatedGroup>
+                      <NumberField label={i18nT("status.idleSecondsBeforeShutdown", undefined, "Idle before shutdown")} unit="s" value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} hint={i18nT("settings.hint.idleBeforeShutdown", undefined, "Idle time before shutting down. Counts from the last session event, not the last page view.")} />
+                    </GatedGroup>
                   )}
                 </Section>
                 <Section title={t("settings.tunnel", undefined, "Gateway")}>
@@ -1174,7 +1178,24 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
             {activeTab === "sessions" && (
               <>
-                <Section title={t("settings.sessions", undefined, "Sessions")}>
+                <Section title={t("settings.newSessionDefaults", undefined, "New session defaults")}>
+                  {/* defaultModel is the setting that decides what every new session IS,
+                      so it leads the page in an info callout instead of sitting near the
+                      bottom. The caveat is the one the bridge already enforces.
+                      See change: reorganize-settings-pages-and-descriptions. */}
+                  <div className="rounded border px-3 py-2.5 bg-[var(--severity-info-bg)] border-[var(--severity-info-border)]">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-[var(--severity-info-fg)]">{t("settings.defaultModel", undefined, "Default model")}</label>
+                      <ModelSelector
+                        current={config.defaultModel || undefined}
+                        models={availableModels}
+                        onSelect={(v) => update((c) => { c.defaultModel = v; })}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("settings.hint.defaultModel", undefined, "Applied only to brand-new sessions. A resumed session keeps the model it was started with. Leave empty to use pi's own default.")}
+                    </p>
+                  </div>
                   <SelectField
                     hint={i18nT("settings.hint.sessionStrategy", undefined, "How +Session launches pi. Tmux keeps an attachable terminal you can join from a shell; headless runs detached and is lighter.")}
                     label={t("settings.spawnStrategy", undefined, "+Session Strategy")}
@@ -1182,6 +1203,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     options={[{ value: "headless", label: "Headless" }, { value: "tmux", label: "Tmux" }]}
                     onChange={(v) => update((c) => { c.spawnStrategy = v; })}
                   />
+                  <AutoNameSessionsToggle
+                    hint={<>
+                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic using the fast model.")}
+                    </>}
+                  />
+                </Section>
+                <Section title={t("settings.sessionList", undefined, "Session list")}>
                   <SelectField
                     label={i18nT("common.reattachPlacement", undefined, "Reattach Placement")}
                     value={config.reattachPlacement ?? "always"}
@@ -1192,17 +1220,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     ]}
                     onChange={(v) => update((c) => { c.reattachPlacement = v as "preserve" | "streaming-only" | "always"; })}
                     hint={i18nT("common.whenTheDashboardRestartsAndA", undefined, "When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.")}
-                  />
-                  <SelectField
-                    label={i18nT("session.reopenSessionsAfterShutdown", undefined, "Reopen sessions after shutdown")}
-                    value={config.reopenSessionsAfterShutdown ?? "ask"}
-                    options={[
-                      { value: "ask", label: "Ask (default)" },
-                      { value: "auto", label: "Reopen automatically" },
-                      { value: "off", label: "Never" },
-                    ]}
-                    onChange={(v) => update((c) => { c.reopenSessionsAfterShutdown = v as "off" | "ask" | "auto"; })}
-                    hint={i18nT("session.whenSessionsWereRunningAtShutdown", undefined, "When sessions were running when the machine shut down or crashed, offer to reopen them on next launch. Ask shows a prompt; Auto reopens them silently; Never ignores them.")}
                   />
                   <ToggleField
                     label={i18nT("session.putCompletedSessionFirst", undefined, "Put completed session first")}
@@ -1215,6 +1232,19 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     value={config.questionFirst ?? false}
                     onChange={(v) => update((c) => { c.questionFirst = v; })}
                     hint={i18nT("session.whenASessionAsksAQuestion", undefined, "When a session asks a question (ask_user), move its card to the top of the active tier. Off keeps the card in place.")}
+                  />
+                </Section>
+                <Section title={t("settings.lifecycleRecovery", undefined, "Lifecycle & recovery")}>
+                  <SelectField
+                    label={i18nT("session.reopenSessionsAfterShutdown", undefined, "Reopen sessions after shutdown")}
+                    value={config.reopenSessionsAfterShutdown ?? "ask"}
+                    options={[
+                      { value: "ask", label: "Ask (default)" },
+                      { value: "auto", label: "Reopen automatically" },
+                      { value: "off", label: "Never" },
+                    ]}
+                    onChange={(v) => update((c) => { c.reopenSessionsAfterShutdown = v as "off" | "ask" | "auto"; })}
+                    hint={i18nT("session.whenSessionsWereRunningAtShutdown", undefined, "When sessions were running when the machine shut down or crashed, offer to reopen them on next launch. Ask shows a prompt; Auto reopens them silently; Never ignores them.")}
                   />
                   <NumberField
                     label={i18nT("session.askUserPromptTimeoutSeconds", undefined, "ask_user prompt timeout")}
@@ -1249,6 +1279,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
                     </p>
                   </div>
+                </Section>
+                <Section title={t("settings.worktrees", undefined, "Worktrees")}>
                   <ToggleField
                     label={i18nT("worktree.showWorktreeSpawnButtonsInFolders", undefined, "Show worktree spawn buttons in folders and OpenSpec rows")}
                     value={config.gitWorktreeEnabled ?? true}
@@ -1256,11 +1288,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
                     hint={<>
                       {i18nT("folders.uiPreferenceOnlyHidesTheFolder", undefined, "UI preference only. Hides the folder")} <code>+Worktree</code> {i18nT("common.buttonAndThePerChange", undefined, "button and the per-change")} <code>⥂2+</code> {i18nT("openspec.buttonOnOpenspecRowsThe", undefined, "button on OpenSpec rows. The")} <code>/api/git/worktree*</code> {i18nT("common.restEndpointsStayReachableForTooling", undefined, "REST endpoints stay reachable for tooling. Default on.")}
-                    </>}
-                  />
-                  <AutoNameSessionsToggle
-                    hint={<>
-                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic using the fast model.")}
                     </>}
                   />
                   <WorktreeAutoInitToggle
@@ -1291,14 +1318,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       </>}
                     />
                   )}
-                  <div className="flex items-center justify-between">
-                      <label className="text-sm text-[var(--text-secondary)]">{t("settings.defaultModel", undefined, "Default Model")}</label>
-                    <ModelSelector
-                      current={config.defaultModel || undefined}
-                      models={availableModels}
-                      onSelect={(v) => update((c) => { c.defaultModel = v; })}
-                    />
-                  </div>
                 </Section>
                 {/* "Retry", not "Provider Retry": three of the six fields
                     (`enabled`, `maxRetries`, `baseDelayMs`) are turn-level, not
@@ -1486,7 +1505,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   {(() => {
                     const openspecOff = (config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled) === false;
                     return (
-                      <>
+                      <GatedGroup>
                         <NumberField
                           hint={i18nT("settings.hint.pollInterval", undefined, "Time between scans of every watched folder. Lower reacts faster and costs more filesystem I/O. Range 5–3600.")}
                           label={i18nT("settings.pollIntervalSeconds53600", undefined, "Poll interval")}
@@ -1533,7 +1552,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                             c.openspec.jitterSeconds = v;
                           })}
                         />
-                      </>
+                      </GatedGroup>
                     );
                   })()}
                 </Section>
@@ -1827,24 +1846,34 @@ function DisplayPrefsSection() {
       <p className="text-xs text-[var(--text-tertiary)] mb-2">
         {t("settings.chatDisplayDescription", undefined, "Hide chat elements you don't need. Per-session overrides live in the chat view's View popover.")}
       </p>
+      {/* Three visual sub-sections, ONE draft source. Registering three would
+          triple the dirty-chip noise for a single preference blob (D8). */}
+      <h3 className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{t("settings.chatDisplayMessageElements", undefined, "Message elements")}</h3>
       <ToggleField label={t("settings.tokenStatsBar", undefined, "Token stats bar")} value={prefs.tokenStatsBar} onChange={(v) => patch({ tokenStatsBar: v })} hint={i18nT("settings.hint.tokenStatsBar", undefined, "Per-turn token counts and cost under each assistant message.")} />
       <ToggleField label={t("settings.contextUsageBar", undefined, "Context usage bar")} value={prefs.contextUsageBar} onChange={(v) => patch({ contextUsageBar: v })} hint={i18nT("settings.hint.contextUsageBar", undefined, "Bar showing how full the model's context window is. Hide it if you never hit the limit.")} />
+      <ToggleField label={t("settings.turnMetadata", undefined, "Turn metadata separators")} value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} hint={i18nT("settings.hint.turnMetadataSeparators", undefined, "Thin rule between turns carrying model, duration, and timestamp.")} />
+      <ToggleField label={t("settings.changeSummaryTable", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} onChange={(v) => patch({ changeSummaryTable: v })} hint={i18nT("settings.hint.perTurnChangeSummary", undefined, "Table of files added/changed/deleted by each turn.")} />
+      <ToggleField label={t("settings.reserveProcessLineAtIdle", undefined, "Reserve process line at idle")} value={prefs.reserveProcessLineAtIdle} onChange={(v) => patch({ reserveProcessLineAtIdle: v })} hint={i18nT("settings.hint.reserveProcessLine", undefined, "Keep the status line's height reserved while idle so the composer does not jump when a turn starts.")} />
+      <h3 className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{t("settings.chatDisplayReasoning", undefined, "Reasoning")}</h3>
       <ToggleField label={t("settings.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} hint={i18nT("settings.hint.reasoningBlocks", undefined, "Show the model's thinking. Off hides it entirely and disables the two settings below.")} />
-      <NumberField
-        hint={i18nT("settings.hint.reasoningAutoCollapse", undefined, "Collapse a finished reasoning block after this many seconds. 0 = never collapse.")}
-        label={t("settings.reasoningAutoCollapse", undefined, "Reasoning auto-collapse")}
-        unit="s"
-        value={Math.round(prefs.reasoningAutoCollapseMs / 1000)}
-        onChange={(v) => patch({ reasoningAutoCollapseMs: Math.max(0, v) * 1000 })}
-        disabled={!prefs.reasoning}
-      />
-      <ToggleField
-        hint={i18nT("settings.hint.keepReasoningOpen", undefined, "Ignore auto-collapse while the turn is still running.")}
-        label={t("settings.keepReasoningOpenUntilTurnEnds", undefined, "Keep reasoning open until turn ends")}
-        value={prefs.keepReasoningOpenUntilTurnEnds}
-        onChange={(v) => patch({ keepReasoningOpenUntilTurnEnds: v })}
-        disabled={!prefs.reasoning}
-      />
+      <GatedGroup>
+        <NumberField
+          hint={i18nT("settings.hint.reasoningAutoCollapse", undefined, "Collapse a finished reasoning block after this many seconds. 0 = never collapse.")}
+          label={t("settings.reasoningAutoCollapse", undefined, "Reasoning auto-collapse")}
+          unit="s"
+          value={Math.round(prefs.reasoningAutoCollapseMs / 1000)}
+          onChange={(v) => patch({ reasoningAutoCollapseMs: Math.max(0, v) * 1000 })}
+          disabled={!prefs.reasoning}
+        />
+        <ToggleField
+          hint={i18nT("settings.hint.keepReasoningOpen", undefined, "Ignore auto-collapse while the turn is still running.")}
+          label={t("settings.keepReasoningOpenUntilTurnEnds", undefined, "Keep reasoning open until turn ends")}
+          value={prefs.keepReasoningOpenUntilTurnEnds}
+          onChange={(v) => patch({ keepReasoningOpenUntilTurnEnds: v })}
+          disabled={!prefs.reasoning}
+        />
+      </GatedGroup>
+      <h3 className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{t("settings.chatDisplayToolCalls", undefined, "Tool calls")}</h3>
       <ToggleField
         hint={i18nT("settings.hint.toolGroupsCollapsed", undefined, "Consecutive tool calls open collapsed; click to expand.")}
         label={t("settings.toolGroupDefaultCollapsed", undefined, "Keep tool groups collapsed by default")}
@@ -1852,9 +1881,6 @@ function DisplayPrefsSection() {
         onChange={(v) => patch({ toolGroupDefaultCollapsed: v })}
       />
       <ToggleField label={t("settings.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} onChange={(v) => patch({ toolResults: v })} hint={i18nT("settings.hint.toolResultBodies", undefined, "Show what a tool returned, not just that it ran.")} />
-      <ToggleField label={t("settings.turnMetadata", undefined, "Turn metadata separators")} value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} hint={i18nT("settings.hint.turnMetadataSeparators", undefined, "Thin rule between turns carrying model, duration, and timestamp.")} />
-      <ToggleField label={t("settings.changeSummaryTable", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} onChange={(v) => patch({ changeSummaryTable: v })} hint={i18nT("settings.hint.perTurnChangeSummary", undefined, "Table of files added/changed/deleted by each turn.")} />
-      <ToggleField label={t("settings.reserveProcessLineAtIdle", undefined, "Reserve process line at idle")} value={prefs.reserveProcessLineAtIdle} onChange={(v) => patch({ reserveProcessLineAtIdle: v })} hint={i18nT("settings.hint.reserveProcessLine", undefined, "Keep the status line's height reserved while idle so the composer does not jump when a turn starts.")} />
       <ToggleField label={t("settings.debugEvents", undefined, "Debug events")} value={prefs.debugTools} onChange={(v) => patch({ debugTools: v })} hint={i18nT("settings.hint.debugEvents", undefined, "Raw protocol traffic (flow:list-flows, resources_discover, …). Noisy — for diagnosing the bridge.")} />
       <div className="pt-2">
         <h3 className="text-xs font-semibold text-[var(--text-primary)] mb-2">{t("settings.toolCallsHeader", undefined, "Tool calls - show these types")}</h3>
@@ -2283,6 +2309,19 @@ type FieldContract = {
 /** True when a hint should render and be referenced by aria-describedby. */
 function hasHint(hint: React.ReactNode): boolean {
   return hint !== null && hint !== undefined;
+}
+
+/**
+ * Indents controls beneath the control that gates them, so the dependency is
+ * visible instead of being implied by a `disabled` prop or a conditional
+ * render. Presentational only — it changes no gating logic (design D9).
+ */
+function GatedGroup({ children }: { children: React.ReactNode }) {
+  return (
+    <div data-testid="gated-group" className="ml-3 pl-3 border-l border-[var(--border-secondary)] space-y-2">
+      {children}
+    </div>
+  );
 }
 
 function FieldShell({ label, unit, hint, controlId, hintId, disabled, stacked, children }: FieldContract & {

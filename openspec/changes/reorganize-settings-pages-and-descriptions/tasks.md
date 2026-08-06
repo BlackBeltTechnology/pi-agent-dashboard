@@ -27,7 +27,7 @@ unless stated otherwise.
 - [x] 3.1 General — Language plus the chat-display toggles (copy drafted in `mockups/sessions-settings-reorg/index.html`).
 - [x] 3.2 Server — `port`, `piPort`, `maxEventsPerSession`, `maxStringFieldSize`, `maxWsBufferBytes`.
 - [x] 3.3 Server — the `tunnel.watchdog.*` fields, which stay on the Server page (D2).
-- [ ] 3.4 Sessions — `spawnStrategy`, `spawnRegisterTimeoutMs`, `defaultModel`.
+- [x] 3.4 Sessions — `spawnStrategy`, `spawnRegisterTimeoutMs`, `defaultModel`.
 - [x] 3.5 OpenSpec — poll interval, jitter, change detection, max concurrent spawns.
 - [x] 3.6 For every label carrying a unit parenthetical, move the unit to `unit` and the range to the `hint` (e.g. `Poll Interval (seconds, 5–3600)` → label `Poll interval`, `unit="s"`, hint carrying `Range 5–3600`).
 - [x] 3.7 Update the unit-bearing i18n keys in **all** dictionaries (en, zh-CN, hu) — `settings.probeInterval`, `settings.pollIntervalSeconds53600`, `settings.jitterSeconds060`, `session.maxConcurrentSessions116`, `session.askUserPromptTimeoutSeconds` — or introduce new keys and retire the old ones. Stripping the unit from the English fallback alone leaves zh-CN/hu rendering the unit twice (D5).
@@ -41,9 +41,9 @@ unless stated otherwise.
 
 ## 5. Sessions page regroup
 
-- [ ] 5.1 Split the single Sessions section into: **New session defaults** / **Session list** / **Lifecycle & recovery** / **Worktrees**. Retry stays last.
-- [ ] 5.2 Move `defaultModel` to position 1 in a callout styled with `--severity-info-*` tokens, carrying the caveat that the default applies only to brand-new sessions and a resumed session keeps its own model.
-- [ ] 5.3 Do NOT touch `RetrySettingsSection` — sibling first-party sections carry their own field components and are out of scope.
+- [x] 5.1 Split the single Sessions section into: **New session defaults** / **Session list** / **Lifecycle & recovery** / **Worktrees**. Retry stays last.
+- [x] 5.2 Move `defaultModel` to position 1 in a callout styled with `--severity-info-*` tokens, carrying the caveat that the default applies only to brand-new sessions and a resumed session keeps its own model.
+- [x] 5.3 Do NOT touch `RetrySettingsSection` — sibling first-party sections carry their own field components and are out of scope.
 
 ## 6. Page reassignment — `dashboardName` only
 
@@ -52,22 +52,22 @@ unless stated otherwise.
 
 ## 7. General page restructure (D7, D8)
 
-- [ ] 7.1 Split `DisplayPrefsSection` (`:1795`) visually into three sub-sections — message elements / reasoning / tool calls — preserving the **single** `useSettingsDraftSource({ id: "display-prefs", page: "general" })` registration (D8).
-- [ ] 7.2 Indent `reasoningAutoCollapseMs` and `keepReasoningOpenUntilTurnEnds` beneath the reasoning toggle that gates them.
+- [x] 7.1 Split `DisplayPrefsSection` (`:1795`) visually into three sub-sections — message elements / reasoning / tool calls — preserving the **single** `useSettingsDraftSource({ id: "display-prefs", page: "general" })` registration (D8).
+- [x] 7.2 Indent `reasoningAutoCollapseMs` and `keepReasoningOpenUntilTurnEnds` beneath the reasoning toggle that gates them.
 - [x] 7.3 **Delete** `DebugToolsToggle` (`:1720`) and the Developer-page "Chat Display" section that hosts it (`:1550`). `DisplayPrefsSection` already owns `debugTools` through the buffered draft source; this removes a duplicate control, not a section's only control. Do NOT merge it into the tool-calls sub-section.
 - [x] 7.4 Keep the `useDebugToolsVisible` hook itself — `DEBUG_TOOL_NAMES` / `isDebugTool` have other readers (`ChatView.tsx`). Only its toggle consumer is deleted.
 - [ ] 7.5 State the user-visible consequence in the change summary: anyone who used the Developer toggle now gets Save-Bar-buffered persistence instead of instant-apply.
 
 ## 8. Server + OpenSpec restructure (D9)
 
-- [ ] 8.1 Rename the Server sections to **Ports** / **Idle shutdown** / **Memory limits**.
-- [ ] 8.2 Indent `shutdownIdleSeconds` beneath the `autoShutdown` toggle. Presentational only — no change to the existing `disabled` logic.
-- [ ] 8.3 Indent the four OpenSpec polling knobs beneath the `Enable OpenSpec polling` toggle. Presentational only.
+- [x] 8.1 Rename the Server sections to **Ports** / **Idle shutdown** / **Memory limits**.
+- [x] 8.2 Indent `shutdownIdleSeconds` beneath the `autoShutdown` toggle. Presentational only — no change to the existing `disabled` logic.
+- [x] 8.3 Indent the four OpenSpec polling knobs beneath the `Enable OpenSpec polling` toggle. Presentational only.
 
 ## 9. Repair existing tests broken by the restructure
 
-- [ ] 9.1 `SettingsPanel.test.tsx:577–580` uses `getByText(…).closest("div")` then `within(row)`; the §1.4 indent wrapper changes which `div` resolves. Re-run and repair — do not assume green.
-- [ ] 9.2 Re-check the page-attribution assertions at `SettingsPanel.test.tsx:236–242` for the `dashboardName` move.
+- [x] 9.1 `SettingsPanel.test.tsx:577–580` uses `getByText(…).closest("div")` then `within(row)`; the §1.4 indent wrapper changes which `div` resolves. Re-run and repair — do not assume green.
+- [x] 9.2 Re-check the page-attribution assertions at `SettingsPanel.test.tsx:236–242` for the `dashboardName` move.
 
 ## 10. Automated tests — L1 (vitest + jsdom)
 
@@ -87,18 +87,18 @@ All rows in this section extend `packages/client/src/components/__tests__/Settin
 - [ ] 10.12 Spawn timeout non-numeric: same setup · user enters `abc` parsing to `NaN` · not written, inline error renders, `save-btn` disabled. See `SettingsPanel.test.tsx` (test-plan #E12).
 - [ ] 10.13 Invalid spawn timeout is not sticky: field already invalid from the below-minimum case · user corrects the value to `30000` · the inline error disappears and `save-btn` becomes enabled again. See `SettingsPanel.test.tsx` (test-plan #E13).
 - [x] 10.14 No locale renders a doubled unit: language set to `en`, `zh-CN`, then `hu` for each of `settings.probeInterval`, `settings.pollIntervalSeconds53600`, `settings.jitterSeconds060`, `session.maxConcurrentSessions116`, `session.askUserPromptTimeoutSeconds` · the owning field renders · in every locale the label text contains the unit token zero times and the unit appears exactly once, inside the `unit` chip. See `SettingsPanel.test.tsx` (test-plan #E14).
-- [ ] 10.15 Default model renders first: Sessions page · page renders · the `defaultModel` control precedes every other control on the page in DOM order, including the Retry section's. See `SettingsPanel.test.tsx` (test-plan #F1).
-- [ ] 10.16 Brand-new-only caveat is surfaced: Sessions page · the `defaultModel` callout renders · its description states the setting applies only to brand-new sessions and that a resumed session keeps its own model. See `SettingsPanel.test.tsx` (test-plan #F2).
-- [ ] 10.17 Callout uses severity tokens: Sessions page · the `defaultModel` callout renders · the callout element's class list references a `--severity-info-*` token rather than a raw Tailwind severity colour. See `SettingsPanel.test.tsx` (test-plan #F3).
-- [ ] 10.18 Sessions section order: Sessions page · page renders · section headings appear in order new-session defaults, session list, lifecycle & recovery, worktrees, retry. See `SettingsPanel.test.tsx` (test-plan #F4).
+- [x] 10.15 Default model renders first: Sessions page · page renders · the `defaultModel` control precedes every other control on the page in DOM order, including the Retry section's. See `SettingsPanel.test.tsx` (test-plan #F1).
+- [x] 10.16 Brand-new-only caveat is surfaced: Sessions page · the `defaultModel` callout renders · its description states the setting applies only to brand-new sessions and that a resumed session keeps its own model. See `SettingsPanel.test.tsx` (test-plan #F2).
+- [x] 10.17 Callout uses severity tokens: Sessions page · the `defaultModel` callout renders · the callout element's class list references a `--severity-info-*` token rather than a raw Tailwind severity colour. See `SettingsPanel.test.tsx` (test-plan #F3).
+- [x] 10.18 Sessions section order: Sessions page · page renders · section headings appear in order new-session defaults, session list, lifecycle & recovery, worktrees, retry. See `SettingsPanel.test.tsx` (test-plan #F4).
 - [x] 10.19 `dashboardName` lives on General: General page then Sessions page · both render · `dashboardName` renders inside General ▸ Interface and the Sessions page renders no `dashboardName` field. See `SettingsPanel.test.tsx` (test-plan #F5).
 - [x] 10.20 Watchdog stays on Server: Server page then Gateway page · both render · the `tunnel.watchdog.*` fields render on Server and the Gateway page renders none of them. See `SettingsPanel.test.tsx` (test-plan #F6).
-- [ ] 10.21 Idle-shutdown control is nested: Server page · page renders · the `shutdownIdleSeconds` control's nearest indent-wrapper ancestor is a descendant of the group headed by the `autoShutdown` toggle, and `autoShutdown` is not itself inside that wrapper. See `SettingsPanel.test.tsx` (test-plan #F7).
-- [ ] 10.22 Reasoning dependents are nested: General page · chat-display renders · `reasoningAutoCollapseMs` and `keepReasoningOpenUntilTurnEnds` sit inside the indent wrapper gated by the reasoning toggle. See `SettingsPanel.test.tsx` (test-plan #F8).
-- [ ] 10.23 OpenSpec knobs are nested: OpenSpec page · page renders · the four polling knobs sit inside the indent wrapper gated by the enable-polling toggle. See `SettingsPanel.test.tsx` (test-plan #F9).
+- [x] 10.21 Idle-shutdown control is nested: Server page · page renders · the `shutdownIdleSeconds` control's nearest indent-wrapper ancestor is a descendant of the group headed by the `autoShutdown` toggle, and `autoShutdown` is not itself inside that wrapper. See `SettingsPanel.test.tsx` (test-plan #F7).
+- [x] 10.22 Reasoning dependents are nested: General page · chat-display renders · `reasoningAutoCollapseMs` and `keepReasoningOpenUntilTurnEnds` sit inside the indent wrapper gated by the reasoning toggle. See `SettingsPanel.test.tsx` (test-plan #F8).
+- [x] 10.23 OpenSpec knobs are nested: OpenSpec page · page renders · the four polling knobs sit inside the indent wrapper gated by the enable-polling toggle. See `SettingsPanel.test.tsx` (test-plan #F9).
 - [ ] 10.24 Disabled control dims its hint: Server page with `autoShutdown` off · page renders · the `shutdownIdleSeconds` hint is inside the element carrying the disabled `opacity-50` treatment. See `SettingsPanel.test.tsx` (test-plan #F10).
 - [x] 10.25 One chat-display section, on General: all settings pages · panel renders · exactly one chat-display section exists, it is on General, and the Developer page renders none. See `SettingsPanel.test.tsx` (test-plan #F12).
-- [ ] 10.26 Split sub-sections share one draft source: General page · user edits a control in one, then two, then all three chat-display sub-sections · in every case exactly one draft source reports dirty and the Save Bar shows a single General chip, never one per sub-section. See `SettingsPanel.test.tsx` (test-plan #F13).
+- [x] 10.26 Split sub-sections share one draft source: General page · user edits a control in one, then two, then all three chat-display sub-sections · in every case exactly one draft source reports dirty and the Save Bar shows a single General chip, never one per sub-section. See `SettingsPanel.test.tsx` (test-plan #F13).
 - [x] 10.27 Exactly one debug-events control: every settings page rendered in turn · panel renders · exactly one control for `displayPrefs.debugTools` exists across the whole panel. See `SettingsPanel.test.tsx` (test-plan #F14).
 - [ ] 10.28 Debug events commits through the draft source: General page with `fetch` observed · user toggles the debug-events control · no immediate `PATCH /api/preferences/display` is issued, the General page is marked dirty, and the value persists only on Save. See `SettingsPanel.test.tsx` (test-plan #F15).
 - [x] 10.29 `dashboardName` lights the General chip: General page · user edits `dashboardName` · the Save Bar shows a dirty chip for General and none for Sessions. See `SettingsPanel.test.tsx` (test-plan #F17).
