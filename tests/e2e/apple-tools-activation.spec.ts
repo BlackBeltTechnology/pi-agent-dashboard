@@ -113,7 +113,17 @@ test.describe("apple-tools — settings panel", () => {
     await expect(page.getByTestId("apple-tools-run-installer")).toHaveCount(0);
 
     // #F9 (partial): no control purports to toggle an individual Apple service.
-    for (const svc of ["Calendar", "Contacts", "Reminders", "Messages", "Weather"]) {
+    // All seven reachable services — omitting any would let a prohibited toggle
+    // for it slip through this scenario.
+    for (const svc of [
+      "Calendar",
+      "Contacts",
+      "Location",
+      "Maps",
+      "Messages",
+      "Reminders",
+      "Weather",
+    ]) {
       await expect(panel.getByRole("checkbox", { name: new RegExp(svc, "i") })).toHaveCount(0);
     }
   });

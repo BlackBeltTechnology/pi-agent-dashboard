@@ -339,15 +339,32 @@ Per-service activation for iMCP is granted through macOS permission dialogs driv
 - **THEN** it instructs the operator to activate services from the application's menu bar
 - **AND** states that permission grants cannot be automated
 
-### Requirement: Server enable/disable SHALL NOT mutate the installer's entry
+### Requirement: Server enable/disable SHALL NOT destroy the installer's entry
 
-Disabling the iMCP server SHALL be expressed as an override in the adapter's highest-precedence project-local configuration layer rather than by editing the entry the installer wrote.
+Disabling the iMCP server SHALL be expressed as a `disabled` flag merged into the adapter's configuration, never by rewriting or removing the entry the installer wrote. Two scopes SHALL be supported, because the surfaces that offer the control differ in what they know:
 
-#### Scenario: Disabling leaves the installer entry intact
+- **global** — `~/.pi/agent/mcp.json`, the layer the installer also writes `command` to. This is the target for the plugin's settings page, which is host-owned and global and therefore has no project directory to scope a write to.
+- **project** — `<cwd>/.pi/mcp.json`, the adapter's highest-precedence layer, for surfaces that do know a project. A project value overrides the global one without mutating it.
+
+A project scope write SHALL validate the supplied directory against the host's known folder set before touching the filesystem. Disabling SHALL write `disabled: true`; enabling SHALL remove the key rather than writing `false`, matching the adapter, which treats only a literal `true` as disabled.
+
+#### Scenario: Disabling leaves the installer's command entry intact
 
 - **WHEN** the operator disables the iMCP server from the settings section
-- **THEN** the disable flag is written to the project-local adapter configuration
-- **AND** the installer-written `command` entry in the pi agent MCP configuration is unmodified
+- **THEN** the disable flag is merged into the global adapter configuration
+- **AND** the installer-written `command` value on that entry is unmodified
+- **AND** every sibling MCP server entry is preserved verbatim
+
+#### Scenario: A project scope override folds over the global value
+
+- **WHEN** a project-scoped surface disables the server for a known project directory
+- **THEN** the flag is written to that project's adapter configuration layer
+- **AND** the global configuration is left untouched
+
+#### Scenario: An unknown project directory is refused
+
+- **WHEN** a project scope disable names a directory outside the host's known folder set
+- **THEN** no filesystem write occurs
 
 ### Requirement: Plugin SHALL be registered for production bundling
 

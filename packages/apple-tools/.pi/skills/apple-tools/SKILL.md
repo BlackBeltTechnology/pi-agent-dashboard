@@ -46,10 +46,14 @@ pi-apple-tools-install
 Terminal states mirror the CLI and the dashboard panel:
 `UNSUPPORTED_PLATFORM`, `OS_VERSION_UNKNOWN`, `OS_TOO_OLD`, `NO_INSTALL_METHOD`,
 `INSTALL_FAILED`, `CONFIG_UNPARSEABLE`, `CONFIG_WRITE_FAILED`,
-`READY_PENDING_GRANTS`, `READY`.
+`READY_PENDING_GRANTS`.
 
-If the state is anything other than `READY` / `READY_PENDING_GRANTS`, do NOT
-attempt Apple-data tool calls — report the gap and the `pi-apple-tools-install`
+`READY` is NOT one of them. It is a live-access result — reachable only by a
+successful tool round-trip through the adapter, never by the provisioning
+traversal, which cannot know whether the TCC grants were given.
+
+If the state is anything other than `READY_PENDING_GRANTS`, do NOT attempt
+Apple-data tool calls — report the gap and the `pi-apple-tools-install`
 command first.
 
 ## Permission grants are manual and out-of-band
