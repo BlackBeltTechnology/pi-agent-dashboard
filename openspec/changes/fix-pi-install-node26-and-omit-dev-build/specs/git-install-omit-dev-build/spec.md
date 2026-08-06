@@ -32,6 +32,15 @@ without any manual dev-dependency install — i.e. the `@blackbelt-technology/pi
 #### Scenario: --omit=dev install emits the client bundle
 
 - **GIVEN** a clean checkout with no `node_modules` and no `packages/client/dist`
+- **WHEN** `npm install --omit=dev` runs at the repo root, with the root `.npmrc` `engine-strict=true` in force and no override
+- **THEN** the install SHALL exit `0`
+- **AND** the install SHALL NOT report `EBADENGINE`
+- **AND** `packages/client/dist/index.html` SHALL exist
+
+#### Scenario: build-only arm isolates the dependency failure
+
+- **GIVEN** a clean checkout with no `node_modules` and no `packages/client/dist`
 - **WHEN** `npm install --omit=dev --engine-strict=false` runs at the repo root
 - **THEN** the install SHALL exit `0`
 - **AND** `packages/client/dist/index.html` SHALL exist
+- **AND** the `--engine-strict=false` override SHALL be understood as a test-only bypass that scopes this scenario to the build failure, not a supported install workaround

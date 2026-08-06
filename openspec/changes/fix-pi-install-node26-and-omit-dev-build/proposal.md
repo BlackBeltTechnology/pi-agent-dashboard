@@ -21,8 +21,9 @@ independent points, and neither is fixed as of the released `0.6.1`:
   `packages/shared/src/node-version.ts::isOutOfEnginesRange` (`major >= 26` → `major >= 27`). The
   server startup guard, Electron doctor, and their tests track it automatically via the existing
   lockstep contract.
-- **Add Node 26 to the CI smoke matrices** (`_smoke.yml` linux + the ci.yml lockstep list) so the cap
-  raise is validated, not asserted. Matrix `[22, 24, 25]` → `[22, 24, 25, 26]`.
+- **Add Node 26 to the CI smoke matrix** (`_smoke.yml` `standalone-install-smoke-linux`) so the cap
+  raise is validated, not asserted. Matrix `[22, 24, 25]` → `[22, 24, 25, 26]`. (`ci.yml` has no
+  Node-major matrix — it runs a single `node-version: 22` setup-node step.)
 - **Move the client's direct build-time deps to `dependencies`** so `npm install --omit=dev` keeps
   them and the `prepare` Vite build completes: relocate `vite`, `@vitejs/plugin-react`,
   `@tailwindcss/vite`, `tailwindcss` from `devDependencies` → `dependencies` within
@@ -30,7 +31,8 @@ independent points, and neither is fixed as of the released `0.6.1`:
   `scripts/vite-build.mjs` but only present today via hoisting of the `packages/server` runtime
   `tsx` dep — an implicit, fragile resolution; declaring it explicitly on the package that imports it
   removes the hoist dependency). The root `tsx` devDependency (used by `npx tsx` dev scripts) and the
-  `packages/server` runtime `tsx` dependency are left untouched. `package-lock.json` refreshed.
+  `packages/server` runtime `tsx` dependency are left untouched. `pnpm-lock.yaml` refreshed via
+  `pnpm install` (the repo has no `package-lock.json`).
 
 Non-goals: shipping prebuilt client assets in git, a server-side lazy build, or removing the client
 `prepare` build. Node 27+ is deliberately left unsupported until separately validated.
@@ -52,11 +54,14 @@ Non-goals: shipping prebuilt client assets in git, a server-side lazy build, or 
 
 - **Code:** root `package.json` (engines cap only), `packages/client/package.json` (4 build deps
   devDeps→deps + add `tsx`), `packages/shared/src/node-version.ts` (cap arithmetic + doc),
-  `package-lock.json`. Optional lockstep guard: `scripts/verify-release-deps.mjs` rules asserting the
-  5 client build deps stay in `dependencies`.
-- **CI:** `.github/workflows/_smoke.yml` (+`ci.yml` lockstep list) Node matrix gains `26`.
-- **Tests:** `packages/shared/src/__tests__/node-version.test.ts` (26 now usable, 27 the new
-  boundary); repo-lint that asserts the CI matrix covers every engines-range major.
+  `packages/server/src/auth/node-guard.ts` (the hardcoded `Required: >=22.19.0 <26` range string in
+  `buildEnginesRangeMessage`), `pnpm-lock.yaml`. Optional lockstep guard:
+  `scripts/verify-release-deps.mjs` rules asserting the 5 client build deps stay in `dependencies`.
+- **CI:** `.github/workflows/_smoke.yml` `standalone-install-smoke-linux` Node matrix gains `26`.
+- **Tests:** `packages/shared/src/__tests__/node-version.test.ts` and
+  `packages/server/src/__tests__/node-guard.test.ts` (26 now usable, 27 the new boundary — both
+  suites carry pre-existing assertions that encode the old cap and must be corrected); repo-lint
+  that asserts the CI matrix covers every engines-range major.
 - **Consumers:** relocating build tooling to `dependencies` adds it to consumer installs of
   `@blackbelt-technology/pi-dashboard-web` (bloat); the published root-package global install still
   ships prebuilt `dist/` and does not run `prepare`. Accepted tradeoff.
