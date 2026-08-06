@@ -116,22 +116,28 @@ to retrieve an original SHALL degrade only the full-resolution view.
 - **THEN** the declared content type SHALL come from the supported-image allow-list
 - **AND** the response SHALL NOT be interpretable as active content
 
-### Requirement: Original storage SHALL be recoverable, not authoritative
+### Requirement: Originals SHALL be recovered from the session transcript
 
-Stored originals SHALL be treated as a cache of the session transcript, which already
-holds the full-resolution bytes. Eviction SHALL therefore be safe, and a miss SHALL be
-recoverable from the transcript without loading it entirely into memory.
+The transcript already holds the full-resolution bytes and is authoritative (D7).
+Recovery SHALL stream it rather than loading it entirely into memory.
 
-#### Scenario: An evicted original is recovered
+There is NO originals cache. D10 dropped the 2 GB LRU blob cache along with the
+fitted-derivative cache, on the evidence that recovery measured under 50 MB RSS against
+a ~40 MB transcript and that the click-to-original path is explicitly not load-bearing.
+The transcript is therefore the ONLY source, and no eviction behaviour is specified
+because nothing evicts.
 
-- **WHEN** an original has been evicted and is requested again
-- **THEN** it SHALL be recovered from the session transcript and served
-- **AND** recovery SHALL not require holding the whole transcript in memory
+#### Scenario: An original is recovered from the transcript
 
-#### Scenario: Eviction never loses a retrievable original
+- **WHEN** an original is requested
+- **THEN** it SHALL be located by scanning that session's transcript
+- **AND** recovery SHALL NOT require holding the whole transcript in memory
 
-- **WHEN** the cache evicts under its size cap
-- **THEN** no original SHALL become permanently unreachable while its transcript exists
+#### Scenario: An unrecoverable original degrades only the zoom
+
+- **WHEN** the transcript no longer holds the requested original
+- **THEN** the endpoint SHALL answer 404
+- **AND** the transcript row and its fitted thumbnail SHALL be unaffected
 
 ### Requirement: The boot safety assert SHALL be armed with the raised ceiling
 
