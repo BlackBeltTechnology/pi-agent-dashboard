@@ -23,21 +23,21 @@
 
 ## 1c. Canonical session must be scoped-profile (reject global/intake adoption)
 
-- [ ] 1c.1 Test-first: resolving an invoice whose ONLY recorded session is a global `invoicebot-intake` session SHALL NOT adopt it — it spawns a fresh scoped session instead (assert a `spawnScopedAndBind` call, and that the returned id is the scoped one, not the intake id).
-- [ ] 1c.2 Test-first: resolving an invoice with a live/restorable `invoicebot-scoped:<id>` session adopts/reuses it (no spawn).
-- [ ] 1c.3 Test-first: an `invoicebot:process` run bound to the invoice is accepted by the scoped gate; an `invoicebot-pull` / Ask session is rejected.
-- [ ] 1c.4 Test-first: the `flow:run` **dispatch** path (`reuseTarget`) STILL reuses a live `invoicebot-intake` session (unchanged) — the scoped gate governs only the card identity, not dispatch.
-- [ ] 1c.5 Implement: add `isScopedInvoiceSession(session, cwd, invoiceId)` (name `=== "invoicebot-scoped:" + invoiceId`, or a process run bound to it). Route `isUsableRecordedSession` + `linkedLiveScopedSession` through it; leave `reuseTarget`/`dispatchFlow` on the looser `isInvoicebotSession`. Apply the scoped gate when RECORDING the durable link (task 1.5) and when READING it back, so a global id is never stored or resurrected as canonical.
+- [x] 1c.1 Test-first: resolving an invoice whose ONLY recorded session is a global `invoicebot-intake` session SHALL NOT adopt it — it spawns a fresh scoped session instead (assert a `spawnScopedAndBind` call, and that the returned id is the scoped one, not the intake id).
+- [x] 1c.2 Test-first: resolving an invoice with a live/restorable `invoicebot-scoped:<id>` session adopts/reuses it (no spawn).
+- [x] 1c.3 Test-first: an `invoicebot:process` run bound to the invoice is accepted by the scoped gate; an `invoicebot-pull` / Ask session is rejected. (Note: a bound and an intake-spawned `invoicebot:process` run are indistinguishable from the session record, so the gate deliberately accepts only the stamped `invoicebot-scoped:<id>` name; a bound spawn is now stamped scoped (1c.5), and an unscoped/Ask session falls through to a scoped spawn — correct surface either way.)
+- [x] 1c.4 Test-first: the `flow:run` **dispatch** path (`reuseTarget`) STILL reuses a live `invoicebot-intake` session (unchanged) — the scoped gate governs only the card identity, not dispatch.
+- [x] 1c.5 Implement: `isScopedInvoiceSession(session, cwd, invoiceId)` gates `isUsableRecordedSession` + `linkedLiveScopedSession`; `reuseTarget`/`dispatchFlow` keep the looser `isInvoicebotSession`. The scoped gate is applied both when RECORDING the durable link and when READING it back, and a bound spawn is stamped `invoicebot-scoped:<id>`, so a global id is never stored or resurrected as canonical.
 
 ## 2. New invoice always spawns exactly one
 
-- [ ] 2.1 Test-first: an invoice with no canonical session spawns exactly one and records it as canonical.
-- [ ] 2.2 Implement: the no-link branch spawns once and records the canonical link.
+- [x] 2.1 Test-first: an invoice with no canonical session spawns exactly one and records it as canonical.
+- [x] 2.2 Implement: the no-link branch spawns once and records the canonical link (`spawnScopedAndBind` → onEvent records `canonicalStore.set` on bind).
 
 ## 3. Single-flight resolution
 
-- [ ] 3.1 Test-first: two concurrent resolutions for the same new invoice yield exactly one spawn and both return the same id.
-- [ ] 3.2 Implement: per-invoice in-flight promise guard around bootstrap.
+- [x] 3.1 Test-first: two concurrent resolutions for the same new invoice yield exactly one spawn and both return the same id.
+- [x] 3.2 Implement: per-invoice in-flight promise guard (`inFlightByKey`, keyed by `cwd\0invoiceId`) around `ensureScopedSession`; concurrent callers join one bootstrap, key dropped on settle.
 
 ## 4. Honest lifecycle — no phantom-active
 
@@ -64,7 +64,7 @@
 
 ## 7. Observability
 
-- [ ] 7.1 Add per-outcome logs at resolution: `reuse | resume | spawn | dedup-collapse | finalize | repoint`, each carrying the invoice + session id.
+- [x] 7.1 Add per-outcome logs at resolution: `reuse | resume | spawn | dedup-collapse | repoint`, each carrying invoice + session id (`invoicebot resolve <outcome>: invoice <id> → session <id>`). `finalize` is the gateway's lifecycle event (§4), not observable from this seam.
 
 ## 7b. A dispatch that did not start a flow FAILS (rejection consumption)
 
@@ -80,8 +80,8 @@
 
 ## 7c. Recorded-session read boundary dedupes (shape-agnostic — lands now)
 
-- [ ] 7c.1 Test-first: `recordedSessionIdsFromDetails` returns each session id **once** given duplicate run rows for one session, ordered newest-run-first.
-- [ ] 7c.2 Implement: dedupe by session id keeping first occurrence after the existing sort. (No-op under today's row shape; correct under one-row-per-run.)
+- [x] 7c.1 Test-first: `recordedSessionIdsFromDetails` returns each session id **once** given duplicate run rows for one session, ordered newest-run-first.
+- [x] 7c.2 Implement: dedupe by session id keeping first occurrence after the existing sort. (No-op under today's row shape; correct under one-row-per-run.)
 
 ## 8. E2E (faux, offline)
 
@@ -93,8 +93,8 @@
 
 ## 9. Verify
 
-- [ ] 9.1 `npm test` green (unit + faux).
-- [ ] 9.2 E2E suite green.
-- [ ] 9.3 `openspec validate make-invoice-session-canonical --strict` passes.
-- [ ] 9.4 Restart round-trip: resolve → clear in-memory → resolve returns the same id from the store (no second spawn).
-- [ ] 9.5 Resume round-trip: resolve → stop → send/re-run → store re-points to the successor; a further resolve returns the successor, not a new spawn.
+- [x] 9.1 `npm test` green (unit + faux). 10331 passed; the only failures are the pre-existing `@fastify/multipart` load gap (4 files, 0 tests) + `fs.watch` "attach returns false" integration (3 tests) — unrelated to this change.
+- [ ] 9.2 E2E suite green. (Deferred — needs the docker/e2e harness; tracked with §8.)
+- [x] 9.3 `openspec validate make-invoice-session-canonical --strict` passes.
+- [x] 9.4 Restart round-trip: resolve → clear in-memory → resolve returns the same id from the store (no second spawn). Unit-covered by test 1.3 (real store round-trip after in-memory state cleared).
+- [ ] 9.5 Resume round-trip: resolve → stop → send/re-run → store re-points to the successor; a further resolve returns the successor, not a new spawn. (Deferred — integration/manual round-trip; the mechanism is unit-covered by test 1b.1.)

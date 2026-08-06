@@ -94,10 +94,12 @@ function scopedLinkKey(cwd: string, invoiceId: string): string {
   return `${cwd}\0${invoiceId}`;
 }
 
-/** Parse engine view:"runs" details into valid session ids, newest first. */
+/** Parse engine view:"runs" details into valid session ids, newest first.
+ *  §7c: dedupes by session id (keeps the newest run's occurrence) so a
+ *  one-row-per-run shape never lists the same session twice. */
 export function recordedSessionIdsFromDetails(details: Record<string, unknown>): string[] {
   if (!Array.isArray(details.runs)) return [];
-  return details.runs
+  const ordered = details.runs
     .map((run, idx) => {
       if (!run || typeof run !== "object") return undefined;
       const row = run as Record<string, unknown>;
@@ -108,6 +110,8 @@ export function recordedSessionIdsFromDetails(details: Record<string, unknown>):
     .filter((row): row is { id: string; ts: number; idx: number } => row !== undefined)
     .sort((a, b) => b.ts - a.ts || b.idx - a.idx)
     .map((row) => row.id);
+  const seen = new Set<string>();
+  return ordered.filter((id) => (seen.has(id) ? false : (seen.add(id), true)));
 }
 
 /** A session is a reuse/scan target only when it is live, in `cwd`, AND an
@@ -167,6 +171,16 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
   // back an ended-but-restorable canonical id; consumed when the resume
   // successor registers. Mirrors the pendingAutomationRunRegistry per-cwd shape.
   const pendingRepointByCwd = new Map<string, { invoiceId: string; at: number }[]>();
+  // §3: per-invoice in-flight bootstrap promises. A second concurrent resolution
+  // for the same invoice joins the first instead of racing a duplicate spawn.
+  const inFlightByKey = new Map<string, Promise<string | undefined>>();
+
+  // §7.1: one structured line per resolution outcome, carrying invoice + session.
+  // Outcomes: reuse | resume | spawn | dedup-collapse | repoint. (finalize is the
+  // gateway's lifecycle event — §4 — not observable from this seam.)
+  function logOutcome(outcome: string, invoiceId: string, sessionId: string): void {
+    deps.logger.info(`invoicebot resolve ${outcome}: invoice ${invoiceId} → session ${sessionId}`);
+  }
 
   // Correlate a registering run session to its pending spawn by the host-stamped
   // automationRun.runId (authoritative), then deliver flow:run + link. A session
@@ -188,6 +202,7 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
           scopedInvoiceToSession.set(scopedLinkKey(pend.cwd, pend.invoiceId), sessionId);
           // Record the durable canonical link on the spawn that established it.
           deps.canonicalStore?.set(pend.cwd, pend.invoiceId, sessionId);
+          logOutcome("spawn", pend.invoiceId, sessionId);
         }
       } catch (err) {
         deps.logger.warn(`invoicebot dispatch delivery failed for runId=${runId}: ${err instanceof Error ? err.message : String(err)}`);
@@ -237,7 +252,7 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
     deps.canonicalStore?.set(cwd, invoiceId, sessionId);
     scopedInvoiceToSession.set(scopedLinkKey(cwd, invoiceId), sessionId);
     boundSessionIds.add(sessionId);
-    deps.logger.info(`invoicebot canonical repoint: invoice ${invoiceId} → resumed session ${sessionId}`);
+    logOutcome("repoint", invoiceId, sessionId);
   }
 
   function reuseTarget(cwd: string, sessionId?: string, invoiceId?: string): string | undefined {
@@ -432,22 +447,47 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
     return undefined;
   }
 
+  /** §7.1: classify a resolved id as reuse (live) or resume (ended-restorable). */
+  function logReuseOrResume(invoiceId: string, id: string): void {
+    const s = deps.getSession(id) as SessionShape | undefined;
+    logOutcome(s?.status === "ended" ? "resume" : "reuse", invoiceId, id);
+  }
+
   async function ensureScopedSessionUnsafe(cwd: string, invoiceId: string): Promise<string | undefined> {
-    return (
-      linkedLiveScopedSession(cwd, invoiceId) ??
-      storeResolvedScopedSession(cwd, invoiceId) ??
-      restoredLiveScopedSession(cwd, invoiceId) ??
-      (await recordedUsableSession(cwd, invoiceId)) ??
-      (await spawnScopedAndBind(cwd, invoiceId))
-    );
+    // Each warm-path resolver logs reuse/resume; the spawn path logs on bind.
+    const cached = linkedLiveScopedSession(cwd, invoiceId);
+    if (cached) return (logReuseOrResume(invoiceId, cached), cached);
+    const stored = storeResolvedScopedSession(cwd, invoiceId);
+    if (stored) return (logReuseOrResume(invoiceId, stored), stored);
+    const restored = restoredLiveScopedSession(cwd, invoiceId);
+    if (restored) return (logReuseOrResume(invoiceId, restored), restored);
+    const recorded = await recordedUsableSession(cwd, invoiceId);
+    if (recorded) return (logReuseOrResume(invoiceId, recorded), recorded);
+    return spawnScopedAndBind(cwd, invoiceId);
   }
 
   async function ensureScopedSession(cwd: string, invoiceId: string): Promise<string | undefined> {
+    // §3: single-flight per invoice — concurrent callers share one bootstrap so a
+    // new invoice never double-spawns. The key is dropped when resolution settles.
+    const key = scopedLinkKey(cwd, invoiceId);
+    const inFlight = inFlightByKey.get(key);
+    if (inFlight) {
+      logOutcome("dedup-collapse", invoiceId, "(joined in-flight)");
+      return inFlight;
+    }
+    const p = (async () => {
+      try {
+        return await ensureScopedSessionUnsafe(cwd, invoiceId);
+      } catch (err) {
+        deps.logger.warn(`invoicebot scoped-session bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
+        return undefined;
+      }
+    })();
+    inFlightByKey.set(key, p);
     try {
-      return await ensureScopedSessionUnsafe(cwd, invoiceId);
-    } catch (err) {
-      deps.logger.warn(`invoicebot scoped-session bootstrap failed: ${err instanceof Error ? err.message : String(err)}`);
-      return undefined;
+      return await p;
+    } finally {
+      inFlightByKey.delete(key);
     }
   }
 
@@ -480,6 +520,7 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
       // REUSE — deliver flow:run to a live bridge.
       const ok = deps.emitEventToSession(canonicalId, "flow:run", flow as unknown as Record<string, unknown>);
       if (ok) {
+        if (invoiceId) logOutcome("reuse", invoiceId, canonicalId);
         if (invoiceId) {
           invoiceToSession.set(invoiceId, canonicalId);
           // §1c.5: delivery may reuse a shared intake session (1c.4), but only the
@@ -501,6 +542,7 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
       // flow:run on the resumed successor's register. NOT a fresh one-shot.
       const s = deps.getSession(canonicalId) as SessionShape | undefined;
       if (s?.sessionFile && existsSync(s.sessionFile)) {
+        if (invoiceId) logOutcome("resume", invoiceId, canonicalId);
         return spawnAndBind(cwd, flow, invoiceId, s.sessionFile);
       }
       // Canonical transcript is gone → unrecoverable; drop the stale link and

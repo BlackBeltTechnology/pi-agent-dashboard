@@ -29,6 +29,7 @@ function makeDeps(sessions: Sess[], canonicalStore?: CanonicalSessionStore) {
   const store = new Map(sessions.map((s) => [s.id, s]));
   const emits: { sessionId: string; eventType: string; data: any }[] = [];
   const spawns: any[] = [];
+  const logs: { level: "info" | "warn"; msg: string }[] = [];
   let eventHandler: ((sessionId: string, event: unknown) => void) | null = null;
   let recordedIds: string[] = [];
   const deps: SessionLinkDeps = {
@@ -44,7 +45,10 @@ function makeDeps(sessions: Sess[], canonicalStore?: CanonicalSessionStore) {
     listAll: () => [...store.values()],
     onEvent: (h) => { eventHandler = h; return () => { eventHandler = null; }; },
     resolveRecordedSessionIds: async () => recordedIds,
-    logger: { info: () => {}, warn: () => {} },
+    logger: {
+      info: (m) => logs.push({ level: "info", msg: m }),
+      warn: (m) => logs.push({ level: "warn", msg: m }),
+    },
     spawnBindTimeoutMs: 200,
     ...(canonicalStore ? { canonicalStore } : {}),
   };
@@ -53,6 +57,7 @@ function makeDeps(sessions: Sess[], canonicalStore?: CanonicalSessionStore) {
     store,
     emits,
     spawns,
+    logs,
     fire: (id: string) => eventHandler?.(id, {}),
     addSession: (s: Sess) => store.set(s.id, s),
     setRecordedIds: (ids: string[]) => { recordedIds = ids; },
@@ -164,6 +169,21 @@ describe("recordedSessionIdsFromDetails", () => {
       ],
     })).toEqual(["newer", "older", "fallback-latest"]);
     expect(recordedSessionIdsFromDetails({ runs: "bad" })).toEqual([]);
+  });
+
+  // §7c.1 — one-row-per-run shape can list the same session twice; the read
+  // boundary must return each id once, ordered newest-run-first.
+  it("7c.1 dedupes duplicate run rows for one session, newest-run-first", () => {
+    expect(
+      recordedSessionIdsFromDetails({
+        runs: [
+          { session_id: "a", started_at: "2026-01-01T00:00:00Z" },
+          { session_id: "b", started_at: "2026-03-01T00:00:00Z" },
+          { session_id: "a", started_at: "2026-02-01T00:00:00Z" },
+          { session_id: "b", started_at: "2026-01-15T00:00:00Z" },
+        ],
+      }),
+    ).toEqual(["b", "a"]);
   });
 });
 
@@ -573,5 +593,89 @@ describe("§1c.5 — only a scoped session may become the card's canonical", () 
     await new Promise((r) => setTimeout(r, 0));
     expect(ctx.spawns[0].automationRun.name).toBe("invoicebot:process");
     expect(ctx.spawns[0].env).toBeUndefined();
+  });
+});
+
+// §2 new-invoice-spawns-one · §3 single-flight · §7.1 per-outcome resolution logs.
+// See change: make-invoice-session-canonical.
+describe("§2 new invoice spawns exactly one + records canonical", () => {
+  const mkStore = () => createCanonicalSessionStore(mkdtempSync(join(tmpdir(), "ib-canon-")));
+
+  it("2.1 a new invoice with no canonical session spawns exactly one and records it canonical", async () => {
+    const store = mkStore();
+    ctx = makeDeps([], store);
+    const link = createSessionLink(ctx.deps);
+    const p = link.ensureScopedSession(CWD, "inv-new");
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ctx.spawns).toHaveLength(1);
+    const runId = ctx.spawns[0].automationRun.runId;
+    ctx.addSession({ id: "new-1", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-new", runId } });
+    ctx.fire("new-1");
+    expect(await p).toBe("new-1");
+    expect(store.get(CWD, "inv-new")).toBe("new-1");
+    // Re-resolve returns the same id without a second spawn.
+    expect(await link.ensureScopedSession(CWD, "inv-new")).toBe("new-1");
+    expect(ctx.spawns).toHaveLength(1);
+  });
+});
+
+describe("§3 single-flight resolution", () => {
+  it("3.1 two concurrent resolutions for a new invoice yield exactly one spawn and the same id", async () => {
+    const link = createSessionLink(ctx.deps);
+    const p1 = link.ensureScopedSession(CWD, "inv-sf");
+    const p2 = link.ensureScopedSession(CWD, "inv-sf");
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ctx.spawns).toHaveLength(1);
+    const runId = ctx.spawns[0].automationRun.runId;
+    ctx.addSession({ id: "sf-1", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-sf", runId } });
+    ctx.fire("sf-1");
+    expect(await p1).toBe("sf-1");
+    expect(await p2).toBe("sf-1");
+  });
+
+  it("3.1 distinct invoices resolve independently (guard is per-invoice)", async () => {
+    const link = createSessionLink(ctx.deps);
+    link.ensureScopedSession(CWD, "inv-a");
+    link.ensureScopedSession(CWD, "inv-b");
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ctx.spawns).toHaveLength(2);
+  });
+});
+
+describe("§7.1 per-outcome resolution logs", () => {
+  const mkStore = () => createCanonicalSessionStore(mkdtempSync(join(tmpdir(), "ib-canon-")));
+  const outcomes = () => ctx.logs.filter((l) => l.msg.includes("invoicebot resolve")).map((l) => l.msg);
+
+  it("logs a reuse outcome carrying invoice + session id", async () => {
+    ctx.addSession({ id: "reuse-1", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-r", runId: "rr" } });
+    ctx.setRecordedIds(["reuse-1"]);
+    const link = createSessionLink(ctx.deps);
+    expect(await link.ensureScopedSession(CWD, "inv-r")).toBe("reuse-1");
+    expect(outcomes().some((m) => m.includes("reuse") && m.includes("inv-r") && m.includes("reuse-1"))).toBe(true);
+  });
+
+  it("logs a spawn outcome for a brand-new invoice", async () => {
+    const link = createSessionLink(ctx.deps);
+    const p = link.ensureScopedSession(CWD, "inv-s");
+    await new Promise((r) => setTimeout(r, 5));
+    const runId = ctx.spawns[0].automationRun.runId;
+    ctx.addSession({ id: "spawn-1", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-s", runId } });
+    ctx.fire("spawn-1");
+    await p;
+    expect(outcomes().some((m) => m.includes("spawn") && m.includes("inv-s"))).toBe(true);
+  });
+
+  it("logs a resume outcome when a canonical session is ended-but-restorable", async () => {
+    const store = mkStore();
+    ctx = makeDeps([], store);
+    const dir = mkdtempSync(join(tmpdir(), "ib-resume-log-"));
+    const file = join(dir, "canon.jsonl");
+    writeFileSync(file, "{}\n");
+    ctx.addSession({ id: "canon-e", cwd: CWD, status: "ended", sessionFile: file, automationRun: { name: "invoicebot-scoped:inv-e", runId: "re" } });
+    store.set(CWD, "inv-e", "canon-e");
+    const link = createSessionLink(ctx.deps);
+    expect(await link.ensureScopedSession(CWD, "inv-e")).toBe("canon-e");
+    expect(ctx.logs.some((l) => l.msg.includes("invoicebot resolve resume") && l.msg.includes("inv-e") && l.msg.includes("canon-e"))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
