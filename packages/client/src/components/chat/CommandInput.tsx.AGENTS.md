@@ -7,3 +7,9 @@ Unified card composer (change: redesign-prompt-input): one bordered card = attac
 See change: fix-popover-container-clip — attach (＋) menu CONVERTED to a boundary-aware usePopoverFlip consumer (`attachBtnRef` + `estimatedWidth:224` + `preferredAnchor:"left"` + `boundaryRef`, `max-w-full`) after a clip reproduced at the 25% split floor; slash/file dropdowns + overflow (⋯) menu documented structurally immune.
 
 See change: add-composer-grammar-check — optional `onGrammarCheck?: () => void` prop adds a Spellcheck toolbar button (testid `grammar-check-button`, gated on non-empty draft) + a Cmd/Ctrl+G shortcut (wrapped around `handleKeyDown`) that trigger a manual grammar check. Rendered only when the grammar feature is enabled (App passes `grammar.enabled ? grammar.checkNow : undefined`). The corrections UI lives in the sibling `GrammarPanel`.
+
+## fix-popover-pane-bounded-height
+
+- Composer dropdown (command + file/mention) applies BOTH `ddMinHeight` and `ddMaxHeight`, and opts into `minPopoverHeight: LIST_POPOVER_MIN_HEIGHT` (260) — both lists filter as you type.
+- That dropdown NOW consumes `boundaryRef` (it previously passed none). `left-3 right-3` pins both composer edges so it stays immune HORIZONTALLY, but it applies a height bound and an offset pane's bottom edge sits above the viewport's — the vertical axis must measure the pane. `boundaryRef` is hoisted above both hook calls.
+- Attach (＋) menu stays height-agnostic on purpose: horizontal axis only (`anchorRight`/`maxWidth`), hardcoded `bottom-full`, no height bound → no floor to lose.

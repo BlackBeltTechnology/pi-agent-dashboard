@@ -1,6 +1,6 @@
 ---
 name: debug-dashboard
-description: Diagnose problems in the running pi-agent-dashboard system. Tail ~/.pi/dashboard/server.log, probe /api/health for mode + uptime, check bridge WebSocket connectivity, triage vitest failures via tee→grep, inspect known-issue FAQ entries (Electron Node bin selection, Fastify + bad-Node crashes, stale-port hangs, single-instance lock). Routes UI/visual issues to the browser skill. Use when the server seems hung, a pi session won't connect, tests fail mysteriously, the dashboard shows a blank page, restart loops, port conflicts, or any "why isn't X working" / "the dashboard is doing Y" question.
+description: 'Diagnose problems in the running pi-agent-dashboard system: server.log, /api/health, bridge WebSocket connectivity, vitest triage, known-issue FAQ entries. Routes UI/visual issues to the browser skill. Use when the server seems hung, a pi session won''t connect, tests fail mysteriously, the dashboard shows a blank page, restart loops, port conflicts, or any "why isn''t X working" question.'
 ---
 
 # Debug Dashboard

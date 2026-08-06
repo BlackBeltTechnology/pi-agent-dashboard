@@ -858,3 +858,139 @@ describe("PathPicker", () => {
     });
   });
 });
+
+// redesign-folder-workspace-add-flow — the picker gains an opt-in multi-select
+// mode with explorer semantics (row body = navigate, checkbox = select) and
+// swaps every emoji glyph for an @mdi/js path.
+// Reference: openspec/changes/redesign-folder-workspace-add-flow/mockups/add-flow.html
+describe("PathPicker multi-select mode", () => {
+  const onSelect = vi.fn();
+  const onCancel = vi.fn();
+  const onToggle = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBrowse.mockResolvedValue(homeEntries);
+    mockClassify.mockResolvedValue({});
+    mockMkdir.mockResolvedValue({ path: "/Users/robson/new-thing" });
+  });
+
+  function renderMulti(selected: string[] = [], props: Record<string, unknown> = {}) {
+    return render(
+      <PathPicker
+        initialPath="/Users/robson/"
+        onSelect={onSelect}
+        onCancel={onCancel}
+        selection={{ selected: new Set(selected), onToggle }}
+        {...props}
+      />,
+    );
+  }
+
+  it("row activation browses into the directory and never calls onSelect", async () => {
+    renderMulti();
+    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
+    mockBrowse.mockResolvedValue(projectEntries);
+    fireEvent.click(screen.getByText("Project"));
+    await waitFor(() => {
+      const call = mockBrowse.mock.calls.find((c) => c[0] === "/Users/robson/Project");
+      expect(call).toBeDefined();
+    });
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it("the checkbox selects without navigating", async () => {
+    renderMulti();
+    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
+    const browseCallsBefore = mockBrowse.mock.calls.length;
+    fireEvent.click(screen.getByTestId("path-picker-check-/Users/robson/Project"));
+    expect(onToggle).toHaveBeenCalledWith("/Users/robson/Project");
+    // stopPropagation kept the row's descend handler from firing.
+    expect(mockBrowse.mock.calls.length).toBe(browseCallsBefore);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("the checkbox carries its own accessible name and checked state", async () => {
+    renderMulti(["/Users/robson/Project"]);
+    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
+    const cb = screen.getByTestId("path-picker-check-/Users/robson/Project");
+    expect(cb.getAttribute("aria-label")).toMatch(/project/i);
+    expect(cb.getAttribute("aria-checked")).toBe("true");
+    expect(
+      screen.getByTestId("path-picker-check-/Users/robson/Desktop").getAttribute("aria-checked"),
+    ).toBe("false");
+  });
+
+  it("the trailing chevron descends", async () => {
+    renderMulti();
+    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
+    mockBrowse.mockResolvedValue(projectEntries);
+    fireEvent.click(screen.getByTestId("path-picker-open-/Users/robson/Project"));
+    await waitFor(() => {
+      const call = mockBrowse.mock.calls.find((c) => c[0] === "/Users/robson/Project");
+      expect(call).toBeDefined();
+    });
+  });
+
+  it("Space toggles selection on the highlighted row; Enter activates it", async () => {
+    renderMulti();
+    await waitFor(() => expect(screen.getByText("Desktop")).toBeTruthy());
+    const input = screen.getByRole("textbox");
+    // Highlight the first entry row (index 1 — index 0 is the `..` parent row).
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: " " });
+    expect(onToggle).toHaveBeenCalledWith("/Users/robson/Desktop");
+
+    mockBrowse.mockResolvedValue(projectEntries);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      const call = mockBrowse.mock.calls.find((c) => c[0] === "/Users/robson/Desktop");
+      expect(call).toBeDefined();
+    });
+  });
+
+  it("single-select mode renders no checkboxes", async () => {
+    render(<PathPicker initialPath="/Users/robson/" onSelect={onSelect} onCancel={onCancel} />);
+    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
+    expect(screen.queryByTestId("path-picker-check-/Users/robson/Project")).toBeNull();
+  });
+});
+
+describe("PathPicker MDI iconography", () => {
+  const onSelect = vi.fn();
+  const onCancel = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBrowse.mockResolvedValue(homeEntries);
+    mockClassify.mockResolvedValue({});
+    mockMkdir.mockResolvedValue({ path: "/Users/robson/new-thing" });
+  });
+
+  it("renders no emoji glyphs and gives every row an SVG path", async () => {
+    const { container } = render(
+      <PathPicker initialPath="/Users/robson/Desk" onSelect={onSelect} onCancel={onCancel} />,
+    );
+    await waitFor(() => expect(screen.getByText("Desktop")).toBeTruthy());
+    // Create-here row is present too (partial "Desk" has no exact match here).
+    for (const glyph of ["⬆", "📁", "＋"]) {
+      expect(container.textContent).not.toContain(glyph);
+    }
+    for (const row of screen.getAllByRole("option")) {
+      expect(row.querySelector("svg path")).toBeTruthy();
+    }
+  });
+
+  it("keeps git / pi as text badges", async () => {
+    mockBrowse.mockResolvedValue(projectEntries);
+    mockClassify.mockResolvedValue(
+      makeFlagMap("/Users/robson/Project", [{ name: "pi-tools", isGit: true }]),
+    );
+    render(
+      <PathPicker initialPath="/Users/robson/Project/" onSelect={onSelect} onCancel={onCancel} />,
+    );
+    await waitFor(() => expect(screen.getByText("git")).toBeTruthy());
+  });
+});

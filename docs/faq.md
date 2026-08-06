@@ -2162,6 +2162,35 @@ Cross-refs:
 - docs/architecture.md \u2014 Plugin Architecture \u2192 Plugin Bridge Registration
 - packages/shared/src/plugin-bridge-register.ts
 
+## I disabled a global skill for this project and it came back — why?
+
+Pre-fix: project-scope toggle wrote relative force-exclude — `-skills/<name>/SKILL.md` — for globally-defined resource.
+pi evaluates relative pattern against resource's OWN base directory.
+Global skill resolves against `~/.pi/agent`.
+Pattern matched nothing.
+Entry inert.
+pi still reported enabled.
+Toggle looked like success.
+
+Fix: disabling global-loose resource re-declares resource's own FILE as `~`-prefixed plain entry plus anchored glob exclusion — `~/.pi/agent/skills/<name>/SKILL.md` + `!**/.pi/agent/skills/<name>/**`.
+pi matches both forms.
+
+- Only NEWLY STARTED sessions see the change.
+- `PackageManager.resolve()` runs at session start.
+- Use the Reload affordance.
+- Untrusted folder: toggle now prompts for trust decision instead of silently succeeding.
+- pi ignores folder's `.pi/settings.json` without recorded trust decision.
+- Unparseable `.pi/settings.json` (e.g. containing comments): toggle now fails loudly (HTTP 409) instead of reporting success.
+- pi's write is whole-file `JSON.parse` → `JSON.stringify` round trip.
+- Comments fail the parse.
+- pi silently skips the write.
+
+See change: project-scope-disable-global-resources.
+
+Cross-refs:
+- packages/server/src/pi/resource-activation-toggle.ts
+- docs/architecture.md — Project-scope disable of global resources
+
 ## Why does abort feel slow on parallel flows?
 
 pi-flows < 0.2.x bug: `Promise.all` over child flows did not race the AbortSignal. Children aborted at iteration boundaries; parent awaited all in-flight branches. Abort latency = slowest child remaining work, not signal-to-unwind time.
@@ -2607,3 +2636,34 @@ Fix: edit ~/.pi/agent/hermes-memory-config.json → `flushOnCompact:false`, `flu
 Cross-refs:
 - ~/.pi/agent/pi-hermes-memory/failures.md
 - ~/.pi/agent/hermes-memory-config.json
+
+## How do I reach Apple Calendar / Contacts / Reminders from pi?
+
+macOS ≥ 15.3. iMCP menu-bar app + `pi-mcp-adapter`.
+
+Steps:
+1. `pi install npm:@blackbelt-technology/pi-dashboard-apple-tools`.
+2. `pi-apple-tools-install` — provisions iMCP config (writes `mcp.json` + `settings.json`).
+3. Grant permissions in **iMCP menu-bar app**. Manual, unautomatable.
+
+Provisioning states (`pi-apple-tools-install --check`): `CONFIG_WRITE_FAILED` · `READY_PENDING_GRANTS` · `READY`. `READY_PENDING_GRANTS` = everything wired, permissions still needed. Manual remediation, not re-running installer.
+
+Reached via `pi-mcp-adapter` — loaded as `packages[]` entry in `~/.pi/agent/settings.json`.
+
+See change: add-apple-tools-imcp-plugin.
+
+Cross-refs:
+- packages/apple-tools/README.md
+- packages/apple-tools/.pi/skills/apple-tools/SKILL.md
+
+## Why can't I read Apple Mail through iMCP?
+
+iMCP exposes no Mail service. "Messages" = iMessage/SMS, not email.
+
+Email: use `apple-mail-fast-export` skill — exports `.eml` files.
+
+See change: add-apple-tools-imcp-plugin.
+
+Cross-refs:
+- packages/apple-tools/README.md
+- packages/apple-tools/.pi/skills/apple-tools/SKILL.md

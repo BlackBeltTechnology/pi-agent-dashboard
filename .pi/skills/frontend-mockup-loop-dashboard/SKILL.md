@@ -1,6 +1,6 @@
 ---
 name: "frontend-mockup-loop-dashboard"
-description: "Dashboard-specific adapter on top of the generic frontend-mockup-loop skill/package. Binds the 7-step design loop to pi-agent-dashboard reality: real component sources, theme-system tokens (4 themes), isolated verification for safe preview/promote, and openspec mockup paths. Use when designing/redesigning any pi-agent-dashboard client surface. Triggers: \"design a dashboard screen\", \"mockup a dashboard surface\", \"redesign SessionCard\", \"make dashboard UI consistent\"."
+description: 'Dashboard-specific adapter on the generic frontend-mockup-loop skill: binds the 7-step design loop to pi-agent-dashboard component sources, theme-system tokens, and isolated verification. Use when designing/redesigning any pi-agent-dashboard client surface. Triggers: "design a dashboard screen", "mockup a dashboard surface", "redesign SessionCard", "make dashboard UI consistent".'
 version: 1
 created: "2026-06-23"
 updated: "2026-06-23"

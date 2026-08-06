@@ -1,6 +1,6 @@
 ---
 name: "pre-scaffold-openspec-coherence-check"
-description: "Run before scaffolding any OpenSpec proposal in the project to catch duplicates of archived work and contradictions with already-shipped architecture. Always run when about to create openspec/changes/&lt;name&gt;/ (proposal.md/design.md/tasks.md), especially for proposals touching any subsystem with a recent archive entry. Skipping this check produces stale proposals that duplicate archived work and contradict shipped architecture. Triggers: 'scaffold OpenSpec', 'write a proposal', 'create change', 'openspec change new'."
+description: 'Run before scaffolding any OpenSpec proposal to catch duplicates of archived work and contradictions with shipped architecture. Always run when about to create openspec/changes/<name>/, especially for proposals touching a subsystem with a recent archive entry. Triggers: ''scaffold OpenSpec'', ''write a proposal'', ''create change'', ''openspec change new''.'
 version: 1
 created: "2026-06-13"
 updated: "2026-06-13"

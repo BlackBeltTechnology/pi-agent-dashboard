@@ -78,3 +78,4 @@ minimumReleaseAgeExclude:
   - '@earendil-works/pi-ai@0.83.0'
   - '@earendil-works/pi-coding-agent@0.83.0'
   - '@earendil-works/pi-tui@0.83.0'
+  - pi-mcp-adapter@2.19.0

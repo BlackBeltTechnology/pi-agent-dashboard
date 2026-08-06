@@ -1,14 +1,13 @@
-import { describe, it, expect } from "vitest";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
 import {
+  type ClaimEntry,
   createSlotRegistry,
+  forCommand,
   forSession,
   forSessionRendered,
-  forTab,
   forToolName,
-  forCommand,
-  type ClaimEntry,
 } from "../slot-registry.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeClaim(
   pluginId: string,
@@ -166,37 +165,6 @@ describe("forSessionRendered filter", () => {
       { ...makeClaim("b", 200), shouldRender: (_: unknown) => false },
     ];
     expect(forSessionRendered(claims, session)).toEqual([]);
-  });
-});
-
-describe("forTab filter", () => {
-  it("returns claims matching tab", () => {
-    const claims = [
-      { ...makeClaim("a", 100, "settings-section"), tab: "general" },
-      { ...makeClaim("b", 100, "settings-section"), tab: "security" },
-      { ...makeClaim("c", 100, "settings-section") }, // defaults to "general"
-    ];
-    const generalClaims = forTab(claims, "general");
-    expect(generalClaims.map(c => c.pluginId)).toContain("a");
-    expect(generalClaims.map(c => c.pluginId)).toContain("c");
-    expect(generalClaims.map(c => c.pluginId)).not.toContain("b");
-  });
-
-  it("renders claims targeting a new page id on that page", () => {
-    const claims = [
-      { ...makeClaim("a", 100, "settings-section"), tab: "developer" },
-    ];
-    expect(forTab(claims, "developer").map(c => c.pluginId)).toContain("a");
-    expect(forTab(claims, "general").map(c => c.pluginId)).not.toContain("a");
-  });
-
-  it("falls back unknown tab ids to general", () => {
-    const claims = [
-      { ...makeClaim("a", 100, "settings-section"), tab: "bogus" },
-    ];
-    // An id outside VALID_SETTINGS_TABS is treated as general.
-    expect(forTab(claims, "general").map(c => c.pluginId)).toContain("a");
-    expect(forTab(claims, "bogus").map(c => c.pluginId)).not.toContain("a");
   });
 });
 

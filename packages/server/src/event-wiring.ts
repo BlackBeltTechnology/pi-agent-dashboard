@@ -8,6 +8,8 @@ import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-te
 import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
+import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
 import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
 import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
 import type { DirectoryService } from "./directory-service.js";
@@ -21,7 +23,9 @@ import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import type { PiGateway } from "./pi/pi-gateway.js";
+import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
+import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
@@ -69,6 +73,14 @@ const STRICT_SPAWN_CORRELATION =
 export interface EventWiringDeps {
   sessionManager: SessionManager;
   eventStore: EventStore;
+  /**
+   * Optional display-fit pool. When provided, inline image attachments are
+   * stripped to a bounded placeholder before the row event is stored, and the
+   * fitted derivative follows as its own `attachment_fitted` event. When
+   * absent (tests, minimal wirings) events pass through untouched.
+   * See change: fit-attachments-for-display (tasks 5.2, 5.3).
+   */
+  fitWorkerPool?: import("./attachments/fit-worker-pool.js").FitWorkerPool;
   piGateway: PiGateway;
   browserGateway: BrowserGateway;
   sessionOrderManager: SessionOrderManager;
@@ -194,6 +206,7 @@ export function wireEvents(deps: EventWiringDeps): void {
   const {
     sessionManager,
     eventStore,
+    fitWorkerPool,
     dispatchPluginSessionEnded,
     piGateway,
     browserGateway,
@@ -256,6 +269,24 @@ export function wireEvents(deps: EventWiringDeps): void {
       cwd: newOrderKey,
       sessionIds: sessionOrderManager.getOrder(newOrderKey, validIds),
     });
+  }
+
+  // Phase 2 of the two-phase attachment render. Shared with the replay path
+  // (subscription-handler) so the two cannot drift.
+  // See change: fit-attachments-for-display (task 5.3, test-plan #F3 #X7).
+  const attachmentResolver = fitWorkerPool
+    ? createAttachmentResolver({
+        eventStore,
+        fitWorkerPool,
+        emit: (sessionId, seq, event) => browserGateway.broadcastEvent(sessionId, seq, event),
+      })
+    : null;
+
+  async function resolvePendingAttachments(
+    sessionId: string,
+    pending: PendingAttachment[],
+  ): Promise<void> {
+    await attachmentResolver?.resolve(sessionId, pending);
   }
 
   // Broadcast placeholder session to browsers when auto-created from early events
@@ -481,6 +512,14 @@ export function wireEvents(deps: EventWiringDeps): void {
         currentTool: null,
       });
     }
+    // Drop both pending registries. `pendingPromptRequests` and
+    // `pendingUiRequests` are removed from only by their per-id clear paths, so
+    // a session that dies holding a request leaks its entry for the process
+    // lifetime. That entry is a permanent `hasPendingAsk: true` at the reaper
+    // (D5), i.e. a session that can never be reclaimed.
+    // See change: restore-ask-user-tool-state-on-reconnect (D6b).
+    browserGateway.clearPendingRequestsForSession(sessionId);
+    replayPromptIds.delete(sessionId);
     // Fan the death out to plugin onSessionEnded subscribers regardless of
     // whether a session record still exists — the automation plugin finalizes
     // any run wedged by a lost terminal event.
@@ -529,6 +568,81 @@ export function wireEvents(deps: EventWiringDeps): void {
   });
   // Sessions whose replay should be discarded (canSkipWipe was true — events already in store)
   const skipReplayInsert = new Set<string>();
+  // Prompt ids re-sent by the bridge inside a session's replay window. Ephemeral
+  // and per-replay: it exists only to drive one `reconcilePromptRequests` call at
+  // the replay exit, and is drained there. Distinct from the durable
+  // `pendingPromptRequests` registry, which also backs browser-refresh dialog
+  // replay and must NOT be drained.
+  // See change: restore-ask-user-tool-state-on-reconnect (D4).
+  const replayPromptIds = new Map<string, Set<string>>();
+
+  /**
+   * Stamp `unread` when the before/after edge qualifies and no browser is
+   * viewing. Shared by the `event_forward` path and the `prompt_request` branch,
+   * which must evaluate the same trigger (D6a) because it writes `currentTool`
+   * without ever reaching the extractor.
+   */
+  function stampUnreadIfTriggered(
+    sessionId: string,
+    eventType: string,
+    before: UnreadTriggerSnapshot,
+    after: UnreadTriggerSnapshot,
+    payload?: unknown,
+  ): void {
+    if (!viewedSessionTracker) return;
+    if (!isUnreadTrigger(eventType, before, after, payload)) return;
+    if (viewedSessionTracker.isViewedByAnyone(sessionId)) return;
+    const session = sessionManager.get(sessionId);
+    if (session && !session.unread) {
+      sessionManager.update(sessionId, { unread: true });
+      browserGateway.broadcastSessionUpdated(sessionId, { unread: true });
+    }
+  }
+
+  /**
+   * Move a session to the front of its ordering tier and broadcast only on a
+   * real change (`moveToFront` is idempotent). Shared by the `event_forward`
+   * ordering block and the `prompt_request` branch (D6a). Reads only
+   * `sessionManager` + `preferencesStore`, so it is safe to call from outside
+   * the `event_forward` block — no `eventStore` sequence dependency.
+   */
+  function moveSessionToFrontAndBroadcast(sessionId: string, placed: DashboardSession): void {
+    const key = resolveOrderKey(placed, preferencesStore.getPinnedDirectories());
+    const before = sessionOrderManager.getOrder(key) ?? [];
+    sessionOrderManager.moveToFront(key, sessionId);
+    const after = sessionOrderManager.getOrder(key) ?? [];
+    const changed =
+      before.length !== after.length || before.some((id, i) => id !== after[i]);
+    if (changed) {
+      browserGateway.broadcastToAll({
+        type: "sessions_reordered",
+        cwd: key,
+        sessionIds: after,
+      });
+    }
+  }
+
+  /**
+   * Replay exit: reconcile the registry against the bridge's re-sent snapshot,
+   * recompute `currentTool` from the reconciled registry, then drain the
+   * collected set. The order is fixed — a drain that ran first would leave the
+   * recompute reading an empty registry and null a live prompt.
+   *
+   * Recompute is deliberately one-directional: registry non-empty ⇒ `"ask_user"`;
+   * registry empty ⇒ leave the event-derived value untouched (a session whose
+   * last replayed event was `tool_execution_start("Read")` keeps `"Read"`).
+   * This is well-defined only because the fold is live-only, so after replay
+   * `currentTool` is exactly what the events say.
+   * See change: restore-ask-user-tool-state-on-reconnect (D4).
+   */
+  function reconcileAndRecomputeOnReplayExit(sessionId: string): void {
+    const collected = replayPromptIds.get(sessionId);
+    browserGateway.reconcilePromptRequests(sessionId, [...(collected ?? [])]);
+    if (browserGateway.hasPendingPromptRequests(sessionId)) {
+      sessionManager.update(sessionId, { currentTool: "ask_user" });
+    }
+    replayPromptIds.delete(sessionId);
+  }
   // Debounce flows refresh to prevent infinite loop between sessions in same cwd
   const recentFlowsRefresh = new Set<string>();
   // Per-session timestamp of the most recent `lastActivityAt` broadcast.
@@ -569,11 +683,33 @@ export function wireEvents(deps: EventWiringDeps): void {
         // but those are only for non-replay events, so we can return early
         return;
       }
-      const seq = eventStore.insertEvent(sessionId, msg.event);
+      // Two-phase attachment render (D3/D12): strip full-resolution image bytes
+      // to a bounded placeholder so the ROW is stored and broadcast now, then
+      // resolve the fitted derivative asynchronously. Without this, a pasted
+      // screenshot pushes the event past the per-event ceiling and the whole
+      // message collapses to {__truncated} — the user's row vanishes silently.
+      // No-op (same reference) for the overwhelmingly common no-image event.
+      // See change: fit-attachments-for-display (tasks 5.2, 5.3).
+      const prepared = fitWorkerPool
+        ? prepareEventForIngest(msg.event)
+        : { event: msg.event, pending: [] as PendingAttachment[] };
+      const seq = eventStore.insertEvent(sessionId, prepared.event);
       // Skip broadcasting during replay — browser gets events via subscribe replay
       if (!replayingSessions.has(sessionId)) {
-        const storedEvent = eventStore.getEvent(sessionId, seq) ?? msg.event;
+        const storedEvent = eventStore.getEvent(sessionId, seq) ?? prepared.event;
         browserGateway.broadcastEvent(sessionId, seq, storedEvent);
+      }
+      // Phase 2 runs detached: the row is already durable, so a fit failure can
+      // only degrade an attachment, never the message.
+      if (prepared.pending.length > 0) {
+        // The catch is what makes the sentence above true. `resolve` guards the
+        // FIT, but its publish calls (`insertEvent`/`broadcastEvent`) sit
+        // outside that guard — and on a detached promise an escaping rejection
+        // is an UNHANDLED one, which terminates the process by default. Degrade
+        // the attachment, never the server.
+        void resolvePendingAttachments(sessionId, prepared.pending).catch((err) => {
+          console.error(`[attachments] resolve failed for session ${sessionId}:`, err);
+        });
       }
 
       // Spawned-session turn-outcome surfacing to server.log (live only).
@@ -612,7 +748,16 @@ export function wireEvents(deps: EventWiringDeps): void {
         currentTool: sessionBefore?.currentTool,
       };
 
-      const updates = extractSessionUpdates(msg.event);
+      // Fold the PromptBus registry into the derivation for LIVE events only.
+      // During replay `currentTool` stays purely event-derived and the replay
+      // exit is the single place the registry is consulted — folding here would
+      // let a stale registry contaminate a replayed `agent_end` with a value the
+      // post-reconcile recompute could no longer distinguish from a real one.
+      // See change: restore-ask-user-tool-state-on-reconnect (D1/D4).
+      const hasPendingPrompt =
+        !replayingSessions.has(sessionId) &&
+        browserGateway.hasPendingPromptRequests(sessionId);
+      const updates = extractSessionUpdates(msg.event, hasPendingPrompt);
       if (updates) {
         sessionManager.update(sessionId, updates as Partial<DashboardSession>);
         // During replay, accumulate in sessionManager but don't broadcast
@@ -629,24 +774,13 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: session-card-unread-stripes.
       if (!replayingSessions.has(sessionId) && viewedSessionTracker) {
         const sessionAfter = sessionManager.get(sessionId);
-        const afterSnapshot = {
-          status: sessionAfter?.status,
-          currentTool: sessionAfter?.currentTool,
-        };
-        if (
-          isUnreadTrigger(
-            msg.event.eventType,
-            beforeSnapshot,
-            afterSnapshot,
-            msg.event.data,
-          ) &&
-          !viewedSessionTracker.isViewedByAnyone(sessionId)
-        ) {
-          if (sessionAfter && !sessionAfter.unread) {
-            sessionManager.update(sessionId, { unread: true });
-            browserGateway.broadcastSessionUpdated(sessionId, { unread: true });
-          }
-        }
+        stampUnreadIfTriggered(
+          sessionId,
+          msg.event.eventType,
+          beforeSnapshot,
+          { status: sessionAfter?.status, currentTool: sessionAfter?.currentTool },
+          msg.event.data,
+        );
       }
 
       // Gated status-transition placement for session-card ordering.
@@ -669,20 +803,7 @@ export function wireEvents(deps: EventWiringDeps): void {
           const endTrigger =
             !!isCompletedFirst?.() && msg.event.eventType === "agent_end";
           if (askTrigger || endTrigger) {
-            const key = resolveOrderKey(placed, preferencesStore.getPinnedDirectories());
-            const before = sessionOrderManager.getOrder(key) ?? [];
-            sessionOrderManager.moveToFront(key, sessionId);
-            const after = sessionOrderManager.getOrder(key) ?? [];
-            const changed =
-              before.length !== after.length ||
-              before.some((id, i) => id !== after[i]);
-            if (changed) {
-              browserGateway.broadcastToAll({
-                type: "sessions_reordered",
-                cwd: key,
-                sessionIds: after,
-              });
-            }
+            moveSessionToFrontAndBroadcast(sessionId, placed);
           }
         }
       }
@@ -894,11 +1015,18 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "replay_complete") {
-      const wasSkipped = skipReplayInsert.has(sessionId);
-      replayingSessions.delete(sessionId);
-      skipReplayInsert.delete(sessionId);
-      // Clear any stale OpenSpec activity state that may have leaked
-      // (e.g. from events forwarded before the replay flag was set)
+      // Guarded like the safety timeout below so only the FIRST replay exit
+      // acts. Previously this deleted unconditionally, so a late
+      // `replay_complete` after a fired timeout re-sent a duplicate
+      // `event_replay`; this change adds a second consumer of the path (the
+      // reconcile) and so closes that rather than inheriting it.
+      // See change: restore-ask-user-tool-state-on-reconnect (D4, task 5.4).
+      // Clear any stale OpenSpec activity state that may have leaked (e.g.
+      // from events forwarded before the replay flag was set). Deliberately
+      // OUTSIDE the once-only guard below: on a replay slower than the 5s
+      // safety timeout the guard would otherwise swallow this cleanup entirely
+      // (the timeout path never had it), leaking stale OpenSpec activity onto
+      // the card. It is idempotent, so running it on a duplicate is harmless.
       const preSession = sessionManager.get(sessionId);
       if (preSession?.openspecPhase || preSession?.openspecChange) {
         sessionManager.update(sessionId, {
@@ -906,29 +1034,37 @@ export function wireEvents(deps: EventWiringDeps): void {
           openspecChange: null as any,
         });
       }
-      // Broadcast the final accumulated status after replay
-      const session = sessionManager.get(sessionId);
-      if (session) {
-        browserGateway.broadcastSessionUpdated(sessionId, {
-          status: session.status,
-          currentTool: session.currentTool ?? null,
-          openspecPhase: null,
-          openspecChange: null,
-        });
-      }
-      // Send replayed events to browser subscribers.
-      // During replay, event_forward messages were stored but not broadcast.
-      // Subscribers who received session_state_reset need the events to rebuild chat.
-      // Skip when canSkipWipe was true — browser already has the events.
-      if (!wasSkipped) {
-        const storedEvents = eventStore.getEvents(sessionId, 1);
-        if (storedEvents.length > 0) {
-          browserGateway.sendToSubscribers(sessionId, {
-            type: "event_replay",
-            sessionId,
-            events: storedEvents.map((e) => ({ seq: e.seq, event: e.event })),
-            isLast: true,
-          } as any);
+      if (replayingSessions.delete(sessionId)) {
+        const wasSkipped = skipReplayInsert.has(sessionId);
+        skipReplayInsert.delete(sessionId);
+        // Reconcile → recompute BEFORE the status broadcast below, so the
+        // recomputed `currentTool` rides the existing broadcast with no new
+        // broadcast site (R10).
+        reconcileAndRecomputeOnReplayExit(sessionId);
+        // Broadcast the final accumulated status after replay
+        const session = sessionManager.get(sessionId);
+        if (session) {
+          browserGateway.broadcastSessionUpdated(sessionId, {
+            status: session.status,
+            currentTool: session.currentTool ?? null,
+            openspecPhase: null,
+            openspecChange: null,
+          });
+        }
+        // Send replayed events to browser subscribers.
+        // During replay, event_forward messages were stored but not broadcast.
+        // Subscribers who received session_state_reset need the events to rebuild chat.
+        // Skip when canSkipWipe was true — browser already has the events.
+        if (!wasSkipped) {
+          const storedEvents = eventStore.getEvents(sessionId, 1);
+          if (storedEvents.length > 0) {
+            browserGateway.sendToSubscribers(sessionId, {
+              type: "event_replay",
+              sessionId,
+              events: storedEvents.map((e) => ({ seq: e.seq, event: e.event })),
+              isLast: true,
+            } as any);
+          }
         }
       }
     }
@@ -948,6 +1084,11 @@ export function wireEvents(deps: EventWiringDeps): void {
       setTimeout(() => {
         if (replayingSessions.delete(sessionId)) {
           const wasSkipped = skipReplayInsert.delete(sessionId);
+          // Same reconcile → recompute as `replay_complete`. Hooking only that
+          // exit would leave a lost-dismiss entry alive whenever
+          // `replay_complete` never arrives — and with the reaper union (D5)
+          // the session would then never reap.
+          reconcileAndRecomputeOnReplayExit(sessionId);
           const session = sessionManager.get(sessionId);
           if (session) {
             browserGateway.broadcastSessionUpdated(sessionId, {
@@ -1272,10 +1413,16 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Drop the per-session debounce entry so a future re-register with the
       // same id does not silently suppress its first activity broadcast.
       lastActivityBroadcastAt.delete(sessionId);
+      sessionCommandRegistry.remove(sessionId);
       browserGateway.broadcastSessionRemoved(sessionId);
     }
 
     if (msg.type === "commands_list") {
+      // Retain the latest list so `/api/pi-resources` can tell a skill the
+      // session loaded from one merely present on disk. The registry's own
+      // settling rule keeps a transitional reload list from emptying it.
+      // See change: fix-skill-discovery-parity.
+      sessionCommandRegistry.retain(sessionId, msg.commands);
       browserGateway.sendToSubscribers(sessionId, {
         type: "commands_list",
         sessionId,
@@ -1449,18 +1596,88 @@ export function wireEvents(deps: EventWiringDeps): void {
     // Legacy extension_ui_request/dismiss removed — replaced by PromptBus protocol.
 
     // ── PromptBus protocol messages (extension → browser) ──
+    // M2 — direct `currentTool` writes. These are sibling branches OUTSIDE the
+    // `event_forward` block, so they never reach `extractSessionUpdates`; the
+    // fold (M1) cannot cover them and they must write for themselves.
+    // They are also trigger-complete (D6a): the `prompt_request` branch
+    // evaluates the unread trigger and the `questionFirst` reorder itself, so
+    // correctness does not depend on whether `prompt_request` or the matching
+    // `tool_execution_start` wins the race.
+    // See change: restore-ask-user-tool-state-on-reconnect (D1/D6a).
     if (msg.type === "prompt_request") {
+      // Only track for a session the server still owns. `trackPromptRequest`
+      // creates an entry for ANY id, while every clear path only removes an
+      // entry that already exists — so a `prompt_request` that races or trails
+      // `onUnregister` would recreate the registry after the unregister cleanup
+      // has run, with nothing left to clear it. Under the reaper's pending-ask
+      // union (D5) that is a permanent `hasPendingAsk: true`: a dead session
+      // that can never be reclaimed, i.e. exactly the leak D6b closes.
+      // `unregister` keeps the record and flips it to `"ended"`, so a bare
+      // existence check is not enough — the dead session is still `get`-able.
+      // See change: restore-ask-user-tool-state-on-reconnect.
+      const owner = sessionManager.get(sessionId);
+      if (!owner || owner.status === "ended") return;
       browserGateway.trackPromptRequest(sessionId, msg as any);
+      const promptId = (msg as any).promptId as string | undefined;
+      if (replayingSessions.has(sessionId)) {
+        // Inside the replay window the bridge's re-sent burst is a snapshot;
+        // collect the id for the exit reconcile and write nothing — the replay
+        // exit owns `currentTool` for a replaying session, and writing here
+        // would also mean a `session_updated` broadcast the spec forbids (R10).
+        if (promptId) {
+          let ids = replayPromptIds.get(sessionId);
+          if (!ids) {
+            ids = new Set();
+            replayPromptIds.set(sessionId, ids);
+          }
+          ids.add(promptId);
+        }
+      } else {
+        // Snapshot BEFORE our own write, exactly as the event path does at the
+        // top of `event_forward` — otherwise the edge this branch is here to
+        // preserve would compare the new value against itself.
+        const sessionBefore = sessionManager.get(sessionId);
+        const beforeSnapshot = {
+          status: sessionBefore?.status,
+          currentTool: sessionBefore?.currentTool,
+        };
+        // Precedence (D3): a genuine in-flight tool wins; only an empty field
+        // is folded to "ask_user".
+        if (sessionBefore && !sessionBefore.currentTool) {
+          sessionManager.update(sessionId, { currentTool: "ask_user" });
+          browserGateway.broadcastSessionUpdated(sessionId, { currentTool: "ask_user" });
+        }
+        const sessionAfter = sessionManager.get(sessionId);
+        const afterSnapshot = {
+          status: sessionAfter?.status,
+          currentTool: sessionAfter?.currentTool,
+        };
+        stampUnreadIfTriggered(sessionId, msg.type, beforeSnapshot, afterSnapshot);
+        if (
+          !!isQuestionFirst?.() &&
+          sessionAfter &&
+          sessionAfter.status !== "ended" &&
+          afterSnapshot.currentTool === "ask_user" &&
+          beforeSnapshot.currentTool !== "ask_user"
+        ) {
+          moveSessionToFrontAndBroadcast(sessionId, sessionAfter);
+        }
+      }
       browserGateway.sendToSubscribers(sessionId, msg as any);
     }
 
-    if (msg.type === "prompt_dismiss") {
+    if (msg.type === "prompt_dismiss" || msg.type === "prompt_cancel") {
       browserGateway.clearPromptRequest(sessionId, (msg as any).promptId);
-      browserGateway.sendToSubscribers(sessionId, msg as any);
-    }
-
-    if (msg.type === "prompt_cancel") {
-      browserGateway.clearPromptRequest(sessionId, (msg as any).promptId);
+      // Clear only when the registry is now empty AND the field still holds the
+      // derived value — a real tool that started meanwhile must not be stomped.
+      if (
+        !replayingSessions.has(sessionId) &&
+        !browserGateway.hasPendingPromptRequests(sessionId) &&
+        sessionManager.get(sessionId)?.currentTool === "ask_user"
+      ) {
+        sessionManager.update(sessionId, { currentTool: null });
+        browserGateway.broadcastSessionUpdated(sessionId, { currentTool: null });
+      }
       browserGateway.sendToSubscribers(sessionId, msg as any);
     }
 

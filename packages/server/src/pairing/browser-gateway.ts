@@ -63,7 +63,7 @@ export function buildOpenSpecConnectSnapshot(
   return out;
 }
 
-import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
+import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
@@ -101,6 +101,14 @@ export interface BrowserGateway {
    */
   hasPendingUiRequest(sessionId: string): boolean;
   /**
+   * Whether ≥1 unanswered PromptBus request is currently tracked for the
+   * session. Read by the `currentTool` derivation in event-wiring and by the
+   * embed-lifecycle reaper's pending-ask union. Returns a boolean, never the
+   * map — prompt payloads stay owned by the gateway.
+   * See change: restore-ask-user-tool-state-on-reconnect (D6).
+   */
+  hasPendingPromptRequests(sessionId: string): boolean;
+  /**
    * Per-hop dropped-frame counters for the diagnostics/health surface. A
    * server→browser frame is dropped when a browser socket's send buffer
    * crosses MAX_WS_BUFFER under back-pressure. See change:
@@ -115,6 +123,21 @@ export interface BrowserGateway {
   trackPromptRequest(sessionId: string, msg: Record<string, unknown>): void;
   /** Clear a pending PromptBus request (dismissed or cancelled) */
   clearPromptRequest(sessionId: string, promptId: string): void;
+  /**
+   * Snapshot setter over the PromptBus registry: drop every tracked prompt for
+   * the session whose id is not in `promptIds`. Used at each replay exit, where
+   * the bridge's re-sent prompt burst is the authoritative pending set — this is
+   * what recovers from a `prompt_dismiss` lost across a socket drop.
+   * See change: restore-ask-user-tool-state-on-reconnect (D4).
+   */
+  reconcilePromptRequests(sessionId: string, promptIds: readonly string[]): void;
+  /**
+   * Drop both pending registries for a dead session. Turning these maps into
+   * load-bearing reaper signals obliges this change to own their lifecycle —
+   * a leaked entry would make the session permanently unreapable.
+   * See change: restore-ask-user-tool-state-on-reconnect (D6b).
+   */
+  clearPendingRequestsForSession(sessionId: string): void;
   /** Tell browser subscribers to reset accumulated state for a session (bridge reconnected) */
   broadcastSessionStateReset(sessionId: string): void;
   /** Shut down all tracked headless child processes */
@@ -207,6 +230,9 @@ export function createBrowserGateway(
   pendingClientCorrelations?: import("../pending/pending-client-correlations.js").PendingClientCorrelations,
   pendingWorktreeBaseRegistry?: import("../pending/pending-worktree-base-registry.js").PendingWorktreeBaseRegistry,
   metaPersistence?: import("../persistence/meta-persistence.js").MetaPersistence,
+  /** Display-fit pool, so session hydration fits inline images like the live
+   *  path does. See change: fit-attachments-for-display (test-plan #E9). */
+  fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -318,6 +344,16 @@ export function createBrowserGateway(
       sessionMap.delete(promptId);
       if (sessionMap.size === 0) pendingPromptRequests.delete(sessionId);
     }
+  }
+
+  function reconcilePromptRequests(sessionId: string, promptIds: readonly string[]): void {
+    const sessionMap = pendingPromptRequests.get(sessionId);
+    if (!sessionMap) return;
+    const keep = new Set(promptIds);
+    for (const promptId of [...sessionMap.keys()]) {
+      if (!keep.has(promptId)) sessionMap.delete(promptId);
+    }
+    if (sessionMap.size === 0) pendingPromptRequests.delete(sessionId);
   }
 
   function getSubscribers(sessionId: string): WebSocket[] {
@@ -491,6 +527,7 @@ export function createBrowserGateway(
           ws, sessionManager, eventStore, piGateway,
           pendingForkRegistry, sessionOrderManager, preferencesStore,
           metaPersistence,
+          fitWorkerPool,
           directoryService, terminalManager,
           headlessPidRegistry, pendingResumeRegistry, pendingDashboardSpawns,
           pendingAttachRegistry,
@@ -683,6 +720,9 @@ export function createBrowserGateway(
             break;
           case "reorder_workspaces":
             handleReorderWorkspaces(msg, ctx);
+            break;
+          case "move_folder_to_workspace":
+            handleMoveFolderToWorkspace(msg, ctx);
             break;
           case "openspec_refresh":
             handleOpenSpecRefresh(msg, ctx);
@@ -998,6 +1038,11 @@ export function createBrowserGateway(
       return sessionMap !== undefined && sessionMap.size > 0;
     },
 
+    hasPendingPromptRequests(sessionId: string): boolean {
+      const sessionMap = pendingPromptRequests.get(sessionId);
+      return sessionMap !== undefined && sessionMap.size > 0;
+    },
+
     getDroppedFrameStats() {
       return {
         total: droppedFramesTotal,
@@ -1019,6 +1064,12 @@ export function createBrowserGateway(
 
     trackPromptRequest,
     clearPromptRequest,
+    reconcilePromptRequests,
+
+    clearPendingRequestsForSession(sessionId: string) {
+      pendingUiRequests.delete(sessionId);
+      pendingPromptRequests.delete(sessionId);
+    },
 
     shutdownHeadlessProcesses() {
       headlessPidRegistry.killAll();

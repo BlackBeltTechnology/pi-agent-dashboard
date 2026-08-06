@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "../settings/SettingsPanel.js";
 
 // Worktree auto-init preference is fetched/persisted through git-api, not
@@ -63,9 +63,12 @@ function mockFetchConfig(configOverrides?: any) {
   });
 }
 
-// Click a left-nav page item by its visible label.
+// Click a left-nav page item by its visible label. Scoped to the rail: the
+// Save Bar also renders a button per dirty page, with the same label.
+// See change: plugin-settings-pages.
 function gotoPage(name: string) {
-  fireEvent.click(screen.getByRole("button", { name }));
+  const rail = screen.getByTestId("settings-nav-rail");
+  fireEvent.click(within(rail).getByRole("button", { name }));
 }
 
 describe("SettingsPanel", () => {

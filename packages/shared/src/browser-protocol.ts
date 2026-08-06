@@ -1367,6 +1367,20 @@ export interface ReorderWorkspacesMessage {
   ids: string[];
 }
 
+/**
+ * Move a folder into a workspace, or eject it from all workspaces.
+ * `toWorkspaceId: null` ejects the folder and pins it.
+ * `index` is the insert position in the target (omitted = append); it is
+ * clamped server-side and ignored when the target is null.
+ * See change: drag-folders-across-workspaces.
+ */
+export interface MoveFolderToWorkspaceMessage {
+  type: "move_folder_to_workspace";
+  path: string;
+  toWorkspaceId: string | null;
+  index?: number;
+}
+
 export interface OpenSpecBulkArchiveBrowserMessage {
   type: "openspec_bulk_archive";
   cwd: string;
@@ -1590,6 +1604,7 @@ export type BrowserToServerMessage =
   | RemoveFolderFromWorkspaceMessage
   | ReorderWorkspaceFoldersMessage
   | ReorderWorkspacesMessage
+  | MoveFolderToWorkspaceMessage
   | OpenSpecBulkArchiveBrowserMessage
   | CreateTerminalBrowserMessage
   | KillTerminalBrowserMessage

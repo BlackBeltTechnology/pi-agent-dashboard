@@ -200,11 +200,26 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   # so the two can legitimately disagree. Gating registration on "package.json
   # absent" would skip it whenever the dir survives but settings.json does not,
   # leaving the E2E spec without its active source. Both halves are idempotent.
+  # The stub MUST be loadable. Registering it in `packages[]` makes pi load it as
+  # an extension, and an entry-less manifest is FATAL at startup under pi 0.83:
+  #   Failed to load extension "/fixtures/local-pkg/image-fit-extension":
+  #     Cannot find module '/fixtures/local-pkg/image-fit-extension'
+  # That killed every spawned session, so every spawn-based E2E spec failed far
+  # from its real assertion. A no-op `pi.extensions` entry keeps the fixture's
+  # ACTUAL point intact (dir basename decorated differently from package.json
+  # #name, so the pure-string sourcesMatch rule cannot match) while letting pi
+  # start. See change: restore-ask-user-tool-state-on-reconnect.
   LOCAL_PKG_DIR="/fixtures/local-pkg/image-fit-extension"
   if [ ! -f "${LOCAL_PKG_DIR}/package.json" ]; then
     mkdir -p "${LOCAL_PKG_DIR}"
-    printf '%s\n' '{ "name": "@blackbelt-technology/pi-image-fit-extension", "version": "0.0.1" }' \
+    printf '%s\n' '{ "name": "@blackbelt-technology/pi-image-fit-extension", "version": "0.0.1", "type": "module", "pi": { "extensions": ["index.js"] } }' \
       > "${LOCAL_PKG_DIR}/package.json"
+  fi
+  # Entry is deliberately inert: this fixture exists to be NAME-MATCHED on the
+  # extensions card, never to do work.
+  if [ ! -f "${LOCAL_PKG_DIR}/index.js" ]; then
+    printf '%s\n' 'export default function localImageFitStub() {}' \
+      > "${LOCAL_PKG_DIR}/index.js"
   fi
   # Always ensure settings.json packages[] carries the path (no-op when present).
   node -e '
@@ -219,6 +234,78 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
   ' "${PI_DIR}/agent/settings.json" "${LOCAL_PKG_DIR}"
   echo "[test-entrypoint] PI_E2E_SEED: decorated local install registered → ${LOCAL_PKG_DIR}"
+
+  # --- Plugin-page fixture states (change: plugin-settings-pages) ---
+  # Two user-installed plugins in ~/.pi/dashboard/plugins/ whose STATUS is the
+  # point, not their behaviour. The plugin settings page must render host chrome
+  # + the right banner for each, and the nav rail must keep both (membership
+  # keys on `enabled`, not `loaded` — design D4).
+  #   e2e-broken     server entry throws on load     -> status.error
+  #   e2e-needs-req  requires an absent pi extension -> missingRequirements
+  # Both claim `settings-section` so they earn a page and a nav child.
+  # Idempotent: each is written only when its manifest is absent.
+  PLUGINS_DIR="${PI_DIR}/dashboard/plugins"
+
+  BROKEN_DIR="${PLUGINS_DIR}/e2e-broken"
+  mkdir -p "${BROKEN_DIR}"
+  if [ ! -f "${BROKEN_DIR}/package.json" ]; then
+    printf '%s\n' '{ "name": "e2e-broken-plugin", "version": "0.0.1", "type": "module" }' \
+      > "${BROKEN_DIR}/package.json"
+  fi
+  if [ ! -f "${BROKEN_DIR}/dashboard-plugin.json" ]; then
+    cat > "${BROKEN_DIR}/dashboard-plugin.json" <<'JSON'
+{
+  "id": "e2e-broken",
+  "displayName": "E2E Broken",
+  "server": "./server.js",
+  "claims": [{ "slot": "settings-section", "component": "Settings" }]
+}
+JSON
+  fi
+  if [ ! -f "${BROKEN_DIR}/server.js" ]; then
+    printf '%s\n' 'throw new Error("Bridge path conflict: e2e-broken cannot load");' \
+      > "${BROKEN_DIR}/server.js"
+  fi
+  echo "[test-entrypoint] PI_E2E_SEED: errored plugin fixture ready → ${BROKEN_DIR}"
+
+  NEEDS_REQ_DIR="${PLUGINS_DIR}/e2e-needs-req"
+  mkdir -p "${NEEDS_REQ_DIR}"
+  if [ ! -f "${NEEDS_REQ_DIR}/package.json" ]; then
+    printf '%s\n' '{ "name": "e2e-needs-req-plugin", "version": "0.0.1", "type": "module" }' \
+      > "${NEEDS_REQ_DIR}/package.json"
+  fi
+  if [ ! -f "${NEEDS_REQ_DIR}/dashboard-plugin.json" ]; then
+    cat > "${NEEDS_REQ_DIR}/dashboard-plugin.json" <<'JSON'
+{
+  "id": "e2e-needs-req",
+  "displayName": "E2E Needs Requirement",
+  "requires": { "piExtensions": ["pi-e2e-absent-extension"] },
+  "claims": [{ "slot": "settings-section", "component": "Settings" }]
+}
+JSON
+  fi
+  echo "[test-entrypoint] PI_E2E_SEED: unmet-requirement plugin fixture ready → ${NEEDS_REQ_DIR}"
+
+  # A plugin that DEPENDS on another, so disabling the dependency cascades and
+  # the toggle raises the cascade-confirm dialog. No monorepo plugin declares
+  # dependsOn, so without this fixture the cascade path is unreachable at L3.
+  DEPENDENT_DIR="${PLUGINS_DIR}/e2e-dependent"
+  mkdir -p "${DEPENDENT_DIR}"
+  if [ ! -f "${DEPENDENT_DIR}/package.json" ]; then
+    printf '%s\n' '{ "name": "e2e-dependent-plugin", "version": "0.0.1", "type": "module" }' \
+      > "${DEPENDENT_DIR}/package.json"
+  fi
+  if [ ! -f "${DEPENDENT_DIR}/dashboard-plugin.json" ]; then
+    cat > "${DEPENDENT_DIR}/dashboard-plugin.json" <<'JSON'
+{
+  "id": "e2e-dependent",
+  "displayName": "E2E Dependent",
+  "dependsOn": ["e2e-needs-req"],
+  "claims": [{ "slot": "settings-section", "component": "Settings" }]
+}
+JSON
+  fi
+  echo "[test-entrypoint] PI_E2E_SEED: dependency-cascade plugin fixture ready → ${DEPENDENT_DIR}"
 
   # --- Flow-plugin e2e peers, selected by PI_TEST_PEERS (change: add-flow-plugin-e2e-tests) ---
   # Variants: both | no-am | legacy | bad-registration. UNSET => skipped entirely
@@ -368,11 +455,77 @@ echo "[test-entrypoint] websocket OK"
 
 echo "[test-entrypoint] SMOKE PASSED → dashboard ready on http://localhost:${PORT}"
 
+# --- 3b. Independent (NOT dashboard-spawned) pi session --------------------
+# Every session the dashboard spawns is SIGTERMed by `shutdownHeadlessProcesses()`
+# on shutdown — "GONE and can never reattach" (server.ts). So a dashboard-spawned
+# session can never demonstrate reconnect-after-restart: there is nothing left to
+# re-register. This launches a pi that the dashboard did NOT spawn, exactly like a
+# TUI session a user started themselves. It is absent from `headlessPidRegistry`,
+# so a server restart leaves it running and its bridge reconnects — the real-world
+# path `restore-ask-user-tool-state-on-reconnect` repairs.
+#
+# `--mode rpc` speaks JSON-RPC over stdio; with stdin closed it reads EOF and
+# exits immediately, so `tail -f /dev/null` holds the pipe open. `setsid` detaches
+# it from PID 1's process group so a restart cannot cascade into it.
+INDEPENDENT_LOG="${PI_DIR}/dashboard/independent-session.log"
+# DEFAULT OFF. Enabled explicitly by tests/e2e/global-setup.ts (and by hand for
+# manual QA) because it adds a session card every spec would otherwise see.
+# The session registers as `source:"tui"`, survives `/api/restart`, and
+# re-registers over the bridge — which requires the `--pi-port` propagation fix
+# in packages/server/src/spawn-process/restart-helper.ts, without which the
+# restarted gateway falls back to 9999 and no live bridge can reconnect.
+# Consumed by the reconnect scenario in tests/e2e/faux-ask.spec.ts (#F6).
+if [ "${PI_E2E_INDEPENDENT_SESSION:-0}" = "1" ] && [ "${PI_E2E_SEED:-}" = "1" ]; then
+  # DEDICATED cwd, never the shared /fixtures/sample-git. A session's cwd forms
+  # a sidebar folder group, so parking this one in the fixture every other spec
+  # asserts on perturbs them (directory-home.spec.ts fails outright). Its own
+  # directory keeps the extra card in its own group; #F6 resolves the session by
+  # `source:"tui"`, so the cwd is irrelevant to it.
+  INDEPENDENT_CWD="${INDEPENDENT_SESSION_CWD:-/fixtures/independent-session}"
+  mkdir -p "${INDEPENDENT_CWD}"
+  if [ -d "${INDEPENDENT_CWD}" ]; then
+    # Point the bridge at the RUNNING gateway. `config.json` carries no `piPort`,
+    # so the bridge would default to 9999, find nothing, and try to AUTOSTART a
+    # second dashboard — which fails with "readiness timeout" and leaves the
+    # session connected to nothing.
+    INDEPENDENT_URL="ws://localhost:${PI_GATEWAY_PORT:-18999}"
+    setsid env PI_DASHBOARD_URL="${INDEPENDENT_URL}" \
+      sh -c "cd '${INDEPENDENT_CWD}' && tail -f /dev/null | pi --mode rpc" \
+      >> "${INDEPENDENT_LOG}" 2>&1 &
+    echo "[test-entrypoint] PI_E2E_SEED: independent pi session launched in ${INDEPENDENT_CWD} → ${INDEPENDENT_URL} (log: ${INDEPENDENT_LOG})"
+  else
+    echo "[test-entrypoint] WARN: independent-session cwd ${INDEPENDENT_CWD} missing; skipped"
+  fi
+fi
+
 # --- 4. Keep PID 1 alive for the daemon's lifetime -------------------------
 SERVER_PID="$(cat "${PIDFILE}" 2>/dev/null || true)"
 [ -n "${SERVER_PID}" ] || smoke_fail "server.pid not found at ${PIDFILE}"
-trap 'kill -TERM "${SERVER_PID}" 2>/dev/null || true' TERM INT
-while kill -0 "${SERVER_PID}" 2>/dev/null; do
+# Always signal whoever owns the pidfile NOW, not the pid captured at boot — an
+# in-place restart replaces it.
+trap 'kill -TERM "$(cat "${PIDFILE}" 2>/dev/null || echo "${SERVER_PID}")" 2>/dev/null || true' TERM INT
+# Re-read the pidfile each tick and tolerate a restart window. Watching the
+# BOOT pid alone made `POST /api/restart` fatal to the container: the server
+# exits and comes back under a NEW pid, the old `kill -0` went false, PID 1
+# fell through, and the whole harness died mid-test. The grace window keeps the
+# supervisor alive across that gap while still exiting when the daemon is
+# genuinely gone. See change: restore-ask-user-tool-state-on-reconnect.
+RESTART_GRACE_TICKS=24   # x5s = up to 120s down before we call it dead
+missed=0
+while :; do
+  cur="$(cat "${PIDFILE}" 2>/dev/null || true)"
+  if [ -n "${cur}" ] && kill -0 "${cur}" 2>/dev/null; then
+    if [ "${cur}" != "${SERVER_PID}" ]; then
+      echo "[test-entrypoint] daemon restarted: pid ${SERVER_PID} -> ${cur}"
+      SERVER_PID="${cur}"
+    fi
+    missed=0
+  else
+    missed=$((missed + 1))
+    if [ "${missed}" -ge "${RESTART_GRACE_TICKS}" ]; then
+      break
+    fi
+  fi
   sleep 5
 done
 echo "[test-entrypoint] dashboard daemon (pid ${SERVER_PID}) exited"

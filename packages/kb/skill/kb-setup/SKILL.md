@@ -1,12 +1,6 @@
 ---
 name: kb-setup
-description: >
-  Set up, initialize, or configure the local markdown knowledge base for a
-  project. Use when the user says "set up the knowledge base", "init the KB",
-  "configure the markdown KB", "index my docs", "add a doc source to the KB",
-  or wants the project's markdown searchable by `kb search`. Wraps `kb init`
-  end-to-end: detect existing config → choose scope + sources → `kb init` →
-  trust any remote source → `kb index` → smoke `kb search` to verify.
+description: 'Set up, initialize, or configure the local markdown knowledge base for a project. Use when the user says "set up the knowledge base", "init the KB", "configure the markdown KB", "index my docs", "add a doc source to the KB", or wants the project''s markdown searchable by `kb search`. Wraps `kb init` end-to-end through `kb index` and a smoke `kb search`.'
 ---
 
 # kb-setup — bring up the project knowledge base

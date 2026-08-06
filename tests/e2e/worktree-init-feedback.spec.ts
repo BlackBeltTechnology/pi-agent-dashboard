@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { byTestId, ensureGitSession, gotoDashboard } from "./helpers/index.js";
+import { byTestId, ensureGitSession, gotoDashboard, pinDirectory } from "./helpers/index.js";
 
 // Level-1 E2E for the friendly worktree-init feedback (change: friendlier-worktree-init).
 //
@@ -29,22 +29,19 @@ function folderGroup(page: Page, basename: string): Locator {
 }
 
 /**
- * Pin a fixture dir robustly: click its entry to descend into it (the picker
- * appends a trailing separator) so the Select confirms via the deterministic
- * trailing-sep rule, not the flakier exact-partial-match rule the shared
- * `pinDirectory` helper relies on. Establishes dashboard mode first so the
- * sidebar "Add Folder" affordance is present (not the onboarding CTA).
+ * Pin a fixture dir. Establishes dashboard mode first so the sidebar
+ * "Add Folder" affordance is present (not the onboarding CTA), then defers to
+ * the shared helper.
+ *
+ * This used to hand-roll the flow to dodge the old PathPicker's flaky
+ * exact-partial-match Select rule. `AddFoldersDialog` confirms from its basket
+ * instead — a per-row checkbox keyed by absolute path — which is deterministic,
+ * so the duplication no longer buys anything. See change:
+ * project-scope-disable-global-resources.
  */
 async function pinFixture(page: Page, cwd: string): Promise<void> {
   await ensureGitSession(page);
-  const basename = cwd.split("/").filter(Boolean).pop() ?? cwd;
-  await byTestId(page, "dashboardAddFolderBtn").first().click();
-  const dialog = byTestId(page, "pinDirectoryDialog");
-  await dialog.waitFor({ state: "visible" });
-  await dialog.getByRole("textbox").fill(cwd);
-  await dialog.getByRole("option", { name: new RegExp(`\\b${basename}\\b`) }).click();
-  await dialog.getByRole("button", { name: /^select$/i }).click();
-  await dialog.waitFor({ state: "hidden" });
+  await pinDirectory(page, cwd);
 }
 
 /**

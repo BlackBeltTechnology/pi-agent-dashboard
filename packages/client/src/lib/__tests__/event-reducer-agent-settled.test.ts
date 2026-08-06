@@ -64,20 +64,23 @@ describe("F2: floor pi resolves idle equivalently to today", () => {
 });
 
 describe("F3: agent_end side-effects preserved (deferred only status:idle)", () => {
-  it("extracts lastError and clears retryState/pendingPrompt on agent_end", () => {
+  it("extracts lastError + clears pendingPrompt on agent_end, but PRESERVES retryState", () => {
     let s = createInitialState();
     s = reduceEvent(s, ev("agent_start"));
     // A pending prompt + in-flight retry state present before the terminal.
-    s = { ...s, pendingPrompt: { text: "queued", status: "sending" }, retryState: { attempt: 1, maxAttempts: 3, delayMs: 5, reason: "x", startedAt: 1 } };
+    s = { ...s, pendingPrompt: { text: "queued", status: "sending" }, retryState: { attempt: 1, maxAttempts: 3, delayMs: 5, waiting: false, reason: "x", startedAt: 1 } };
     s = reduceEvent(s, ev("agent_end", { messages: [{ role: "assistant", stopReason: "error", errorMessage: "boom", content: [] }] }));
     // Side-effects happen on agent_end...
     expect(s.lastError).toMatchObject({ message: "boom" });
-    expect(s.retryState).toBeUndefined();
     expect(s.pendingPrompt).toBeUndefined();
-    // ...but only "ended" — idle is deferred to the settle.
+    // ...but retryState SURVIVES agent_end (per-attempt boundary, not terminal).
+    expect(s.retryState).toBeDefined();
+    // ...and status is only "ended" — idle is deferred to the settle.
     expect(s.status).toBe("ended");
+    // agent_settled is the sole terminal: resolves idle AND clears retryState.
     s = reduceEvent(s, ev("agent_settled"));
     expect(s.status).toBe("idle");
+    expect(s.retryState).toBeUndefined();
   });
 });
 

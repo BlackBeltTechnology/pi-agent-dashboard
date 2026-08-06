@@ -119,6 +119,7 @@ import { GenericExtensionDialog } from "./components/extension-ui/GenericExtensi
 import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
 import { DialogPortal } from "./components/primitives/DialogPortal.js";
 import { ErrorBoundary } from "./components/primitives/ErrorBoundary.js";
+import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
 import { SearchableSelectDialog, type SelectOption } from "./components/primitives/SearchableSelectDialog.js";
 import { FirstLaunchDisplayModal } from "./components/settings/FirstLaunchDisplayModal.js";
 import type { ToolContext } from "./components/tool-renderers/index.js";
@@ -381,7 +382,11 @@ export default function App() {
   // routes. See change: add-directory-home-page.
   const [folderHomeMatch, folderHomeParams] = useRoute("/folder/:encodedCwd");
   const [folderEditorMatch, folderEditorParams] = useRoute("/folder/:encodedCwd/editor");
-  const [settingsMatch] = useRoute("/settings/:page?");
+  // Second optional segment carries the plugin id on `/settings/plugins/<id>`.
+  // `SettingsPanel` owns the interpretation (only under `plugins`); the shell
+  // just has to MATCH the deeper URL, or a bookmarked plugin page falls through
+  // to the dashboard root. See change: plugin-settings-pages (design D2).
+  const [settingsMatch] = useRoute("/settings/:page?/:sub?");
   const [tunnelSetupMatch] = useRoute("/tunnel-setup");
   // Shell-owned overlay routes (overlay-url-routing).
   const [openspecPreviewMatch, openspecPreviewParams] = useRoute("/folder/:encodedCwd/openspec/:changeName/:artifactId");
@@ -544,23 +549,12 @@ export default function App() {
   const pendingSpawnsRef = useRef<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>(new Map());
   const [sessionOrderMap, setSessionOrderMap] = useState<Map<string, string[]>>(new Map());
   const [pinnedDirectories, setPinnedDirectories] = useState<string[]>([]);
-  // Flipped true on the first `pinned_dirs_updated` (server sends it on
-  // connect). Gates DirectoryHomeView's cold-load guard so a direct URL /
-  // refresh shows a loading state instead of flashing "not pinned".
-  // See change: add-directory-home-page.
-  const [pinnedDirsLoaded, setPinnedDirsLoaded] = useState(false);
   // Favorite model labels ("provider/id"), server-persisted. Synced via
   // `favorite_models_updated`; cold-loaded from GET /api/favorite-models.
   // See change: enrich-model-selector-capabilities-favorites.
   const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
   // folder-workspaces: full workspace list, kept in sync via workspaces_updated broadcast.
   const [workspaces, setWorkspaces] = useState<import("@blackbelt-technology/pi-dashboard-shared/browser-protocol.js").Workspace[]>([]);
-  // Flipped true on the first `workspaces_updated`. Pinned dirs and workspaces
-  // arrive in SEPARATE WS messages, so DirectoryHomeView's cold-load guard must
-  // wait on this flag too — otherwise a workspace-only cwd flashes the miss
-  // notice after `pinned_dirs_updated` lands but before workspaces arrive.
-  // See change: enable-workspace-folder-home-page (design D3).
-  const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const providersReady = useProvidersReady();
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
@@ -740,7 +734,7 @@ export default function App() {
   }, []);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setPinnedDirsLoaded, setFavoriteModels, setWorkspaces, setWorkspacesLoaded, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setCanvasMap },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setCanvasMap },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current, showToast },
   );
 
@@ -1434,6 +1428,7 @@ export default function App() {
       }}
       onReorderWorkspaces={(ids) => send({ type: "reorder_workspaces", ids })}
       onReorderWorkspaceFolders={(id, paths) => send({ type: "reorder_workspace_folders", id, paths })}
+      onMoveFolderToWorkspace={(path, toWorkspaceId, index) => send({ type: "move_folder_to_workspace", path, toWorkspaceId, index })}
       // folder-workspaces — optimistic UI is intentionally omitted: server
       // is the single source of truth and broadcasts `workspaces_updated`
       // for every mutation, so we just dispatch and let the broadcast
@@ -1720,21 +1715,23 @@ export default function App() {
           </ErrorBoundary>
           {/* Single-card error-lifecycle surface. Sticky above the command
               input: ONE card showing the error string plus a live retry
-              sub-line. ✕ (onDismiss) is CLEAR-ONLY — it never aborts. The
-              "Stop (ends the session)" control inside the banner is the sole
-              abort (onAbort), shown only while a retry is in flight.
-              See change: simplify-error-retry-single-card. */}
+              sub-line (bare attempt + countdown from pi's own retry settings).
+              Observe-only: pi owns the retry loop; the banner has NO Stop
+              retrying control (the always-present session Stop is the sole
+              abort entry point) and NO collapse. While a retry is pending the
+              surface shows status + Copy only and clears itself on a
+              confirmed-good resume; onDismiss fires — clearing the settled
+              error — only once no retry sub-status is carried. See change:
+              error-banner-observe-only. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}
-            onAbort={handleAbort}
             onDismiss={selectedId ? () => {
               setSessionStates((prev) => {
                 const next = new Map(prev);
                 const current = next.get(selectedId!);
-                // Clear-only: drop BOTH the error anchor and any live retry
-                // sub-status locally so the card disappears immediately. This
-                // does NOT abort the session — a live pi retry keeps running.
-                // See change: simplify-error-retry-single-card.
+                // Clear-only, reachable only on a settled error (no dismiss is
+                // rendered while a retry is pending). Never aborts.
+                // See change: error-banner-observe-only.
                 if (current?.lastError || current?.retryState) {
                   next.set(selectedId!, { ...current, lastError: undefined, retryState: undefined });
                 }
@@ -1935,32 +1932,37 @@ export default function App() {
 
   const allSessionsList = useMemo(() => Array.from(sessions.values()), [sessions]);
 
-  // Flat set of all workspace-owned folder paths, memoized on `workspaces` so a
-  // fresh Set isn't allocated every render (design D1 — keeps a future
-  // React.memo on DirectoryHomeView stable). See change:
-  // enable-workspace-folder-home-page.
-  const workspaceFolderSet = useMemo(
-    () => new Set(workspaces.flatMap((w) => w.folders)),
-    [workspaces],
-  );
+  // Bare `/folder/:encodedCwd` directory home page (design D2).
+  // Rendered in BOTH the desktop and mobile chains. No eligibility guard: any
+  // groupable cwd renders. See change: add-directory-home-page,
+  // redesign-folder-workspace-add-flow.
+  // Dashboard-scope `+ Add Folder` — multi-select, no workspace destination
+  // preselected. Commit pins every path (pin IS visibility) and, when a
+  // destination is chosen, adds each to it.
+  // See change: redesign-folder-workspace-add-flow.
+  const addFoldersDialog = pinDialogOpen ? (
+    <DialogPortal>
+      <AddFoldersDialog
+        workspaces={workspaces}
+        sessionCwds={allSessionsList.map((s) => s.cwd)}
+        onPin={(dirPath) => {
+          setPinnedDirectories((prev) => (prev.includes(dirPath) ? prev : [...prev, dirPath]));
+          send({ type: "pin_directory", path: dirPath });
+        }}
+        onAddFolderToWorkspace={(id, path) => send({ type: "add_folder_to_workspace", id, path })}
+        onCreateWorkspace={(name) => send({ type: "create_workspace", name })}
+        onCancel={() => setPinDialogOpen(false)}
+        onOpenServers={() => { setPinDialogOpen(false); navigate("/settings/remote"); }}
+      />
+    </DialogPortal>
+  ) : null;
 
-  // Bare `/folder/:encodedCwd` directory home page (design D1/D2/D4).
-  // Rendered in BOTH the desktop and mobile chains. See change:
-  // add-directory-home-page.
   const directoryHomeView = folderHomeCwd ? (
     <DirectoryHomeView
       cwd={folderHomeCwd}
-      pinnedDirectories={pinnedDirectories}
-      pinnedDirectoriesLoaded={pinnedDirsLoaded}
-      workspaceFolders={workspaceFolderSet}
-      workspacesLoaded={workspacesLoaded}
       sessions={allSessionsList.filter((s) => s.cwd === folderHomeCwd)}
       onSpawnSession={handleSpawnSession}
       onSelectSession={handleSelect}
-      onPinDirectory={(dirPath) => {
-        setPinnedDirectories((prev) => (prev.includes(dirPath) ? prev : [...prev, dirPath]));
-        send({ type: "pin_directory", path: dirPath });
-      }}
       onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
       onOpenEditor={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
       onOpenSettings={(cwd) => navigate(buildFolderSettingsUrl(cwd))}
@@ -2194,19 +2196,7 @@ export default function App() {
             )
           }
         />
-        {pinDialogOpen && (
-          <DialogPortal>
-            <PinDirectoryDialog
-              onPin={(dirPath) => {
-                setPinnedDirectories((prev) => prev.includes(dirPath) ? prev : [...prev, dirPath]);
-                send({ type: "pin_directory", path: dirPath });
-                setPinDialogOpen(false);
-              }}
-              onCancel={() => setPinDialogOpen(false)}
-              onOpenServers={() => { setPinDialogOpen(false); navigate("/settings/remote"); }}
-            />
-          </DialogPortal>
-        )}
+        {addFoldersDialog}
       </div>
     );
   }
@@ -2354,19 +2344,7 @@ export default function App() {
           }}
         />
       )}
-      {pinDialogOpen && (
-        <DialogPortal>
-          <PinDirectoryDialog
-            onPin={(dirPath) => {
-              setPinnedDirectories((prev) => prev.includes(dirPath) ? prev : [...prev, dirPath]);
-              send({ type: "pin_directory", path: dirPath });
-              setPinDialogOpen(false);
-            }}
-            onCancel={() => setPinDialogOpen(false)}
-            onOpenServers={() => { setPinDialogOpen(false); navigate("/settings/remote"); }}
-          />
-        </DialogPortal>
-      )}
+      {addFoldersDialog}
     </div>
   );
 }

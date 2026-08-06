@@ -7,6 +7,7 @@ import {
   ComposerPanelSlot,
   SessionCardBadgeSlot,
   SessionCardMemorySlot,
+  SettingsSectionByPluginSlot,
   SettingsSectionSlot,
   ToolRendererSlot,
   useSlotHasClaimsForSession,
@@ -90,16 +91,10 @@ describe("SessionCardBadgeSlot error boundary", () => {
 
 // ── SettingsSectionSlot tab filtering ────────────────────────────────────────
 
-describe("SettingsSectionSlot", () => {
-  it("filters claims by tab", () => {
+describe("SettingsSectionSlot is inert", () => {
+  // See change: plugin-settings-pages (design D3, test-plan #E20).
+  it("renders no settings-section content for any tab", () => {
     const registry = createSlotRegistry();
-    registry.addClaim({
-      pluginId: "security-plugin",
-      priority: 100,
-      slot: "settings-section",
-      tab: "security",
-      Component: () => <div data-testid="security-section">Security</div>,
-    });
     registry.addClaim({
       pluginId: "general-plugin",
       priority: 100,
@@ -107,41 +102,168 @@ describe("SettingsSectionSlot", () => {
       tab: "general",
       Component: () => <div data-testid="general-section">General</div>,
     });
+    registry.addClaim({
+      pluginId: "security-plugin",
+      priority: 100,
+      slot: "settings-section",
+      tab: "security",
+      Component: () => <div data-testid="security-section">Security</div>,
+    });
+
+    for (const tab of ["general", "security", "providers"]) {
+      const { container, unmount } = render(
+        <PluginContextProvider registry={registry}>
+          <SettingsSectionSlot tab={tab} />
+        </PluginContextProvider>,
+      );
+      expect(container.firstChild).toBeNull();
+      unmount();
+    }
+  });
+
+  it("no longer exports a tab filter helper", async () => {
+    // `forTab` lost its last caller with the flip; deleting it stops future
+    // code re-deriving tab routing. (test-plan #E20)
+    const registryModule = await import("../slot-registry.js");
+    expect("forTab" in registryModule).toBe(false);
+  });
+});
+
+// ── SettingsSectionByPluginSlot — the single render path ─────────────────────
+
+describe("SettingsSectionByPluginSlot", () => {
+  // Every `tab` value routes identically: onto the owning plugin's page.
+  // (test-plan #E13)
+  it("renders claims regardless of their tab value", () => {
+    const registry = createSlotRegistry();
+    for (const [i, tab] of ["general", "security", undefined].entries()) {
+      registry.addClaim({
+        pluginId: "roles",
+        priority: 100 + i,
+        slot: "settings-section",
+        ...(tab ? { tab } : {}),
+        Component: () => <div data-testid={`sec-${tab ?? "none"}`}>x</div>,
+      });
+    }
 
     render(
       <PluginContextProvider registry={registry}>
-        <SettingsSectionSlot tab="security" />
+        <SettingsSectionByPluginSlot pluginId="roles" />
       </PluginContextProvider>,
     );
 
-    expect(screen.getByTestId("security-section")).toBeDefined();
-    expect(screen.queryByTestId("general-section")).toBeNull();
+    expect(screen.getByTestId("sec-general")).toBeDefined();
+    expect(screen.getByTestId("sec-security")).toBeDefined();
+    expect(screen.getByTestId("sec-none")).toBeDefined();
   });
 
-  it("claim without tab defaults to general", () => {
+  it("renders only the owning plugin's claims", () => {
     const registry = createSlotRegistry();
     registry.addClaim({
-      pluginId: "no-tab-plugin",
+      pluginId: "roles",
       priority: 100,
       slot: "settings-section",
-      // no tab field → defaults to "general"
-      Component: () => <div data-testid="no-tab-section">NoTab</div>,
+      Component: () => <div data-testid="roles-section">Roles</div>,
+    });
+    registry.addClaim({
+      pluginId: "flows",
+      priority: 100,
+      slot: "settings-section",
+      Component: () => <div data-testid="flows-section">Flows</div>,
     });
 
     render(
       <PluginContextProvider registry={registry}>
-        <SettingsSectionSlot tab="general" />
+        <SettingsSectionByPluginSlot pluginId="roles" />
       </PluginContextProvider>,
     );
 
-    expect(screen.getByTestId("no-tab-section")).toBeDefined();
+    expect(screen.getByTestId("roles-section")).toBeDefined();
+    expect(screen.queryByTestId("flows-section")).toBeNull();
   });
 
-  it("renders nothing when no claims match tab", () => {
+  // Ascending priority, per the registry comparator — NOT the descending order
+  // the old comment claimed. (test-plan #E14)
+  it("orders claims by ascending priority", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "roles",
+      priority: 500,
+      slot: "settings-section",
+      Component: () => <div data-testid="p500">late</div>,
+    });
+    registry.addClaim({
+      pluginId: "roles",
+      priority: 10,
+      slot: "settings-section",
+      Component: () => <div data-testid="p10">early</div>,
+    });
+
+    const { container } = render(
+      <PluginContextProvider registry={registry}>
+        <SettingsSectionByPluginSlot pluginId="roles" />
+      </PluginContextProvider>,
+    );
+
+    const order = Array.from(container.querySelectorAll("[data-testid]")).map(
+      (el) => el.getAttribute("data-testid"),
+    );
+    expect(order).toEqual(["p10", "p500"]);
+  });
+
+  // Ties break on pluginId.localeCompare, not registration order.
+  // (test-plan #E15)
+  it("breaks equal priority by pluginId, not registration order", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "zeta",
+      priority: 100,
+      slot: "settings-section",
+      Component: () => <div>z</div>,
+    });
+    registry.addClaim({
+      pluginId: "alpha",
+      priority: 100,
+      slot: "settings-section",
+      Component: () => <div>a</div>,
+    });
+    expect(
+      registry.getClaims("settings-section").map((c) => c.pluginId),
+    ).toEqual(["alpha", "zeta"]);
+  });
+
+  // A throwing plugin component is contained; the host chrome around this slot
+  // is unaffected because the boundary sits inside it. (test-plan #X6)
+  it("contains a throwing plugin component in a SlotErrorBoundary", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "boom",
+      priority: 100,
+      slot: "settings-section",
+      Component: () => {
+        throw new Error("plugin exploded");
+      },
+    });
+
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(() =>
+      render(
+        <PluginContextProvider registry={registry}>
+          <div data-testid="host-chrome">
+            <SettingsSectionByPluginSlot pluginId="boom" />
+          </div>
+        </PluginContextProvider>,
+      ),
+    ).not.toThrow();
+    expect(screen.getByTestId("host-chrome")).toBeDefined();
+    spy.mockRestore();
+  });
+
+  it("renders nothing for a plugin with no contribution", () => {
     const registry = createSlotRegistry();
     const { container } = render(
       <PluginContextProvider registry={registry}>
-        <SettingsSectionSlot tab="providers" />
+        <SettingsSectionByPluginSlot pluginId="nobody" />
       </PluginContextProvider>,
     );
     expect(container.firstChild).toBeNull();

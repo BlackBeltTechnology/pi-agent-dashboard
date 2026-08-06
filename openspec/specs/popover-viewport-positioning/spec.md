@@ -22,10 +22,53 @@ choose upward (above the trigger) when the space below the trigger is smaller
 than the lesser of the popover's needed height and a 200px threshold, AND the
 space above the trigger is larger than the space below.
 
-The hook SHALL return a `maxHeight` clamped to the available space in the chosen
-direction, with a minimum floor (≈120px). Consuming popovers SHALL apply this
-`maxHeight` together with internal vertical scroll, so the popover never extends
-past the viewport edge even when neither direction has room for the full list.
+The hook SHALL return a `maxHeight` equal to the available space in the chosen
+direction. The available space SHALL be an absolute upper bound: `maxHeight`
+SHALL NOT be inflated by any minimum floor, because a floor applied after
+clamping can exceed the available space and push the popover past the
+boundary edge it was clamped to.
+
+The hook SHALL separately return a `minHeight` expressing the readable-height
+floor, computed as the lesser of a configured floor (≈260px) and the available
+space in the chosen direction — so the floor raises a short popover to a
+readable height but can never exceed the bound. When available space is smaller
+than the floor, `minHeight` SHALL equal `maxHeight`.
+
+Consuming popovers SHALL apply BOTH `minHeight` and `maxHeight` together with
+internal vertical scroll on their content region. The popover's rendered height
+SHALL therefore be its natural content height constrained between the two
+bounds: it expands to fit its content, is never shorter than the floor, and
+never exceeds the available space — with content scrolling inside the popover
+when it would exceed `maxHeight`.
+
+A consumer that applies only `maxHeight` silently loses its floor, so the
+complete set of consumer surfaces SHALL be enumerated — **9 surfaces resolving to
+8 hook call sites** (the launch-dialog row re-mounts two existing call sites
+rather than adding a new one):
+
+| # | Surface | Hook call site | Floor |
+|---|---|---|---|
+| 1 | `ModelSelector` | own | 260 (filterable list) |
+| 2 | `ThinkingLevelSelector` | own | 120 default |
+| 3 | `ThemePicker` | own | 120 default |
+| 4 | `ChatViewMenu` | own | 120 default (content always exceeds it) |
+| 5 | `CommandInput` composer dropdown | own | 260 (filterable list) |
+| 6 | `CommandInput` attach (＋) menu | own | n/a — horizontal axis only, applies no height bound |
+| 7 | `WorktreeActionsMenu` | own | 120 default |
+| 8 | `PackageRow` | own | 120 default |
+| 9 | OpenSpec launch-dialog run-config row ("Runs with") | re-mounts #1 + #2 | inherited from #1/#2 |
+
+Surface 9 inherits both bounds because the floor opt-in lives INSIDE each
+consumer component rather than at its mount site; a new host therefore cannot
+forget it. Any future surface that re-mounts an enumerated consumer inherits the
+same guarantee.
+
+The height rule SHALL be expressed declaratively (bounds applied as styles on a
+popover whose natural height is its content height). The hook's measurement path
+SHALL NOT read layout-invalidating content metrics (e.g. `scrollHeight`) of the
+popover, since measurement runs on every window `resize`/`scroll` and on
+boundary `scroll`/resize while open, where a forced reflow would introduce
+layout thrash.
 
 In addition to the vertical axis, the hook SHALL decide a horizontal anchor
 edge so the popover stays within the viewport horizontally. The default
@@ -59,22 +102,22 @@ which it flips to the opposite anchor rather than returning a clamped `maxWidth`
 that would render the content below its readable width; it clamps only when
 neither side satisfies the minimum.
 
-When a boundary is supplied, direction/anchor/`maxHeight`/`maxWidth` SHALL be
-recomputed not only on window `resize`/`scroll` but also when the boundary
-itself scrolls or changes size (so an internally-scrolling pane or a resized
-split-pane does not leave the open popover clamped to a stale boundary rect).
-When the supplied boundary contains the popover element, the hook SHALL emit a
-development warning (the boundary must be the clipping pane, not the popover's
-own overflow wrapper). Direction, `maxHeight`, horizontal anchor, and `maxWidth`
-SHALL be recomputed on each open and on `resize` / `scroll` while open.
-Listeners (window and, when supplied, boundary) SHALL be attached only while the
-popover is open.
+When a boundary is supplied, direction/anchor/`maxHeight`/`minHeight`/`maxWidth`
+SHALL be recomputed not only on window `resize`/`scroll` but also when the
+boundary itself scrolls or changes size (so an internally-scrolling pane or a
+resized split-pane does not leave the open popover clamped to a stale boundary
+rect). When the supplied boundary contains the popover element, the hook SHALL
+emit a development warning (the boundary must be the clipping pane, not the
+popover's own overflow wrapper). Direction, `maxHeight`, `minHeight`, horizontal
+anchor, and `maxWidth` SHALL be recomputed on each open and on `resize` /
+`scroll` while open. Listeners (window and, when supplied, boundary) SHALL be
+attached only while the popover is open.
 
 #### Scenario: Opens downward with room below
 - **GIVEN** a popover trigger in the upper half of the viewport
 - **WHEN** the popover opens
 - **THEN** it renders below the trigger
-- **AND** its `maxHeight` is clamped to the space below the trigger
+- **AND** its `maxHeight` equals the space below the trigger
 
 #### Scenario: Flips upward near the viewport bottom
 - **GIVEN** a popover trigger within 200px of the viewport bottom
@@ -87,6 +130,48 @@ popover is open.
 - **WHEN** it opens in the chosen direction
 - **THEN** its rendered height equals the available space in that direction
 - **AND** its content scrolls internally rather than overflowing the viewport
+
+#### Scenario: The height floor never exceeds the available space
+- **GIVEN** an open popover whose available space in the chosen direction is
+  smaller than the configured floor (≈260px)
+- **WHEN** the hook returns its bounds
+- **THEN** `maxHeight` equals the available space
+- **AND** `minHeight` equals the available space rather than the larger floor
+- **AND** the popover does not extend past the boundary edge
+
+#### Scenario: A re-mounted consumer inherits both bounds in a short dialog
+- **GIVEN** the OpenSpec launch-dialog run-config row, which mounts the model and
+  effort selectors inside a dialog panel that is `overflow`-clipped and shorter
+  than the viewport, and supplies that panel as the clipping boundary
+- **AND** the space above the model-selector trigger within the panel is smaller
+  than the configured 260px list floor
+- **WHEN** the model selector opens
+- **THEN** `maxHeight` equals the panel-measured available space, not the larger
+  viewport-measured space
+- **AND** `minHeight` equals that same available space rather than the 260px floor
+- **AND** the popover does not extend past the dialog panel's edge or grow its
+  scroll extent
+
+#### Scenario: Short content is raised to the readable floor
+- **GIVEN** an open popover whose natural content height is below the configured
+  floor, in a direction with more available space than the floor
+- **WHEN** it renders
+- **THEN** its rendered height equals the floor rather than the shorter content
+  height
+
+#### Scenario: Content-height popover expands to fit within the bound
+- **GIVEN** an open popover whose natural content height is between the floor and
+  the available space
+- **WHEN** it renders
+- **THEN** its rendered height equals its natural content height
+- **AND** no internal scrollbar is presented on its content region
+
+#### Scenario: Measurement performs no content reflow
+- **GIVEN** an open popover measured against a boundary
+- **WHEN** the boundary scrolls or the window resizes, triggering re-measurement
+- **THEN** the hook computes its bounds from trigger and boundary rects only
+- **AND** it does not read the popover's own `scrollHeight` or other
+  layout-invalidating content metrics
 
 #### Scenario: Keeps its horizontal anchor when there is room
 - **GIVEN** a right-anchored popover in a container wider than the popover's width

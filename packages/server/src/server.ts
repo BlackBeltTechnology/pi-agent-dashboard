@@ -9,6 +9,7 @@ import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -18,6 +19,7 @@ import {
   reconcilePluginBridgePackages,
   registerAllPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
+import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import { isRecoveryCandidate, mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -25,6 +27,7 @@ import compress from "@fastify/compress";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
+import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
 import { isCorsOriginAllowed } from "./auth/cors-origin.js";
@@ -69,6 +72,7 @@ import { createPendingGoalLinkRegistry } from "./pending/pending-goal-link-regis
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
+import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
 import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } from "./persistence/memory-event-store.js";
 import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
@@ -77,6 +81,7 @@ import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway, type PiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
+import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
@@ -97,6 +102,7 @@ import { registerPackageRoutes } from "./routes/package-routes.js";
 import { registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
+import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
@@ -184,6 +190,13 @@ export interface ServerConfig {
 export interface DashboardServer {
   start(): Promise<void>;
   stop(): Promise<void>;
+  /**
+   * Flush pending session-metadata + preference writes WITHOUT tearing the
+   * server down. Used by the signal handler, where the process is about to
+   * die anyway and a full `stop()` (which SIGTERMs every spawned pi) would be
+   * the wrong teardown. See change: fix-recovery-exit-intent (D4).
+   */
+  flush(): void;
   sessionManager: SessionManager;
   eventStore: EventStore;
   browserGateway: BrowserGateway;
@@ -214,18 +227,6 @@ export interface DashboardServer {
   sessionOrderManager: SessionOrderManager;
 }
 
-/**
- * Recovery reattach grace window (ms). After cold start, a recovery candidate
- * whose bridge re-registers (comes alive) within this window is a survivor of a
- * plain restart — not a genuine loss — so it is retracted from the offer and its
- * on-disk liveness marker consumed. Keeper-carried sessions are gated
- * synchronously at broadcast time; this window covers non-keeper (tmux / TUI /
- * mDNS-discovery) bridges whose liveness is only revealed on async reattach.
- * Sized above typical mDNS-discovery + WS-reconnect latency. In `auto` mode the
- * resume itself is deferred by this window so a reattaching session is never
- * double-spawned. See change: fix-recovery-offer-bridge-liveness-gate.
- */
-const RECOVERY_REATTACH_GRACE_MS = 2500;
 
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
@@ -291,6 +292,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // (pre-feature or fallback) still classify on `live` alone (task 4.1).
   // See change: reopen-sessions-after-shutdown.
   const liveEpoch = Date.now();
+  // Open this boot's record BEFORE classification: the previous boot rolls
+  // into the ring, so each restored session's `liveEpoch` resolves to the
+  // intent that ended the boot which owned it.
+  // See change: fix-recovery-exit-intent.
+  stampBootStart(liveEpoch);
   const sessionOrderManager = createSessionOrderManager(preferencesStore);
   const pendingForkRegistry = createPendingForkRegistry();
   // Maps spawnToken → originating browser requestId. Surfaced as
@@ -319,12 +325,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const recoveryCandidates: DashboardSession[] = [];
   for (const session of scanResult.sessions) {
     const restored = { ...session, dataUnavailable: true };
-    const candidate = recoveryMode !== "off" && isRecoveryCandidate({
+    // Positive `exitIntent` gate: a boot that ended by `/api/restart` or
+    // `/api/shutdown` left its sessions RUNNING and told every bridge to stay
+    // away for longer than the reattach grace window, so those sessions will
+    // reattach — after any window that could retract them. Suppress outright,
+    // with no timing dependency. See change: fix-recovery-exit-intent.
+    const ownerIntent = resolveExitIntent(session.liveEpoch);
+    const diskCandidate = recoveryMode !== "off" && isRecoveryCandidate({
       live: session.live,
       status: session.status,
       closedReason: session.closedReason,
       kind: session.kind,
     });
+    const candidate = diskCandidate && isRecoveryAllowed(ownerIntent);
+    if (diskCandidate && !candidate) {
+      console.info(
+        `[recovery] ${session.id}: suppressed-by-intent (boot ${session.liveEpoch} exited via ${ownerIntent})`,
+      );
+    }
     if (candidate) {
       // Collect for the offer / auto-resume BEFORE normalization, so the
       // candidate carries its resume metadata (sessionFile, cwd, name, model,
@@ -356,6 +374,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const liveRecoveryCandidates = new Map<string, DashboardSession>(
     recoveryCandidates.map((c) => [c.id, c]),
   );
+  if (liveRecoveryCandidates.size > 0) {
+    console.info(`[recovery] ${liveRecoveryCandidates.size} candidate(s) after the exit-intent gate; awaiting liveness`);
+  }
   let recoveryOfferBroadcast = false;
   let recoveryGraceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -679,10 +700,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // clamp and destroy the `terminalId`. Assert both truncation knobs are safe
   // at boot rather than silently corrupting close events months later.
   // See change: preserve-inline-terminal-transcript (D2a/D2b).
+  // Pass the config value THROUGH (undefined when unset) so the assert resolves
+  // it to the store's real default. `?? 0` previously coerced an unset cap to
+  // the sentinel that means "string pass disabled", which made the assert skip
+  // the production configuration entirely.
+  // See change: fit-attachments-for-display (task 5.5).
   const transcriptCapBytes = deriveTranscriptCapBytes(
     eventDataCeiling,
-    config.maxStringFieldSize ?? 0,
+    config.maxStringFieldSize,
   );
+
+  // Display-fit pool for inline image attachments. Sized small on purpose:
+  // fitting is bursty (a paste at a time), and each worker holds a decoded
+  // bitmap, so more slots buy latency we do not need at the cost of RSS we do.
+  // See change: fit-attachments-for-display (task 5.1).
+  const fitWorkerPool = createFitWorkerPool({ size: 2 });
 
   // Create terminal manager with exit callback
   const terminalManager = createTerminalManager({
@@ -705,7 +737,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool);
 
   // Editor-pane changed-on-disk watch: the browser declares its open files via
   // `watch_files`; the server watches exactly those and pushes `file_changed`.
@@ -982,6 +1014,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   wireEvents({
     sessionManager,
     eventStore,
+    fitWorkerPool,
     piGateway,
     browserGateway,
     sessionOrderManager,
@@ -1113,6 +1146,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const networkGuard = createNetworkGuard(config.resolvedTrustedNetworks ?? [], { localToken });
 
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
+  // pi retry policy editor. Reload fan-out dispatches `/reload` to every
+  // connected session so a saved policy applies without a manual restart
+  // (pi reads its settings only at session construction). See change:
+  // retry-forever-with-stop-control.
+  registerPiRetryRoutes(fastify, {
+    networkGuard,
+    reloadConnectedSessions: () => {
+      const ids = piGateway.getConnectedSessionIds();
+      for (const id of ids) {
+        piGateway.sendToSession(id, { type: "send_prompt", sessionId: id, text: "/reload" });
+      }
+      return ids.length;
+    },
+  });
   registerGitRoutes(fastify, {
     networkGuard, sessionManager, browserGateway, worktreeInitRegistry,
     sendToSession: (id, msg) => piGateway.sendToSession(id, msg),
@@ -1139,12 +1186,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
-  // Composer grammar/spell check. Config re-read per request so a settings
-  // backend switch takes effect without a restart. See change: add-composer-grammar-check.
   // Grammar routes moved into the grammar plugin's server entry
   // (packages/grammar-plugin/src/server), which registers
   // /api/grammar/* via ctx.fastify + ctx.modelRuntime. See change:
   // make-grammar-fully-plugin-contained.
+  // Full-resolution attachment originals for click-to-zoom. Not load-bearing:
+  // the fitted derivative is already inline, so a failure here degrades only
+  // the zoom view. See change: fit-attachments-for-display (task 5.7).
+  registerAttachmentRoutes(fastify, { sessionManager, networkGuard });
   registerOpenSpecRoutes(fastify, {
     sessionManager,
     preferencesStore,
@@ -1326,6 +1375,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     getSubscriberCount: (id) => browserGateway.getSubscriberCount(id),
     listTerminalCwds: () => terminalManager.list().map((t) => t.cwd),
     hasPendingUiRequest: (id) => browserGateway.hasPendingUiRequest(id),
+    hasPendingPromptRequests: (id) => browserGateway.hasPendingPromptRequests(id),
     killBySessionId: (id) => browserGateway.headlessPidRegistry.killBySessionId(id),
     sendStopAfterTurn: (id) =>
       piGateway.sendToSession(id, { type: "stop_after_turn", sessionId: id }),
@@ -1376,9 +1426,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // any plugin whose `missingRequirements` flipped.
     // See change: add-plugin-activation-ui.
     if (result.success) {
-      void refreshRequirementProbesFor(null, {
-        listInstalled: () => packageManagerWrapper.listInstalled("global"),
-      }).then((changed) => {
+      void refreshRequirementProbesFor(
+        null,
+        {
+          listInstalled: () => packageManagerWrapper.listInstalled("global"),
+        },
+        (id) => getPluginConfigFromFile(loadConfig(), id) as Record<string, unknown>,
+      ).then((changed) => {
         for (const id of changed) {
           const status = getPluginStatusStore().getStatus(id);
           browserGateway.broadcast({
@@ -1711,6 +1765,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     directoryService,
     sessionOrderManager,
 
+    flush() {
+      metaPersistence.flushAll();
+      preferencesStore.flush();
+    },
+
     httpPort() {
       const addr = fastify.server.address();
       if (addr && typeof addr === "object") return addr.port;
@@ -1771,6 +1830,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           requirementDeps: {
             listInstalled: () => packageManagerWrapper.listInstalled("global"),
           },
+          // Supplies the validated config a `requires.paths` ${configKey}
+          // placeholder resolves against. See change: add-apple-tools-imcp-plugin.
+          getPluginConfig: (id) =>
+            getPluginConfigFromFile(loadConfig(), id) as Record<string, unknown>,
           createContext: (plugin) => createServerPluginContext(
             {
               fastify,
@@ -2226,31 +2289,42 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       if (liveRecoveryCandidates.size > 0) {
         const mode = recoveryMode;
         if (mode === "ask") {
-          // Deadline until which Class-2 liveness is unresolved; the client keeps
-          // Reopen non-actionable until then. See change: fix-recovery-offer-bridge-liveness-gate.
+          // Deadline until which Class-2 liveness is unresolved. Retained on the
+          // wire for a client that connects mid-window (it renders the
+          // non-actionable "verifying" state). See change: fix-recovery-offer-bridge-liveness-gate.
           recoveryGraceUntil = Date.now() + RECOVERY_REATTACH_GRACE_MS;
-          pendingRecoveryOffer = buildRecoveryOffer([...liveRecoveryCandidates.values()]);
-          recoveryOfferBroadcast = true;
-          // Reaches any already-connected clients; onConnect replays to the rest.
-          browserGateway.broadcastToAll(pendingRecoveryOffer);
-          // Consume each offered candidate's on-disk liveness sentinel so the
-          // offer is shown ONCE per dirty boot: a later cold start (no NEW
-          // unclean shutdown) will NOT re-classify these sessions, regardless
-          // of whether the user reopens, dismisses (×), or just hides the
-          // session card. Without this, `restore()`'s in-memory-only
-          // normalization leaves `live:true` on disk, so every cold boot
-          // re-offers a session the user already dealt with (the phantom).
-          // The in-memory `pendingRecoveryOffer` still drives within-boot
-          // reconnect replay; Reopen re-stamps `{live:true,liveEpoch}` on the
-          // resumed session's next activity (event-wiring). Mirrors the
-          // marker clears in `recovery_dismiss` and clean `stop()`.
-          // See change: fix-recovery-offer-dismiss-and-phantom-reopen.
-          for (const cand of liveRecoveryCandidates.values()) {
-            if (cand.sessionFile) metaPersistence.setLiveness(cand.sessionFile, { live: false });
-          }
-          // Stop retracting once the grace window closes: a reattach after this
-          // must NOT revoke a legitimate offer for a genuine loss.
-          recoveryGraceTimer = setTimeout(() => { liveRecoveryCandidates.clear(); }, RECOVERY_REATTACH_GRACE_MS);
+          // DEFER the broadcast until liveness is finalized. Broadcasting now
+          // and merely disabling the button still renders a card for every
+          // candidate that is about to be retracted — the flash-then-vanish
+          // offer users actually complain about. Wait out the window, then
+          // broadcast ONCE with the survivors. See change: fix-recovery-exit-intent (D6).
+          recoveryGraceTimer = setTimeout(() => {
+            const survivors = [...liveRecoveryCandidates.values()];
+            // Stop retracting: a reattach after this must NOT revoke a
+            // legitimate offer for a genuine loss.
+            liveRecoveryCandidates.clear();
+            console.info(`[recovery] grace window closed; offering ${survivors.length} candidate(s)`);
+            if (survivors.length === 0) return;
+            pendingRecoveryOffer = buildRecoveryOffer(survivors);
+            recoveryOfferBroadcast = true;
+            // Reaches any already-connected clients; onConnect replays to the rest.
+            browserGateway.broadcastToAll(pendingRecoveryOffer);
+            // Consume each offered candidate's on-disk liveness sentinel so the
+            // offer is shown ONCE per dirty boot: a later cold start (no NEW
+            // unclean shutdown) will NOT re-classify these sessions, regardless
+            // of whether the user reopens, dismisses (×), or just hides the
+            // session card. Without this, `restore()`'s in-memory-only
+            // normalization leaves `live:true` on disk, so every cold boot
+            // re-offers a session the user already dealt with (the phantom).
+            // The in-memory `pendingRecoveryOffer` still drives within-boot
+            // reconnect replay; Reopen re-stamps `{live:true,liveEpoch}` on the
+            // resumed session's next activity (event-wiring). Mirrors the
+            // marker clear in `recovery_dismiss`.
+            // See change: fix-recovery-offer-dismiss-and-phantom-reopen.
+            for (const cand of survivors) {
+              if (cand.sessionFile) metaPersistence.setLiveness(cand.sessionFile, { live: false });
+            }
+          }, RECOVERY_REATTACH_GRACE_MS);
           recoveryGraceTimer.unref?.();
         } else if (mode === "auto") {
           // Defer the resume by the grace window so a session whose bridge
@@ -2313,15 +2387,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       removePid();
       idleTimer.cancel();
       directoryService.stopPolling();
+      // SIGTERMs every dashboard-spawned pi: after this the sessions below are
+      // GONE and can never reattach.
       browserGateway.shutdownHeadlessProcesses();
-      // Clean teardown (idle timer / app quit) is intentional: clear the
-      // liveness marker for every still-running session so cold start does
-      // NOT classify them as interrupted recovery candidates. No
-      // `closedReason` — this is a clean stop, not a manual close.
-      // See change: reopen-sessions-after-shutdown.
-      for (const s of sessionManager.listActive()) {
-        if (s.sessionFile) metaPersistence.setLiveness(s.sessionFile, { live: false });
-      }
+      // Record `exitIntent:"idle"` instead of erasing the evidence. `stop()`
+      // reaches here from the idle timer — the server chose to stop, the user
+      // closed nothing — so the sessions it just killed stay recoverable. Clearing
+      // their `live` markers here (the old behaviour) is what destroyed the
+      // recovery signal for a reboot preceded by an idle auto-stop. Per-session
+      // user intent still lives in `closedReason:"manual"`; marker consumption
+      // on dismiss / retract / offer-broadcast is unchanged.
+      // See change: fix-recovery-exit-intent (D3).
+      recordExitIntent("idle");
       metaPersistence.flushAll();
       metaPersistence.dispose();
       // Cancel the deferred boot reconcile + dispose supervisor (pending backoff
@@ -2336,6 +2413,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       pendingForkRegistry.dispose();
       preferencesStore.flush();
       preferencesStore.dispose();
+      // Terminate fit workers so a restart never leaves orphaned threads.
+      // See change: fit-attachments-for-display (task 5.1).
+      await fitWorkerPool.dispose();
 
       stopTunnelWatchdog();
       await deleteTunnel(config.port);

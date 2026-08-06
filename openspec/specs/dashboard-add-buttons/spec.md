@@ -7,9 +7,9 @@ Elevate dashboard- and workspace-scope add gestures to full-width line buttons. 
 The sidebar SHALL render an elevated full-width stacked line-button pair as the first item in the scrollable session list, above any workspace tiers and pinned folder groups, using the same visual treatment as the per-folder spawn buttons (`FolderSpawnButtons`).
 
 #### Scenario: Add Folder button
-- **WHEN** the sidebar scroll list renders and an open-pin-dialog handler is available
+- **WHEN** the sidebar scroll list renders and an open-add-folders-dialog handler is available
 - **THEN** a full-width `+ Add Folder` line button SHALL render with blue accent styling
-- **AND** clicking it SHALL invoke the existing open-pin-dialog handler that pins a top-level folder
+- **AND** clicking it SHALL open the multi-select Add Folders dialog with no workspace destination preselected (`None`)
 
 #### Scenario: New Workspace button
 - **WHEN** the sidebar scroll list renders and a create-workspace handler is available
@@ -31,7 +31,8 @@ Each expanded workspace container SHALL render a full-width `+ Add Folder` line 
 #### Scenario: Add Folder in workspace body
 - **WHEN** a workspace tier is expanded and an add-folder-to-workspace handler is available
 - **THEN** a full-width `+ Add Folder` line button SHALL render at the bottom of the workspace body
-- **AND** clicking it SHALL open the folder picker scoped to that workspace (adds the chosen folder to that workspace)
+- **AND** clicking it SHALL open the multi-select Add Folders dialog with that workspace preselected as the destination
+- **AND** committing the dialog SHALL pin every selected folder AND add each to that workspace
 
 #### Scenario: Collapsed workspace hides the button
 - **WHEN** a workspace tier is collapsed

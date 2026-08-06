@@ -309,6 +309,13 @@ export interface ServerLoadDeps {
    * See change: add-plugin-activation-ui.
    */
   requirementDeps?: RequirementProbeDeps;
+  /**
+   * Optional per-plugin config accessor. Supplies the validated config a
+   * `requires.paths` `${configKey}` placeholder resolves against. When absent,
+   * a placeholder falls back to the plugin's `configSchema` default.
+   * See change: add-apple-tools-imcp-plugin.
+   */
+  getPluginConfig?: (pluginId: string) => Record<string, unknown>;
 }
 
 /**
@@ -469,7 +476,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
   // loader's perspective — the UI surfaces the missing pieces and offers
   // an inline install. See change: add-plugin-activation-ui.
   if (deps.requirementDeps) {
-    void refreshRequirementProbesFor(plugins, deps.requirementDeps);
+    void refreshRequirementProbesFor(plugins, deps.requirementDeps, deps.getPluginConfig);
   }
 }
 
@@ -485,9 +492,47 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
  *
  * See change: add-plugin-activation-ui.
  */
+/**
+ * Read a plugin's `configSchema` and return `{ keys, defaults }`. Used to
+ * resolve a `requires.paths` `${configKey}` placeholder on a host that has
+ * never written the key (schema default is the effective value).
+ * See change: add-apple-tools-imcp-plugin.
+ */
+function readConfigSchema(plugin: DiscoveredPlugin): {
+  keys: string[];
+  defaults: Record<string, unknown>;
+} {
+  const rel = plugin.manifest.configSchema;
+  if (!rel) return { keys: [], defaults: {} };
+  try {
+    const abs = path.resolve(plugin.packageDir, rel);
+    const schema = JSON.parse(fs.readFileSync(abs, "utf8")) as {
+      properties?: Record<string, { default?: unknown }>;
+    };
+    const props = schema.properties ?? {};
+    const defaults: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(props)) {
+      if (v && typeof v === "object" && "default" in v) defaults[k] = v.default;
+    }
+    return { keys: Object.keys(props), defaults };
+  } catch {
+    return { keys: [], defaults: {} };
+  }
+}
+
+/**
+ * Walk the discovered plugin set, probe each plugin's declarative `requires`,
+ * and update the status store. Idempotent; safe to call repeatedly.
+ *
+ * Returns the plugin ids whose `missingRequirements` changed, so the caller can
+ * broadcast targeted `plugin_config_update` messages.
+ *
+ * See change: add-plugin-activation-ui.
+ */
 export async function refreshRequirementProbesFor(
   pluginsOverride: DiscoveredPlugin[] | null,
   reqDeps: RequirementProbeDeps,
+  getPluginConfig?: (pluginId: string) => Record<string, unknown>,
 ): Promise<string[]> {
   const plugins = pluginsOverride ?? discoverPlugins();
   const store = getPluginStatusStore();
@@ -497,7 +542,17 @@ export async function refreshRequirementProbesFor(
     plugins.map(async (plugin) => {
       const { manifest } = plugin;
       try {
-        const report = await runRequirementProbes(manifest, reqDeps);
+        // Resolve the per-plugin config a `requires.paths` ${configKey}
+        // placeholder interpolates: schema defaults overlaid with stored
+        // config. See change: add-apple-tools-imcp-plugin.
+        const { keys, defaults } = readConfigSchema(plugin);
+        const stored = getPluginConfig?.(manifest.id) ?? {};
+        const perPluginDeps: RequirementProbeDeps = {
+          ...reqDeps,
+          pluginConfig: { ...defaults, ...stored },
+          configSchemaKeys: keys,
+        };
+        const report = await runRequirementProbes(manifest, perPluginDeps);
         const missing = missingFromReport(report);
         setCachedReport(manifest.id, report);
         const existing = store.getStatus(manifest.id);
