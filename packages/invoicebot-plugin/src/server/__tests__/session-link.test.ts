@@ -502,3 +502,76 @@ describe("ensureScopedSession — scoped-profile gate (§1c)", () => {
     expect(ctx.spawns.length).toBe(0);
   });
 });
+
+/**
+ * §1c.5 — the WRITE side. Gating only the read paths was not enough: dispatch
+ * legitimately reuses a live intake session to deliver flow:run (1c.4), but it
+ * then recorded that session as the invoice's CANONICAL one. The card reads the
+ * canonical store back through `storeResolvedScopedSession`, which is
+ * deliberately ungated (a resumed session is stampless) — so the intake id came
+ * straight back and the card opened on the global Ask greeting anyway.
+ *
+ * Two rules close it:
+ *   - only a session that IS the invoice's scoped session may be recorded canonical;
+ *   - a spawn that carries a bound invoiceId is STAMPED scoped, so it is
+ *     identifiable later (this is the producer-side stamp that makes 1c.3's
+ *     reuse possible instead of always re-spawning).
+ */
+describe("§1c.5 — only a scoped session may become the card's canonical", () => {
+  const mkStore = () => createCanonicalSessionStore(mkdtempSync(join(tmpdir(), "ib-canon-")));
+
+  it("dispatch reuses a live intake session for DELIVERY but never records it canonical", async () => {
+    const canonicalStore = mkStore();
+    ctx = makeDeps([], canonicalStore);
+    ctx.addSession({ id: "intake", cwd: CWD, status: "streaming", automationRun: { name: "invoicebot-intake", runId: "ri" } });
+    const link = createSessionLink(ctx.deps);
+
+    const sid = await link.dispatchFlow({ cwd: CWD, flow: FLOW, sessionId: "intake", invoiceId: "inv-42" });
+    expect(sid).toBe("intake");                                   // 1c.4: delivery still reuses it
+    expect(ctx.emits).toHaveLength(1);
+    expect(canonicalStore.get(CWD, "inv-42")).toBeUndefined();    // but it is NOT the card's session
+  });
+
+  it("after such a dispatch the card still refuses the intake session", async () => {
+    const canonicalStore = mkStore();
+    ctx = makeDeps([], canonicalStore);
+    ctx.addSession({ id: "intake", cwd: CWD, status: "streaming", automationRun: { name: "invoicebot-intake", runId: "ri" } });
+    const link = createSessionLink(ctx.deps);
+    await link.dispatchFlow({ cwd: CWD, flow: FLOW, sessionId: "intake", invoiceId: "inv-42" });
+
+    const pending = link.ensureScopedSession(CWD, "inv-42");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.spawns).toHaveLength(1);                            // fell through to a scoped spawn
+    expect(ctx.spawns[0].env).toMatchObject({ IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: "inv-42" });
+    const spawned = ctx.spawns[0].automationRun.runId;
+    ctx.addSession({ id: "scoped-1", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-42", runId: spawned } });
+    ctx.fire("scoped-1");
+    expect(await pending).toBe("scoped-1");
+  });
+
+  it("a flow spawn WITH a bound invoice is stamped scoped, so it is reusable later", async () => {
+    const canonicalStore = mkStore();
+    ctx = makeDeps([], canonicalStore);
+    const link = createSessionLink(ctx.deps);
+    link.dispatchFlow({ cwd: CWD, flow: FLOW, invoiceId: "inv-42" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.spawns[0].automationRun.name).toBe("invoicebot-scoped:inv-42");
+
+    const runId = ctx.spawns[0].automationRun.runId;
+    ctx.addSession({ id: "proc-1", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-42", runId } });
+    ctx.fire("proc-1");
+    await new Promise((r) => setTimeout(r, 0));
+    // The card adopts it instead of spawning a second session.
+    expect(await link.ensureScopedSession(CWD, "inv-42")).toBe("proc-1");
+    expect(ctx.spawns).toHaveLength(1);
+  });
+
+  it("an UNBOUND flow spawn keeps the flow name (intake/ask are not invoice-scoped)", async () => {
+    ctx = makeDeps([]);
+    const link = createSessionLink(ctx.deps);
+    link.dispatchFlow({ cwd: CWD, flow: FLOW });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.spawns[0].automationRun.name).toBe("invoicebot:process");
+    expect(ctx.spawns[0].env).toBeUndefined();
+  });
+});

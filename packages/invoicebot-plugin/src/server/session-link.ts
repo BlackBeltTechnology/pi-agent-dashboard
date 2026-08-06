@@ -276,7 +276,15 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
         guard: true,
         ...(scopeEnv ? { env: scopeEnv } : {}),
         ...(resumeSessionFile ? { resumeSessionFile } : {}),
-        automationRun: { name: flow.flowName, runId, visibility: "shown" },
+        // §1c.5: a spawn that carries a bound invoice IS the invoice's scoped
+        // session (it gets the scope env above), so STAMP it as one. Without the
+        // stamp a bound run and a shared intake run are both "invoicebot:process"
+        // and indistinguishable later, which is what forced the card to re-spawn.
+        automationRun: {
+          name: invoiceId ? scopedAutomationName(invoiceId) : flow.flowName,
+          runId,
+          visibility: "shown",
+        },
       });
     } catch (err) {
       pendingByRunId.delete(runId);
@@ -474,8 +482,18 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
       if (ok) {
         if (invoiceId) {
           invoiceToSession.set(invoiceId, canonicalId);
-          scopedInvoiceToSession.set(scopedLinkKey(cwd, invoiceId), canonicalId);
-          deps.canonicalStore?.set(cwd, invoiceId, canonicalId);
+          // §1c.5: delivery may reuse a shared intake session (1c.4), but only the
+          // invoice's OWN scoped session may become the CARD's canonical one.
+          // Recording an intake id here is what defeated the §1c read gates: the
+          // card reads the store back through `storeResolvedScopedSession`, which
+          // is deliberately ungated, so the intake id came straight back and the
+          // card opened on the global Ask greeting. A stampless session that is
+          // ALREADY the stored canonical stays canonical (§1b resume successor).
+          const target = deps.getSession(canonicalId) as SessionShape | undefined;
+          if (isScopedInvoiceSession(target, cwd, invoiceId) || storeCanonicalId(cwd, invoiceId) === canonicalId) {
+            scopedInvoiceToSession.set(scopedLinkKey(cwd, invoiceId), canonicalId);
+            deps.canonicalStore?.set(cwd, invoiceId, canonicalId);
+          }
         }
         return canonicalId;
       }
