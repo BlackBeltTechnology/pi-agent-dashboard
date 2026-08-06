@@ -19,6 +19,7 @@ import {
   buildAuthorizeUrl,
   exchangeCode,
   fetchUserInfo,
+  warnOnInvalidRedirectBase,
   COOKIE_NAME,
 } from "./auth.js";
 import { isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
@@ -124,6 +125,8 @@ export async function registerAuthPlugin(
     redirectBaseUrl: authConfig.redirectBaseUrl,
   };
 
+  warnOnInvalidRedirectBase(authState.redirectBaseUrl);
+
   if (authState.providerRegistry.size === 0) {
     console.warn("Auth configured but no providers resolved — auth disabled");
     return;
@@ -137,6 +140,7 @@ export async function registerAuthPlugin(
     authState.bypassUrls = newConfig.bypassUrls ?? [];
     authState.bypassHosts = newConfig.bypassHosts ?? [];
     authState.redirectBaseUrl = newConfig.redirectBaseUrl;
+    warnOnInvalidRedirectBase(authState.redirectBaseUrl);
     const names = Array.from(authState.providerRegistry.values()).map((p) => p.name);
     console.log(`🔐 Auth reloaded with providers: ${names.join(", ")}`);
   };

@@ -218,6 +218,44 @@ export function isUserAllowed(email: string, username: string, allowedUsers?: st
  * Base precedence (highest first): explicit `baseOverride` (from config file
  * `auth.redirectBaseUrl`) → active tunnel URL → `http://localhost:<port>`.
  */
+/**
+ * Report a `auth.redirectBaseUrl` that is not an absolute `http(s)` origin.
+ *
+ * The value is deliberately still USED by `buildRedirectUri` — dropping it
+ * would turn a typo into a silent no-op ("my setting does nothing"), which is
+ * harder to diagnose than a redirect the provider visibly rejects. Warning and
+ * proceeding keeps the operator in control while making the misconfiguration
+ * observable in the server log. See change: config-override-oauth-redirect-base
+ * (design D4).
+ *
+ * Returns true when the base is valid (or absent), false when it warned.
+ */
+export function warnOnInvalidRedirectBase(base: string | null | undefined): boolean {
+  if (!base) return true;
+
+  const complain = (reason: string) =>
+    console.warn(
+      `⚠️  auth.redirectBaseUrl ${reason}: "${base}" — OAuth redirect URIs built from it will be rejected by the provider`,
+    );
+
+  let parsed: URL;
+  try {
+    parsed = new URL(base);
+  } catch {
+    complain("is not an absolute URL (missing scheme?)");
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    complain(`must use http or https, got "${parsed.protocol}"`);
+    return false;
+  }
+  if (parsed.search || parsed.hash) {
+    complain("must not carry a query string or fragment");
+    return false;
+  }
+  return true;
+}
+
 export function buildRedirectUri(
   provider: string,
   port: number,
