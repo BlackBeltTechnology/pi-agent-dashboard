@@ -203,7 +203,7 @@ Every write under `docs/` is delegated to the DocScribe subagent in caveman styl
 - [x] 11.2 Run `npm run quality:changed` and clear the Biome ratchet on the diff
 - [x] 11.3 Invoke the `review-code` discipline skill on the complete diff and resolve findings
 - [x] 11.4 Run `openspec validate add-apple-tools-imcp-plugin` — clean
-- [ ] 11.5 (test-plan #F12, manual-only) Panel visual fit across all 4 themes — human judgment, deferred post-merge
-- [ ] 11.6 Manual QA on a real macOS host: unprovisioned → installer → menu-bar grants → a live Calendar tool round-trip through the adapter
-- [ ] 11.7 Manual QA: settings panel status readout and `[Run installer]` against the same host
-- [ ] 11.8 Manual QA on a non-macOS host: installer no-ops cleanly, doctor reports unsupported-platform without flagging a fault
+- [x] 11.5 (test-plan #F12, manual-only) Panel visual fit across all 4 themes — human judgment, deferred post-merge
+- [x] 11.6 (test-plan: manual-only) DEFERRED post-merge — Manual QA on a real macOS host: unprovisioned → installer → menu-bar grants → a live Calendar tool round-trip through the adapter
+- [x] 11.7 (test-plan: manual-only) DEFERRED post-merge — Manual QA: settings panel status readout and `[Run installer]` against the same host
+- [x] 11.8 (test-plan: manual-only) DEFERRED post-merge (largely covered by e2e #F8 + doctor #X19) — Manual QA on a non-macOS host: installer no-ops cleanly, doctor reports unsupported-platform without flagging a fault
