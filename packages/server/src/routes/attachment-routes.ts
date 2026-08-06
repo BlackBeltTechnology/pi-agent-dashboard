@@ -15,9 +15,13 @@
  *     structurally impossible (X3).
  *  4. Recovery is scoped to THAT session's transcript, so a valid digest from
  *     another session is simply not found (X2).
- *  5. Only allow-listed raster types are served, always with `nosniff` and an
- *     attachment-safe disposition, so the response can never be interpreted as
- *     active content (E14/E15).
+ *  5. Only allow-listed raster types are served, always with `nosniff` and a
+ *     `default-src 'none'; sandbox` CSP, so the response can never be
+ *     interpreted as active content (E14/E15). Deliberately NO
+ *     `Content-Disposition: attachment`: the bytes are rendered inline by the
+ *     zoom overlay, and forcing a download would break that while adding
+ *     nothing — the allow-list plus `nosniff` plus the sandbox CSP already
+ *     stop the response being executed.
  *
  * See change: fit-attachments-for-display (task 5.7, D8).
  */

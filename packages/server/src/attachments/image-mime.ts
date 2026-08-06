@@ -35,7 +35,18 @@ const FITTABLE_MIME = new Set([
  * `; charset=…`-style parameter before matching. `image/svg+xml` is absent on
  * purpose — SVG is script-bearing markup, not a bitmap we can safely re-encode.
  */
+/**
+ * Base media type: lowercased, with any `; charset=…`-style parameter dropped.
+ *
+ * Shared so every attachment gate normalises IDENTICALLY. They have drifted
+ * twice: once on the `image/jpg` alias, and once here — the serving gate only
+ * lowercased, so `image/png; charset=binary` was fitted and rendered as a
+ * thumbnail whose zoom then 404'd.
+ */
+export function normalizeImageMime(mimeType: string): string {
+  return mimeType.split(";", 1)[0].trim().toLowerCase();
+}
+
 export function isFittableImageMime(mimeType: string): boolean {
-  const base = mimeType.split(";", 1)[0].trim().toLowerCase();
-  return FITTABLE_MIME.has(base);
+  return FITTABLE_MIME.has(normalizeImageMime(mimeType));
 }

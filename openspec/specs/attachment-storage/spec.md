@@ -94,11 +94,17 @@ was always subject to.
 
 #### Scenario: An unfittable attachment is never promised a resolution
 
-- **WHEN** a message carries an image block whose type the fit cannot produce a
-  derivative for
+- **WHEN** a message carries an image block the fit cannot produce a derivative for —
+  whether by MIME type, or by CONTENT such as an animated GIF, which D11 exempts so its
+  animation is never flattened
 - **THEN** that block SHALL be left inline and unmodified
 - **AND** it SHALL NOT be replaced by a pending placeholder
 - **AND** no resolution event SHALL be emitted for it
+
+Content-based exemption is why the admission gate cannot be MIME-only: `image/gif` is a
+fittable type, but an ANIMATED one is declined by the fit. Stripping it anyway promised a
+resolution that never came, and the byte-budget guard then resolved it failed — so the
+image disappeared. The ingest gate therefore probes for animation directly.
 
 #### Scenario: A fitting failure is honest
 

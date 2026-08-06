@@ -21,6 +21,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
+import { normalizeImageMime } from "./image-mime.js";
 
 /**
  * Image types that may be recovered and served. Deliberately excludes
@@ -40,7 +41,9 @@ export const ALLOWED_IMAGE_MIME: ReadonlySet<string> = new Set([
 ]);
 
 export function isAllowedImageMime(mime: string): boolean {
-  return ALLOWED_IMAGE_MIME.has(mime.toLowerCase());
+  // MUST normalise exactly like `isFittableImageMime` — anything the fit gate
+  // admits has to remain servable, or its thumbnail renders and its zoom 404s.
+  return ALLOWED_IMAGE_MIME.has(normalizeImageMime(mime));
 }
 
 /**

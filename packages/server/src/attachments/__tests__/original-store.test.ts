@@ -87,6 +87,19 @@ describe("original-store — content-type allow-list (E14/E15)", () => {
     expect(isAllowedImageMime("image/svg+xml")).toBe(false);
   });
 
+  it("the two gates normalise a parameterised mime the same way", () => {
+    // Same fittable⊆servable invariant as above, but for the real-world header
+    // shape `image/png; charset=binary`. `isFittableImageMime` strips the
+    // parameter, so such a block IS fitted and rendered; a serving gate that
+    // only lowercases refused it, and the thumbnail's zoom 404'd.
+    for (const m of ["image/png; charset=binary", "IMAGE/PNG", " image/jpeg ;q=1"]) {
+      expect(isFittableImageMime(m), `fittable ${m}`).toBe(true);
+      expect(isAllowedImageMime(m), `fittable ${m} must be servable`).toBe(true);
+    }
+    // Parameter stripping must not smuggle a banned base type through.
+    expect(isAllowedImageMime("image/svg+xml; charset=utf-8")).toBe(false);
+  });
+
   it("E15: refuses active-content and non-image types", () => {
     for (const m of [
       "text/html",

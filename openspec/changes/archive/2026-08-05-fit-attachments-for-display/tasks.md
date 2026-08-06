@@ -66,11 +66,16 @@ All L1 rows extend `packages/server/src/__tests__/memory-event-store.test.ts`
       / undecodable bytes · trigger ingest · observable message stored with `data.message`,
       attachment resolves to failed state, event loop not blocked.
 - [x] 3.13 X10 animated GIF (test-plan #X10) — input animated GIF over bound · trigger
-      ingest · observable preserved intact or fitted to a still; never a corrupt frame.
-- [x] 3.14 P1 event-loop lag (test-plan #P1) — passing. P2 MEASURED and fixme: the
-      data contradicts D4 (in-process ~0 ms vs worker ~1030 ms on a burst); see 9.5.
-      Original text: 3.14 P1/P2 event-loop lag (test-plan #P1 #P2) — workload one 10 MB image, then
-      5 × 2 MB · metric max event-loop lag < 50 ms · needs the new lag helper (§6.1).
+      ingest · observable preserved INTACT, never fitted and never a corrupt frame (D11
+      exempts animation from fitting). Ingest declines it too, so it is left inline and
+      never promised a placeholder — the two-phase gates must admit the same set. Over
+      the ceiling it truncates as it always has (see #424).
+- [x] 3.14 P1/P2 event-loop lag (test-plan #P1 #P2) — workload one 10 MB image, then
+      5 × 2 MB · metric max event-loop lag < 50 ms · uses the lag helper (§6.1). P1
+      passing. P2 RESOLVED in 9.5: the apparent "worker ~1030 ms" was the burst's WALL
+      TIME under the vitest runner, not loop blocking; measured cleanly outside the
+      runner both paths block ~0 ms and the pool is ~1.7x faster. D4 stands, restated as
+      throughput + CPU isolation. P2 stays skipped as a record of the pitfall.
 - [x] 3.15 P3 broadcast payload (test-plan #P3) — workload fitted image-bearing message ·
       metric frame < 256 KB, ≪ 4 MB `MAX_WS_BUFFER`.
 - [x] 3.16 P4 recovery memory (test-plan #P4) — workload original lookup against a 50 MB
@@ -104,7 +109,7 @@ port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 - [x] 4.6 F8 row-height stability (test-plan #F8) — input virtualized transcript with
       image rows · trigger scroll out and back · observable stable height, no collapse or
       overlap. Guards the existing `chat-view` invariant.
-- [x] 4.7 P5 image-heavy replay (test-plan #P5) — passing after the 9.4 fix. (test-plan #P5) — workload 20 image-bearing messages ·
+- [x] 4.7 P5 image-heavy replay (test-plan #P5) — passing after the 9.4 fix. Workload 20 image-bearing messages ·
       trigger replay · observable completes with no gateway frame dropped.
 
 ## 5. Implement

@@ -23,7 +23,7 @@
 import { createHash } from "node:crypto";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { isAnimatedGif } from "./gif.js";
-import { isFittableImageMime } from "./image-mime.js";
+import { isFittableImageMime, normalizeImageMime } from "./image-mime.js";
 
 /** Wire event type carrying a resolved (or failed) attachment. */
 export const ATTACHMENT_FITTED_EVENT = "attachment_fitted";
@@ -80,7 +80,7 @@ function isImageContentBlock(b: unknown): b is { type: string; data: string; mim
  */
 function entersTwoPhase(b: unknown): b is { type: string; data: string; mimeType: string } {
   if (!isImageContentBlock(b)) return false;
-  if (b.mimeType.split(";", 1)[0].trim().toLowerCase() !== "image/gif") return true;
+  if (normalizeImageMime(b.mimeType) !== "image/gif") return true;
   try {
     return !isAnimatedGif(Buffer.from(b.data, "base64"));
   } catch {

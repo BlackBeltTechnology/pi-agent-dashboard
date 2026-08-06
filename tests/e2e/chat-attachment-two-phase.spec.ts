@@ -490,6 +490,15 @@ test.describe("chat attachments — two-phase render", () => {
       await expect(page.getByText(`image message ${i}`).first()).toBeVisible({ timeout: 60_000 });
     }
 
+    // Let phase 2 finish BEFORE sampling the baseline. Sending only waits for
+    // the row, so `attachment_fitted` events are still in flight here; counting
+    // a frame dropped by that live traffic against REPLAY would fail a test
+    // meant to isolate replay.
+    await expect(page.getByTestId("attachment-pending")).toHaveCount(0, { timeout: 120_000 });
+    await expect
+      .poll(async () => await page.getByTestId("attachment-image").count(), { timeout: 120_000 })
+      .toBeGreaterThan(0);
+
     const healthBefore = await (await request.get("/api/health")).json();
     const droppedBefore = healthBefore?.droppedFrames?.serverToBrowser?.total ?? 0;
 
