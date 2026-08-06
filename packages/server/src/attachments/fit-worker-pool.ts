@@ -145,16 +145,30 @@ export function createFitWorkerPool(opts: FitWorkerPoolOptions = {}): FitWorkerP
         if (DEBUG) console.warn(`[fit-worker-pool] slot ${i} crashed:`, err);
         killSlot(i, /*fallbackAllPending*/ true);
       });
-      w.on("exit", (code) => {
-        if (code !== 0 && DEBUG) console.warn(`[fit-worker-pool] slot ${i} exited code=${code}`);
-        const s = slots[i];
-        if (s && s.worker === w) { s.worker = null; s.dead = true; s.busy = false; }
-      });
+      w.on("exit", (code) => handleSlotExit(i, w, code));
       slots[i] = { worker: w, busy: false, dead: false };
     } catch (err) {
       if (DEBUG) console.warn(`[fit-worker-pool] slot ${i} spawn failed:`, err);
       workersDisabled = true;
     }
+  }
+
+  /**
+   * An abnormal exit that did NOT arrive through `error` — the worker called
+   * `process.exit`, or died on an unhandled rejection.
+   *
+   * Freeing the slot alone left the job dispatched to it sitting in `jobs`
+   * until the full `timeoutMs` elapsed before any fallback started, and never
+   * drained the backlog onto the slot just freed. Route it exactly like a crash.
+   */
+  function handleSlotExit(i: number, w: Worker, code: number): void {
+    const s = slots[i];
+    const ours = s && s.worker === w;
+    if (ours) { s.worker = null; s.dead = true; s.busy = false; }
+    if (code === 0 || disposed || !ours) return;
+    if (DEBUG) console.warn(`[fit-worker-pool] slot ${i} exited code=${code}`);
+    killSlot(i, /*fallbackAllPending*/ true);
+    drainQueue();
   }
 
   function killSlot(i: number, fallbackAllPending: boolean): void {
@@ -204,6 +218,27 @@ export function createFitWorkerPool(opts: FitWorkerPoolOptions = {}): FitWorkerP
     fallbackActive--;
   }
 
+  /**
+   * What a fallback job settles with. NEVER throws — the invariant is absolute:
+   * a registered job MUST settle, or its caller's promise hangs forever and,
+   * because `fallbackSettle` runs detached, the escape surfaces as an unhandled
+   * rejection.
+   *
+   * When shutdown has begun the work is abandoned rather than started: an empty
+   * result is exactly the answer `dispose()` gives its own backlog, and running
+   * a jimp decode nobody is left to receive is pure cost.
+   */
+  async function fallbackResponse(p: Pending): Promise<FitResponse> {
+    if (disposed) return { jobId: p.id, results: [] };
+    try {
+      return await fitBlocks(p.payload);
+    } catch (err) {
+      // `fitBlocks` is total, so this is belt-and-braces.
+      if (DEBUG) console.warn(`[fit-worker-pool] fallback fit threw for job ${p.id}:`, err);
+      return { jobId: p.id, results: [] };
+    }
+  }
+
   /** In-process settle: run the fit on the main thread, capped at `size`. */
   async function fallbackSettle(p: Pending): Promise<void> {
     if (p.timeoutHandle) { clearTimeout(p.timeoutHandle); p.timeoutHandle = null; }
@@ -213,15 +248,7 @@ export function createFitWorkerPool(opts: FitWorkerPoolOptions = {}): FitWorkerP
     // never be settled by shutdown and its caller's promise hung forever.
     await acquireFallbackSlot();
     try {
-      if (!p.resolved) {
-        // Shutdown began while we waited for a slot: abandon the WORK, but
-        // still SETTLE the caller. Returning without settling stranded the
-        // promise forever — `dispose()` has already drained `jobs`, so nothing
-        // else was left to answer it, and a `fit()` arriving after `dispose()`
-        // hung outright. An empty result is the same answer `dispose()` gives
-        // its own backlog.
-        finish(p, disposed ? { jobId: p.id, results: [] } : await fitBlocks(p.payload));
-      }
+      if (!p.resolved) finish(p, await fallbackResponse(p));
     } finally {
       // Must release even if the fit throws, or the cap leaks a slot per
       // failure and eventually wedges every fallback fit forever.

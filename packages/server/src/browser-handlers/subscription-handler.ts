@@ -295,9 +295,12 @@ export function handleSubscribe(
           // See change: fit-attachments-for-display (task 5.2, test-plan #E9).
           const pendingAttachments: PendingAttachment[] = [];
           for (const evt of result.events) {
-            const prepared = ctx.fitWorkerPool
-              ? prepareEventForIngest(evt)
-              : { event: evt, pending: [] as PendingAttachment[] };
+            // Strip UNCONDITIONALLY. Gating this on the pool meant a host
+            // without one hydrated full-resolution events — the exact bug the
+            // comment above describes. The bound must not depend on whether a
+            // fitter happens to be configured; placeholders are settled below
+            // either way.
+            const prepared = prepareEventForIngest(evt);
             pendingAttachments.push(...prepared.pending);
             eventStore.insertEvent(msg.sessionId, prepared.event);
           }
@@ -321,10 +324,18 @@ export function handleSubscribe(
           // placeholders) render immediately and each image swaps in as its
           // derivative lands, so hydration is never blocked on a resize.
           // Detached — a fit failure can only degrade an attachment.
-          if (pendingAttachments.length > 0 && ctx.fitWorkerPool) {
+          if (pendingAttachments.length > 0) {
+            // With no pool, stand in one that answers nothing: the resolver
+            // settles every unanswered placeholder to an explicit failed state,
+            // so a row can never keep a placeholder that no one will resolve.
+            const pool = ctx.fitWorkerPool ?? {
+              fit: async () => ({ jobId: 0, results: [] }),
+              dispose: async () => {},
+              inFlight: () => 0,
+            };
             void createAttachmentResolver({
               eventStore,
-              fitWorkerPool: ctx.fitWorkerPool,
+              fitWorkerPool: pool,
               emit: (sessionId, seq, event) => {
                 for (const sub of getSubscribers(sessionId)) {
                   if (sub.readyState === sub.OPEN) {
@@ -332,7 +343,14 @@ export function handleSubscribe(
                   }
                 }
               },
-            }).resolve(msg.sessionId, pendingAttachments);
+            })
+              .resolve(msg.sessionId, pendingAttachments)
+              // Detached: `resolve` guards the fit, but not its publish calls.
+              // An escaping rejection here would be unhandled and take the
+              // process down, so hydration degrades the attachment instead.
+              .catch((err) => {
+                console.error(`[attachments] hydration resolve failed for ${msg.sessionId}:`, err);
+              });
           }
         } else if (result.error === "cancelled") {
           // The load was cancelled because the subscriber left before it

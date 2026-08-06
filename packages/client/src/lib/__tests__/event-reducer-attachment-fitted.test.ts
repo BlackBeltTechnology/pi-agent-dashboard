@@ -74,6 +74,31 @@ describe("attachment_fitted reduction (two-phase render)", () => {
     expect(img.data).toBe("");
   });
 
+  it("a `ready` resolution carrying no bytes resolves FAILED, not a broken image", () => {
+    // `state` alone is not enough: a ready event whose payload is missing or
+    // empty produced `data:image/png;base64,` — the browser renders a broken
+    // image glyph, which is worse than the honest failed state and is exactly
+    // what the "never an indefinite placeholder" invariant is meant to avoid.
+    // Built inline, NOT via `fitted()` — its default argument would substitute
+    // real bytes for the absent-payload case and hide the very thing under test.
+    const payloads: Array<Record<string, unknown>> = [
+      { attachmentId: ATT, data: "", mimeType: "image/png", state: "ready" },
+      { attachmentId: ATT, mimeType: "image/png", state: "ready" },
+      { attachmentId: ATT, data: null, mimeType: "image/png", state: "ready" },
+    ];
+    for (const payload of payloads) {
+      let state = reduceEvent(createInitialState(), pendingRow());
+      state = reduceEvent(state, {
+        eventType: "attachment_fitted",
+        timestamp: 2,
+        data: payload,
+      } as DashboardEvent);
+      const img = userMsg(state)[0].images![0];
+      expect(img.attachmentState, JSON.stringify(payload)).toBe("failed");
+      expect(img.data).toBe("");
+    }
+  });
+
   it("targets the right message when several rows carry attachments", () => {
     const A = "1".repeat(64);
     const B = "2".repeat(64);

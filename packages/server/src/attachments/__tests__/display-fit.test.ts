@@ -212,6 +212,36 @@ describe("display-fit — output byte budget", () => {
       return Buffer.from(b);
     }
 
+    it("a stream truncated AT a second separator is not animated", () => {
+      // The dangerous direction is OVER-reporting: ingest now DECLINES animated
+      // GIFs (they keep their bytes inline), so a false positive leaves a
+      // full-resolution image in the row where it can truncate the message.
+      // A bare trailing 0x2C is not a frame — its descriptor never arrives.
+      const complete = buildGif(1);
+      const truncated = Buffer.concat([complete.subarray(0, complete.length - 1), Buffer.from([0x2c])]);
+      expect(isAnimatedGif(truncated)).toBe(false);
+    });
+
+    it("a second descriptor cut short mid-header is not animated", () => {
+      const complete = buildGif(1);
+      // 0x2C plus only part of the 10-byte Image Descriptor.
+      const truncated = Buffer.concat([
+        complete.subarray(0, complete.length - 1),
+        Buffer.from([0x2c, 0, 0, 0, 0, 1]),
+      ]);
+      expect(isAnimatedGif(truncated)).toBe(false);
+    });
+
+    it("a second descriptor cut short before its LZW byte is not animated", () => {
+      const complete = buildGif(1);
+      const truncated = Buffer.concat([
+        complete.subarray(0, complete.length - 1),
+        // full 10-byte descriptor declaring an LCT, but the table never arrives
+        Buffer.from([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0x81]),
+      ]);
+      expect(isAnimatedGif(truncated)).toBe(false);
+    });
+
     it("reports a single-frame GIF as still", () => {
       expect(isAnimatedGif(buildGif(1))).toBe(false);
     });

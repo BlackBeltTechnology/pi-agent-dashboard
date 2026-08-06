@@ -1,7 +1,13 @@
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ImageLightbox } from "../preview/ImageLightbox.js";
+
+// This project does NOT enable vitest `globals`, so RTL's automatic cleanup
+// never runs: each render stays in the document and a later `document.querySelector`
+// can match a STALE lightbox from an earlier test. Mirrors the sibling
+// ChatView.attachment-zoom-a11y spec.
+afterEach(cleanup);
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {

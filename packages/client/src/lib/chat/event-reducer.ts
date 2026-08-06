@@ -1307,7 +1307,12 @@ export function reduceEvent(
     case "attachment_fitted": {
       const attachmentId = typeof data.attachmentId === "string" ? data.attachmentId : "";
       if (!attachmentId) break;
-      const state_ = data.state === "failed" ? "failed" : "ready";
+      // A `ready` claim is only honoured with bytes to back it. Trusting the
+      // flag alone turned a payload-less resolution into
+      // `data:image/png;base64,` — a broken-image glyph, which is strictly worse
+      // than the explicit failed state this flow guarantees.
+      const fittedData = typeof data.data === "string" ? data.data : "";
+      const state_ = data.state === "failed" || fittedData === "" ? "failed" : "ready";
       let patched = false;
       // Patch EVERY occurrence, not just the first. `attachmentId` is the sha256
       // of the bytes, so the same screenshot pasted twice legitimately appears
@@ -1326,7 +1331,7 @@ export function reduceEvent(
             img.attachmentId === attachmentId
               ? {
                   ...img,
-                  data: state_ === "failed" ? "" : String(data.data ?? ""),
+                  data: state_ === "failed" ? "" : fittedData,
                   mimeType: typeof data.mimeType === "string" ? data.mimeType : img.mimeType,
                   attachmentState: state_ as "ready" | "failed",
                 }

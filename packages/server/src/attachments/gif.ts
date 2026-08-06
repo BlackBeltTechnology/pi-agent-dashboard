@@ -52,6 +52,30 @@ export function isAnimatedGif(bytes: Buffer): boolean {
     return bytes.length; // truncated
   };
 
+  /**
+   * Offset of the LZW data following an Image Descriptor at `at`, or -1 when
+   * the stream ends inside the descriptor, its Local Colour Table, or the LZW
+   * minimum-code-size byte.
+   *
+   * Validating BEFORE counting matters: a stream ending at a bare `0x2C` was
+   * otherwise reported animated on the strength of a separator whose frame
+   * never arrives. Over-reporting is the dangerous direction now that ingest
+   * DECLINES animated GIFs — a false positive keeps full-resolution bytes
+   * inline in the row, where they can push the event past its ceiling. So
+   * truncation answers "not animated": the image is fitted normally, and a
+   * genuinely corrupt one fails honestly in the fit.
+   */
+  const imageDataStart = (buf: Buffer, at: number): number => {
+    // Image Descriptor is 10 bytes; its final byte packs the Local Colour
+    // Table flag and size.
+    if (at + 10 > buf.length) return -1;
+    const lct = buf[at + 9];
+    let p = at + 10;
+    if (lct & 0x80) p += 3 * (1 << ((lct & 0x07) + 1));
+    p += 1; // LZW minimum code size
+    return p > buf.length ? -1 : p;
+  };
+
   let frames = 0;
   while (i < bytes.length) {
     const block = bytes[i];
@@ -63,16 +87,11 @@ export function isAnimatedGif(bytes: Buffer): boolean {
       continue;
     }
     if (block === 0x2c) {
+      const dataStart = imageDataStart(bytes, i);
+      if (dataStart < 0) return false; // truncated descriptor: not a frame
       frames++;
-      if (frames > 1) return true; // two descriptors is proof; stop early
-      // Image Descriptor is 10 bytes; its final byte packs the Local Colour
-      // Table flag and size.
-      if (i + 10 > bytes.length) return false;
-      const lct = bytes[i + 9];
-      let p = i + 10;
-      if (lct & 0x80) p += 3 * (1 << ((lct & 0x07) + 1));
-      p += 1; // LZW minimum code size
-      i = skipSubBlocks(p);
+      if (frames > 1) return true; // two COMPLETE descriptors is proof
+      i = skipSubBlocks(dataStart);
       continue;
     }
     // Unknown byte where a block header belongs: the stream is malformed, so

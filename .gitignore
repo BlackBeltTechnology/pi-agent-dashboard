@@ -43,3 +43,6 @@ doc-example/
 /.pi/dashboard/kb/index.db
 .reverse-spec-scratch/
 /package-lock.json
+
+# ship-it escape-hatch handoff note — local working state, never a deliverable
+SHIP_IT_BLOCKED.md

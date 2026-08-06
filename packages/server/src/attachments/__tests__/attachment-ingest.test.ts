@@ -199,10 +199,21 @@ describe("attachment-ingest", () => {
   });
 
   it("mime admission is case- and parameter-insensitive", () => {
-    const { pending } = prepareEventForIngest(
-      userMessage([{ data: "A".repeat(100), mimeType: "IMAGE/PNG" }]),
-    );
-    expect(pending).toHaveLength(1);
+    // Parameterised forms are real: a transcript block can declare
+    // `image/png; charset=binary`. Ingest and the originals gate must agree on
+    // them, or the row is fitted and its zoom 404s.
+    for (const mimeType of ["IMAGE/PNG", "image/png; charset=binary", " image/jpeg ;q=1"]) {
+      const { pending } = prepareEventForIngest(
+        userMessage([{ data: "A".repeat(100), mimeType }]),
+      );
+      expect(pending, mimeType).toHaveLength(1);
+    }
+    // A banned base type stays banned once its parameter is stripped.
+    expect(
+      prepareEventForIngest(
+        userMessage([{ data: "A".repeat(100), mimeType: "image/svg+xml; charset=utf-8" }]),
+      ).pending,
+    ).toHaveLength(0);
   });
 
   it("an event with no fittable image block is returned by reference", () => {
