@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
+import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -302,7 +303,9 @@ describe("GET /api/packages/recommended", () => {
 		const body = JSON.parse(res.payload);
 		expect(body.success).toBe(true);
 		const entries = body.data.recommended;
-		expect(entries).toHaveLength(19);
+		// Derived from the manifest, never hardcoded: a literal count goes stale
+		// the moment a package is added and fails in a file the author never opened.
+		expect(entries).toHaveLength(RECOMMENDED_EXTENSIONS.length);
 		// Every entry falls back to fallbackDescription and has no version.
 		for (const e of entries) {
 			expect(typeof e.description).toBe("string");
