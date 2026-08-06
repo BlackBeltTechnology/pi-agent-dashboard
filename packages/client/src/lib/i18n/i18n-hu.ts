@@ -1095,7 +1095,7 @@ export const huCatalog: Record<string, string> = {
   "session.session": "Munkamenet",
   "session.session2": "+Munkamenet →",
   "session.sessionActions": "Munkamenet műveletek",
-  "session.sessionRegisterTimeoutMs": "+Munkamenet regisztrációs időkorlát (ms)",
+  "session.sessionRegisterTimeoutMs": "+Munkamenet regisztrációs időkorlát",
   "session.sessionStoppedAutomatically": "A munkamenet automatikusan leállt",
   "session.showSession": "Munkamenet megjelenítése",
   "session.spawnASessionAttachedToThis": "Ehhez a javaslathoz csatolt munkamenet indítása",

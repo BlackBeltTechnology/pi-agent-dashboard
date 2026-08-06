@@ -593,7 +593,7 @@
   "session.session": "Session",
   "session.session2": "+Session →",
   "session.sessionActions": "Session actions",
-  "session.sessionRegisterTimeoutMs": "+Session register timeout (ms)",
+  "session.sessionRegisterTimeoutMs": "+Session register timeout",
   "folders.sessionSDirectoryNoLongerExists": "session's directory no longer exists",
   "common.setUpProject": "Set up project",
   "folders.setUpThisDirectoryAsAPiProject": "Set up this directory as a pi project (scaffold AGENTS.md + .pi/settings.json)",

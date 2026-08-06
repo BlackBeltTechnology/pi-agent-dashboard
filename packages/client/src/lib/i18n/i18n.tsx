@@ -660,7 +660,7 @@ const zhCN: Record<string, string> = {
   "session.session": "会话",
   "session.session2": "+会话 →",
   "session.sessionActions": "会话操作",
-  "session.sessionRegisterTimeoutMs": "+会话注册超时(毫秒)",
+  "session.sessionRegisterTimeoutMs": "+会话注册超时",
   "session.sessionStoppedAutomatically": "会话已自动停止。",
   "session.showSession": "显示会话",
   "session.spawnASessionAttachedToThis": "启动一个关联到此提案的会话",

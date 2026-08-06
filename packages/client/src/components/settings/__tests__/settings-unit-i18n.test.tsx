@@ -34,6 +34,7 @@ const UNIT_BEARING_KEYS = [
   "settings.maxStringTruncationChars",
   "settings.maxWebsocketBufferBytes",
   "settings.reasoningAutoCollapse",
+  "session.sessionRegisterTimeoutMs",
 ];
 
 /** Unit tokens that must no longer appear in a label, in any locale. */

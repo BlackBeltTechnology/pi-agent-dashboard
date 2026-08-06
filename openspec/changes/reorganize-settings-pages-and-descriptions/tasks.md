@@ -35,7 +35,7 @@ unless stated otherwise.
 
 ## 4. Bespoke controls — label/unit cleanup only (D3)
 
-- [ ] 4.1 Clean up label text and unit parentheticals in place for the 12 bespoke `<input>`/`<select>`/`<textarea>` controls. Do NOT convert any of them to a shared component.
+- [x] 4.1 Clean up label text and unit parentheticals in place for the 12 bespoke `<input>`/`<select>`/`<textarea>` controls. Do NOT convert any of them to a shared component.
 - [x] 4.2 Leave `spawnRegisterTimeoutMs` (`:1216`) a bespoke control. Its `isNaN(v) || v < 5000 || v > 120000` check blocks the write and disables Save (`:1615`); the shared `NumberField` is `parseInt(…) || 0` with no bounds, so converting it would silently delete an enforced constraint.
 - [x] 4.3 Keep the `+Session` prefix where it names the dashboard's `+Session` spawn button (`+Session Strategy`, `+Session register timeout`); drop it where it is noise (D10).
 
@@ -56,7 +56,7 @@ unless stated otherwise.
 - [x] 7.2 Indent `reasoningAutoCollapseMs` and `keepReasoningOpenUntilTurnEnds` beneath the reasoning toggle that gates them.
 - [x] 7.3 **Delete** `DebugToolsToggle` (`:1720`) and the Developer-page "Chat Display" section that hosts it (`:1550`). `DisplayPrefsSection` already owns `debugTools` through the buffered draft source; this removes a duplicate control, not a section's only control. Do NOT merge it into the tool-calls sub-section.
 - [x] 7.4 Keep the `useDebugToolsVisible` hook itself — `DEBUG_TOOL_NAMES` / `isDebugTool` have other readers (`ChatView.tsx`). Only its toggle consumer is deleted.
-- [ ] 7.5 State the user-visible consequence in the change summary: anyone who used the Developer toggle now gets Save-Bar-buffered persistence instead of instant-apply.
+- [x] 7.5 State the user-visible consequence in the change summary: anyone who used the Developer toggle now gets Save-Bar-buffered persistence instead of instant-apply.
 
 ## 8. Server + OpenSpec restructure (D9)
 

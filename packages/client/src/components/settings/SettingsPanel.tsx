@@ -1255,7 +1255,14 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   />
                   <div>
                     <div className="flex items-center justify-between">
-                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("session.sessionRegisterTimeoutMs", undefined, "+Session register timeout (ms)")}</label>
+                      {/* Bespoke control: label/unit cleanup only, never a swap
+                          for the shared NumberField (D3). The unit chip mirrors
+                          FieldShell's so it reads the same, and the "+Session"
+                          prefix stays because it names the spawn button (D10). */}
+                      <label className="text-sm text-[var(--text-secondary)]">
+                        {i18nT("session.sessionRegisterTimeoutMs", undefined, "+Session register timeout")}
+                        <span className="ml-1.5 px-1 py-0.5 rounded text-[10px] align-middle bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">ms</span>
+                      </label>
                       <input
                         type="number"
                         className={`w-28 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right ${
