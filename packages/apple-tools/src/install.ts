@@ -19,6 +19,7 @@ import {
   type ConfigWriteResult,
   ensureAdapterPackage,
   ensureMcpEntry,
+  validateConfigShape,
 } from "./mcp-config.js";
 
 /** Closed, nine-member terminal-state enum. All three surfaces render these. */
@@ -228,22 +229,16 @@ function relayConfigFailure(r: Extract<ConfigWriteResult, { ok: false }>): Insta
 }
 
 /**
- * Check-mode dry predicate: reports the same CONFIG_UNPARSEABLE a real write
- * would hit, without touching disk. Only unparseable is predictable without a
- * write attempt; write-permission failures are not simulated in check mode.
+ * Check-mode dry predicate. Delegates to the writers' OWN structural validators
+ * so check and write agree: a config that would fail a write (invalid JSON,
+ * non-object root, malformed `mcpServers` / `mcpServers.iMCP` / `packages`)
+ * must never be reported as healthy by `--check`. Write-permission failures
+ * (EACCES/ENOSPC) remain unpredictable without attempting a write.
  */
 function predictConfigWritability(env: InstallerEnv): InstallResult | null {
-  for (const path of [env.mcpJsonPath, env.settingsJsonPath]) {
-    const raw = env.configIO.readFile(path);
-    if (raw === null || raw.trim() === "") continue;
-    try {
-      const val = JSON.parse(raw);
-      if (val === null || typeof val !== "object" || Array.isArray(val)) {
-        return fail("CONFIG_UNPARSEABLE", `${path} is not a JSON object`);
-      }
-    } catch (e) {
-      return fail("CONFIG_UNPARSEABLE", `${path} contains invalid JSON: ${(e as Error).message}`);
-    }
-  }
+  const mcp = validateConfigShape(env.configIO, env.mcpJsonPath, "mcp");
+  if (mcp) return fail(mcp.state, mcp.message);
+  const settings = validateConfigShape(env.configIO, env.settingsJsonPath, "settings");
+  if (settings) return fail(settings.state, settings.message);
   return null;
 }

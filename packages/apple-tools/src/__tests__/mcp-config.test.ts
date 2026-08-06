@@ -174,6 +174,29 @@ describe("malformed-but-parseable config is refused, never coerced (security pas
     expect(r).toMatchObject({ ok: false, state: "CONFIG_UNPARSEABLE" });
     expect(io.writes).toEqual([]);
   });
+
+  // A malformed `mcpServers.iMCP` was previously coerced to {}, so the write
+  // destroyed the operator's parseable value. Refuse instead.
+  for (const [label, bad] of [
+    ["scalar", "nope"],
+    ["array", ["nope"]],
+    ["null", null],
+  ] as const) {
+    it(`mcpServers.iMCP present but a ${label} → CONFIG_UNPARSEABLE, source byte-identical`, () => {
+      const original = JSON.stringify({ mcpServers: { iMCP: bad, other: { command: "keep" } } });
+      const io = memIO({ [MCP]: original });
+      expect(ensureMcpEntry(io, MCP, SERVER)).toMatchObject({
+        ok: false,
+        state: "CONFIG_UNPARSEABLE",
+      });
+      expect(setServerDisabled(io, MCP, true)).toMatchObject({
+        ok: false,
+        state: "CONFIG_UNPARSEABLE",
+      });
+      expect(io.writes).toEqual([]);
+      expect(io.store[MCP]).toBe(original);
+    });
+  }
 });
 
 describe("setServerDisabled — pi-mcp-adapter contract (task 7.8, verified v2.19.0)", () => {

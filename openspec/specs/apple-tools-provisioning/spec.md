@@ -1,7 +1,12 @@
 # apple-tools-provisioning Specification
 
 ## Purpose
-TBD - created by archiving change add-apple-tools-imcp-plugin. Update Purpose after archive.
+Provision iMCP — the macOS menu-bar broker for Apple PIM data (Calendar,
+Contacts, Reminders, Messages, Location, Maps, Weather) — so a pi session can
+reach it through `pi-mcp-adapter`. Covers the installer's terminal-state
+machine, its write-suppressed check twin, the merge-only config writes, and the
+dashboard/CLI/doctor surfaces that report the resulting state. macOS-only;
+Apple Mail is out of scope (iMCP exposes no Mail service).
 ## Requirements
 ### Requirement: Platform gate
 
@@ -236,12 +241,13 @@ Provisioning SHALL execute only on explicit invocation. The package SHALL NOT de
 
 ### Requirement: Provisioning state is a closed enumeration
 
-The traversal SHALL report exactly one of a closed set of terminal states so that the CLI, the diagnostic skill, and the settings panel render an identical vocabulary.
+The traversal SHALL report exactly one of a closed set of terminal states so that the CLI, the diagnostic skill, and the settings panel render an identical vocabulary. The closed set has nine members, of which `READY` is reserved for live access: it is NOT reachable by the traversal in either mode, only by a successful tool round-trip through the adapter. The traversal therefore reports one of the other eight.
 
 #### Scenario: Terminal states are constrained
 
 - **WHEN** the traversal terminates in any mode
-- **THEN** the reported state is one of `UNSUPPORTED_PLATFORM`, `OS_VERSION_UNKNOWN`, `OS_TOO_OLD`, `NO_INSTALL_METHOD`, `INSTALL_FAILED`, `CONFIG_UNPARSEABLE`, `CONFIG_WRITE_FAILED`, `READY_PENDING_GRANTS`, `READY`
+- **THEN** the reported state is one of `UNSUPPORTED_PLATFORM`, `OS_VERSION_UNKNOWN`, `OS_TOO_OLD`, `NO_INSTALL_METHOD`, `INSTALL_FAILED`, `CONFIG_UNPARSEABLE`, `CONFIG_WRITE_FAILED`, `READY_PENDING_GRANTS`
+- **AND** `READY` is never among them, being a live-access result rather than a provisioning result
 
 #### Scenario: Every failure path maps to a distinct member
 
@@ -266,13 +272,14 @@ Every environment probe (platform, OS version, filesystem existence, executable 
 
 ### Requirement: Provisioning settings surface
 
-The plugin SHALL contribute a `settings-section` claim exposing the provisioning state, an action to run the installer, and the operator-tunable configuration values. The section SHALL derive its state from the same write-suppressed check that backs the command-line and diagnostic surfaces. Per the plugin-settings rendering contract the section SHALL render inline beneath the plugin's own row in the Plugins tab; the claim SHALL NOT set `tab`, and no new settings page id SHALL be introduced.
+The plugin SHALL contribute a `settings-section` claim exposing the provisioning state, an action to run the installer, and the operator-tunable configuration values. The section SHALL derive its state from the same write-suppressed check that backs the command-line and diagnostic surfaces. Per the plugin-settings rendering contract the claim SHALL NOT set `tab`, and no new settings page id SHALL be introduced; the host renders the contribution on the plugin's own settings page at `/settings/plugins/<id>` under host-owned chrome, reached from the settings affordance on the plugin's row.
 
-#### Scenario: Section renders under the plugin row
+#### Scenario: Section renders on the plugin's own settings page
 
 - **WHEN** the operator opens the settings affordance on the Apple-tools plugin row
-- **THEN** the provisioning section renders inline beneath that row
-- **AND** no other settings page renders the section
+- **THEN** the host navigates to `/settings/plugins/apple-tools`
+- **AND** the provisioning section renders exactly once, inside that page's host-owned chrome
+- **AND** the section does not render on the plugins index or any other plugin's page
 
 #### Scenario: Section reports the provisioning state
 
@@ -282,9 +289,23 @@ The plugin SHALL contribute a `settings-section` claim exposing the provisioning
 
 #### Scenario: Run-installer action provisions the host
 
-- **WHEN** the operator triggers the run-installer action
+- **WHEN** the operator triggers the run-installer action AND the iMCP application is already present on disk
 - **THEN** the provisioning traversal runs in write mode
 - **AND** the section refreshes to the resulting state
+
+#### Scenario: The dashboard never runs the network install in-process
+
+The install branch shells out to `brew install --cask` under a ten-minute
+timeout. The traversal is synchronous, so running that branch inside the
+dashboard server would block its event loop for the duration, stalling every
+session's WebSocket and every other plugin's HTTP. Provisioning is therefore
+split: the server performs only the fast configuration-write half, and the
+command-line entry point owns the long, network-bound install.
+
+- **WHEN** the operator opens the section on a supported host where the iMCP application is absent
+- **THEN** the section reports that the application is not installed and names the command-line installer
+- **AND** the run-installer action is not offered, so no action can block the event loop
+- **AND** the server refuses the action if it is invoked by other means
 
 #### Scenario: Section exposes the tunable values
 
@@ -299,8 +320,9 @@ The plugin SHALL contribute a `settings-section` claim exposing the provisioning
 
 #### Scenario: Disabling the plugin removes the section
 
-- **WHEN** the Apple-tools plugin is disabled in configuration
-- **THEN** its `settings-section` claim is filtered from the Plugins tab render path
+- **WHEN** the operator toggles the Apple-tools plugin off
+- **THEN** the host reports that a restart is required, because the toggle records desired state while the slot registry follows the server's runtime snapshot
+- **AND** after that restart its `settings-section` claim is filtered from the render path
 
 ### Requirement: Settings surface SHALL NOT present service toggles it cannot honour
 

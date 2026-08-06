@@ -38,6 +38,7 @@ export function AppleToolsSettings() {
   const config = usePluginConfig<AppleToolsConfig>();
   const send = usePluginSend();
   const [status, setStatus] = useState<StatusReadout | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [pathDraft, setPathDraft] = useState(config?.imcpServerPath ?? DEFAULT_PATH);
   const [directToolsDraft, setDirectToolsDraft] = useState("");
 
@@ -47,16 +48,25 @@ export function AppleToolsSettings() {
 
   // directTools + disabled live in ~/.pi/agent/mcp.json (adapter-owned), so the
   // server status readout — not our plugin config — is their source of truth.
+  // Key on the VALUE, not the status object identity: re-seeding on every poll
+  // would wipe an edit the operator is still typing.
+  const serverDirectTools = status?.directTools.join(", ") ?? null;
   useEffect(() => {
-    if (status) setDirectToolsDraft(status.directTools.join(", "));
-  }, [status]);
+    if (serverDirectTools !== null) setDirectToolsDraft(serverDirectTools);
+  }, [serverDirectTools]);
 
   async function refresh(): Promise<void> {
     try {
       const res = await fetch(`/api/${PLUGIN_ID}/status`);
+      // A 404/500 body is not a StatusReadout — storing it would render garbage.
+      if (!res.ok) {
+        setFetchError(`status request failed (${res.status})`);
+        return;
+      }
       setStatus((await res.json()) as StatusReadout);
-    } catch {
-      /* leave prior status */
+      setFetchError(null);
+    } catch (e) {
+      setFetchError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -103,6 +113,14 @@ export function AppleToolsSettings() {
       </div>
       {status?.message && (
         <p style={{ fontSize: "11px", color: "#a1a1aa", margin: "0 0 10px 0" }}>{status.message}</p>
+      )}
+      {fetchError && (
+        <p
+          data-testid="apple-tools-error"
+          style={{ fontSize: "11px", color: "#f87171", margin: "0 0 10px 0" }}
+        >
+          Could not read provisioning status: {fetchError}
+        </p>
       )}
 
       {!isMac ? (

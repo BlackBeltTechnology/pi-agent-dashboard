@@ -81,6 +81,29 @@ function readServers(
   return { servers: raw as Record<string, unknown> };
 }
 
+/**
+ * Read the existing `mcpServers.iMCP` entry. A present-but-wrong-typed value
+ * (scalar, null, array) is REFUSED rather than coerced to `{}` — coercing would
+ * destroy the operator's parseable value on the next write.
+ */
+function readExistingImcp(
+  servers: Record<string, unknown>,
+  path: string,
+): { existing: Record<string, unknown> } | { error: ConfigWriteResult } {
+  const raw = servers.iMCP;
+  if (raw === undefined) return { existing: {} };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      error: {
+        ok: false,
+        state: "CONFIG_UNPARSEABLE",
+        message: `${path}: "mcpServers.iMCP" must be an object`,
+      },
+    };
+  }
+  return { existing: raw as Record<string, unknown> };
+}
+
 function writeOrError(io: ConfigIO, path: string, obj: unknown): ConfigWriteResult {
   try {
     io.writeFileAtomic(path, `${JSON.stringify(obj, null, 2)}\n`);
@@ -111,10 +134,9 @@ export function ensureMcpEntry(
   const sr = readServers(config, mcpJsonPath);
   if ("error" in sr) return sr.error;
   const { servers } = sr;
-  const existing =
-    servers.iMCP && typeof servers.iMCP === "object" && !Array.isArray(servers.iMCP)
-      ? (servers.iMCP as Record<string, unknown>)
-      : {};
+  const er = readExistingImcp(servers, mcpJsonPath);
+  if ("error" in er) return er.error;
+  const { existing } = er;
   // Merge-only: preserve any operator-added fields on the iMCP entry (e.g. a
   // `disabled` flag), overriding just `command` with the re-discovered path.
   const merged = { ...existing, command: imcpServerPath };
@@ -146,6 +168,35 @@ export function ensureAdapterPackage(io: ConfigIO, settingsJsonPath: string): Co
   if (already) return { ok: true };
   const next = { ...config, packages: [...packages, ADAPTER_PACKAGE_SOURCE] };
   return writeOrError(io, settingsJsonPath, next);
+}
+
+/**
+ * Read-only structural validation of a config file, using the SAME rules the
+ * writers enforce. Check mode calls this so `--check` can never report a
+ * healthy state that write mode would fail on (parity: invalid JSON, non-object
+ * root, malformed `mcpServers` / `mcpServers.iMCP` / `packages`).
+ * Returns null when the file would be writable.
+ */
+export function validateConfigShape(
+  io: ConfigIO,
+  path: string,
+  kind: "mcp" | "settings",
+): Extract<ConfigWriteResult, { ok: false }> | null {
+  const r = parseOrError(io, path);
+  if ("error" in r) return r.error as Extract<ConfigWriteResult, { ok: false }>;
+  if (kind === "mcp") {
+    const sr = readServers(r.parsed, path);
+    if ("error" in sr) return sr.error as Extract<ConfigWriteResult, { ok: false }>;
+    const er = readExistingImcp(sr.servers, path);
+    if ("error" in er) return er.error as Extract<ConfigWriteResult, { ok: false }>;
+  } else if (r.parsed.packages !== undefined && !Array.isArray(r.parsed.packages)) {
+    return {
+      ok: false,
+      state: "CONFIG_UNPARSEABLE",
+      message: `${path}: "packages" must be an array`,
+    };
+  }
+  return null;
 }
 
 /** Read the iMCP entry's operator-facing fields from a given mcp.json layer. */
@@ -185,11 +236,9 @@ function patchImcpEntry(
   const sr = readServers(config, mcpJsonPath);
   if ("error" in sr) return sr.error;
   const { servers } = sr;
-  const existing =
-    servers.iMCP && typeof servers.iMCP === "object" && !Array.isArray(servers.iMCP)
-      ? (servers.iMCP as Record<string, unknown>)
-      : {};
-  const merged: Record<string, unknown> = { ...existing };
+  const er = readExistingImcp(servers, mcpJsonPath);
+  if ("error" in er) return er.error;
+  const merged: Record<string, unknown> = { ...er.existing };
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) delete merged[k];
     else merged[k] = v;

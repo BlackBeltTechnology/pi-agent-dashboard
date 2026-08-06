@@ -284,6 +284,30 @@ describe("check mode", () => {
     expect(build(true).state).toBe(build(false).state);
   });
 
+  it("#E32: --check refuses the same malformed configs a write would refuse", () => {
+    // Previously check mode only asked "is this a JSON object", so a config like
+    // {"mcpServers":[]} passed --check but failed the write — a healthy report
+    // write mode could not reach.
+    const cases: Array<[string, Record<string, string>]> = [
+      ["mcpServers is an array", { "/cfg/mcp.json": JSON.stringify({ mcpServers: [] }) }],
+      [
+        "mcpServers.iMCP is a scalar",
+        { "/cfg/mcp.json": JSON.stringify({ mcpServers: { iMCP: "nope" } }) },
+      ],
+      ["packages is an object", { "/cfg/settings.json": JSON.stringify({ packages: {} }) }],
+    ];
+    for (const [label, files] of cases) {
+      const env = makeEnv({ pathExists: (p) => p === DEFAULT_SERVER, configIO: memIO(files) });
+      const checkState = runInstaller(env, { check: true }).state;
+      const writeState = runInstaller(
+        makeEnv({ pathExists: (p) => p === DEFAULT_SERVER, configIO: memIO(files) }),
+        { check: false },
+      ).state;
+      expect(checkState, label).toBe("CONFIG_UNPARSEABLE");
+      expect(writeState, label).toBe(checkState);
+    }
+  });
+
   it("#E32 (install branch): parity holds when the app appears only after brew", () => {
     // The hardest parity case: check PREDICTS the post-install state without
     // invoking brew, while write mode actually installs and re-discovers.

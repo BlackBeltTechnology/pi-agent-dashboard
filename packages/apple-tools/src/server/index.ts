@@ -88,10 +88,12 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     };
   }
 
-  async function reconcile(status: StatusReadout): Promise<void> {
+  /** Narrowed to the only value reconciliation needs — see the review note on
+   *  the discarded `cachedStatus()` round-trip. */
+  async function reconcile(resolvedPath: string | undefined): Promise<void> {
     const cfg = ctx.getPluginConfig<AppleToolsConfig>() ?? {};
-    if (shouldReconcilePath(cfg.imcpServerPath, status.resolvedPath ?? null)) {
-      await ctx.updatePluginConfig<AppleToolsConfig>({ imcpServerPath: status.resolvedPath });
+    if (shouldReconcilePath(cfg.imcpServerPath, resolvedPath ?? null)) {
+      await ctx.updatePluginConfig<AppleToolsConfig>({ imcpServerPath: resolvedPath });
     }
   }
 
@@ -141,7 +143,11 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
         const result = runInstaller(env, { check: false });
         ctx.logger.info(`apple-tools run-installer → ${result.state}`);
         statusCache = null; // invalidate on mutation (#F7)
-        reconcile({ ...cachedStatus(), resolvedPath: result.resolvedPath }).catch((e) =>
+        // Pass only what reconcile reads. Calling cachedStatus() here would
+        // miss the just-cleared cache, run a THIRD sync traversal (sw_vers +
+        // which) on the event loop, discard the result, and re-seed the cache
+        // with a pre-reconcile readout served for the next 10s.
+        reconcile(result.resolvedPath).catch((e) =>
           ctx.logger.warn(`apple-tools reconcile failed: ${(e as Error).message}`),
         );
         break;

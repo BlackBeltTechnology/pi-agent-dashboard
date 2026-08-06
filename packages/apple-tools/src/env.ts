@@ -85,7 +85,13 @@ function writeFileAtomic(path: string, content: string): void {
   const tmp = join(dir, `.${randomBytes(8).toString("hex")}.tmp`);
   const fd = openSync(tmp, "wx", 0o600);
   try {
-    writeSync(fd, content);
+    // writeSync may perform a partial write; loop until the buffer is drained
+    // rather than assuming one call consumes it all.
+    const buf = Buffer.from(content, "utf8");
+    let off = 0;
+    while (off < buf.length) {
+      off += writeSync(fd, buf, off, buf.length - off);
+    }
     fsyncSync(fd);
   } catch (e) {
     closeSync(fd);
