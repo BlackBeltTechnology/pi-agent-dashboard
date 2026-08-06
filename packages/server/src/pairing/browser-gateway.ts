@@ -230,6 +230,9 @@ export function createBrowserGateway(
   pendingClientCorrelations?: import("../pending/pending-client-correlations.js").PendingClientCorrelations,
   pendingWorktreeBaseRegistry?: import("../pending/pending-worktree-base-registry.js").PendingWorktreeBaseRegistry,
   metaPersistence?: import("../persistence/meta-persistence.js").MetaPersistence,
+  /** Display-fit pool, so session hydration fits inline images like the live
+   *  path does. See change: fit-attachments-for-display (test-plan #E9). */
+  fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -524,6 +527,7 @@ export function createBrowserGateway(
           ws, sessionManager, eventStore, piGateway,
           pendingForkRegistry, sessionOrderManager, preferencesStore,
           metaPersistence,
+          fitWorkerPool,
           directoryService, terminalManager,
           headlessPidRegistry, pendingResumeRegistry, pendingDashboardSpawns,
           pendingAttachRegistry,

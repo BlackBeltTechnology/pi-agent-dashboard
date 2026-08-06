@@ -2,11 +2,23 @@
 
 ### Requirement: Images SHALL be fitted for display before an event is stored
 
-Each image content block SHALL be resized to a bounded display size before the event is
-stored or broadcast, so that no attachment can push an event past the per-event ceiling.
+Each image content block the fit ADMITS SHALL be resized to a bounded display size
+before the event is stored or broadcast, so that no such attachment can push an event
+past the per-event ceiling.
 
-Fitting SHALL be applied on every path that admits an image into the store, including
-events reconstructed on replay.
+Admission is NOT the MIME allow-list alone. A block is admitted only when its media type
+is fittable AND its content is something the fit will actually produce a derivative for.
+`image/gif` is a fittable type, but an ANIMATED GIF is declined by content (D11, so its
+animation is never flattened). The gate that removes an attachment's bytes and the gate
+that fits them SHALL evaluate this SAME predicate — a block one admits and the other
+declines is either promised a resolution that never arrives, or stripped of bytes nothing
+will restore.
+
+Fitting SHALL be applied on every path that admits such an image into the store,
+including events reconstructed on replay.
+
+A DECLINED block SHALL NOT be resized and SHALL NOT be given a placeholder; it stays
+inline under the pre-existing ceiling behaviour (see SCOPE).
 
 #### Scenario: A large paste is fitted and its event stays bounded
 
@@ -20,12 +32,19 @@ events reconstructed on replay.
 - **THEN** it SHALL NOT be upscaled
 - **AND** it SHALL remain visually unchanged
 
-#### Scenario: The message survives at any attachment size
+#### Scenario: The message survives at any fittable attachment size
 
-- **WHEN** a message carries an attachment of any size
+- **WHEN** a message carries an attachment INSIDE the two-phase boundary, at any size
 - **THEN** the stored event SHALL retain `data.message` with the user's text
 - **AND** it SHALL NOT be replaced by the truncation placeholder
 - **AND** the transcript SHALL render a row for that message
+
+This guarantee is scoped to blocks the fit admits, because only those have their bytes
+removed from the row. A block OUTSIDE the boundary keeps its bytes inline and stays
+subject to the per-event ceiling, so an oversized one can still collapse the event to
+the truncation placeholder and take the row with it — reachable today via an animated
+GIF over the ceiling (exempt from fitting by D11) or a non-fittable MIME type. Bounding
+that path is tracked as issue #424; it is NOT claimed here.
 
 #### Scenario: Replayed sessions are fitted too
 
@@ -109,22 +128,28 @@ to retrieve an original SHALL degrade only the full-resolution view.
 - **THEN** the declared content type SHALL come from the supported-image allow-list
 - **AND** the response SHALL NOT be interpretable as active content
 
-### Requirement: Original storage SHALL be recoverable, not authoritative
+### Requirement: Originals SHALL be recovered from the session transcript
 
-Stored originals SHALL be treated as a cache of the session transcript, which already
-holds the full-resolution bytes. Eviction SHALL therefore be safe, and a miss SHALL be
-recoverable from the transcript without loading it entirely into memory.
+The transcript already holds the full-resolution bytes and is authoritative (D7).
+Recovery SHALL stream it rather than loading it entirely into memory.
 
-#### Scenario: An evicted original is recovered
+There is NO originals cache. D10 dropped the 2 GB LRU blob cache along with the
+fitted-derivative cache, on the evidence that recovery measured under 50 MB RSS against
+a ~40 MB transcript and that the click-to-original path is explicitly not load-bearing.
+The transcript is therefore the ONLY source, and no eviction behaviour is specified
+because nothing evicts.
 
-- **WHEN** an original has been evicted and is requested again
-- **THEN** it SHALL be recovered from the session transcript and served
-- **AND** recovery SHALL not require holding the whole transcript in memory
+#### Scenario: An original is recovered from the transcript
 
-#### Scenario: Eviction never loses a retrievable original
+- **WHEN** an original is requested
+- **THEN** it SHALL be located by scanning that session's transcript
+- **AND** recovery SHALL NOT require holding the whole transcript in memory
 
-- **WHEN** the cache evicts under its size cap
-- **THEN** no original SHALL become permanently unreachable while its transcript exists
+#### Scenario: An unrecoverable original degrades only the zoom
+
+- **WHEN** the transcript no longer holds the requested original
+- **THEN** the endpoint SHALL answer 404
+- **AND** the transcript row and its fitted thumbnail SHALL be unaffected
 
 ### Requirement: The boot safety assert SHALL be armed with the raised ceiling
 

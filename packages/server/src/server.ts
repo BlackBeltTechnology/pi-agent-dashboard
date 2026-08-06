@@ -9,6 +9,7 @@ import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -18,7 +19,6 @@ import {
   reconcilePluginBridgePackages,
   registerAllPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
-import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import { isRecoveryCandidate, mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
@@ -27,6 +27,7 @@ import compress from "@fastify/compress";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
+import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
 import { isCorsOriginAllowed } from "./auth/cors-origin.js";
@@ -40,6 +41,7 @@ import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { writeConfigPartial } from "./config-api.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
+import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
@@ -79,6 +81,7 @@ import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway, type PiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
+import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
@@ -110,7 +113,6 @@ import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
-import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
@@ -698,10 +700,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // clamp and destroy the `terminalId`. Assert both truncation knobs are safe
   // at boot rather than silently corrupting close events months later.
   // See change: preserve-inline-terminal-transcript (D2a/D2b).
+  // Pass the config value THROUGH (undefined when unset) so the assert resolves
+  // it to the store's real default. `?? 0` previously coerced an unset cap to
+  // the sentinel that means "string pass disabled", which made the assert skip
+  // the production configuration entirely.
+  // See change: fit-attachments-for-display (task 5.5).
   const transcriptCapBytes = deriveTranscriptCapBytes(
     eventDataCeiling,
-    config.maxStringFieldSize ?? 0,
+    config.maxStringFieldSize,
   );
+
+  // Display-fit pool for inline image attachments. Sized small on purpose:
+  // fitting is bursty (a paste at a time), and each worker holds a decoded
+  // bitmap, so more slots buy latency we do not need at the cost of RSS we do.
+  // See change: fit-attachments-for-display (task 5.1).
+  const fitWorkerPool = createFitWorkerPool({ size: 2 });
 
   // Create terminal manager with exit callback
   const terminalManager = createTerminalManager({
@@ -724,7 +737,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool);
 
   // Editor-pane changed-on-disk watch: the browser declares its open files via
   // `watch_files`; the server watches exactly those and pushes `file_changed`.
@@ -1001,6 +1014,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   wireEvents({
     sessionManager,
     eventStore,
+    fitWorkerPool,
     piGateway,
     browserGateway,
     sessionOrderManager,
@@ -1172,6 +1186,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
+  // Full-resolution attachment originals for click-to-zoom. Not load-bearing:
+  // the fitted derivative is already inline, so a failure here degrades only
+  // the zoom view. See change: fit-attachments-for-display (task 5.7).
+  registerAttachmentRoutes(fastify, { sessionManager, networkGuard });
   registerOpenSpecRoutes(fastify, {
     sessionManager,
     preferencesStore,
@@ -2365,6 +2383,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       pendingForkRegistry.dispose();
       preferencesStore.flush();
       preferencesStore.dispose();
+      // Terminate fit workers so a restart never leaves orphaned threads.
+      // See change: fit-attachments-for-display (task 5.1).
+      await fitWorkerPool.dispose();
 
       stopTunnelWatchdog();
       await deleteTunnel(config.port);

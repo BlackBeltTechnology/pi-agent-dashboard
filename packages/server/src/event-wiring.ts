@@ -8,35 +8,37 @@ import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-te
 import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { BrowserGateway } from "./pairing/browser-gateway.js";
+import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
+import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
 import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
 import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
-import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js";
 import type { DirectoryService } from "./directory-service.js";
 import { captureLifecycleTimestamp } from "./embed-lifecycle/lifecycle-event-capture.js";
-import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
-import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
 import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
-import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
-import type { EventStore } from "./persistence/memory-event-store.js";
-import type { SessionManager } from "./session/memory-session-manager.js";
-import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
-import type { PiGateway } from "./pi/pi-gateway.js";
-import type { PreferencesStore } from "./persistence/preferences-store.js";
-import { buildPidIndex, classifyProcesses } from "./spawn-process/process-classifier.js";
-import { spawnPiSession } from "./spawn-process/process-manager.js";
+import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js";
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./openspec/proposal-attach-naming.js";
 import { setCatalogueForSession } from "./package/provider-catalogue-cache.js";
-import { resolveOrderKey } from "./session/resolve-order-key.js";
+import type { BrowserGateway } from "./pairing/browser-gateway.js";
+import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
+import type { EventStore } from "./persistence/memory-event-store.js";
+import type { PreferencesStore } from "./persistence/preferences-store.js";
+import type { PiGateway } from "./pi/pi-gateway.js";
+import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
+import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
+import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
+import type { SessionManager } from "./session/memory-session-manager.js";
+import { resolveOrderKey } from "./session/resolve-order-key.js";
 import type { SessionOrderManager } from "./session/session-order-manager.js";
+import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
+import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
+import { buildPidIndex, classifyProcesses } from "./spawn-process/process-classifier.js";
+import { spawnPiSession } from "./spawn-process/process-manager.js";
 import {
   buildEmptyActionableLogLine,
   buildModelErrorLogLine,
   extractModelTurnError,
 } from "./spawn-process/spawned-turn-log.js";
-import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
-import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 
 /**
  * `true` iff `changeName` appears in the cwd's authoritative OpenSpec poll
@@ -71,6 +73,14 @@ const STRICT_SPAWN_CORRELATION =
 export interface EventWiringDeps {
   sessionManager: SessionManager;
   eventStore: EventStore;
+  /**
+   * Optional display-fit pool. When provided, inline image attachments are
+   * stripped to a bounded placeholder before the row event is stored, and the
+   * fitted derivative follows as its own `attachment_fitted` event. When
+   * absent (tests, minimal wirings) events pass through untouched.
+   * See change: fit-attachments-for-display (tasks 5.2, 5.3).
+   */
+  fitWorkerPool?: import("./attachments/fit-worker-pool.js").FitWorkerPool;
   piGateway: PiGateway;
   browserGateway: BrowserGateway;
   sessionOrderManager: SessionOrderManager;
@@ -196,6 +206,7 @@ export function wireEvents(deps: EventWiringDeps): void {
   const {
     sessionManager,
     eventStore,
+    fitWorkerPool,
     dispatchPluginSessionEnded,
     piGateway,
     browserGateway,
@@ -258,6 +269,24 @@ export function wireEvents(deps: EventWiringDeps): void {
       cwd: newOrderKey,
       sessionIds: sessionOrderManager.getOrder(newOrderKey, validIds),
     });
+  }
+
+  // Phase 2 of the two-phase attachment render. Shared with the replay path
+  // (subscription-handler) so the two cannot drift.
+  // See change: fit-attachments-for-display (task 5.3, test-plan #F3 #X7).
+  const attachmentResolver = fitWorkerPool
+    ? createAttachmentResolver({
+        eventStore,
+        fitWorkerPool,
+        emit: (sessionId, seq, event) => browserGateway.broadcastEvent(sessionId, seq, event),
+      })
+    : null;
+
+  async function resolvePendingAttachments(
+    sessionId: string,
+    pending: PendingAttachment[],
+  ): Promise<void> {
+    await attachmentResolver?.resolve(sessionId, pending);
   }
 
   // Broadcast placeholder session to browsers when auto-created from early events
@@ -654,11 +683,33 @@ export function wireEvents(deps: EventWiringDeps): void {
         // but those are only for non-replay events, so we can return early
         return;
       }
-      const seq = eventStore.insertEvent(sessionId, msg.event);
+      // Two-phase attachment render (D3/D12): strip full-resolution image bytes
+      // to a bounded placeholder so the ROW is stored and broadcast now, then
+      // resolve the fitted derivative asynchronously. Without this, a pasted
+      // screenshot pushes the event past the per-event ceiling and the whole
+      // message collapses to {__truncated} — the user's row vanishes silently.
+      // No-op (same reference) for the overwhelmingly common no-image event.
+      // See change: fit-attachments-for-display (tasks 5.2, 5.3).
+      const prepared = fitWorkerPool
+        ? prepareEventForIngest(msg.event)
+        : { event: msg.event, pending: [] as PendingAttachment[] };
+      const seq = eventStore.insertEvent(sessionId, prepared.event);
       // Skip broadcasting during replay — browser gets events via subscribe replay
       if (!replayingSessions.has(sessionId)) {
-        const storedEvent = eventStore.getEvent(sessionId, seq) ?? msg.event;
+        const storedEvent = eventStore.getEvent(sessionId, seq) ?? prepared.event;
         browserGateway.broadcastEvent(sessionId, seq, storedEvent);
+      }
+      // Phase 2 runs detached: the row is already durable, so a fit failure can
+      // only degrade an attachment, never the message.
+      if (prepared.pending.length > 0) {
+        // The catch is what makes the sentence above true. `resolve` guards the
+        // FIT, but its publish calls (`insertEvent`/`broadcastEvent`) sit
+        // outside that guard — and on a detached promise an escaping rejection
+        // is an UNHANDLED one, which terminates the process by default. Degrade
+        // the attachment, never the server.
+        void resolvePendingAttachments(sessionId, prepared.pending).catch((err) => {
+          console.error(`[attachments] resolve failed for session ${sessionId}:`, err);
+        });
       }
 
       // Spawned-session turn-outcome surfacing to server.log (live only).

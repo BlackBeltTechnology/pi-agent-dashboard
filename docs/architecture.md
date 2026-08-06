@@ -711,6 +711,110 @@ Failure modes (placeholders are visible, not silent):
 
 See change: `chat-markdown-local-images-and-math`.
 
+### User image attachments — two-phase display fit
+
+Distinct path from local-image inlining above.
+That feature rides existing event/asset stream.
+Adds no HTTP route.
+This one adds `GET /api/sessions/:sessionId/attachments/:attachmentId`.
+Same `{type:"image"}` events.
+Different handling.
+
+**Problem.** pi delivers pasted screenshots as full-resolution base64 inside the event. Shape: `{type:"image", data, mimeType}`. `memory-event-store.ts` bounds each event by total serialized size. Over-ceiling event data replaced by `{__truncated}` placeholder. Result: image-bearing user message lost `data.message` entirely. Row never rendered. Silent. Measured size distribution n=1587 over 3137 transcripts: p50 125.7 KB, p90 757.3 KB, p99 2233.3 KB, max 10.5 MB.
+
+**Design.** Fit each image block to a DISPLAY derivative before store.
+768 px long edge.
+JPEG q75 when re-encoding.
+`DEFAULT_MAX_EVENT_DATA_SIZE` raised 20_000 -> 262_144 (256 KiB).
+Raise sound only WITH the fit.
+Raw payloads at 256 KiB cover just 74.9%.
+Fitted output bounded.
+`DEFAULT_TRANSCRIPT_CAP_BYTES` derives 0.75 x ceiling.
+Moves 15 KB -> 192 KiB (D9, accepted, coupling kept).
+
+**Two-phase flow** (key data-flow fact):
+
+```mermaid
+sequenceDiagram
+    participant pi as pi (agent)
+    participant bridge as Bridge (extension)
+    participant server as Dashboard server
+    participant fit as Fit worker pool
+    participant client as Browser (event-reducer)
+
+    pi->>bridge: pasted screenshot<br/>{type:"image", data: base64, mimeType}
+    bridge->>server: event_forward (image event)
+    server->>server: prepareEventForIngest()<br/>(attachment-ingest.ts) strips image bytes
+    server->>server: placeholder block<br/>{data:"", attachmentId, attachmentState:"pending"}<br/>attachmentId = sha256(original base64)
+    server->>client: row event stored + broadcast IMMEDIATELY
+    server->>fit: fit-worker-pool.ts fits off main loop<br/>(768px long edge, JPEG q75)
+    fit-->>server: fitted derivative
+    server->>client: SEPARATE stored+broadcast attachment_fitted<br/>{attachmentId, data, mimeType, state:"ready"|"failed"}
+    client->>client: event-reducer.ts patches pending block by attachmentId
+    client->>client: user clicks image → lightbox (fitted derivative as fallbackSrc)
+    client->>server: GET /api/sessions/:sessionId/attachments/:attachmentId<br/>(original bytes, zoom view)
+```
+
+- Phase 1: `prepareEventForIngest()` (`packages/server/src/attachments/attachment-ingest.ts`) strips image bytes, leaves placeholder block `{data:"", attachmentId, attachmentState:"pending"}`. Row event stored + broadcast IMMEDIATELY.
+- Phase 2: `fit-worker-pool.ts` fits off the main loop. `attachment-resolver.ts` emits a SEPARATE stored+broadcast event `attachment_fitted` with `{attachmentId, data, mimeType, state:"ready"|"failed"}`.
+- In-process fallback (workers disabled/unspawnable) capped at pool `size`. Unbounded fallback ran N concurrent jimp decodes on the MAIN thread. Exact event-loop stall the pool exists to prevent.
+- Client reducer (`event-reducer.ts`) patches the pending block by `attachmentId`.
+- `attachmentId` = sha256 of the ORIGINAL base64. Content-addressed.
+- Addressed by hash NOT by seq: client live fold is append-only and never sees a seq; replay can reorder; hash is also the originals-endpoint key.
+- One resolution patches EVERY occurrence of that hash (same screenshot pasted twice shares one id).
+- BOTH ingest paths fit: live `event-wiring.ts` AND session hydration in `subscription-handler.ts`. Hydration rebuilds events from the transcript with full-resolution bytes, so skipping it would re-trigger the original bug on reload.
+
+**MIME admission.** `image-mime.ts` (`packages/server/src/attachments/image-mime.ts`) single source of truth for which inline image mimes the pipeline takes OWNERSHIP of. Exports `isFittableImageMime(mime)`. Two gates consume it, MUST agree: `prepareEventForIngest` (what to strip into pending) + `fitImageBlockForDisplay` (what it can fit). They diverged once. Ingest stripped ANY image block. Fit returned non-allow-listed mime UNCHANGED. Resolution event then carried full-resolution bytes it existed to replace. Busted per-event ceiling. Truncated. Block stranded on "pending" forever. Block rejected here never PROMISED a resolution. Stays inline under existing ceiling. `image/svg+xml` absent on purpose. Script-bearing markup, not safely re-encodable bitmap. Deliberately jimp-free. Ingest path runs on the event loop for EVERY event.
+
+**Input-size guard.** Every other budget in module measures OUTPUT. `Jimp.read` allocates `width*height*4`. Driven by the HEADER. 20000x20000 PNG: few KB on the wire, ~1.6 GB decoded. Guard parses declared w/h from PNG/GIF/JPEG/WebP header. No pixel decode. Refuses >40 MP or >25 MB BEFORE decode. Constants `DISPLAY_MAX_DECODE_PIXELS` = 40_000_000, `DISPLAY_MAX_INPUT_BYTES` = 25_000_000. Exports `readImageDimensions(bytes)`. Fails CLOSED. Unparseable header ⇒ `failed`, never unbounded decode. 40 MP clears any real screen capture. 6K display ~20 MP.
+
+**Budget guarantee.** `DISPLAY_MAX_BYTES` = 240_000. Measured in BASE64 bytes (what the store stores). Below 256 KiB ceiling with envelope headroom. Fit enforces the budget. PNG first. Then JPEG quality ladder 75/60/45/30. Then up to 2 halvings. Reports `failed` if it cannot comply. Reason: over-budget derivative makes its OWN `attachment_fitted` event exceed the ceiling -> `{__truncated}` -> `attachmentId` destroyed -> placeholder stuck pending forever.
+
+**Originals endpoint.** `GET /api/sessions/:sessionId/attachments/:attachmentId` (`packages/server/src/routes/attachment-routes.ts`).
+Backed by session transcript (`original-store.ts`).
+Transcript already holds full-resolution bytes.
+No new durable store.
+Eviction inherently safe.
+Transcript scanned line-by-line.
+Peak memory bounded by largest entry, not file size.
+NOT load-bearing.
+Fitted image already inline.
+Failure degrades only the zoom view.
+Client passes fitted derivative as lightbox `fallbackSrc`.
+
+Gates, in order: `networkGuard`; session exists + has `sessionFile`, else 404.
+Then id shape-checked `^[0-9a-f]{64}$` (400).
+Check precedes transcript recovery, not every lookup.
+Request input never becomes a path component.
+Lookup scoped to that session's transcript.
+Valid digest from another session simply not found.
+No ownership table needed.
+Allow-list png/jpeg/jpg/gif/webp.
+`image/jpg` added. Alias of already-served format.
+Was fittable but not servable.
+Rendered fitted, 404'd on zoom.
+Test asserts invariant: fittable ⊆ servable.
+Lists cannot drift apart silently again.
+Serving stays stricter in general.
+`image/svg+xml` refused by both.
+Unknown session + unknown hash both return 404.
+Route cannot probe which session ids exist.
+Responses carry `nosniff` + `default-src 'none'; sandbox`.
+Cache-Control: `no-store, private`.
+Endpoint authenticated.
+Serves private user screenshots.
+Year-long `max-age` persisted bytes to browser/proxy disk caches.
+Bytes outlived session + credential that unlocked them (CWE-524).
+Content-addressing makes bytes immutable.
+Does NOT make them safe to persist.
+Cost: zoom re-fetches each time.
+Thumbnail unaffected.
+Fitted derivative already inline.
+
+**Animated GIF.** Exempt from fitting (D11). Resize would flatten animation. Detected by counting Image Descriptor `0x2C` blocks, short-circuit at 2. Stays subject to the existing ceiling.
+
+See change: fit-attachments-for-display.
+
 ### Edit Tool Diff Rendering (desktop vs mobile)
 `ToolCallStep` gates renderer mounting with `{expanded && <Renderer />}` — Edit cards default to collapsed, so no diff tokenization runs until the user expands. On expand, `EditToolRenderer` branches on `useMobile()` (the project-wide `width < 768px OR height < 600px` predicate):
 - **Desktop** (`!isMobile`): renders `<RichDiff oldText newText filePath maxHeight="20rem" />` — syntax-highlighted via `@git-diff-view/react` + lowlight, matching `FileDiffView` quality; height capped for chat scroll UX.

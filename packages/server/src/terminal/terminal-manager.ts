@@ -1,15 +1,19 @@
 /**
  * Server-side terminal session management with PTY lifecycle and output buffering.
  */
-import * as pty from "node-pty";
-import type { IPty } from "node-pty";
+
 import { randomBytes } from "node:crypto";
-import { fixPtyPermissions } from "../fix-pty-permissions.js";
-import type { TerminalSession, TerminalControlMessage } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { TerminalControlMessage, TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { IPty } from "node-pty";
+import * as pty from "node-pty";
 import type { WebSocket } from "ws";
+import { fixPtyPermissions } from "../fix-pty-permissions.js";
 
 const DEFAULT_BUFFER_SIZE = 256 * 1024; // 256KB
 
+import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { augmentEnvWithGitSource } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
+import { killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 // Delegate shell detection to the shared platform primitive. Back-compat
 // wrapper preserved so callers (and tests) that import `detectShell` from
 // this module continue to work. See change: consolidate-platform-handlers.
@@ -17,10 +21,11 @@ import {
   detectShell as platformDetectShell,
   getTerminalEnvHints as platformTerminalEnvHints,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/shell.js";
-import { killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
-import { augmentEnvWithGitSource } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
-import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { measureBytes, DEFAULT_MAX_EVENT_DATA_SIZE } from "../persistence/memory-event-store.js";
+import {
+  DEFAULT_MAX_EVENT_DATA_SIZE,
+  DEFAULT_MAX_STRING_SIZE,
+  measureBytes,
+} from "../persistence/memory-event-store.js";
 
 /**
  * Default byte budget for a captured inline-terminal transcript: 75 % of the
@@ -39,8 +44,17 @@ export const DEFAULT_TRANSCRIPT_CAP_BYTES = Math.floor(DEFAULT_MAX_EVENT_DATA_SI
  * capped transcript back over the ceiling. `maxEventDataSize = 0` (size pass
  * disabled) falls back to the default ceiling, never a 0 budget.
  * See change: preserve-inline-terminal-transcript (D2a/D2b).
+ *
+ * `maxStringFieldSize` UNSET resolves to `DEFAULT_MAX_STRING_SIZE` - the value
+ * the store actually applies - so the assert validates the production config
+ * instead of skipping it. An explicit `0` keeps its distinct meaning: the
+ * per-field string pass is disabled, so there is nothing to expand and nothing
+ * to check. See change: fit-attachments-for-display (task 5.5, test-plan #E11 #E12).
  */
-export function deriveTranscriptCapBytes(maxEventDataSize: number, maxStringFieldSize: number): number {
+export function deriveTranscriptCapBytes(
+  maxEventDataSize: number,
+  maxStringFieldSize: number = DEFAULT_MAX_STRING_SIZE,
+): number {
   const ceiling = maxEventDataSize || DEFAULT_MAX_EVENT_DATA_SIZE;
   const cap = Math.floor(ceiling * 0.75);
   if (cap >= ceiling) {

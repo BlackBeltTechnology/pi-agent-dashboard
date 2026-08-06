@@ -266,9 +266,14 @@ describe("ChatView", () => {
       images: [{ data: "abc123", mimeType: "image/png" }],
     });
     const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
+    // The thumbnail is wrapped in a real <button> so the zoom has a keyboard
+    // path; the affordance moved off the <img> with it.
     const img = container.querySelector("img");
     expect(img).not.toBeNull();
-    expect(img!.className).toContain("cursor-pointer");
+    const trigger = img!.closest("button");
+    expect(trigger).not.toBeNull();
+    expect(trigger!.className).toContain("cursor-pointer");
+    // Clicking the image still opens the lightbox — the event bubbles.
     fireEvent.click(img!);
     const lightbox = document.body.querySelector("[data-testid='lightbox-backdrop']");
     expect(lightbox).not.toBeNull();

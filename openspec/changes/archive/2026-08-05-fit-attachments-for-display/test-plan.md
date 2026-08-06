@@ -39,7 +39,7 @@ Measured constants these scenarios assert against:
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
 | P1 | Fitting does not block | event-loop lag | L1 | automated | ingest one 10 MB image | max event-loop lag < 50 ms | duration of ingest |
-| P2 | Fitting does not block | concurrency | L1 | automated | 5 × 2 MB images ingested back-to-back | max event-loop lag < 50 ms; all 5 complete | duration |
+| P2 | Fitting does not block | concurrency | L1 | DEFERRED (skipped) | 5 × 2 MB images ingested back-to-back | max event-loop lag < 50 ms; all 5 complete | duration |
 | P3 | Ceiling raise vs transport | payload-size | L1 | automated | image-bearing message, fitted | broadcast frame < 256 KB; ≪ 4 MB `MAX_WS_BUFFER` | per frame |
 | P4 | Original recovery bounded | memory | L1 | automated | cache miss on a 50 MB transcript | peak RSS delta < 50 MB (streamed, not slurped) | per request |
 | P5 | Replay of image-heavy session | soak | L3 | automated | session with 20 image-bearing messages | replay completes; no frame dropped at the gateway | full replay |
@@ -80,10 +80,17 @@ Measured constants these scenarios assert against:
 - Requirements covered: 6/6
 - Scenarios by class: edge 15 · perf 5 · frontend 9 · error 10 (39 total)
 - Scenarios by level: L1 26 · L2 0 · L3 12 · manual-only 1
-- Scenarios by disposition: automated 38 · manual-only 1
+- Scenarios by disposition: automated 37 · deferred 1 (P2, skipped) · manual-only 1
 
 ## New infra needed
 
+- **P2 is DEFERRED, not passing.** It is `it.skip` in `display-fit-perf.test.ts`, so it
+  contributes no coverage. Under the vitest runner its sample captured the burst's
+  WALL TIME (runner CPU contention + worker startup), not loop blocking, so the
+  assertion compared two numbers that do not mean what the row says. Measured
+  outside the runner both paths block ~0 ms and the pool is ~1.7x faster, which is
+  why D4 stands on throughput + CPU isolation. Re-enable only as a THROUGHPUT
+  assertion measured outside vitest.
 - **Resize worker harness** — P1/P2/X7/X8 need to observe event-loop lag and force worker
   failure. No existing L1 test measures event-loop lag; a small helper is required.
 - **Attachment-endpoint fixtures** — X1–X6 need a session with a known attachment hash and
