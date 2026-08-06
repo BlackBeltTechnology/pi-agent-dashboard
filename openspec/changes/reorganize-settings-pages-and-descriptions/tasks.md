@@ -47,15 +47,15 @@ unless stated otherwise.
 
 ## 6. Page reassignment — `dashboardName` only
 
-- [ ] 6.1 Move `dashboardName` from Sessions to **General ▸ Interface**, updating its entry in `CONFIG_FIELD_PAGE` (`:161`) from `sessions` to `general`. The symbol is `CONFIG_FIELD_PAGE`, not `PAGE_OF_KEY` — the latter does not exist.
-- [ ] 6.2 Do NOT move `tunnel.watchdog.*` to the Gateway page. `computeConfigPartial` (`:214`) emits `partial.tunnel` as one top-level key and `dirtyPages` (`:549`) attributes per top-level key, so the edit would light the Server chip wherever the JSX renders; and `GatewayPage` self-manages its own PUT rather than registering a draft source (D2). Filed as a follow-up.
+- [x] 6.1 Move `dashboardName` from Sessions to **General ▸ Interface**, updating its entry in `CONFIG_FIELD_PAGE` (`:161`) from `sessions` to `general`. The symbol is `CONFIG_FIELD_PAGE`, not `PAGE_OF_KEY` — the latter does not exist.
+- [x] 6.2 Do NOT move `tunnel.watchdog.*` to the Gateway page. `computeConfigPartial` (`:214`) emits `partial.tunnel` as one top-level key and `dirtyPages` (`:549`) attributes per top-level key, so the edit would light the Server chip wherever the JSX renders; and `GatewayPage` self-manages its own PUT rather than registering a draft source (D2). Filed as a follow-up.
 
 ## 7. General page restructure (D7, D8)
 
 - [ ] 7.1 Split `DisplayPrefsSection` (`:1795`) visually into three sub-sections — message elements / reasoning / tool calls — preserving the **single** `useSettingsDraftSource({ id: "display-prefs", page: "general" })` registration (D8).
 - [ ] 7.2 Indent `reasoningAutoCollapseMs` and `keepReasoningOpenUntilTurnEnds` beneath the reasoning toggle that gates them.
-- [ ] 7.3 **Delete** `DebugToolsToggle` (`:1720`) and the Developer-page "Chat Display" section that hosts it (`:1550`). `DisplayPrefsSection` already owns `debugTools` through the buffered draft source; this removes a duplicate control, not a section's only control. Do NOT merge it into the tool-calls sub-section.
-- [ ] 7.4 Keep the `useDebugToolsVisible` hook itself — `DEBUG_TOOL_NAMES` / `isDebugTool` have other readers (`ChatView.tsx`). Only its toggle consumer is deleted.
+- [x] 7.3 **Delete** `DebugToolsToggle` (`:1720`) and the Developer-page "Chat Display" section that hosts it (`:1550`). `DisplayPrefsSection` already owns `debugTools` through the buffered draft source; this removes a duplicate control, not a section's only control. Do NOT merge it into the tool-calls sub-section.
+- [x] 7.4 Keep the `useDebugToolsVisible` hook itself — `DEBUG_TOOL_NAMES` / `isDebugTool` have other readers (`ChatView.tsx`). Only its toggle consumer is deleted.
 - [ ] 7.5 State the user-visible consequence in the change summary: anyone who used the Developer toggle now gets Save-Bar-buffered persistence instead of instant-apply.
 
 ## 8. Server + OpenSpec restructure (D9)
@@ -91,17 +91,17 @@ All rows in this section extend `packages/client/src/components/__tests__/Settin
 - [ ] 10.16 Brand-new-only caveat is surfaced: Sessions page · the `defaultModel` callout renders · its description states the setting applies only to brand-new sessions and that a resumed session keeps its own model. See `SettingsPanel.test.tsx` (test-plan #F2).
 - [ ] 10.17 Callout uses severity tokens: Sessions page · the `defaultModel` callout renders · the callout element's class list references a `--severity-info-*` token rather than a raw Tailwind severity colour. See `SettingsPanel.test.tsx` (test-plan #F3).
 - [ ] 10.18 Sessions section order: Sessions page · page renders · section headings appear in order new-session defaults, session list, lifecycle & recovery, worktrees, retry. See `SettingsPanel.test.tsx` (test-plan #F4).
-- [ ] 10.19 `dashboardName` lives on General: General page then Sessions page · both render · `dashboardName` renders inside General ▸ Interface and the Sessions page renders no `dashboardName` field. See `SettingsPanel.test.tsx` (test-plan #F5).
-- [ ] 10.20 Watchdog stays on Server: Server page then Gateway page · both render · the `tunnel.watchdog.*` fields render on Server and the Gateway page renders none of them. See `SettingsPanel.test.tsx` (test-plan #F6).
+- [x] 10.19 `dashboardName` lives on General: General page then Sessions page · both render · `dashboardName` renders inside General ▸ Interface and the Sessions page renders no `dashboardName` field. See `SettingsPanel.test.tsx` (test-plan #F5).
+- [x] 10.20 Watchdog stays on Server: Server page then Gateway page · both render · the `tunnel.watchdog.*` fields render on Server and the Gateway page renders none of them. See `SettingsPanel.test.tsx` (test-plan #F6).
 - [ ] 10.21 Idle-shutdown control is nested: Server page · page renders · the `shutdownIdleSeconds` control's nearest indent-wrapper ancestor is a descendant of the group headed by the `autoShutdown` toggle, and `autoShutdown` is not itself inside that wrapper. See `SettingsPanel.test.tsx` (test-plan #F7).
 - [ ] 10.22 Reasoning dependents are nested: General page · chat-display renders · `reasoningAutoCollapseMs` and `keepReasoningOpenUntilTurnEnds` sit inside the indent wrapper gated by the reasoning toggle. See `SettingsPanel.test.tsx` (test-plan #F8).
 - [ ] 10.23 OpenSpec knobs are nested: OpenSpec page · page renders · the four polling knobs sit inside the indent wrapper gated by the enable-polling toggle. See `SettingsPanel.test.tsx` (test-plan #F9).
 - [ ] 10.24 Disabled control dims its hint: Server page with `autoShutdown` off · page renders · the `shutdownIdleSeconds` hint is inside the element carrying the disabled `opacity-50` treatment. See `SettingsPanel.test.tsx` (test-plan #F10).
-- [ ] 10.25 One chat-display section, on General: all settings pages · panel renders · exactly one chat-display section exists, it is on General, and the Developer page renders none. See `SettingsPanel.test.tsx` (test-plan #F12).
+- [x] 10.25 One chat-display section, on General: all settings pages · panel renders · exactly one chat-display section exists, it is on General, and the Developer page renders none. See `SettingsPanel.test.tsx` (test-plan #F12).
 - [ ] 10.26 Split sub-sections share one draft source: General page · user edits a control in one, then two, then all three chat-display sub-sections · in every case exactly one draft source reports dirty and the Save Bar shows a single General chip, never one per sub-section. See `SettingsPanel.test.tsx` (test-plan #F13).
-- [ ] 10.27 Exactly one debug-events control: every settings page rendered in turn · panel renders · exactly one control for `displayPrefs.debugTools` exists across the whole panel. See `SettingsPanel.test.tsx` (test-plan #F14).
+- [x] 10.27 Exactly one debug-events control: every settings page rendered in turn · panel renders · exactly one control for `displayPrefs.debugTools` exists across the whole panel. See `SettingsPanel.test.tsx` (test-plan #F14).
 - [ ] 10.28 Debug events commits through the draft source: General page with `fetch` observed · user toggles the debug-events control · no immediate `PATCH /api/preferences/display` is issued, the General page is marked dirty, and the value persists only on Save. See `SettingsPanel.test.tsx` (test-plan #F15).
-- [ ] 10.29 `dashboardName` lights the General chip: General page · user edits `dashboardName` · the Save Bar shows a dirty chip for General and none for Sessions. See `SettingsPanel.test.tsx` (test-plan #F17).
+- [x] 10.29 `dashboardName` lights the General chip: General page · user edits `dashboardName` · the Save Bar shows a dirty chip for General and none for Sessions. See `SettingsPanel.test.tsx` (test-plan #F17).
 - [ ] 10.30 Watchdog edit lights the Server chip: Server page · user edits a `tunnel.watchdog.*` field · the Save Bar shows a dirty chip for Server, confirming `partial.tunnel` is attributed by top-level key. See `SettingsPanel.test.tsx` (test-plan #F18).
 - [ ] 10.31 Leave guard survives the page move: General page with `dashboardName` edited and unsaved · user attempts to navigate away from the settings panel · the leave guard fires. See `SettingsPanel.test.tsx` (test-plan #F19).
 - [ ] 10.32 Wrapper toggles forward their hint: `WorktreeAutoInitToggle` and `AutoNameSessionsToggle` each rendered with a non-null `hint` · both render · the hint renders inside the wrapper's inner `ToggleField` wired via `aria-describedby`, with no orphaned description left at the outer call site. See `SettingsPanel.test.tsx` (test-plan #F20).

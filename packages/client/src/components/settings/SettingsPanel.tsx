@@ -8,7 +8,6 @@ import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
-import { useDebugToolsVisible } from "../../hooks/useDebugToolsVisible.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
@@ -163,7 +162,7 @@ const CONFIG_FIELD_PAGE: Record<string, string> = {
   tunnel: "server", memoryLimits: "server",
   spawnStrategy: "sessions", reattachPlacement: "sessions", reopenSessionsAfterShutdown: "sessions", completedFirst: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions",
-  gitWorktreeEnabled: "sessions", dashboardName: "sessions", defaultModel: "sessions",
+  gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
   trustedNetworks: "security", auth: "security",
   modelProxy: "providers",
@@ -1034,6 +1033,26 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     options={LANGUAGE_OPTIONS}
                     onChange={(v) => setLanguage(v as Language)}
                   />
+                  {/* Moved here from Sessions: it names the installed PWA, which
+                      is an interface concern, not a session one. Its
+                      CONFIG_FIELD_PAGE entry moved to "general" in the same
+                      change so the Save Bar chip follows it.
+                      See change: reorganize-settings-pages-and-descriptions. */}
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("landing.pwaDisplayName", undefined, "PWA Display Name")}</label>
+                      <input
+                        type="text"
+                        className="w-56 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
+                        placeholder={i18nT("common.autoFromHostname", undefined, "(auto from hostname)")}
+                        value={config.dashboardName ?? ""}
+                        onChange={(e) => update((c) => { c.dashboardName = e.target.value; })}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("landing.shownOnTheHomeScreenApp", undefined, "Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request")} <code>{i18nT("common.host", undefined, "Host")}</code> {i18nT("common.headerOrTheServerHostnameDistinguishe", undefined, "header (or the server hostname). Distinguishes installs from multiple machines or tunnels.")}
+                    </p>
+                  </div>
                 </Section>
                 <DisplayPrefsSection />
               </>
@@ -1280,21 +1299,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       onSelect={(v) => update((c) => { c.defaultModel = v; })}
                     />
                   </div>
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("landing.pwaDisplayName", undefined, "PWA Display Name")}</label>
-                      <input
-                        type="text"
-                        className="w-56 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-                        placeholder={i18nT("common.autoFromHostname", undefined, "(auto from hostname)")}
-                        value={config.dashboardName ?? ""}
-                        onChange={(e) => update((c) => { c.dashboardName = e.target.value; })}
-                      />
-                    </div>
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("landing.shownOnTheHomeScreenApp", undefined, "Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request")} <code>{i18nT("common.host", undefined, "Host")}</code> {i18nT("common.headerOrTheServerHostnameDistinguishe", undefined, "header (or the server hostname). Distinguishes installs from multiple machines or tunnels.")}
-                    </p>
-                  </div>
                 </Section>
                 {/* "Retry", not "Provider Retry": three of the six fields
                     (`enabled`, `maxRetries`, `baseDelayMs`) are turn-level, not
@@ -1540,13 +1544,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
             {activeTab === "developer" && (
               <>
-                <Section title={t("settings.chatDisplay", undefined, "Chat Display")}>
-                  <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                    {t("settings.chatDisplayAdvancedDescription", undefined, "Controls what is shown in the chat message stream.")}
-                  </p>
-                  <DebugToolsToggle />
-                </Section>
-                {/* Configurable chat display (configurable-chat-display). */}
+                {/* The Developer "Chat Display" section is gone: its only control
+                    was a second toggle for displayPrefs.debugTools, which
+                    DisplayPrefsSection already owns through the buffered
+                    display-prefs draft source. The two desynced until reload
+                    because this one PATCHed immediately. Chat-display
+                    preferences now live only on General.
+                    See change: reorganize-settings-pages-and-descriptions (D7). */}
                 <Section title={t("settings.developer", undefined, "Developer")}>
                   <ToggleField label={t("settings.devBuildOnReload", undefined, "Dev Build on Reload")} value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} hint={i18nT("settings.hint.devBuildOnReload", undefined, "Rebuild the web client each time you reload sessions. Slower reloads, but you see client edits without a manual build.")} />
                   <ToggleField
@@ -1709,19 +1713,6 @@ function UnsavedChangesDialog({ saving, onSave, onDiscard, onCancel }: {
         </div>
       </div>
     </DialogPortal>
-  );
-}
-
-function DebugToolsToggle() {
-  const { t } = useI18n();
-  const [visible, setVisible] = useDebugToolsVisible();
-  return (
-    <ToggleField
-      hint={null}
-      label={t("settings.showDebugEvents", undefined, "Show debug events (raw events, flow:list-flows, resources_discover)")}
-      value={visible}
-      onChange={setVisible}
-    />
   );
 }
 
