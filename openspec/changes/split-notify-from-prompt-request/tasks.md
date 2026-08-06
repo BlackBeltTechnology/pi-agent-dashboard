@@ -12,7 +12,7 @@
 - [x] 2.3 Test: legacy notify does not create a pending prompt and is delivered normalized — see `packages/server/src/__tests__/prompt-derived-tool-state.integration.test.ts`. Triple: old-bridge `prompt_request{prompt.type:"notify"}` · server guard runs · subscribers receive a `notify`, never the raw frame; registry untouched (test-plan #X9)
 - [x] 2.4 Test: legacy unrecognized level normalized — see same file. Triple: `component.props.level:"debug"` · guard normalizes · delivered notify carries `level:"info"` (test-plan #E5)
 - [x] 2.5 Test: no re-arm after a turn, legacy shape — see same file. Triple: session received legacy notify · `tool_execution_start{bash}` → `tool_execution_end` · `currentTool === null`, not `"ask_user"` (test-plan #X4). MUST fail before 2.1
-- [ ] 2.6 Restart the server (`curl -X POST http://localhost:8000/api/restart`) and confirm a freshly spawned session no longer reads "Needs you" at rest
+- [x] 2.6 Restart the server (`curl -X POST http://localhost:8000/api/restart`) and confirm a freshly spawned session no longer reads "Needs you" at rest — verified on the live instance with this branch deployed (`/api/health#notifyLog` present, new pid): over an 80s at-rest window no session flipped to `ask_user`, and a previously stuck session cleared to `null` on the restart (design Decision 5). The two remaining `ask_user` sessions are genuinely parked on real prompts.
 
 ## 3. Server notify log (durability — Contract 2)
 
@@ -46,7 +46,7 @@
 - [x] 5.5 Test: success level survives. Triple: `ctx.ui.notify("done","success")` · proxy runs · frame carries `level:"success"` (test-plan #E3)
 - [x] 5.6 Test: unrecognized level normalized at send site. Triple: `ctx.ui.notify("x","debug")` · proxy runs · frame carries `level:"info"` (test-plan #E4)
 - [x] 5.7 Test: notify never enters PromptBus. Triple: `ctx.ui.notify(...)` · proxy runs · `getPendingRequests()` gains no entry and the reconnect resend omits it (test-plan #E12)
-- [ ] 5.8 `npm run reload` and confirm a live notify still renders
+- [x] 5.8 `npm run reload` and confirm a live notify still renders — reload succeeded across all live sessions on the branch build (new `bridge.ts` + `notify-proxy.ts` load cleanly, no session lost). Live notify RENDER verified in the docker harness through the real `ctx.ui.notify` path (`tests/e2e/notify-channel.spec.ts`, `[[faux:notify-probe]]`), since no extension emitted a notify during the live window.
 
 ## 6. Client render-only path
 
