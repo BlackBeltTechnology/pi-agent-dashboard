@@ -14,6 +14,7 @@ import type {
   BrowserPromptCancelMessage,
   BrowserExtUiDecoratorMessage,
   BrowserAssetRegisterMessage,
+  BrowserNotifyMessage,
   RecoveryDismissMessage,
   BatchQuestion,
   BatchAnswer,
@@ -22,6 +23,7 @@ import type {
   ExtensionToServerMessage,
   ExtUiDecoratorMessage,
   AssetRegisterMessage,
+  NotifyMessage,
 } from "../protocol.js";
 import type { DecoratorDescriptor } from "../types.js";
 
@@ -40,6 +42,10 @@ type _ExtUiDecoratorInBrowserUnion   = AssertExtends<BrowserExtUiDecoratorMessag
 // the server→browser union (so the client's reducer arm survives esbuild).
 type _AssetRegisterInExtensionUnion = AssertExtends<AssetRegisterMessage, ExtensionToServerMessage>;
 type _AssetRegisterInBrowserUnion   = AssertExtends<BrowserAssetRegisterMessage, ServerToBrowserMessage>;
+// split-notify-from-prompt-request: notify must live in BOTH unions so the
+// server's dispatch arm and the client's reducer arm survive esbuild.
+type _NotifyInExtensionUnion = AssertExtends<NotifyMessage, ExtensionToServerMessage>;
+type _NotifyInBrowserUnion   = AssertExtends<BrowserNotifyMessage, ServerToBrowserMessage>;
 // fix-recovery-offer-dismiss-and-phantom-reopen: recovery_dismiss must live in
 // the browser→server union so the server's switch arm survives esbuild.
 type _RecoveryDismissInBrowserToServerUnion = AssertExtends<RecoveryDismissMessage, BrowserToServerMessage>;
@@ -111,6 +117,53 @@ describe("ServerToBrowserMessage includes PromptBus messages", () => {
       { confirmed: true },
     ];
     expect(answers).toHaveLength(4);
+  });
+});
+
+// split-notify-from-prompt-request: notify switch-arm reachability (test-plan #E10).
+function extractNotifyId(msg: ServerToBrowserMessage): string | null {
+  switch (msg.type) {
+    case "notify":
+      return msg.notifyId;
+    default:
+      return null;
+  }
+}
+
+describe("notify is a member of both protocol unions", () => {
+  it("server→browser notify is a statically known discriminant", () => {
+    const msg: BrowserNotifyMessage = {
+      type: "notify",
+      sessionId: "s1",
+      notifyId: "n1",
+      message: "hello",
+      level: "info",
+    };
+    expect(extractNotifyId(msg)).toBe("n1");
+  });
+
+  it("extension→server notify needs no cast at the send site", () => {
+    // No `as any`: the object literal is assignable to the union directly.
+    const msg: ExtensionToServerMessage = {
+      type: "notify",
+      sessionId: "s1",
+      notifyId: "n1",
+      message: "hello",
+      level: "success",
+    };
+    expect(msg.type).toBe("notify");
+  });
+
+  it("carries no promptId / component / placement", () => {
+    const msg: NotifyMessage = {
+      type: "notify",
+      sessionId: "s1",
+      notifyId: "n1",
+      message: "hello",
+    };
+    const parsed = JSON.parse(JSON.stringify(msg));
+    expect(parsed).toEqual({ type: "notify", sessionId: "s1", notifyId: "n1", message: "hello" });
+    expect("level" in parsed).toBe(false);
   });
 });
 

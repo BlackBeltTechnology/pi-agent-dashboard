@@ -12,34 +12,20 @@ const levelColors: Record<string, string> = {
 /**
  * Renders `ctx.ui.notify(...)` calls forwarded by the bridge as a chat row.
  *
- * Bridge wraps `ctx.ui.notify(message, level)` and emits a `prompt_request`
- * with this shape:
- *   prompt:    { question: <message>, type: "notify" }
- *   component: { type: "notify", props: { message, level } }
+ * Reached through the interactive-renderer registry from the `interactiveUi`
+ * row the notify reducer appends. Notify no longer rides the prompt envelope,
+ * so the canonical shape is `params.message` / `params.level`.
+ * `params.title` remains as the fallback for a row reduced from a pre-split
+ * `prompt_request { prompt.type: "notify" }` that is still in a client's state.
  *
- * `useMessageHandler` flattens these into reducer params as:
- *   params.title                          = msg.prompt.question  (= message)
- *   params._promptBusComponent.props.{message, level}
- *
- * Read defensively from all known shapes — `params.message` / `params.level`
- * (legacy direct emission), `params.title` (PromptBus question field), and
- * `params._promptBusComponent.props.*` (the canonical bridge wrapper output).
- *
- * See change: add-rpc-stdin-dispatch-with-keeper-sidecar — Path C made
- * extension `ctx.ui.notify` calls actually reach the dashboard for headless
- * sessions, exposing that this renderer was reading the wrong fields.
+ * See change: split-notify-from-prompt-request.
  */
 export function NotifyRenderer({ params }: InteractiveRendererProps) {
-  const componentProps = (params._promptBusComponent as { props?: { message?: string; level?: string } } | undefined)?.props;
   const message =
     (params.message as string | undefined) ??
     (params.title as string | undefined) ??
-    componentProps?.message ??
     "";
-  const level =
-    (params.level as string | undefined) ??
-    componentProps?.level ??
-    "info";
+  const level = (params.level as string | undefined) ?? "info";
 
   if (!message) return null;
 

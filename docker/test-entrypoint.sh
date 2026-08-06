@@ -152,6 +152,18 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     echo "[test-entrypoint] PI_E2E_SEED: staged faux extension → ${FAUX_EXT_DIR}"
   fi
 
+  # --- ctx.ui.notify driver: the only L3 lever on the notify path ---
+  # The faux model can emit tool calls but cannot call `ctx.ui.notify`, so the
+  # `notify-probe` scenario calls this fixture's `e2e_notify` tool instead.
+  # See change: split-notify-from-prompt-request.
+  NOTIFY_EXT_DIR="${PI_DIR}/agent/extensions/e2e-notify"
+  if [ -f "${FAUX_SRC}/e2e-notify.ext.ts" ] && [ ! -f "${NOTIFY_EXT_DIR}/index.ts" ]; then
+    mkdir -p "${NOTIFY_EXT_DIR}"
+    cp "${FAUX_SRC}/e2e-notify.ext.ts" "${NOTIFY_EXT_DIR}/index.ts"
+    ln -sfn /app/node_modules "${NOTIFY_EXT_DIR}/node_modules"
+    echo "[test-entrypoint] PI_E2E_SEED: staged notify driver → ${NOTIFY_EXT_DIR}"
+  fi
+
   # Also seed pi's own settings.json defaultModel (read at pi startup) so the
   # faux model is selected even before the bridge gate runs. Merge — never
   # clobber existing keys. No-op when already set.
@@ -346,17 +358,25 @@ JSON
 
     register_flows() {
       ln -sfn "${PF_GLOBAL}" "${NM}/pi-flows"
+      # Tool-name precedence is FIRST-registration-wins across packages[]
+      # (pi `ExtensionRunner.getAllRegisteredTools`). pi-flows registers its own
+      # `ask_user` ({question,type}) at LOAD time, so if it precedes the
+      # dashboard bridge every faux `ask_user` scenario fails schema validation
+      # and no interactive widget ever mounts. Pin the bridge FIRST so the
+      # dashboard's `ask_user` ({method,title}) is the one the agent calls.
+      # See change: split-notify-from-prompt-request.
       node -e '
         const fs = require("node:fs");
         const path = require("node:path");
-        const [p, dir] = process.argv.slice(1);
+        const [p, dir, bridge] = process.argv.slice(1);
         let s = {};
         try { s = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
         if (!Array.isArray(s.packages)) s.packages = [];
         if (!s.packages.includes(dir)) s.packages.push(dir);
+        s.packages = [bridge, ...s.packages.filter((e) => e !== bridge)];
         fs.mkdirSync(path.dirname(p), { recursive: true });
         fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
-      ' "${SETTINGS}" "${PF_GLOBAL}"
+      ' "${SETTINGS}" "${PF_GLOBAL}" "/app/packages/extension"
     }
 
     case "${PI_TEST_PEERS}" in

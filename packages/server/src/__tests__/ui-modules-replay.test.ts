@@ -46,6 +46,7 @@ function createCtx(overrides: Partial<BrowserHandlerContext> = {}): BrowserHandl
     getSubscribers: () => [],
     trackUiRequest: vi.fn(),
     replayPendingUiRequests: vi.fn(),
+    replayNotifyLog: vi.fn(),
     markReplaying: vi.fn(),
     clearReplaying: vi.fn(),
     ...overrides,

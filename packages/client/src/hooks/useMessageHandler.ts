@@ -16,7 +16,7 @@ import type { DiscoveredServerInfo } from "../components/connectivity/ServerSele
 import type { ToastVariant } from "../components/primitives/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
-import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
+import { addInteractiveRequest, addNotify, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
 import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 import { t } from "../lib/i18n/i18n.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
@@ -902,6 +902,20 @@ export function useMessageHandler(
           const current = next.get(msg.sessionId);
           if (!current) return prev;
           const updated = dismissInteractiveRequest(current, msg.requestId);
+          if (updated === current) return prev;
+          next.set(msg.sessionId, updated);
+          return next;
+        });
+        break;
+
+      // Notify: a render-only chat row. NEVER `addInteractiveRequest` — that
+      // would recreate the phantom "user is blocked" state.
+      // See change: split-notify-from-prompt-request.
+      case "notify":
+        setSessionStates((prev) => {
+          const next = new Map(prev);
+          const current = next.get(msg.sessionId) ?? createInitialState();
+          const updated = addNotify(current, msg.notifyId, msg.message, msg.level);
           if (updated === current) return prev;
           next.set(msg.sessionId, updated);
           return next;
