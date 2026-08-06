@@ -113,8 +113,8 @@ All rows in this section extend `packages/client/src/components/__tests__/Settin
 
 Both rows follow `tests/e2e/plugin-settings-pages.spec.ts`. Read the dashboard port from `.pi-test-harness.json` (`dashboardPort`) — never hardcode `:18000`.
 
-- [ ] 11.1 Debug-events persistence converges: harness dashboard at `dashboardPort`, Settings ▸ General · toggle debug events and reload without saving, then toggle, Save, and reload · after the unsaved reload the control shows the original value, and after the saved reload it shows the new value. See `tests/e2e/plugin-settings-pages.spec.ts` (test-plan #F16).
-- [ ] 11.2 Every shared field is named and described in a real browser: harness dashboard at `dashboardPort`, each settings page visited in turn · pages render · every control from the four shared components exposes a non-empty accessible name, and every control with a visible hint exposes a matching accessible description. See `tests/e2e/plugin-settings-pages.spec.ts` (test-plan #F23).
+- [x] 11.1 Debug-events persistence converges: harness dashboard at `dashboardPort`, Settings ▸ General · toggle debug events and reload without saving, then toggle, Save, and reload · after the unsaved reload the control shows the original value, and after the saved reload it shows the new value. See `tests/e2e/plugin-settings-pages.spec.ts` (test-plan #F16).
+- [x] 11.2 Every shared field is named and described in a real browser: harness dashboard at `dashboardPort`, each settings page visited in turn · pages render · every control from the four shared components exposes a non-empty accessible name, and every control with a visible hint exposes a matching accessible description. See `tests/e2e/plugin-settings-pages.spec.ts` (test-plan #F23).
 
 ## 12. Manual verification (deferred post-merge)
 

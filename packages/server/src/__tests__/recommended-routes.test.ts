@@ -29,6 +29,7 @@ vi.mock("../package/npm-search-proxy.js", async (importActual) => {
 });
 
 import { fetchPackageMeta, fetchGithubPackageJson } from "../package/npm-search-proxy.js";
+import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 import {
 	registerRecommendedRoutes,
 	invalidateRecommendedCache,
@@ -302,7 +303,9 @@ describe("GET /api/packages/recommended", () => {
 		const body = JSON.parse(res.payload);
 		expect(body.success).toBe(true);
 		const entries = body.data.recommended;
-		expect(entries).toHaveLength(19);
+		// Derived from the manifest, not hardcoded: a literal count silently goes
+		// stale the moment an entry is added, which is exactly how this broke.
+		expect(entries).toHaveLength(RECOMMENDED_EXTENSIONS.length);
 		// Every entry falls back to fallbackDescription and has no version.
 		for (const e of entries) {
 			expect(typeof e.description).toBe("string");

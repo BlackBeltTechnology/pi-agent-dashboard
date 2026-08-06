@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { gotoDashboard } from "./helpers/index.js";
 
 /**
  * L3 browser behaviour for the settings field name/description contract
@@ -17,15 +18,24 @@ import { expect, type Page, test } from "@playwright/test";
  * Playwright baseURL already carries it, so never hardcode :18000.
  */
 
-/** Hard-navigate to a settings page and wait for the rail. */
-async function gotoSettings(page: Page, path: string) {
-  await page.goto(path);
+/**
+ * Open Settings the way a user does — through the header button.
+ * A deep `page.goto("/settings/...")` on a fresh container renders the
+ * dashboard instead (the route does not take before the app has settled), so
+ * the click is the reliable entry point.
+ */
+async function openSettings(page: Page) {
+  await gotoDashboard(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).first().click();
   await expect(page.getByTestId("settings-nav-rail")).toBeVisible({ timeout: 20_000 });
 }
 
-/** Move between pages through the rail, in the SAME document. */
-async function railGoto(page: Page, label: string | RegExp) {
-  await page.getByTestId("settings-nav-rail").getByRole("button", { name: label }).click();
+/**
+ * Move between pages through the rail, in the SAME document.
+ * `exact` matters: "Server" is also a substring of "Remote Servers".
+ */
+async function railGoto(page: Page, label: string) {
+  await page.getByTestId("settings-nav-rail").getByRole("button", { name: label, exact: true }).click();
 }
 
 const PAGES = ["General", "Server", "Sessions", "OpenSpec", "Developer"] as const;
@@ -33,7 +43,7 @@ const PAGES = ["General", "Server", "Sessions", "OpenSpec", "Developer"] as cons
 test.describe("settings field descriptions", () => {
   // test-plan #F23
   test("every shared field control has an accessible name, and a visible hint is its description", async ({ page }) => {
-    await gotoSettings(page, "/settings/general");
+    await openSettings(page);
 
     for (const label of PAGES) {
       await railGoto(page, label);
@@ -67,7 +77,8 @@ test.describe("settings field descriptions", () => {
   // test-plan #F16 — debugTools now commits through the buffered draft source,
   // so an unsaved toggle must NOT survive a reload, and a saved one must.
   test("debug-events persists only on Save", async ({ page }) => {
-    await gotoSettings(page, "/settings/general");
+    await openSettings(page);
+    await railGoto(page, "General");
 
     const toggleFor = (name: string) =>
       page.locator("div").filter({ hasText: new RegExp(`^${name}$`) }).locator("button").first();
@@ -79,8 +90,8 @@ test.describe("settings field descriptions", () => {
     // 1. Toggle, then reload WITHOUT saving — the change must be discarded.
     await debugToggle.click();
     await expect(page.getByTestId("settings-save-bar")).toBeVisible();
-    await page.goto("/settings/general");
-    await expect(page.getByTestId("settings-nav-rail")).toBeVisible({ timeout: 20_000 });
+    await openSettings(page);
+    await railGoto(page, "General");
     await expect(toggleFor("Debug events")).toHaveAttribute("class", before ?? "");
 
     // 2. Toggle and Save — now it must survive a reload.
@@ -88,8 +99,8 @@ test.describe("settings field descriptions", () => {
     await page.getByTestId("save-btn").click();
     await expect(page.getByTestId("settings-save-bar")).toBeHidden({ timeout: 20_000 });
 
-    await page.goto("/settings/general");
-    await expect(page.getByTestId("settings-nav-rail")).toBeVisible({ timeout: 20_000 });
+    await openSettings(page);
+    await railGoto(page, "General");
     await expect(toggleFor("Debug events")).not.toHaveAttribute("class", before ?? "");
   });
 });
