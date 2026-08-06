@@ -12,6 +12,20 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- OAuth redirect URIs can now be pinned to a fixed public origin with the new
+  `auth.redirectBaseUrl` field in `~/.pi/dashboard/config.json`. Dashboards
+  behind a reverse proxy on a stable custom domain (`https://pi.example.com` →
+  nginx → `:8000`) previously had no supported way to state their public origin:
+  the redirect URI was always derived from the active tunnel URL, falling back
+  to `http://localhost:<port>`, which every provider rejects with
+  `redirect_uri_mismatch`. The configured base now takes precedence over the
+  tunnel, applies to the authorize redirect and the token exchange alike, and
+  changes take effect through `PUT /api/config` without a restart. A base that
+  is not an absolute `http(s)` origin is still used but logs a warning naming
+  the field, so a typo surfaces in the log instead of as an unexplained login
+  loop. The field affects OAuth only — pairing QR codes and
+  `GET /api/tunnel/endpoints` still advertise the tunnel URL.
+
 ### Changed
 
 ### Fixed

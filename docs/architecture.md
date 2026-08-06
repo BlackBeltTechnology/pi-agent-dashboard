@@ -1094,6 +1094,40 @@ Optional OAuth2 authentication protects the dashboard when accessed remotely.
 8. WebSocket upgrade requests are also validated — external connections without valid cookie or trusted network get 401
 9. Supported providers: GitHub (hardcoded endpoints), Google/Keycloak/OIDC (via OIDC discovery)
 
+#### `auth.redirectBaseUrl` — reverse-proxy OAuth base
+
+Optional string field in `~/.pi/dashboard/config.json`. No default. Absent = previous behaviour unchanged. Change: `config-override-oauth-redirect-base`.
+
+**Purpose.** Dashboard behind reverse proxy on stable custom domain: `https://pi.example.com` → nginx → `:8000`, no dashboard-managed tunnel. Without field `buildRedirectUri()` emits `http://localhost:8000/auth/callback/github`. Provider rejects with `redirect_uri_mismatch`.
+
+**Base precedence** (`buildRedirectUri(provider, port, baseOverride?)`, `packages/server/src/auth/auth.ts`):
+1. `auth.redirectBaseUrl` — highest
+2. `getTunnelUrl()` — active tunnel
+3. `http://localhost:<port>` — fallback
+
+Trailing slashes stripped from winning base. Empty string treated as absent — falls through.
+
+**Path prefix supported.** `https://pi.example.com/pi` → `https://pi.example.com/pi/auth/callback/github`.
+
+**Call sites** (`packages/server/src/auth/auth-plugin.ts`):
+- `/auth/login` — single-provider auto-redirect
+- `/auth/start/:provider` — authorize redirect
+- `/auth/callback/:provider` — token exchange
+
+OAuth2 requires token-endpoint `redirect_uri` byte-identical to authorize-endpoint one.
+
+**Operator MUST register same callback URL with provider too** (GitHub/Google/Keycloak app settings). Config field alone not enough.
+
+**Hot reload.** `PUT /api/config` → `writeConfigPartial` → `loadConfig()` → `fastify._reloadAuth(newConfig)` → `authState.redirectBaseUrl` reassigned. No restart needed.
+
+**Trap — boot-time empty provider registry.** `registerAuthPlugin` returns early on zero resolvable providers ("Auth configured but no providers resolved — auth disabled") BEFORE registering `/auth/*` routes and BEFORE installing `_reloadAuth`. Server booted with zero resolvable OAuth providers → any `auth.*` change via `PUT /api/config` inert until restart.
+
+**Validation** (`warnOnInvalidRedirectBase()`, `packages/server/src/auth/auth.ts`). Warns at plugin registration + every auth reload when value not absolute `http`/`https` origin, or carries query string / fragment. Value still USED, never discarded — typo = visible provider rejection + log line, not silent no-op.
+
+**Scope — OAuth redirect URIs only.** Pairing QR codes, `GET /api/tunnel/endpoints`, "Accessible at" surfaces still derive from `getTunnelUrl()`. Dashboard with `redirectBaseUrl` set advertises tunnel host in those places. Known + accepted. Future top-level `publicBaseUrl` would unify.
+
+**No Settings UI field.** `writeConfigPartial` accepts key; `SettingsPanel.tsx` never sends it. Config-file edit only.
+
 ### Server-Keypair Device Pairing
 
 Second auth path beside OAuth. Pairs a device to a server via QR/copy-string. Mints long-lived bearer token. Change: `add-server-keypair-pairing`.
@@ -1301,6 +1335,7 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `tunnel.tailscale` | — | `{authKey}`. tailscale sub-config |
 | `tunnel.zerotier` | — | `{networkId}`. zerotier sub-config |
 | `tunnel.reservedToken` | _(auto)_ | Legacy bare zrok token. Read-time shim resolves to `{provider:"zrok", mode:"public", zrok:{reservedToken}}` in loadConfig. No disk rewrite until next save. Explicit `provider` wins on conflict |
+| `auth.redirectBaseUrl` | — | Optional OAuth redirect base for reverse-proxy deployments (`https://host[/prefix]`). Overrides tunnel/localhost base in `buildRedirectUri`. No default; absent = previous behaviour |
 
 ### Tunnel Lifecycle
 
