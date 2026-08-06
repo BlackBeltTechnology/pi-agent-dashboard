@@ -11,12 +11,24 @@ the project owns until it manifests as a hung session in production.
 
 Biome 2.5.1 already ships the fix. The `types` domain (type-aware inference) and
 the structural `noImportCycles` / `noUndeclaredDependencies` rules are installed,
-cost ~2s across 1879 files, and are simply not enabled. A probe found 169 real
-findings, including a latent publish bug.
+cost ~2s across 1879 files, and are simply not enabled. A probe over the whole
+`packages/` tree found **170 structural findings** (142 floating promises, 11
+misused, 17 cycles) plus **1370 undeclared-dependency findings**, including a
+class of latent publish bugs across 12 manifests.
 
-This change flips the severities. It is deliberately the **third** rung: the
-ratchet is one-way and requires a green tree first, so it is blocked on both
-cleanup changes.
+This change flips the severities. It is deliberately the **last cleanup-dependent**
+rung: the ratchet is one-way and requires a green tree first, so it is blocked on
+**all four** cleanup changes, each of which owns a disjoint slice:
+
+| Blocking change | Clears |
+|---|---|
+| `cleanup-undeclared-dependencies` | `noUndeclaredDependencies` (all 1398) |
+| `cleanup-client-plugin-promises` | 88 floating + all 11 misused |
+| `cleanup-async-semantics-server-extension` | 54 floating (server + extension) |
+| `cleanup-import-cycles` | all 17 cycles |
+
+`noFloatingPromises` reaches zero only when **two** of them have landed; a flip
+attempted after either alone will fail.
 
 ## What Changes
 
@@ -26,8 +38,12 @@ cleanup changes.
   (`biome lint . --only=<rule>` reports zero), they graduate straight to `error`
   rather than resting at `warn`.
 - **Enable the structural rules** at `error`: `suspicious.noImportCycles`,
-  `correctness.noUndeclaredDependencies` (the latter relies on the
-  `__tests__/**` override added by `cleanup-lint-debt-mechanical`).
+  `correctness.noUndeclaredDependencies`. The latter depends on **all four**
+  parts of `cleanup-undeclared-dependencies`: the `__tests__/**` override (~1288
+  findings), the build/config override glob (~34), the ~18 runtime dependency
+  declarations across 12 manifests (~48 sites), and the policy for the 28
+  findings outside `packages/`. Any one left undone leaves the rule non-zero and
+  this flip impossible.
 - **Evaluate, do not assume, the remaining type-aware rules.** `useAwaitThenable`
   (235 findings), `noUnnecessaryConditions` (296), `noBaseToString` (18),
   `useExhaustiveSwitchCases` (4) were measured but NOT triaged. Biome's type
@@ -38,6 +54,10 @@ cleanup changes.
 - **Extend `docs/code-quality.md`** with the graduated rules and their tier
   placement, and record the nearest-manifest/hoisting caveat that makes
   `noUndeclaredDependencies` unusable without the test override.
+- **Record the grandfathered blind spot.** The test-file override silences 1288
+  findings permanently, only ~1030 of which are `vitest`. Once the rule is at
+  `error`, test files can accumulate undeclared imports with no signal. The
+  graduation entry must name this hole rather than imply a clean zero.
 - **CI inherits automatically** — `ci.yml` already runs `biome lint .`, so
   `error`-tier rules gate PRs with no workflow edit.
 
@@ -58,7 +78,9 @@ cleanup changes.
 ## Non-Goals
 
 - Fixing violations. Both cleanups land first; this change flips switches on an
-  already-green tree.
+  already-green tree. **Verify that green, do not assume it** — re-probe each
+  rule at zero before flipping it, since the tree moves under active development
+  (the floating-promise count drifted 141 → 142 during planning alone).
 - Adding a new analysis engine (`add-semgrep-knip-oracles`).
 - Changing the `quality:changed` script's shape — the rules ride the existing
   `biome check --changed` invocation.
