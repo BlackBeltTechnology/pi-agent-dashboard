@@ -95,6 +95,20 @@ export interface PluginRequirements {
   binaries?: string[];
   /** Named service probes (closed built-in registry; "pi-model-proxy" only in V1). */
   services?: string[];
+  /**
+   * Absolute filesystem paths that must exist — the "where does this live"
+   * question for a `.app`-bundled or otherwise non-PATH binary (e.g. iMCP's
+   * `/Applications/iMCP.app/Contents/MacOS/imcp-server`, which the `binaries`
+   * PATH probe cannot see). An entry MAY be a single `${<configKey>}`
+   * placeholder resolved from the declaring plugin's own validated config
+   * before probing; the key must exist in `configSchema` and resolve to an
+   * absolute path, else the requirement is unsatisfied (never a throw). This
+   * is a config read and an existence check only — never a shell expansion,
+   * never an execution of the path.
+   *
+   * See change: add-apple-tools-imcp-plugin.
+   */
+  paths?: string[];
 }
 
 /**

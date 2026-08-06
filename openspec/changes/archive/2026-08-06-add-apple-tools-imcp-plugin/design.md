@@ -187,13 +187,46 @@ This makes the `dependencies` declaration purely documentary — legible in the 
 |---|---|
 | Provisioning status readout (terminal state from Decision 2) | plugin `server/` calling the shared checker |
 | `[Run installer]` action | same, write mode |
-| iMCP server enable/disable | adapter's `disabled` field, written to the **project-local `.pi/mcp.json`** — the adapter's highest-precedence layer and its documented write target for that flag. Deliberately a different file from `~/.pi/agent/mcp.json`, where the installer writes `command`: the flag *overrides* the lower layer rather than editing it, so disabling never mutates the installer's entry. |
+| iMCP server enable/disable | adapter's `disabled` field. **Both levels are supported** (amended — see below): the global panel writes `~/.pi/agent/mcp.json`; a project-scoped caller writes `<cwd>/.pi/mcp.json`, the adapter's highest-precedence layer, which folds over the global value without mutating it. |
 | `directTools` selection | adapter setting — promotes hot iMCP tools to direct pi tools |
 | `imcp-server` path override | our `configSchema`; also the value interpolated into the `paths` requirement (Decision 1) |
 
 **Explicitly absent:** per-service toggles (Calendar on, Messages off). TCC-only, no API. The panel links out to the menu bar instead of faking a control it cannot honour.
 
-**Why under the plugin row** rather than a dedicated settings page: `openspec/specs/dashboard-plugin-loader/spec.md:1043` requires plugin `settings-section` claims to render only beneath the owning plugin's row, keeps `claim.tab` inert at runtime, and forbids `SettingsPanel.tsx` from importing `SettingsSectionSlot`. An earlier draft of this design specified a dedicated `apple-tools` page; that would have required amending a deliberate recent decision and adding a `SettingsTab` union member — both outside this change's scope. Conforming costs this panel nothing it needs.
+**Amendment (implementation) — disable scope, and where adapter-owned settings live.**
+An earlier draft of this table specified the project-local `.pi/mcp.json` as the
+*only* write target for `disabled`. That contradicted this same decision's
+placement of the panel as a **global** `settings-section` under the plugin's own
+row, which carries no `cwd` — leaving the toggle with nowhere to write. Both
+levels are therefore supported by one writer (`setServerDisabled(io, path, …)`):
+
+- **global** → `~/.pi/agent/mcp.json` (the layer the installer already writes
+  `command` to; the target for the global panel),
+- **project** → `<cwd>/.pi/mcp.json` (highest precedence; overrides the global
+  value without mutating it). The `cwd` is browser-supplied, so it is validated
+  against `host.knownFolderCwds` before any write.
+
+Relatedly, `directTools` and `disabled` are **adapter-owned** and live on the
+`mcpServers.iMCP` entry (`ServerEntry.directTools?: boolean | string[]`,
+`isServerDisabled` → literal `true` only — both verified against the installed
+`pi-mcp-adapter` v2.19.0). They are deliberately NOT in our `configSchema`: our
+plugin config store holds `imcpServerPath` alone. Keeping them in `mcp.json`
+makes the panel's controls actually take effect — an earlier implementation
+persisted them into our own config store, where nothing consumed them.
+
+**Superseded during implementation — settings now live on a dedicated page.**
+While this change was in its worktree, `develop` landed `plugin-settings-pages`,
+which moved every plugin's `settings-section` contribution out of the Plugins
+list and onto its own route `/settings/plugins/<id>` (`PluginsSection.tsx`:
+"Settings are never rendered inline here"). The row's settings-gear now
+*navigates* there instead of expanding inline. This change conforms: it still
+declares a plain `settings-section` claim with **no `tab` field**, so it is
+carried to the plugin's own page automatically and needs no code change — only
+the scenario's observable moved (`plugin-settings-page-<id>` rather than an
+inline row container). The paragraph below records the original reasoning, which
+still holds for why this change never added a `SettingsTab` union member.
+
+**Why not a bespoke settings page of our own** (original reasoning): `openspec/specs/dashboard-plugin-loader/spec.md:1043` requires plugin `settings-section` claims to render only beneath the owning plugin's row, keeps `claim.tab` inert at runtime, and forbids `SettingsPanel.tsx` from importing `SettingsSectionSlot`. An earlier draft of this design specified a dedicated `apple-tools` page; that would have required amending a deliberate recent decision and adding a `SettingsTab` union member — both outside this change's scope. Conforming costs this panel nothing it needs.
 
 ### 6. Skill checks provisioning on load
 

@@ -62,6 +62,7 @@ describe("PluginStatusStore.recordBridgeProbe", () => {
         piExtensions: [{ name: "pi-web-access", satisfied: false }],
         binaries: [{ name: "zrok", satisfied: true, resolvedPath: "/usr/bin/zrok" }],
         services: [{ name: "pi-model-proxy", satisfied: false, error: "unreachable" }],
+        paths: [],
       },
       missingRequirements: ["pi-web-access", "pi-model-proxy"],
     });

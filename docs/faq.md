@@ -2636,3 +2636,34 @@ Fix: edit ~/.pi/agent/hermes-memory-config.json → `flushOnCompact:false`, `flu
 Cross-refs:
 - ~/.pi/agent/pi-hermes-memory/failures.md
 - ~/.pi/agent/hermes-memory-config.json
+
+## How do I reach Apple Calendar / Contacts / Reminders from pi?
+
+macOS ≥ 15.3. iMCP menu-bar app + `pi-mcp-adapter`.
+
+Steps:
+1. `pi install npm:@blackbelt-technology/pi-dashboard-apple-tools`.
+2. `pi-apple-tools-install` — provisions iMCP config (writes `mcp.json` + `settings.json`).
+3. Grant permissions in **iMCP menu-bar app**. Manual, unautomatable.
+
+Provisioning states (`pi-apple-tools-install --check`): `CONFIG_WRITE_FAILED` · `READY_PENDING_GRANTS` · `READY`. `READY_PENDING_GRANTS` = everything wired, permissions still needed. Manual remediation, not re-running installer.
+
+Reached via `pi-mcp-adapter` — loaded as `packages[]` entry in `~/.pi/agent/settings.json`.
+
+See change: add-apple-tools-imcp-plugin.
+
+Cross-refs:
+- packages/apple-tools/README.md
+- packages/apple-tools/.pi/skills/apple-tools/SKILL.md
+
+## Why can't I read Apple Mail through iMCP?
+
+iMCP exposes no Mail service. "Messages" = iMessage/SMS, not email.
+
+Email: use `apple-mail-fast-export` skill — exports `.eml` files.
+
+See change: add-apple-tools-imcp-plugin.
+
+Cross-refs:
+- packages/apple-tools/README.md
+- packages/apple-tools/.pi/skills/apple-tools/SKILL.md
