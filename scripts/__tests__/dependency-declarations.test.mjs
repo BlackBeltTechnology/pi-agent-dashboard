@@ -13,7 +13,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { rangeIsSatisfiable, selectRange } from '../verify-published-imports.mjs';
+import { rangeIsSatisfiable, selectHostPeerRange, selectRange } from '../verify-published-imports.mjs';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
@@ -158,6 +158,33 @@ describe('no wildcard ranges (E22)', () => {
       const range = rootManifest.peerDependencies?.[dep];
       if (!range) continue;
       expect(range, `root peerDependencies.${dep}`).toMatch(/^>=/);
+    }
+  });
+
+  it('selectHostPeerRange returns a lower bound, never a caret', () => {
+    // A caret on a 0.x version pins the minor: `^0.75.5` admits only
+    // `>=0.75.5 <0.76.0`, rejecting the hosts a `"*"` previously accepted.
+    expect(selectHostPeerRange('0.75.5')).toBe('>=0.75.5');
+    expect(selectRange([], '0.75.5')).toBe('^0.75.5'); // the ordinary rule still carets
+  });
+
+  it('EVERY optional peer across the repo is a lower bound, not a caret', () => {
+    // Set-based, so a newly-added optional peer cannot regress to a caret.
+    const offenders = [];
+    for (const { name, manifest } of [{ name: '<ROOT>', manifest: rootManifest }, ...nonPrivate()]) {
+      for (const dep of Object.keys(manifest.peerDependenciesMeta ?? {})) {
+        if (manifest.peerDependenciesMeta[dep]?.optional !== true) continue;
+        const range = manifest.peerDependencies?.[dep];
+        if (range && range.startsWith('^')) offenders.push(`${name} peerDependencies.${dep}="${range}"`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('a caret host peer would exclude newer hosts — the reason for the rule', () => {
+    for (const host of ['0.76.0', '0.80.10']) {
+      expect(rangeIsSatisfiable('^0.75.5', host), `^0.75.5 vs ${host}`).toBe(false);
+      expect(rangeIsSatisfiable('>=0.75.5', host), `>=0.75.5 vs ${host}`).toBe(true);
     }
   });
 });

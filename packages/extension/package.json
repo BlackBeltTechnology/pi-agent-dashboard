@@ -41,7 +41,7 @@
     "ws": "^8.18.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "^0.75.5",
+    "@earendil-works/pi-ai": ">=0.75.5",
     "@earendil-works/pi-coding-agent": ">=0.80.10",
     "@earendil-works/pi-tui": ">=0.80.10",
     "@mariozechner/pi-coding-agent": ">=0.73.1",

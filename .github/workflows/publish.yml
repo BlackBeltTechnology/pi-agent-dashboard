@@ -410,8 +410,12 @@ jobs:
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
-          set -uo pipefail
-          mapfile -t names < <(node -e "
+          set -euo pipefail
+          # Captured into a variable, not piped through process substitution:
+          # a failure inside `< <(...)` does NOT fail `mapfile`, so a broken
+          # discovery would yield an empty set and the loop below would report a
+          # successful registry assertion having checked nothing.
+          names_text="$(node -e "
             const fs = require('node:fs');
             const path = require('node:path');
             const base = path.join(process.cwd(), 'packages');
@@ -425,7 +429,12 @@ jobs:
             }
             out.push(JSON.parse(fs.readFileSync('package.json', 'utf8')).name);
             console.log(out.join('\n'));
-          ")
+          ")"
+          if [ -z "$names_text" ]; then
+            echo "::error::workspace discovery returned no package names; refusing to report a vacuous pass"
+            exit 1
+          fi
+          mapfile -t names <<< "$names_text"
           echo "Asserting ${#names[@]} package(s) resolve at ${VERSION}"
           missing=()
           for name in "${names[@]}"; do

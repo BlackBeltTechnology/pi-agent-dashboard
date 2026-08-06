@@ -512,7 +512,7 @@ importers:
         specifier: ^0.7.0
         version: link:../shared
       '@earendil-works/pi-ai':
-        specifier: ^0.75.5
+        specifier: '>=0.75.5'
         version: 0.75.5(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)(ws@8.21.1)(zod@4.4.3)
       '@earendil-works/pi-coding-agent':
         specifier: '>=0.80.10'

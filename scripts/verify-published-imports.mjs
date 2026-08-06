@@ -112,6 +112,19 @@ export function selectRange(existingRanges, resolvingVersion) {
   });
 }
 
+/**
+ * Range for a **host-provided optional peer** replacing a `"*"`.
+ *
+ * Deliberately NOT `selectRange`'s caret. A caret on a 0.x version pins the
+ * minor (`^0.75.5` admits only `>=0.75.5 <0.76.0`), so it would reject the very
+ * hosts the `"*"` accepted and break already-published consumers. The
+ * requirement is concreteness, not tightening — a lower bound satisfies it while
+ * preserving compatibility.
+ */
+export function selectHostPeerRange(resolvingVersion) {
+  return `>=${resolvingVersion}`;
+}
+
 /** Is `range` satisfied by the version that actually resolves? */
 export function rangeIsSatisfiable(range, resolvingVersion) {
   if (typeof range !== "string" || range === "*" || !semver.validRange(range)) return false;
@@ -264,9 +277,13 @@ export function parsePackOutput(stdout) {
  */
 export async function packWorkspace(dir) {
   try {
+    // Bounded: a workspace's `prepack`/`prepare` lifecycle script runs here, and
+    // one that hangs would stall `analyzeRepository` forever and blow the CI
+    // budget with no diagnostic. A timeout surfaces as a `pack-failed` finding.
     const { stdout } = await execFileAsync("npm", ["pack", "--dry-run", "--json"], {
       cwd: dir,
       maxBuffer: 64 * 1024 * 1024,
+      timeout: 120_000,
     });
     const parsed = parsePackOutput(stdout);
     if (parsed === null) return { files: [], error: "could not locate JSON payload in `npm pack --json` output" };
@@ -399,6 +416,12 @@ export function verifyDeclaredRanges(ws, root = REPO_ROOT) {
 
 /** Run the whole check. `concurrency` bounds parallel `npm pack` calls (CI budget: <60s). */
 export async function analyzeRepository(root = REPO_ROOT, { allowlist = ALLOWLIST, concurrency = 8 } = {}) {
+  // A non-positive concurrency would spawn zero runners, and the function would
+  // return an empty finding list having checked nothing — a vacuous pass, which
+  // is the exact failure mode this checker exists to prevent.
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new TypeError(`concurrency must be a positive integer, received ${concurrency}`);
+  }
   const workspaces = listWorkspaces(root);
   const findings = [...validateAllowlist(allowlist)];
 

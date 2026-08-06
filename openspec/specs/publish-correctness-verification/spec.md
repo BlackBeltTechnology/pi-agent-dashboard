@@ -1,7 +1,25 @@
 # publish-correctness-verification Specification
 
 ## Purpose
-TBD - created by archiving change cleanup-undeclared-dependencies. Update Purpose after archive.
+
+Statically verify that every module specifier in a published workspace's packed
+file set resolves against that workspace's own manifest.
+
+The shipped file set is derived from `npm pack --dry-run`, so the `files` array
+and `.npmignore` are honoured exactly as the registry applies them. A specifier
+counts as declared only when it appears in `dependencies`, `peerDependencies`,
+or `optionalDependencies`, or is a Node builtin. `devDependencies` do NOT
+satisfy a shipped import, because npm does not install them for a consumer.
+
+This is deliberately stricter than Biome's `noUndeclaredDependencies`, which
+accepts all four fields. Biome asks *"is this import declared anywhere?"*; this
+asks *"will this import resolve for someone who installed the tarball?"* The
+monorepo hoists every import regardless of what the manifests declare, so the
+defect is invisible until a consumer installs the published package.
+
+**Bounded guarantee:** this proves *declaration*, not *installability*. It does
+not verify that a declared range resolves on the registry — a declared
+`^99.0.0` passes.
 ## Requirements
 ### Requirement: A static resolution check verifies shipped imports against manifests
 

@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   ALLOWLIST,
+  analyzeRepository,
   analyzeWorkspace,
   extractSpecifiers,
   isBuiltin,
@@ -276,6 +277,15 @@ describe('pack failure is an error, never a silent skip (X1)', () => {
 
   it('parsePackOutput returns null when there is no payload, rather than guessing', () => {
     expect(parsePackOutput('vite building...\nno json here')).toBeNull();
+  });
+});
+
+describe('a vacuous configuration is rejected up front', () => {
+  it.each([0, -1, 1.5, Number.NaN, '8'])('rejects concurrency %p', async (concurrency) => {
+    // Zero runners would check nothing and return an empty finding list, which
+    // reads as a clean pass — the precise failure mode this checker exists to
+    // prevent, so it must throw rather than silently succeed.
+    await expect(analyzeRepository(REPO_ROOT, { concurrency })).rejects.toThrow(TypeError);
   });
 });
 
