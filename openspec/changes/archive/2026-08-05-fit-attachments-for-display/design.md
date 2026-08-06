@@ -141,14 +141,19 @@ Fix by passing the store's effective cap. `DEFAULT_MAX_STRING_SIZE` is currently
 `const` (line 122) and must be exported. Arming and raising must land **together**:
 armed at today's 20 KB ceiling the assert throws (`24_000 ≥ 20_000`); at 256 KB it passes.
 
-### D7 — Originals: transcript is the record, cache is an optimisation (settled)
+### D7 — Originals: the transcript IS the record (settled; cache dropped by D10)
 
 pi already writes full-resolution bytes to the session JSONL, so no new durable store is
-required. The blob cache (2 GB LRU on disk) is a speed optimisation; a miss is recovered
-by **streaming** the transcript for the matching content hash — bounded memory, unbounded
-time, per the resolved gate.
+required. An original is recovered by **streaming** the transcript for the matching
+content hash — bounded memory, unbounded time, per the resolved gate.
 
-Consequence: eviction is always safe and there is no orphan-blob correctness problem.
+Originally this decision also kept a 2 GB LRU blob cache as a speed optimisation. **D10
+dropped it**, on the evidence that streaming recovery measured under 50 MB RSS against a
+~40 MB transcript (P4) and that the click-to-original path is explicitly not
+load-bearing. Transcript streaming is therefore the ONLY recovery path.
+
+Consequence: there is no cache, so no eviction policy and no orphan-blob correctness
+problem to reason about.
 
 ### D8 — Session-scoped, authenticated endpoint (settled)
 

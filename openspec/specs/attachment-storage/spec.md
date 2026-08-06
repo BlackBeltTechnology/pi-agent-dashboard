@@ -33,15 +33,23 @@ The governing priority, in order:
 ## Requirements
 ### Requirement: Images SHALL be fitted for display before an event is stored
 
-Each FITTABLE image content block SHALL be resized to a bounded display size before the
-event is stored or broadcast, so that no fitted attachment can push an event past the
-per-event ceiling.
+Each image content block the fit ADMITS SHALL be resized to a bounded display size
+before the event is stored or broadcast, so that no such attachment can push an event
+past the per-event ceiling.
+
+Admission is NOT the MIME allow-list alone. A block is admitted only when its media type
+is fittable AND its content is something the fit will actually produce a derivative for.
+`image/gif` is a fittable type, but an ANIMATED GIF is declined by content (D11, so its
+animation is never flattened). The gate that removes an attachment's bytes and the gate
+that fits them SHALL evaluate this SAME predicate — a block one admits and the other
+declines is either promised a resolution that never arrives, or stripped of bytes nothing
+will restore.
 
 Fitting SHALL be applied on every path that admits such an image into the store,
 including events reconstructed on replay.
 
-A block the fit declines SHALL NOT be resized and SHALL NOT be given a placeholder; it
-stays inline under the pre-existing ceiling behaviour (see SCOPE).
+A DECLINED block SHALL NOT be resized and SHALL NOT be given a placeholder; it stays
+inline under the pre-existing ceiling behaviour (see SCOPE).
 
 #### Scenario: A large paste is fitted and its event stays bounded
 

@@ -23,14 +23,6 @@ import { spawnFreshGitSession } from "./helpers/index.js";
 // while Enter is both a real user path and immune to that.
 
 /**
- * Build a large PNG in the page and paste it into the composer.
- *
- * Noise pixels (not a flat fill) so PNG cannot compress it to nothing: the
- * image must be BOTH over the 768px display bound (so it is actually resized)
- * and multi-MB (so the resize is slow enough that the placeholder is
- * observable rather than a single-frame flash).
- */
-/**
  * Scroll the virtualized transcript top-to-bottom and report which
  * `image message N` rows were seen carrying a RESOLVED attachment image.
  *
@@ -88,6 +80,14 @@ async function sweepTranscriptRows(page: Page, total: number): Promise<Set<numbe
   return withImage;
 }
 
+/**
+ * Build a large PNG in the page and paste it into the composer.
+ *
+ * Noise pixels (not a flat fill) so PNG cannot compress it to nothing: the
+ * image must be BOTH over the 768px display bound (so it is actually resized)
+ * and multi-MB (so the resize is slow enough that the placeholder is
+ * observable rather than a single-frame flash).
+ */
 async function pasteLargeImage(page: Page, w = 1600, h = 1200): Promise<number> {
   return await page.evaluate(
     async ([width, height]) => {

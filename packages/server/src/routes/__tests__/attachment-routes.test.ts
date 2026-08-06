@@ -76,6 +76,9 @@ describe("GET /api/sessions/:sessionId/attachments/:attachmentId", () => {
 
     const cc = String(res.headers["cache-control"]);
     expect(cc).toContain("no-store");
+    // `private` is load-bearing too: without it a SHARED proxy may cache the
+    // response for other users even while the browser honours no-store.
+    expect(cc).toContain("private");
     expect(cc).not.toMatch(/max-age=(?!0)\d+/);
     expect(cc).not.toContain("immutable");
     await app.close();
