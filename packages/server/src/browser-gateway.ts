@@ -183,6 +183,7 @@ export function createBrowserGateway(
   pendingClientCorrelations?: import("./pending-client-correlations.js").PendingClientCorrelations,
   pendingWorktreeBaseRegistry?: import("./pending-worktree-base-registry.js").PendingWorktreeBaseRegistry,
   metaPersistence?: import("./meta-persistence.js").MetaPersistence,
+  resumeSpawnEnv?: (sessionId: string) => Record<string, string> | undefined,
   viewMessageStore: ViewMessageStore = new ViewMessageStore(),
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
@@ -460,6 +461,7 @@ export function createBrowserGateway(
           metaPersistence,
           directoryService, terminalManager,
           headlessPidRegistry, pendingResumeRegistry, pendingDashboardSpawns,
+          resumeSpawnEnv,
           pendingAttachRegistry,
           pendingInitialPromptRegistry,
           pendingResumeIntents,

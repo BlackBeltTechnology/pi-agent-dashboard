@@ -17,7 +17,11 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", () => ({
 import { handleSendPrompt } from "../browser-handlers/session-action-handler.js";
 import { spawnPiSession } from "../process-manager.js";
 
-function makeCtx(opts: { session?: Record<string, unknown>; connected: boolean }) {
+function makeCtx(opts: {
+  session?: Record<string, unknown>;
+  connected: boolean;
+  resumeSpawnEnv?: (sessionId: string) => Record<string, string> | undefined;
+}) {
   const sessions: Record<string, Record<string, unknown>> = {};
   if (opts.session) sessions[opts.session.id as string] = opts.session;
   const sendToSession = vi.fn().mockReturnValue(true);
@@ -42,6 +46,7 @@ function makeCtx(opts: { session?: Record<string, unknown>; connected: boolean }
     pendingResumeIntents: { record: vi.fn() },
     pendingDashboardSpawns: new Map<string, number>(),
     broadcast: vi.fn(),
+    ...(opts.resumeSpawnEnv ? { resumeSpawnEnv: opts.resumeSpawnEnv } : {}),
   } as unknown as Parameters<typeof handleSendPrompt>[1];
   return { ctx, sendToSession, recorded };
 }
@@ -84,6 +89,29 @@ describe("handleSendPrompt is bridge-gated (§5.1–5.3)", () => {
     await handleSendPrompt(prompt(), ctx);
     expect(sendToSession).toHaveBeenCalledTimes(1);
     expect(vi.mocked(spawnPiSession)).not.toHaveBeenCalled();
+  });
+
+  it("5.4 resume re-applies the bound scope env (IB_TOOLSET/IB_INVOICE_ID) into the continue-spawn", async () => {
+    const { ctx } = makeCtx({
+      session: { id: "s1", cwd: "/w", status: "ended", sessionFile: "/w/s.jsonl" },
+      connected: false,
+      resumeSpawnEnv: (sid) => (sid === "s1" ? { IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: "inv-9" } : undefined),
+    });
+    await handleSendPrompt(prompt(), ctx);
+    expect(vi.mocked(spawnPiSession)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(spawnPiSession).mock.calls[0]![1]).toMatchObject({
+      mode: "continue",
+      env: { IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: "inv-9" },
+    });
+  });
+
+  it("5.4 resume with no scope resolver carries no env (unchanged)", async () => {
+    const { ctx } = makeCtx({
+      session: { id: "s1", cwd: "/w", status: "ended", sessionFile: "/w/s.jsonl" },
+      connected: false,
+    });
+    await handleSendPrompt(prompt(), ctx);
+    expect(vi.mocked(spawnPiSession).mock.calls[0]![1]).not.toHaveProperty("env");
   });
 
   it("no live bridge + no sessionFile → cannot resume; does not spawn and does not silently live-send", async () => {

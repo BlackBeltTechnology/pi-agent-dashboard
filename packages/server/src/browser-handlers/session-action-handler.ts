@@ -234,10 +234,16 @@ export async function handleSendPrompt(
     sessionManager.update(msg.sessionId, { resuming: true });
     broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { resuming: true } });
     const autoResumeConfig = loadConfig();
+    // §5.4: re-apply the session's bound scope env on resume so a scoped invoice
+    // session boots on the scoped-invoice surface (not the full "ask" surface)
+    // with its invoice bound. Undefined for non-scoped sessions → env unchanged.
+    // See change: make-invoice-session-canonical.
+    const resumeEnv = ctx.resumeSpawnEnv?.(msg.sessionId);
     const spawnResult = await spawnPiSession(promptSession.cwd, {
       sessionFile: promptSession.sessionFile,
       mode: "continue",
       strategy: autoResumeConfig.spawnStrategy,
+      ...(resumeEnv ? { env: resumeEnv } : {}),
     });
     if (!spawnResult.success) {
       console.error(`[dashboard] auto-resume spawn failed: ${spawnResult.message}`);

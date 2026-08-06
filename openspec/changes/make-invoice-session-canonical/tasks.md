@@ -51,7 +51,8 @@
 - [x] 5.2 Test-first: `send_prompt` to a live canonical session still delivers live (no resume).
 - [x] 5.3 Implement: gate the resume branch on "no live bridge" rather than only `status === "ended"`.
       NOTE: `handleSendPrompt` now gates `promptSession && !piGateway.isSessionConnected(id)` (the established no-live-bridge signal, per event-wiring ghost-cleanup). Covers cleanly-ended AND phantom-active. Tests: `send-prompt-bridge-gated.test.ts`. Applies to ALL sessions (server-domain), not just invoicebot.
-- [ ] 5.4 Implement: when auto-resuming an invoice's canonical session, pass the bound-scope hint (the invoice identity) into the resume spawn, so the runtime can re-establish scope. (Runtime honoring it is external — see the `make-invoice-session-canonical` handoff.)
+- [x] 5.4 Implement: when auto-resuming an invoice's canonical session, pass the bound-scope hint (the invoice identity) into the resume spawn, so the runtime can re-establish scope. (Runtime honoring it is external — see the `make-invoice-session-canonical` handoff.)
+      NOTE: generic server-domain seam (the bug is universal — any plugin's spawn env is dropped on a continue-resume). Canonical store gains a reverse `scopeFor(sessionId)`; session-link exposes `resumeScopeEnv`; the plugin `provide`s it as `invoicebot:resumeScopeEnv`; `handleSendPrompt` consults an injected `resumeSpawnEnv` resolver (wired from `pluginServiceRegistry` through the browser gateway) and folds `{IB_TOOLSET,IB_INVOICE_ID}` into the continue-spawn env. Engine honoring the env on `--continue` (registered tools + start message) stays external. Tests: store `scopeFor`, `resumeScopeEnv`, handler env-pass.
 
 ## 6. Re-run reuses/resumes the canonical session (dispatchFlow)
 

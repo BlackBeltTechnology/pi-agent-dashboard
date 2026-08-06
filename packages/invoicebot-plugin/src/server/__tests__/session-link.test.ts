@@ -327,6 +327,15 @@ describe("durable canonical identity (dedicated store)", () => {
     expect(ctx.spawns).toHaveLength(0);
   });
 
+  it("5.4 resumeScopeEnv returns the scoped-invoice env for a canonical session id", () => {
+    const store = createCanonicalSessionStore(storeFile);
+    store.set(CWD, "inv-7", "canon-7");
+    ctx = makeDeps([], store);
+    const link = createSessionLink(ctx.deps);
+    expect(link.resumeScopeEnv("canon-7")).toEqual({ IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: "inv-7" });
+    expect(link.resumeScopeEnv("not-canonical")).toBeUndefined();
+  });
+
   it("1b re-point does not fire while a spawn is in flight for the cwd", async () => {
     const store = createCanonicalSessionStore(storeFile);
     // No live/restorable canonical → resolution spawns; meanwhile a stray

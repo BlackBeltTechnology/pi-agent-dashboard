@@ -662,7 +662,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence);
+  // Host-owned cross-plugin service registry backing ServerPluginContext
+  // provide/consume. Declared here (above the browser gateway) so the gateway's
+  // §5.4 resume-scope-env resolver can read plugin-provided values at call time.
+  // See change: register-plugin-automation-events.
+  const pluginServiceRegistry = new Map<string, unknown>();
+  // §5.4: resolve a session's bound scope env (invoicebot IB_TOOLSET/IB_INVOICE_ID)
+  // for its auto-resume continue-spawn, so a resumed scoped session boots scoped
+  // rather than on the full "ask" surface. Reads the plugin-provided resolver
+  // lazily. See change: make-invoice-session-canonical.
+  const resumeSpawnEnvResolver = (sessionId: string): Record<string, string> | undefined =>
+    (pluginServiceRegistry.get("invoicebot:resumeScopeEnv") as ((s: string) => Record<string, string> | undefined) | undefined)?.(sessionId);
+
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, resumeSpawnEnvResolver);
 
   // Editor-pane changed-on-disk watch: the browser declares its open files via
   // `watch_files`; the server watches exactly those and pushes `file_changed`.
@@ -737,12 +749,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // death signal, even when no terminal pi event was forwarded.
   // See change: finalize-automation-run-on-session-death.
   const pluginSessionEndSubs = new Set<(sessionId: string) => void>();
-  // Host-owned cross-plugin service registry backing ServerPluginContext
-  // provide/consume. One instance shared across every plugin context; the
-  // loader's topological order guarantees a provider's registerPlugin runs
-  // before a dependent's consume. In-process only.
-  // See change: register-plugin-automation-events.
-  const pluginServiceRegistry = new Map<string, unknown>();
+  // (pluginServiceRegistry is declared above, before the browser gateway, so the
+  // gateway's §5.4 resume-scope-env resolver can read it. One instance shared
+  // across every plugin context; the loader's topological order guarantees a
+  // provider's registerPlugin runs before a dependent's consume. In-process only.)
   // Host-provided known-folder set for plugin cwd validation: session cwds ∪
   // pinned directories, as a LIVE getter (not a boot-time snapshot) so plugins
   // see folders added later. kb-plugin consumes this to guard its /api/kb/*

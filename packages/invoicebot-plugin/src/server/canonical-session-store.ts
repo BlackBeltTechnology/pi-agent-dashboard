@@ -29,6 +29,9 @@ export interface CanonicalSessionStore {
   set(cwd: string, invoiceId: string, sessionId: string): void;
   /** Drop the mapping (unrecoverable session); persisted to disk. */
   delete(cwd: string, invoiceId: string): void;
+  /** Reverse lookup: the { cwd, invoiceId } a session id is canonical for, or
+   *  undefined. Used to re-apply a resumed session's bound scope (§5.4). */
+  scopeFor(sessionId: string): { cwd: string; invoiceId: string } | undefined;
 }
 
 /** Default on-disk location, sibling to the dashboard's other plugin stores. */
@@ -80,6 +83,15 @@ export function createCanonicalSessionStore(filePath: string): CanonicalSessionS
     },
     delete(cwd, invoiceId) {
       if (map.delete(keyFor(cwd, invoiceId))) persist();
+    },
+    scopeFor(sessionId) {
+      for (const [k, v] of map) {
+        if (v !== sessionId) continue;
+        const sep = k.indexOf(KEY_SEP);
+        if (sep < 0) continue;
+        return { cwd: k.slice(0, sep), invoiceId: k.slice(sep + KEY_SEP.length) };
+      }
+      return undefined;
     },
   };
 }

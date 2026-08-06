@@ -67,6 +67,15 @@ describe("createCanonicalSessionStore", () => {
     expect(store.get("/other", "inv-1")).toBe("sess-3");
   });
 
+  it("scopeFor reverse-looks-up the { cwd, invoiceId } a session is canonical for (§5.4)", () => {
+    const store = createCanonicalSessionStore(file);
+    store.set(CWD, "inv-1", "sess-1");
+    store.set("/other", "inv-2", "sess-2");
+    expect(store.scopeFor("sess-1")).toEqual({ cwd: CWD, invoiceId: "inv-1" });
+    expect(store.scopeFor("sess-2")).toEqual({ cwd: "/other", invoiceId: "inv-2" });
+    expect(store.scopeFor("unknown")).toBeUndefined();
+  });
+
   it("tolerates a missing file (no throw, empty)", () => {
     const store = createCanonicalSessionStore(join(dir, "does", "not", "exist.json"));
     expect(store.get(CWD, "inv-1")).toBeUndefined();

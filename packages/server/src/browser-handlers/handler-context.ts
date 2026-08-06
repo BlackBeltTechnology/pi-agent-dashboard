@@ -41,6 +41,14 @@ export interface BrowserHandlerContext {
   terminalManager?: TerminalManager;
   headlessPidRegistry: HeadlessPidRegistry;
   pendingResumeRegistry: PendingResumeRegistry;
+  /**
+   * §5.4: resolve the bound scope env (e.g. invoicebot IB_TOOLSET/IB_INVOICE_ID)
+   * to re-apply when auto-resuming a session's continue-spawn, so a resumed
+   * scoped session boots scoped instead of on the full surface. Provided by a
+   * plugin via `ctx.provide`; undefined for non-scoped sessions.
+   * See change: make-invoice-session-canonical.
+   */
+  resumeSpawnEnv?: (sessionId: string) => Record<string, string> | undefined;
   pendingDashboardSpawns?: Map<string, number>;
   /**
    * Optional pending-attach registry for spawn-with-attach flow.

@@ -42,6 +42,12 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     logger: { info: (m) => ctx.logger.info(m), warn: (m) => ctx.logger.warn(m) },
   });
 
+  // §5.4: expose the reverse sessionId → { IB_TOOLSET, IB_INVOICE_ID } lookup so
+  // the host's auto-resume re-applies the bound scope on a continue-spawn (a
+  // resumed scoped session must not boot on the full "ask" surface). Consumed by
+  // the server via pluginServiceRegistry. See change: make-invoice-session-canonical.
+  ctx.provide("invoicebot:resumeScopeEnv", sessionLink.resumeScopeEnv);
+
   mountInvoiceBotRoutes(ctx.fastify, {
     engine,
     dispatchFlow: sessionLink.dispatchFlow,

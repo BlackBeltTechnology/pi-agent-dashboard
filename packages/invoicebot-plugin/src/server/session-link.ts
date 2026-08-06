@@ -72,6 +72,10 @@ export interface SessionLink {
   dispatchFlow(args: DispatchArgs): Promise<string | undefined>;
   ensureScopedSession(cwd: string, invoiceId: string): Promise<string | undefined>;
   resolveSessionId(invoiceId: string, cwd?: string): string | null;
+  /** §5.4: the bound scope env (IB_TOOLSET/IB_INVOICE_ID) to re-apply when a
+   *  resumed canonical session's continue-spawn boots, or undefined when the id
+   *  is not a canonical invoice session. Consumed by the host's auto-resume. */
+  resumeScopeEnv(sessionId: string): Record<string, string> | undefined;
   /** Test/observability: the recorded invoice_id → sessionId links. */
   links(): ReadonlyMap<string, string>;
   dispose(): void;
@@ -456,6 +460,15 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
     return spawnAndBind(cwd, flow, invoiceId);
   }
 
+  /** §5.4: derive the scope env for a resumed canonical session from the durable
+   *  store's reverse lookup. A resumed session carries no stamp, so without this
+   *  its continue-spawn boots on the full "ask" surface with no bound invoice. */
+  function resumeScopeEnv(sessionId: string): Record<string, string> | undefined {
+    const scope = deps.canonicalStore?.scopeFor(sessionId);
+    if (!scope) return undefined;
+    return { IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: scope.invoiceId };
+  }
+
   function resolveSessionId(invoiceId: string, cwd?: string): string | null {
     const linked = invoiceToSession.get(invoiceId);
     if (linked) {
@@ -473,6 +486,7 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
     dispatchFlow,
     ensureScopedSession,
     resolveSessionId,
+    resumeScopeEnv,
     links: () => invoiceToSession,
     dispose: () => unsub(),
   };
