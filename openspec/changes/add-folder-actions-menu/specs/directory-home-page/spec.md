@@ -2,15 +2,15 @@
 
 ### Requirement: Whole-row open affordance
 
-The folder header name-row (folder icon, path, session count, status rollups) SHALL itself be
-the open affordance: activating it SHALL navigate to `/folder/:encodedCwd`. The folder name
-SHALL carry a hover affordance so the row reads as a link.
+The folder header name-row SHALL itself be the open affordance: activating it SHALL navigate
+to `/folder/:encodedCwd`. The folder name SHALL carry a hover affordance so the row reads as a
+link.
 
 There SHALL be no separate icon open affordance. The row click is the only open gesture on the
 card, so the destination has exactly one control.
 
 Child controls within the row SHALL stop propagation so they perform their own action instead
-of navigating: the status capsule segments and the folder actions menu trigger.
+of navigating.
 
 Activating the row SHALL NOT toggle the folder's collapsed state; collapse lives solely on the
 chevron in the drag gutter.
@@ -27,9 +27,9 @@ chevron in the drag gutter.
 
 #### Scenario: Child controls do not trigger whole-row navigation
 
-- **GIVEN** a folder header row with its child controls (status capsule segments, folder actions menu trigger)
-- **WHEN** the user activates any of those child controls
-- **THEN** that control's own action SHALL fire
+- **GIVEN** a folder header row carrying the folder actions menu trigger
+- **WHEN** the user activates that trigger
+- **THEN** the menu SHALL open
 - **AND** the client SHALL NOT navigate to the directory home page
 
 #### Scenario: Whole-row navigation does not collapse the folder
@@ -51,10 +51,10 @@ chevron in the drag gutter.
 `mdiOpenInNew` icon duplicated the destination of the header-row click, and it rendered only
 on pinned or workspace-owned rows — present where the gesture is already learned, absent on
 plain folder rows where it might have taught it. Sidebar navigation to `/folder/:encodedCwd`
-remains fully specified by the whole-row requirement, which already mandates that child
-controls stop propagation and that navigation does not toggle the collapsed state.
+remains fully specified by the whole-row requirement, which mandates that child controls stop
+propagation and that navigation does not toggle the collapsed state.
 
 **Migration**: The `folder-open-home-<cwd>` test id is removed. Automation navigating to a
 directory home page from the sidebar SHALL activate the header row
-(`folder-home-row-<cwd>`) instead. The folder name gains a hover underline so the row reads
+(`folder-home-row-<cwd>`) instead. The folder name gains a hover affordance so the row reads
 as a link.
