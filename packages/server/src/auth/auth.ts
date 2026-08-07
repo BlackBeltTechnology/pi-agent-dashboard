@@ -253,7 +253,52 @@ export function warnOnInvalidRedirectBase(base: string | null | undefined): bool
     complain("must not carry a query string or fragment");
     return false;
   }
+  // Userinfo passes every check above (right protocol, no query, no fragment) yet
+  // travels in the authorize URL's `redirect_uri` parameter — landing the
+  // credentials in the provider's request logs and the user's browser history.
+  // The warning names the leak rather than saying "invalid URL", because the
+  // hazard is not obvious from the value alone. The password is NEVER echoed.
+  // See change: config-override-oauth-redirect-base (design D4 amendment).
+  if (parsed.username || parsed.password) {
+    console.warn(
+      `⚠️  auth.redirectBaseUrl embeds credentials ("${parsed.username}:***@${parsed.host}") — ` +
+        "they would leak into the authorize URL, the provider's logs and the browser history; " +
+        "remove the user:password@ prefix",
+    );
+    return false;
+  }
   return true;
+}
+
+/** Which tier of the precedence chain produced the redirect base. */
+export type RedirectBaseSource = "auth.redirectBaseUrl" | "tunnel" | "localhost";
+
+/**
+ * Resolve the redirect base AND report which tier won.
+ *
+ * `buildRedirectUri` only returns the finished URI, which is not enough for two
+ * callers: the session cookie needs to know whether the public origin is https
+ * (design D14), and the diagnostics surface needs to tell an operator which
+ * setting actually took effect (design D10). Both derive from this one function
+ * so they can never disagree with the URI the provider is sent.
+ *
+ * See change: config-override-oauth-redirect-base.
+ */
+export function resolveRedirectBase(
+  port: number,
+  baseOverride?: string | null,
+): { base: string; source: RedirectBaseSource } {
+  // `||` not `??` — an empty string means "absent" here exactly as it does in
+  // buildRedirectUri (design D1); the two MUST agree or the cookie flag and the
+  // minted URI could describe different origins.
+  const tunnel = getTunnelUrl();
+  const raw = baseOverride || tunnel || `http://localhost:${port}`;
+  const source: RedirectBaseSource = baseOverride
+    ? "auth.redirectBaseUrl"
+    : tunnel
+      ? "tunnel"
+      : "localhost";
+  return { base: raw.replace(/\/+$/, ""), source };
 }
 
 export function buildRedirectUri(
@@ -261,8 +306,7 @@ export function buildRedirectUri(
   port: number,
   baseOverride?: string | null,
 ): string {
-  const base = baseOverride || getTunnelUrl() || `http://localhost:${port}`;
-  return `${base.replace(/\/+$/, "")}/auth/callback/${provider}`;
+  return `${resolveRedirectBase(port, baseOverride).base}/auth/callback/${provider}`;
 }
 
 // ─── OAuth Flow Helpers ─────────────────────────────────────────────────────

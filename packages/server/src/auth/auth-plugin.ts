@@ -16,6 +16,7 @@ import {
   parseAuthCookie,
   isUserAllowed,
   buildRedirectUri,
+  resolveRedirectBase,
   buildAuthorizeUrl,
   exchangeCode,
   fetchUserInfo,
@@ -226,10 +227,18 @@ export async function registerAuthPlugin(
 
     const { returnUrl } = decodeState(stateParam);
 
+    // `request.protocol` is ALWAYS "http" behind a reverse proxy, because
+    // Fastify is deliberately not configured with `trustProxy` — enabling it
+    // would let `X-Forwarded-For` drive `request.ip`, which both authorization
+    // bypasses read (see forwarded-ip-trust.test.ts). So derive the flag from
+    // the resolved public origin, which is operator-stated config that no
+    // request header can influence.
+    // See change: config-override-oauth-redirect-base (design D14).
+    const { base: publicBase } = resolveRedirectBase(port, authState.redirectBaseUrl);
     reply.setCookie(COOKIE_NAME, token, {
       path: "/",
       httpOnly: true,
-      secure: request.protocol === "https",
+      secure: publicBase.startsWith("https:"),
       sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
     });

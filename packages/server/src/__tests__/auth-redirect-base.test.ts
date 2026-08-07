@@ -28,7 +28,7 @@ vi.mock("../tunnel/tunnel.js", () => ({
 }));
 
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { buildRedirectUri, warnOnInvalidRedirectBase } from "../auth/auth.js";
+import { buildRedirectUri, resolveRedirectBase, warnOnInvalidRedirectBase } from "../auth/auth.js";
 import { registerAuthPlugin } from "../auth/auth-plugin.js";
 
 const TUNNEL = "https://abc.share.zrok.io";
@@ -330,6 +330,37 @@ describe("warnOnInvalidRedirectBase", () => {
     });
   }
 
+
+  // G1 — userinfo in the base leaks credentials into the authorize URL, and from
+  // there into the provider's request logs and the browser history. The first
+  // three checks (parse / protocol / query+fragment) all pass on such a URL, so
+  // without an explicit check it is accepted silently.
+  // See change: config-override-oauth-redirect-base (design D4 amendment).
+  const withUserinfo: Array<[string, string]> = [
+    ["G1 user and password", "https://user:pass@pi.example.com"],
+    ["G1 user only", "https://user@pi.example.com"],
+  ];
+
+  for (const [name, value] of withUserinfo) {
+    it(`${name} → warns, naming the credential leak specifically`, () => {
+      expect(warnOnInvalidRedirectBase(value)).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0][0]);
+      expect(message).toContain("auth.redirectBaseUrl");
+      expect(message).toContain("credential");
+    });
+
+    it(`${name} → the value is still used (D4 posture is warn, not reject)`, () => {
+      expect(buildRedirectUri("github", PORT, value)).toBe(`${value}/auth/callback/github`);
+    });
+  }
+
+  it("G1 does not leak the password into the warning text", () => {
+    warnOnInvalidRedirectBase("https://user:hunter2@pi.example.com");
+    expect(String(warn.mock.calls[0][0])).not.toContain("hunter2");
+  });
+
+
   const valid = [OVERRIDE, `${OVERRIDE}/pi`, `${OVERRIDE}/`, "http://localhost:8000"];
   for (const value of valid) {
     it(`X4 does not cry wolf on "${value}"`, () => {
@@ -362,6 +393,76 @@ describe("warnOnInvalidRedirectBase", () => {
     expect(warn.mock.calls.filter((c: unknown[]) => String(c[0]).includes("auth.redirectBaseUrl"))).toHaveLength(2);
 
     await app.close();
+  });
+});
+
+// ─── Resolved base + Secure-cookie derivation (G22) ──────────────────────────
+//
+// The session cookie's `Secure` flag used to be derived from
+// `request.protocol`, which is always "http" behind a reverse proxy because
+// Fastify is deliberately NOT configured with `trustProxy` (see
+// forwarded-ip-trust.test.ts for why enabling it would be a bypass). Deriving
+// from the resolved redirect base instead uses operator-stated config, which no
+// request header can influence.
+// See change: config-override-oauth-redirect-base (design D14).
+
+describe("resolveRedirectBase — value and winning tier", () => {
+  it("reports the override and names it as the source", () => {
+    tunnelUrl.value = TUNNEL;
+    expect(resolveRedirectBase(PORT, OVERRIDE)).toEqual({
+      base: OVERRIDE,
+      source: "auth.redirectBaseUrl",
+    });
+  });
+
+  it("reports the tunnel when no override is set", () => {
+    tunnelUrl.value = TUNNEL;
+    expect(resolveRedirectBase(PORT, undefined)).toEqual({ base: TUNNEL, source: "tunnel" });
+  });
+
+  it("reports localhost when neither is set", () => {
+    tunnelUrl.value = null;
+    expect(resolveRedirectBase(PORT, undefined)).toEqual({
+      base: `http://localhost:${PORT}`,
+      source: "localhost",
+    });
+  });
+
+  it("treats an empty override as absent (same falsy rule as buildRedirectUri)", () => {
+    tunnelUrl.value = TUNNEL;
+    expect(resolveRedirectBase(PORT, "").source).toBe("tunnel");
+  });
+
+  it("strips trailing slashes so the base matches what buildRedirectUri uses", () => {
+    tunnelUrl.value = null;
+    const { base } = resolveRedirectBase(PORT, `${OVERRIDE}///`);
+    expect(base).toBe(OVERRIDE);
+    expect(buildRedirectUri("github", PORT, `${OVERRIDE}///`)).toBe(`${base}/auth/callback/github`);
+  });
+});
+
+describe("G22: Secure cookie derives from the resolved base, not the request", () => {
+  it("is secure when the resolved base is https", () => {
+    tunnelUrl.value = null;
+    expect(resolveRedirectBase(PORT, OVERRIDE).base.startsWith("https:")).toBe(true);
+  });
+
+  it("is not secure when the resolved base is plain http", () => {
+    tunnelUrl.value = null;
+    expect(resolveRedirectBase(PORT, "http://pi.internal").base.startsWith("https:")).toBe(false);
+  });
+
+  it("is secure behind a proxy even though the request itself arrives as http", () => {
+    // The whole point: the request is http on the loopback hop, the public
+    // origin is https, and the cookie must be marked Secure.
+    tunnelUrl.value = null;
+    const { base } = resolveRedirectBase(PORT, "https://pi.example.com");
+    expect(base.startsWith("https:")).toBe(true);
+  });
+
+  it("an https tunnel with no override also yields a secure cookie", () => {
+    tunnelUrl.value = TUNNEL;
+    expect(resolveRedirectBase(PORT, undefined).base.startsWith("https:")).toBe(true);
   });
 });
 
