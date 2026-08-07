@@ -21,18 +21,21 @@ The settings panel SHALL render as a full-page view in the main content area whe
 The navigation + content layout SHALL be responsive. The wrapper element containing the nav and the content area SHALL stack vertically on narrow (mobile) viewports and arrange side-by-side on wide (desktop, `md` breakpoint and up) viewports. On mobile the navigation SHALL render as a full-width horizontal, horizontally-scrollable tab strip positioned above the content, and the content area SHALL fill the remaining space below it with a non-zero width. On desktop the navigation SHALL render as a fixed-width vertical rail to the left of the content. At no viewport width SHALL the content area collapse to zero width or be positioned outside the visible viewport.
 
 The panel SHALL provide these pages (nav groups in brackets):
-- **General** [Dashboard]: Interface language, display preferences
-- **Server** [Dashboard]: `port`, `piPort`, `autoShutdown`, `shutdownIdleSeconds`, `tunnel.enabled`, memory limits (`memoryLimits.*`)
-- **Sessions** [Dashboard]: `spawnStrategy`, `defaultModel`, reattach/ordering, `askUserPromptTimeoutSeconds`, `spawnRegisterTimeoutMs`, `gitWorktreeEnabled`, `dashboardName`
+- **General** [Dashboard]: Interface language, `dashboardName`, display preferences
+- **Server** [Dashboard]: `port`, `piPort`, `autoShutdown`, `shutdownIdleSeconds`, `tunnel.enabled`, `tunnel.watchdog.*`, memory limits (`memoryLimits.*`)
+- **Sessions** [Dashboard]: `defaultModel`, `spawnStrategy`, reattach/ordering, `askUserPromptTimeoutSeconds`, `spawnRegisterTimeoutMs`, `gitWorktreeEnabled`, retry policy
 - **Remote Servers** [Network]: known servers, network discovery
+- **Gateway** [Network]: tunnel provider and mode (self-managed save)
 - **Security** [Network]: `auth.providers`, `auth.allowedUsers`, `auth.bypassUrls`, `auth.bypassHosts` (Trusted Networks)
 - **Providers** [Extensions]: Provider Authentication, LLM Providers, API Proxy
 - **Packages** [Extensions]: installed pi packages
-- **Plugins** [Extensions]: plugin activation index, with each plugin's settings on its own `/settings/plugins/<pluginId>` page
-- **OpenSpec** [Extensions]: `openspec.enabled` polling tuning, OpenSpec Workflow Profile
-- **Developer** [Advanced]: Diagnostics, Tools, Spawn Failures, `devBuildOnReload`, editor, chat-display debug events, capture-pi-output
+- **Plugins** [Extensions]: plugin activation index and per-plugin settings pages
+- **OpenSpec** [Extensions]: background polling tuning
+- **Developer** [Advanced]: `devBuildOnReload`, `keeperLog.capturePiOutput`, diagnostics, tools, spawn failures, canvas types
 
-The General page SHALL be the default when no page is specified. Each settings section SHALL render on exactly one page (no duplicate renders across pages).
+Within a page, controls SHALL be grouped into sections by concern, and a control whose effect is gated by another control on the same page SHALL be rendered indented beneath its gating control.
+
+A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by **top-level** key. A field SHALL NOT be rendered on a page other than the one its top-level key maps to, because the dirty-page chip would then name the wrong page.
 
 #### Scenario: Page layout with nav rail
 - **WHEN** the user navigates to `/settings/general`
@@ -71,6 +74,28 @@ The General page SHALL be the default when no page is specified. Each settings s
 - **WHEN** the user opens `/settings/general` at a viewport width at or above the `md` breakpoint
 - **THEN** the navigation SHALL render as a fixed-width vertical rail to the left of the content
 - **AND** the content area SHALL occupy the remaining horizontal space to the right of the rail
+
+#### Scenario: Sessions page sections
+- **WHEN** the Sessions page is rendered
+- **THEN** its sections SHALL be, in order: new-session defaults, session-list ordering, lifecycle and recovery, worktrees, retry
+
+#### Scenario: PWA display name lives on General
+- **WHEN** the General page is rendered
+- **THEN** the `dashboardName` field SHALL appear in the Interface section
+- **AND** the Sessions page SHALL NOT render a `dashboardName` field
+
+#### Scenario: PWA display name lights the General chip
+- **WHEN** the user edits `dashboardName`
+- **THEN** the Save Bar SHALL show a dirty chip for **General**
+- **AND** SHALL NOT show one for Sessions
+
+#### Scenario: Watchdog stays on Server
+- **WHEN** the Server page is rendered
+- **THEN** the `tunnel.watchdog.*` fields SHALL appear there, because `tunnel` is a single top-level key attributed to the Server page
+
+#### Scenario: Dependent control is indented
+- **WHEN** the Server page renders `shutdownIdleSeconds`
+- **THEN** it SHALL be rendered indented beneath the `autoShutdown` toggle that gates it
 
 ### Requirement: Canonical and legacy settings URLs
 The settings panel SHALL be addressable at the canonical path `/settings/:page?` and SHALL continue to honor the legacy query form `/settings?tab=<id>` indefinitely. Resolution SHALL run inside the single mounted panel in this order: (1) a valid route `:page`; (2) a valid legacy `?tab=<id>`, which SHALL trigger a history-`replace` navigation to `/settings/<id>`; (3) otherwise default to `/settings/general` via history-`replace`. The alias map `advanced → developer` and `servers → remote` SHALL be applied before validation so old links resolve to the new page homes.
@@ -307,7 +332,7 @@ When LLM providers are saved via the Settings panel, the server SHALL broadcast 
 - **AND** no server restart is required
 
 ### Requirement: ask_user prompt timeout field in Sessions section
-The Settings panel's General → Sessions section SHALL include a numeric input bound to `config.askUserPromptTimeoutSeconds`. The field SHALL accept negative integers so users can enter `-1` to disable the timeout. The control SHALL display a hint text immediately below it explaining: (a) the value is in seconds, (b) `-1` (or `0`) means “wait forever”, and (c) the default is 300 (5 minutes).
+The Settings panel's Sessions page SHALL include a numeric input bound to `config.askUserPromptTimeoutSeconds`. The field SHALL accept negative integers so users can enter `-1` to disable the timeout. The control SHALL display a hint text immediately below it explaining: (a) the value is in seconds, (b) `-1` (or `0`) means “wait forever”, and (c) the default is 300 (5 minutes).
 
 When the user changes this field, the Settings panel SHALL include `askUserPromptTimeoutSeconds` in the partial sent to `PUT /api/config`. If the user clears the field (the resulting input value is undefined / NaN), the partial SHALL fall back to the default `300` rather than silently writing `0`.
 
@@ -317,7 +342,7 @@ Changing this field SHALL NOT mark the save as restart-requiring — the bridge 
 
 #### Scenario: Field is rendered with current value
 - **WHEN** the user opens `/settings` with `askUserPromptTimeoutSeconds: 600` on disk
-- **THEN** the General → Sessions section SHALL show a numeric input populated with `600`
+- **THEN** the Sessions page SHALL show a numeric input populated with `600`
 - **AND** the hint text below SHALL mention the `-1` / `0` infinite-wait semantics and the 300 s default
 
 #### Scenario: User saves a custom positive value
@@ -376,7 +401,7 @@ A subsequent `GET /api/config` SHALL return the persisted `auth.bypassHosts` and
 - **AND** `GET /api/config` SHALL return `auth.secret: "***"` (redacted, per existing rule)
 
 ### Requirement: Settings panel exposes spawn-register timeout
-The Settings panel (`packages/client/src/components/SettingsPanel.tsx`) SHALL render a numeric input field for `spawnRegisterTimeoutMs` under the General → Sessions group (or nearest equivalent group containing other spawn-related fields). The field SHALL be labelled "Spawn register timeout (ms)" with helper text "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000."
+The Settings panel (`packages/client/src/components/SettingsPanel.tsx`) SHALL render a numeric input field for `spawnRegisterTimeoutMs` under the Sessions group (or nearest equivalent group containing other spawn-related fields). The field SHALL be labelled "Spawn register timeout (ms)" with helper text "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000."
 
 The input SHALL accept integers in the closed range `[5000, 120000]`. Out-of-range or non-numeric inputs SHALL be flagged as invalid (existing settings-form invalidation pattern) and SHALL prevent save until corrected.
 
@@ -742,3 +767,95 @@ A disabled plugin SHALL NOT appear as a nav child. It SHALL remain reachable fro
 - **WHEN** the user is on `/settings/plugins`
 - **THEN** the parent `Plugins` entry SHALL be marked active
 - **AND** no child SHALL be marked active
+
+### Requirement: Shared settings field components carry an accessible name and description
+
+The four shared settings field components in `SettingsPanel.tsx` (`ToggleField`, `SelectField`, `NumberField`, `TextField`) SHALL each:
+
+- associate their `<label>` with their control via `htmlFor`/`id` using generated ids, so the control has an accessible name;
+- accept a **required** `hint` prop of type `React.ReactNode`, render it below the control row when non-null, and reference it from the control via `aria-describedby`;
+- accept an optional `unit` string, rendered inside the `<label>` element so it forms part of the accessible name.
+
+A `hint` of `null` SHALL be permitted and SHALL suppress both the hint element and the `aria-describedby` attribute. `null` is reserved for controls whose label is a term of art from an external specification (for example OAuth `Client ID`, `Client Secret`, `Issuer URL`).
+
+Because `hint` is required, a call site that omits it SHALL fail type-checking. No separate allowlist file or source-scanning test is used.
+
+This requirement is scoped to those four components. Bespoke controls rendered inline in `SettingsPanel.tsx`, field components belonging to sibling sections (`RetrySettingsSection`, `ModelProxySection`, `ToolsSection`, `DiagnosticsSection`), and plugin-contributed sections are OUT of scope.
+
+#### Scenario: Control has an accessible name from its label
+- **WHEN** a `NumberField` is rendered with label `Session register timeout`
+- **THEN** the control's accessible name SHALL be `Session register timeout`
+
+#### Scenario: Unit is part of the accessible name
+- **WHEN** a `NumberField` is rendered with `unit="ms"`
+- **THEN** the unit SHALL appear inside the label element and form part of the control's accessible name
+- **AND** the label text SHALL NOT contain a parenthetical `(ms)`
+
+#### Scenario: Hint becomes the accessible description
+- **WHEN** a `ToggleField` is rendered with a non-null `hint`
+- **THEN** the hint SHALL be visible below the control row
+- **AND** the control's `aria-describedby` SHALL resolve to the element containing that hint
+
+#### Scenario: Null hint suppresses the description
+- **WHEN** a field is rendered with `hint={null}`
+- **THEN** no hint element SHALL render
+- **AND** the control SHALL NOT carry an `aria-describedby` attribute
+
+#### Scenario: Omitting the prop fails the build
+- **WHEN** a call site of one of the four components omits the `hint` prop
+- **THEN** type-checking SHALL fail
+
+### Requirement: Bespoke settings controls keep their validation
+
+A control rendered inline in `SettingsPanel.tsx` rather than through one of the four shared components SHALL NOT be replaced by a shared component as part of a presentation or copy change. Specifically, the `spawnRegisterTimeoutMs` control SHALL retain its bounds check that blocks out-of-range writes and disables the Save button.
+
+#### Scenario: Out-of-range spawn timeout still blocks Save
+- **WHEN** the user enters a `spawnRegisterTimeoutMs` value below 5000 or above 120000
+- **THEN** the value SHALL NOT be written to the pending config
+- **AND** an inline error SHALL render
+- **AND** the Save control SHALL be disabled
+
+### Requirement: Default model is the first control on the Sessions page
+
+The Sessions page SHALL render the `defaultModel` control as the first control on the page, inside a callout styled with `--severity-info-*` tokens. The callout SHALL carry a description stating that the default model applies only to brand-new sessions and that a resumed session keeps the model it was started with.
+
+#### Scenario: Default model renders first
+- **WHEN** the Sessions page is rendered
+- **THEN** the `defaultModel` control SHALL precede every other control on the page in DOM order
+
+#### Scenario: Brand-new-only caveat is surfaced
+- **WHEN** the `defaultModel` callout is rendered
+- **THEN** its description SHALL state that the setting applies only to brand-new sessions
+
+### Requirement: One control per display preference
+
+Each `displayPrefs` field SHALL have exactly one control across the entire settings panel, committed through the `display-prefs` draft source. No settings page SHALL render a second control for a field already owned by `DisplayPrefsSection`.
+
+#### Scenario: Debug events has a single control
+- **WHEN** the settings panel is rendered across all pages
+- **THEN** exactly one control for `displayPrefs.debugTools` SHALL exist
+
+#### Scenario: Debug events commits through the draft source
+- **WHEN** the user toggles the debug-events control
+- **THEN** the change SHALL be buffered and SHALL mark the General page dirty
+- **AND** it SHALL persist only on Save, not on toggle
+
+### Requirement: Chat display preferences are a single section on General
+
+Chat-display preferences SHALL be rendered on the **General** page only, split into three sub-sections: message-level elements, reasoning, and tool calls, all registering a single `display-prefs` draft source. The reasoning auto-collapse and keep-open controls SHALL be indented beneath the reasoning toggle that gates them.
+
+The Developer page SHALL NOT render a chat-display section.
+
+#### Scenario: One chat-display section exists
+- **WHEN** the settings panel is rendered
+- **THEN** exactly one section governing chat-display preferences SHALL exist, and it SHALL be on the General page
+
+#### Scenario: Split sections share one draft source
+- **WHEN** any chat-display control is edited
+- **THEN** exactly one draft source (`display-prefs`) SHALL report dirty
+- **AND** the Save Bar SHALL show a single General chip, not one per sub-section
+
+#### Scenario: Reasoning dependents are nested
+- **WHEN** the reasoning sub-section is rendered
+- **THEN** the auto-collapse and keep-open controls SHALL be indented beneath the reasoning toggle
+

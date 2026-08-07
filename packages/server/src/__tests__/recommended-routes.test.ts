@@ -28,8 +28,8 @@ vi.mock("../package/npm-search-proxy.js", async (importActual) => {
 	};
 });
 
-import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 import { fetchPackageMeta, fetchGithubPackageJson } from "../package/npm-search-proxy.js";
+import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 import {
 	registerRecommendedRoutes,
 	invalidateRecommendedCache,
