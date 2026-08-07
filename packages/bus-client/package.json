@@ -15,7 +15,11 @@
     "./*": "./src/*"
   },
   "files": [
-    "src/"
+    "src/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx",
+    "!src/codegen"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -30,5 +34,8 @@
   "devDependencies": {
     "@types/ws": "^8.18.1",
     "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

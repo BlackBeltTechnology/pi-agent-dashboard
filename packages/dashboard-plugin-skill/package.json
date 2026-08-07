@@ -38,7 +38,10 @@
   },
   "files": [
     "src/",
-    ".pi/skills/"
+    ".pi/skills/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "scripts": {
     "test": "vitest run"

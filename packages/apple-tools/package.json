@@ -43,7 +43,10 @@
   "files": [
     "src/",
     "config.schema.json",
-    ".pi/"
+    ".pi/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "pi": {
     "skills": [
@@ -58,8 +61,12 @@
     "server": "./src/server/index.ts",
     "configSchema": "./config.schema.json",
     "requires": {
-      "piExtensions": ["pi-mcp-adapter"],
-      "paths": ["${imcpServerPath}"]
+      "piExtensions": [
+        "pi-mcp-adapter"
+      ],
+      "paths": [
+        "${imcpServerPath}"
+      ]
     },
     "claims": [
       {

@@ -14,6 +14,15 @@ and `openspec/changes/archive/**`. Rules SHALL be organized into tiers (high-sig
 Tier A, noisy-but-valuable Tier B, style/complexity Tier C), with accessibility
 rules scoped to `packages/client/**`.
 
+The `correctness` tier SHALL enable `noUndeclaredDependencies` at `error`
+severity in the base rule set, not leave it to an ad-hoc `--only` probe. This is
+load-bearing: Biome's `--only=<rule>` flag force-enables the named rule and
+**bypasses `overrides` severity entirely**, so a rule resolved by override can
+never reach zero under `--only`. Only `files.includes` exclusions survive that
+flag. Because this change resolves test files and build/config entry points by
+override, the rule MUST be enabled in the base config and verified with a plain
+`biome lint .` invocation.
+
 Overrides SHALL exist for `__tests__/**` (matching `**/__tests__/**`,
 `**/*.test.ts`, `**/*.test.tsx`) and for build/config entry points. The previously
 specified overrides for `packages/server/**` and `scripts/**` SHALL NOT be
@@ -66,6 +75,13 @@ file also reports zero.
 scope, which is the scope CI uses and the scope the ratchet's graduation
 criterion evaluates.
 
+The oracle SHALL be a plain `npx biome lint . --max-diagnostics=20000`, filtered
+to the `lint/correctness/noUndeclaredDependencies` category, with the rule
+enabled at `error` in the base config. The oracle SHALL NOT be an
+`--only=correctness/noUndeclaredDependencies` probe, because that flag bypasses
+`overrides` and would report findings for every file this change deliberately
+resolves by override.
+
 Repo-root scope is load-bearing and distinct from `packages/` scope: `biome lint .`
 additionally reaches root `scripts/`, `examples/`, `tests/e2e/`, `qa/scripts/`,
 `.pi/skills/**/scripts/`, `.pi/flows/**`, and `openspec/changes/**/spike/`.
@@ -77,8 +93,19 @@ published. No finding in shipped code SHALL be resolved by suppression.
 
 #### Scenario: Repo-root probe reports zero
 
-- **WHEN** running `npx biome lint --only=correctness/noUndeclaredDependencies . --max-diagnostics=20000`
-- **THEN** the command SHALL report zero findings
+- **WHEN** running `npx biome lint . --max-diagnostics=20000` at repo root
+- **THEN** it SHALL report zero diagnostics in the `lint/correctness/noUndeclaredDependencies` category
+
+#### Scenario: The rule is enabled in the base configuration
+
+- **WHEN** reading `biome.json`
+- **THEN** `linter.rules.correctness.noUndeclaredDependencies` SHALL be `"error"`
+
+#### Scenario: An `--only` probe is not a valid oracle for an override-resolved rule
+
+- **WHEN** running `npx biome lint --only=correctness/noUndeclaredDependencies` against a file covered by a build/config override that disables the rule
+- **THEN** the finding SHALL still be reported, demonstrating that `--only` bypasses override severity
+- **AND** the same file under a plain `biome lint` invocation SHALL report no finding
 
 #### Scenario: Root tooling dependencies are declared as devDependencies
 
