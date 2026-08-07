@@ -1,0 +1,929 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Folder card header — proposed design</title>
+<style>
+/* ── Tokens lifted verbatim from packages/client/src/index.css ───────── */
+:root {
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+  --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06); --bg-overlay:rgba(0,0,0,.6);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+  --text-muted:#585858; --text-faint:#3a3a3a;
+  --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308;
+  --accent-red:#ef4444; --accent-purple:#a855f7; --accent-orange:#f97316;
+  --link:#60a5fa;
+  --status-needs-you:var(--accent-purple); --status-working:var(--accent-yellow);
+  --status-idle:var(--accent-green); --status-error:var(--accent-red);
+  --shadow-card:rgba(0,0,0,.5); --elevation-rim:rgba(255,255,255,.04);
+  /* severity triples — the documented single source of truth for banner surfaces */
+  --severity-error-bg:color-mix(in srgb,var(--accent-red) 10%,var(--bg-tertiary));
+  --severity-error-fg:color-mix(in srgb,var(--accent-red) 46%,var(--text-primary));
+  --severity-error-border:color-mix(in srgb,var(--accent-red) 40%,transparent);
+  --severity-warning-bg:color-mix(in srgb,var(--accent-orange) 10%,var(--bg-tertiary));
+  --severity-warning-fg:color-mix(in srgb,var(--accent-orange) 46%,var(--text-primary));
+  --severity-warning-border:color-mix(in srgb,var(--accent-orange) 40%,transparent);
+  --severity-info-bg:color-mix(in srgb,var(--accent-blue) 10%,var(--bg-tertiary));
+  --severity-info-fg:color-mix(in srgb,var(--accent-blue) 46%,var(--text-primary));
+  --severity-info-border:color-mix(in srgb,var(--accent-blue) 40%,transparent);
+}
+[data-theme="light"] {
+  --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+  --bg-surface:#e0e0e0; --bg-hover:rgba(0,0,0,.04); --bg-overlay:rgba(0,0,0,.3);
+  --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777;
+  --text-muted:#aaa; --text-faint:#d0d0d0;
+  --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+  --link:#2563eb;
+  --shadow-card:rgba(0,0,0,.08); --elevation-rim:rgba(255,255,255,.9);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg-secondary); color:var(--text-secondary);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+.page{max-width:1320px;margin:0 auto;padding:22px 20px 90px}
+h1{font-size:20px;color:var(--text-primary);margin:0 0 4px;font-weight:700}
+.sub{color:var(--text-tertiary);font-size:13px;margin:0 0 20px;max-width:70ch}
+h2{font-size:15px;color:var(--text-primary);margin:0 0 2px;font-weight:700}
+h3{font-size:12px;letter-spacing:.09em;color:var(--text-muted);margin:26px 0 10px;
+   font-weight:700;border-top:1px solid var(--border-subtle);padding-top:16px}
+.h2note{font-size:12px;color:var(--text-tertiary);margin:0 0 12px}
+
+.bar{
+  position:sticky;top:0;z-index:30;display:flex;gap:8px;align-items:center;
+  padding:10px 0 13px;background:var(--bg-secondary);
+  border-bottom:1px solid var(--border-subtle);margin-bottom:20px;flex-wrap:wrap
+}
+.bar button{
+  font:inherit;font-size:12px;padding:5px 11px;border-radius:7px;cursor:pointer;
+  background:var(--bg-tertiary);color:var(--text-secondary);
+  border:1px solid var(--border-secondary)
+}
+.bar button[aria-pressed="true"]{
+  color:var(--accent-blue);border-color:color-mix(in srgb,var(--accent-blue) 55%,transparent);
+  background:color-mix(in srgb,var(--accent-blue) 10%,var(--bg-tertiary))
+}
+.bar .spacer{flex:1}
+
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:24px;align-items:start}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;align-items:start}
+
+.sidebar{background:var(--bg-secondary);padding:10px 8px;border-radius:12px;
+  border:1px solid var(--border-subtle)}
+body.w375 .sidebar{max-width:359px}
+
+/* ── Folder card (mirrors SessionList.tsx folder-card-enclosure) ─────── */
+.fwrap{position:relative;padding-top:9px}
+.nub{
+  position:absolute;top:0;left:14px;width:78px;height:12px;
+  background:color-mix(in srgb,var(--accent-blue) 5%,var(--bg-primary));
+  border:1px solid color-mix(in srgb,var(--accent-blue) 22%,var(--border-subtle));
+  border-bottom:0;border-radius:8px 8px 0 0;pointer-events:none
+}
+.fcard{
+  position:relative;background:color-mix(in srgb,var(--accent-blue) 5%,var(--bg-primary));
+  border:1px solid color-mix(in srgb,var(--accent-blue) 22%,var(--border-subtle));
+  border-radius:14px;padding:6px;
+  box-shadow:inset 0 1px 0 var(--elevation-rim),0 2px 4px var(--shadow-card)
+}
+.frow{display:flex;gap:6px;padding:4px}
+.gutter{width:18px;flex:none;display:flex;flex-direction:column;align-items:center;padding-top:2px}
+.gutter .chev{color:var(--text-tertiary);cursor:pointer;display:block}
+.gutter .rail{margin-top:4px;width:3px;flex:1;border-radius:99px;background:var(--border-subtle)}
+.fbody{flex:1;min-width:0}
+
+/* TIER 1 */
+.identity{display:flex;align-items:center;gap:6px;min-height:28px}
+.namebtn{
+  display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden;flex:0 1 auto;
+  font:inherit;font-size:12px;font-weight:500;color:var(--text-secondary);
+  background:none;border:0;padding:0;cursor:pointer;text-align:left
+}
+.parent{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
+.leaf{
+  font-size:16px;font-weight:700;color:var(--text-primary);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:6ch
+}
+.namebtn:hover .leaf{text-decoration:underline;text-underline-offset:3px}
+
+/* status capsule — segments are individual buttons */
+.capsule{
+  display:inline-flex;align-items:stretch;flex:none;overflow:hidden;margin-left:auto;
+  border-radius:99px;font-size:11px;font-weight:600;
+  border:1px solid var(--border-secondary)
+}
+.capsule.alert{border-color:color-mix(in srgb,var(--seg) 38%,transparent)}
+.seg{
+  display:inline-flex;align-items:center;gap:4px;padding:2px 8px;
+  font:inherit;font-size:11px;font-weight:600;border:0;background:none;cursor:pointer;
+  color:var(--text-muted);font-variant-numeric:tabular-nums
+}
+.seg+.seg{border-left:1px solid var(--border-subtle)}
+.seg:hover{background:var(--bg-hover)}
+.seg.lead{color:var(--seg);background:color-mix(in srgb,var(--seg) 14%,transparent)}
+.seg.lead:hover{background:color-mix(in srgb,var(--seg) 24%,transparent)}
+.seg.you{--seg:var(--status-needs-you);color:var(--status-needs-you)}
+.seg.err{--seg:var(--status-error);color:var(--status-error)}
+.seg.work{--seg:var(--status-working);color:var(--status-working)}
+.seg.rest{color:var(--text-muted);font-weight:500;cursor:default}
+.seg.rest:hover{background:none}
+.dot{width:7px;height:7px;border-radius:99px;background:currentColor;display:inline-block}
+
+.cluster{display:flex;align-items:center;gap:1px;flex:none;white-space:nowrap}
+.ibtn{
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:3px;border-radius:5px;border:0;background:none;cursor:pointer;color:var(--text-tertiary)
+}
+.ibtn:hover,.ibtn[aria-expanded="true"]{color:var(--text-primary);background:var(--bg-hover)}
+
+/* TIER 2 — facts only */
+.gitrow{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:5px;font-size:12px}
+.gitleft{display:flex;align-items:center;gap:6px;min-width:0;color:var(--link);cursor:pointer}
+.dirty{
+  display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;
+  padding:1px 7px;border-radius:99px;color:var(--accent-orange);cursor:pointer;
+  border:1px solid color-mix(in srgb,var(--accent-orange) 45%,transparent)
+}
+
+/* TIER 3 — state pills */
+.pills{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}
+.pill{
+  background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:9px;
+  padding:6px 8px;min-height:34px;display:flex;align-items:center;gap:5px;cursor:pointer
+}
+.pill:hover{border-color:var(--border-secondary)}
+.pill .lbl{font-size:9px;letter-spacing:.08em;color:var(--text-muted);font-weight:700}
+.pill .val{font-size:11px;color:var(--text-secondary);margin-left:auto}
+
+/* TIER 0 · call-to-action banner — uses the severity triples verbatim */
+.banner{
+  display:flex;align-items:center;gap:8px;width:100%;margin-top:6px;
+  padding:7px 9px;border-radius:9px;font-size:12px;
+  background:var(--sev-bg);color:var(--sev-fg);border:1px solid var(--sev-border)
+}
+.banner.info{--sev-bg:var(--severity-info-bg);--sev-fg:var(--severity-info-fg);--sev-border:var(--severity-info-border)}
+.banner.warn{--sev-bg:var(--severity-warning-bg);--sev-fg:var(--severity-warning-fg);--sev-border:var(--severity-warning-border)}
+.banner.err{--sev-bg:var(--severity-error-bg);--sev-fg:var(--severity-error-fg);--sev-border:var(--severity-error-border)}
+.banner svg{flex:none;opacity:.9}
+/* min-width:0 lets the text column shrink below its content width inside the
+   flex row; without it the subline pushes past the action button. */
+.banner .btxt{min-width:0;flex:1;overflow:hidden}
+.banner .btxt b{
+  display:block;font-weight:600;color:var(--sev-fg);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+/* MUST be block — overflow/text-overflow are ignored on inline boxes, so an
+   inline span silently refuses to ellipsis and overlaps the button instead. */
+.banner .bsub{
+  display:block;font-size:11px;opacity:.72;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.banner .bact{
+  flex:none;font:inherit;font-size:11px;font-weight:600;cursor:pointer;
+  padding:4px 10px;border-radius:6px;background:none;
+  color:var(--sev-fg);border:1px solid var(--sev-border)
+}
+.banner .bact:hover{background:color-mix(in srgb,var(--sev-fg) 12%,transparent)}
+.spin{animation:sp 1.1s linear infinite;transform-origin:50% 50%}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+
+/* session card stub */
+.scard{
+  margin-top:6px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);
+  border-radius:12px;padding:7px 8px;display:flex;gap:6px
+}
+.srail{width:5px;border-radius:99px;background:var(--status-idle);flex:none;opacity:.75}
+.sbody{flex:1;min-width:0}
+.sline1{display:flex;align-items:center;gap:6px}
+.sname{font-size:13px;font-weight:600;color:var(--text-primary);flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sage{font-size:10px;color:var(--text-muted);flex:none}
+.sline2{display:flex;align-items:center;gap:5px;margin-top:3px}
+.smodel{font-size:11px;color:var(--text-tertiary);flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tiny{
+  font-size:9px;padding:1px 4px;border-radius:4px;cursor:pointer;flex:none;
+  border:1px solid;display:inline-flex;align-items:center;gap:2px;background:none
+}
+.tiny.blue{color:var(--accent-blue);border-color:color-mix(in srgb,var(--accent-blue) 30%,transparent)}
+.tiny.green{color:var(--accent-green);border-color:color-mix(in srgb,var(--accent-green) 30%,transparent)}
+.tiny.orange{color:var(--accent-orange);border-color:color-mix(in srgb,var(--accent-orange) 30%,transparent)}
+.wspill{
+  display:inline-flex;align-items:center;gap:2px;flex:none;cursor:pointer;
+  font-size:12px;padding:4px 8px;border-radius:5px;
+  color:var(--accent-blue);border:1px solid color-mix(in srgb,var(--accent-blue) 40%,transparent);
+  background:color-mix(in srgb,var(--accent-blue) 5%,transparent)
+}
+
+/* overflow menu */
+.menuwrap{position:relative;display:inline-flex}
+.menu{
+  position:absolute;right:0;top:calc(100% + 5px);z-index:25;min-width:224px;
+  background:var(--bg-tertiary);border:1px solid var(--border-secondary);
+  border-radius:10px;padding:5px;box-shadow:0 12px 30px var(--shadow-card)
+}
+.menu[hidden]{display:none}
+.mgrp{font-size:9px;letter-spacing:.09em;font-weight:700;color:var(--text-faint);
+  padding:6px 9px 3px}
+.mi{
+  display:flex;align-items:center;gap:9px;width:100%;padding:7px 9px;border:0;
+  border-radius:7px;background:none;color:var(--text-secondary);font:inherit;
+  font-size:12px;cursor:pointer;text-align:left
+}
+.mi:hover{background:var(--bg-hover);color:var(--text-primary)}
+.mi .k{margin-left:auto;font-size:10px;color:var(--text-muted)}
+.mi.danger:hover{color:var(--accent-red)}
+.mi svg{flex:none;opacity:.85}
+.msep{height:1px;background:var(--border-subtle);margin:4px 2px}
+
+/* annotations */
+.notes{margin-top:12px;font-size:12px;color:var(--text-tertiary)}
+.notes ul{margin:6px 0 0;padding-left:16px}
+.notes li{margin-bottom:6px}
+.notes b{color:var(--text-secondary);font-weight:600}
+.law{color:var(--text-muted);font-style:italic}
+.tag{display:inline-block;font-size:9px;letter-spacing:.06em;font-weight:700;
+  padding:1px 6px;border-radius:99px;vertical-align:1px;margin-right:6px}
+.tag.base{color:var(--text-muted);border:1px solid var(--border-secondary)}
+.tag.new{color:var(--accent-green);border:1px solid color-mix(in srgb,var(--accent-green) 45%,transparent)}
+.cap{font-size:11px;color:var(--text-tertiary);margin-top:7px;text-align:center}
+.state{background:var(--bg-primary);border:1px solid var(--border-subtle);
+  border-radius:10px;padding:12px 10px;display:flex;justify-content:center}
+table.cmp{border-collapse:collapse;width:100%;margin-top:14px;font-size:12px}
+table.cmp th,table.cmp td{border:1px solid var(--border-subtle);padding:7px 9px;
+  text-align:left;vertical-align:top}
+table.cmp th{color:var(--text-primary);background:var(--bg-tertiary);font-weight:600}
+table.cmp td:first-child{color:var(--text-secondary)}
+.yes{color:var(--accent-green)} .no{color:var(--accent-red)} .mid{color:var(--accent-orange)}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
+  background:var(--bg-tertiary);padding:1px 4px;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>Folder card header — proposed design</h1>
+<p class="sub">
+  Four tiers, one job per row. Every <em>mutation</em> lives in the <code>⋯</code>
+  menu; every <em>state</em> stays visible; every <em>call to action</em> becomes a
+  tier-0 banner. Tokens lifted verbatim from
+  <code>packages/client/src/index.css</code>; structure mirrors
+  <code>SessionList.tsx</code>.
+</p>
+
+<div class="bar">
+  <button id="themeBtn" onclick="toggleTheme()">◐ Light theme</button>
+  <button id="widthBtn" onclick="toggleWidth()" aria-pressed="false">↔ Narrow sidebar</button>
+  <div class="spacer"></div>
+  <button onclick="setAnn(true)" aria-pressed="true" id="annOn">Show rationale</button>
+  <button onclick="setAnn(false)" aria-pressed="false" id="annOff">Hide rationale</button>
+</div>
+
+<div class="grid2">
+
+  <!-- ══════════════ BEFORE ══════════════ -->
+  <section>
+    <h2><span class="tag base">A</span>Current</h2>
+    <p class="h2note">What ships today — the screenshot, redrawn from source.</p>
+    <div class="sidebar">
+      <div class="fwrap"><div class="nub"></div><div class="fcard"><div class="frow">
+        <div class="gutter"><svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg><span class="rail"></span></div>
+        <div class="fbody">
+
+          <div class="identity">
+            <span class="namebtn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="flex:none"><path d="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z"/></svg>
+              <span class="parent">/Users/robson…</span><span class="leaf">pi-agent-da…</span>
+            </span>
+            <span style="font-size:10px;color:var(--text-muted);flex:none">(723)</span>
+            <span class="capsule alert" style="--seg:var(--status-needs-you);margin-left:0">
+              <span class="seg you lead"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M4,2H20A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H13.9L10.2,21.71C10,21.9 9.75,22 9.5,22V22H9A1,1 0 0,1 8,21V18H4A2,2 0 0,1 2,16V4C2,2.89 2.9,2 4,2M12.19,5.5C11.3,5.5 10.59,5.68 10.05,6.04C9.5,6.4 9.22,7 9.27,7.69H11.24C11.24,7.41 11.34,7.2 11.5,7.06C11.7,6.92 11.92,6.85 12.19,6.85C12.5,6.85 12.77,6.93 12.95,7.11C13.13,7.28 13.22,7.5 13.22,7.8C13.22,8.08 13.14,8.33 13,8.54C12.83,8.76 12.62,8.94 12.36,9.08C11.84,9.4 11.5,9.68 11.29,9.92C11.1,10.16 11,10.5 11,11H13C13,10.72 13.05,10.5 13.14,10.32C13.23,10.15 13.4,10 13.66,9.85C14.12,9.64 14.5,9.36 14.79,9C15.08,8.63 15.23,8.24 15.23,7.8C15.23,7.1 14.96,6.54 14.42,6.12C13.88,5.71 13.13,5.5 12.19,5.5M11,12V14H13V12H11Z"/></svg>4 need you</span>
+            </span>
+            <span class="cluster" style="margin-left:auto">
+              <button class="ibtn" title="Float blocked sessions to top"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M3,13H15V11H3M3,6V8H21V6M3,18H9V16H3V18Z"/></svg></button>
+              <button class="ibtn" title="Open folder home"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z"/></svg></button>
+              <button class="ibtn" title="Remove from workspace"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/></svg></button>
+            </span>
+          </div>
+
+          <div class="gitrow" style="justify-content:space-between">
+            <span class="gitleft">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13,14C9.64,14 8.54,15.35 8.18,16.24C9.25,16.7 10,17.76 10,19A3,3 0 0,1 7,22A3,3 0 0,1 4,19C4,17.69 4.83,16.58 6,16.17V7.83C4.83,7.42 4,6.31 4,5A3,3 0 0,1 7,2A3,3 0 0,1 10,5C10,6.31 9.17,7.42 8,7.83V13.12C8.88,12.47 10.16,12 12,12C14.67,12 15.56,10.66 15.85,9.77C14.77,9.32 14,8.25 14,7A3,3 0 0,1 17,4A3,3 0 0,1 20,7C20,8.34 19.12,9.5 17.91,9.86C17.65,11.29 16.68,14 13,14M7,18A1,1 0 0,0 6,19A1,1 0 0,0 7,20A1,1 0 0,0 8,19A1,1 0 0,0 7,18M7,4A1,1 0 0,0 6,5A1,1 0 0,0 7,6A1,1 0 0,0 8,5A1,1 0 0,0 7,4M17,6A1,1 0 0,0 16,7A1,1 0 0,0 17,8A1,1 0 0,0 18,7A1,1 0 0,0 17,6Z"/></svg>
+              develop <span class="dirty"><span class="dot"></span>2</span>
+              <span style="color:var(--link)">Commit</span>
+            </span>
+            <button class="ibtn" style="background:var(--bg-tertiary);border:1px solid var(--border-secondary);padding:5px;border-radius:7px"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg></button>
+          </div>
+
+          <div class="pills">
+            <div class="pill"><span class="lbl">AUTOMATIONS</span><span class="val">3</span></div>
+            <div class="pill"><span class="lbl">GOALS</span><span class="val">1</span></div>
+            <div class="pill"><span class="lbl">KB</span><span class="val">ok</span></div>
+            <div class="pill"><span class="lbl">OPENSPEC</span><span class="val">74</span></div>
+          </div>
+
+          <div class="scard"><span class="srail"></span><div class="sbody">
+            <div class="sline1">
+              <span class="sname">ship-it worktree</span>
+              <button class="wspill"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13 3V11H21V3H13M3 21H11V13H3V21M3 3V11H11V3H3M13 16H16V13H18V16H21V18H18V21H16V18H13V16Z"/></svg>Workspace</button>
+              <span class="sage">7m</span>
+            </div>
+            <div class="sline2"><span class="smodel">claude-sonnet-4-5</span>
+              <button class="tiny blue">⑂ Fork</button><button class="tiny green">+ Session</button><button class="tiny orange">⑂ Worktree</button>
+            </div>
+          </div></div>
+
+        </div>
+      </div></div></div>
+    </div>
+  </section>
+
+  <!-- ══════════════ AFTER ══════════════ -->
+  <section>
+    <h2><span class="tag new">D</span>Proposed</h2>
+    <p class="h2note">Healthy folder — tier 0 absent. Clickable status capsule · all mutations in <code>⋯</code>.</p>
+    <div class="sidebar">
+      <div class="fwrap"><div class="nub"></div><div class="fcard"><div class="frow">
+        <div class="gutter"><svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg><span class="rail"></span></div>
+        <div class="fbody">
+
+          <!-- TIER 1 · identity + urgency -->
+          <div class="identity">
+            <button class="namebtn" title="Open folder home">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="flex:none"><path d="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z"/></svg>
+              <span class="parent">/Users/robson…</span><span class="leaf">pi-agent-da…</span>
+            </button>
+            <span class="capsule alert" style="--seg:var(--status-needs-you)">
+              <button class="seg you lead" title="4 blocked on you — jump to the first">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M4,2H20A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H13.9L10.2,21.71C10,21.9 9.75,22 9.5,22V22H9A1,1 0 0,1 8,21V18H4A2,2 0 0,1 2,16V4C2,2.89 2.9,2 4,2M12.19,5.5C11.3,5.5 10.59,5.68 10.05,6.04C9.5,6.4 9.22,7 9.27,7.69H11.24C11.24,7.41 11.34,7.2 11.5,7.06C11.7,6.92 11.92,6.85 12.19,6.85C12.5,6.85 12.77,6.93 12.95,7.11C13.13,7.28 13.22,7.5 13.22,7.8C13.22,8.08 13.14,8.33 13,8.54C12.83,8.76 12.62,8.94 12.36,9.08C11.84,9.4 11.5,9.68 11.29,9.92C11.1,10.16 11,10.5 11,11H13C13,10.72 13.05,10.5 13.14,10.32C13.23,10.15 13.4,10 13.66,9.85C14.12,9.64 14.5,9.36 14.79,9C15.08,8.63 15.23,8.24 15.23,7.8C15.23,7.1 14.96,6.54 14.42,6.12C13.88,5.71 13.13,5.5 12.19,5.5M11,12V14H13V12H11Z"/></svg>4</button>
+              <button class="seg work" title="2 working — jump to the first"><span class="dot"></span>2</button>
+              <span class="seg rest" title="717 idle">717</span>
+            </span>
+            <span class="cluster">
+              <span class="menuwrap">
+                <button class="ibtn" onclick="tog(event,'mD')" aria-haspopup="menu" aria-expanded="false" title="Folder actions">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z"/></svg>
+                </button>
+                <div class="menu" id="mD" hidden role="menu">
+                  <div class="mgrp">WORKSPACE</div>
+                  <button class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13 3V11H21V3H13M3 21H11V13H3V21M3 3V11H11V3H3M13 16H16V13H18V16H21V18H18V21H16V18H13V16Z"/></svg> Add to workspace…</button>
+                  <button class="mi danger"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/></svg> Remove from workspace</button>
+                  <div class="msep"></div>
+                  <div class="mgrp">DIRECTORY</div>
+                  <button class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17,21L14.25,18L15.41,16.84L17,18.43L20.59,14.84L21.75,16.25M12.8,21H5C3.89,21 3,20.11 3,19V5C3,3.89 3.89,3 5,3H19C20.11,3 21,3.89 21,5V12.8C20.39,12.45 19.72,12.2 19,12.08V5H5V19H12.08C12.2,19.72 12.45,20.39 12.8,21M12,17H7V15H12M14.68,13H7V11H17V12.08C16.15,12.22 15.37,12.54 14.68,13M17,9H7V7H17"/></svg> Project setup… <span class="k">4/5</span></button>
+                  <button class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M16,12V4H17V2H7V4H8V12L6,14V16H11.2V22H12.8V16H18V14L16,12Z"/></svg> Pin directory</button>
+                  <button class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3,13H15V11H3M3,6V8H21V6M3,18H9V16H3V18Z"/></svg> Float blocked to top <span class="k">off</span></button>
+                  <button class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg> Directory settings…</button>
+                  <div class="msep"></div>
+                  <div class="mgrp">CREATE</div>
+                  <button class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></svg> New automation</button>
+                  <button class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></svg> New goal</button>
+                  <div class="msep"></div>
+                  <div class="mgrp">OPEN</div>
+                  <button class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M20,21H4V10H6V19H18V10H20V21M3,3H21V9H3V3M5,5V7H19V5H5M10.5,11H13.5V14H16L12,18L8,14H10.5V11Z"/></svg> OpenSpec archive</button>
+                  <button class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13,9H18.5L13,3.5V9M6,2H14L20,8V20A2,2 0 0,1 18,22H6C4.89,22 4,21.1 4,20V4C4,2.89 4.89,2 6,2M15,18V16H6V18H15M18,14V12H6V14H18Z"/></svg> OpenSpec specs</button>
+                  <div class="msep"></div>
+                  <div class="mgrp">MAINTENANCE</div>
+                  <button class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></svg> Reindex KB <span class="k" style="color:var(--accent-orange)">1 stale</span></button>
+                  <button class="mi"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></svg> Refresh folder data</button>
+                </div>
+              </span>
+            </span>
+          </div>
+
+          <!-- TIER 2 · facts, zero mutations -->
+          <div class="gitrow">
+            <span class="gitleft" title="Switch branch">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13,14C9.64,14 8.54,15.35 8.18,16.24C9.25,16.7 10,17.76 10,19A3,3 0 0,1 7,22A3,3 0 0,1 4,19C4,17.69 4.83,16.58 6,16.17V7.83C4.83,7.42 4,6.31 4,5A3,3 0 0,1 7,2A3,3 0 0,1 10,5C10,6.31 9.17,7.42 8,7.83V13.12C8.88,12.47 10.16,12 12,12C14.67,12 15.56,10.66 15.85,9.77C14.77,9.32 14,8.25 14,7A3,3 0 0,1 17,4A3,3 0 0,1 20,7C20,8.34 19.12,9.5 17.91,9.86C17.65,11.29 16.68,14 13,14M7,18A1,1 0 0,0 6,19A1,1 0 0,0 7,20A1,1 0 0,0 8,19A1,1 0 0,0 7,18M7,4A1,1 0 0,0 6,5A1,1 0 0,0 7,6A1,1 0 0,0 8,5A1,1 0 0,0 7,4M17,6A1,1 0 0,0 16,7A1,1 0 0,0 17,8A1,1 0 0,0 18,7A1,1 0 0,0 17,6Z"/></svg>
+              develop
+            </span>
+            <span class="dirty" title="2 uncommitted changes — open commit view"><span class="dot"></span>2 uncommitted</span>
+          </div>
+
+          <!-- TIER 3 · state pills only -->
+          <div class="pills">
+            <div class="pill"><span class="lbl">AUTOMATIONS</span><span class="val">3</span></div>
+            <div class="pill"><span class="lbl">GOALS</span><span class="val">1</span></div>
+            <div class="pill"><span class="lbl">KB</span><span class="val">ok</span></div>
+            <div class="pill"><span class="lbl">OPENSPEC</span><span class="val">74</span></div>
+          </div>
+
+          <div class="scard"><span class="srail"></span><div class="sbody">
+            <div class="sline1"><span class="sname">ship-it worktree</span><span class="sage">7m</span></div>
+            <div class="sline2"><span class="smodel">claude-sonnet-4-5</span>
+              <button class="tiny blue">⑂ Fork</button><button class="tiny green">+ Session</button><button class="tiny orange">⑂ Worktree</button>
+            </div>
+          </div></div>
+
+        </div>
+      </div></div></div>
+    </div>
+
+    <div class="notes ann">
+      <ul>
+        <li><b>One job per tier.</b> ⓪ what this folder needs · ① who + how urgent ·
+          ② git facts · ③ directory state. <span class="law">Law of Common Region.</span></li>
+        <li><b>Every mutation is in <code>⋯</code>,</b> grouped
+          <em>WORKSPACE</em> / <em>DIRECTORY</em>. One predictable place — you never
+          hunt for "where do I change this folder".</li>
+        <li><b>Tier 3 is state-only.</b> Workspace stayed out of the pill grid so
+          "pills = read a number, menu = change something" holds without exception.</li>
+        <li><b>Open-in-new deleted</b> — the name is the link and underlines on hover.</li>
+        <li><b>Workspace left the session card.</b> It acts on the cwd; it belongs
+          to the directory that owns the cwd.</li>
+        <li><b>Capsule segments are individual buttons</b> — <code>4</code> jumps to
+          the first blocked session, <code>2</code> to the first working one,
+          <code>717</code> is inert. <span class="law">Fitts: the target is the count you just read.</span></li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<h3>Status capsule — every state</h3>
+<div class="grid3">
+  <div>
+    <div class="state">
+      <span class="capsule alert" style="--seg:var(--status-needs-you)">
+        <button class="seg you lead"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M4,2H20A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H13.9L10.2,21.71C10,21.9 9.75,22 9.5,22V22H9A1,1 0 0,1 8,21V18H4A2,2 0 0,1 2,16V4C2,2.89 2.9,2 4,2M12.19,5.5C11.3,5.5 10.59,5.68 10.05,6.04C9.5,6.4 9.22,7 9.27,7.69H11.24C11.24,7.41 11.34,7.2 11.5,7.06C11.7,6.92 11.92,6.85 12.19,6.85C12.5,6.85 12.77,6.93 12.95,7.11C13.13,7.28 13.22,7.5 13.22,7.8C13.22,8.08 13.14,8.33 13,8.54C12.83,8.76 12.62,8.94 12.36,9.08C11.84,9.4 11.5,9.68 11.29,9.92C11.1,10.16 11,10.5 11,11H13C13,10.72 13.05,10.5 13.14,10.32C13.23,10.15 13.4,10 13.66,9.85C14.12,9.64 14.5,9.36 14.79,9C15.08,8.63 15.23,8.24 15.23,7.8C15.23,7.1 14.96,6.54 14.42,6.12C13.88,5.71 13.13,5.5 12.19,5.5M11,12V14H13V12H11Z"/></svg>4</button>
+        <button class="seg err">⚠1</button>
+        <button class="seg work"><span class="dot"></span>2</button>
+        <span class="seg rest">716</span>
+      </span>
+    </div>
+    <p class="cap">Error <em>and</em> blocked — purple still leads; a human waiting outranks a crash</p>
+  </div>
+  <div>
+    <div class="state">
+      <span class="capsule alert" style="--seg:var(--status-needs-you)">
+        <button class="seg you lead"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M4,2H20A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H13.9L10.2,21.71C10,21.9 9.75,22 9.5,22V22H9A1,1 0 0,1 8,21V18H4A2,2 0 0,1 2,16V4C2,2.89 2.9,2 4,2M12.19,5.5C11.3,5.5 10.59,5.68 10.05,6.04C9.5,6.4 9.22,7 9.27,7.69H11.24C11.24,7.41 11.34,7.2 11.5,7.06C11.7,6.92 11.92,6.85 12.19,6.85C12.5,6.85 12.77,6.93 12.95,7.11C13.13,7.28 13.22,7.5 13.22,7.8C13.22,8.08 13.14,8.33 13,8.54C12.83,8.76 12.62,8.94 12.36,9.08C11.84,9.4 11.5,9.68 11.29,9.92C11.1,10.16 11,10.5 11,11H13C13,10.72 13.05,10.5 13.14,10.32C13.23,10.15 13.4,10 13.66,9.85C14.12,9.64 14.5,9.36 14.79,9C15.08,8.63 15.23,8.24 15.23,7.8C15.23,7.1 14.96,6.54 14.42,6.12C13.88,5.71 13.13,5.5 12.19,5.5M11,12V14H13V12H11Z"/></svg>4</button>
+        <button class="seg work"><span class="dot"></span>2</button>
+        <span class="seg rest">717</span>
+      </span>
+    </div>
+    <p class="cap">Blocked on you — the default alert state</p>
+  </div>
+  <div>
+    <div class="state">
+      <span class="capsule alert" style="--seg:var(--status-working)">
+        <button class="seg work lead"><span class="dot"></span>2</button>
+        <span class="seg rest">721</span>
+      </span>
+    </div>
+    <p class="cap">Working only — yellow leads, no purple to dilute</p>
+  </div>
+  <div>
+    <div class="state">
+      <span class="capsule"><span class="seg rest">723</span></span>
+    </div>
+    <p class="cap">All idle — degenerates to the old <code>(723)</code>, zero colour</p>
+  </div>
+  <div>
+    <div class="state">
+      <span class="capsule"><span class="seg rest">0</span></span>
+    </div>
+    <p class="cap">Empty folder — capsule stays for layout stability</p>
+  </div>
+  <div>
+    <div class="state">
+      <span class="capsule alert" style="--seg:var(--status-needs-you)">
+        <button class="seg you lead"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M4,2H20A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H13.9L10.2,21.71C10,21.9 9.75,22 9.5,22V22H9A1,1 0 0,1 8,21V18H4A2,2 0 0,1 2,16V4C2,2.89 2.9,2 4,2M12.19,5.5C11.3,5.5 10.59,5.68 10.05,6.04C9.5,6.4 9.22,7 9.27,7.69H11.24C11.24,7.41 11.34,7.2 11.5,7.06C11.7,6.92 11.92,6.85 12.19,6.85C12.5,6.85 12.77,6.93 12.95,7.11C13.13,7.28 13.22,7.5 13.22,7.8C13.22,8.08 13.14,8.33 13,8.54C12.83,8.76 12.62,8.94 12.36,9.08C11.84,9.4 11.5,9.68 11.29,9.92C11.1,10.16 11,10.5 11,11H13C13,10.72 13.05,10.5 13.14,10.32C13.23,10.15 13.4,10 13.66,9.85C14.12,9.64 14.5,9.36 14.79,9C15.08,8.63 15.23,8.24 15.23,7.8C15.23,7.1 14.96,6.54 14.42,6.12C13.88,5.71 13.13,5.5 12.19,5.5M11,12V14H13V12H11Z"/></svg>4</button>
+      </span>
+    </div>
+    <p class="cap">Narrow sidebar — <code>rest</code> segment drops first, alert never does</p>
+  </div>
+</div>
+
+<h3>Tier 0 — the &ldquo;this folder needs something&rdquo; banner</h3>
+<p class="sub" style="margin-bottom:16px">
+  Every structural call to action leaves tier 2 and becomes a full-width banner
+  directly under the git row. Colours come from the existing
+  <code>--severity-*</code> triples — the file already calls them
+  &ldquo;the single colour source of truth for every toast / banner surface&rdquo;,
+  and a banner is exactly that surface. Banners stack, blocking-first; when a
+  folder needs nothing, tier 0 does not render.
+</p>
+
+<div class="grid2">
+  <section>
+    <h2 style="font-size:13px">Unconfigured directory</h2>
+    <p class="h2note">No <code>openspec/</code>, no pi config — tier 2 and tier 3 are empty, so the banner is the whole message.</p>
+    <div class="sidebar">
+      <div class="fwrap"><div class="nub"></div><div class="fcard"><div class="frow">
+        <div class="gutter"><svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg><span class="rail"></span></div>
+        <div class="fbody">
+          <div class="identity">
+            <button class="namebtn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="flex:none"><path d="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z"/></svg>
+              <span class="parent">/Users/robson/Desktop…</span><span class="leaf">scratch</span>
+            </button>
+            <span class="capsule"><span class="seg rest">0</span></span>
+            <span class="cluster"><button class="ibtn" title="Folder actions"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z"/></svg></button></span>
+          </div>
+          <div class="banner info">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M23,4.1V2.3L21.2,2.1C21.1,2.1 20.5,2 19.5,2C15.4,2 12.4,3.2 10.7,5.3C9.4,4.5 7.6,4 5.5,4C4.5,4 3.8,4.1 3.8,4.1L1.9,4.4L2,6.1C2.1,9.1 3.6,14.8 8.8,14.8C8.9,14.8 8.9,14.8 9,14.8V18.2C5.2,18.7 2,20 2,20V22H22V20C22,20 18.8,18.7 15,18.2V15C21.3,14.9 23,7.8 23,4.1M12,18C11.7,18 11.3,18 11,18V12.4C11,12.4 10.8,9 8,9C8,9 9.5,9.8 9.9,12.7C9.5,12.8 9.1,12.8 8.8,12.8C4.2,12.8 4,6.1 4,6.1C4,6.1 4.6,6 5.5,6C7.4,6 10.5,6.4 11.4,9.1C11.9,4.6 17,4 19.5,4C20.4,4 21,4.1 21,4.1C21,4.1 21,13.1 14.7,13.1C14.5,13.1 14.2,13.1 14,13.1C14,11.1 16,8.1 16,8.1C13,9.1 13,13 13,13V18C12.7,18 12.3,18 12,18Z"/></svg>
+            <span class="btxt"><b>Not a pi project yet</b><span class="bsub">Scaffold AGENTS.md, .pi/settings.json and prompts</span></span>
+            <button class="bact">Set up →</button>
+          </div>
+        </div>
+      </div></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 style="font-size:13px">Stacked banners</h2>
+    <p class="h2note">Blocking-first ordering. Two is the realistic maximum.</p>
+    <div class="sidebar">
+      <div class="fwrap"><div class="nub"></div><div class="fcard"><div class="frow">
+        <div class="gutter"><svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg><span class="rail"></span></div>
+        <div class="fbody">
+          <div class="identity">
+            <button class="namebtn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="flex:none"><path d="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z"/></svg>
+              <span class="parent">/Users/robson/Project…</span><span class="leaf">wt-flows</span>
+            </button>
+            <span class="capsule"><span class="seg rest">6</span></span>
+            <span class="cluster"><button class="ibtn" title="Folder actions"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z"/></svg></button></span>
+          </div>
+          <div class="gitrow">
+            <span class="gitleft"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13,14C9.64,14 8.54,15.35 8.18,16.24C9.25,16.7 10,17.76 10,19A3,3 0 0,1 7,22A3,3 0 0,1 4,19C4,17.69 4.83,16.58 6,16.17V7.83C4.83,7.42 4,6.31 4,5A3,3 0 0,1 7,2A3,3 0 0,1 10,5C10,6.31 9.17,7.42 8,7.83V13.12C8.88,12.47 10.16,12 12,12C14.67,12 15.56,10.66 15.85,9.77C14.77,9.32 14,8.25 14,7A3,3 0 0,1 17,4A3,3 0 0,1 20,7C20,8.34 19.12,9.5 17.91,9.86C17.65,11.29 16.68,14 13,14M7,18A1,1 0 0,0 6,19A1,1 0 0,0 7,20A1,1 0 0,0 8,19A1,1 0 0,0 7,18M7,4A1,1 0 0,0 6,5A1,1 0 0,0 7,6A1,1 0 0,0 8,5A1,1 0 0,0 7,4M17,6A1,1 0 0,0 16,7A1,1 0 0,0 17,8A1,1 0 0,0 18,7A1,1 0 0,0 17,6Z"/></svg> feat/flows</span>
+          </div>
+          <div class="banner err">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M11,15H13V17H11V15M11,7H13V13H11V7M12,2C6.47,2 2,6.5 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20Z"/></svg>
+            <span class="btxt"><b>Initialize failed</b><span class="bsub">pnpm install — exit 1</span></span>
+            <button class="bact">Retry</button>
+          </div>
+          <div class="banner warn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19.36,2.72L20.78,4.14L15.06,9.85C16.13,11.39 16.28,13.24 15.38,14.44L9.06,8.12C10.26,7.22 12.11,7.37 13.65,8.44L19.36,2.72M5.93,17.57C3.92,15.56 2.69,13.16 2.35,10.92L7.23,8.83L14.67,16.27L12.58,21.15C10.34,20.81 7.94,19.58 5.93,17.57Z"/></svg>
+            <span class="btxt"><b>3 broken sessions</b><span class="bsub">cwd no longer exists</span></span>
+            <button class="bact">Clean up</button>
+          </div>
+        </div>
+      </div></div></div>
+    </div>
+  </section>
+</div>
+
+<div class="grid3" style="margin-top:18px">
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner warn" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M13.54 22H10C9.75 22 9.54 21.82 9.5 21.58L9.13 18.93C8.5 18.68 7.96 18.34 7.44 17.94L4.95 18.95C4.73 19.03 4.46 18.95 4.34 18.73L2.34 15.27C2.21 15.05 2.27 14.78 2.46 14.63L4.57 12.97L4.5 12L4.57 11L2.46 9.37C2.27 9.22 2.21 8.95 2.34 8.73L4.34 5.27C4.46 5.05 4.73 4.96 4.95 5.05L7.44 6.05C7.96 5.66 8.5 5.32 9.13 5.07L9.5 2.42C9.54 2.18 9.75 2 10 2H14C14.25 2 14.46 2.18 14.5 2.42L14.87 5.07C15.5 5.32 16.04 5.66 16.56 6.05L19.05 5.05C19.27 4.96 19.54 5.05 19.66 5.27L21.66 8.73C21.79 8.95 21.73 9.22 21.54 9.37L19.43 11L19.5 12V12.19C19 12.07 18.5 12 18 12C17.83 12 17.66 12 17.5 12.03C17.5 11.41 17.4 10.79 17.2 10.2L19.31 8.65L18.56 7.35L16.15 8.39C15.38 7.5 14.32 6.86 13.12 6.62L12.75 4H11.25L10.88 6.61C9.68 6.86 8.62 7.5 7.85 8.39L5.44 7.35L4.69 8.65L6.8 10.2C6.4 11.37 6.4 12.64 6.8 13.8L4.68 15.36L5.43 16.66L7.86 15.62C8.63 16.5 9.68 17.14 10.87 17.38L11.24 20H12.35C12.61 20.75 13 21.42 13.54 22M15.96 12.36C16 12.24 16 12.12 16 12C16 9.79 14.21 8 12 8S8 9.79 8 12 9.79 16 12 16C12.12 16 12.24 16 12.36 15.96C12.97 14.29 14.29 12.97 15.96 12.36M12 14C10.9 14 10 13.11 10 12S10.9 10 12 10 14 10.9 14 12 13.11 14 12 14M16 15V21L21 18L16 15Z"/></svg>
+        <span class="btxt"><b>Not initialized</b><span class="bsub">worktree init hook available</span></span>
+        <button class="bact">Initialize</button>
+      </div>
+    </div>
+    <p class="cap"><code>mdiCogPlayOutline</code> — run the configured hook (unchanged from today)</p>
+  </div>
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner warn" style="margin:0">
+        <svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/></svg>
+        <span class="btxt"><b>Initializing…</b><span class="bsub">pnpm install · 0:42</span></span>
+        <button class="bact">Logs</button>
+      </div>
+    </div>
+    <p class="cap">Running — replaces the wide <code>WorktreeInitChip</code> that used to wrap tier 2</p>
+  </div>
+  <div>
+    <div class="state" style="padding:10px;color:var(--text-muted);font-size:12px;font-style:italic">
+      tier 0 not rendered
+    </div>
+    <p class="cap">Healthy configured folder — zero height, zero cost</p>
+  </div>
+</div>
+
+<h3>Icon audit — no glyph may mean two things</h3>
+<p class="sub" style="margin-bottom:14px">
+  Every glyph on the card, and what it is allowed to mean. The setup banner
+  originally reused <code>mdiViewGridPlus</code> — the add-to-workspace glyph — which
+  would have made one icon mean two unrelated things.
+</p>
+<table class="cmp" style="margin-top:0">
+  <tr><th>Glyph</th><th>Icon</th><th>Means</th><th>Status</th></tr>
+  <tr><td><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z"/></svg></td><td><code>mdiFolderOpen</code></td><td>this row is a directory</td><td class="yes">unchanged</td></tr>
+  <tr><td><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M4,2H20A2,2 0 0,1 22,4V16A2,2 0 0,1 20,18H13.9L10.2,21.71C10,21.9 9.75,22 9.5,22V22H9A1,1 0 0,1 8,21V18H4A2,2 0 0,1 2,16V4C2,2.89 2.9,2 4,2M12.19,5.5C11.3,5.5 10.59,5.68 10.05,6.04C9.5,6.4 9.22,7 9.27,7.69H11.24C11.24,7.41 11.34,7.2 11.5,7.06C11.7,6.92 11.92,6.85 12.19,6.85C12.5,6.85 12.77,6.93 12.95,7.11C13.13,7.28 13.22,7.5 13.22,7.8C13.22,8.08 13.14,8.33 13,8.54C12.83,8.76 12.62,8.94 12.36,9.08C11.84,9.4 11.5,9.68 11.29,9.92C11.1,10.16 11,10.5 11,11H13C13,10.72 13.05,10.5 13.14,10.32C13.23,10.15 13.4,10 13.66,9.85C14.12,9.64 14.5,9.36 14.79,9C15.08,8.63 15.23,8.24 15.23,7.8C15.23,7.1 14.96,6.54 14.42,6.12C13.88,5.71 13.13,5.5 12.19,5.5M11,12V14H13V12H11Z"/></svg></td><td><code>mdiCommentQuestion</code></td><td>a session is asking you something</td><td class="yes">unchanged</td></tr>
+  <tr><td><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z"/></svg></td><td><code>mdiDotsHorizontal</code></td><td>change something about this folder</td><td class="yes">new</td></tr>
+  <tr><td><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M13 3V11H21V3H13M3 21H11V13H3V21M3 3V11H11V3H3M13 16H16V13H18V16H21V18H18V21H16V18H13V16Z"/></svg></td><td><code>mdiViewGridPlus</code></td><td><b>add to workspace — and nothing else</b></td><td class="yes">reserved</td></tr>
+  <tr><td><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg></td><td><code>mdiCog</code></td><td>configure this directory</td><td class="mid">near-collision ↓</td></tr>
+  <tr><td><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M13.54 22H10C9.75 22 9.54 21.82 9.5 21.58L9.13 18.93C8.5 18.68 7.96 18.34 7.44 17.94L4.95 18.95C4.73 19.03 4.46 18.95 4.34 18.73L2.34 15.27C2.21 15.05 2.27 14.78 2.46 14.63L4.57 12.97L4.5 12L4.57 11L2.46 9.37C2.27 9.22 2.21 8.95 2.34 8.73L4.34 5.27C4.46 5.05 4.73 4.96 4.95 5.05L7.44 6.05C7.96 5.66 8.5 5.32 9.13 5.07L9.5 2.42C9.54 2.18 9.75 2 10 2H14C14.25 2 14.46 2.18 14.5 2.42L14.87 5.07C15.5 5.32 16.04 5.66 16.56 6.05L19.05 5.05C19.27 4.96 19.54 5.05 19.66 5.27L21.66 8.73C21.79 8.95 21.73 9.22 21.54 9.37L19.43 11L19.5 12V12.19C19 12.07 18.5 12 18 12C17.83 12 17.66 12 17.5 12.03C17.5 11.41 17.4 10.79 17.2 10.2L19.31 8.65L18.56 7.35L16.15 8.39C15.38 7.5 14.32 6.86 13.12 6.62L12.75 4H11.25L10.88 6.61C9.68 6.86 8.62 7.5 7.85 8.39L5.44 7.35L4.69 8.65L6.8 10.2C6.4 11.37 6.4 12.64 6.8 13.8L4.68 15.36L5.43 16.66L7.86 15.62C8.63 16.5 9.68 17.14 10.87 17.38L11.24 20H12.35C12.61 20.75 13 21.42 13.54 22M15.96 12.36C16 12.24 16 12.12 16 12C16 9.79 14.21 8 12 8S8 9.79 8 12 9.79 16 12 16C12.12 16 12.24 16 12.36 15.96C12.97 14.29 14.29 12.97 15.96 12.36M12 14C10.9 14 10 13.11 10 12S10.9 10 12 10 14 10.9 14 12 13.11 14 12 14M16 15V21L21 18L16 15Z"/></svg></td><td><code>mdiCogPlayOutline</code></td><td>run the init hook</td><td class="mid">two gears, two meanings</td></tr>
+  <tr><td><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M13 19C13 19.34 13.04 19.67 13.09 20H4C2.9 20 2 19.11 2 18V6C2 4.89 2.89 4 4 4H10L12 6H20C21.1 6 22 6.89 22 8V13.81C21.39 13.46 20.72 13.22 20 13.09V8H4V18H13.09C13.04 18.33 13 18.66 13 19M20 18V15H18V18H15V20H18V23H20V20H23V18H20Z"/></svg></td><td><code>mdiFolderPlusOutline</code></td><td>&ldquo;Set up project&rdquo; <em>today</em></td><td class="no">reads as &ldquo;add a folder&rdquo;</td></tr>
+</table>
+
+<h3>Project setup is idempotent — not a birth event</h3>
+<p class="sub" style="margin-bottom:14px">
+  Setup must be re-runnable on an <em>already configured</em> directory: a repo may have
+  <code>openspec/</code> but no <code>AGENTS.md</code>, or an <code>AGENTS.md</code> that
+  predates the recommended pi layout. The action is <b>&ldquo;bring this directory up to the
+  recommended setup&rdquo;</b>, not &ldquo;initialize once&rdquo;. Two consequences: it lives
+  permanently in <code>⋯ → DIRECTORY</code> (never hidden), and the banner appears only when
+  something is actually missing.
+</p>
+<div class="grid3" style="margin-bottom:22px">
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner info" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17,21L14.25,18L15.41,16.84L17,18.43L20.59,14.84L21.75,16.25M12.8,21H5C3.89,21 3,20.11 3,19V5C3,3.89 3.89,3 5,3H19C20.11,3 21,3.89 21,5V12.8C20.39,12.45 19.72,12.2 19,12.08V5H5V19H12.08C12.2,19.72 12.45,20.39 12.8,21M12,17H7V15H12M14.68,13H7V11H17V12.08C16.15,12.22 15.37,12.54 14.68,13M17,9H7V7H17"/></svg>
+        <span class="btxt"><b>Not a pi project yet</b><span class="bsub">0 of 5 recommended files</span></span>
+        <button class="bact">Set up →</button>
+      </div>
+    </div>
+    <p class="cap"><b>Nothing present</b> — info banner + menu item</p>
+  </div>
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner info" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17,21L14.25,18L15.41,16.84L17,18.43L20.59,14.84L21.75,16.25M12.8,21H5C3.89,21 3,20.11 3,19V5C3,3.89 3.89,3 5,3H19C20.11,3 21,3.89 21,5V12.8C20.39,12.45 19.72,12.2 19,12.08V5H5V19H12.08C12.2,19.72 12.45,20.39 12.8,21M12,17H7V15H12M14.68,13H7V11H17V12.08C16.15,12.22 15.37,12.54 14.68,13M17,9H7V7H17"/></svg>
+        <span class="btxt"><b>Setup incomplete · 3/5</b><span class="bsub">has openspec/ — missing AGENTS.md, prompts</span></span>
+        <button class="bact">Complete →</button>
+      </div>
+    </div>
+    <p class="cap"><b>Partially present</b> — the state today's boolean <code>configured</code> flag cannot express</p>
+  </div>
+  <div>
+    <div class="state" style="padding:12px;color:var(--text-muted);font-size:12px;font-style:italic">
+      no banner · <code style="font-style:normal">⋯ → Project setup… 5/5</code>
+    </div>
+    <p class="cap"><b>Fully present</b> — silent, still re-runnable to pick up new recommendations</p>
+  </div>
+</div>
+
+<h3>Correction — tier 3 was never state-only</h3>
+<p class="sub" style="margin-bottom:14px">
+  I asserted &ldquo;tier 3 is state-only&rdquo; without checking. It is false. The slot pills
+  carry <b>9 action buttons</b> today — more than tier 1's four — and
+  <code>directory-card-layout</code> mandates them: <i>&ldquo;each slot section SHALL keep its
+  own data hook and secondary actions (refresh, create)&rdquo;</i>. Invariant 1 was being
+  enforced on <code>Workspace</code> alone.
+</p>
+<table class="cmp" style="margin-top:0;margin-bottom:16px">
+  <tr><th>Pill</th><th>Buttons today</th><th>Glyph</th><th>Proposed</th></tr>
+  <tr><td>AUTOMATIONS</td><td><code>folder-automation-new-btn</code></td><td>mdiPlus</td><td class="yes">⋯ → CREATE</td></tr>
+  <tr><td></td><td><code>folder-automation-refresh</code></td><td>mdiRefresh</td><td class="yes">folded into one Refresh</td></tr>
+  <tr><td>GOALS</td><td><code>folder-goal-new-btn</code></td><td>mdiPlus</td><td class="yes">⋯ → CREATE</td></tr>
+  <tr><td></td><td><code>folder-goals-refresh</code></td><td>mdiRefresh</td><td class="yes">folded into one Refresh</td></tr>
+  <tr><td>KB</td><td><code>folder-kb-reindex</code> / <code>-index-now</code> / <code>-retry</code></td><td>mdiRefresh</td><td class="yes">⋯ → MAINTENANCE (keeps its stale count)</td></tr>
+  <tr><td>OPENSPEC</td><td><code>folder-openspec-refresh</code></td><td>mdiRefresh</td><td class="yes">folded into one Refresh</td></tr>
+  <tr><td></td><td><code>folder-archive-btn</code></td><td>mdiArchiveOutline</td><td class="yes">⋯ → OPEN</td></tr>
+  <tr><td></td><td><code>folder-specs-btn</code></td><td>mdiFileDocumentOutline</td><td class="yes">⋯ → OPEN</td></tr>
+</table>
+<p class="sub" style="margin-bottom:14px">
+  <b>The menu taxonomy is owned by the host, not by plugins.</b> Groups are a fixed verb
+  set — <code>WORKSPACE · DIRECTORY · CREATE · OPEN · MAINTENANCE</code> — and each
+  contributed item declares which one it belongs to. Grouping by verb rather than by plugin
+  keeps single-item groups from appearing, and a group renders only when non-empty. Items in
+  the <code>OPEN</code> group carry a slot-qualified label (&ldquo;OpenSpec archive&rdquo;)
+  because the group name no longer says which slot they came from.
+</p>
+<p class="sub" style="margin-bottom:14px">
+  <b>The glyph audit gets worse before it gets better.</b> <code>mdiRefresh</code> appears
+  <b>four times</b> on one card meaning four different scopes, and <code>mdiPlus</code>
+  <b>twice</b>. That is invariant 4 violated six times over — and it is invisible precisely
+  because each pill looks locally reasonable.
+</p>
+<p class="sub" style="margin-bottom:22px">
+  <b>Resolved:</b> four per-slot refreshes collapse to one <i>Refresh folder data</i> —
+  nobody wants to refresh <em>only</em> goals, and per-slot refetch is data plumbing leaking
+  into the UI. <i>Archive</i> and <i>Specs</i> move to an <code>OPEN</code> group rather than
+  being deleted. Net: <b>9 pill buttons → 0</b>; the menu grows to 13 items across 5 groups.
+</p>
+<p class="sub" style="margin-bottom:22px">
+  <b>Plugin contract consequence.</b> <code>SlotPill</code> exposes
+  <code>actions?: ReactNode</code>, so <code>kb-plugin</code>, <code>goal-plugin</code> and
+  <code>automation-plugin</code> inject arbitrary markup into the pill. That prop is removed:
+  plugins now contribute <b>declarative items</b>
+  (<code>{ id, group, label, icon, badge, onSelect }</code>) to a
+  <code>folder-actions-menu</code> slot. The host gains control of grouping, ordering,
+  keyboard semantics and the mobile sheet; plugins lose the ability to render markup into the
+  card. Breaking for plugin authors — deliberately.
+</p>
+
+<h3>Staleness — three questions, and only two have a mechanism</h3>
+<table class="cmp" style="margin-top:0;margin-bottom:16px">
+  <tr><th>Question</th><th>Mechanism today</th><th>Verdict</th></tr>
+  <tr>
+    <td>Does the hook need running?</td>
+    <td>the project's own <code>gate</code> bash — <code>needsInit: exit === 0</code></td>
+    <td class="yes">exists, project-defined</td>
+  </tr>
+  <tr>
+    <td>Is the hook still the one I trusted?</td>
+    <td><code>hookDefHash</code> = sha256 over canonical <code>worktreeInit</code>; TOFU key is <code>repoRoot + hash</code></td>
+    <td class="mid">exists — but it is a <b>security</b> gate, not a freshness signal</td>
+  </tr>
+  <tr>
+    <td>Are my setup files current with the recommended templates?</td>
+    <td class="no">nothing — <code>configured?: boolean</code> is the only signal</td>
+    <td class="no">the real gap</td>
+  </tr>
+</table>
+<p class="sub" style="margin-bottom:16px">
+  The sha256 <em>does</em> exist — but editing the gate/command/prompt/model changes the
+  hash, which <b>revokes trust</b> and forces a re-confirm before repo-provided bash may run
+  from a UI click. That is a different event from &ldquo;the recommended templates moved
+  on&rdquo;. Project setup has no stamp at all, so template drift is currently invisible.
+</p>
+
+<div class="grid2" style="margin-bottom:8px">
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner warn" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,7C13.4,7 14.8,8.1 14.8,9.5V11H15.5A1.5,1.5 0 0,1 17,12.5V16.5A1.5,1.5 0 0,1 15.5,18H8.5A1.5,1.5 0 0,1 7,16.5V12.5A1.5,1.5 0 0,1 8.5,11H9.2V9.5C9.2,8.1 10.6,7 12,7M12,8.2C11.2,8.2 10.5,8.7 10.5,9.5V11H13.5V9.5C13.5,8.7 12.8,8.2 12,8.2Z"/></svg>
+        <span class="btxt"><b>Init hook changed</b><span class="bsub">review before running repo code</span></span>
+        <button class="bact">Review…</button>
+      </div>
+    </div>
+    <p class="cap"><b>Banner.</b> <code>hookDefHash</code> moved → trust revoked. Blocking:
+      the hook cannot run until you re-confirm. Earns a banner because it stops work
+      <em>and</em> carries a security decision.</p>
+  </div>
+  <div>
+    <div class="state" style="padding:10px;flex-direction:column;gap:8px">
+      <div class="menu" style="position:static;min-width:0;width:100%;box-shadow:none">
+        <div class="mgrp">DIRECTORY</div>
+        <button class="mi">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17,21L14.25,18L15.41,16.84L17,18.43L20.59,14.84L21.75,16.25M12.8,21H5C3.89,21 3,20.11 3,19V5C3,3.89 3.89,3 5,3H19C20.11,3 21,3.89 21,5V12.8C20.39,12.45 19.72,12.2 19,12.08V5H5V19H12.08C12.2,19.72 12.45,20.39 12.8,21M12,17H7V15H12M14.68,13H7V11H17V12.08C16.15,12.22 15.37,12.54 14.68,13M17,9H7V7H17"/></svg>
+          Project setup…
+          <span class="k" style="color:var(--accent-blue)">● update</span>
+        </button>
+      </div>
+    </div>
+    <p class="cap"><b>Menu only — no banner.</b> 5/5 present but the templates moved on.
+      Optional and non-blocking; a banner here would fire on <em>every</em> folder at once
+      after a pi upgrade and turn tier 0 into wallpaper.</p>
+  </div>
+</div>
+<p class="sub" style="margin-bottom:22px">
+  <b>Rule that falls out:</b> tier 0 means <em>this folder cannot proceed</em>. Optional
+  freshness is a menu affordance, never a banner — which also answers open question #1
+  (banner vertical cost), because the one state that <em>would</em> have appeared on every
+  folder simultaneously is exactly the one demoted to the menu.
+</p>
+
+<h3>Candidate: &ldquo;Project setup&rdquo; glyph</h3>
+<p class="sub" style="margin-bottom:14px">
+  <b>Corrected audit:</b> <b>225</b> distinct MDI glyphs are in use across tracked sources —
+  my first count of 123 was wrong. <code>mdiFileTreeOutline</code>,
+  <code>mdiPuzzleOutline</code>, <code>mdiCompassOutline</code>,
+  <code>mdiFormatListChecks</code> and <code>mdiClipboardCheckOutline</code> are all
+  <b>already taken</b>. Every candidate below is verified free.
+  <code>mdiSproutOutline</code> is now also <b>semantically wrong</b>: a sprout means
+  &ldquo;something begins here&rdquo;, but this action usually runs on a directory that already
+  exists and merely tops up what is missing.
+</p>
+<div class="grid3">
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner info" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17,21L14.25,18L15.41,16.84L17,18.43L20.59,14.84L21.75,16.25M12.8,21H5C3.89,21 3,20.11 3,19V5C3,3.89 3.89,3 5,3H19C20.11,3 21,3.89 21,5V12.8C20.39,12.45 19.72,12.2 19,12.08V5H5V19H12.08C12.2,19.72 12.45,20.39 12.8,21M12,17H7V15H12M14.68,13H7V11H17V12.08C16.15,12.22 15.37,12.54 14.68,13M17,9H7V7H17"/></svg>
+        <span class="btxt"><b>Setup incomplete · 3/5</b><span class="bsub">missing AGENTS.md, prompts</span></span>
+        <button class="bact">Complete →</button>
+      </div>
+    </div>
+    <p class="cap"><b>1 · <code>mdiTextBoxCheckOutline</code></b> — a document, verified. The
+      artifacts <em>are</em> documents (AGENTS.md, settings.json, prompts) and the action is
+      &ldquo;make sure these conform&rdquo;. Closest match to an idempotent top-up.</p>
+  </div>
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner info" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M14 10H3V12H14V10M14 6H3V8H14V6M3 16H10V14H3V16M21.5 11.5L23 13L16 20L11.5 15.5L13 14L16 17L21.5 11.5Z"/></svg>
+        <span class="btxt"><b>Setup incomplete · 3/5</b><span class="bsub">missing AGENTS.md, prompts</span></span>
+        <button class="bact">Complete →</button>
+      </div>
+    </div>
+    <p class="cap"><b>2 · <code>mdiPlaylistCheck</code></b> — the setup checklist; pairs
+      naturally with the <code>3/5</code> counter. Risk: checklists also mean goals/tasks,
+      and a GOALS pill sits two rows below.</p>
+  </div>
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner info" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 2H3C1.9 2 1 2.9 1 4V20C1 21.1 1.9 22 3 22H21C22.1 22 23 21.1 23 20V4C23 2.9 22.1 2 21 2M21 20H3V6H21V20M9 8C7.9 8 7 8.9 7 10C7 11.1 6.1 12 5 12V14C6.1 14 7 14.9 7 16C7 17.1 7.9 18 9 18H11V16H9V15C9 13.9 8.1 13 7 13C8.1 13 9 12.1 9 11V10H11V8M15 8C16.1 8 17 8.9 17 10C17 11.1 17.9 12 19 12V14C17.9 14 17 14.9 17 16C17 17.1 16.1 18 15 18H13V16H15V15C15 13.9 15.9 13 17 13C15.9 13 15 12.1 15 11V10H13V8H15Z"/></svg>
+        <span class="btxt"><b>Setup incomplete · 3/5</b><span class="bsub">missing AGENTS.md, prompts</span></span>
+        <button class="bact">Complete →</button>
+      </div>
+    </div>
+    <p class="cap"><b>3 · <code>mdiApplicationBracesOutline</code></b> — &ldquo;the project's
+      config skeleton&rdquo;. Lowest future-collision risk of the five — nothing else in the
+      dashboard is app-config-braces.</p>
+  </div>
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner info" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7.5,5.6L5,7L6.4,4.5L5,2L7.5,3.4L10,2L8.6,4.5L10,7L7.5,5.6M19.5,15.4L22,14L20.6,16.5L22,19L19.5,17.6L17,19L18.4,16.5L17,14L19.5,15.4M22,2L20.6,4.5L22,7L19.5,5.6L17,7L18.4,4.5L17,2L19.5,3.4L22,2M13.34,12.78L15.78,10.34L13.66,8.22L11.22,10.66L13.34,12.78M14.37,7.29L16.71,9.63C17.1,10 17.1,10.65 16.71,11.04L5.04,22.71C4.65,23.1 4,23.1 3.63,22.71L1.29,20.37C0.9,20 0.9,19.35 1.29,18.96L12.96,7.29C13.35,6.9 14,6.9 14.37,7.29Z"/></svg>
+        <span class="btxt"><b>Setup incomplete · 3/5</b><span class="bsub">missing AGENTS.md, prompts</span></span>
+        <button class="bact">Complete →</button>
+      </div>
+    </div>
+    <p class="cap"><b>4 · <code>mdiAutoFix</code></b> — <em>re-evaluated:</em> setup spawns an
+      interactive pi session running <code>/skill:project-init</code>, so it genuinely IS
+      agent-driven. The sparkles are honest here, not decorative.</p>
+  </div>
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner info" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M23 12L20.6 9.2L20.9 5.5L17.3 4.7L15.4 1.5L12 3L8.6 1.5L6.7 4.7L3.1 5.5L3.4 9.2L1 12L3.4 14.8L3.1 18.5L6.7 19.3L8.6 22.5L12 21L15.4 22.5L17.3 19.3L20.9 18.5L20.6 14.8L23 12M18.7 16.9L16 17.5L14.6 19.9L12 18.8L9.4 19.9L8 17.5L5.3 16.9L5.5 14.1L3.7 12L5.5 9.9L5.3 7.1L8 6.5L9.4 4.1L12 5.2L14.6 4.1L16 6.5L18.7 7.1L18.5 9.9L20.3 12L18.5 14.1L18.7 16.9M16.6 7.6L18 9L10 17L6 13L7.4 11.6L10 14.2L16.6 7.6Z"/></svg>
+        <span class="btxt"><b>Setup incomplete · 3/5</b><span class="bsub">missing AGENTS.md, prompts</span></span>
+        <button class="bact">Complete →</button>
+      </div>
+    </div>
+    <p class="cap"><b>5 · <code>mdiCheckDecagramOutline</code></b> — &ldquo;meets the recommended
+      standard&rdquo;. Risk: a decagram reads as a passive verified <em>badge</em>, not an
+      action you invoke.</p>
+  </div>
+</div>
+
+<h3>Init-hook glyph — de-gearing</h3>
+<p class="sub" style="margin-bottom:14px">
+  <code>mdiCogPlayOutline</code> collides with <code>mdiCog</code> (Directory settings) on the
+  same card. The hook action is literally &ldquo;run the declared init script&rdquo;.
+</p>
+<div class="grid3">
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner warn" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9 14H14V15.7C13.9 15.8 13.9 15.9 13.8 16H9V14M9 12H14V10H9V12M9 8H14V6H9V8M7 5C7 4.4 7.4 4 8 4H16V13.8C16.6 13.4 17.3 13.2 18 13.1V5C18 4.4 18.4 4 19 4S20 4.4 20 5V6H22V5C22 3.3 20.7 2 19 2H8C6.3 2 5 3.3 5 5V16H7V5M13 19V18.4 18H2V19C2 20.7 3.3 22 5 22H13.8C13.3 21.1 13 20.1 13 19M17 16V22L22 19L17 16Z"/></svg>
+        <span class="btxt"><b>Not initialized</b><span class="bsub">worktree init hook available</span></span>
+        <button class="bact">Initialize</button>
+      </div>
+    </div>
+    <p class="cap"><b><code>mdiScriptTextPlayOutline</code></b> — &ldquo;run the script&rdquo;.
+      Exactly what a declared init hook is. <b>Recommended.</b></p>
+  </div>
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner warn" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M13.78 15.3L19.78 21.3L21.89 19.14L15.89 13.14L13.78 15.3M17.5 10.1C17.11 10.1 16.69 10.05 16.36 9.91L4.97 21.25L2.86 19.14L10.27 11.74L8.5 9.96L7.78 10.66L6.33 9.25V12.11L5.63 12.81L2.11 9.25L2.81 8.55H5.62L4.22 7.14L7.78 3.58C8.95 2.41 10.83 2.41 12 3.58L9.89 5.74L11.3 7.14L10.59 7.85L12.38 9.63L14.2 7.75C14.06 7.42 14 7 14 6.63C14 4.66 15.56 3.11 17.5 3.11C18.09 3.11 18.61 3.25 19.08 3.53L16.41 6.2L17.91 7.7L20.58 5.03C20.86 5.5 21 6 21 6.63C21 8.55 19.45 10.1 17.5 10.1Z"/></svg>
+        <span class="btxt"><b>Not initialized</b><span class="bsub">worktree init hook available</span></span>
+        <button class="bact">Initialize</button>
+      </div>
+    </div>
+    <p class="cap"><b><code>mdiHammerWrench</code></b> — &ldquo;build / prepare&rdquo;. Busy at
+      16px and overlaps the settings-and-config family.</p>
+  </div>
+  <div>
+    <div class="state" style="padding:10px">
+      <div class="banner warn" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19,19H5V5H19M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3M10,8V16L15,12L10,8Z"/></svg>
+        <span class="btxt"><b>Not initialized</b><span class="bsub">worktree init hook available</span></span>
+        <button class="bact">Initialize</button>
+      </div>
+    </div>
+    <p class="cap"><b><code>mdiPlayBoxOutline</code></b> — plainest &ldquo;run this&rdquo;. Risk:
+      near-identical to <code>mdiPlayCircleOutline</code> (session Resume).</p>
+  </div>
+</div>
+
+<h3>What moved where</h3>
+<table class="cmp">
+  <tr><th>Element</th><th>Today</th><th>Proposed</th><th>Why</th></tr>
+  <tr><td><code>(723)</code> count</td><td>tier 1, always</td><td>capsule <code>rest</code> segment</td><td>inventory, never news — demoted, never coloured</td></tr>
+  <tr><td>needs-you pill</td><td>tier 1, always</td><td>capsule <code>lead</code> segment</td><td>same signal, now in a lane with its peers</td></tr>
+  <tr><td><code>FolderStatusRollup</code></td><td>collapsed only</td><td class="yes">capsule, both states</td><td>liveness vanished exactly when you expanded to look</td></tr>
+  <tr><td>urgency sort <code>≡</code></td><td>tier 1 button</td><td><code>⋯</code> → DIRECTORY</td><td>set once per folder, not read per scan</td></tr>
+  <tr><td>open-in-new <code>↗</code></td><td>tier 1 button</td><td class="no">deleted</td><td>duplicate of the row click; only rendered where already learned</td></tr>
+  <tr><td>pin <code>📌</code></td><td>tier 1 button</td><td><code>⋯</code> → DIRECTORY</td><td>toggled ~once per folder lifetime</td></tr>
+  <tr><td>Add to workspace</td><td>tier 1 pill + <em>every session card</em></td><td><code>⋯</code> → WORKSPACE</td><td>directory-scoped mutation, one home</td></tr>
+  <tr><td>Remove from workspace <code>✕</code></td><td>tier 1 button</td><td><code>⋯</code> → WORKSPACE</td><td>destructive + rare — worst possible thing to leave one stray click away</td></tr>
+  <tr><td>settings <code>⚙</code></td><td>tier 2 button</td><td><code>⋯</code> → DIRECTORY</td><td>tier 2 becomes pure state</td></tr>
+  <tr><td><code>Commit</code> link</td><td>tier 2 link</td><td>merged into the <code>2 uncommitted</code> chip</td><td>the count and its action were two targets for one intent</td></tr>
+  <tr><td>Initialize / Set up project</td><td>tier 2, conditional</td><td class="yes">tier 0 banner</td><td>it is the folder's <em>call to action</em> — promoting it keeps tier 2 pure without demoting the one thing the folder is asking for</td></tr>
+  <tr><td><code>Clean up broken (N)</code></td><td>tier 2, conditional</td><td class="yes">tier 0 banner</td><td>same shape: a remediation prompt, not a fact</td></tr>
+  <tr><td><code>WorktreeInitChip</code> (running/failed)</td><td>tier 2, wraps to its own line at ~240px</td><td class="yes">tier 0 banner</td><td>it already <em>was</em> a full-width row — it just had no name for it</td></tr>
+</table>
+
+<script>
+function toggleTheme(){
+  const r=document.documentElement, dark=r.getAttribute('data-theme')==='dark';
+  r.setAttribute('data-theme',dark?'light':'dark');
+  document.getElementById('themeBtn').textContent=dark?'◐ Dark theme':'◐ Light theme';
+}
+function toggleWidth(){
+  const on=document.body.classList.toggle('w375');
+  document.getElementById('widthBtn').setAttribute('aria-pressed',String(on));
+}
+function setAnn(on){
+  document.querySelectorAll('.ann').forEach(n=>n.style.display=on?'':'none');
+  document.getElementById('annOn').setAttribute('aria-pressed',String(on));
+  document.getElementById('annOff').setAttribute('aria-pressed',String(!on));
+}
+function tog(e,id){
+  e.stopPropagation();
+  const m=document.getElementById(id), was=m.hidden;
+  document.querySelectorAll('.menu').forEach(n=>{n.hidden=true;});
+  document.querySelectorAll('[aria-haspopup=menu]').forEach(b=>b.setAttribute('aria-expanded','false'));
+  m.hidden=!was;
+  e.currentTarget.setAttribute('aria-expanded',String(!m.hidden));
+}
+document.addEventListener('click',()=>{
+  document.querySelectorAll('.menu').forEach(n=>n.hidden=true);
+  document.querySelectorAll('[aria-haspopup=menu]').forEach(b=>b.setAttribute('aria-expanded','false'));
+});
+</script>
+</div>
+</body>
+</html>
