@@ -2382,8 +2382,15 @@ export function ToggleField({ label, value, onChange, disabled, hint, unit }: Fi
   const hintId = `${controlId}-hint`;
   return (
     <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} disabled={disabled}>
+      {/* role="switch" + aria-checked expose the ON/OFF STATE. Without them a
+          screen-reader user hears the name and description this change added
+          but cannot tell whether the setting is on — half an a11y fix.
+          type="button" keeps it from submitting an enclosing form. */}
       <button
         id={controlId}
+        type="button"
+        role="switch"
+        aria-checked={value}
         aria-describedby={hasHint(hint) ? hintId : undefined}
         disabled={disabled}
         onClick={() => onChange(!value)}

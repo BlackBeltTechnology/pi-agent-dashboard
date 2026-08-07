@@ -39,9 +39,13 @@ const UNIT_BEARING_KEYS = [
 
 /** Unit tokens that must no longer appear in a label, in any locale. */
 const UNIT_TOKENS = [
-  "second", "másodperc", "秒",
-  "char", "karakter", "字符",
-  "byte", "bájt", "字节",
+  // Plural + millisecond forms matter: containsStandaloneToken matches WHOLE
+  // words, so "second" does not catch "seconds", and probeTimeout /
+  // sessionRegisterTimeoutMs are millisecond-bearing.
+  "second", "seconds", "millisecond", "milliseconds", "ms",
+  "másodperc", "másodperces", "ezredmásodperc", "秒", "毫秒",
+  "char", "chars", "karakter", "karakterek", "字符",
+  "byte", "bytes", "bájt", "bájtok", "字节",
 ];
 
 function lookup(source: string, key: string): string | undefined {

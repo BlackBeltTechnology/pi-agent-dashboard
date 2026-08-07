@@ -41,7 +41,7 @@ describe("shared settings field components — accessible name", () => {
 
     // getByRole resolves the accessible name through label htmlFor/id — it
     // fails if the label is merely adjacent rather than associated.
-    expect(screen.getByRole("button", { name: "Probe toggle" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Probe toggle" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Probe select" })).toBeTruthy();
     expect(screen.getByRole("spinbutton", { name: "Probe number" })).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Probe text" })).toBeTruthy();
@@ -69,7 +69,7 @@ describe("shared settings field components — accessible description", () => {
   it("renders a non-null hint and wires aria-describedby to it", () => {
     render(<ToggleField label="Debug events" value={false} onChange={noop} hint="Buffered until Save" />);
 
-    const control = screen.getByRole("button", { name: "Debug events" });
+    const control = screen.getByRole("switch", { name: "Debug events" });
     expect(screen.getByText("Buffered until Save")).toBeTruthy();
     expect(accessibleDescription(control)).toBe("Buffered until Save");
   });
@@ -78,7 +78,7 @@ describe("shared settings field components — accessible description", () => {
   it("suppresses both the hint element and aria-describedby when hint is null", () => {
     render(<ToggleField label="Debug events" value={false} onChange={noop} hint={null} />);
 
-    const control = screen.getByRole("button", { name: "Debug events" });
+    const control = screen.getByRole("switch", { name: "Debug events" });
     expect(control.hasAttribute("aria-describedby")).toBe(false);
     expect(accessibleDescription(control)).toBeNull();
   });

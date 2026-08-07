@@ -132,7 +132,7 @@ describe("wrapper toggles forward their hint (D6)", () => {
   it("wires a forwarded hint to the inner control via aria-describedby", () => {
     render(<ToggleField label="Wrapped" value={false} onChange={() => {}} hint="Forwarded description" />);
 
-    const control = screen.getByRole("button", { name: "Wrapped" });
+    const control = screen.getByRole("switch", { name: "Wrapped" });
     const describedBy = control.getAttribute("aria-describedby");
     expect(describedBy).toBeTruthy();
     expect(document.getElementById(describedBy!)?.textContent).toBe("Forwarded description");

@@ -252,5 +252,14 @@ describe("settings page composition", () => {
     gotoPage("Server");
     await waitFor(() => screen.getByText("Memory Limits"));
     expect(screen.getByText(/Enable Watchdog/i)).toBeTruthy();
+
+    // F6 has two halves: present on Server AND absent from Gateway. Asserting
+    // only the first would still pass if the fields were duplicated onto
+    // Gateway, which is precisely the move D2 rejected.
+    gotoPage("Gateway");
+    await waitFor(() => screen.getByTestId("settings-content"));
+    expect(screen.queryByText(/Enable Watchdog/i)).toBeNull();
+    expect(screen.queryByText(/Probe interval/i)).toBeNull();
+    expect(screen.queryByText(/Failure Threshold/i)).toBeNull();
   });
 });

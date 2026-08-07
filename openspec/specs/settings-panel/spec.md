@@ -332,7 +332,7 @@ When LLM providers are saved via the Settings panel, the server SHALL broadcast 
 - **AND** no server restart is required
 
 ### Requirement: ask_user prompt timeout field in Sessions section
-The Settings panel's General → Sessions section SHALL include a numeric input bound to `config.askUserPromptTimeoutSeconds`. The field SHALL accept negative integers so users can enter `-1` to disable the timeout. The control SHALL display a hint text immediately below it explaining: (a) the value is in seconds, (b) `-1` (or `0`) means “wait forever”, and (c) the default is 300 (5 minutes).
+The Settings panel's Sessions page SHALL include a numeric input bound to `config.askUserPromptTimeoutSeconds`. The field SHALL accept negative integers so users can enter `-1` to disable the timeout. The control SHALL display a hint text immediately below it explaining: (a) the value is in seconds, (b) `-1` (or `0`) means “wait forever”, and (c) the default is 300 (5 minutes).
 
 When the user changes this field, the Settings panel SHALL include `askUserPromptTimeoutSeconds` in the partial sent to `PUT /api/config`. If the user clears the field (the resulting input value is undefined / NaN), the partial SHALL fall back to the default `300` rather than silently writing `0`.
 
@@ -342,7 +342,7 @@ Changing this field SHALL NOT mark the save as restart-requiring — the bridge 
 
 #### Scenario: Field is rendered with current value
 - **WHEN** the user opens `/settings` with `askUserPromptTimeoutSeconds: 600` on disk
-- **THEN** the General → Sessions section SHALL show a numeric input populated with `600`
+- **THEN** the Sessions page SHALL show a numeric input populated with `600`
 - **AND** the hint text below SHALL mention the `-1` / `0` infinite-wait semantics and the 300 s default
 
 #### Scenario: User saves a custom positive value
@@ -401,7 +401,7 @@ A subsequent `GET /api/config` SHALL return the persisted `auth.bypassHosts` and
 - **AND** `GET /api/config` SHALL return `auth.secret: "***"` (redacted, per existing rule)
 
 ### Requirement: Settings panel exposes spawn-register timeout
-The Settings panel (`packages/client/src/components/SettingsPanel.tsx`) SHALL render a numeric input field for `spawnRegisterTimeoutMs` under the General → Sessions group (or nearest equivalent group containing other spawn-related fields). The field SHALL be labelled "Spawn register timeout (ms)" with helper text "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000."
+The Settings panel (`packages/client/src/components/SettingsPanel.tsx`) SHALL render a numeric input field for `spawnRegisterTimeoutMs` under the Sessions group (or nearest equivalent group containing other spawn-related fields). The field SHALL be labelled "Spawn register timeout (ms)" with helper text "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000."
 
 The input SHALL accept integers in the closed range `[5000, 120000]`. Out-of-range or non-numeric inputs SHALL be flagged as invalid (existing settings-form invalidation pattern) and SHALL prevent save until corrected.
 
