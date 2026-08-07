@@ -111,7 +111,10 @@
     }
   },
   "files": [
-    "src/"
+    "src/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "peerDependencies": {
     "react": ">=18.0.0",

@@ -27,7 +27,10 @@
     }
   },
   "files": [
-    "src/"
+    "src/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "pi-dashboard-plugin": {
     "id": "flows",
@@ -86,6 +89,9 @@
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-client-utils": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@mdi/js": "^7.4.47",
+    "@mdi/react": "^1.6.1",
+    "dagre-d3-es": "^7.0.14",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

@@ -32,8 +32,8 @@
     "jimp": "^1.6.1"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@mariozechner/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=0.80.10",
+    "@mariozechner/pi-coding-agent": ">=0.73.1"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
@@ -44,6 +44,6 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=0.80.10"
   }
 }

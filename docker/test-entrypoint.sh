@@ -487,7 +487,12 @@ echo "[test-entrypoint] SMOKE PASSED → dashboard ready on http://localhost:${P
 # `--mode rpc` speaks JSON-RPC over stdio; with stdin closed it reads EOF and
 # exits immediately, so `tail -f /dev/null` holds the pipe open. `setsid` detaches
 # it from PID 1's process group so a restart cannot cascade into it.
-INDEPENDENT_LOG="${PI_DIR}/dashboard/independent-session.log"
+# PI_DIR is only assigned inside the PI_E2E_SEED block above, but this line is
+# evaluated unconditionally — so under `set -u` a plain (unseeded) test-up.sh
+# died here immediately after its own smoke reported "dashboard ready",
+# exiting 1 and failing every e2e health check. Default it the same way the
+# seed block does.
+INDEPENDENT_LOG="${PI_DIR:-${HOME:-/home/pi}/.pi}/dashboard/independent-session.log"
 # DEFAULT OFF. Enabled explicitly by tests/e2e/global-setup.ts (and by hand for
 # manual QA) because it adds a session card every spec would otherwise see.
 # The session registers as `source:"tui"`, survives `/api/restart`, and

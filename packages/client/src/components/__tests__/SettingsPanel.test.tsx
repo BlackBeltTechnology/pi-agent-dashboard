@@ -577,7 +577,7 @@ describe("SettingsPanel", () => {
     await waitFor(() => screen.getByText("Initialize on worktree"));
 
     const row = screen.getByText("Initialize on worktree").closest("div")!;
-    fireEvent.click(within(row).getByRole("button"));
+    fireEvent.click(within(row).getByRole("switch"));
 
     // Buffered — not persisted on toggle.
     expect(setAutoInitWorktreePref).not.toHaveBeenCalled();
