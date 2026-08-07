@@ -303,8 +303,7 @@ describe("GET /api/packages/recommended", () => {
 		const body = JSON.parse(res.payload);
 		expect(body.success).toBe(true);
 		const entries = body.data.recommended;
-		// Derived from the manifest, not hardcoded: a literal count silently goes
-		// stale the moment an entry is added, which is exactly how this broke.
+		// The route maps the manifest unfiltered, so it must return every entry.
 		expect(entries).toHaveLength(RECOMMENDED_EXTENSIONS.length);
 		// Every entry falls back to fallbackDescription and has no version.
 		for (const e of entries) {
