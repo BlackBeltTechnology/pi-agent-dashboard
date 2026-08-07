@@ -15,6 +15,14 @@ card.
 
 - **WHEN** an expanded directory card renders
 - **THEN** the git-facts row SHALL NOT contain a settings control, an initialize control, or a cleanup control
+- **AND** it SHALL NOT contain a standalone commit button separate from the dirty-count affordance
+
+#### Scenario: The dirty-count affordance is the only commit entry point on the row
+
+- **GIVEN** a directory with uncommitted changes
+- **WHEN** the git-facts row renders
+- **THEN** activating the dirty-count affordance SHALL open the commit surface
+- **AND** no second control on that row SHALL open the same surface
 
 #### Scenario: State pills never mutate
 
@@ -32,8 +40,17 @@ card.
 ### Requirement: Folder actions menu groups directory mutations
 
 The folder header's trailing cluster SHALL be a single overflow-menu control. Activating it
-SHALL open a menu whose items are grouped by concern: workspace membership actions, then
-directory actions.
+SHALL open a menu whose items are grouped by concern.
+
+The trigger's glyph SHALL NOT be a glyph already used as a menu trigger elsewhere on the same
+card. In particular it SHALL NOT reuse the worktree actions menu's glyph, because a worktree
+session card renders inside the folder body and the two triggers would otherwise be visually
+identical with different scopes.
+
+Menu contents SHALL respect the folder's existing placement gating rather than silently
+widening it: an add-to-workspace item SHALL appear only where the affordance renders today
+(top-level rows), a remove-from-workspace item only for workspace-owned folders, and a pin
+item only where pinning is meaningful (outside a workspace container).
 
 The control SHALL expose `aria-haspopup="menu"` and an `aria-expanded` state bound to
 whether its menu is open. Menu items SHALL expose `role="menuitem"`. Activating the control
@@ -51,9 +68,22 @@ another's.
 
 #### Scenario: Menu is grouped by concern
 
-- **WHEN** the folder actions menu opens for a folder inside a workspace
-- **THEN** it SHALL present a workspace group containing add-to-workspace and remove-from-workspace
+- **WHEN** the folder actions menu opens for a top-level folder outside any workspace
+- **THEN** it SHALL present a workspace group containing add-to-workspace
 - **AND** a directory group containing project setup, pin, urgency sort, and directory settings
+
+#### Scenario: Workspace-owned folder omits the items that do not apply to it
+
+- **WHEN** the folder actions menu opens for a folder inside a workspace container
+- **THEN** the workspace group SHALL contain remove-from-workspace
+- **AND** it SHALL NOT contain add-to-workspace
+- **AND** the directory group SHALL NOT contain a pin item
+
+#### Scenario: Menu trigger glyph does not collide with the worktree menu
+
+- **GIVEN** a folder containing a worktree session card, which renders its own actions menu trigger
+- **WHEN** the folder header and that session card are both visible
+- **THEN** the folder actions trigger and the worktree actions trigger SHALL render different glyphs
 
 #### Scenario: Opening the menu does not navigate or collapse
 
@@ -64,6 +94,52 @@ another's.
 - **AND** the folder SHALL remain expanded
 
 ## MODIFIED Requirements
+
+### Requirement: Folder header uses gutter + content two-column layout
+
+The folder header SHALL use a two-column layout:
+
+1. **Left gutter** (fixed narrow column): the collapse chevron at the top, with the surrounding gutter area acting as the drag handle.
+2. **Content column** (`flex-1 min-w-0`): folder icon + name + status capsule + folder actions menu trigger on the first row; branch (`GroupGitInfo`) on the second row; the directory call-to-action banner (when the folder needs one) below that; `SidebarFolderSectionSlot` and the OpenSpec slot below.
+
+The content column SHALL NOT contain a `FolderActionBar` row — that container is removed, its
+controls having moved to the folder actions menu and the call-to-action banner.
+
+#### Scenario: Content column rows are ordered identity, git, banner, slots
+
+- **WHEN** an expanded folder header renders
+- **THEN** the first content row SHALL carry the folder icon, name, status capsule and actions menu trigger
+- **AND** the git info row SHALL follow it
+- **AND** no `FolderActionBar` row SHALL render
+
+#### Scenario: Gutter holds the chevron and the drag handle
+
+- **WHEN** a folder header renders
+- **THEN** the collapse chevron SHALL live in the left gutter
+- **AND** the surrounding gutter area SHALL act as the drag handle
+
+### Requirement: Chevron toggles collapse; surrounding gutter area is the drag handle
+
+Collapse SHALL be toggled solely by the chevron in the left gutter. The folder-name row SHALL
+NOT toggle collapse — it navigates to the directory home page instead.
+
+Interactive controls within the header (the status capsule segments, the folder actions menu
+trigger) and on subsequent rows (branch `GroupGitInfo`, the call-to-action banner's action, the
+slot pills) MUST stop click propagation, or live outside the clickable row, so they perform
+their own action and MUST NOT collapse the folder or trigger row navigation.
+
+#### Scenario: Chevron toggles collapse
+
+- **WHEN** the user activates the chevron in the left gutter
+- **THEN** the folder's collapsed state SHALL toggle
+
+#### Scenario: Child controls neither collapse nor navigate
+
+- **GIVEN** an expanded folder header
+- **WHEN** the user activates the folder actions menu trigger, a status capsule segment, the branch control, or a banner action
+- **THEN** that control's own action SHALL fire
+- **AND** the folder SHALL NOT collapse
+- **AND** the client SHALL NOT navigate to the directory home page
 
 ### Requirement: Header icon cluster stays in the top-right at any width
 

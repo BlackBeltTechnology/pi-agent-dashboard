@@ -3,8 +3,11 @@
 ### Requirement: Directory call-to-action banner
 
 A directory card SHALL render structural calls to action as full-width banner rows, not as
-small buttons inside the git-info row. A banner SHALL render below the git-facts row and
-above the directory state pills, and SHALL NOT render when the directory needs no action.
+small buttons inside the git-info row. A banner SHALL render directly above the directory state
+pills, below the git-facts row when one is present. A directory that renders no git-facts row
+(for example a non-repository directory) SHALL place the banner directly below the identity
+row, so the element's position is defined in both cases and identity always precedes it.
+A banner SHALL NOT render when the directory needs no action.
 
 Banner colours SHALL be drawn from the existing `--severity-{info,warning,error}-{bg,fg,border}`
 token triples. The change SHALL introduce no new colour tokens.
@@ -65,6 +68,13 @@ SHALL render as a marker on the corresponding item in the folder actions menu.
 - **WHEN** its card renders
 - **THEN** no banner SHALL render for the available update
 - **AND** the folder actions menu's project-setup item SHALL carry an update marker
+
+#### Scenario: Banner position is defined without a git row
+
+- **GIVEN** a directory that renders no git-facts row
+- **WHEN** it needs a structural action
+- **THEN** the banner SHALL render directly below the identity row
+- **AND** the identity row SHALL still be the first content row
 
 #### Scenario: Blocking state earns a banner
 

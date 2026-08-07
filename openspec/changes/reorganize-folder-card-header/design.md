@@ -119,7 +119,7 @@ The per-artifact setup checklist (D5) **is** in scope despite needing server wor
 
 ## D9 — Tier 3 was never state-only (correction)
 
-"Tier 3 is state-only" was asserted without checking and is false. The slot pills carry **9
+"Tier 3 is state-only" was asserted without checking and is false. The slot pills carry **10
 action buttons**, and `directory-card-layout` mandates them: *"each slot section SHALL keep
 its own data hook and secondary actions (refresh, create)"*. Invariant 1 was being enforced
 on `Workspace` alone while nine violations sat two rows below it — and that false premise was
@@ -136,19 +136,24 @@ the stated reason `Workspace` could not be a pill.
 | | `folder-archive-btn` | `mdiArchiveOutline` | ⋯ → OPEN |
 | | `folder-specs-btn` | `mdiFileDocumentOutline` | ⋯ → OPEN |
 
-The glyph audit is worse than tier 1's: `mdiRefresh` appears **four times** on one card with
-four different scopes, `mdiPlus` twice. Invariant 4 violated six times — invisible precisely
-because each pill is locally reasonable. Only counting across the card exposes it.
+The glyph audit is worse than tier 1's: `mdiRefresh` renders **six times** on one card with six
+different scopes (KB alone accounts for four), `mdiPlus` twice. Invariant 4 violated eight times
+— invisible precisely because each pill is locally reasonable. Only counting across the card
+exposes it.
 
-**Four refreshes collapse to one.** Nobody wants to refresh *only* goals; per-slot refetch is
-data plumbing leaking into the UI. A non-refetch maintenance action (KB reindex) stays
-distinct.
+**The three plain refreshes collapse to one.** Nobody wants to refresh *only* goals; per-slot
+refetch is data plumbing leaking into the UI. KB's three controls fold into one reindex item
+that stays distinct, because rebuilding an index is not refetching a view.
 
 **`Archive` / `Specs` move rather than die.** They are navigation, and the case for deleting
 them (the board they duplicate is one pill-click away, as with `mdiOpenInNew`) was rejected —
 they are used often enough to keep a shortcut, just not a permanent button.
 
-Net: **9 pill buttons → 0**; the menu grows to 13 items across 5 groups.
+Net: **10 pill buttons → 0**; the menu holds 13 items across 5 groups (including Pi Resources).
+
+**`Pi Resources` was nearly destroyed.** `FolderActionBar` hosts `onOpenPiResources`, and the
+first draft deleted the container without rehoming it — the spec requirement for it would have
+dangled and the feature would have silently vanished. It moves to the `OPEN` group.
 
 ## D10 — Menu taxonomy is host-owned; plugins contribute data
 
@@ -174,8 +179,18 @@ a11y and the mobile sheet.
 
 ## D8 — Icon assignments
 
-No glyph may mean two things on the same card. Verified against **225** distinct MDI glyphs
+No glyph may mean two things on the same card. Verified against the **225** distinct MDI glyphs
 in tracked sources.
+
+**The audit method was itself defective.** Repo-wide distinctness cannot detect *per-card*
+duplication — the exact failure it is meant to catch. It passed `mdiDotsHorizontal` as "new"
+while `WorktreeActionsMenu` already used it on a card that renders inside the folder body. D9
+had already established that only counting across the rendered card exposes collisions; that
+lesson was not applied to the glyph introduced by this change. Any future glyph decision must
+enumerate what the *rendered card* shows, not what the repo contains.
+
+`mdiViewGridPlus` is reserved for add-to-workspace **on the directory card**; the dashboard's
+*New Workspace* button (`DashboardSpawnButtons.tsx`) also uses it, off-card.
 
 | Action | Glyph | Note |
 |---|---|---|
@@ -184,7 +199,8 @@ in tracked sources.
 | Pin directory | `mdiPin` | unchanged |
 | Float blocked to top | `mdiSortVariant` | unchanged |
 | Directory settings | `mdiCog` | unchanged |
-| Folder actions menu | `mdiDotsHorizontal` | new |
+| Folder actions menu | `mdiFolderCogOutline` | `mdiDotsHorizontal` was **rejected** — `WorktreeActionsMenu` already renders it on worktree session cards *inside the folder body*, so two identical triggers with different scopes would share a card |
+| Pi Resources | existing glyph, relocated | moves to the menu's OPEN group |
 | **Project setup** | **`mdiTextBoxCheckOutline`** | replaces `mdiFolderPlusOutline`, which read as "add a folder" beside the card's own `mdiFolderOpen` |
 | **Run init hook** | **`mdiScriptTextPlayOutline`** | replaces `mdiCogPlayOutline`, which collided with `mdiCog` |
 | Init failed | `mdiAlertCircleOutline` | |
@@ -195,6 +211,37 @@ for an idempotent top-up), `mdiFileTreeOutline` / `mdiPuzzleOutline` / `mdiCompa
 `mdiFormatListChecks` / `mdiClipboardCheckOutline` (all already in use),
 `mdiRocketLaunchOutline` ("launch" wanted later for run/deploy), `mdiAutoFix` (may be wanted
 for generic AI-generate), `mdiCheckDecagramOutline` (reads as a passive badge).
+
+## D11 — Corrections from doubt-review cycle 1
+
+A fresh-context reviewer plus a cross-model reviewer (`@propose-review-1`, `zai/glm-5.2`)
+found the artifact under-scoped its delta set and mis-stated several counts. Reconciled:
+
+| Finding | Class | Resolution |
+|---|---|---|
+| `directory-home-page` whole-row requirement says the icon affordance "SHALL remain" | actionable | that requirement is now MODIFIED, not left dangling |
+| `sidebar-folder-header` layout + chevron requirements name `FolderActionBar` and the pin button | actionable | both MODIFIED |
+| `folder-action-bar` Pi Resources requirement orphaned | actionable | MODIFIED — rehomed to the menu |
+| `openspec-folder-section` mandates a Refresh control and a folder-level Refresh button | actionable | delta added |
+| `kb-plugin-folder-section` mandates a per-state reindex control | actionable | delta added |
+| `group-commit-btn` is a standalone mutation on the git row | actionable | git-row prohibition now names it; the dirty-count affordance is the only commit entry point |
+| Menu re-enabled pin / add-to-workspace inside workspaces | actionable | placement gating now explicit in the spec |
+| Tier-0 "cannot proceed" vs a banner for merely-incomplete setup | actionable | banner now gated on **required** artifacts; optional ones are menu-only |
+| Probe failure could render a false "not a pi project" banner | actionable | fail-open now renders no banner |
+| `--status-*` are single values, not triples | actionable | leading tint is derived by `color-mix`, mirroring the severity triples |
+| Capsule error segment had no data source (`countStatusRollup` is working/idle only) | actionable | sourced from the session-card error signal; rollup extended |
+| `SlotPill` `placement` prop mechanism dropped when the requirement was rewritten | actionable | restored |
+| Mobile sheet asserted mandatory but in no spec | actionable | now a requirement |
+| Banner placement undefined without a git row | actionable | position defined for both cases |
+| Init-hook feedback detail (elapsed, log disclosure, no auto-dismiss) lost in relocation | actionable | preserved by requirement |
+| Counts: 9 vs 10 buttons, refresh ×4 vs ×6, 13 vs 12 items, "four defects" then five, 225 vs 226 glyphs | actionable | corrected |
+| `configured` cited in `worktree-init.ts` | actionable | it lives in `routes/git-routes.ts` |
+| `goals-folder-page` mandates Refresh / + New Goal | **noise** | that is the goals *content page* header, not the slot pill |
+
+**Residual, accepted:** the menu trigger `mdiFolderCogOutline` contains a cog, and the menu's
+`Directory settings…` item uses `mdiCog`. Both are visible while the menu is open. This is a
+weaker echo than two identical `⋯` triggers (trigger vs. item, different levels) but it is not
+zero — flagged rather than hidden.
 
 ## Open
 

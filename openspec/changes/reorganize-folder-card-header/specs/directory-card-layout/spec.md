@@ -37,11 +37,14 @@ The grid SHALL use two columns at sidebar/desktop width and SHALL collapse to a 
 
 The shared `SlotPill` primitive SHALL expose a body surface variant so a slot section reads correctly in both placements: `raised` (default) for sidebar folder cards, and `flat` for a folder section rendered inside a session card, matching the session subcard panel. Only the body background and shadow SHALL differ between variants; border, radius, hover border, glyph chip and capsule legend SHALL be identical.
 
+The variant SHALL be selected by an explicit `placement` prop (`"sidebar" | "card"`), and `WorktreeCardSectionSlot` SHALL supply `placement="card"` so a folder section rendered inside a session card resolves to the flat surface. The flat surface SHALL use a translucent mix over `--bg-surface` with no shadow; the raised surface SHALL use the opaque secondary background with a card shadow. Both SHALL resolve from existing theme tokens.
+
 `SlotPill` SHALL NOT expose a slot for caller-supplied action markup. Callers needing an action SHALL contribute a folder actions menu item instead, so the host owns grouping, ordering, keyboard semantics and mobile presentation.
 
 #### Scenario: KB section renders flat inside a session card
 - **WHEN** the KB folder section is rendered via the `worktree-card-section` slot on a session card
-- **THEN** its pill SHALL use the `flat` surface variant
+- **THEN** `WorktreeCardSectionSlot` SHALL supply `placement="card"`
+- **AND** its pill SHALL use the `flat` surface variant
 
 #### Scenario: SlotPill flat surface matches the subcard panel
 - **WHEN** a `flat` pill renders beside a session subcard

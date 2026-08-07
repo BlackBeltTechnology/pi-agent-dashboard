@@ -5,6 +5,8 @@ jobs on one scan line — identity (`📂 parent/leaf`), signal (`(723)`, `4 nee
 mutation (sort · Workspace · open-in-new · pin · × remove) — and four more controls live
 one row below. Four concrete defects follow:
 
+Six concrete defects:
+
 1. **Scope error.** The `Workspace` pill acts on `session.cwd` — a property of the
    *directory* — yet renders once per **session card** (`SessionCard.renderAddToWorkspace`).
    A folder with 20 sessions renders 20 identical buttons producing one effect.
@@ -17,19 +19,20 @@ one row below. Four concrete defects follow:
    disappears exactly when you expand the folder to inspect it.
 4. **No colour scarcity.** Mutations and the attention pill share tier 1 at equal visual
    weight, diluting the pre-attentive purple signal that attention-routing depends on.
-5. **The slot pills carry nine more action buttons** — more than the header itself — because
+5. **The slot pills carry ten more action buttons** — more than the header itself — because
    `directory-card-layout` mandates that "each slot section SHALL keep its own data hook and
-   secondary actions (refresh, create)". Among them `mdiRefresh` appears **four times** on one
-   card with four different scopes and `mdiPlus` twice: six glyph collisions that are
+   secondary actions (refresh, create)". Among them `mdiRefresh` renders **six times** on one
+   card with six different scopes and `mdiPlus` twice: eight glyph collisions that are
    invisible until you count across the whole card.
 
-A fifth defect is latent in the code: `WorktreeInitChip` already `flex-wrap`s onto its own
+A sixth defect is latent in the code: `WorktreeInitChip` already `flex-wrap`s onto its own
 full-width line to avoid overlapping the git row (`SessionList.tsx` ~1195). It was already
 a banner — it simply had no name, so it shipped as a wrapping exception.
 
 ## What Changes
 
 Reorganize the folder card into **four tiers, one job per tier**:
+
 
 ```
 TIER 1  identity + urgency     📂 …/pi-agent-dashboard   [💬4 │ ●2 │ 717]   ⋯
@@ -66,10 +69,13 @@ Concretely:
   `index.css` already designates the single colour source of truth for banner surfaces.
   **No new design tokens.**
 - **Move the settings gear** into `⋯ → DIRECTORY` so tier 2 holds zero controls.
-- **Strip all nine slot-pill action buttons.** A pill becomes one click target and nothing
+- **Strip all ten slot-pill action buttons.** A pill becomes one click target and nothing
   else. Their actions move into the menu under host-owned verb groups
-  (`WORKSPACE · DIRECTORY · CREATE · OPEN · MAINTENANCE`); the four per-slot refreshes collapse
-  into one `Refresh folder data`, while KB reindex stays distinct because it is not a refetch.
+  (`WORKSPACE · DIRECTORY · CREATE · OPEN · MAINTENANCE`); the three plain per-slot refreshes
+  collapse into one `Refresh folder data`, while the three KB controls fold into a single
+  reindex item that stays distinct because it rebuilds rather than refetches.
+- **Rehome `Pi Resources`.** Deleting `FolderActionBar` would otherwise destroy it; it moves
+  to the menu's `OPEN` group beside the OpenSpec entries.
 - **`SlotPill.actions?: ReactNode` is removed.** Plugins contribute declarative items
   (`{ id, group, label, icon, badge, disabled, onSelect }`) to a `folder-actions-menu` slot
   instead of injecting markup. **Breaking for plugin authors, deliberately** — the host must
@@ -87,7 +93,10 @@ Concretely:
 - **Two icon collisions fixed.** Project setup moves off `mdiFolderPlusOutline` (reads as
   "add a folder" beside the card's own `mdiFolderOpen`) to **`mdiTextBoxCheckOutline`**; the
   init hook moves off `mdiCogPlayOutline` (collided with `mdiCog` = Directory settings) to
-  **`mdiScriptTextPlayOutline`**. `mdiViewGridPlus` is reserved for add-to-workspace only.
+  **`mdiScriptTextPlayOutline`**. On the directory card `mdiViewGridPlus` is used for
+  add-to-workspace only (it is also the dashboard's *New Workspace* glyph, off-card).
+  The menu trigger uses **`mdiFolderCogOutline`** rather than `mdiDotsHorizontal`, which
+  `WorktreeActionsMenu` already renders on worktree session cards inside the folder body.
 
 Result: tier 1 goes from 4 permanent buttons + 2 coloured elements to **1 and 1**.
 
@@ -148,17 +157,25 @@ migration), `review-code` (multi-component client change before commit),
   `packages/automation-plugin/src/client/FolderAutomationSection.tsx`,
   `packages/client/src/components/openspec/FolderOpenSpecSection.tsx` — each stops rendering
   buttons and contributes menu items instead.
+- **Specs**: the change deltas **10** capabilities. Five carry requirements that reference
+  controls this change deletes and would otherwise dangle: `directory-home-page`
+  (whole-row affordance mandating the icon "SHALL remain"), `sidebar-folder-header`
+  (layout + chevron requirements naming `FolderActionBar` and the pin button),
+  `folder-action-bar` (Pi Resources), `openspec-folder-section` (Refresh control,
+  folder-level Refresh button), `kb-plugin-folder-section` (per-state reindex control).
 - **Code**: `packages/client/src/components/session/SessionList.tsx` (cluster → menu,
   `renderAddToWorkspaceButton`, tier assembly), `SessionCard.tsx` (drop
   `renderAddToWorkspace`), `folder/FolderNeedsYouPill.tsx` → status capsule,
   `folder/FolderStatusRollup` (absorbed), `folder/FolderActionBar.tsx` (emptied → deleted),
   `packages/client/src/components/packages/ProjectInitButton.tsx` +
   `worktree/WorktreeInitButton.tsx` (re-shaped as banners).
-- **Server**: `GET /api/git/worktree/init-status` replaces `configured?: boolean` with a
-  per-artifact tally (`packages/server/src/routes/git-routes.ts`,
-  `packages/server/src/git-worktree/worktree-init.ts`) and reports whether the trusted hook
-  hash still matches (`worktree-init-trust.ts` already computes both sides). Reserves a
-  `setupOutdated?: boolean` field that stays unset until the follow-up change.
+- **Server**: `GET /api/git/worktree/init-status` replaces `configured?: boolean` (defined in
+  `packages/server/src/routes/git-routes.ts`, which today checks `.pi/settings.json` only) with
+  a per-artifact tally split into required and optional artifacts, and reports whether the
+  trusted hook hash still matches (`worktree-init-trust.ts` already computes both sides).
+  Reserves a `setupOutdated?: boolean` field that stays unset until the follow-up change.
+  The fail-open path keeps returning `{ hasHook: false }` with **no** tally, and the client
+  renders no setup banner in that case.
 - **Tokens**: none added. Banner reuses `--severity-*`; capsule reuses `--status-*`.
 - **Icons**: two reassignments (`mdiTextBoxCheckOutline`, `mdiScriptTextPlayOutline`), both
   verified unused against the 225 distinct MDI glyphs in tracked sources.
@@ -168,20 +185,32 @@ migration), `review-code` (multi-component client change before commit),
   `ws-remove-<wsId>-<cwd>`, `folder-cleanup-broken-btn` move behind `⋯` or into tier 0;
   new: `folder-actions-menu-<cwd>`, `folder-status-capsule-<cwd>`,
   `folder-capsule-seg-<kind>-<cwd>`, `folder-banner-<kind>-<cwd>`.
-  The nine slot-pill test ids (`folder-automation-new-btn`, `folder-automation-refresh`,
+  The ten slot-pill test ids (`folder-automation-new-btn`, `folder-automation-refresh`,
   `folder-goal-new-btn`, `folder-goals-refresh`, `folder-kb-reindex`, `folder-kb-index-now`,
   `folder-kb-retry`, `folder-openspec-refresh`, `folder-archive-btn`, `folder-specs-btn`)
-  move behind the menu; `*-refresh` ids collapse into one.
-- **Tests**: `tests/e2e/folder-membership-drag.spec.ts:151,171,194` clicks
-  `add-to-workspace-btn-<cwd>` directly and needs a menu-open step.
-  `packages/client/src/components/__tests__/SessionList.test.tsx` add-to-workspace block
-  needs the same.
+  move behind the menu; the three plain `*-refresh` ids collapse into one and the three KB
+  ids collapse into one reindex item.
+- **Tests** (broader than first assessed — every file below touches a deleted or relocated id):
+  `tests/e2e/folder-membership-drag.spec.ts` (add-to-workspace at 151/171/194, plus
+  `folder-open-home` at 49/136 and `ws-remove-` at 189), `tests/e2e/directory-home.spec.ts`
+  (navigates via `folder-open-home-<cwd>` throughout), `tests/e2e/kb-folder-slot.spec.ts`
+  (anchors on `folder-urgency-sort-<cwd>`, clicks `folder-kb-index-now`),
+  `tests/e2e/worktree-init-feedback.spec.ts` (drives `worktree-init-btn`/`-chip`/`-error`/
+  `-retry`), `tests/e2e/helpers/index.ts`;
+  `SessionList.test.tsx` (`:840-845` asserts the cluster is exactly the four buttons being
+  collapsed — that assertion inverts; `:889-900` targets the deleted session-card control;
+  `:664-755` targets `folder-open-home`), `FolderActionBar.test.tsx`,
+  `FolderActionBar-cleanup-broken.test.tsx`, `FolderStatusRollup.test.tsx`,
+  `FolderNeedsYouPill.test.tsx`, `ProjectInitButton.test.tsx`, `WorktreeInitButton.test.tsx`,
+  `FolderOpenSpecSection.test.tsx`, `FolderKbSection.test.tsx`, `FolderGoalsSection.test.tsx`,
+  `FolderAutomationSection.test.tsx`.
 - **A11y**: `⋯` carries `aria-haspopup="menu"` + `aria-expanded`; items carry
   `role="menuitem"`; capsule segments are `<button>`s with distinct labels; header row
   keeps `min-h-[44px] md:min-h-0` (WCAG 2.5.5); the banner spinner honours
   `prefers-reduced-motion`.
-- **Risk**: medium-high. Broad across the sidebar, moves fourteen previously one-click
-  actions behind a menu, and breaks the plugin pill-action contract. Menu length (13 items /
-  5 groups) is the main UX risk and makes a proper mobile sheet mandatory.
+- **Risk**: medium-high. Broad across the sidebar, moves fifteen previously one-click actions
+  behind a menu, and breaks the plugin pill-action contract. Menu length (13 items / 5 groups,
+  including Pi Resources) is the main UX risk and makes a proper mobile sheet mandatory — now
+  specified, not merely asserted.
 - **Supersedes**: `compact-session-card-workspace-pill` (withdrawn — it resized a control
   this change deletes).

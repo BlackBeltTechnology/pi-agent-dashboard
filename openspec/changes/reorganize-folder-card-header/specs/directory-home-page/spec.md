@@ -1,3 +1,48 @@
+## MODIFIED Requirements
+
+### Requirement: Whole-row open affordance
+
+The folder header name-row (folder icon, path, session count, status rollups) SHALL itself be
+the open affordance: activating it SHALL navigate to `/folder/:encodedCwd`. The folder name
+SHALL carry a hover affordance so the row reads as a link.
+
+There SHALL be no separate icon open affordance. The row click is the only open gesture on the
+card, so the destination has exactly one control.
+
+Child controls within the row SHALL stop propagation so they perform their own action instead
+of navigating: the status capsule segments and the folder actions menu trigger.
+
+Activating the row SHALL NOT toggle the folder's collapsed state; collapse lives solely on the
+chevron in the drag gutter.
+
+#### Scenario: Row click opens the home page
+
+- **WHEN** the user activates a directory header row (pinned, unpinned, or workspace-owned)
+- **THEN** the client SHALL navigate to `/folder/<encodedCwd>` for that directory
+
+#### Scenario: No dedicated icon open control renders
+
+- **WHEN** a directory header row renders
+- **THEN** no separate icon-only open control SHALL render in the header cluster
+
+#### Scenario: Child controls do not trigger whole-row navigation
+
+- **GIVEN** a folder header row with its child controls (status capsule segments, folder actions menu trigger)
+- **WHEN** the user activates any of those child controls
+- **THEN** that control's own action SHALL fire
+- **AND** the client SHALL NOT navigate to the directory home page
+
+#### Scenario: Whole-row navigation does not collapse the folder
+
+- **GIVEN** a folder is expanded
+- **WHEN** the user activates its header row
+- **THEN** the folder SHALL remain expanded
+
+#### Scenario: Folder name signals it is a link
+
+- **WHEN** the user hovers the folder header row
+- **THEN** the folder leaf name SHALL show a hover affordance indicating the row navigates
+
 ## REMOVED Requirements
 
 ### Requirement: Sidebar open affordance
