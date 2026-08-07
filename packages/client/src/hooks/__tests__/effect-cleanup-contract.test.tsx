@@ -83,6 +83,9 @@ describe("F5: the effect cleanup contract survives the promise fix", () => {
 
     const boom = new Error("probe aborted mid-flight");
     d.reject(boom);
+    // Test scaffolding, not a D1 discard: the hook's own `.catch` is the code
+    // under test. This second consumer only keeps the fixture's rejection from
+    // counting as unhandled inside the test process.
     await d.promise.catch(() => {});
     await Promise.resolve();
 

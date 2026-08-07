@@ -53,7 +53,7 @@
 
 ## 6. Validate
 
-- [ ] 6.1 Re-derive both lint counts and confirm the 93 claimed sites are clear, with the sibling's 61 remaining as the only outstanding work for these two rules.
-- [ ] 6.2 Confirm no new `noMisusedPromises` findings were introduced by `await`s added in section 4 — re-derive both rules together, not just floating.
-- [ ] 6.3 Run the full suite and the E2E harness; confirm the new specs pass and nothing regressed.
-- [ ] 6.4 Confirm the fix-type distribution from 4.9 is recorded where `add-typeaware-lint-gate` can consume it.
+- [x] 6.1 Re-derive both lint counts and confirm the 93 claimed sites are clear, with the sibling's 61 remaining as the only outstanding work for these two rules.
+- [x] 6.2 Confirm no new `noMisusedPromises` findings were introduced by `await`s added in section 4 — re-derive both rules together, not just floating.
+- [x] 6.3 Run the full suite and the E2E harness; confirm the new specs pass and nothing regressed.
+- [x] 6.4 Confirm the fix-type distribution from 4.9 is recorded where `add-typeaware-lint-gate` can consume it.

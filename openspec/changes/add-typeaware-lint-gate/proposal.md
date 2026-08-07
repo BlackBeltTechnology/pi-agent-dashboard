@@ -23,13 +23,22 @@ rung: the ratchet is one-way and requires a green tree first, so it is blocked o
 | Blocking change | Clears |
 |---|---|
 | `cleanup-undeclared-dependencies` | `noUndeclaredDependencies` (all 1398) |
-| `cleanup-client-plugin-promises` | 88 floating (client, plugins, shell, `scripts/`) + 5 misused (client 3, server 2) |
-| `cleanup-async-semantics-server-extension` | 55 floating (extension 37, server 17, electron 1) + 6 misused (electron main) |
+| `cleanup-client-plugin-promises` | 89 floating (client, plugins, shell, `scripts/`, + `tunnel-core.ts:160`) + 5 misused (client 3, server 2) |
+| `cleanup-async-semantics-server-extension` | 54 floating (extension 37, server 16, electron 1) + 6 misused (electron main) |
 | `cleanup-import-cycles` | all 17 cycles |
 
-Floating totals **143** (88 + 55), misused **11** (5 + 6). The electron sites
+Floating totals **143** (89 + 54), misused **11** (5 + 6). The electron sites
 moved to the async-semantics change during planning — the split is by blast
 radius, not package name.
+
+> **Boundary moved during implementation (was 88 + 55).**
+> `cleanup-client-plugin-promises` restructured the `createInner` async executor
+> at `tunnel-core.ts:167`, which made `createTunnel` able to REJECT where it
+> previously hung. That turned the sibling's floating `promise.finally()` at
+> `tunnel-core.ts:160` into a live unhandled rejection, so it had to be fixed in
+> the same commit rather than left for the sibling. Server floating is therefore
+> **16**, not 17. This is the same-function coupling both proposals flagged;
+> whoever re-derives should count from Biome, not from these tables.
 
 > The floating total is 143, not 142. A site-extraction filter matching only
 > `.ts/.tsx/.mjs/.js/.jsx` drops `packages/server/src/rpc-keeper/keeper.cjs:141`.

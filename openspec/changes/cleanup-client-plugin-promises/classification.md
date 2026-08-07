@@ -69,6 +69,13 @@ Two qualifiers `add-typeaware-lint-gate` should weigh before deciding:
 | `scripts/` | 1 | — |
 | **total** | **88** | **5** |
 
+Plus one site not in the original claim: `packages/server/src/tunnel/tunnel-core.ts:160`
+(the sibling's floating `promise.finally()`). Restructuring the executor at
+`:167` made `createTunnel` able to reject, which turned that latent floating
+promise into a live unhandled rejection — so it had to be fixed here. Shipped
+total is therefore **89 floating + 5 misused**, and the sibling drops to 54
+floating. Both ladder ledgers updated.
+
 ## Shared seams introduced
 
 Three call sites repeated the same discard, so the handler was extracted rather

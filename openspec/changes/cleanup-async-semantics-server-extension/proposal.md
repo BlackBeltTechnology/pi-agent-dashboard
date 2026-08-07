@@ -2,11 +2,26 @@
 
 ## Why
 
-This change owns **55 floating + 6 misused** sites: `packages/extension` (37
-floating), `packages/server` (17 floating), and 7 `packages/electron`
+This change owns **54 floating + 6 misused** sites: `packages/extension` (37
+floating), `packages/server` (16 floating), and 7 `packages/electron`
 main-process sites handed over from `cleanup-client-plugin-promises` (1 floating
 at `main.ts:675`; 6 misused at `main.ts:531,557,607,654`,
 `lib/server-lifecycle.ts:454`, `lib/doctor-window.ts:52`).
+
+> **Server floating is 16, not 17 — changed after this was drafted.**
+> `cleanup-client-plugin-promises` shipped first and restructured the
+> `createInner` async executor at `tunnel-core.ts:167`. `createTunnel` can now
+> REJECT where it previously hung forever, which turned this change's floating
+> `promise.finally()` at `tunnel-core.ts:160` into a live unhandled rejection —
+> so it was fixed there rather than left dangling. The cleanup now settles on
+> both paths via `promise.then(clearPending, onErr)`.
+>
+> This is exactly the same-function coupling both proposals flagged. **Re-derive
+> `tunnel-core.ts` from Biome before assuming any of this file's remaining
+> sites.** Electron line numbers also shifted by +10 (a global
+> unhandled-rejection handler was installed at the top of `main.ts`): the 6
+> misused sites now report at `main.ts:541,567,617,664`,
+> `lib/server-lifecycle.ts:454`, `lib/doctor-window.ts:52`.
 
 ### The sites are not where the earlier draft said they were
 
@@ -18,9 +33,9 @@ ladder". **Re-derivation shows that is false.** The actual split by file kind:
 | Package | Total | Test-file sites | Production sites |
 |---|---|---|---|
 | `packages/extension` | 37 | **37** | **0** |
-| `packages/server` | 17 | 4 (3 of them non-promises — see below) | 13 |
+| `packages/server` | 16 (was 17; `tunnel-core.ts:160` absorbed by the sibling) | 4 (3 of them non-promises — see below) | 12 |
 | `packages/electron` | 1 floating + 6 misused | 0 | 1 + 6 |
-| **total** | **61** | **41** | **20** |
+| **total** | **60** | **41** | **19** |
 
 All 37 extension sites live in three test files — `__tests__/prompt-bus.test.ts`
 (17), `__tests__/prompt-bus-wiring.test.ts` (14),
@@ -43,7 +58,7 @@ artifact, and the vocabulary-legal fix (`await withPiResolve(...)`) would be
 fix is a `: void` return annotation on the helper, which is **outside** the
 fix vocabulary below and is called out as its own bucket.
 
-So this is **20 production decisions and 41 test-file decisions**, not 61
+So this is **19 production decisions and 41 test-file decisions**, not 60
 hot-path decisions. The two kinds need different conventions, and are tasked
 separately below. `cleanup-client-plugin-promises` — 70 real client sites — is the
 higher-risk change of the pair; this one no longer claims that title.
@@ -185,7 +200,8 @@ failure the test exists to catch. Test sites take `await` or `return` only.
 ## Impact
 
 - `packages/extension/src/__tests__/**` — 37 sites, all test files.
-- `packages/server/src/**` — 17 sites (13 production, 4 test).
+- `packages/server/src/**` — 16 sites (12 production, 4 test); `tunnel-core.ts:160`
+  was absorbed by `cleanup-client-plugin-promises`, see the Why note.
 - `packages/electron/src/**` — 1 floating + 6 misused, all main process.
 - **Behaviour risk is real but narrower than the earlier draft claimed**: an
   incorrectly-added `await` in the broadcast path or a worker pool changes
@@ -210,7 +226,7 @@ failure the test exists to catch. Test sites take `await` or `return` only.
   Test files are stricter still: `await` / `return` only. The ban rests on
   **intent at the call site**, not on the rejection being unobserved —
   `cli.ts:493` does observe them in the server main process.
-- ~~Are these the hottest subsystems in the project?~~ **No** — 37 of the 61 sites
+- ~~Are these the hottest subsystems in the project?~~ **No** — 37 of the 60 sites
   are extension test files and 4 more are server test files. See the table in
   Why. The change no longer claims to be the ladder's highest-risk rung.
 - ~~Do the load harnesses actually cover the touched paths?~~ **Essentially not
@@ -258,7 +274,7 @@ a regression, and is the specific failure mode to guard against.
 
 - `systematic-debugging` — the classification pass is evidence-first: determine
   what each promise's rejection currently does before deciding how to handle it.
-- `review-code` — 61 decisions (20 production + 41 test-file); the production
+- `review-code` — 60 decisions (19 production + 41 test-file); the production
   ones need a reviewer that can see intent, not just the diff, and the test-file
   ones need a reviewer checking that each test still proves what it proved.
 - `performance-optimization` — the "did an `await` serialize a hot path"
@@ -267,5 +283,5 @@ a regression, and is the specific failure mode to guard against.
 - `observability-instrumentation` — a `.catch()` that swallows silently is the
   same defect wearing a different hat; rejections must land somewhere visible.
 - `doubt-driven-review` — before the classification convention stands, stress it;
-  it decides 61 edits and is expensive to revisit afterwards. It already caught
+  it decides 60 edits and is expensive to revisit afterwards. It already caught
   that this change's stated risk profile did not match its actual sites.
