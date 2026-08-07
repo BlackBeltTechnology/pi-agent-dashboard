@@ -230,12 +230,40 @@ export function isUserAllowed(email: string, username: string, allowedUsers?: st
  *
  * Returns true when the base is valid (or absent), false when it warned.
  */
+/**
+ * Strip anything secret-bearing from a configured URL before it is logged.
+ *
+ * A misconfigured base is echoed back so the operator can spot their typo, but
+ * the raw string can carry a password (`user:pw@host`) or a token in the query
+ * (`?token=...`) / fragment. Redaction MUST live here rather than in any single
+ * validation branch: a value with both userinfo and a query trips whichever
+ * check runs first, so a per-branch guard would simply not run.
+ *
+ * Operates on the RAW string rather than rebuilding from a parsed `URL`, for two
+ * reasons: the values that most need diagnosing are the ones that do NOT parse
+ * (`pi.example.com`, `//evil.example.com`), and rebuilding mangles exotic-but-
+ * informative values (`javascript:alert(1)`). Only the secret-bearing parts are
+ * replaced — scheme, host, path, and query KEYS survive, so the warning still
+ * shows the operator which value is at fault.
+ */
+function redactUrlForLog(raw: string): string {
+  return (
+    raw
+      // password in userinfo → keep the username, mask the secret
+      .replace(/\/\/([^/@\s:]*):([^/@\s]*)@/, "//$1:***@")
+      // query VALUES → keys are diagnostic, values can be tokens
+      .replace(/([?&][^=&#\s]+)=[^&#\s]*/g, "$1=<redacted>")
+      // fragment payload → can carry an implicit-flow access_token
+      .replace(/#(.+)$/, "#<redacted>")
+  );
+}
+
 export function warnOnInvalidRedirectBase(base: string | null | undefined): boolean {
   if (!base) return true;
 
   const complain = (reason: string) =>
     console.warn(
-      `⚠️  auth.redirectBaseUrl ${reason}: "${base}" — OAuth redirect URIs built from it will be rejected by the provider`,
+      `⚠️  auth.redirectBaseUrl ${reason}: "${redactUrlForLog(base)}" — OAuth redirect URIs built from it will be rejected by the provider`,
     );
 
   let parsed: URL;
@@ -249,7 +277,11 @@ export function warnOnInvalidRedirectBase(base: string | null | undefined): bool
     complain(`must use http or https, got "${parsed.protocol}"`);
     return false;
   }
-  if (parsed.search || parsed.hash) {
+  // Test the RAW string, not the parsed fields: `new URL("https://h?").search`
+  // is the empty string, so a `parsed.search || parsed.hash` check passes a bare
+  // delimiter — and the delimiter still survives into the built URI, yielding
+  // `https://h?/auth/callback/github`. Reported by CodeRabbit on PR #409.
+  if (parsed.search || parsed.hash || /[?#]/.test(base)) {
     complain("must not carry a query string or fragment");
     return false;
   }
@@ -257,11 +289,11 @@ export function warnOnInvalidRedirectBase(base: string | null | undefined): bool
   // travels in the authorize URL's `redirect_uri` parameter — landing the
   // credentials in the provider's request logs and the user's browser history.
   // The warning names the leak rather than saying "invalid URL", because the
-  // hazard is not obvious from the value alone. The password is NEVER echoed.
+  // hazard is not obvious from the value alone.
   // See change: config-override-oauth-redirect-base (design D4 amendment).
   if (parsed.username || parsed.password) {
     console.warn(
-      `⚠️  auth.redirectBaseUrl embeds credentials ("${parsed.username}:***@${parsed.host}") — ` +
+      `⚠️  auth.redirectBaseUrl embeds credentials ("${redactUrlForLog(base)}") — ` +
         "they would leak into the authorize URL, the provider's logs and the browser history; " +
         "remove the user:password@ prefix",
     );

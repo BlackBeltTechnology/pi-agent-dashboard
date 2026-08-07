@@ -307,22 +307,26 @@ describe("warnOnInvalidRedirectBase", () => {
     warn.mockRestore();
   });
 
-  const invalid: Array<[string, string]> = [
-    ["X1 missing scheme", "pi.example.com"],
-    ["X1 protocol-relative", "//evil.example.com"],
-    ["X2 non-http scheme", "ftp://pi.example.com"],
-    ["X2 javascript scheme", "javascript:alert(1)"],
-    ["X3 query string", "https://pi.example.com?tenant=a"],
-    ["X3 fragment", "https://pi.example.com#x"],
+  // `logged` is the form expected in the warning. It differs from the input only
+  // where the value carries something secret-bearing: query VALUES and fragment
+  // payloads are redacted (scheme/host/path/query KEYS survive so the warning
+  // stays actionable). See redactUrlForLog in auth.ts.
+  const invalid: Array<[string, string, string]> = [
+    ["X1 missing scheme", "pi.example.com", "pi.example.com"],
+    ["X1 protocol-relative", "//evil.example.com", "//evil.example.com"],
+    ["X2 non-http scheme", "ftp://pi.example.com", "ftp://pi.example.com"],
+    ["X2 javascript scheme", "javascript:alert(1)", "javascript:alert(1)"],
+    ["X3 query string", "https://pi.example.com?tenant=a", "https://pi.example.com?tenant=<redacted>"],
+    ["X3 fragment", "https://pi.example.com#x", "https://pi.example.com#<redacted>"],
   ];
 
-  for (const [name, value] of invalid) {
+  for (const [name, value, logged] of invalid) {
     it(`${name} → warns naming the field and the value`, () => {
       expect(warnOnInvalidRedirectBase(value)).toBe(false);
       expect(warn).toHaveBeenCalledTimes(1);
       const message = String(warn.mock.calls[0][0]);
       expect(message).toContain("auth.redirectBaseUrl");
-      expect(message).toContain(value);
+      expect(message).toContain(logged);
     });
 
     it(`${name} → the value is still used, not discarded`, () => {
@@ -330,6 +334,13 @@ describe("warnOnInvalidRedirectBase", () => {
     });
   }
 
+  it("redaction never alters the value that is actually USED", () => {
+    // Redaction is a logging concern only. If it ever leaked into the builder,
+    // every operator with a query in their base would get a broken callback.
+    const withQuery = "https://pi.example.com?tenant=a";
+    expect(buildRedirectUri("github", PORT, withQuery)).toBe(`${withQuery}/auth/callback/github`);
+    expect(buildRedirectUri("github", PORT, withQuery)).not.toContain("redacted");
+  });
 
   // G1 — userinfo in the base leaks credentials into the authorize URL, and from
   // there into the provider's request logs and the browser history. The first
@@ -360,6 +371,50 @@ describe("warnOnInvalidRedirectBase", () => {
     expect(String(warn.mock.calls[0][0])).not.toContain("hunter2");
   });
 
+  // G1b — redaction must apply to EVERY warning path, not just the userinfo
+  // branch. A base carrying both userinfo and a query hits the query branch
+  // first, so a redaction that lives only in the userinfo branch never runs.
+  // Reported by CodeRabbit on PR #409 (auth.ts complain()).
+  const secretBearing: Array<[string, string[]]> = [
+    ["https://user:hunter2@pi.example.com?token=s3cret", ["hunter2", "s3cret"]],
+    ["https://pi.example.com?token=s3cret", ["s3cret"]],
+    ["https://pi.example.com#access_token=s3cret", ["s3cret"]],
+    ["ftp://user:hunter2@pi.example.com", ["hunter2"]],
+  ];
+
+  for (const [value, secrets] of secretBearing) {
+    it(`G1b redacts every secret in the warning for "${value}"`, () => {
+      expect(warnOnInvalidRedirectBase(value)).toBe(false);
+      const message = String(warn.mock.calls[0][0]);
+      expect(message).toContain("auth.redirectBaseUrl");
+      for (const secret of secrets) expect(message).not.toContain(secret);
+      // Still actionable: the host survives so the operator knows which value
+      // is at fault.
+      expect(message).toContain("pi.example.com");
+    });
+  }
+
+  // G1c — a bare `?` or `#` parses to an EMPTY search/hash, so a check written
+  // as `if (parsed.search || parsed.hash)` passes it. The delimiter still
+  // survives into the built URI: `https://pi.example.com?/auth/callback/github`.
+  // Reported by CodeRabbit on PR #409.
+  const emptyDelimiters = ["https://pi.example.com?", "https://pi.example.com#", "https://pi.example.com?#"];
+
+  for (const value of emptyDelimiters) {
+    it(`G1c warns on the empty delimiter in "${value}"`, () => {
+      expect(warnOnInvalidRedirectBase(value)).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain("auth.redirectBaseUrl");
+    });
+  }
+
+  it("G1c documents the malformed URI an empty delimiter produces", () => {
+    // Pins WHY it must warn: the delimiter is not stripped by the builder, so
+    // the callback path lands inside the query/fragment.
+    expect(buildRedirectUri("github", PORT, "https://pi.example.com?")).toBe(
+      "https://pi.example.com?/auth/callback/github",
+    );
+  });
 
   const valid = [OVERRIDE, `${OVERRIDE}/pi`, `${OVERRIDE}/`, "http://localhost:8000"];
   for (const value of valid) {
