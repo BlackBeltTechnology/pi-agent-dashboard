@@ -176,6 +176,20 @@ describe('specifier normalisation (E6, E7, E8, E9)', () => {
     expect(isBuiltin('node:path')).toBe(true);
     expect(isBuiltin('left-pad')).toBe(false);
   });
+
+  it.each(['node:sqlite', 'node:test', 'node:some-future-builtin'])(
+    'treats %s as builtin regardless of the running Node version',
+    (spec) => {
+      // `node:` is a reserved scheme — npm cannot host a package under it, so a
+      // prefixed specifier is a builtin reference by definition. Consulting the
+      // interpreter's `builtinModules` instead made the verdict Node-dependent:
+      // `node:sqlite` resolves on Node 24 but not Node 22, so the same tree
+      // passed locally and failed CI.
+      expect(isBuiltin(spec)).toBe(true);
+      const ws = fixture({}, { 'index.js': `import ${JSON.stringify(spec)};` });
+      expect(run(ws, ['index.js'])).toEqual([]);
+    },
+  );
 });
 
 /* ------------------------------------------------------------------ *

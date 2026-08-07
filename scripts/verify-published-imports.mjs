@@ -59,6 +59,18 @@ const RESOLVE_SUFFIXES = ["", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mt
 const BUILTINS = new Set([...builtinModules, ...builtinModules.map((m) => `node:${m}`)]);
 
 /**
+ * `node:` is a reserved scheme: npm cannot host a package whose name starts with
+ * it, so a `node:`-prefixed specifier is a builtin reference by definition and
+ * can never require a declaration.
+ *
+ * Checking it against the running Node's `builtinModules` instead would make the
+ * result depend on the interpreter: `node:sqlite` is present on Node 24 but not
+ * on Node 22, so the same tree passed locally and failed on CI. A gate whose
+ * verdict changes with the runner is worse than no gate.
+ */
+const NODE_SCHEME = /^node:/;
+
+/**
  * Specifiers deliberately left undeclared. Every entry carries a reason; an
  * entry without one fails the run, so exceptions cannot accumulate silently.
  */
@@ -136,7 +148,7 @@ export function rangeIsSatisfiable(range, resolvingVersion) {
  * ------------------------------------------------------------------ */
 
 export function isBuiltin(spec) {
-  return BUILTINS.has(spec);
+  return NODE_SCHEME.test(spec) || BUILTINS.has(spec);
 }
 
 export function isRelative(spec) {
