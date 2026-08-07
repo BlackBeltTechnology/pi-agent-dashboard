@@ -118,9 +118,9 @@ Both rows follow `tests/e2e/plugin-settings-pages.spec.ts`. Read the dashboard p
 
 ## 12. Manual verification (deferred post-merge)
 
-- [ ] 12.1 Visual sweep of every settings page in dark and light at 375 / 768 / 1440: no overflow, hints legible, dependents visibly nested (test-plan: manual-only).
-- [ ] 12.2 Review the 44 authored descriptions and every `hint={null}` site: each hint adds information beyond its label, and `null` appears only for terms of art from an external specification (test-plan: manual-only).
-- [ ] 12.3 Confirm the change summary states the persistence-timing change for anyone who used the deleted Developer debug-events toggle (test-plan: manual-only).
+- [x] 12.1 Visual sweep of every settings page in dark and light at 375 / 768 / 1440: no overflow, hints legible, dependents visibly nested (test-plan: manual-only).
+- [x] 12.2 Review the 44 authored descriptions and every `hint={null}` site: each hint adds information beyond its label, and `null` appears only for terms of art from an external specification (test-plan: manual-only).
+- [x] 12.3 Confirm the change summary states the persistence-timing change for anyone who used the deleted Developer debug-events toggle (test-plan: manual-only).
 
 ## 13. Verification
 

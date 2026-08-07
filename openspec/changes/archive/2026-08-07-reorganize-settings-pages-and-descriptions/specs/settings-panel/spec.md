@@ -72,6 +72,25 @@ Each `displayPrefs` field SHALL have exactly one control across the entire setti
 - **THEN** the change SHALL be buffered and SHALL mark the General page dirty
 - **AND** it SHALL persist only on Save, not on toggle
 
+### Requirement: Chat display preferences are a single section on General
+
+Chat-display preferences SHALL be rendered on the **General** page only, split into three sub-sections: message-level elements, reasoning, and tool calls, all registering a single `display-prefs` draft source. The reasoning auto-collapse and keep-open controls SHALL be indented beneath the reasoning toggle that gates them.
+
+The Developer page SHALL NOT render a chat-display section.
+
+#### Scenario: One chat-display section exists
+- **WHEN** the settings panel is rendered
+- **THEN** exactly one section governing chat-display preferences SHALL exist, and it SHALL be on the General page
+
+#### Scenario: Split sections share one draft source
+- **WHEN** any chat-display control is edited
+- **THEN** exactly one draft source (`display-prefs`) SHALL report dirty
+- **AND** the Save Bar SHALL show a single General chip, not one per sub-section
+
+#### Scenario: Reasoning dependents are nested
+- **WHEN** the reasoning sub-section is rendered
+- **THEN** the auto-collapse and keep-open controls SHALL be indented beneath the reasoning toggle
+
 ## MODIFIED Requirements
 
 ### Requirement: Settings panel view
@@ -96,6 +115,44 @@ Within a page, controls SHALL be grouped into sections by concern, and a control
 
 A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by **top-level** key. A field SHALL NOT be rendered on a page other than the one its top-level key maps to, because the dirty-page chip would then name the wrong page.
 
+#### Scenario: Page layout with nav rail
+- **WHEN** the user navigates to `/settings/general`
+- **THEN** the panel SHALL display a fixed header (back, "Settings" title, Restart)
+- **AND** a left nav rail listing the pages grouped under Dashboard / Network / Extensions / Advanced
+- **AND** the active page's content beside the rail
+- **AND** the General page SHALL be selected when no `:page` is given
+
+#### Scenario: Page switching
+- **WHEN** the user clicks a different page in the nav rail
+- **THEN** the content area SHALL display that page's sections
+- **AND** the clicked nav item SHALL show an active indicator
+- **AND** the URL SHALL update to `/settings/<page>`
+
+#### Scenario: Fixed header stays visible on scroll
+- **WHEN** the active page's content is long enough to scroll
+- **THEN** the header and nav rail SHALL remain visible
+- **AND** only the page content area SHALL scroll
+
+#### Scenario: Save applies across all pages
+- **WHEN** the user modifies fields on multiple pages and clicks Save in the Save Bar
+- **THEN** the panel SHALL commit all changed sources (from any page) in a single save operation
+- **AND** navigating between pages before Save SHALL NOT discard unsaved edits
+
+#### Scenario: Settings panel back navigation
+- **WHEN** the user clicks the back button in the header and the draft is clean
+- **THEN** the app SHALL navigate away from settings to the previous view
+
+#### Scenario: Mobile layout keeps content visible
+- **WHEN** the user opens `/settings/general` at a viewport width below the `md` breakpoint (e.g. 390 px)
+- **THEN** the nav + content wrapper SHALL be laid out vertically (nav above content)
+- **AND** the navigation SHALL render as a full-width horizontal, horizontally-scrollable tab strip
+- **AND** the content area SHALL have a non-zero width and be fully within the visible viewport (form fields visible without horizontal scrolling)
+
+#### Scenario: Desktop layout unchanged
+- **WHEN** the user opens `/settings/general` at a viewport width at or above the `md` breakpoint
+- **THEN** the navigation SHALL render as a fixed-width vertical rail to the left of the content
+- **AND** the content area SHALL occupy the remaining horizontal space to the right of the rail
+
 #### Scenario: Sessions page sections
 - **WHEN** the Sessions page is rendered
 - **THEN** its sections SHALL be, in order: new-session defaults, session-list ordering, lifecycle and recovery, worktrees, retry
@@ -118,21 +175,3 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 - **WHEN** the Server page renders `shutdownIdleSeconds`
 - **THEN** it SHALL be rendered indented beneath the `autoShutdown` toggle that gates it
 
-### Requirement: Chat display preferences are a single section on General
-
-Chat-display preferences SHALL be rendered on the **General** page only, split into three sub-sections: message-level elements, reasoning, and tool calls, all registering a single `display-prefs` draft source. The reasoning auto-collapse and keep-open controls SHALL be indented beneath the reasoning toggle that gates them.
-
-The Developer page SHALL NOT render a chat-display section.
-
-#### Scenario: One chat-display section exists
-- **WHEN** the settings panel is rendered
-- **THEN** exactly one section governing chat-display preferences SHALL exist, and it SHALL be on the General page
-
-#### Scenario: Split sections share one draft source
-- **WHEN** any chat-display control is edited
-- **THEN** exactly one draft source (`display-prefs`) SHALL report dirty
-- **AND** the Save Bar SHALL show a single General chip, not one per sub-section
-
-#### Scenario: Reasoning dependents are nested
-- **WHEN** the reasoning sub-section is rendered
-- **THEN** the auto-collapse and keep-open controls SHALL be indented beneath the reasoning toggle
