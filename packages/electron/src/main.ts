@@ -52,6 +52,16 @@ function log(msg: string): void {
     appendFileSync(_LOG_PATH, line);
   } catch { /* ignore */ }
 }
+// Global unhandled-rejection reporter for the main process — the regression
+// guard for the promise-handling cleanup. Installed before any application
+// work so an escaped rejection reaches `log()` instead of being silent.
+// Observes only; it never swallows and never exits.
+// See change: cleanup-client-plugin-promises (design D2).
+process.on("unhandledRejection", (reason) => {
+  const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+  log(`[unhandledRejection] ${detail}`);
+});
+
 log("=== Electron starting ===");
 log(`platform=${process.platform} arch=${process.arch} pid=${process.pid}`);
 log(`resourcesPath=${(process as any).resourcesPath || "(none)"}`);

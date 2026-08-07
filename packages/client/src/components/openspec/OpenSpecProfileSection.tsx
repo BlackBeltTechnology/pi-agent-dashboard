@@ -19,6 +19,7 @@ import {
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { logRejection } from "../../lib/report-error.js";
 import {
   type CwdUpdateStatus,
   fetchGlobalOpenSpecConfig,
@@ -67,7 +68,7 @@ export function OpenSpecProfileSection() {
   }, []);
 
   useEffect(() => {
-    refreshStatus();
+    void refreshStatus().catch(logRejection("OpenSpecProfileSection.refreshStatus"));
   }, [refreshStatus]);
 
   // Initialize controls from the CURRENT global config so the section reflects
@@ -107,7 +108,7 @@ export function OpenSpecProfileSection() {
   }, []);
 
   useEffect(() => {
-    loadConfig();
+    void loadConfig().catch(logRejection("OpenSpecProfileSection.loadConfig"));
   }, [loadConfig]);
 
   function selectProfile(p: Profile) {

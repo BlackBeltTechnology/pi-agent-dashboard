@@ -17,6 +17,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ImagePreview } from "./ImagePreview.js";
 import { emlAttachmentUrl, emlUrl } from "./raw-url.js";
+import { logRejection } from "../../lib/report-error.js";
 
 const PdfPreview = lazy(() => import("./PdfPreview.js"));
 
@@ -74,7 +75,8 @@ export function EmlPreview({ target }: Props) {
     let cancelled = false;
     setData(null);
     setError(null);
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const res = await fetch(emlUrl(target, allowRemote));
         const json = await res.json();
@@ -87,7 +89,7 @@ export function EmlPreview({ target }: Props) {
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to load");
       }
-    })();
+    })().catch(logRejection("EmlPreview.load"));
     return () => {
       cancelled = true;
     };
@@ -103,7 +105,8 @@ export function EmlPreview({ target }: Props) {
     // Track THIS run's blobs so a re-run (e.g. "Load remote content" toggles
     // `data`) revokes its own batch instead of leaking until unmount.
     const createdUrls: string[] = [];
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       const cidToBlob = new Map<string, string>();
       const inlineCids = data.attachments.filter((a) => a.contentId);
       await Promise.all(
@@ -123,7 +126,7 @@ export function EmlPreview({ target }: Props) {
       if (cancelled) return;
       blobUrls.current.push(...createdUrls);
       setSrcDoc(buildSrcDoc(resolveCidRefs(data.html, cidToBlob)));
-    })();
+    })().catch(logRejection("EmlPreview.inlineAttachments"));
     return () => {
       cancelled = true;
       // Revoke this run's blobs (created but the effect re-ran/unmounted) and
@@ -253,7 +256,8 @@ function AttachmentRow({ target, att }: { target: FileTarget; att: AttachmentMet
     let cancelled = false;
     let created: string | null = null;
     setLoading(true);
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const res = await fetch(emlAttachmentUrl(target, att.index));
         if (!res.ok || cancelled) return;
@@ -263,7 +267,7 @@ function AttachmentRow({ target, att }: { target: FileTarget; att: AttachmentMet
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    })().catch(logRejection("EmlPreview.attachmentBlob"));
     return () => {
       cancelled = true;
       if (created) URL.revokeObjectURL(created);

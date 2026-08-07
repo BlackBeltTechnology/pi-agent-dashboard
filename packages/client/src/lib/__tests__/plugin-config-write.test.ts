@@ -30,20 +30,22 @@ describe("dispatchPluginMessage (send interception)", () => {
     expect(JSON.parse(init.body as string)).toEqual({ editFlow: true });
   });
 
-  it("passes non-config messages through to the WS transport", () => {
+  it("passes non-config messages through to the WS transport", async () => {
     const fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const wsSend = vi.fn();
 
-    dispatchPluginMessage({ type: "flow_control", sessionId: "s1", action: "abort" }, wsSend);
+    // Awaited, not discarded: a rejection here is the failure this test exists
+    // to catch. See change: cleanup-client-plugin-promises (design D8).
+    await dispatchPluginMessage({ type: "flow_control", sessionId: "s1", action: "abort" }, wsSend);
 
     expect(wsSend).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("treats a config write with no id as a pass-through (defensive)", () => {
+  it("treats a config write with no id as a pass-through (defensive)", async () => {
     const wsSend = vi.fn();
-    dispatchPluginMessage({ type: "plugin_config_write", config: {} }, wsSend);
+    await dispatchPluginMessage({ type: "plugin_config_write", config: {} }, wsSend);
     expect(wsSend).toHaveBeenCalledTimes(1);
   });
 });

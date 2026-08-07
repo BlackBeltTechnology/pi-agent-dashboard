@@ -67,4 +67,9 @@ async function main() {
   process.exit(1);
 }
 
-main();
+// A rejection here must fail the job loudly, not exit 0 with a silent stack.
+// See change: cleanup-client-plugin-promises.
+main().catch((err) => {
+  console.error(`::error::verdaccio serve failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  process.exit(1);
+});

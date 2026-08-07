@@ -23,6 +23,7 @@ import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
+import { logRejection } from "../../lib/report-error.js";
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ export function ProviderAuthSection() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { void refresh().catch(logRejection("ProviderAuthSection.refresh")); }, [refresh]);
   useEffect(() => {
     fetchHandlerIds().then(setHandlerIds).catch(() => setHandlerIds(null));
   }, []);
@@ -223,9 +224,9 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
         setEnterpriseInput(true);
         return;
       }
-      startDeviceCode();
+      void startDeviceCode().catch(logRejection("ProviderAuthSection.startDeviceCode"));
     } else {
-      startAuthCode();
+      void startAuthCode().catch(logRejection("ProviderAuthSection.startAuthCode"));
     }
   };
 
@@ -287,7 +288,7 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
             onChange={(e) => setEnterpriseDomain(e.target.value)}
             placeholder={i18nT("git.enterpriseDomainBlankForGithubCom", undefined, "Enterprise domain (blank for github.com)")}
             className="flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-primary)] placeholder-[var(--text-muted)]"
-            onKeyDown={(e) => { if (e.key === "Enter") startDeviceCode(enterpriseDomain); }}
+            onKeyDown={(e) => { if (e.key === "Enter") void startDeviceCode(enterpriseDomain).catch(logRejection("ProviderAuthSection.startDeviceCode")); }}
             autoFocus
           />
           <button
@@ -422,7 +423,7 @@ function ApiKeyRow({ provider, onChanged, showToast }: { provider: ProviderAuthS
             onChange={(e) => setKeyValue(e.target.value)}
             placeholder={i18nT("gateway.pasteApiKey", undefined, "Paste API key…")}
             className="flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] border border-[var(--border-secondary)] text-[var(--text-primary)] placeholder-[var(--text-muted)] font-mono"
-            onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+            onKeyDown={(e) => { if (e.key === "Enter") void handleSave().catch(logRejection("ProviderAuthSection.handleSave")); }}
             autoFocus
           />
           <button onClick={handleSave} disabled={busy || !keyValue.trim()} className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">

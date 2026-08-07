@@ -46,6 +46,7 @@ import { PackageRow, type PackageRowProps } from "./PackageRow.js";
 import { PinDirectoryDialog } from "../workspace/PinDirectoryDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
 import { WhatsNewPackageRow } from "./WhatsNewPackageRow.js";
+import { logRejection } from "../../lib/report-error.js";
 
 /** Single core package the breaking-change icon is wired for. v1 scope. */
 const PI_CORE_PKG = "@earendil-works/pi-coding-agent";
@@ -192,7 +193,8 @@ export function UnifiedPackagesSection() {
 			checkInFlightRef.current = false;
 			// Also refresh Core data when this is a manual check; auto-checks
 			// don't disturb usePiCoreVersions' own polling.
-			if (!opts.silent) refresh(true);
+			// Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+			if (!opts.silent) void refresh(true).catch(logRejection("UnifiedPackagesSection.refresh"));
 		},
 		[refresh],
 	);
@@ -208,13 +210,13 @@ export function UnifiedPackagesSection() {
 		if (installed.isLoading) return;
 		if (installed.packages.length === 0) return;
 		initialCheckFiredRef.current = true;
-		handleCheckUpdates({ silent: true });
+		void handleCheckUpdates({ silent: true }).catch(logRejection("UnifiedPackagesSection.initialCheck"));
 	}, [installed.isLoading, installed.packages.length, handleCheckUpdates]);
 
 	// 30-minute poll while mounted.
 	useEffect(() => {
 		const id = setInterval(() => {
-			handleCheckUpdates({ silent: true });
+			void handleCheckUpdates({ silent: true }).catch(logRejection("UnifiedPackagesSection.poll"));
 		}, 30 * 60 * 1000);
 		return () => clearInterval(id);
 	}, [handleCheckUpdates]);
@@ -225,7 +227,7 @@ export function UnifiedPackagesSection() {
 		const handler = (e: Event) => {
 			const msg = (e as CustomEvent).detail;
 			if (msg?.type === "package_operation_complete" && msg.success) {
-				handleCheckUpdates({ silent: true });
+				void handleCheckUpdates({ silent: true }).catch(logRejection("UnifiedPackagesSection.packageEvent"));
 			}
 		};
 		window.addEventListener("pi-package-event", handler);
@@ -317,8 +319,8 @@ export function UnifiedPackagesSection() {
 					)}
 					<button
 						onClick={() => {
-							refresh(true);
-							handleCheckUpdates();
+							void refresh(true).catch(logRejection("UnifiedPackagesSection.refresh"));
+							void handleCheckUpdates().catch(logRejection("UnifiedPackagesSection.checkNow"));
 						}}
 						disabled={isLoading || checkingUpdates}
 						className="text-xs px-2 py-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-primary)] disabled:opacity-50 flex items-center gap-1"
@@ -429,11 +431,13 @@ export function UnifiedPackagesSection() {
 					onPin={(targetCwd) => {
 						const src = movePickerSource;
 						setMovePickerSource(null);
-						operations.move(src, {
-							fromScope: "global",
-							toScope: "local",
-							toCwd: targetCwd,
-						});
+						void operations
+							.move(src, {
+								fromScope: "global",
+								toScope: "local",
+								toCwd: targetCwd,
+							})
+							.catch(logRejection("UnifiedPackagesSection.move"));
 					}}
 					onCancel={() => setMovePickerSource(null)}
 				/>

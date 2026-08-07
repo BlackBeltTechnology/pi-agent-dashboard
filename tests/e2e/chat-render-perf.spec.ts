@@ -67,3 +67,64 @@ test.describe("chat render — idle layout budget (advisory, PW_PERF only)", () 
     expect(layoutsPerSec).toBeLessThan(MAX_LAYOUTS_PER_SEC);
   });
 });
+
+/**
+ * test-plan #P1 — the promise-handling cleanup must not put an `await` in a
+ * render or event-handler hot path.
+ *
+ * Same opt-in/advisory posture as the probe above, and for the same reason:
+ * absolute latency inside a shared container is machine-dependent, so a fixed
+ * budget flakes as a gate. The manifest's "p95 regression ≤ 10% vs the
+ * pre-change commit" is a two-commit measurement — run this spec on the base
+ * commit and on the change to compare the annotated p95 values.
+ *
+ * Note recorded during implementation: the classification record
+ * (`openspec/changes/cleanup-client-plugin-promises/classification.md`) shows
+ * **zero `await`s were added to product code** — all 86 product-code sites took
+ * `.catch(handler)`. P1's premise therefore has no instance in this change;
+ * this probe stands as the guard that keeps it true.
+ *
+ * See change: cleanup-client-plugin-promises.
+ */
+test.describe("settings surface interaction latency (advisory, PW_PERF only)", () => {
+  test.skip(!process.env.PW_PERF, "perf probe is opt-in: set PW_PERF=1");
+
+  // Generous ceiling for the same contention reasons as the probe above; the
+  // meaningful signal is the annotated p95 diffed across two commits.
+  const MAX_P95_MS = 3_000;
+  const SAMPLES = 8;
+
+  test("navigating the touched settings surfaces stays within the latency ceiling", async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(240_000);
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Settings", exact: true }).first().click();
+    await expect(page.getByTestId("settings-nav-rail")).toBeVisible({ timeout: 20_000 });
+
+    const rail = page.getByTestId("settings-nav-rail");
+    const content = page.getByTestId("settings-content");
+    const samples: number[] = [];
+
+    // Alternate between two surfaces this change rewrote, timing each
+    // navigation to a settled rendered state.
+    for (let i = 0; i < SAMPLES; i++) {
+      const label = i % 2 === 0 ? "Packages" : "Providers";
+      const t0 = Date.now();
+      await rail.getByRole("button", { name: label, exact: true }).click();
+      await expect(content).toBeVisible();
+      samples.push(Date.now() - t0);
+    }
+
+    samples.sort((a, b) => a - b);
+    const p95 = samples[Math.min(samples.length - 1, Math.ceil(samples.length * 0.95) - 1)];
+
+    testInfo.annotations.push({
+      type: "perf",
+      description: `settings-surface nav p95=${p95}ms over ${SAMPLES} samples (ceiling ${MAX_P95_MS}ms); compare against the same run on the pre-change commit for the ≤10% rule`,
+    });
+
+    expect(p95).toBeLessThan(MAX_P95_MS);
+  });
+});

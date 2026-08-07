@@ -7,6 +7,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
+import { logRejection } from "../lib/report-error.js";
 
 /** Shape of `/api/health.compatibility` (subset the advisory reads). */
 export interface PiCompatibility {
@@ -37,7 +38,8 @@ export function usePiCompatibility(): PiCompatibility | null {
 
 	useEffect(() => {
 		mountedRef.current = true;
-		fetchHealth();
+		// Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+		void fetchHealth().catch(logRejection("usePiCompatibility.mount"));
 		const timer = setInterval(() => fetchHealth(), POLL_INTERVAL_MS);
 		return () => {
 			mountedRef.current = false;

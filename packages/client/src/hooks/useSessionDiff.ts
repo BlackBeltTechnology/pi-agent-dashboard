@@ -6,6 +6,7 @@ import type { SessionDiffResponse } from "@blackbelt-technology/pi-dashboard-sha
 import { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
 import { t } from "../lib/i18n/i18n.js";
+import { logRejection } from "../lib/report-error.js";
 
 export interface UseSessionDiffResult {
   data: SessionDiffResponse | null;
@@ -40,7 +41,9 @@ export function useSessionDiff(sessionId: string | undefined): UseSessionDiffRes
 
   // Fetch on mount and when sessionId changes
   useEffect(() => {
-    fetchDiff();
+    // Effect callbacks must return void/cleanup, so the promise is discarded
+    // with a stated handler. See change: cleanup-client-plugin-promises.
+    void fetchDiff().catch(logRejection("useSessionDiff.fetch"));
   }, [fetchDiff]);
 
   return { data, isLoading, error, refresh: fetchDiff };
