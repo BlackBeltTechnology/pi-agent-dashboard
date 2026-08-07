@@ -1,12 +1,12 @@
 ## ADDED Requirements
 
-### Requirement: The pi 0.84.0 delta-only `message_update` change SHALL be recorded as not applicable
+### Requirement: The pi 0.84.1 delta-only `message_update` change SHALL be recorded as not applicable
 
-pi 0.84.0 removed the cumulative `message` field and `assistantMessageEvent.partial` from `message_update`. That change applies ONLY to pi's JSON and RPC **stdout** protocols (`dist/modes/json-event.d.ts`, `toJsonEvent()`, `JsonAgentSessionEvent`). The in-process `ExtensionAPI` event surface (`dist/core/extensions/types.d.ts`) is unchanged. The dashboard SHALL continue to consume the in-process surface and SHALL NOT implement delta-accumulation, dual-shape reduction, or replay-compaction rework for this release.
+pi 0.84.1 removed the cumulative `message` field and `assistantMessageEvent.partial` from `message_update`. That change applies ONLY to pi's JSON and RPC **stdout** protocols (`dist/modes/json-event.d.ts`, `toJsonEvent()`, `JsonAgentSessionEvent`). The in-process `ExtensionAPI` event surface (`dist/core/extensions/types.d.ts`) is unchanged. The dashboard SHALL continue to consume the in-process surface and SHALL NOT implement delta-accumulation, dual-shape reduction, or replay-compaction rework for this release.
 
 #### Scenario: In-process event shape is unchanged across the bump
 
-- **WHEN** `MessageUpdateEvent` in `dist/core/extensions/types.d.ts` is compared between pi 0.83.0 and 0.84.0
+- **WHEN** `MessageUpdateEvent` in `dist/core/extensions/types.d.ts` is compared between pi 0.83.0 and 0.84.1
 - **THEN** the interface SHALL be identical
 - **AND** it SHALL still declare `message: AgentMessage`
 
@@ -22,9 +22,9 @@ pi 0.84.0 removed the cumulative `message` field and `assistantMessageEvent.part
 - **THEN** it SHALL only write RPC command lines to the keeper socket
 - **AND** it SHALL NOT read pi stdout as an event stream
 
-### Requirement: pi 0.84.0 surfaces adopted behind runtime feature-detection
+### Requirement: pi 0.84.1 surfaces adopted behind runtime feature-detection
 
-Each pi 0.84.0 surface the dashboard adopts SHALL be feature-detected on its concrete shape, never on the pi version string, and SHALL have an explicit fallback reproducing pre-adoption behavior for sessions at or above `piCompatibility.minimum`.
+Each pi 0.84.1 surface the dashboard adopts SHALL be feature-detected on its concrete shape, never on the pi version string, and SHALL have an explicit fallback reproducing pre-adoption behavior for sessions at or above `piCompatibility.minimum`.
 
 #### Scenario: `AGENTS.override.md` present
 
@@ -48,7 +48,7 @@ Each pi 0.84.0 surface the dashboard adopts SHALL be feature-detected on its con
 
 ### Requirement: Fullscreen TUI mode and TUI Mermaid/LaTeX are documented no-ops
 
-pi 0.84.0's fullscreen TUI mode and its terminal Mermaid/LaTeX rendering are TUI-only surfaces with no dashboard equivalent to add. The web client already renders both via `chat-math-rendering` (KaTeX) and `mermaid-diagram`. These SHALL be recorded as no-ops alongside `outputPad`.
+pi 0.84.1's fullscreen TUI mode and its terminal Mermaid/LaTeX rendering are TUI-only surfaces with no dashboard equivalent to add. The web client already renders both via `chat-math-rendering` (KaTeX) and `mermaid-diagram`. These SHALL be recorded as no-ops alongside `outputPad`.
 
 #### Scenario: Fullscreen TUI mode has no web-client surface
 
@@ -60,3 +60,18 @@ pi 0.84.0's fullscreen TUI mode and its terminal Mermaid/LaTeX rendering are TUI
 
 - **WHEN** the running pi renders Mermaid and LaTeX in its own transcript
 - **THEN** the web client SHALL continue to render them via its existing KaTeX and Mermaid components
+
+### Requirement: The `tool_call` `terminate` result field SHALL be recorded as having no dashboard consumer
+
+pi 0.84.1 added `ToolCallEventResult.terminate?: boolean` (`dist/core/extensions/types.d.ts`), which lets an extension stop an all-terminating tool batch without another model call. It takes effect ONLY for a handler that blocks the call. The dashboard bridge forwards `tool_call` as a pass-through event and never blocks, so the field is unreachable. The dashboard SHALL record this as audited-with-no-consumer and SHALL NOT introduce a blocking `tool_call` handler to use it.
+
+#### Scenario: The bridge does not block tool calls
+
+- **WHEN** the bridge's `tool_call` subscription is inspected
+- **THEN** `tool_call` SHALL appear in the pass-through event list
+- **AND** the handler SHALL return no `block` and no `terminate` result
+
+#### Scenario: A future blocking handler makes the field live
+
+- **WHEN** a later change introduces a `tool_call` handler that returns `block: true`
+- **THEN** this requirement SHALL be revisited, because `terminate` then governs whether the blocked batch triggers a follow-up model call

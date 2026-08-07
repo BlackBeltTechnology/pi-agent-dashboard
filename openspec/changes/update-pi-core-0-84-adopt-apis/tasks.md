@@ -6,23 +6,24 @@
 
 ## 2. Move the governed pins together
 
-- [ ] 2.1 Bump `packages/server/package.json` dependency `@earendil-works/pi-coding-agent` to `^0.84.0` and `piCompatibility.recommended` to `0.84.0`. Leave `minimum` at `0.78.0` and `maximum` at `null`.
-- [ ] 2.2 Bump the `docker/Dockerfile` global install to `@earendil-works/pi-coding-agent@0.84.0`.
-- [ ] 2.3 Bump `scripts/verify-release-deps.mjs` pi rule `minVersion` to `0.84.0` and update its evidence note to reference this change.
+- [ ] 2.1 Bump `packages/server/package.json` dependency `@earendil-works/pi-coding-agent` to `^0.84.1` and `piCompatibility.recommended` to `0.84.1`. Leave `minimum` at `0.78.0` and `maximum` at `null`.
+- [ ] 2.2 Bump the `docker/Dockerfile` global install to `@earendil-works/pi-coding-agent@0.84.1`.
+- [ ] 2.3 Bump `scripts/verify-release-deps.mjs` pi rule `minVersion` to `0.84.1` and update its evidence note to reference this change.
 - [ ] 2.4 Confirm the bundled-extension peer-deps in `packages/electron/resources/bundled-extensions/*/package.json` stay unchanged (`>=0.75.0` / `^0.75.0`) because `minimum` did not move.
-- [ ] 2.5 Run `pnpm install` again to resolve the 0.84.0 tree.
-- [ ] 2.6 Rename/retarget `packages/server/src/__tests__/pi-version-skew-recommended-0-83.test.ts` for the 0.84.0 recommended version.
-- [ ] 2.7 Add an L1 test for the pin block — input: `packages/server/package.json`; trigger: read `piCompatibility`; observable: `recommended === "0.84.0"`, `minimum === "0.78.0"`, `maximum === null`, dependency pin `^0.84.0` (test-plan #E1). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
+- [ ] 2.5 Run `pnpm install` again to resolve the 0.84.1 tree.
+- [ ] 2.6 Rename/retarget `packages/server/src/__tests__/pi-version-skew-recommended-0-83.test.ts` to `pi-version-skew-recommended-0-84.test.ts` for the 0.84.1 recommended version.
+- [ ] 2.7 Add an L1 test for the pin block — input: `packages/server/package.json`; trigger: read `piCompatibility`; observable: `recommended === "0.84.1"`, `minimum === "0.78.0"`, `maximum === null`, dependency pin `^0.84.1` (test-plan #E1). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
 - [ ] 2.8 Add an L1 test that the floor did not rise — input: bundled-extension package.json files; trigger: read peer-deps after the bump; observable: `pi-anthropic-messages` stays `>=0.75.0` and `pi-flows` stays `^0.75.0` (test-plan #E2). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
-- [ ] 2.9 Add an L1 test for pin coherence — input: server dep, `piCompatibility.recommended`, `docker/Dockerfile`, `verify-release-deps.mjs` `minVersion`; trigger: run `node scripts/verify-release-deps.mjs`; observable: exit 0 and all four report `0.84.0` (test-plan #E3). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
-- [ ] 2.10 Add an L1 test that divergence is caught — input: dep `^0.84.0` with `minVersion` left at `0.83.0`; trigger: run `verify-release-deps.mjs`; observable: non-zero exit naming the pi pin-coherence rule (test-plan #E4). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
-- [ ] 2.11 Add an L1 BVA test for the upgrade-hint boundary — input: running pi `0.83.999` / `0.84.0`; trigger: compute compatibility; observable: `0.83.999` → `upgradeRecommended: true` with no `error`; `0.84.0` → `upgradeRecommended: false` (test-plan #E5). See `packages/server/src/__tests__/health-compatibility.test.ts`.
+- [ ] 2.9 Add an L1 test for pin coherence — input: server dep, `piCompatibility.recommended`, `docker/Dockerfile`, `verify-release-deps.mjs` `minVersion`; trigger: run `node scripts/verify-release-deps.mjs`; observable: exit 0 and all four report `0.84.1` (test-plan #E3). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
+- [ ] 2.10 Add an L1 test that divergence is caught — input: dep `^0.84.1` with `minVersion` left at `0.84.0`; trigger: run `verify-release-deps.mjs`; observable: non-zero exit naming the pi pin-coherence rule (test-plan #E4). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
+- [ ] 2.11 Add an L1 BVA test for the upgrade-hint boundary — input: running pi `0.84.0` / `0.84.1`; trigger: compute compatibility; observable: `0.84.0` → `upgradeRecommended: true` with no `error`; `0.84.1` → `upgradeRecommended: false` (test-plan #E5). See `packages/server/src/__tests__/health-compatibility.test.ts`.
 - [ ] 2.12 Add an L1 BVA test for the blocking-error boundary — input: running pi `0.77.999` / `0.78.0`; trigger: compute compatibility; observable: `0.77.999` → 503-blocking `error`; `0.78.0` → no `error` with `upgradeRecommended: true` (test-plan #E6). See `packages/server/src/__tests__/health-compatibility.test.ts`.
 
 ## 3. Record the not-applicable streaming break as testable assertions
 
 - [ ] 3.1 Add an L1 test pinning the in-process event shape — input: installed pi types; trigger: read `dist/core/extensions/types.d.ts` `MessageUpdateEvent`; observable: the interface declares `message: AgentMessage`, so a future pi that removes it fails loudly (test-plan #E7). See `packages/extension/src/__tests__/pi-version-tracker.test.ts`.
 - [ ] 3.2 Add an L1 test pinning the bridge's event surface — input: `packages/extension/src/bridge.ts`; trigger: scan core-event subscription; observable: subscribes via `pi.on(<type>, handler)` with zero references to `toJsonEvent` / `JsonAgentSessionEvent` (test-plan #E8). See `packages/extension/src/__tests__/pi-version-tracker.test.ts`.
+- [ ] 3.3 Add an L1 test recording that `tool_call` `terminate` has no consumer — input: `packages/extension/src/bridge.ts`; trigger: scan the `tool_call` subscription; observable: `tool_call` is in `passThroughEventTypes` and no handler returns `block` or `terminate`, so a future blocking handler fails this assertion and forces the requirement to be revisited (test-plan #E17). See `packages/extension/src/__tests__/pi-version-tracker.test.ts`.
 
 ## 4. Provider headers — null deletion markers
 
@@ -66,20 +67,23 @@
 - [ ] 8.5 Add an L1 test that absence leaves inheritance untouched — input: a directory containing only `AGENTS.md`; trigger: resolve directory context; observable: normal ancestor inheritance, unchanged from pre-bump behavior (test-plan #E15). See `packages/extension/src/__tests__/dashboard-context-injector.test.ts`.
 - [ ] 8.6 Add an L1 test that the override is classified as a context resource — input: a directory containing `AGENTS.override.md`; trigger: run the resource scanner; observable: classified as a context resource, not an ordinary markdown file (test-plan #E16). See `packages/server/src/__tests__/resource-activation-toggle.test.ts`.
 
-## 9. Runtime verification against real pi 0.84.0
+## 9. Runtime verification against real pi 0.84.1
 
-- [ ] 9.1 Restart the server and confirm `curl -s http://localhost:8000/api/health | jq '.piVersion, .compatibility'` reports 0.84.0 with no skew error.
-- [ ] 9.2 Add an L2 smoke covering a real session spawn — input: dashboard on pi 0.84.0; trigger: spawn a real session from the dashboard; observable: session reaches `active` with no unresolved-symbol error from `provider-register.ts` in `server.log` (test-plan #X10). See `qa/tests/02-server-start.sh`.
-- [ ] 9.3 Add an L2 smoke covering a real turn — input: dashboard on pi 0.84.0; trigger: drive one real turn to completion in a spawned session; observable: turn completes with no runtime error from the `pi-agent-core/agent.js` inline reference (test-plan #X11). See `qa/tests/02-server-start.sh`.
-- [ ] 9.4 Add an L3 spec for health compatibility — input: dashboard on pi 0.84.0; trigger: `GET /api/health`; observable: converges to `piVersion == 0.84.0` with no `error` and no `upgradeRecommended` (test-plan #F1). See `tests/e2e/anthropic-bridge-activation.spec.ts`.
-- [ ] 9.5 Add an L3 spec that streaming is unaffected — input: a live session on pi 0.84.0; trigger: send a prompt producing multi-chunk assistant text; observable: transcript converges to the complete text with no truncation and no duplication (test-plan #F2). See `tests/e2e/chat-render-fx.spec.ts`.
-- [ ] 9.6 Add an L3 spec for replay equivalence — input: a session with a finished multi-tool turn on pi 0.84.0; trigger: reload the browser for a cold replay; observable: replayed transcript equivalent to the live-streamed one including tool-flush row order (test-plan #F3). See `tests/e2e/chat-render-fx.spec.ts`.
-- [ ] 9.7 Add an L3 spec that the TUI features stay absent from the web client — input: dashboard settings on pi 0.84.0; trigger: open Settings; observable: no fullscreen-TUI control rendered and KaTeX + Mermaid still render in the transcript (test-plan #F4). See `tests/e2e/change-summary-table.spec.ts`.
-- [ ] 9.8 Add an L3 spec for the moved Dockerfile pin — input: `docker/Dockerfile` pinned `@0.84.0`; trigger: run the docker E2E harness; observable: harness comes up on the port from `.pi-test-harness.json` (`dashboardPort`) and reports `piVersion 0.84.0` (test-plan #X12). See `tests/e2e/anthropic-bridge-activation.spec.ts`.
+- [ ] 9.1 Restart the server and confirm `curl -s http://localhost:8000/api/health | jq '.piVersion, .compatibility'` reports 0.84.1 with no skew error.
+- [ ] 9.2 Add an L2 smoke covering a real session spawn — input: dashboard on pi 0.84.1; trigger: spawn a real session from the dashboard; observable: session reaches `active` with no unresolved-symbol error from `provider-register.ts` in `server.log` (test-plan #X10). See `qa/tests/02-server-start.sh`.
+- [ ] 9.3 Add an L2 smoke covering a real turn — input: dashboard on pi 0.84.1; trigger: drive one real turn to completion in a spawned session; observable: turn completes with no runtime error from the `pi-agent-core/agent.js` inline reference (test-plan #X11). See `qa/tests/02-server-start.sh`.
+- [ ] 9.4 Add an L3 spec for health compatibility — input: dashboard on pi 0.84.1; trigger: `GET /api/health`; observable: converges to `piVersion == 0.84.1` with no `error` and no `upgradeRecommended` (test-plan #F1). See `tests/e2e/anthropic-bridge-activation.spec.ts`.
+- [ ] 9.5 Add an L3 spec that streaming is unaffected — input: a live session on pi 0.84.1; trigger: send a prompt producing multi-chunk assistant text; observable: transcript converges to the complete text with no truncation and no duplication (test-plan #F2). See `tests/e2e/chat-render-fx.spec.ts`.
+- [ ] 9.6 Add an L3 spec for replay equivalence — input: a session with a finished multi-tool turn on pi 0.84.1; trigger: reload the browser for a cold replay; observable: replayed transcript equivalent to the live-streamed one including tool-flush row order (test-plan #F3). See `tests/e2e/chat-render-fx.spec.ts`.
+- [ ] 9.7 Add an L3 spec that the TUI features stay absent from the web client — input: dashboard settings on pi 0.84.1; trigger: open Settings; observable: no fullscreen-TUI control rendered and KaTeX + Mermaid still render in the transcript (test-plan #F4). See `tests/e2e/change-summary-table.spec.ts`.
+- [ ] 9.8 Add an L3 spec for the moved Dockerfile pin — input: `docker/Dockerfile` pinned `@0.84.1`; trigger: run the docker E2E harness; observable: harness comes up on the port from `.pi-test-harness.json` (`dashboardPort`) and reports `piVersion 0.84.1` (test-plan #X12). See `tests/e2e/anthropic-bridge-activation.spec.ts`.
 
 ## 10. Verification-only and documentation
 
 - [ ] 10.1 Evaluate whether Baseten needs dashboard provider-auth wiring and record a written finding in this change; assert no product behavior (test-plan: manual-only).
+- [ ] 10.1a Evaluate whether the 0.84.1 Qwen Token Plan Individual provider (`qwen-token-plan-individual`, shared `QWEN_TOKEN_PLAN_API_KEY`) needs dashboard provider-auth wiring or is already covered by the provider-generic API-key path; record a written finding (test-plan: manual-only).
+- [ ] 10.1b Evaluate whether the doctor skill's pi-resolution/auth diagnostics should call the 0.84.1 `pi auth check` preflight instead of inferring credential state; if adopted, gate it on subcommand presence (never on the version string) with the current inference as the floor-pi fallback, and record the finding either way (test-plan: manual-only).
+- [ ] 10.1c Confirm pi 0.84.1 still bundles TypeBox `1.3.7` and leave the extension devDependency at `^1.3.7` (verified pre-flight against the published tarball; re-confirm after `pnpm install`).
 - [ ] 10.2 Run `node scripts/verify-release-deps.mjs` and confirm exit 0.
 - [ ] 10.3 Run the full suite and confirm the `pi-version-skew`, `agent-settled`, `provider-register`, `bundled-node-meets-pi-floor`, and `replay-compaction-equivalence` suites pass.
 - [ ] 10.4 Run the doctor skill's `--regenerate pi-resolution` to refresh derived version tables; confirm the proposed prose edits rather than silently overwriting.

@@ -2,7 +2,7 @@
 
 ### Requirement: Ephemeral in-process fork-subagent
 
-The system SHALL run exactly one agent turn on an ephemeral in-memory session created on the live session's model with no tools, SHALL capture only the assistant text from the event stream, and SHALL always dispose the subagent. The visible conversation SHALL never be appended to. The session SHALL be constructed through whichever harness session API the running pi exposes: pi 0.84.0 replaced the pi-agent-core harness session model with the v4 lane-based `Session` / `SessionStorage` / `SessionRepo` APIs, so the runner SHALL feature-detect the available constructor and SHALL retain a working path on pi at or above `piCompatibility.minimum`.
+The system SHALL run exactly one agent turn on an ephemeral in-memory session created on the live session's model with no tools, SHALL capture only the assistant text from the event stream, and SHALL always dispose the subagent. The visible conversation SHALL never be appended to. The session SHALL be constructed through whichever harness session API the running pi exposes: pi 0.84.1 replaced the pi-agent-core harness session model with the v4 lane-based `Session` / `SessionStorage` / `SessionRepo` APIs, so the runner SHALL feature-detect the available constructor and SHALL retain a working path on pi at or above `piCompatibility.minimum`.
 
 #### Scenario: Draft captured off the event stream
 

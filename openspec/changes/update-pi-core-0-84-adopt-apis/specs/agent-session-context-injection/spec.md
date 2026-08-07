@@ -2,7 +2,7 @@
 
 ### Requirement: `AGENTS.override.md` shadows directory context instead of appending
 
-pi 0.84.0 recognizes `AGENTS.override.md` as a per-directory context override that REPLACES the context files for that directory rather than adding to them. Where the dashboard reasons about which context files apply to a directory, it SHALL treat an `AGENTS.override.md` as shadowing the sibling `AGENTS.md`, so the same logical repository scope is not injected twice.
+pi 0.84.1 recognizes `AGENTS.override.md` as a per-directory context override that REPLACES the context files for that directory rather than adding to them. Where the dashboard reasons about which context files apply to a directory, it SHALL treat an `AGENTS.override.md` as shadowing the sibling `AGENTS.md`, so the same logical repository scope is not injected twice.
 
 #### Scenario: Override shadows the sibling AGENTS.md
 

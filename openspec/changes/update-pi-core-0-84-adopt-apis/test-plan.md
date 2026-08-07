@@ -13,11 +13,11 @@ verification-only row (V1) by explicit decision — no product behavior asserted
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| E1 | pi-core-version-check · recommended tracks upstream | decision-table | L1 | automated | `packages/server/package.json` | read `piCompatibility` | `recommended === "0.84.0"` AND `minimum === "0.78.0"` AND `maximum === null` AND dependency pin `^0.84.0` |
+| E1 | pi-core-version-check · recommended tracks upstream | decision-table | L1 | automated | `packages/server/package.json` | read `piCompatibility` | `recommended === "0.84.1"` AND `minimum === "0.78.0"` AND `maximum === null` AND dependency pin `^0.84.1` |
 | E2 | pi-core-version-check · floor not raised by pin bump | decision-table | L1 | automated | bundled-extension package.json files | read peer-deps after bump | `pi-anthropic-messages` stays `>=0.75.0` AND `pi-flows` stays `^0.75.0` |
-| E3 | pi-core-version-check · pin coherence | decision-table | L1 | automated | server dep, `piCompatibility.recommended`, `docker/Dockerfile`, `verify-release-deps.mjs` `minVersion` | run `node scripts/verify-release-deps.mjs` | exit 0; all four report `0.84.0` |
-| E4 | pi-core-version-check · pin divergence is caught | decision-table | L1 | automated | dep pinned `^0.84.0`, `minVersion` left `0.83.0` | run `verify-release-deps.mjs` | non-zero exit naming the pi pin-coherence rule |
-| E5 | pi-core-version-check · upgrade hint boundary (BVA) | BVA | L1 | automated | running pi `0.83.999` / `0.84.0` | compute compatibility | `0.83.999` → `upgradeRecommended: true`, no `error`; `0.84.0` → `upgradeRecommended: false` |
+| E3 | pi-core-version-check · pin coherence | decision-table | L1 | automated | server dep, `piCompatibility.recommended`, `docker/Dockerfile`, `verify-release-deps.mjs` `minVersion` | run `node scripts/verify-release-deps.mjs` | exit 0; all four report `0.84.1` |
+| E4 | pi-core-version-check · pin divergence is caught | decision-table | L1 | automated | dep pinned `^0.84.1`, `minVersion` left `0.84.0` | run `verify-release-deps.mjs` | non-zero exit naming the pi pin-coherence rule |
+| E5 | pi-core-version-check · upgrade hint boundary (BVA) | BVA | L1 | automated | running pi `0.84.0` / `0.84.1` | compute compatibility | `0.84.0` → `upgradeRecommended: true`, no `error`; `0.84.1` → `upgradeRecommended: false` |
 | E6 | pi-core-version-check · blocking-error boundary (BVA) | BVA | L1 | automated | running pi `0.77.999` / `0.78.0` | compute compatibility | `0.77.999` → 503-blocking `error`; `0.78.0` → no `error`, `upgradeRecommended: true` |
 | E7 | pi-api-feature-detection · in-process event shape unchanged | state-invariant | L1 | automated | installed `@earendil-works/pi-coding-agent` types | read `dist/core/extensions/types.d.ts` `MessageUpdateEvent` | interface declares `message: AgentMessage` (assertion fails if a future pi removes it) |
 | E8 | pi-api-feature-detection · bridge uses the in-process surface | state-invariant | L1 | automated | `packages/extension/src/bridge.ts` | scan core-event subscription | subscribes via `pi.on(<type>, handler)`; zero references to `toJsonEvent` / `JsonAgentSessionEvent` |
@@ -29,15 +29,16 @@ verification-only row (V1) by explicit decision — no product behavior asserted
 | E14 | agent-session-context-injection · override shadows sibling | decision-table | L1 | automated | dir containing both `AGENTS.override.md` and `AGENTS.md` | resolve directory context | only the override's content applies; the sibling `AGENTS.md` is not also applied |
 | E15 | agent-session-context-injection · no override → inheritance | decision-table | L1 | automated | dir containing only `AGENTS.md` | resolve directory context | normal ancestor inheritance, unchanged from pre-bump behavior |
 | E16 | agent-session-context-injection · override classified as context resource | EP | L1 | automated | dir containing `AGENTS.override.md` | run the dashboard resource scanner | file is classified as a context resource, not an ordinary markdown file |
+| E17 | pi-api-feature-detection · `tool_call` `terminate` has no consumer | state-invariant | L1 | automated | `packages/extension/src/bridge.ts` | scan the `tool_call` subscription | `tool_call` is in `passThroughEventTypes`; no handler returns `block` or `terminate` (assertion fails if a future blocking handler is introduced) |
 
 ### Frontend-quirk
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
-| F1 | pi-core-version-check · health surfaces compatibility | state-transition | L3 | automated | dashboard on pi 0.84.0 | `GET /api/health` | converges to `piVersion == 0.84.0` and `compatibility` with no `error` and no `upgradeRecommended` |
-| F2 | pi-api-feature-detection · streaming unaffected by the bump | state-convergence | L3 | automated | a live session on pi 0.84.0 | send a prompt producing multi-chunk assistant text | transcript converges to the complete assistant text — no truncation, no duplication |
-| F3 | pi-api-feature-detection · replay equivalence across the bump | state-convergence | L3 | automated | session with a finished multi-tool turn on pi 0.84.0 | reload the browser (cold replay) | replayed transcript is equivalent to the live-streamed one, including tool-flush row order |
-| F4 | pi-api-feature-detection · TUI no-ops absent from the web client | decision-table | L3 | automated | dashboard settings on pi 0.84.0 | open Settings | no fullscreen-TUI control is rendered; KaTeX + Mermaid still render in the transcript |
+| F1 | pi-core-version-check · health surfaces compatibility | state-transition | L3 | automated | dashboard on pi 0.84.1 | `GET /api/health` | converges to `piVersion == 0.84.1` and `compatibility` with no `error` and no `upgradeRecommended` |
+| F2 | pi-api-feature-detection · streaming unaffected by the bump | state-convergence | L3 | automated | a live session on pi 0.84.1 | send a prompt producing multi-chunk assistant text | transcript converges to the complete assistant text — no truncation, no duplication |
+| F3 | pi-api-feature-detection · replay equivalence across the bump | state-convergence | L3 | automated | session with a finished multi-tool turn on pi 0.84.1 | reload the browser (cold replay) | replayed transcript is equivalent to the live-streamed one, including tool-flush row order |
+| F4 | pi-api-feature-detection · TUI no-ops absent from the web client | decision-table | L3 | automated | dashboard settings on pi 0.84.1 | open Settings | no fullscreen-TUI control is rendered; KaTeX + Mermaid still render in the transcript |
 
 ### Error-handling
 
@@ -52,16 +53,19 @@ verification-only row (V1) by explicit decision — no product behavior asserted
 | X7 | bridge-commit-draft · v4 lane API path | state-transition | L1 | automated | running pi exposes the v4 `Session`/`SessionStorage`/`SessionRepo` constructor | request a commit draft | draft produced via the v4 path; subscription unsubscribed and session disposed |
 | X8 | bridge-commit-draft · pre-v4 fallback on floor pi | state-transition | L1 | automated | running pi exposes only `SessionManager.inMemory` | request a commit draft | draft produced via the legacy path; no crash, no behavior regression |
 | X9 | bridge-commit-draft · disposal on every outcome | fault-injection (abort) | L1 | automated | the agent turn rejects mid-draft | request a commit draft | subscription unsubscribed and session disposed despite the failure |
-| X10 | design risk · pi-ai symbol break hidden by mocks | fault-injection (real dependency) | L2 | automated | dashboard on pi 0.84.0, real credentials absent | spawn a real session from the dashboard | session reaches `active`; no unresolved-symbol error from `provider-register.ts` in `server.log` |
-| X11 | design risk · unexported pi internals at `bridge.ts:426` | fault-injection (real dependency) | L2 | automated | dashboard on pi 0.84.0 | drive one real turn to completion in a spawned session | turn completes; no runtime error originating from the `pi-agent-core/agent.js` inline reference |
-| X12 | migration · Dockerfile pin moved | state-transition | L3 | automated | `docker/Dockerfile` pinned `@0.84.0` | run the docker E2E harness | harness comes up on the port from `.pi-test-harness.json` (`dashboardPort`); dashboard reports `piVersion 0.84.0` |
+| X10 | design risk · pi-ai symbol break hidden by mocks | fault-injection (real dependency) | L2 | automated | dashboard on pi 0.84.1, real credentials absent | spawn a real session from the dashboard | session reaches `active`; no unresolved-symbol error from `provider-register.ts` in `server.log` |
+| X11 | design risk · unexported pi internals at `bridge.ts:426` | fault-injection (real dependency) | L2 | automated | dashboard on pi 0.84.1 | drive one real turn to completion in a spawned session | turn completes; no runtime error originating from the `pi-agent-core/agent.js` inline reference |
+| X12 | migration · Dockerfile pin moved | state-transition | L3 | automated | `docker/Dockerfile` pinned `@0.84.1` | run the docker E2E harness | harness comes up on the port from `.pi-test-harness.json` (`dashboardPort`); dashboard reports `piVersion 0.84.1` |
 | X13 | migration · drifted tree is repaired | state-invariant | L1 | automated | repo after `pnpm install` | read the resolved pi version in `node_modules` | resolved version satisfies the `packages/server` dependency range |
 
 ### Verification-only
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| V1 | proposal · Baseten evaluation | evidence-gathering | — | manual-only | pi 0.84.0 `model-config.d.ts` + `provider-auth-*` handlers | inspect whether Baseten needs dashboard provider-auth wiring | [judgment: a written finding recorded in the change — no product behavior asserted, by explicit decision at the design gate] |
+| V1 | proposal · Baseten evaluation | evidence-gathering | — | manual-only | pi 0.84.1 `model-config.d.ts` + `provider-auth-*` handlers | inspect whether Baseten needs dashboard provider-auth wiring | [judgment: a written finding recorded in the change — no product behavior asserted, by explicit decision at the design gate] |
+| V2 | proposal · Qwen Token Plan Individual evaluation | evidence-gathering | — | manual-only | pi 0.84.1 provider `qwen-token-plan-individual` + `QWEN_TOKEN_PLAN_API_KEY` + `provider-auth-*` handlers | inspect whether it needs dashboard provider-auth wiring or is covered by the provider-generic API-key path | [judgment: a written finding recorded in the change — no product behavior asserted] |
+| V3 | proposal · `pi auth check` adoption evaluation | evidence-gathering | — | manual-only | pi 0.84.1 `pi auth check` + the doctor skill's auth diagnostics | inspect whether the doctor skill should call the preflight instead of inferring credential state | [judgment: a written finding recorded in the change; if adopted, gated on subcommand presence with the current inference as floor-pi fallback] |
+| V4 | pi-core-version-check · bundled TypeBox fidelity | evidence-gathering | — | manual-only | installed pi 0.84.1 `package.json` / `npm-shrinkwrap.json` | read the bundled `typebox` version | [judgment: confirmed `1.3.7` pre-flight; extension devDependency stays `^1.3.7`] |
 
 ---
 
