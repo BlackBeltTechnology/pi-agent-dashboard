@@ -7,9 +7,12 @@ import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js"
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
 import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
+import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
+import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
 import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
 import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
 import type { DirectoryService } from "./directory-service.js";
@@ -597,6 +600,24 @@ export function wireEvents(deps: EventWiringDeps): void {
       sessionManager.update(sessionId, { unread: true });
       browserGateway.broadcastSessionUpdated(sessionId, { unread: true });
     }
+  }
+
+  /**
+   * Deliver one notification: append to the bounded per-session notify log
+   * (transcript durability across a browser refresh / server restart) and send
+   * it to subscribers. Writes NO session state — no `currentTool`, no unread
+   * stamp, no reorder, no `session_updated` broadcast.
+   * See change: split-notify-from-prompt-request.
+   */
+  function handleNotify(sessionId: string, entry: NotifyLogEntry): void {
+    browserGateway.appendNotify(sessionId, entry);
+    browserGateway.sendToSubscribers(sessionId, {
+      type: "notify",
+      sessionId,
+      notifyId: entry.notifyId,
+      message: entry.message,
+      ...(entry.level === undefined ? {} : { level: entry.level }),
+    } satisfies BrowserNotifyMessage);
   }
 
   /**
@@ -1617,6 +1638,17 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: restore-ask-user-tool-state-on-reconnect.
       const owner = sessionManager.get(sessionId);
       if (!owner || owner.status === "ended") return;
+      // Version-skew guard: a pre-split bridge ships `ctx.ui.notify` as a
+      // `prompt_request { prompt.type: "notify" }`. A notification is not an
+      // unanswered ask, so it must not reach `trackPromptRequest` — everything
+      // downstream of the phantom "Needs you" flows from that one call. The
+      // guard normalizes the legacy shape and delivers it on the notify
+      // channel, so a browser never sees the raw frame.
+      // See change: split-notify-from-prompt-request (Decision 2).
+      if ((msg as any).prompt?.type === "notify") {
+        handleNotify(sessionId, fromLegacyPromptRequest(msg as any));
+        return;
+      }
       browserGateway.trackPromptRequest(sessionId, msg as any);
       const promptId = (msg as any).promptId as string | undefined;
       if (replayingSessions.has(sessionId)) {
@@ -1664,6 +1696,29 @@ export function wireEvents(deps: EventWiringDeps): void {
         }
       }
       browserGateway.sendToSubscribers(sessionId, msg as any);
+    }
+
+    // Notify: render + log only. Deliberately no `trackPromptRequest`, no
+    // `currentTool` write, no unread stamp, no `questionFirst` reorder and no
+    // `session_updated` broadcast — a notification is not a request.
+    // See change: split-notify-from-prompt-request.
+    if (msg.type === "notify") {
+      const owner = sessionManager.get(sessionId);
+      if (!owner || owner.status === "ended") return;
+      // Validate before it reaches the log: a malformed frame would persist a
+      // non-string message or a duplicate/absent row key. `level` keeps the
+      // omitted-stays-omitted contract but is normalized when supplied — the
+      // send site cannot be trusted to have done it (older bridge, plugin).
+      const notifyId = (msg as any).notifyId;
+      const message = (msg as any).message;
+      if (typeof notifyId !== "string" || !notifyId || typeof message !== "string") return;
+      const level = (msg as any).level;
+      handleNotify(sessionId, {
+        notifyId,
+        message,
+        ...(level === undefined ? {} : { level: normalizeNotifyLevel(level) }),
+      });
+      return;
     }
 
     if (msg.type === "prompt_dismiss" || msg.type === "prompt_cancel") {

@@ -194,7 +194,7 @@ export function handleSubscribe(
   subs: Set<string>,
   ctx: BrowserHandlerContext,
 ): void {
-  const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, markReplaying, clearReplaying } = ctx;
+  const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, replayNotifyLog, markReplaying, clearReplaying } = ctx;
   subs.add(msg.sessionId);
 
   // Request metadata from the extension so commands/flows/models/roles arrive
@@ -225,6 +225,7 @@ export function handleSubscribe(
       sendEventBatches(ws, msg.sessionId, events, sendTo).then((lastSent) => {
         clearReplaying(ws, msg.sessionId, lastSent);
         replayPendingUiRequests(ws, msg.sessionId);
+        replayNotifyLog(ws, msg.sessionId);
         replayUiState(ws, msg.sessionId, ctx);
       });
     } else {
@@ -248,11 +249,13 @@ export function handleSubscribe(
         sendEventBatches(ws, msg.sessionId, events, sendTo).then((lastSent) => {
           clearReplaying(ws, msg.sessionId, lastSent);
           replayPendingUiRequests(ws, msg.sessionId);
+          replayNotifyLog(ws, msg.sessionId);
           replayUiState(ws, msg.sessionId, ctx);
         });
       } else {
         sendEventBatches(ws, msg.sessionId, events, sendTo).then(() => {
           replayPendingUiRequests(ws, msg.sessionId);
+          replayNotifyLog(ws, msg.sessionId);
           replayUiState(ws, msg.sessionId, ctx);
         });
       }
@@ -318,6 +321,7 @@ export function handleSubscribe(
             replaySessionAssets(sub, msg.sessionId, ctx);
             await sendEventBatches(sub, msg.sessionId, stored, sendTo);
             replayPendingUiRequests(sub, msg.sessionId);
+            replayNotifyLog(sub, msg.sessionId);
             replayUiState(sub, msg.sessionId, ctx);
           }
           // Fit AFTER the batches are on the wire: the rows (with their

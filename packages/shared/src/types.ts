@@ -78,6 +78,16 @@ export interface GitStatus {
   behind: number;
 }
 
+/** Severity a notification may carry. See change: split-notify-from-prompt-request. */
+export type NotifyLevel = "info" | "success" | "warning" | "error";
+
+/** One retained notification row. See change: split-notify-from-prompt-request. */
+export interface NotifyLogEntry {
+  notifyId: string;
+  message: string;
+  level?: NotifyLevel;
+}
+
 /** A dashboard session representing a connected pi instance */
 export interface DashboardSession {
   id: string;
@@ -309,6 +319,14 @@ export interface DashboardSession {
    * See change: chat-markdown-local-images-and-math.
    */
   assets?: Record<string, { data: string; mimeType: string }>;
+  /**
+   * Bounded per-session notification history (cap 50, oldest evicted).
+   * Transcript history only — NEVER a pending ask: it does not feed
+   * `hasPendingPromptRequests`, `hasPendingAsk` or the `currentTool` fold, and
+   * it is retained after the session ends.
+   * See change: split-notify-from-prompt-request.
+   */
+  notifyLog?: NotifyLogEntry[];
   /**
    * Mirror of pi's native steering + follow-up queues for this session.
    * Populated from pi's `queue_update` event, forwarded by the bridge.

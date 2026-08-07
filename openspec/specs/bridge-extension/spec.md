@@ -630,13 +630,15 @@ The bridge extension SHALL NOT attempt to install the `agent-browser` or `pi-age
 
 ### Requirement: Bridge SHALL flip `ctx.hasUI` to `true` after wiring the UI proxy
 
-After the bridge has installed PromptBus wrappers on `ctx.ui.confirm`, `ctx.ui.select`, `ctx.ui.input`, `ctx.ui.editor`, `ctx.ui.multiselect`, and `ctx.ui.notify` in the `session_start` handler, the bridge SHALL assign `ctx.hasUI = true` on the live `ctx` object.
+After the bridge has installed PromptBus wrappers on the dialog methods `ctx.ui.confirm`, `ctx.ui.select`, `ctx.ui.input`, `ctx.ui.editor` and `ctx.ui.multiselect`, and has installed the notify proxy on `ctx.ui.notify` (which sends the dedicated `notify` frame and never enters PromptBus), the bridge SHALL assign `ctx.hasUI = true` on the live `ctx` object.
 
 The assignment SHALL happen AFTER the bridge has captured the original `ctx.hasUI` value into its `cachedHasUI` state (used by `source-detector.detectSessionSource`). `cachedHasUI` MUST retain the pi-supplied original value; only the live `ctx.hasUI` is flipped.
 
 The assignment SHALL be guarded with try/catch so that if a future pi release makes `ctx.hasUI` non-writable, the bridge logs a single `[dashboard] failed to flip ctx.hasUI` warning and continues without crashing.
 
 Rationale: extensions branch on `ctx.hasUI` to decide whether to call `ctx.ui.notify`, render dialogs, or short-circuit interactive flows. The bridge already provides a working UI surface via PromptBus over the patched `ctx.ui.*` methods — `ctx.hasUI` MUST reflect that reality so extensions like `context-mode` (`/ctx-stats`, `/ctx-doctor`) and `pi-agent-browser` (binary auto-install prompt) take their UI-present branch and render output in the dashboard.
+
+The transport for a forwarded `ctx.ui.notify` is the `notify` message, NOT `prompt_request`. A notification is fire-and-forget and produces no dismissal, so routing it over the prompt channel makes it an unanswerable pending prompt. See the `notify-message-channel` capability.
 
 #### Scenario: Headless RPC session — flip happens
 - **WHEN** the bridge's `session_start` handler runs in a dashboard-spawned `pi --mode rpc` session where pi initialized `ctx.hasUI = false`
@@ -659,7 +661,8 @@ Rationale: extensions branch on `ctx.hasUI` to decide whether to call `ctx.ui.no
 - **AND** context-mode's handler reads `ctx.hasUI`
 - **THEN** `ctx.hasUI` SHALL evaluate truthy
 - **AND** context-mode SHALL call `ctx.ui.notify(text, "info")`
-- **AND** the bridge's patched `notify` SHALL forward a `prompt_request` to the dashboard server
+- **AND** the bridge's patched `notify` SHALL forward a `notify` message to the dashboard server
+- **AND** it SHALL NOT forward a `prompt_request`
 - **AND** the dashboard SHALL render the notify body as a chat card
 
 #### Scenario: Non-writable `ctx.hasUI` is handled gracefully

@@ -230,6 +230,12 @@ function askScenario(method: string, extra: Record<string, unknown>): Scenario {
 export const LONG_TRANSCRIPT_TAIL = "long-transcript complete";
 
 /**
+ * Notification text the `notify-probe` scenario emits through `ctx.ui.notify`.
+ * The e2e spec asserts on it. See change: split-notify-from-prompt-request.
+ */
+export const NOTIFY_PROBE_MESSAGE = "e2e notify probe";
+
+/**
  * Build a deliberately LONG, heterogeneous transcript (Step B e2e fixture).
  *
  * Each turn streams a thinking block + an assistant text reply + one DISTINCT
@@ -962,6 +968,21 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
   }),
   "ask-notify": askScenario("notify", { title: "Heads up", message: "done" }),
+
+  // ── ctx.ui.notify probe (split-notify-from-prompt-request) ─────────────
+  // Calls the `e2e_notify` fixture tool (qa/fixtures/e2e-notify.ext.ts), whose
+  // execute() calls `ctx.ui.notify` — the only L3 lever on the real notify
+  // path. Drives tests/e2e/notify-channel.spec.ts.
+  "notify-probe": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("e2e_notify", { message: NOTIFY_PROBE_MESSAGE, level: "success" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("notify sent")]),
+    ],
+    expect: { toolName: "e2e_notify" },
+  },
   "ask-unknown-method": askScenario("totally-unknown-method", {
     title: "Mystery",
   }),

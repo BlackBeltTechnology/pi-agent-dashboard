@@ -514,4 +514,283 @@ describe("prompt-derived currentTool (integration)", () => {
     // …and must not re-send a duplicate event_replay.
     expect(messages.filter((m) => m.type === "event_replay")).toHaveLength(0);
   }, 20000);
+  // ── split-notify-from-prompt-request ──────────────────────────────
+  //
+  // A notify is transcript history, never an unanswered ask. The load-bearing
+  // assertion is the RE-ARM: the bug is only visible at rest, so every test
+  // that matters runs a full tool turn AFTER the notify and asserts the
+  // quiescent value. See test-plan #E5-#E8, #X1-#X9, #P1.
+
+  function notify(
+    ws: WebSocket,
+    sessionId: string,
+    notifyId: string,
+    message = "hello",
+    level?: string,
+  ) {
+    send(ws, { type: "notify", sessionId, notifyId, message, ...(level === undefined ? {} : { level }) });
+  }
+
+  /** The pre-split bridge shape: a notify smuggled inside a prompt_request. */
+  function legacyNotify(
+    ws: WebSocket,
+    sessionId: string,
+    promptId: string,
+    message = "hello",
+    level?: string,
+  ) {
+    send(ws, {
+      type: "prompt_request",
+      sessionId,
+      promptId,
+      prompt: { question: message, type: "notify" },
+      component: { type: "notify", props: { message, level } },
+      placement: "inline",
+    });
+  }
+
+  /** Run a full tool turn so the quiescent (post-fold) value is observable. */
+  async function runToolTurn(ws: WebSocket, sessionId: string) {
+    fwd(ws, sessionId, "tool_execution_start", { toolName: "bash" });
+    await wait(80);
+    fwd(ws, sessionId, "tool_execution_end", { toolName: "bash" });
+    await wait(150);
+  }
+
+  const notifies = (messages: any[], sessionId: string) =>
+    messages.filter((m) => m.type === "notify" && m.sessionId === sessionId);
+
+  it("#X3 no re-arm after a turn — new notify shape", async () => {
+    await boot();
+    const bridge = await openBridge();
+    const { messages } = await connectBrowser("s1");
+    await registerLive(bridge, "s1");
+
+    notify(bridge, "s1", "n1");
+    await wait(120);
+    await expectCurrentTool("s1", null);
+
+    await runToolTurn(bridge, "s1");
+    // The fold must NOT resurrect "ask_user" — the notify was never tracked.
+    await expectCurrentTool("s1", null);
+    expect(notifies(messages, "s1")).toHaveLength(1);
+  });
+
+  it("#X4 no re-arm after a turn — legacy prompt_request shape", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+
+    legacyNotify(bridge, "s1", "p1");
+    await wait(120);
+    await expectCurrentTool("s1", null);
+
+    await runToolTurn(bridge, "s1");
+    await expectCurrentTool("s1", null);
+  });
+
+  it("#X5 (pinned negative) a genuine pending prompt still re-arms after a turn", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+
+    promptRequest(bridge, "s1", "p1");
+    await wait(120);
+    await runToolTurn(bridge, "s1");
+    await expectCurrentTool("s1", "ask_user");
+  });
+
+  it("#X9 an old-bridge notify is delivered normalized, and the registry is untouched", async () => {
+    await boot();
+    const bridge = await openBridge();
+    const { messages } = await connectBrowser("s1");
+    await registerLive(bridge, "s1");
+
+    legacyNotify(bridge, "s1", "p1", "from-old-bridge", "warning");
+    await wait(150);
+
+    // Delivered on the notify channel — the browser never sees the raw frame.
+    const delivered = notifies(messages, "s1");
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toMatchObject({ notifyId: "p1", message: "from-old-bridge", level: "warning" });
+    expect(messages.filter((m) => m.type === "prompt_request" && m.sessionId === "s1")).toHaveLength(0);
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(false);
+  });
+
+  it("#E5 an unrecognized legacy level is normalized to info", async () => {
+    await boot();
+    const bridge = await openBridge();
+    const { messages } = await connectBrowser("s1");
+    await registerLive(bridge, "s1");
+
+    legacyNotify(bridge, "s1", "p1", "hi", "debug");
+    await wait(150);
+    expect(notifies(messages, "s1")[0].level).toBe("info");
+  });
+
+  it("#X6 a notify raises no pending ask — the session stays reapable", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+
+    notify(bridge, "s1", "n1");
+    await wait(150);
+
+    // Exactly the reaper's `hasPendingAsk` union.
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(false);
+    expect(server.browserGateway.hasPendingUiRequest("s1")).toBe(false);
+  });
+
+  it("#X7 a retained log on a dead session is still reapable", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    notify(bridge, "s1", "n1");
+    await wait(150);
+
+    server.sessionManager.unregister("s1");
+    await wait(150);
+
+    // The log is deliberately retained (Contract 2) — reapability is protected
+    // by exclusion, not deletion.
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(false);
+    expect(server.browserGateway.hasPendingUiRequest("s1")).toBe(false);
+    expect(server.sessionManager.get("s1")?.notifyLog).toHaveLength(1);
+  });
+
+  it("#X8 a notify does not mark unread, reorder, or broadcast session_updated", async () => {
+    await boot();
+    const bridge = await openBridge();
+    // A browser socket that is NOT viewing s1 — the unread trigger's precondition.
+    const { messages } = await connectBrowser();
+    await registerLive(bridge, "s1");
+    await wait(100);
+    messages.length = 0;
+
+    notify(bridge, "s1", "n1");
+    await wait(200);
+
+    const session = await getSession("s1");
+    expect(session!.unread ?? false).toBe(false);
+    expect(messages.filter((m) => m.type === "session_updated" && m.sessionId === "s1")).toHaveLength(0);
+    expect(messages.filter((m) => m.type === "sessions_reordered")).toHaveLength(0);
+  });
+
+  it("#X1 a notify for an unknown session is dropped", async () => {
+    await boot();
+    const bridge = await openBridge();
+    const { messages } = await connectBrowser("ghost");
+    await registerLive(bridge, "s1");
+
+    notify(bridge, "ghost", "n1");
+    await wait(200);
+    expect(notifies(messages, "ghost")).toHaveLength(0);
+    expect(server.sessionManager.get("ghost")).toBeUndefined();
+  });
+
+  it("#X2 a notify for an ended session is dropped", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    const { messages } = await connectBrowser("s1");
+    server.sessionManager.unregister("s1");
+    await wait(120);
+    messages.length = 0;
+
+    notify(bridge, "s1", "n1");
+    await wait(200);
+    expect(notifies(messages, "s1")).toHaveLength(0);
+    expect(server.sessionManager.get("s1")?.notifyLog ?? []).toHaveLength(0);
+  });
+
+  it("#E11 (pinned negative) a genuine prompt_request is still tracked, folded and unread-stamped", async () => {
+    await boot();
+    const bridge = await openBridge();
+    const { messages } = await connectBrowser();
+    await registerLive(bridge, "s1");
+    messages.length = 0;
+
+    promptRequest(bridge, "s1", "p1", { prompt: { question: "Pick", type: "select" } });
+    await wait(200);
+
+    // Everything the notify path must NOT do, a genuine prompt still does.
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(true);
+    await expectCurrentTool("s1", "ask_user");
+    const session = await getSession("s1");
+    expect(session!.unread).toBe(true);
+    expect(toolUpdates(messages, "s1").some((m) => m.updates.currentTool === "ask_user")).toBe(true);
+  });
+
+  it("#E8 an empty notify log replays nothing", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    fwd(bridge, "s1", "agent_start");
+    await wait(80);
+    const { messages } = await connectBrowser("s1");
+    await wait(150);
+    expect(notifies(messages, "s1")).toHaveLength(0);
+  });
+
+  it("#E6/#E7 the log holds the cap and evicts oldest-first past it", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    // Notify replay rides the subscribe replay path, which a real session
+    // always enters because it has events.
+    fwd(bridge, "s1", "agent_start");
+    await wait(80);
+
+    for (let i = 1; i <= 50; i++) notify(bridge, "s1", `n${i}`, `m${i}`);
+    await wait(300);
+    const atCap = await connectBrowser("s1");
+    await wait(200);
+    const first = notifies(atCap.messages, "s1");
+    expect(first).toHaveLength(50);
+    expect(first[0].notifyId).toBe("n1");
+
+    notify(bridge, "s1", "n51", "m51");
+    await wait(200);
+    const pastCap = await connectBrowser("s1");
+    await wait(250);
+    const second = notifies(pastCap.messages, "s1");
+    expect(second).toHaveLength(50);
+    expect(second.some((m) => m.notifyId === "n1")).toBe(false);
+    expect(second[0].notifyId).toBe("n2");
+    expect(second[second.length - 1].notifyId).toBe("n51");
+  }, 20000);
+
+  it("a restored log is hydrated before the first append (restart durability)", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+
+    // Simulate the post-restart state: the session record carries the persisted
+    // rows while the gateway's in-memory log is still empty (cold hydration
+    // happens lazily). The first append MUST NOT clobber the restored history.
+    server.sessionManager.update("s1", {
+      notifyLog: [{ notifyId: "restored", message: "from disk", level: "info" }],
+    });
+
+    notify(bridge, "s1", "n1", "live");
+    await wait(200);
+
+    const log = server.sessionManager.get("s1")!.notifyLog!;
+    expect(log.map((e) => e.notifyId)).toEqual(["restored", "n1"]);
+  });
+
+  it("#P1 the log stays bounded under a chatty emitter", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+
+    for (let i = 0; i < 10_000; i++) notify(bridge, "s1", `n${i}`, "spam");
+    await waitFor(() => (server.sessionManager.get("s1")?.notifyLog?.length ?? 0) > 0, 15000);
+    await wait(500);
+    expect(server.sessionManager.get("s1")!.notifyLog!.length).toBeLessThanOrEqual(50);
+    // Eviction is silent transcript loss — it must be counted, not dropped blind.
+    const stats = server.browserGateway.getNotifyLogStats();
+    expect(stats.evictedEntries).toBeGreaterThan(0);
+    expect(stats.bySession.s1).toBe(stats.evictedEntries);
+  }, 30000);
 });

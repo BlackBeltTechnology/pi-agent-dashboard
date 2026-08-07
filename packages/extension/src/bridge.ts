@@ -46,6 +46,7 @@ import { flipHasUI } from "./hasui-flip.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, defaultReadPiVersion } from "./model-tracker.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
+import { createNotifyProxy } from "./notify-proxy.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
 import { getOwnPgid, scanChildProcesses } from "./process-scanner.js";
 import { decideProjectTrust, readEventCwd } from "./project-trust.js";
@@ -2313,18 +2314,13 @@ function initBridge(pi: ExtensionAPI) {
           }
         });
 
-      // Notify is fire-and-forget: call original + forward to dashboard
-      (ctx.ui as any).notify = (message: string, level?: string) => {
-        originalNotify?.(message, level);
-        connection.send({
-          type: "prompt_request" as any,
-          sessionId,
-          promptId: crypto.randomUUID(),
-          prompt: { question: message, type: "notify" },
-          component: { type: "notify", props: { message, level } },
-          placement: "inline",
-        });
-      };
+      // Notify is fire-and-forget: call original + forward to dashboard on the
+      // dedicated `notify` channel. See change: split-notify-from-prompt-request.
+      (ctx.ui as any).notify = createNotifyProxy({
+        sessionId,
+        send: (msg) => connection.send(msg),
+        originalNotify,
+      });
     }
 
     // Flip ctx.hasUI=true now that ctx.ui.* has been patched to route

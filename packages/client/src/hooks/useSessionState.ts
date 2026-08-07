@@ -28,6 +28,7 @@ import { useCallback, useRef, useState } from "react";
 import { foldLiveEvents } from "../lib/chat/coalesce-live-events.js";
 import {
   addInteractiveRequest,
+  addNotify,
   applyPromptReceived,
   createInitialState,
   dismissInteractiveRequest,
@@ -111,6 +112,11 @@ export function applySessionMessage(
 
     case "prompt_request":
       return settle(acc, addPromptBusRequest(acc.state, msg));
+
+    // Render-only chat row — never an interactiveRequests entry.
+    // See change: split-notify-from-prompt-request.
+    case "notify":
+      return settle(acc, addNotify(acc.state, msg.notifyId, msg.message, msg.level));
 
     case "ui_dismiss":
       return settle(acc, dismissInteractiveRequest(acc.state, msg.requestId));

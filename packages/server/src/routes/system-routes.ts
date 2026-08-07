@@ -104,6 +104,7 @@ export function registerSystemRoutes(
       // Per-hop dropped-frame counters for the diagnostics surface.
       // See change: fix-stuck-tool-card-on-dropped-event.
       getDroppedFrameStats?: () => { total: number; bySession: Record<string, number> };
+      getNotifyLogStats?: () => { evictedEntries: number; bySession: Record<string, number> };
     };
     // Shared hydration-timing recorder; `/api/health` reads its snapshot.
     // See change: instrument-session-hydration-timing.
@@ -373,6 +374,8 @@ export function registerSystemRoutes(
     try { hydration = hydrationMetrics?.snapshot() ?? hydration; } catch { /* keep empty */ }
     let eventLoopSpikesSnap: ReturnType<EventLoopSpikeMetrics["snapshot"]> = [];
     try { eventLoopSpikesSnap = eventLoopSpikes?.snapshot() ?? eventLoopSpikesSnap; } catch { /* keep empty */ }
+    let notifyLogStats = { evictedEntries: 0, bySession: {} as Record<string, number> };
+    try { notifyLogStats = browserGateway?.getNotifyLogStats?.() ?? notifyLogStats; } catch { /* keep zeros */ }
     const activeSessions = sessionManager.listActive();
     const agentMetrics = activeSessions
       .filter(s => s.processMetrics)
@@ -478,6 +481,10 @@ export function registerSystemRoutes(
           0,
         ),
       },
+      // Notify-log cap evictions (silent transcript loss on a chatty emitter),
+      // surfaced beside the other silent-loss counters.
+      // See change: split-notify-from-prompt-request.
+      notifyLog: notifyLogStats,
       // In-memory event-store shed counters (per-session trim + cross-session
       // LRU eviction). The third silent tool_execution_end loss path, made
       // observable beside droppedFrames. See change: instrument-event-store-trim.

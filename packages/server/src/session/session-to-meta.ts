@@ -68,6 +68,11 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // (absent ⇒ durable) and it would escape reaping forever.
     // See change: add-embed-session-lifecycle.
     lifecyclePolicy: session.lifecyclePolicy,
+    // Persist retained notifications. MUST be listed here because this save
+    // does a full .meta.json overwrite (not a merge) — omitting it wipes the
+    // notify log, making notifications the one transcript row type that
+    // vanishes on restart. See change: split-notify-from-prompt-request.
+    notifyLog: session.notifyLog,
     cachedAt: Date.now(),
   };
 }

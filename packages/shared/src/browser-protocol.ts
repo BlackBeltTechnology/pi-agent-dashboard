@@ -7,6 +7,7 @@ import type {
   PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
+import type { NotifyLevel } from "./protocol.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type {
   CommandInfo,
@@ -32,6 +33,7 @@ export type {
   BatchQuestion,
   BatchResult,
   InteractiveMethod,
+  NotifyLevel,
 } from "./protocol.js";
 
 // ── Configurable chat display ───────────────────────────────────────
@@ -479,6 +481,19 @@ export interface BrowserPromptRequestMessage {
   placement: string;
 }
 
+/**
+ * Server → Browser notification. Render-only: the client appends an
+ * `interactiveUi` row to `messages` and never an `interactiveRequests` entry.
+ * See change: split-notify-from-prompt-request.
+ */
+export interface BrowserNotifyMessage {
+  type: "notify";
+  sessionId: string;
+  notifyId: string;
+  message: string;
+  level?: NotifyLevel;
+}
+
 export interface BrowserPromptDismissMessage {
   type: "prompt_dismiss";
   sessionId: string;
@@ -861,6 +876,7 @@ export type ServerToBrowserMessage =
   | ServersDiscoveredMessage
   | ServersUpdatedMessage
   | BrowserPromptRequestMessage
+  | BrowserNotifyMessage
   | BrowserPromptDismissMessage
   | BrowserPromptCancelMessage
   | ModelsRefreshedMessage
