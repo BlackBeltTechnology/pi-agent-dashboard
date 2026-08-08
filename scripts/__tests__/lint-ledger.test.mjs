@@ -9,7 +9,7 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   enumerateSites,
   findOrphanSites,
@@ -18,13 +18,35 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
+/**
+ * Git-tracked files only.
+ *
+ * The suite runs in parallel and sibling tests write transient fixtures INTO
+ * the source tree — `biome-undeclared-dependencies.test.mjs` drops
+ * `packages/shared/src/__oracle_probe__.ts` for the duration of its run. A
+ * repo-wide Biome invocation sees whatever happens to be on disk at that
+ * instant, so the ledger must be judged against committed source, not the
+ * working tree. Without this the assertion is a race, not a ledger check.
+ */
+let trackedFiles = new Set();
+beforeAll(() => {
+  const out = execFileSync("git", ["ls-files"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  trackedFiles = new Set(out.split("\n").filter(Boolean));
+});
+
 function liveSites(rule) {
   const out = execFileSync(
     "npx",
     ["biome", "lint", `--only=lint/nursery/${rule}`, ".", "--max-diagnostics=20000", "--reporter=json"],
     { cwd: repoRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
   );
-  return enumerateSites(JSON.parse(out));
+  return enumerateSites(JSON.parse(out)).filter((site) =>
+    trackedFiles.has(site.slice(0, site.lastIndexOf(":"))),
+  );
 }
 
 describe("E5: site enumeration covers every linted extension", () => {
