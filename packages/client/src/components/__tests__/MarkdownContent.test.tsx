@@ -6,6 +6,7 @@ import { extractFrontmatter, formatRelativeDate, inferType } from "../preview/Fr
 import { isFencedBlockComplete, MarkdownContent, tableToMarkdown, tableToTsv } from "../preview/MarkdownContent.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/types.js";
+import { makeToolContext, withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 
 // vi.hoisted so the mock (also hoisted) can reference the spy without a TDZ.
 const { openLiveTarget } = vi.hoisted(() => ({ openLiveTarget: vi.fn() }));
@@ -96,7 +97,11 @@ describe("isFencedBlockComplete — mermaid streaming gate", () => {
 });
 
 describe("MarkdownContent — prose & inline-code linkification", () => {
-  const ctx: ToolContext = { cwd: "/Users/me/repo" };
+  // Built by the REAL production builder, not a hand-declared literal: after
+  // D4b the linkification gate is `context.fileLink` presence, so a fixture
+  // that omits the renderer would assert nothing about production.
+  // See change: cleanup-import-cycles (D4b).
+  const ctx: ToolContext = makeToolContext({ cwd: "/Users/me/repo" });
   const renderWithCtx = (content: string) =>
     render(<ThemeProvider><MarkdownContent content={content} context={ctx} /></ThemeProvider>);
 
@@ -865,5 +870,69 @@ describe("MarkdownContent — frontmatter rendering", () => {
     const { queryByText, container } = renderFm("# Just a heading\n\ntext", "properties");
     expect(queryByText("Properties")).toBeNull();
     expect(container.querySelector("h1")?.textContent).toBe("Just a heading");
+  });
+});
+
+/**
+ * test-plan #F3 — D4b must not silently drop file-mention linkification.
+ *
+ * The renderer is injected on `ToolContext` and the field is OPTIONAL (it must
+ * be — `ToolContext` is re-exported from `chat-embed` as a published surface),
+ * so a production builder that forgets to attach it produces plain text with NO
+ * type error and NO cycle-probe signal. That is the single highest-value risk
+ * in the change, and this is its only oracle.
+ *
+ * Critically, these assert against the REAL builders (`makeToolContext`,
+ * `withDefaultFileLink`) rather than hand-declared fixtures. A fixture carrying
+ * `fileLink` would only prove `MarkdownContent` honours the field — it would
+ * stay green through the exact regression this test exists to catch.
+ *
+ * See change: cleanup-import-cycles (D4b).
+ */
+describe("D4b: linkification survives at every real context builder", () => {
+  const positions: Array<[string, string]> = [
+    ["prose", "wrote /Users/me/app.ts to disk"],
+    ["list item", "- wrote /Users/me/app.ts to disk"],
+    ["inline code", "see `/Users/me/app.ts` here"],
+  ];
+
+  // The two production construction shapes: App.tsx (with cwd) and main.tsx's
+  // ToolCallStepPrimitive (cwd-less). Both must route through makeToolContext.
+  const builders: Array<[string, ToolContext]> = [
+    ["App.tsx shape (with cwd)", makeToolContext({ cwd: "/Users/me/repo", sessionId: "s1" })],
+    ["main.tsx shape (cwd-less)", makeToolContext({ sessionId: "s1" })],
+    // An external embedder builds a bare ToolContext by hand; ChatView merges
+    // the default into it. Modelled here by the merge helper ChatView calls.
+    ["bare embedder context via ChatView merge", withDefaultFileLink({ sessionId: "s1" })],
+  ];
+
+  for (const [builderName, context] of builders) {
+    for (const [positionName, content] of positions) {
+      it(`links a file mention in ${positionName} for the ${builderName}`, () => {
+        const { container } = render(
+          <ThemeProvider>
+            <MarkdownContent content={content} context={context} />
+          </ThemeProvider>,
+        );
+        const btn = Array.from(container.querySelectorAll("button")).find((b) =>
+          (b.textContent ?? "").includes("/Users/me/app.ts"),
+        );
+        expect(btn, `${builderName} / ${positionName}`).toBeTruthy();
+      });
+    }
+  }
+
+  it("every production builder actually attaches fileLink", () => {
+    for (const [name, context] of builders) {
+      expect(context.fileLink, name).toBeTypeOf("function");
+    }
+  });
+
+  it("still renders plain text when no context is supplied at all", () => {
+    const { container } = render(
+      <ThemeProvider><MarkdownContent content="wrote /Users/me/app.ts" /></ThemeProvider>,
+    );
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent).toContain("/Users/me/app.ts");
   });
 });

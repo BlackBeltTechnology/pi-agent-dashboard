@@ -5,7 +5,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | File | Purpose |
 |------|---------|
 | `ChangeSummaryBlock.tsx` | Per-turn change-summary block in chat stream. Collapses to `N files · +X −Y`. Gated on `displayPrefs.changeSummaryTable`. Deltas via `buildTurnSummaries`. See change: add-change-summary-table. |
-| `DiffFilePreview.tsx` | Inline file-preview panel for a diff row (rendered by `DiffPanel`): fetches + renders the file via `CappedViewer`. See change: open-view-command-in-editor-pane, fold-oversized-agents-directories. |
+| `DiffFilePreview.tsx` | Inline file-preview panel for a diff row (rendered by `DiffPanel`): fetches + renders the file via `CappedViewer`. See change: open-view-command-in-editor-pane, fold-oversized-agents-directories. Discharges `fileKind().viewer` (typed `ViewerKind` in `packages/shared`, out of scope to narrow) to `OpenPathViewer` via `isPseudoTabViewer` before passing it to `CappedViewer`; the unreachable pseudo-tab branch reuses the not-found rendering. Guard, not a cast. See change: cleanup-import-cycles. |
 | `DiffFileTree.tsx` | Two-level file tree of changed files. Exports `DiffFileTree`, `FileSelection`. → see `DiffFileTree.tsx.AGENTS.md` |
 | `DiffPanel.tsx` | Diff renderer for a selected file. Exports `DiffPanel`. Modes: `diff` (split/unified via… → see `DiffPanel.tsx.AGENTS.md` |
 | `DiffView.tsx` | Minimal line-by-line unified-diff renderer. Exports `DiffView`. Colors `+` lines green, `-` lines red, `@@` hunk headers blue. No syntax highlighting. |

@@ -35,6 +35,7 @@ import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { InlineTerminalCard } from "../terminal/InlineTerminalCard.js";
 import type { ToolContext } from "../tool-renderers/index.js";
+import { withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 import { BashOutputCard } from "./BashOutputCard.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
@@ -308,7 +309,16 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, onCollapseStreamingThinking }, ref) {
+  // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
+  // external embedder builds one by hand and would carry no `fileLink` —
+  // silently losing file-mention linkification with no type error. Merge a
+  // default here, ONCE, and pass the merged value to every consumer below.
+  //
+  // `useMemo` is required, not cosmetic: `MarkdownContent` is `React.memo`'d, so
+  // an inline merge would hand it a fresh `context` reference on every render
+  // and defeat the memo. See change: cleanup-import-cycles (D4b).
+  const toolContext = useMemo(() => withDefaultFileLink(suppliedToolContext), [suppliedToolContext]);
   const scrollRef = useRef<HTMLDivElement>(null);
   // True when the user wants the chat to chase new content. Flips to false on
   // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on

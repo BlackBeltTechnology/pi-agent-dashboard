@@ -16,7 +16,7 @@ import { Icon } from "@mdi/react";
 import React, { useState } from "react";
 import { parse as parseYaml } from "yaml";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
-import { isExternalHref } from "./MarkdownContent.js";
+import { isExternalHref } from "./is-external-href.js";
 
 /**
  * Match a single YAML frontmatter block at the very start of `content`

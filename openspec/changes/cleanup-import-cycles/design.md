@@ -339,7 +339,15 @@ The *split* is an extraction (it names a distinction already asserted in two
 files' comments and in the `ViewerKind` union). The *dispatch* is the price of
 it, and is the bulk of D3's actual work — not a detail.
 
-**Owned behaviour change (contingent on C1 — likely a no-op).**
+**Owned behaviour change — C1 RESOLVED: this is a NO-OP.** Implementation
+verified that `/api/file` resolves `path` via `path.resolve(cwd, decoded)`
+(`file-routes.ts:91`), so a `diff:<rel>` pseudo-path resolves to a file that
+never exists → the probe always missed → `CappedViewer` fell back to `size = 0`
+→ the `MAX_PREVIEW_BYTES` gate never fired for a pseudo-tab. Routing these kinds
+around `CappedViewer` therefore changes no user-visible behaviour; it only stops
+issuing a spurious always-404 request. Scenario E8 is retired accordingly.
+The original (overstated) framing is kept below for the record.
+
 `CappedViewer.tsx:33-37` currently issues a
 `GET /api/file?cwd&path=` size probe for every non-`monaco` tab — including
 pseudo-tab paths like `diff:<rel>`, `url:<url>`, `live:<url>`, where the probe is
@@ -645,7 +653,10 @@ change's scope — so no blocking split-out change is needed.)*
 now closed in favour of the `ToolContext` field: a registry cannot import
 `FileLink` without recreating the cycle. See D4b note 2.)*
 
-**One outstanding: C1** (tracked in `test-plan.md`, blocks scenario E8, resolved
+**C1 — RESOLVED (task 1.2): the probe always missed, so the gate never fired and
+the removal is a no-op; E8 retired.** Original statement follows.
+
+**~~One outstanding: C1~~** (tracked in `test-plan.md`, blocked scenario E8, resolved
 by task 1.2). D3 routes the four pseudo-tab kinds around `CappedViewer`, removing
 their `/api/file` size probe. What an *oversized* pseudo-tab SHALL do is not yet
 established, because what `GET /api/file?cwd&path=diff:<rel>` returns today is

@@ -8,6 +8,7 @@ import { mdiCallSplit, mdiCodeBraces, mdiCodeTags, mdiEyeOffOutline, mdiEyeOutli
 import { Icon } from "@mdi/react";
 import React, { useEffect, useState } from "react";
 import { FlowAgentDetail } from "./FlowAgentDetail.js";
+import { formatCost } from "./format-cost.js";
 
 /**
  * State of the agent-source fetch for the document-icon popover.
@@ -19,14 +20,6 @@ import { FlowAgentDetail } from "./FlowAgentDetail.js";
  *
  * See change: add-ui-popover-primitive.
  */
-/**
- * Format an accumulated USD cost, matching the pi-flows TUI precision
- * (`agent-card.ts`): two decimals at or above $1, four decimals sub-dollar.
- * Exported so `FlowAgentDetail` renders identical values (DRY, D4).
- */
-export function formatCost(n: number): string {
-  return `$${n >= 1 ? n.toFixed(2) : n.toFixed(4)}`;
-}
 
 type AgentSourceState =
   | { kind: "idle" }

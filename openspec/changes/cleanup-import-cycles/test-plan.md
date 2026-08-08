@@ -2,9 +2,20 @@
 
 Stage: design   Generated: 2026-08-06
 
-## ⚠ Clarifications needed (1)
+## ⚠ Clarifications needed (1) — RESOLVED
 
-- [ ] **C1** — Blocks **E8**. D3 routes the four pseudo-tab kinds
+> **C1 RESOLVED (implementation, task 1.2): the removal is a NO-OP.**
+> `GET /api/file` resolves its `path` with `path.resolve(cwd, decoded)`
+> (`file-routes.ts:91`), so `diff:<rel>` resolves to a literal
+> `<cwd>/diff:<rel>` that does not exist → the probe misses → `CappedViewer`
+> falls to `setSize(0)` → `size > MAX_PREVIEW_BYTES` is never true → the gate
+> never fired for a pseudo-tab in the first place.
+> **Consequences:** D3's "owned behaviour change" was overstated — there is no
+> observable network-level or gating change for the four pseudo-tab kinds, only
+> the removal of a spurious always-404 request. **E8 is retired as a no-op**
+> (nothing to assert); F1/F2 remain the render oracles for those kinds.
+
+- [x] **C1** — Blocks **E8**. D3 routes the four pseudo-tab kinds
   (`diff`/`url`/`live-server`/`terminal`) around `CappedViewer`, which today
   size-gates them (`CappedViewer.tsx:35-51` probes `/api/file`, renders
   `TooLargePreview` above `MAX_PREVIEW_BYTES`). After the split they lose that
@@ -30,7 +41,7 @@ Stage: design   Generated: 2026-08-06
 | E5 | D3 split is total and disjoint | exhaustiveness | L1 | automated | both registry halves + the `OPEN_PATH_VIEWERS` / `PSEUDO_TAB_VIEWERS` const arrays from the `viewer-kinds.ts` leaf | `Object.keys(a)` ∪ `Object.keys(b)`, compared against the const arrays | union === all **18** members (14 + 4); intersection empty; each half's `Record` total over its own subset. **`ViewerKind` is a type with no runtime representation and `packages/shared` is out of scope, so the test enumerates the const arrays — the four `_AssertNever` checks in `viewer-kinds.ts` (`_Uncovered`, `_NoExtraOpen`, `_NoExtraPseudo`, `_NoOverlap`) are what prove those arrays exactly cover and partition the union.** Assert `Object.keys(half) === [...array]` so a registry gap fails at runtime and an array/union drift fails at `tsc`. The checks MUST use `_AssertNever<T extends never>`; the `const _x: T[] = []` form is vacuous and proves nothing |
 | E6 | D3 kinds land in the right half | decision-table | L1 | automated | all **18** `ViewerKind` members | look each up | the **14** `fileKind()`-returnable kinds resolve from half (a) and are **absent** from (b); the 4 pseudo-tab kinds (`diff`/`terminal`/`url`/`live-server`) resolve from (b) and are **absent** from (a). Half (a) MUST include `binary-warn` and `monaco` — both are `fileKind()`-returnable and are the two most likely to be dropped |
 | E7 | D3 size gate preserved for real files | BVA | L1 | automated | `size` = `MAX_PREVIEW_BYTES-1`, `= MAX_PREVIEW_BYTES`, `= MAX_PREVIEW_BYTES+1`, for a non-`monaco` file-kind viewer | mount `CappedViewer` | first two render the viewer; third renders `TooLargePreview`. `monaco` bypasses at all three |
-| E8 | D3 oversized pseudo-tab | BVA | L3 | automated | a `diff:` tab whose content exceeds `MAX_PREVIEW_BYTES` | open the tab | [NEEDS CLARIFICATION: observable — see C1] |
+| E8 | D3 oversized pseudo-tab | BVA | L3 | ~~automated~~ **retired** | a `diff:` tab whose content exceeds `MAX_PREVIEW_BYTES` | open the tab | **RETIRED per the C1 resolution above** — the size gate never fired for a pseudo-tab (the `/api/file` probe always missed → `size` 0), so there is no oversized-pseudo-tab state to observe and no behaviour change to assert. Coverage for these kinds is F1/F2 (they render) |
 | E9 | D4a `isExternalHref` extracted, semantics preserved | EP | L1 | automated | `https://example.com/x`; a same-origin absolute URL; `#anchor`; `undefined` | call from its new leaf module | `true` only for the cross-origin URL; `false` for same-origin, fragment-only, `undefined` — identical to pre-extraction |
 | E10 | `isolatedModules` respected | static | ci | automated | all five extracted leaf modules | `tsc --noEmit` | exit 0; every type re-export uses `export type` |
 

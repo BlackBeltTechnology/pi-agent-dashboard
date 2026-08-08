@@ -21,7 +21,7 @@ import type {
   FlowDetailEntry,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import React from "react";
-import { formatCost } from "./FlowAgentCard.js";
+import { formatCost } from "./format-cost.js";
 
 function mapFlowStatus(status: FlowAgentStatus): MinimalChatStatus {
   switch (status) {
