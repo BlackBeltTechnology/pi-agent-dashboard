@@ -43,6 +43,20 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- Upgraded the pinned pi runtime to `@earendil-works/pi-coding-agent@0.84.1`.
+  `piCompatibility.recommended` moves to `0.84.1`, the server dependency to
+  `^0.84.1`, and the Docker image pin to `@0.84.1`. The broad-support floor
+  `piCompatibility.minimum` deliberately stays at `0.78.0`, so pi 0.78–0.84.0
+  users see a soft upgrade hint and never a blocking error.
+- Custom models in `models.json` may now declare arbitrary OpenAI-compatible
+  `samplingParams` (including opt-in vLLM `thinking_token_budget`). The field is
+  forwarded opaquely to pi and omitted entirely when absent; it was previously
+  dropped by both metadata consumers.
+- `AGENTS.override.md` (pi 0.84.0's per-directory context override) is now
+  recognised by the kb tooling: it shadows a sibling `AGENTS.md`/`CLAUDE.md`
+  within the same directory when walking the agents chain, and is indexed as a
+  context file rather than ordinary markdown. Ancestor inheritance is unchanged.
+
 - The Resources view now sources skills, prompts, and themes from pi's own
   resolver (`PackageManager.resolve()`) instead of a parallel filesystem walk,
   and applies pi's load gate on top. Scope and package origin come from the
@@ -57,6 +71,29 @@ see [`docs/release-process.md`](docs/release-process.md).
   not load them either. There is consequently no activation toggle for them.
 
 ### Fixed
+
+- `/api/health` could report the wrong running pi version and raise a spurious
+  "upgrade recommended" hint. Several workspaces declare a broad `>=0.80.10` pi
+  range while the server pins an exact one, which under pnpm's hoisted linker
+  resolved two copies — and the version probe read the hoisted one rather than
+  the version actually in use. Resolution is now pinned to a single version via
+  a workspace override; no declared floor changed.
+- The session auto-namer no longer mistakes a header-deletion marker for a
+  credential. pi 0.84.0 returns provider headers whose values may be `null` to
+  suppress a header (used to stop a placeholder OpenAI key reaching Cloudflare
+  AI Gateway); the namer counted those keys as usable credentials and issued a
+  request with none, and now forwards the markers unchanged instead.
+- Model-catalogue refreshes no longer report success when they failed. pi
+  0.84.0 made `ModelRegistry.refresh()` asynchronous and result-bearing, so the
+  dashboard was reading the catalogue *before* the refresh resolved and
+  discarding per-provider errors in a bare `catch`. Failures are now surfaced
+  with the provider named, a credentials reload refreshes only the providers it
+  touched, and cancellation is distinguishable from success.
+- OAuth token refreshes are now cancellable. pi 0.84.0 requires a concrete
+  `AbortSignal` on the refresh callback; the dashboard passed none, so a
+  provider that never answered would hang every request routed through that
+  credential. Refreshes are now bounded, and a late answer after the deadline
+  can no longer persist a credential the caller discarded.
 
 - `pi install git:github.com/BlackBeltTechnology/pi-agent-dashboard` works again
   (issue #357). It was failing at two independent points. First, the Node engines cap

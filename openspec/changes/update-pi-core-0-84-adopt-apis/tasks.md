@@ -106,11 +106,11 @@
 
 ## 10. Verification-only and documentation
 
-- [ ] 10.1 Evaluate whether Baseten needs dashboard provider-auth wiring and record a written finding in this change; assert no product behavior (test-plan: manual-only).
-- [ ] 10.1a Evaluate whether the 0.84.1 Qwen Token Plan Individual provider (`qwen-token-plan-individual`, shared `QWEN_TOKEN_PLAN_API_KEY`) needs dashboard provider-auth wiring or is already covered by the provider-generic API-key path; record a written finding (test-plan: manual-only).
-- [ ] 10.1b Evaluate whether the doctor skill's pi-resolution/auth diagnostics should call the 0.84.1 `pi auth check` preflight instead of inferring credential state; if adopted, gate it on subcommand presence (never on the version string) with the current inference as the floor-pi fallback, and record the finding either way (test-plan: manual-only).
-- [ ] 10.1c Confirm pi 0.84.1 still bundles TypeBox `1.3.7` and leave the extension devDependency at `^1.3.7` (verified pre-flight against the published tarball; re-confirm after `pnpm install`).
-- [ ] 10.2 Run `node scripts/verify-release-deps.mjs` and confirm exit 0.
-- [ ] 10.3 Run the full suite and confirm the `pi-version-skew`, `agent-settled`, `provider-register`, `bundled-node-meets-pi-floor`, and `replay-compaction-equivalence` suites pass.
-- [ ] 10.4 Run the doctor skill's `--regenerate pi-resolution` to refresh derived version tables; confirm the proposed prose edits rather than silently overwriting.
-- [ ] 10.5 Update the `@earendil-works/pi-coding-agent@X` version in `docker/AGENTS.md` (delegate the `docs/`-style prose to DocScribe) and add a `## [Unreleased]` CHANGELOG entry.
+- [x] 10.1 Baseten provider-auth wiring. FINDING: NOT needed. `_buildProviderCatalogue` (`provider-register.ts:577`) derives the catalogue generically from pi's `modelRegistry` + `authStorage.getOAuthProviders()`; `packages/{server,shared,extension}/src` contain zero `baseten` references. A new built-in pi provider appears automatically. No product behavior asserted (test-plan V1).
+- [x] 10.1a Qwen Token Plan Individual (`qwen-token-plan-individual`, shared `QWEN_TOKEN_PLAN_API_KEY`). FINDING: NOT needed — same generic path as Baseten. Confirmed present in the pinned runtime (`dist/core/model-resolver.js`) and zero `qwen` references in dashboard source (test-plan V2).
+- [x] 10.1b `pi auth check` adoption by the doctor skill. FINDING: NOT adopted in this change. The subcommand is not discoverable from the packaged `dist/cli/args.d.ts` surface, so gating would require shelling out and parsing help text — a behavior change to the doctor skill that this pin-bump change does not own. The doctor skill continues to derive auth state from its own probes. Recorded as a follow-up (test-plan V3).
+- [x] 10.1c TypeBox fidelity CONFIRMED post-install: the pinned pi bundles `typebox@1.3.7` and the extension devDependency stays `^1.3.7` (test-plan V4).
+- [x] 10.2 `node scripts/verify-release-deps.mjs` → exit 0, 11 rules passed.
+- [x] 10.3 Run the full suite and confirm the `pi-version-skew`, `agent-settled`, `provider-register`, `bundled-node-meets-pi-floor`, and `replay-compaction-equivalence` suites pass.
+- [x] 10.4 Doctor `--regenerate pi-resolution`. FINDING: verified NO-OP. The `pi-resolution` module derives every fact live (CLI binary, repo/managed package.json, cwd `createRequire`) and its floor from `piCompatibility.minimum`; it carries no hardcoded version table, and the committed knowledge-hash sidecars pass their freshness tests in the full suite. Nothing to regenerate.
+- [x] 10.5 Updated the pi pin in the `docker/AGENTS.md` Dockerfile row to `@0.84.1` (a non-`docs/` directory tree file, so edited directly per the Documentation Update Protocol) and added `## [Unreleased]` CHANGELOG entries under Changed (pin bump, samplingParams, AGENTS.override.md) and Fixed (health ghost-version, null header markers, refresh contract, OAuth abort signal).
