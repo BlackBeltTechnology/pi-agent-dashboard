@@ -1096,16 +1096,23 @@ Optional OAuth2 authentication protects the dashboard when accessed remotely.
 
 #### `auth.redirectBaseUrl` — reverse-proxy OAuth base
 
-Optional string field in `~/.pi/dashboard/config.json`. No default. Absent = previous behaviour unchanged. Change: `config-override-oauth-redirect-base`.
+Optional string field in `~/.pi/dashboard/config.json`.
+No default.
+Absent = previous behaviour unchanged.
+Change: `config-override-oauth-redirect-base`.
 
-**Purpose.** Dashboard behind reverse proxy on stable custom domain: `https://pi.example.com` → nginx → `:8000`, no dashboard-managed tunnel. Without field `buildRedirectUri()` emits `http://localhost:8000/auth/callback/github`. Provider rejects with `redirect_uri_mismatch`.
+**Purpose.** Dashboard behind reverse proxy on stable custom domain: `https://pi.example.com` → nginx → `:8000`.
+No dashboard-managed tunnel.
+Without field `buildRedirectUri()` emits `http://localhost:8000/auth/callback/github`.
+Provider rejects with `redirect_uri_mismatch`.
 
 **Base precedence** (`buildRedirectUri(provider, port, baseOverride?)`, `packages/server/src/auth/auth.ts`):
 1. `auth.redirectBaseUrl` — highest
 2. `getTunnelUrl()` — active tunnel
 3. `http://localhost:<port>` — fallback
 
-Trailing slashes stripped from winning base. Empty string treated as absent — falls through.
+Trailing slashes stripped from winning base.
+Empty string treated as absent — falls through.
 
 **Path prefix supported.** `https://pi.example.com/pi` → `https://pi.example.com/pi/auth/callback/github`.
 
@@ -1116,17 +1123,30 @@ Trailing slashes stripped from winning base. Empty string treated as absent — 
 
 OAuth2 requires token-endpoint `redirect_uri` byte-identical to authorize-endpoint one.
 
-**Operator MUST register same callback URL with provider too** (GitHub/Google/Keycloak app settings). Config field alone not enough.
+**Operator MUST register same callback URL with provider too** (GitHub/Google/Keycloak app settings).
+Config field alone not enough.
 
-**Hot reload.** `PUT /api/config` → `writeConfigPartial` → `loadConfig()` → `fastify._reloadAuth(newConfig)` → `authState.redirectBaseUrl` reassigned. No restart needed.
+**Hot reload.** `PUT /api/config` → `writeConfigPartial` → `loadConfig()` → `fastify._reloadAuth(newConfig)` → `authState.redirectBaseUrl` reassigned.
+No restart needed.
 
-**Trap — boot-time empty provider registry.** `registerAuthPlugin` returns early on zero resolvable providers ("Auth configured but no providers resolved — auth disabled") BEFORE registering `/auth/*` routes and BEFORE installing `_reloadAuth`. Server booted with zero resolvable OAuth providers → any `auth.*` change via `PUT /api/config` inert until restart.
+**Trap — boot-time empty provider registry.** `registerAuthPlugin` returns early on zero resolvable providers ("Auth configured but no providers resolved — auth disabled") BEFORE registering `/auth/*` routes and BEFORE installing `_reloadAuth`.
+Server booted with zero resolvable OAuth providers → any `auth.*` change via `PUT /api/config` inert until restart.
 
-**Validation** (`warnOnInvalidRedirectBase()`, `packages/server/src/auth/auth.ts`). Warns at plugin registration + every auth reload when value not absolute `http`/`https` origin, or carries query string / fragment. Value still USED, never discarded — typo = visible provider rejection + log line, not silent no-op.
+**Validation** (`warnOnInvalidRedirectBase()`, `packages/server/src/auth/auth.ts`).
+Warns at plugin registration + every auth reload when value not absolute `http`/`https` origin, or carries query string / fragment.
+Value still USED, never discarded.
+Typo = visible provider rejection + log line, not silent no-op.
 
-**Scope — OAuth redirect URIs only.** Pairing QR codes, `GET /api/tunnel/endpoints`, "Accessible at" surfaces still derive from `getTunnelUrl()`. Dashboard with `redirectBaseUrl` set advertises tunnel host in those places. Known + accepted. Future top-level `publicBaseUrl` would unify.
+**Scope — OAuth redirect URIs only.** Pairing QR codes, `GET /api/tunnel/endpoints`, "Accessible at" surfaces still derive from `getTunnelUrl()`.
+Dashboard with `redirectBaseUrl` set advertises tunnel host in those places.
+Known + accepted.
+Top-level `publicBaseUrls` stays separate — not an OAuth tier (D7).
 
-**No Settings UI field.** `writeConfigPartial` accepts key; `SettingsPanel.tsx` never sends it. Config-file edit only.
+**Settings UI field.** Settings ▸ Security carries the input — `packages/client/src/components/settings/SettingsPanel.tsx`, testid `redirect-base-url-input`.
+Writes `auth.redirectBaseUrl` through existing `PUT /api/config` path.
+Empty input sends `""` — clears override. Omitting key PRESERVES old value instead.
+Help text states provider-side registration requirement.
+Gateway action writes same key when oauth mode selected (see Gateway URL Management).
 
 ### Server-Keypair Device Pairing
 
@@ -1142,7 +1162,7 @@ Server ensures persistent Ed25519 keypair at `~/.pi/dashboard/identity.key` (060
 
 #### QR / copy-string pairing
 
-Two QR kinds (D1). **Pairing QR** = secure payload `{v,id,code,urls[]}` = protocol version, fingerprint, one-time ~60s code, TLS-only reachable URLs. `urls[]` holds https/wss only (D14) — never self-signed LAN; includes MagicDNS with provisioned `tailscale cert`; Gateway provider endpoints plus operator-configured `pairing.publicBaseUrls`. Rendered as QR plus copyable base64url string. **Link QR** = per no-TLS http mesh/LAN endpoint. Encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer. Link-QR arrival governed by `config.trustedNetworks`. Module `packages/server/src/pairing.ts`.
+Two QR kinds (D1). **Pairing QR** = secure payload `{v,id,code,urls[]}` = protocol version, fingerprint, one-time ~60s code, TLS-only reachable URLs. `urls[]` holds https/wss only (D14) — never self-signed LAN; includes MagicDNS with provisioned `tailscale cert`; Gateway provider endpoints plus operator-configured `publicBaseUrls` (legacy `pairing.publicBaseUrls` fallback). Rendered as QR plus copyable base64url string. **Link QR** = per no-TLS http mesh/LAN endpoint. Encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer. Link-QR arrival governed by `config.trustedNetworks`. Module `packages/server/src/pairing.ts`.
 
 #### Compare-code approval — D12
 
@@ -1193,6 +1213,142 @@ Approval: operator types numeric confirm code shown on device → `POST /api/pai
 `no_reachable_endpoint` → empty state. Pairing needs secure context. Empty state offers Start tunnel (`/tunnel-setup`) plus `http://localhost` same-machine note. Never implies plain-http LAN pairs in a browser.
 
 Gate: `reachableUrls()` (`packages/server/src/pairing.ts`) read-time filter (D4/D14) advertises only secure `wss`/`https` endpoints. Keeps `urls[]` secure. `createPayload()` returns null when no reachable url → route returns `{success:false,error:"no_reachable_endpoint"}` (HTTP 200).
+
+### Gateway URL Management
+
+Change: `config-override-oauth-redirect-base`.
+Operator declares reachable gateway URLs + auth posture in one statement.
+Server reads at runtime via mtime-gated config snapshot.
+
+#### `publicBaseUrls` — promoted to top level
+
+`pairing.publicBaseUrls` promoted to top-level `publicBaseUrls?: string[]`.
+Source: `packages/shared/src/config.ts`.
+Read through `resolvePublicBaseUrls(config)`.
+Top-level first.
+Legacy `pairing.publicBaseUrls` fallback.
+Else `[]`.
+NOT in `DEFAULTS`.
+Never seeded by `ensureConfig()`.
+Absence selects the legacy fallback.
+`[]` default would orphan existing entries.
+
+Consumers:
+- `server.ts` `getReachableUrls`
+- `system-routes.ts` `GET /api/tunnel/endpoints`
+- client `gateway-config-ops.ts`
+
+OAuth-isolation rule (D7): `publicBaseUrls` NOT an OAuth redirect-base tier, at any arity.
+Reason: list vs scalar arity.
+OAuth `redirect_uri` = one pre-registered origin.
+Operator states it in `auth.redirectBaseUrl`.
+
+TLS gate unmoved (D8).
+Stays read-time in `PairingManager.reachableUrls()`.
+Non-loopback `http://` entry in promoted list never reaches a pairing QR.
+
+Client writer `appendPublicBaseUrl(config, url, {allowInsecure})` = single writer.
+Seeds top-level from legacy on first write.
+
+#### Gateway action — one statement, one write
+
+One operator statement → ONE `PUT /api/config`.
+Writes:
+- `publicBaseUrls`
+- `cors.allowedOrigins`
+- `auth.redirectBaseUrl` (iff oauth mode)
+- `trustedNetworks` (iff trusted-network mode)
+- `gateways[]` provenance record
+
+Code: pure algebra `packages/client/src/lib/gateway/gateway-action.ts`.
+Exports:
+- `validateGatewayDraft`
+- `buildGatewayAddPatch`
+- `buildGatewayRemovePatch`
+- `computeGatewayStatus`
+- `buildGatewayFixPatch`
+
+UI: `packages/client/src/components/Gateway/GatewayUrlManager.tsx`.
+Rendered by BOTH `GatewayPage.tsx` and `GatewaySetupGuide.tsx`.
+One shared component — cannot drift.
+
+Scheme rules:
+- `http://` → trusted network REQUIRED
+- `http://` → QR pairing ineligible
+- `http://` → OAuth ineligible
+- `https://` → trusted network optional
+- `https://` → both eligible
+- At least one auth mode mandatory either way
+
+CIDR prefill reuses `suggestTrustEntries`.
+Exact `/32`.
+Never a subnet.
+
+Provenance `wrote{}` = exact values.
+Remove deletes only recorded values STILL EQUAL in live config.
+Limit: identical-value authorship indistinguishable.
+Removing clears an operator's hand-set `auth.redirectBaseUrl`.
+Both dialogs say so.
+
+Status computed on read, never persisted.
+States: OK / Incomplete / Conflicting / Ineligible.
+Fix = reconcile-to-record delta write.
+Never re-run add.
+
+Status checks trusted networks against the EFFECTIVE merge.
+Merge = top-level `trustedNetworks` ∪ `auth.bypassHosts`.
+Settings writes the second key.
+
+**D15 — persisting is not applying.** CORS `origin` callback + `networkGuard` read mtime-gated snapshot (`packages/server/src/config-snapshot.ts`).
+Exports: `getConfigSnapshot`, `liveCorsAllowedOrigins`, `liveTrustedNetworks`.
+Boot closure replaced.
+`statSync` ~1.9 µs steady state.
+Full read+parse ~24.5 µs.
+Cache MUST stay mtime-gated.
+Boot snapshot silently reinstates the bug.
+Hand-edited `config.json` never passes through the writer.
+
+`_reloadAuth(newAuth, fullConfig)` now merges top-level `trustedNetworks` exactly as boot does.
+Fixes PRE-EXISTING bug.
+Any auth-carrying `PUT /api/config` dropped them until restart.
+
+New route `DELETE /api/config/auth/providers/:id`.
+`deleteAuthProvider` in `config-api.ts`.
+Idempotent.
+Refuses last provider without `?force=true`.
+Lockout, not disable.
+
+New route `GET /api/auth/diagnostics`.
+Returns `{redirectBase, source, authActive, providerCount}`.
+Guarded.
+Loopback-reachable.
+Same line mirrored to `server.log` at register/reload.
+
+#### `trustProxy` stays off — D14
+
+Fastify constructed WITHOUT `trustProxy`.
+Deliberate.
+`trustProxy` rewrites `request.ip` from `X-Forwarded-For`.
+`request.ip` = what BOTH authorization bypasses read:
+- `auth-plugin.ts` auth-gate bypass
+- `localhost-guard.ts` `networkGuard` bypass
+
+Enabling makes both gates header-forgeable.
+Includes the gate on `PUT /api/config`.
+Also splits REST from the WS upgrade path.
+WS upgrade authorizes on `socket.remoteAddress`.
+
+Instead: session cookie `Secure` derives from RESOLVED redirect base scheme.
+`resolveRedirectBase` in `auth/auth.ts`.
+Operator-stated config.
+No request header can influence.
+
+Prerequisite if anyone ever wants `trustProxy`:
+Move BOTH bypass points to `request.socket.remoteAddress` FIRST.
+Only safe together.
+Only the first change looks harmless.
+
+Regression test: `packages/server/src/__tests__/forwarded-ip-trust.test.ts`.
 
 ### Settings Panel
 The web client includes a Settings panel (gear icon in sidebar header → `/settings` route) that lets users view and edit all dashboard configuration. The panel:
@@ -1336,6 +1492,7 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `tunnel.zerotier` | — | `{networkId}`. zerotier sub-config |
 | `tunnel.reservedToken` | _(auto)_ | Legacy bare zrok token. Read-time shim resolves to `{provider:"zrok", mode:"public", zrok:{reservedToken}}` in loadConfig. No disk rewrite until next save. Explicit `provider` wins on conflict |
 | `auth.redirectBaseUrl` | — | Optional OAuth redirect base for reverse-proxy deployments (`https://host[/prefix]`). Overrides tunnel/localhost base in `buildRedirectUri`. No default; absent = previous behaviour |
+| `publicBaseUrls` | — | Top-level reachable base URLs. Pairing QR + `GET /api/tunnel/endpoints` surfaces. `resolvePublicBaseUrls` reads top-level first, legacy `pairing.publicBaseUrls` fallback, else `[]`. No default; absent = legacy. Not an OAuth tier (D7) |
 
 ### Tunnel Lifecycle
 
@@ -1368,9 +1525,9 @@ Idempotent control commands against long-lived daemon (`tailscaled` / `zerotier-
 
 #### Endpoints
 
-`GET /api/tunnel/endpoints` returns tagged `{kind, url, tls}`, kind ∈ `public`|`mesh`|`magicdns`|`lan`|`local`. Multi-sourced: active provider endpoints + manual `pairing.publicBaseUrls` + LAN/local. "Accessible at" UI surface.
+`GET /api/tunnel/endpoints` returns tagged `{kind, url, tls}`, kind ∈ `public`|`mesh`|`magicdns`|`lan`|`local`. Multi-sourced: active provider endpoints + top-level `publicBaseUrls` (legacy `pairing.publicBaseUrls` fallback) + LAN/local. "Accessible at" UI surface.
 
-Manual HTTPS entry: UI "Add HTTPS URL" appends to `pairing.publicBaseUrls` via auth-gated `PUT /api/config` (no new route; `pairing` shallow-overwritten, client PUTs full pairing object). https/wss gate authoritative server-side at read time in `reachableUrls()`; plain-http dropped before advertisement.
+Manual HTTPS entry: UI "Add HTTPS URL" appends to top-level `publicBaseUrls` via `appendPublicBaseUrl` (auth-gated `PUT /api/config`; no new route). Legacy `pairing.publicBaseUrls` seeded into top-level on first write. https/wss gate authoritative server-side at read time in `reachableUrls()`; plain-http dropped before advertisement.
 
 #### Trusted-network block events
 
