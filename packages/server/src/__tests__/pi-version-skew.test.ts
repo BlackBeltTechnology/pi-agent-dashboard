@@ -17,6 +17,104 @@ import {
   computeCompatibility,
 } from "../pi/pi-version-skew.js";
 import type { ToolRegistry, Resolution } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+// @ts-expect-error -- .mjs release gate, no type declarations; exported for fixture-driven tests.
+import { collectFailures, checkPiPinCoherence } from "../../../../scripts/verify-release-deps.mjs";
+
+const REPO_ROOT = path.resolve(__dirname, "../../../..");
+const PINNED_PI = "0.84.1";
+
+/**
+ * The governed pi pins must move together. Four surfaces, one version.
+ * See change: update-pi-core-0-84-adopt-apis (test-plan #E1, #E3, #E4, #X13).
+ */
+describe("pi pin block \u2014 0.84.1", () => {
+  const serverPkg = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, "packages/server/package.json"), "utf-8"),
+  );
+
+  it("E1: piCompatibility declares recommended 0.84.1 over an unmoved 0.78.0 floor", () => {
+    expect(serverPkg.piCompatibility).toEqual({
+      minimum: "0.78.0",
+      recommended: PINNED_PI,
+      maximum: null,
+    });
+  });
+
+  it("E1: the server dependency is pinned to ^0.84.1", () => {
+    expect(serverPkg.dependencies["@earendil-works/pi-coding-agent"]).toBe(`^${PINNED_PI}`);
+  });
+
+  it("E3: all four governed pin surfaces report 0.84.1 and the gate passes", () => {
+    const dockerfile = fs.readFileSync(path.join(REPO_ROOT, "docker/Dockerfile"), "utf-8");
+    const gateSource = fs.readFileSync(path.join(REPO_ROOT, "scripts/verify-release-deps.mjs"), "utf-8");
+
+    expect(serverPkg.dependencies["@earendil-works/pi-coding-agent"]).toContain(PINNED_PI);
+    expect(serverPkg.piCompatibility.recommended).toBe(PINNED_PI);
+    expect(dockerfile).toContain(`@earendil-works/pi-coding-agent@${PINNED_PI}`);
+    expect(gateSource).toContain(`minVersion: "${PINNED_PI}"`);
+
+    expect(collectFailures({ repoRoot: REPO_ROOT })).toEqual([]);
+  });
+
+  it("E4: a Dockerfile pin left behind the server dep is caught as drift", () => {
+    const drift = checkPiPinCoherence(
+      {
+        dependencies: { "@earendil-works/pi-coding-agent": `^${PINNED_PI}` },
+        piCompatibility: { recommended: PINNED_PI },
+      },
+      "RUN npm install -g @earendil-works/pi-coding-agent@0.84.0 openspec",
+    );
+    expect(drift).toBeTruthy();
+    expect(String(drift)).toMatch(/pi pin drift/i);
+    // The report must name the surface that drifted, not just that something did.
+    expect(String(drift)).toContain("docker/Dockerfile");
+    expect(String(drift)).toContain("0.84.0");
+  });
+
+  it("E4: a stale gate minVersion is caught against the bumped dep", () => {
+    // Fixture tree: server dep on 0.84.1 but the gate rule still floors at 0.84.0.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-pin-divergence-"));
+    fs.mkdirSync(path.join(tmp, "packages/server"), { recursive: true });
+    fs.mkdirSync(path.join(tmp, "docker"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, "packages/server/package.json"),
+      JSON.stringify({
+        dependencies: { "@earendil-works/pi-coding-agent": "^0.84.0" },
+        piCompatibility: { recommended: PINNED_PI },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmp, "docker/Dockerfile"),
+      `RUN npm install -g @earendil-works/pi-coding-agent@${PINNED_PI} openspec`,
+    );
+
+    const failures = collectFailures({ repoRoot: tmp });
+    expect(failures.length).toBeGreaterThan(0);
+    expect(failures.join("\n")).toMatch(/pi-coding-agent/);
+  });
+
+  it("X13: the resolved pi in node_modules satisfies the server dependency range", () => {
+    const declared = String(serverPkg.dependencies["@earendil-works/pi-coding-agent"]);
+    const resolvedPkg = path.join(
+      REPO_ROOT,
+      "packages/server/node_modules/@earendil-works/pi-coding-agent/package.json",
+    );
+    const hoistedPkg = path.join(
+      REPO_ROOT,
+      "node_modules/@earendil-works/pi-coding-agent/package.json",
+    );
+    // Resolve exactly as the server does: nested copy wins, else the hoisted one.
+    const target = fs.existsSync(resolvedPkg) ? resolvedPkg : hoistedPkg;
+    const resolved = JSON.parse(fs.readFileSync(target, "utf-8")).version as string;
+
+    const [major, minor, patch] = parseVersion(resolved) ?? [];
+    const [dMajor, dMinor, dPatch] = parseVersion(declared.replace(/^[\^~]/, "")) ?? [];
+    expect(major, `resolved ${resolved} vs declared ${declared}`).toBe(dMajor);
+    // Caret on a 0.x range pins the minor; the patch may only move forward.
+    expect(minor).toBe(dMinor);
+    expect(patch).toBeGreaterThanOrEqual(dPatch as number);
+  });
+});
 
 describe("pi-version-skew", () => {
   beforeEach(() => {

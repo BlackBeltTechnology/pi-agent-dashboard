@@ -74,8 +74,11 @@ allowBuilds:
   sharp: true
 
 minimumReleaseAgeExclude:
-  - '@earendil-works/pi-agent-core@0.83.0'
-  - '@earendil-works/pi-ai@0.83.0'
-  - '@earendil-works/pi-coding-agent@0.83.0'
-  - '@earendil-works/pi-tui@0.83.0'
+  - '@earendil-works/pi-agent-core@0.83.0 || 0.84.1'
+  - '@earendil-works/pi-ai@0.83.0 || 0.84.1'
+  - '@earendil-works/pi-coding-agent@0.83.0 || 0.84.1'
+  - '@earendil-works/pi-tui@0.83.0 || 0.84.1'
   - pi-mcp-adapter@2.19.0
+  - '@earendil-works/pi-client@0.84.1'
+  - '@earendil-works/pi-protocol@0.84.1'
+  - '@earendil-works/pi-telemetry@0.84.1'

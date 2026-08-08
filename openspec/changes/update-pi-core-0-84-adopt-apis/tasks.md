@@ -1,8 +1,8 @@
 ## 1. Repair the dependency tree (must precede everything)
 
-- [ ] 1.1 Run `pnpm install` to resolve the drifted tree to a coherent pinned 0.83.0 baseline. Never `npm install` — `pnpm-workspace.yaml` sets `nodeLinker: hoisted`.
-- [ ] 1.2 Run the full suite on the repaired 0.83.0 tree to establish a clean pre-bump baseline: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`.
-- [ ] 1.3 Add an L1 test asserting the resolved pi version in `node_modules` satisfies the `packages/server` dependency range — input: repo after `pnpm install`; trigger: read resolved pi version; observable: version satisfies the declared range (test-plan #X13). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
+- [x] 1.1 Run `pnpm install` to resolve the drifted tree to a coherent pinned 0.83.0 baseline. Never `npm install` — `pnpm-workspace.yaml` sets `nodeLinker: hoisted`.
+- [x] 1.2 Run the full suite on the repaired 0.83.0 tree to establish a clean pre-bump baseline: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`.
+- [x] 1.3 Add an L1 test asserting the resolved pi version in `node_modules` satisfies the `packages/server` dependency range — input: repo after `pnpm install`; trigger: read resolved pi version; observable: version satisfies the declared range (test-plan #X13). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
 
 ## 2. Move the governed pins together
 
@@ -13,16 +13,16 @@
 > E2 is dropped with them. Numbering is left intact so the remaining task
 > numbers keep matching the test-plan references.
 
-- [ ] 2.1 Bump `packages/server/package.json` dependency `@earendil-works/pi-coding-agent` to `^0.84.1` and `piCompatibility.recommended` to `0.84.1`. Leave `minimum` at `0.78.0` and `maximum` at `null`.
-- [ ] 2.2 Bump the `docker/Dockerfile` global install to `@earendil-works/pi-coding-agent@0.84.1`.
-- [ ] 2.3 Bump `scripts/verify-release-deps.mjs` pi rule `minVersion` to `0.84.1` and update its evidence note to reference this change.
-- [ ] 2.5 Run `pnpm install` again to resolve the 0.84.1 tree.
-- [ ] 2.6 Rename/retarget `packages/server/src/__tests__/pi-version-skew-recommended-0-83.test.ts` to `pi-version-skew-recommended-0-84.test.ts` for the 0.84.1 recommended version.
-- [ ] 2.7 Add an L1 test for the pin block — input: `packages/server/package.json`; trigger: read `piCompatibility`; observable: `recommended === "0.84.1"`, `minimum === "0.78.0"`, `maximum === null`, dependency pin `^0.84.1` (test-plan #E1). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
-- [ ] 2.9 Add an L1 test for pin coherence — input: server dep, `piCompatibility.recommended`, `docker/Dockerfile`, `verify-release-deps.mjs` `minVersion`; trigger: run `node scripts/verify-release-deps.mjs`; observable: exit 0 and all four report `0.84.1` (test-plan #E3). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
-- [ ] 2.10 Add an L1 test that divergence is caught — input: dep `^0.84.1` with `minVersion` left at `0.84.0`; trigger: run `verify-release-deps.mjs`; observable: non-zero exit naming the pi pin-coherence rule (test-plan #E4). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
-- [ ] 2.11 Add an L1 BVA test for the upgrade-hint boundary — input: running pi `0.84.0` / `0.84.1`; trigger: compute compatibility; observable: `0.84.0` → `upgradeRecommended: true` with no `error`; `0.84.1` → `upgradeRecommended: false` (test-plan #E5). See `packages/server/src/__tests__/health-compatibility.test.ts`.
-- [ ] 2.12 Add an L1 BVA test for the blocking-error boundary — input: running pi `0.77.999` / `0.78.0`; trigger: compute compatibility; observable: `0.77.999` → 503-blocking `error`; `0.78.0` → no `error` with `upgradeRecommended: true` (test-plan #E6). See `packages/server/src/__tests__/health-compatibility.test.ts`.
+- [x] 2.1 Bump `packages/server/package.json` dependency `@earendil-works/pi-coding-agent` to `^0.84.1` and `piCompatibility.recommended` to `0.84.1`. Leave `minimum` at `0.78.0` and `maximum` at `null`.
+- [x] 2.2 Bump the `docker/Dockerfile` global install to `@earendil-works/pi-coding-agent@0.84.1`.
+- [x] 2.3 Bump `scripts/verify-release-deps.mjs` pi rule `minVersion` to `0.84.1` and update its evidence note to reference this change.
+- [x] 2.5 Run `pnpm install` again to resolve the 0.84.1 tree.
+- [x] 2.6 Rename/retarget `packages/server/src/__tests__/pi-version-skew-recommended-0-83.test.ts` to `pi-version-skew-recommended-0-84.test.ts` for the 0.84.1 recommended version.
+- [x] 2.7 Add an L1 test for the pin block — input: `packages/server/package.json`; trigger: read `piCompatibility`; observable: `recommended === "0.84.1"`, `minimum === "0.78.0"`, `maximum === null`, dependency pin `^0.84.1` (test-plan #E1). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
+- [x] 2.9 Add an L1 test for pin coherence — input: server dep, `piCompatibility.recommended`, `docker/Dockerfile`, `verify-release-deps.mjs` `minVersion`; trigger: run `node scripts/verify-release-deps.mjs`; observable: exit 0 and all four report `0.84.1` (test-plan #E3). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
+- [x] 2.10 Add an L1 test that divergence is caught — input: dep `^0.84.1` with `minVersion` left at `0.84.0`; trigger: run `verify-release-deps.mjs`; observable: non-zero exit naming the pi pin-coherence rule (test-plan #E4). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
+- [x] 2.11 Add an L1 BVA test for the upgrade-hint boundary — input: running pi `0.84.0` / `0.84.1`; trigger: compute compatibility; observable: `0.84.0` → `upgradeRecommended: true` with no `error`; `0.84.1` → `upgradeRecommended: false` (test-plan #E5). See `packages/server/src/__tests__/health-compatibility.test.ts`.
+- [x] 2.12 Add an L1 BVA test for the blocking-error boundary — input: running pi `0.77.999` / `0.78.0`; trigger: compute compatibility; observable: `0.77.999` → 503-blocking `error`; `0.78.0` → no `error` with `upgradeRecommended: true` (test-plan #E6). See `packages/server/src/__tests__/health-compatibility.test.ts`.
 
 ## 3. Record the not-applicable streaming break as testable assertions
 

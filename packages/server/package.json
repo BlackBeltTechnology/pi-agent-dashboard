@@ -16,7 +16,7 @@
   },
   "piCompatibility": {
     "minimum": "0.78.0",
-    "recommended": "0.83.0",
+    "recommended": "0.84.1",
     "maximum": null
   },
   "main": "src/cli.ts",
@@ -39,7 +39,7 @@
     "@blackbelt-technology/pi-dashboard-document-converter": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-extension": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
-    "@earendil-works/pi-coding-agent": "^0.83.0",
+    "@earendil-works/pi-coding-agent": "^0.84.1",
     "@fastify/compress": "^8.3.1",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.0",
