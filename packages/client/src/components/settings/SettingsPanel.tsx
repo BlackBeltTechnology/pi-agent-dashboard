@@ -47,6 +47,7 @@ import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.j
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -2165,7 +2166,7 @@ function ServersTab() {
     } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => { reload(); }, [reload, loadCount]);
+  useEffect(() => { void reload().catch(logRejection("SettingsPanel.knownServers.reload")); }, [reload, loadCount]);
 
   return (
     <>

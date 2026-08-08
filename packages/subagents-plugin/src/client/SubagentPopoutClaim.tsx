@@ -52,7 +52,14 @@ export function SubagentPopoutClaim({ params, session, onBack }: SubagentPopoutC
     if (!sessionId || subscribedRef.current) return;
     if (connectionStatus !== "connected") return;
     subscribedRef.current = true;
-    send({ type: "subscribe", sessionId, lastSeq: 0 });
+    // Discard with a stated handler — a dropped subscribe leaves the popout
+    // permanently empty, so the reason must be observable.
+    // See change: cleanup-client-plugin-promises.
+    void Promise.resolve(send({ type: "subscribe", sessionId, lastSeq: 0 })).catch(
+      (err: unknown) => {
+        console.error("[subagents-plugin] subagent subscribe failed:", err);
+      },
+    );
   }, [sessionId, send, connectionStatus]);
 
   // `subscriptionResolved` is true once we either know the session is unknown

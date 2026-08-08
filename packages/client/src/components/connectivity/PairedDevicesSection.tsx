@@ -9,6 +9,7 @@ import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { listPairedDevices, type PairedDeviceView, revokePairedDevice } from "../../lib/pairing/paired-devices-api.js";
+import { logRejection } from "../../lib/report-error.js";
 
 function formatLastSeen(iso: string | null): string {
   if (!iso) return i18nT("common.neverSeen", undefined, "never");
@@ -34,7 +35,7 @@ export function PairedDevicesSection() {
     }
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { void reload().catch(logRejection("PairedDevicesSection.reload")); }, [reload]);
 
   const handleRevoke = async (id: string) => {
     if (revoking) return; // guard against double-submit

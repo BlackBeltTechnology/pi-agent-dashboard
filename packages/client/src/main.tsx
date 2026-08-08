@@ -46,6 +46,13 @@ import { LogBlock } from "./components/primitives/LogBlock.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { ModelSelector } from "./components/settings/ModelSelector.js";
 import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
+import { installUnhandledRejectionReporter } from "./lib/report-error.js";
+
+// Global unhandled-rejection reporter — the regression guard for the promise
+// handling cleanup. Installed as the first executable statement so a rejection
+// escaping any startup path is observed rather than silently dropped.
+// See change: cleanup-client-plugin-promises (design D2).
+installUnhandledRejectionReporter();
 
 const primitiveRegistry = createUiPrimitiveRegistry();
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.agentCard, AgentCardShell);

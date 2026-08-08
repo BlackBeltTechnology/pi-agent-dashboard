@@ -34,6 +34,7 @@ import {
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { BranchCombobox } from "./BranchCombobox.js";
 import { PrCombobox } from "./PrCombobox.js";
+import { logRejection } from "../../lib/report-error.js";
 
 // Ternary source toggle (change: worktree-checkout-existing-branch),
 // widening the binary "branch"/"pr" toggle introduced by
@@ -141,7 +142,8 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
   // ── load existing worktrees + head + branches in parallel ─────────────
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const [worktrees, head, branchList] = await Promise.all([
           fetchWorktrees(cwd),
@@ -164,7 +166,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
         if (cancelled) return;
         setLoadError(err?.message ?? "failed to load worktree dialog");
       }
-    })();
+    })().catch(logRejection("WorktreeSpawnDialog.loadGitState"));
     return () => { cancelled = true; };
   }, [cwd]);
 
@@ -400,9 +402,11 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     }
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      probePathExists({ cwd, path: effectivePath, signal: controller.signal }).then((exists) => {
-        setOrphanDetected(exists);
-      });
+      void probePathExists({ cwd, path: effectivePath, signal: controller.signal })
+        .then((exists) => {
+          setOrphanDetected(exists);
+        })
+        .catch(logRejection("WorktreeSpawnDialog.probePathExists"));
     }, 300);
     return () => {
       clearTimeout(timer);

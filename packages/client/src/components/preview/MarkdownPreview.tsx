@@ -7,6 +7,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { readTextUrl } from "./raw-url.js";
 import { dirname } from "./resolve-local-image-src.js";
+import { logRejection } from "../../lib/report-error.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
@@ -22,7 +23,8 @@ export function MarkdownPreview({ target }: Props) {
     let cancelled = false;
     setContent(null);
     setError(null);
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const res = await fetch(readTextUrl(target));
         const body = await res.json();
@@ -35,7 +37,7 @@ export function MarkdownPreview({ target }: Props) {
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to load");
       }
-    })();
+    })().catch(logRejection("MarkdownPreview.load"));
     return () => {
       cancelled = true;
     };

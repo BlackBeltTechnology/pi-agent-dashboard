@@ -83,6 +83,14 @@ plus 1 floating (`main.ts:675`).
 
 Floating graduation accounting: **143 = 88 (this change) + 55 (sibling: server
 17 + extension 37 + electron `main.ts:675`, handed over by D3).**
+
+> **Settled at implementation: 143 = 89 + 54.** Restructuring the `createInner`
+> executor (`tunnel-core.ts:167`) made `createTunnel` able to reject where it
+> previously hung, which turned the sibling's floating `promise.finally()` at
+> `tunnel-core.ts:160` into a live unhandled rejection. It was therefore fixed
+> here rather than left dangling — the same-function coupling this proposal
+> already flagged, landing exactly as predicted. Server floating drops 17 → 16;
+> the sibling's proposal and the gate's ownership table are updated to match.
 Misused: **11 = 5 (this change) + 6 (electron, handed to the sibling by D3).**
 
 **The electron handoff is a hard precondition, not a note.** As of this change's

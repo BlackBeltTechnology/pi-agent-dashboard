@@ -24,16 +24,21 @@ import {
   useSessionData,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
+import { makeSafeSend, type PluginSend } from "./send-safe.js";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
+// Every flow action routes through here, so the discard is stated once at the
+// shared seam rather than at each of the five call sites. A dropped
+// `flow_management` message otherwise leaves the UI showing a run the server
+// never started. See change: cleanup-client-plugin-promises.
 function dispatchFlowAction(
-  send: (msg: unknown) => void,
+  send: PluginSend,
   sessionId: string,
   action: string,
   opts?: { flowName?: string; task?: string; description?: string },
 ): void {
-  send({
+  makeSafeSend(send)({
     type: "flow_management",
     sessionId,
     action,
@@ -59,6 +64,9 @@ interface RouteProps {
 export function FlowsListRoute({ session, onClose }: RouteProps) {
   const SearchableSelectDialog = useUiPrimitive(UI_PRIMITIVE_KEYS.searchableSelectDialog);
   const send = usePluginSend();
+  // Dialog `onSelect` cannot own the send promise — discard it explicitly.
+  // See change: cleanup-client-plugin-promises.
+  const dispatch = makeSafeSend(send);
   const flows = useSessionData<FlowInfo[]>(session.id, "flowsList") ?? [];
   const commands = useSessionData<CommandInfo[]>(session.id, "commandsList") ?? [];
   const [launchTarget, setLaunchTarget] = useState<FlowInfo | null>(null);
@@ -112,17 +120,17 @@ export function FlowsListRoute({ session, onClose }: RouteProps) {
           // Send the user to the /flows:new route via pluginRouter.
           // Until pluginRouter wiring lands, just open the new dialog
           // inline by closing this and dispatching the new command.
-          send({ type: "send_prompt", sessionId: session.id, text: "/flows:new" });
+          dispatch({ type: "send_prompt", sessionId: session.id, text: "/flows:new" });
           onClose();
           return;
         }
         if (value === "__edit__") {
-          send({ type: "send_prompt", sessionId: session.id, text: "/flows:edit" });
+          dispatch({ type: "send_prompt", sessionId: session.id, text: "/flows:edit" });
           onClose();
           return;
         }
         if (value === "__delete__") {
-          send({ type: "send_prompt", sessionId: session.id, text: "/flows:delete" });
+          dispatch({ type: "send_prompt", sessionId: session.id, text: "/flows:delete" });
           onClose();
           return;
         }

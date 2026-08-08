@@ -39,9 +39,16 @@ export function AutomationRunMonitor({
   useEffect(() => {
     let cancelled = false;
     if (!ended || !run?.runId) return;
-    getRunResult("folder", session?.cwd, run.runId).then((r) => {
-      if (!cancelled) setResult(r);
-    });
+    // Discard with a stated handler — a failed result fetch leaves the panel in
+    // its loading state, so the reason must be observable.
+    // See change: cleanup-client-plugin-promises.
+    void getRunResult("folder", session?.cwd, run.runId)
+      .then((r) => {
+        if (!cancelled) setResult(r);
+      })
+      .catch((err: unknown) => {
+        console.error("[automation-plugin] failed to load automation run result:", err);
+      });
     return () => {
       cancelled = true;
     };

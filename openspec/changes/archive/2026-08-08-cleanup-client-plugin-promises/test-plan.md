@@ -46,7 +46,7 @@ baseline.
 | id | requirement | technique | level | disposition | fault | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
 | X1 | Discards state their handling — rejection is reported, not swallowed | fault-injection (abort) | L3 | automated | the network request behind a touched client action is aborted mid-flight | the action is invoked on one of the F1–F4 surfaces | zero `unhandledrejection`; the failure is reported through `reportError` (observable as a console error record); the surface degrades to a visible error/empty state rather than hanging |
-| X2 | Global unhandled-rejection observability — Electron main | fault-injection (abort) | electron | automated | a promise rejected in the Electron main process with no local handler | the main process runs the rejecting path | the `process.on("unhandledRejection", …)` handler fires and the reason reaches the existing `log()` path in `packages/electron/src/main.ts` |
+| X2 | Global unhandled-rejection observability — Electron main | fault-injection (abort) | electron | **manual-only** (downgraded during implementation) | a promise rejected in the Electron main process with no local handler | the main process runs the rejecting path | the `process.on("unhandledRejection", …)` handler fires and the reason reaches the existing `log()` path in `packages/electron/src/main.ts` — **verified by launching a packaged build and reading `pi-dashboard-electron.log`**. Downgraded per task 5.15's own fallback: `ci-electron.yml` is a dispatch-only installer BUILD matrix and never launches the app, so it cannot assert main-process log output. A static wiring guard (`packages/electron/src/__tests__/unhandled-rejection-wiring.test.ts`) keeps the handler from silently disappearing. |
 | X3 | The global handler does not swallow | fault-injection (abort) | L1 | automated | a rejection whose reason is a distinctive `Error` with a known message and stack | the handler processes it | the emitted record contains that message; the reason is not replaced by a generic placeholder and the reporting path is not silently short-circuited |
 | X4 | `reportError()` helper is the client's logging path | fault-injection (abort) | L1 | automated | a rejecting promise handled by a site handler written per D1 | the handler runs | `reportError` is invoked exactly once with the rejection reason, and forwards to the client's console-error path |
 
@@ -57,7 +57,9 @@ baseline.
 - Requirements covered: 4/4 spec requirements (3 ADDED + 1 MODIFIED), plus the 2 implementation invariants (D6 narrowing, `tunnel-core:167` defect)
 - Scenarios by class: edge 6 · perf 1 · frontend 7 · error 4 — **18 total**
 - Scenarios by level: L1 9 · L2 0 · L3 7 · electron 1 · manual-only 1
-- Scenarios by disposition: automated **17** · manual-only **1**
+- Scenarios by disposition (as planned): automated **17** · manual-only **1**
+- Scenarios by disposition (as implemented): automated **16** · manual-only **2** —
+  X2 downgraded to manual-only, see its row.
 
 ## New infra needed
 

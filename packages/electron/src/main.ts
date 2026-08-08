@@ -52,6 +52,22 @@ function log(msg: string): void {
     appendFileSync(_LOG_PATH, line);
   } catch { /* ignore */ }
 }
+// Global unhandled-rejection reporter for the main process — the regression
+// guard for the promise-handling cleanup. Installed before any application
+// work so an escaped rejection reaches `log()` instead of being silent.
+//
+// It reports every reason in full and never replaces it with a placeholder.
+// Note the one real semantic effect of REGISTERING a listener at all: Node's
+// default `--unhandled-rejections=throw` no longer terminates the main
+// process. That is deliberate for a desktop shell — a stray rejection should
+// leave a log line, not kill the user's app mid-session — and it mirrors
+// `packages/server/src/cli.ts`, which already does this for the server process.
+// See change: cleanup-client-plugin-promises (design D2).
+process.on("unhandledRejection", (reason) => {
+  const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+  log(`[unhandledRejection] ${detail}`);
+});
+
 log("=== Electron starting ===");
 log(`platform=${process.platform} arch=${process.arch} pid=${process.pid}`);
 log(`resourcesPath=${(process as any).resourcesPath || "(none)"}`);

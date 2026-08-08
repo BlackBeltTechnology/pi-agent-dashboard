@@ -1,10 +1,23 @@
 ## ADDED Requirements
 
-### Requirement: Folder actions menu is the single home for directory mutations
+### Requirement: Folder actions menu replaces the header action cluster
 
 The folder header SHALL expose exactly one trailing control: a folder actions menu trigger.
-Every directory mutation reachable from the card SHALL be reachable from that menu, and SHALL
-NOT also render as a standalone control elsewhere on the card.
+
+Every directory mutation that renders in the **header row** SHALL be reachable from that menu
+and SHALL NOT also render as a standalone control in the header row.
+
+This requirement is scoped to the header row. Controls that live elsewhere on the card — the
+init and cleanup controls on `FolderActionBar`, and the slot pills' own action buttons — are
+outside its scope and continue to render; consolidating those is the subject of separate
+changes. The menu SHALL be extensible so those controls can join it later without restructuring
+its groups.
+
+**Accepted duplication.** The `AddToWorkspaceMenu` popover already offers its own
+remove-from-workspace entry. After this change the gesture is reachable both from that popover
+and from the folder actions menu's workspace group. Both SHALL continue to work and SHALL have
+identical effect. This is a deliberate trade-off, not an oversight: collapsing it would require
+reworking the popover, which this change does not touch.
 
 Activating the trigger SHALL stop click propagation so it neither navigates to the directory
 home page nor toggles the folder's collapsed state.
@@ -17,6 +30,12 @@ another's.
 - **WHEN** a folder header renders its trailing cluster
 - **THEN** exactly one control SHALL render in the cluster
 - **AND** the urgency-sort, pin, add-to-workspace, remove-from-workspace and directory-settings controls SHALL NOT render as separate cluster buttons
+
+#### Scenario: Controls outside the header row are unaffected
+
+- **WHEN** an expanded folder card renders while `FolderActionBar` holds an Initialize or cleanup control
+- **THEN** those controls SHALL continue to render on their own row
+- **AND** their presence SHALL NOT be treated as a violation of this requirement
 
 #### Scenario: Opening the menu neither navigates nor collapses
 
@@ -85,8 +104,11 @@ its menu is open. Items SHALL expose `role="menuitem"`.
 The menu SHALL support keyboard operation: opening, moving between items, dismissing with
 Escape, and returning focus to the trigger on dismissal.
 
-Below the mobile breakpoint the menu SHALL present as a full-width sheet rather than a
-floating popover, so every item remains reachable and meets the platform touch-target minimum.
+The menu SHALL present as a full-width sheet rather than a floating popover whenever the
+application's existing mobile predicate is true. That predicate is compound — viewport width
+below 768px **or** viewport height below 600px — and SHALL be reused verbatim rather than
+re-derived, so a short-but-wide window also gets the sheet. In the sheet form every item SHALL
+remain reachable and meet the platform touch-target minimum.
 
 The trigger SHALL expose the test id `folder-actions-menu-<cwd>`, and each item SHALL expose a
 test id derived from its stable item id so automation need not depend on labels.
@@ -104,8 +126,21 @@ test id derived from its stable item id so automation need not depend on labels.
 - **THEN** the menu SHALL close
 - **AND** focus SHALL return to the trigger
 
-#### Scenario: Mobile viewport presents a sheet
+#### Scenario: Narrow viewport presents a sheet
 
-- **WHEN** the folder actions menu opens below the mobile breakpoint
+- **GIVEN** a viewport 375px wide and 900px tall
+- **WHEN** the folder actions menu opens
 - **THEN** it SHALL present as a full-width sheet, not a floating popover
 - **AND** every item SHALL be reachable without horizontal scrolling
+
+#### Scenario: Short-but-wide viewport also presents a sheet
+
+- **GIVEN** a viewport 1200px wide and 560px tall, for which the mobile predicate is true on height
+- **WHEN** the folder actions menu opens
+- **THEN** it SHALL present as a full-width sheet
+
+#### Scenario: Desktop viewport presents a popover
+
+- **GIVEN** a viewport 1200px wide and 900px tall
+- **WHEN** the folder actions menu opens
+- **THEN** it SHALL present as a floating popover, not a sheet
