@@ -11,6 +11,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { FallbackPreview } from "./FallbackPreview.js";
 import { rawUrl, sheetUrl } from "./raw-url.js";
 import { TruncationBanner } from "./TruncationBanner.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -43,7 +44,8 @@ export function SpreadsheetPreview({ target }: Props) {
     setError(null);
     setFailed(false);
     setActive(0);
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const res = await fetch(sheetUrl(target));
         const body = await res.json();
@@ -57,7 +59,7 @@ export function SpreadsheetPreview({ target }: Props) {
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to load spreadsheet");
       }
-    })();
+    })().catch(logRejection("SpreadsheetPreview.render"));
     return () => {
       cancelled = true;
     };

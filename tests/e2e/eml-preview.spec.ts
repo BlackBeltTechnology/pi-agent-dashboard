@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
+import { watchRejections } from "./helpers/rejections.js";
 
 // Browser E2E — EML (email) preview in the editor pane.
 //
@@ -139,5 +140,38 @@ test.describe("EML preview in the editor pane", () => {
     expect(attachmentReqs).toBe(0);
     await lazy.getByTestId("eml-attachment-expand").first().click();
     await expect.poll(() => attachmentReqs, { timeout: 20_000 }).toBeGreaterThan(0);
+  });
+
+  // test-plan #F3 — EmlPreview owns 3 of the rewritten promise sites (body
+  // load, inline cid→blob resolution, attachment blob fetch). Each is now an
+  // explicit discard with a stated handler; none may escape as an unhandled
+  // rejection while the preview renders.
+  // See change: cleanup-client-plugin-promises.
+  test("F3: preview loads and its async parse/render paths leak no unhandled rejection", async ({
+    page,
+  }) => {
+    const watcher = await watchRejections(page);
+    await spawnFreshGitSession(page);
+
+    const preview = await openEml(page, "rich.eml");
+    await expect(preview).toBeVisible();
+
+    // The attachment path is REQUIRED, not best-effort: `EmlPreview`'s
+    // attachment blob fetch is one of the three rewritten discard sites, so
+    // skipping it would leave the row asserting nothing about that fix.
+    // `rich.eml` always carries attachments (the X4 test above relies on it).
+    const expand = preview.getByTestId("eml-attachment-expand").first();
+    await expect(expand).toBeVisible({ timeout: 20_000 });
+    await expand.click();
+
+    // Terminal UI state, not a fixed sleep. Two signals, both meaningful:
+    // the toggle flips to "Collapse" (the panel opened), and the "Loading…"
+    // placeholder clears (the attachment blob fetch — the rewritten discard
+    // site — actually settled rather than hanging).
+    await expect(expand).toHaveText(/Collapse/i, { timeout: 20_000 });
+    const attachment = preview.getByTestId("eml-attachment").first();
+    await expect(attachment.getByText(/Loading/i)).toHaveCount(0, { timeout: 20_000 });
+
+    await watcher.assertClean("eml preview");
   });
 });

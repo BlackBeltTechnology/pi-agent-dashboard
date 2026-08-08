@@ -123,12 +123,17 @@ export const PRODUCTION_DEFAULT_PORT = 8000;
  * `--port 8000` from a worktree + faux HOME). Non-8000 ports (test servers use
  * random ones) pass through untouched. See change: guard-temp-home-production-port.
  */
-export function guardTempHomePort(
-  port: number | null,
+// Generic over the input so a non-null `port` stays non-null for the caller:
+// every return path yields either the input itself or the ephemeral `0`, so
+// `T | 0` is exact. A flat `number | null` return widened `buildConfig`'s
+// already-resolved port and broke `ServerConfig.port: number`.
+// See change: cleanup-client-plugin-promises (unblocking a develop type error).
+export function guardTempHomePort<T extends number | null>(
+  port: T,
   homeDir: string,
   tmpDir: string,
   warn: (msg: string) => void = console.warn,
-): number | null {
+): T | 0 {
   if (port !== PRODUCTION_DEFAULT_PORT) return port;
   const home = path.resolve(homeDir);
   const tmp = path.resolve(tmpDir);

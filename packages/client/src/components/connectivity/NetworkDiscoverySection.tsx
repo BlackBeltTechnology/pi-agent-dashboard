@@ -23,6 +23,7 @@ import React, { useCallback, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { addKnownServer, discoverServers } from "../../lib/api/known-servers-api.js";
 import { parseHostInput } from "../../lib/util/parse-host-input.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface Props {
   knownServers: KnownServer[];
@@ -165,7 +166,7 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
                 placeholder={i18nT("common.192168162028000Or", undefined, "192.168.16.202:8000  or  http://host:8000")}
                 value={manualInput}
                 onChange={(e) => setManualInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleManualAdd(); }}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleManualAdd().catch(logRejection("NetworkDiscoverySection.handleManualAdd")); }}
                 className="flex-1 bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
               />
               <input
@@ -173,7 +174,7 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
                 placeholder={i18nT("common.labelOptional", undefined, "Label (optional)")}
                 value={manualLabel}
                 onChange={(e) => setManualLabel(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleManualAdd(); }}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleManualAdd().catch(logRejection("NetworkDiscoverySection.handleManualAdd")); }}
                 className="w-32 bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
               />
               <button
@@ -229,7 +230,7 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
                   className="w-28 bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-1.5 py-0.5 text-xs text-[var(--text-primary)]"
                   autoFocus
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") handleConfirmAdd(server);
+                    if (e.key === "Enter") void handleConfirmAdd(server).catch(logRejection("NetworkDiscoverySection.handleConfirmAdd"));
                     if (e.key === "Escape") handleCancelAdd();
                   }}
                 />

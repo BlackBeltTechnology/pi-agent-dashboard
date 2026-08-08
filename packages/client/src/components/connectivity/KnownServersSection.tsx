@@ -9,6 +9,7 @@ import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { addKnownServer, listKnownServers, removeKnownServer } from "../../lib/api/known-servers-api.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface KnownServersSectionProps {
   onChange?: () => void;
@@ -34,7 +35,7 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
     }
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { void reload().catch(logRejection("KnownServersSection.reload")); }, [reload]);
 
   const handleAdd = async () => {
     const host = addHost.trim();
@@ -132,7 +133,7 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
             value={addLabel}
             onChange={(e) => setAddLabel(e.target.value)}
             className="w-full bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+            onKeyDown={(e) => { if (e.key === "Enter") void handleAdd().catch(logRejection("KnownServersSection.handleAdd")); }}
           />
           {error && <div className="text-xs text-red-400">{error}</div>}
           <div className="flex gap-2 justify-end">

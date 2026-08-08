@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchBranches } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { BranchListbox, useBranchListboxKeyboard } from "./BranchListbox.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface Props {
   cwd: string;
@@ -47,7 +48,7 @@ export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 
     }
   }, [cwd, onNotGitRepo]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load().catch(logRejection("BranchPicker.load")); }, [load]);
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   const { handleKey } = useBranchListboxKeyboard({

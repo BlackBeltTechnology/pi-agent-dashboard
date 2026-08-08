@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LINK_BG, LINK_BG_HOVER, LINK_BORDER, LINK_FG } from "../components/packages/plugin-row-parts.js";
 import { getApiBase } from "../lib/api/api-context.js";
 import { t as i18nT } from "../lib/i18n/i18n.js";
+import { logRejection } from "../lib/report-error.js";
 import {
   listPlugins,
   type PluginRow,
@@ -97,7 +98,8 @@ export function usePluginList(): PluginList {
   // the toggle route writes.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const res = await fetch(`${getApiBase()}/api/config`);
         if (!res.ok) return;
@@ -116,7 +118,7 @@ export function usePluginList(): PluginList {
       } catch {
         /* network failure — fall back to the reported runtime state */
       }
-    })();
+    })().catch(logRejection("usePluginToggle.loadConfig"));
     return () => {
       cancelled = true;
     };

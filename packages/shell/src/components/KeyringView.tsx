@@ -12,7 +12,12 @@ export function KeyringView({ refreshKey }: { refreshKey?: number }) {
   }, []);
 
   useEffect(() => {
-    reload();
+    // Discard with a stated handler — a failed reload leaves an empty server
+    // list that looks like "no servers" rather than a failure.
+    // See change: cleanup-client-plugin-promises.
+    void reload().catch((err: unknown) => {
+      console.error("[shell] failed to load keyring servers:", err);
+    });
   }, [reload, refreshKey]);
 
   const connect = useCallback(async (entry: KeyringEntry) => {

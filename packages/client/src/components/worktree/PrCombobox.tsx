@@ -12,6 +12,7 @@ import type React from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { type FetchPrResult, fetchPullRequests } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface Props {
   cwd: string;
@@ -56,7 +57,9 @@ export function PrCombobox({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchPullRequests(cwd).then((result: FetchPrResult) => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void fetchPullRequests(cwd)
+      .then((result: FetchPrResult) => {
       if (cancelled) return;
       setLoading(false);
       setFetched(true);
@@ -68,7 +71,8 @@ export function PrCombobox({
         }
         setError(result.error);
       }
-    });
+      })
+      .catch(logRejection("PrCombobox.fetchPullRequests"));
     return () => { cancelled = true; };
   }, [open, fetched, cwd, onGhUnavailable]);
 

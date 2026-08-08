@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { approvePairing, getPairPayload, type PairingPayload } from "../../lib/pairing/pairing-api.js";
+import { logRejection } from "../../lib/report-error.js";
 
 /** Encode the payload JSON as a base64url copy-string (device accepts both). */
 function encodePayloadString(payload: PairingPayload): string {
@@ -71,7 +72,7 @@ export function PairingView() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load().catch(logRejection("PairingView.load"));
   }, [load]);
 
   // Render the QR from the copy-string (see QrCodeDialog.tsx for the jsdom note).
@@ -269,7 +270,7 @@ export function PairingView() {
                 value={confirmCode}
                 onChange={(e) => setConfirmCode(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleApprove();
+                  if (e.key === "Enter") void handleApprove().catch(logRejection("PairingView.handleApprove"));
                 }}
               />
               <button
