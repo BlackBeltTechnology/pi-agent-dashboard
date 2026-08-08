@@ -107,6 +107,11 @@ describe("pi pin block \u2014 0.84.1", () => {
     const target = fs.existsSync(resolvedPkg) ? resolvedPkg : hoistedPkg;
     const resolved = JSON.parse(fs.readFileSync(target, "utf-8")).version as string;
 
+    // `parseVersion` DISCARDS a prerelease suffix, so `0.84.1-rc.0` would
+    // otherwise satisfy the numeric comparison below while actually sitting
+    // BELOW stable `0.84.1` and outside `^0.84.1`. Reject it up front.
+    expect(resolved, `resolved ${resolved} must not be a prerelease`).not.toMatch(/[-+]/);
+
     const [major, minor, patch] = parseVersion(resolved) ?? [];
     const [dMajor, dMinor, dPatch] = parseVersion(declared.replace(/^[\^~]/, "")) ?? [];
     expect(major, `resolved ${resolved} vs declared ${declared}`).toBe(dMajor);

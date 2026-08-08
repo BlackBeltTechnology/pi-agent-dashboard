@@ -57,8 +57,20 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
 
     # The running pi must satisfy the declared compatibility floor, and the
     # health probe must not report a blocking skew error.
-    COMPAT_ERROR=$(curl -s http://localhost:8000/api/health 2>/dev/null \
-      | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const c=JSON.parse(s).compatibility;process.stdout.write(c&&c.error?c.error:'')}catch{process.stdout.write('')}})" 2>/dev/null || echo "")
+    #
+    # `curl -fsS` (not `-s`): a transport failure or non-2xx must FAIL the test
+    # rather than feed an empty body to the parser, which would print nothing
+    # and be misread as "no compatibility error".
+    if ! HEALTH_JSON=$(curl -fsS http://localhost:8000/api/health 2>/dev/null); then
+      echo "FAIL: could not fetch /api/health for the compatibility check"
+      exit 1
+    fi
+    # The parser exits non-zero on unparseable JSON, so a malformed body fails
+    # loudly instead of silently reporting success.
+    if ! COMPAT_ERROR=$(printf '%s' "$HEALTH_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}const c=j.compatibility;process.stdout.write(c&&c.error?c.error:'')})"); then
+      echo "FAIL: /api/health returned a body that is not valid JSON"
+      exit 1
+    fi
     if [ -n "$COMPAT_ERROR" ]; then
       echo "FAIL: /api/health reports a blocking pi compatibility error: $COMPAT_ERROR"
       exit 1

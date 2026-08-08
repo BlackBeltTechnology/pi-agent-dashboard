@@ -12,9 +12,6 @@
  * See change: update-pi-core-0-84-adopt-apis (test-plan #X7, #X8, #X9), design D3a.
  */
 import { describe, expect, it, vi } from "vitest";
-import fs from "node:fs";
-import { createRequire } from "node:module";
-import path from "node:path";
 
 const model = { provider: "anthropic", id: "claude" };
 
@@ -54,20 +51,20 @@ function stubSdk(opts: { deltas?: string[]; promptRejects?: boolean } = {}) {
 }
 
 describe("runForkSubagentDraft — 0.84.x session-model audit", () => {
-  it("X8: the pinned pi still exports the SDK session surface this path calls", () => {
+  it("X8: the pinned pi still exports the SDK session surface this path calls", async () => {
     // If pi ever collapses createAgentSession / SessionManager.inMemory into
     // the v4 lane API, this fails immediately and forces D3a to be revisited.
-    const require_ = createRequire(import.meta.url);
-    const repoRoot = path.resolve(__dirname, "../../../..");
-    // Resolve nested-then-hoisted: a workspace override may unify pi at the
-    // root, in which case no nested copy exists.
-    const candidates = [
-      path.join(repoRoot, "packages/server/node_modules/@earendil-works/pi-coding-agent/dist/index.js"),
-      path.join(repoRoot, "node_modules/@earendil-works/pi-coding-agent/dist/index.js"),
-    ];
-    const entry = candidates.find((p) => fs.existsSync(p));
-    expect(entry, "pi SDK entrypoint must be resolvable").toBeTruthy();
-    const sdk = require_(entry!);
+    //
+    // Resolved across the SAME boundary the code under test uses:
+    // `runForkSubagentDraft` does `await import("@earendil-works/pi-coding-agent")`
+    // from `packages/extension`, and this spec sits inside that package, so the
+    // specifier resolves identically. Auditing a server-local copy by path
+    // could pass here while the extension loaded a different, incompatible one.
+    // `importActual` bypasses the doMock the sibling tests install.
+    const sdk = await vi.importActual<{
+      createAgentSession: unknown;
+      SessionManager: { inMemory: unknown };
+    }>("@earendil-works/pi-coding-agent");
 
     expect(typeof sdk.createAgentSession).toBe("function");
     expect(typeof sdk.SessionManager).toBe("function");

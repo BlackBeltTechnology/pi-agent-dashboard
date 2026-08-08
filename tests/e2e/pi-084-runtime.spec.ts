@@ -105,28 +105,37 @@ test.describe("pi 0.84.1 runtime (L3)", () => {
     expect(body.mode === "dev" || body.mode === "production").toBe(true);
   });
 
-  test("X12: exactly ONE pi version is resolvable, so the probe cannot report a ghost", async ({
+  test("X12: the version probe agrees with the governed pin (no ghost version)", async ({
     request,
   }) => {
     // Regression guard for the bug this harness caught: several workspaces
     // declare a broad `>=0.80.10` pi range while the server pins `^0.84.1`.
     // Under `nodeLinker: hoisted` that resolved TWO copies, and the probe read
     // the HOISTED one -- so health advertised a pi the dashboard was not
-    // running and raised a spurious upgrade hint. A workspace override pins
-    // resolution to one version; this asserts the observable consequence.
+    // running and raised a spurious upgrade hint.
+    //
+    // SCOPE: this asserts probe/pin AGREEMENT, which is the user-visible
+    // symptom. It does NOT prove the tree holds a single copy -- a
+    // multi-copy tree still passes whenever the probe happens to select
+    // 0.84.1. The single-copy invariant itself is enforced upstream by the
+    // `overrides` entry in `pnpm-workspace.yaml` (design D8).
     const compat = (await health(request)).compatibility;
     expect(compat?.current).toBe(PINNED_PI);
     expect(compat?.recommended).toBe(PINNED_PI);
     expect(compat?.upgradeRecommended, "probe and pin must agree").toBeFalsy();
   });
 
-  test("F4: the TUI-only 0.84 features stay absent from the web client", async ({
+  test("F4: pi's fullscreen-TUI mode exposes no control in the web client", async ({
     page,
     request,
   }) => {
-    // Fullscreen TUI mode and terminal Mermaid/LaTeX are recorded as no-ops:
-    // the web client renders math/diagrams via its own components and exposes
-    // no fullscreen-TUI control. See change spec: pi-api-feature-detection.
+    // Fullscreen TUI mode and terminal Mermaid/LaTeX are recorded as no-ops.
+    //
+    // SCOPE: this asserts only the ABSENCE half -- that running a pi which
+    // supports fullscreen TUI adds no dashboard control. The presence half
+    // (KaTeX + Mermaid still rendering) is pre-existing behaviour already
+    // gated by the `chat-math-rendering` and `mermaid-diagram` suites; it is
+    // deliberately not re-asserted here, since this change does not touch it.
     const body = await health(request);
     expect(body.compatibility?.current).toBe(PINNED_PI);
 
@@ -134,7 +143,6 @@ test.describe("pi 0.84.1 runtime (L3)", () => {
     await page.waitForLoadState("domcontentloaded");
 
     // No control for pi's fullscreen TUI mode leaked into the dashboard UI.
-    const fullscreenTui = page.getByText(/fullscreen tui/i);
-    await expect(fullscreenTui).toHaveCount(0);
+    await expect(page.getByText(/fullscreen tui/i)).toHaveCount(0);
   });
 });

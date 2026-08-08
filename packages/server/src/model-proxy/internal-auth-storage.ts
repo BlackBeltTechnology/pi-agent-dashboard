@@ -152,15 +152,29 @@ export class InternalAuthStorage {
       expiresAt: cred.expires,
     };
 
+    // Aborting only NOTIFIES the provider — it does not settle the promise we
+    // await. A provider that ignores its signal would hang this call forever
+    // and hold `refreshLocks` for its provider indefinitely, so the deadline is
+    // enforced HERE by racing rather than trusting the provider to honour it.
+    const deadline = new Promise<never>((_resolve, reject) => {
+      controller.signal.addEventListener(
+        "abort",
+        () => reject(new Error(`OAuth refresh for "${provider}" aborted before completing`)),
+        { once: true },
+      );
+    });
+
     try {
       // Try provider-specific refresh via getOAuthProvider
       const oauthProvider = this.oauthModule.getOAuthProvider(oauthId);
-      if (oauthProvider?.refreshToken) {
-        refreshed = await oauthProvider.refreshToken(credentials, controller.signal);
-      } else {
-        // Fall back to generic refreshOAuthToken
-        refreshed = await this.oauthModule.refreshOAuthToken(oauthId, credentials, controller.signal);
-      }
+      const pending = oauthProvider?.refreshToken
+        ? oauthProvider.refreshToken(credentials, controller.signal)
+        : // Fall back to generic refreshOAuthToken
+          this.oauthModule.refreshOAuthToken(oauthId, credentials, controller.signal);
+      // A rejection from `pending` after the deadline already won the race is
+      // swallowed here rather than surfacing as an unhandled rejection.
+      void Promise.resolve(pending).catch(() => {});
+      refreshed = await Promise.race([pending, deadline]);
     } finally {
       clearTimeout(timer);
     }

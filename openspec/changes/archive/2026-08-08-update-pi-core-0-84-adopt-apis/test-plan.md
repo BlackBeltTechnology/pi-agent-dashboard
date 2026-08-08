@@ -34,10 +34,10 @@ verification-only row (V1) by explicit decision — no product behavior asserted
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
-| F1 | pi-core-version-check · health surfaces compatibility | state-transition | L3 | automated | dashboard on pi 0.84.1 | `GET /api/health` | converges to `piVersion == 0.84.1` and `compatibility` with no `error` and no `upgradeRecommended` |
+| F1 | pi-core-version-check · health surfaces compatibility | state-transition | L3 | automated | dashboard on pi 0.84.1 | `GET /api/health` | `compatibility.current` converges to `0.84.1` with `recommended` `0.84.1`, `minimum` `0.78.0`, no `error`, no `upgradeRecommended`. (`piVersion` is a separate bridge-pushed field, undefined until a session connects — not the signal.) |
 | F2 | pi-api-feature-detection · streaming unaffected by the bump | state-convergence | L3 | automated (existing suite) | a live session on pi 0.84.1 | run `chat-render-fx.spec.ts` + `chat-transcript-virtualization.spec.ts` against the 0.84.1 harness | 120-turn streaming transcript converges with tail mounted and bottom pinned — no truncation, no duplication (13 passed) |
 | F3 | pi-api-feature-detection · replay equivalence across the bump | state-convergence | L3 | automated (existing suite) | session with a finished multi-tool turn on pi 0.84.1 | `chat-transcript-virtualization.spec.ts` switch-away-and-back + `enhance-tool-call-grouping.spec.ts` faux burst, against the 0.84.1 harness | anchored row restored and tool-burst rows re-render in order (13 + 3 passed) |
-| F4 | pi-api-feature-detection · TUI no-ops absent from the web client | decision-table | L3 | automated | dashboard settings on pi 0.84.1 | open Settings | no fullscreen-TUI control is rendered; KaTeX + Mermaid still render in the transcript |
+| F4 | pi-api-feature-detection · TUI no-ops absent from the web client | decision-table | L3 | automated | dashboard on pi 0.84.1 | load the dashboard | no fullscreen-TUI control is rendered anywhere in the UI. KaTeX/Mermaid rendering is NOT re-asserted here — it is pre-existing behaviour already gated by `chat-math-rendering` + `mermaid-diagram` unit/component suites. |
 
 ### Error-handling
 

@@ -19,8 +19,8 @@ This distinction was not obvious: the CHANGELOG describes the change without nam
 
 **Goals:**
 - Land pi 0.84.1 as the pinned/recommended runtime with a coherent dependency tree.
-- Resolve the four upstream breaks that reach dashboard code: null-bearing provider headers, `refresh()` options/results, OAuth abort signal, v4 harness session model.
-- Adopt `AGENTS.override.md` and `samplingParams` behind runtime feature-detection.
+- Resolve the upstream breaks that reach dashboard code: null-bearing provider headers, `refresh()` options/results, OAuth abort signal. (The v4 harness session model was a fourth candidate; verification showed it misses our SDK surface — D3a.)
+- Adopt `AGENTS.override.md` (kb tooling — D7a) and `samplingParams` (three whitelisting layers — D7b). Neither needs a feature-detection branch: an older pi never loads an override file, and `samplingParams` is omitted when absent.
 - Leave durable, checkable evidence for every break judged not-applicable, so a future reader can distinguish "audited" from "not checked".
 
 **Non-Goals:**
@@ -53,7 +53,7 @@ This distinction was not obvious: the CHANGELOG describes the change without nam
 
 **D7 — Target 0.84.1, not 0.84.0.** 0.84.1 carries no breaking changes over 0.84.0, so every audit in this change holds for both; landing on 0.84.0 would pin an already-superseded version and force a second bump. Verified against the published tarball: `MessageUpdateEvent` in `dist/core/extensions/types.d.ts` still declares `message: AgentMessage` at 0.84.1, and the bundled TypeBox is still `1.3.7`.
 
-**D8 — `terminate` on blocked `tool_call` has no consumer; record, do not adopt.** `ToolCallEventResult.terminate?: boolean` (`types.d.ts:786`) only takes effect for a handler that returns `block`. The bridge lists `tool_call` in `passThroughEventTypes` (`bridge.ts:1470`) and never blocks, so the field is unreachable from the dashboard. Recorded as audited-not-applicable under D5. *Alternative rejected:* wire a blocking handler to use it — that invents a tool-approval feature this change does not own.
+**D5a — `terminate` on blocked `tool_call` has no consumer; record, do not adopt.** `ToolCallEventResult.terminate?: boolean` (`types.d.ts:786`) only takes effect for a handler that returns `block`. The bridge lists `tool_call` in `passThroughEventTypes` (`bridge.ts:1470`) and never blocks, so the field is unreachable from the dashboard. Recorded as audited-not-applicable under D5. *Alternative rejected:* wire a blocking handler to use it — that invents a tool-approval feature this change does not own.
 
 **D7a — Adopt `AGENTS.override.md` in the kb tooling, not in a new context resolver.** The tasks assumed the dashboard resolves directory context and scans context resources. It does neither: pi's `resource-loader.js` owns injection (override listed first, first-match-wins), and `pi-resource-scanner.ts` classifies skills/agents, never `AGENTS.md`. The dashboard's real "which files are context files" logic is the kb tooling — `dox.ts` `agentsChain`, `indexer.ts` `docTypeOf`, and `kb-extension`'s `AGENTS_NAMES` — none of which knew the override, so a repo using one would have it missed by kb indexing and dox. The adoption lands there. Shadowing is scoped to the overridden directory only; ancestor inheritance is untouched. *Alternative rejected:* extend `pi-resource-scanner.ts` — it would mean inventing a context-resource surface this change does not own.
 

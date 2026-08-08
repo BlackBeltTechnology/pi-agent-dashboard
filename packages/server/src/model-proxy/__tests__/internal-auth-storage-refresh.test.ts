@@ -117,6 +117,22 @@ describe("InternalAuthStorage — OAuth refresh abort signal (pi 0.84.x)", () =>
     expect(writeCredential).not.toHaveBeenCalled();
   });
 
+  it("X5: a provider that IGNORES its signal still hits the deadline and frees the lock", async () => {
+    // abort() only notifies the provider; it does not settle the promise we
+    // await. A provider that never settles would otherwise hang this call
+    // forever and hold the per-provider refresh lock with it.
+    const refreshToken = vi.fn(() => new Promise(() => {})); // never settles, ignores the signal
+    const storage = storageWith({ getOAuthProvider: () => ({ refreshToken } as never) }, 10);
+
+    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/aborted before completing/);
+    expect(writeCredential).not.toHaveBeenCalled();
+
+    // The lock must be released: a SECOND attempt has to reach the provider
+    // again rather than await the first, dead promise forever.
+    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/aborted before completing/);
+    expect(refreshToken).toHaveBeenCalledTimes(2);
+  });
+
   it("X6: a failed refresh leaves the previously stored credential intact", async () => {
     const refreshToken = vi.fn(async () => {
       throw new Error("provider rejected the refresh");
