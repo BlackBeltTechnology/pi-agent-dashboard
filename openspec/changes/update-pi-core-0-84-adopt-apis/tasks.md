@@ -6,14 +6,19 @@
 
 ## 2. Move the governed pins together
 
+> Tasks 2.4 and 2.8 were DROPPED during implementation: they targeted
+> `packages/electron/resources/bundled-extensions/*/package.json`, a path that
+> does not exist and never has (removed under `eliminate-electron-runtime-install`
+> task 5.7; see `forge.config.ts:109`). Rationale: design.md D2a. Test-plan row
+> E2 is dropped with them. Numbering is left intact so the remaining task
+> numbers keep matching the test-plan references.
+
 - [ ] 2.1 Bump `packages/server/package.json` dependency `@earendil-works/pi-coding-agent` to `^0.84.1` and `piCompatibility.recommended` to `0.84.1`. Leave `minimum` at `0.78.0` and `maximum` at `null`.
 - [ ] 2.2 Bump the `docker/Dockerfile` global install to `@earendil-works/pi-coding-agent@0.84.1`.
 - [ ] 2.3 Bump `scripts/verify-release-deps.mjs` pi rule `minVersion` to `0.84.1` and update its evidence note to reference this change.
-- [ ] 2.4 Confirm the bundled-extension peer-deps in `packages/electron/resources/bundled-extensions/*/package.json` stay unchanged (`>=0.75.0` / `^0.75.0`) because `minimum` did not move.
 - [ ] 2.5 Run `pnpm install` again to resolve the 0.84.1 tree.
 - [ ] 2.6 Rename/retarget `packages/server/src/__tests__/pi-version-skew-recommended-0-83.test.ts` to `pi-version-skew-recommended-0-84.test.ts` for the 0.84.1 recommended version.
 - [ ] 2.7 Add an L1 test for the pin block — input: `packages/server/package.json`; trigger: read `piCompatibility`; observable: `recommended === "0.84.1"`, `minimum === "0.78.0"`, `maximum === null`, dependency pin `^0.84.1` (test-plan #E1). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
-- [ ] 2.8 Add an L1 test that the floor did not rise — input: bundled-extension package.json files; trigger: read peer-deps after the bump; observable: `pi-anthropic-messages` stays `>=0.75.0` and `pi-flows` stays `^0.75.0` (test-plan #E2). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
 - [ ] 2.9 Add an L1 test for pin coherence — input: server dep, `piCompatibility.recommended`, `docker/Dockerfile`, `verify-release-deps.mjs` `minVersion`; trigger: run `node scripts/verify-release-deps.mjs`; observable: exit 0 and all four report `0.84.1` (test-plan #E3). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
 - [ ] 2.10 Add an L1 test that divergence is caught — input: dep `^0.84.1` with `minVersion` left at `0.84.0`; trigger: run `verify-release-deps.mjs`; observable: non-zero exit naming the pi pin-coherence rule (test-plan #E4). See `packages/server/src/__tests__/pi-version-skew.test.ts`.
 - [ ] 2.11 Add an L1 BVA test for the upgrade-hint boundary — input: running pi `0.84.0` / `0.84.1`; trigger: compute compatibility; observable: `0.84.0` → `upgradeRecommended: true` with no `error`; `0.84.1` → `upgradeRecommended: false` (test-plan #E5). See `packages/server/src/__tests__/health-compatibility.test.ts`.

@@ -33,7 +33,11 @@ This distinction was not obvious: the CHANGELOG describes the change without nam
 
 **D1 — Repair the tree before touching pins.** Sequencing matters: bumping pins on a drifted tree means the first `pnpm install` resolves two changes at once and a failure cannot be attributed. Repair to a coherent 0.83.0 baseline, confirm green, then bump. *Alternative rejected:* bump and install once — faster, but conflates a pre-existing bug with the upgrade.
 
-**D2 — Keep `piCompatibility.minimum` at `0.78.0`; move only `recommended`.** The `pi-core-version-check` spec states `minimum` is an independent broad-support floor that SHALL NOT be raised merely because the pinned runtime moved. No 0.84.1 break reaches a surface the dashboard consumes, so nothing forces the floor up. This also keeps the bundled-extension peer-deps (`>=0.75.0` / `^0.75.0`) frozen — the same spec ties them to `minimum`. *Alternative rejected:* lockstep `minimum == recommended == 0.84.1`, which would drop 0.78–0.83 users and require rewriting a `SHALL NOT` for no functional gain.
+**D2 — Keep `piCompatibility.minimum` at `0.78.0`; move only `recommended`.** The `pi-core-version-check` spec states `minimum` is an independent broad-support floor that SHALL NOT be raised merely because the pinned runtime moved. No 0.84.1 break reaches a surface the dashboard consumes, so nothing forces the floor up. *Alternative rejected:* lockstep `minimum == recommended == 0.84.1`, which would drop 0.78–0.83 users and require rewriting a `SHALL NOT` for no functional gain.
+
+**D2a — The bundled-extensions floor anchor is a phantom; drop it rather than test it.** D2 originally rested on "the bundled-extension peer-deps (`>=0.75.0` / `^0.75.0`) stay frozen — the same spec ties them to `minimum`". Implementation disproved this: `packages/electron/resources/bundled-extensions/` does not exist and never has (`git log --all` on the path is empty), it is `.gitignore`d as a build artifact, and `forge.config.ts:109` records that change `eliminate-electron-runtime-install` (task 5.7) removed it — the same change that removed the offline cache. The main spec's floor-anchor clause is stale text that survived an archive sync. Task 2.4 (confirm the peer-deps) and its test (E2) were therefore unsatisfiable: no path, no such values anywhere in the repo. Both are dropped and the delta spec corrects the clause, which repairs the main spec on archive. *Alternative rejected:* author E2 anyway with a skip-if-absent guard — a vacuous test that reports green while asserting nothing.
+
+**Known follow-up, deliberately out of scope:** the real workspace extension peer-deps are `>=0.80.10`, ABOVE `piCompatibility.minimum` (`0.78.0`). Under the old clause that would have been a floor violation. It is pre-existing on `develop`, unrelated to the 0.84.1 bump, and reconciling it (raise the floor, or declare the surfaces independent) belongs to its own change.
 
 **D3 — Feature-detect the v4 session API by constructor shape, not version string.** `pi-api-feature-detection` forbids version-string gating. The commit-draft runner detects whichever harness constructor the running pi exposes and keeps the pre-0.84 `SessionManager.inMemory` path alive for floor pi. *Alternative rejected:* migrate outright to v4 — simpler code, but breaks every session below 0.84 while `minimum` is 0.78.
 
@@ -67,6 +71,7 @@ This distinction was not obvious: the CHANGELOG describes the change without nam
 
 ## Open Questions
 
+- ~~Is the bundled-extensions peer-dep floor anchor real?~~ **Resolved: no** — the path never existed; see D2a. Tasks 2.4 / 2.8 and test-plan E2 are dropped.
 - ~~Does pi 0.84.1 bundle a TypeBox newer than `1.3.7`?~~ **Resolved: no.** The published 0.84.1 `package.json` and `npm-shrinkwrap.json` both pin `typebox: 1.3.7`; the extension devDependency `^1.3.7` is correct as-is.
 - Do Baseten or Qwen Token Plan Individual require dashboard provider-auth wiring, or does the generic API-key path already cover them?
 - Should the doctor skill's auth diagnostics call `pi auth check` instead of inferring credential state, and what is the floor-pi fallback when the subcommand is absent?

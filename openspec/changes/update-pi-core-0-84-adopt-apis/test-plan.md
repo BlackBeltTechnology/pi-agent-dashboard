@@ -14,7 +14,6 @@ verification-only row (V1) by explicit decision — no product behavior asserted
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
 | E1 | pi-core-version-check · recommended tracks upstream | decision-table | L1 | automated | `packages/server/package.json` | read `piCompatibility` | `recommended === "0.84.1"` AND `minimum === "0.78.0"` AND `maximum === null` AND dependency pin `^0.84.1` |
-| E2 | pi-core-version-check · floor not raised by pin bump | decision-table | L1 | automated | bundled-extension package.json files | read peer-deps after bump | `pi-anthropic-messages` stays `>=0.75.0` AND `pi-flows` stays `^0.75.0` |
 | E3 | pi-core-version-check · pin coherence | decision-table | L1 | automated | server dep, `piCompatibility.recommended`, `docker/Dockerfile`, `verify-release-deps.mjs` `minVersion` | run `node scripts/verify-release-deps.mjs` | exit 0; all four report `0.84.1` |
 | E4 | pi-core-version-check · pin divergence is caught | decision-table | L1 | automated | dep pinned `^0.84.1`, `minVersion` left `0.84.0` | run `verify-release-deps.mjs` | non-zero exit naming the pi pin-coherence rule |
 | E5 | pi-core-version-check · upgrade hint boundary (BVA) | BVA | L1 | automated | running pi `0.84.0` / `0.84.1` | compute compatibility | `0.84.0` → `upgradeRecommended: true`, no `error`; `0.84.1` → `upgradeRecommended: false` |
@@ -71,10 +70,14 @@ verification-only row (V1) by explicit decision — no product behavior asserted
 
 ## Coverage summary
 
-- Requirements covered: 13/13 (7 spec deltas, all requirements)
-- Scenarios by class: edge 16 · perf 0 · frontend 4 · error 13 · verification 1
-- Scenarios by level: L1 25 · L2 2 · L3 5 · — 1
-- Scenarios by disposition: automated 33 · manual-only 1
+- Requirements covered: 14/14 (7 spec deltas, all requirements)
+- Scenarios by class: edge 16 · perf 0 · frontend 4 · error 13 · verification 4
+- Scenarios by level: L1 26 · L2 2 · L3 5 · — 4
+- Scenarios by disposition: automated 33 · manual-only 4
+
+Row E2 (bundled-extension peer-deps) was DROPPED during implementation — it
+targeted a path that does not exist. See design.md D2a. Its id is retired, not
+reused, so the remaining ids keep matching their task references.
 
 No performance scenarios: this change introduces no latency, throughput, or
 memory requirement. Inventing a threshold would violate the skill's
