@@ -63,6 +63,13 @@ export interface ModelMetadata {
    */
   thinkingLevelMap?: Record<string, unknown>;
   compat?: Record<string, unknown>;
+  /**
+   * Arbitrary OpenAI-compatible sampling parameters (pi 0.84.0), incl. opt-in
+   * vLLM `thinking_token_budget`. Opaque passthrough: pi owns validation, and
+   * a pre-0.84 pi ignores the field. Omitted entirely when the native entry
+   * declares none. See change: update-pi-core-0-84-adopt-apis.
+   */
+  samplingParams?: Record<string, unknown>;
 }
 
 /**
@@ -224,7 +231,7 @@ function loadNativeModels(): NativeModelEntry[] {
 }
 
 /** Turn a native `models.json` entry into `ModelMetadata`, filling gaps with api-typed floors. */
-function metadataFromNative(native: NativeModelEntry, api?: string): ModelMetadata {
+export function metadataFromNative(native: NativeModelEntry, api?: string): ModelMetadata {
   const resolvedApi = api && api in FALLBACK_DEFAULTS ? api : "openai-completions";
   const fb = FALLBACK_DEFAULTS[resolvedApi] ?? FALLBACK_DEFAULTS["openai-completions"];
   return {
@@ -243,6 +250,10 @@ function metadataFromNative(native: NativeModelEntry, api?: string): ModelMetada
     metadataSource: "catalog",
     ...(native.thinkingLevelMap ? { thinkingLevelMap: native.thinkingLevelMap } : {}),
     ...(native.compat ? { compat: native.compat } : {}),
+    // pi 0.84.0 advanced custom-model sampling. Omitted when absent, so a
+    // floor-pi session sees exactly the pre-0.84 metadata shape.
+    // See change: update-pi-core-0-84-adopt-apis.
+    ...(native.samplingParams ? { samplingParams: native.samplingParams } : {}),
   };
 }
 

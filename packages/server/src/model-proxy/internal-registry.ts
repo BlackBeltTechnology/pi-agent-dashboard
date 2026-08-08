@@ -43,6 +43,8 @@ export interface CustomModelEntry {
   thinkingLevelMap?: Record<string, unknown>;
   /** Opaque runtime request-formatting hints. Carried for proxy routing; NEVER emitted over /api/models. See change: honor-native-models-json-metadata. */
   compat?: Record<string, unknown>;
+  /** Arbitrary OpenAI-compatible sampling params (pi 0.84.0). Opaque passthrough. See change: update-pi-core-0-84-adopt-apis. */
+  samplingParams?: Record<string, unknown>;
   cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   input?: string[];
   headers?: Record<string, string>;
@@ -233,6 +235,9 @@ export class InternalRegistry {
         oauthCompatible: routing ? (routing.oauthCompatible ?? true) : (caps?.oauthCompatible ?? true),
         ...(caps?.thinkingLevelMap ? { thinkingLevelMap: caps.thinkingLevelMap } : {}),
         ...(caps?.compat ? { compat: caps.compat } : {}),
+        // pi 0.84.0 advanced custom-model sampling. Omitted when absent, so an
+        // older pi sees exactly the pre-0.84 model shape.
+        ...(caps?.samplingParams ? { samplingParams: caps.samplingParams } : {}),
         ...(headers ? { headers } : {}),
       };
       models.push(model);

@@ -72,12 +72,20 @@
 
 ## 8. Adopt AGENTS.override.md and samplingParams
 
-- [ ] 8.1 Implement `AGENTS.override.md` shadowing in the dashboard's directory-context resolution, behind runtime feature-detection with an `AGENTS.md`-inheritance fallback.
-- [ ] 8.2 Classify `AGENTS.override.md` as a context resource in the dashboard resource scanner.
-- [ ] 8.3 Support arbitrary `samplingParams` on custom-model configuration behind runtime feature-detection, omitting the field on floor pi.
-- [ ] 8.4 Add an L1 test that the override shadows its sibling — input: a directory containing both `AGENTS.override.md` and `AGENTS.md`; trigger: resolve directory context; observable: only the override's content applies and the sibling is not also applied (test-plan #E14). See `packages/extension/src/__tests__/dashboard-context-injector.test.ts`.
-- [ ] 8.5 Add an L1 test that absence leaves inheritance untouched — input: a directory containing only `AGENTS.md`; trigger: resolve directory context; observable: normal ancestor inheritance, unchanged from pre-bump behavior (test-plan #E15). See `packages/extension/src/__tests__/dashboard-context-injector.test.ts`.
-- [ ] 8.6 Add an L1 test that the override is classified as a context resource — input: a directory containing `AGENTS.override.md`; trigger: run the resource scanner; observable: classified as a context resource, not an ordinary markdown file (test-plan #E16). See `packages/server/src/__tests__/resource-activation-toggle.test.ts`.
+> Section 8 was RETARGETED during implementation. pi owns context-file
+> resolution end-to-end (`dist/core/resource-loader.js:32` lists
+> `AGENTS.override.md` FIRST and returns on first match), so the dashboard has
+> nothing to implement there. `pi-resource-scanner.ts` only emits `skill` /
+> `agent` and never classified `AGENTS.md` either. The dashboard's real
+> "which files are context files" logic lives in the kb tooling. Rationale:
+> design.md D7a.
+
+- [x] 8.1 `AGENTS.override.md` shadowing in directory-context resolution. FINDING: pi-owned no-op — `loadContextFileFromDir` already returns the override first, shadowing the sibling. No dashboard implementation, and no feature-detection branch (an older pi simply never sees such a file).
+- [x] 8.2 Classify `AGENTS.override.md` as a context resource. FINDING: retargeted — `pi-resource-scanner.ts` classifies skills/agents, not context files. The real sites are `packages/kb/src/dox.ts` (`agentsChain`), `packages/kb/src/indexer.ts` (`docTypeOf`), and `packages/kb-extension/src/extension.ts` (`AGENTS_NAMES`); all three now recognize the override.
+- [x] 8.3 Support arbitrary `samplingParams` on custom-model configuration, omitting the field when absent. Added to `NativeModelEntry` (`packages/shared/src/models-json-reader.ts`) and forwarded by BOTH whitelisting consumers: `metadataFromNative` (`packages/extension/src/provider-register.ts`) and the server model build (`packages/server/src/model-proxy/internal-registry.ts`).
+- [x] 8.4 Add an L1 test that the override shadows its sibling — input: a directory containing both `AGENTS.override.md` and `AGENTS.md`; trigger: walk the agents chain; observable: only the override applies for that directory, ancestors still inherit (test-plan #E14). See `packages/kb/src/__tests__/agents-override.test.ts`.
+- [x] 8.5 Add an L1 test that absence leaves inheritance untouched — input: a directory containing only `AGENTS.md`; trigger: walk the agents chain; observable: normal ancestor inheritance, unchanged from pre-bump behavior (test-plan #E15). See `packages/kb/src/__tests__/agents-override.test.ts`.
+- [x] 8.6 Add an L1 test that the override is doc-typed as a context file — input: `AGENTS.override.md`; trigger: `docTypeOf`; observable: classified `agents`, not an ordinary `doc` (test-plan #E16). See `packages/kb/src/__tests__/agents-override.test.ts`.
 
 ## 9. Runtime verification against real pi 0.84.1
 

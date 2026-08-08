@@ -34,6 +34,13 @@ export interface NativeModelEntry {
   thinkingLevelMap?: Record<string, unknown>;
   /** Opaque runtime request-formatting hints (e.g. `thinkingFormat`). Never serialized to `/api/models`. */
   compat?: Record<string, unknown>;
+  /**
+   * Arbitrary OpenAI-compatible sampling parameters (pi 0.84.0), incl. opt-in
+   * vLLM `thinking_token_budget`. Passed through opaquely: pi owns validation,
+   * and an older pi simply ignores the field.
+   * See change: update-pi-core-0-84-adopt-apis.
+   */
+  samplingParams?: Record<string, unknown>;
   cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   input?: string[];
   headers?: Record<string, string>;

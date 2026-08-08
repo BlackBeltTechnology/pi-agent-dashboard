@@ -682,3 +682,32 @@ describe("model registry refresh — 0.84.x options/result contract", () => {
     warn.mockRestore();
   });
 });
+
+/**
+ * pi 0.84.0 advanced custom-model sampling: `samplingParams` must survive the
+ * hop from `models.json` into the metadata handed to `pi.registerProvider`.
+ * Both this path and the server's internal registry whitelist fields
+ * explicitly, so an un-forwarded field is silently dropped.
+ *
+ * See change: update-pi-core-0-84-adopt-apis (task 8.3).
+ */
+describe("samplingParams passthrough (pi 0.84.x)", () => {
+  it("forwards samplingParams from the native entry into model metadata", async () => {
+    const { metadataFromNative } = (await import("../provider-register.js")) as never as {
+      metadataFromNative: (n: unknown, api?: string) => Record<string, unknown>;
+    };
+    const meta = metadataFromNative(
+      { id: "qwen", provider: "my-vllm", samplingParams: { top_k: 40, thinking_token_budget: 2048 } },
+      "openai-completions",
+    );
+    expect(meta.samplingParams).toEqual({ top_k: 40, thinking_token_budget: 2048 });
+  });
+
+  it("omits samplingParams entirely when the native entry declares none", async () => {
+    const { metadataFromNative } = (await import("../provider-register.js")) as never as {
+      metadataFromNative: (n: unknown, api?: string) => Record<string, unknown>;
+    };
+    const meta = metadataFromNative({ id: "m", provider: "p" }, "openai-completions");
+    expect("samplingParams" in meta).toBe(false);
+  });
+});
