@@ -2,17 +2,20 @@
  * Pure config-mutation helpers for the Gateway UI.
  *
  * Two writes ride the existing auth-gated `PUT /api/config` — NO bespoke route:
- *   - **Add HTTPS URL** (task 6.4) → append to `pairing.publicBaseUrls`. The
- *     `pairing` object is NOT in `writeConfigPartial`'s deep-merge allow-list,
- *     so a top-level `pairing` write is a SHALLOW overwrite: the caller must
- *     read the current `pairing`, append, and PUT the FULL object back. These
- *     helpers preserve every sibling field to honour that.
+ *   - **Add HTTPS URL** (task 6.4) → append to the top-level `publicBaseUrls`
+ *     list. The legacy nested `pairing.publicBaseUrls` is read as a fallback
+ *     and SEEDED into the first top-level write, so an operator's existing
+ *     entries do not vanish from the QR the moment the top-level key appears
+ *     (D7/D12).
  *   - **Trust / Remove** (task 7.2) → mutate `config.trustedNetworks`.
  *
- * The `https`/`wss` gate here is client-side UX only; the authoritative filter
- * stays server-side at read time in `reachableUrls()` (D4/D14).
+ * `appendPublicBaseUrl` is the single writer for that list (D12 task 10.7):
+ * the gateway action opts out of the `https`/`wss` gate for an `http://`
+ * gateway, so the two callers cannot drift apart. The gate is client-side UX
+ * only either way; the authoritative pairing-payload filter stays server-side
+ * at read time in `reachableUrls()` (D4/D8/D14).
  *
- * See change: add-tunnel-providers.
+ * See changes: add-tunnel-providers, config-override-oauth-redirect-base.
  */
 
 const SECURE_SCHEME = /^(https|wss):\/\/[^\s]+$/i;
@@ -28,21 +31,40 @@ export interface PairingConfigShape {
   [k: string]: unknown;
 }
 
+/** The slice of `GET /api/config` this module reads the URL list from. */
+export interface PublicBaseUrlsConfigShape {
+  publicBaseUrls?: string[];
+  pairing?: PairingConfigShape;
+}
+
 /**
- * Append a secure base URL to `pairing.publicBaseUrls`, preserving every
- * sibling field (shallow-overwrite hazard). Dedupes; throws on non-secure.
+ * Top-level `publicBaseUrls` when present, else the legacy
+ * `pairing.publicBaseUrls`. Mirrors the server-side resolver so the UI shows
+ * what the server reads.
+ */
+export function resolvePublicBaseUrls(config: PublicBaseUrlsConfigShape | undefined): string[] {
+  return config?.publicBaseUrls ?? config?.pairing?.publicBaseUrls ?? [];
+}
+
+/**
+ * Append a base URL to the top-level `publicBaseUrls`, seeding from the legacy
+ * nested key on the first top-level write. Dedupes. Throws on a non-secure URL
+ * unless `allowInsecure` is set (the `http://` gateway path, D12).
+ *
+ * Returns only the top-level key — `publicBaseUrls` is a plain array, so
+ * `writeConfigPartial` overwrites it wholesale and no sibling is at risk.
  */
 export function appendPublicBaseUrl(
-  pairing: PairingConfigShape | undefined,
+  config: PublicBaseUrlsConfigShape | undefined,
   rawUrl: string,
-): PairingConfigShape {
+  opts: { allowInsecure?: boolean } = {},
+): { publicBaseUrls: string[] } {
   const url = rawUrl.trim();
-  if (!isSecureBaseUrl(url)) {
+  if (!opts.allowInsecure && !isSecureBaseUrl(url)) {
     throw new Error("only https:// or wss:// endpoints are accepted");
   }
-  const current = pairing?.publicBaseUrls ?? [];
-  const next = current.includes(url) ? current : [...current, url];
-  return { ...(pairing ?? {}), publicBaseUrls: next };
+  const current = resolvePublicBaseUrls(config);
+  return { publicBaseUrls: current.includes(url) ? current : [...current, url] };
 }
 
 /** Add an entry to `trustedNetworks`, deduped. */

@@ -67,6 +67,11 @@ interface AuthConfig {
   allowedUsers?: string[];
   bypassUrls?: string[];
   bypassHosts?: string[];
+  /**
+   * Public origin OAuth providers call back to, overriding the tunnel /
+   * localhost base. See change: config-override-oauth-redirect-base.
+   */
+  redirectBaseUrl?: string;
 }
 
 interface MemoryLimitsConfig {
@@ -1193,6 +1198,40 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                         update((c) => {
                           if (!c.auth) c.auth = { secret: "", providers: {}, allowedUsers: [] };
                           c.auth.allowedUsers = users;
+                        });
+                      }}
+                    />
+                  </div>
+                  {/* OAuth redirect base — the operator's disambiguator when the
+                      dashboard answers on several addresses. `publicBaseUrls` is a
+                      list; an OAuth redirect_uri must be ONE pre-registered origin,
+                      so it is stated here rather than inferred (D7).
+                      See change: config-override-oauth-redirect-base. */}
+                  <div className="mt-3">
+                    <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                      {t("settings.redirectBaseUrl", undefined, "OAuth Redirect Base URL")}{" "}
+                      <span className="text-[var(--text-tertiary)]">
+                        ({t(
+                          "settings.redirectBaseUrlHint",
+                          undefined,
+                          "public origin the provider calls back to, e.g. https://pi.example.com — register the same URL with the provider too",
+                        )})
+                      </span>
+                    </label>
+                    <input
+                      type="url"
+                      inputMode="url"
+                      data-testid="redirect-base-url-input"
+                      className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] font-mono"
+                      placeholder="https://pi.example.com"
+                      value={config.auth?.redirectBaseUrl ?? ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        update((c) => {
+                          if (!c.auth) c.auth = { secret: "", providers: {} };
+                          // Empty string clears it (`||` semantics, D1) — omitting
+                          // the key would PRESERVE the old value instead.
+                          c.auth.redirectBaseUrl = value;
                         });
                       }}
                     />

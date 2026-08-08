@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GatewayEndpoints } from "../GatewayEndpoints.js";
 import { GatewayProviderSection } from "../GatewayProviderSection.js";
 import { GatewaySetupGuide } from "../GatewaySetupGuide.js";
+import { GatewayUrlManager } from "../GatewayUrlManager.js";
 
 vi.mock("wouter", () => ({ useLocation: () => ["/", vi.fn()] }));
 
@@ -63,7 +64,7 @@ describe("GatewayEndpoints (task 6.4 Add HTTPS round-trip)", () => {
     });
   });
 
-  it("PUTs the FULL pairing object (read-modify-write) when adding an https URL", async () => {
+  it("PUTs the top-level publicBaseUrls list, seeded from the legacy pairing key", async () => {
     const calls: { url: string; method?: string; body?: unknown }[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation((async (url: string, init?: RequestInit) => {
       calls.push({ url, method: init?.method, body: init?.body ? JSON.parse(init.body as string) : undefined });
@@ -71,11 +72,15 @@ describe("GatewayEndpoints (task 6.4 Add HTTPS round-trip)", () => {
         return { ok: true, headers: new Headers({ "content-type": "application/json" }), json: async () => ({ success: true }) } as Response;
       }
       if (url.endsWith("/api/config")) {
-        // GET current config — has a sibling pairing field that must survive.
+        // GET current config — legacy-only shape; its entries must be seeded
+        // into the first top-level write, not orphaned.
         return {
           ok: true,
           headers: new Headers({ "content-type": "application/json" }),
-          json: async () => ({ success: true, data: { pairing: { publicBaseUrls: [], enabled: true } } }),
+          json: async () => ({
+            success: true,
+            data: { pairing: { publicBaseUrls: ["https://legacy.example"], enabled: true } },
+          }),
         } as Response;
       }
       // endpoints refetch
@@ -95,10 +100,93 @@ describe("GatewayEndpoints (task 6.4 Add HTTPS round-trip)", () => {
     await waitFor(() => {
       const put = calls.find((c) => c.method === "PUT");
       expect(put).toBeDefined();
-      const body = put?.body as { pairing: { publicBaseUrls: string[]; enabled?: boolean } };
-      expect(body.pairing.publicBaseUrls).toContain("https://new.example");
-      // Sibling field preserved (full-object write, not shallow clobber).
-      expect(body.pairing.enabled).toBe(true);
+      const body = put?.body as { publicBaseUrls: string[]; pairing?: unknown };
+      expect(body.publicBaseUrls).toEqual(["https://legacy.example", "https://new.example"]);
+      // The legacy nested object is left untouched by the write.
+      expect(body.pairing).toBeUndefined();
     });
+  });
+});
+
+// ── The "add a gateway URL" action (D12/D13) ────────────────────────────────
+// The config algebra is unit-tested in `lib/__tests__/gateway-action.test.ts`;
+// these pin the rendered surface: the inline rules, the disabled save, the
+// status row, and that BOTH entry points render the same component.
+// Test plan rows: G13 (UI half), G19, F12 (component half).
+// See change: config-override-oauth-redirect-base.
+describe("GatewayUrlManager", () => {
+  function mockConfig(data: Record<string, unknown>) {
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (url: string, init?: RequestInit) => {
+      const json = url.toString().endsWith("/api/config") && init?.method !== "PUT"
+        ? { success: true, data }
+        : { success: true };
+      return { ok: true, headers: new Headers({ "content-type": "application/json" }), json: async () => json } as Response;
+    }) as typeof fetch);
+  }
+
+  it("G13: disables OAuth and QR for a http:// URL and states why", async () => {
+    mockConfig({});
+    render(<GatewayUrlManager />);
+    fireEvent.click(await screen.findByTestId("gateway-url-add-open"));
+    fireEvent.change(screen.getByTestId("gateway-url-input"), {
+      target: { value: "http://10.4.0.9:8000" },
+    });
+    await waitFor(() => {
+      expect((screen.getByTestId("gateway-url-mode-oauth") as HTMLInputElement).disabled).toBe(true);
+      expect((screen.getByTestId("gateway-url-mode-pairing") as HTMLInputElement).disabled).toBe(true);
+    });
+    expect(screen.getByTestId("gateway-url-mode-oauth-reason").textContent).toMatch(/non-TLS/i);
+    // No auth mode picked yet → save refused.
+    expect((screen.getByTestId("gateway-url-save") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("G13: enables save once a trusted network is stated for a http:// URL", async () => {
+    mockConfig({});
+    render(<GatewayUrlManager />);
+    fireEvent.click(await screen.findByTestId("gateway-url-add-open"));
+    fireEvent.change(screen.getByTestId("gateway-url-input"), {
+      target: { value: "http://10.4.0.9:8000" },
+    });
+    fireEvent.click(screen.getByTestId("gateway-url-mode-trusted-network"));
+    await waitFor(() => {
+      // G18: the CIDR field is prefilled with the exact host, never a subnet.
+      expect((screen.getByTestId("gateway-url-cidr") as HTMLInputElement).value).toBe("10.4.0.9");
+      expect((screen.getByTestId("gateway-url-save") as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
+  it("G19: renders the computed status for a drifted gateway and offers Fix", async () => {
+    mockConfig({
+      publicBaseUrls: ["https://pi.example.com"],
+      cors: { allowedOrigins: [] },
+      gateways: [
+        {
+          url: "https://pi.example.com",
+          authModes: ["pairing"],
+          wrote: {
+            publicBaseUrls: ["https://pi.example.com"],
+            corsAllowedOrigins: ["https://pi.example.com"],
+          },
+        },
+      ],
+    });
+    render(<GatewayUrlManager />);
+    const row = await screen.findByTestId("gateway-url-row");
+    expect(row.getAttribute("data-status")).toBe("incomplete");
+    expect(screen.getByTestId("gateway-url-fix")).toBeDefined();
+  });
+
+  it("F12: the first-run guide renders the same manager as the Gateway page", async () => {
+    mockConfig({});
+    render(<GatewaySetupGuide provider="zrok" />);
+    expect(await screen.findByTestId("gateway-url-manager")).toBeDefined();
+  });
+
+  // The Gateway page embeds the guide AND mounts the manager itself, so the
+  // guide must be suppressible or the page renders the control twice.
+  it("F12: the guide suppresses its copy when the host already mounts one", () => {
+    mockConfig({});
+    render(<GatewaySetupGuide provider="zrok" showGatewayUrls={false} />);
+    expect(screen.queryByTestId("gateway-url-manager")).toBeNull();
   });
 });
