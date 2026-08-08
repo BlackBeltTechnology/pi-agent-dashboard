@@ -896,7 +896,8 @@ Side effects in step 3:
 - Payloads truncated (tool results, file content, thinking blocks) to bound memory.
 - Event data also bounded by total-serialized-size ceiling (`DEFAULT_MAX_EVENT_DATA_SIZE`=20000 bytes, `0`=off, `packages/server/src/memory-event-store.ts`). Over-cap event data replaced with `{__truncated}` placeholder before store/broadcast. Stops one oversized subagent event OOM-ing broadcast `JSON.stringify`. See change: bound-subagent-event-serialization.
 - Backpressure: browser sends drop when WS buffer > 4MB.
-- Bridge-launched server gets `--max-old-space-size=8192` via `NODE_OPTIONS` (`packages/extension/src/server-launcher.ts` `buildSpawnEnv`) for heap headroom, unless user already pinned a limit. Defensive belt-and-braces behind per-event ceiling.
+- Both launch paths set `--max-old-space-size=8192` via `NODE_OPTIONS`: bridge-launched (`packages/extension/src/server-launcher.ts` `buildSpawnEnv`) and standalone `pi-dashboard` wrapper (`packages/server/bin/pi-dashboard.mjs`). Skipped when user already pinned a limit.
+- Without it standalone path ran at Node default ~4 GB; worst-case per-session buffer could OOM-crash server. Defensive belt-and-braces behind per-event ceiling.
 
 Cross-refs:
 - docs/architecture.md:98
