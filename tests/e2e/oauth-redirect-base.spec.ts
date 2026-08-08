@@ -1,4 +1,5 @@
 import { type APIRequestContext, expect, test } from "@playwright/test";
+import { gotoDashboard } from "./helpers/index.js";
 
 /**
  * Browser/container E2E for change `config-override-oauth-redirect-base`
@@ -12,25 +13,36 @@ import { type APIRequestContext, expect, test } from "@playwright/test";
  * read by a REAL server process, producing a REAL 302 whose `Location` carries
  * the override — and then changing without a restart.
  *
- * WHY THIS SPEC RESTARTS THE SERVER
- * ---------------------------------
+ * WHY THE PROVIDER IS SEEDED AT CONTAINER BOOT, NOT BY THIS SPEC
+ * --------------------------------------------------------------
  * `registerAuthPlugin` returns early when the boot-time provider registry is
  * empty ("Auth configured but no providers resolved — auth disabled") BEFORE
- * registering any `/auth/*` route and BEFORE installing `_reloadAuth`. The
- * harness boots with zero providers, so `/auth/start/github` does not exist
- * until a provider is seeded AND the server is restarted. See design.md D6.
+ * registering any `/auth/*` route and BEFORE installing `_reloadAuth`. So a
+ * provider must be on disk BEFORE the server starts (design.md D6).
+ *
+ * An earlier revision of this spec tried to arrange that itself: seed via
+ * `PUT /api/config`, then `POST /api/restart`. That CANNOT work here, and the
+ * reason is worth recording because it is invisible from the spec:
+ * `pi-state` is a RAM-backed tmpfs (`docker/compose.test.yml` — "ephemeral,
+ * wiped each run"), mounted at `~/.pi`. Every container start therefore hands
+ * the server a FRESH, EMPTY state dir and discards anything written through
+ * the API. Observed directly: after the restart, `GET /api/config` reported
+ * `auth: undefined`, `server.log` carried no auth line at all, and
+ * `/auth/start/github` answered 200 (the SPA fallback) instead of 302.
+ *
+ * The seed therefore lives in `docker/test-entrypoint.sh` behind
+ * `PI_E2E_OAUTH=1` (set by `tests/e2e/global-setup.ts`), which writes the
+ * provider before the daemon launches — on every boot, so it survives restarts
+ * by construction. No test in this file restarts the server.
  *
  * HARNESS SAFETY (read before editing)
  * ------------------------------------
  * Requests from the Playwright host arrive at the container as NON-loopback, so
- * arming OAuth without a bypass would auth-gate the shared harness and break
- * every spec that runs after this file. Two mitigations, both load-bearing:
- *   1. `auth.bypassUrls: ["/"]` is seeded alongside the provider, so the gate
- *      matches every URL and denies nothing while this file runs.
- *   2. `afterAll` blanks the provider credentials (the providers map is
- *      additive-only in `writeConfigPartial` — a provider can be blanked but
- *      never deleted), clears the override, restores the bypass list, and
- *      restarts. With no resolvable provider the auth plugin no-ops entirely.
+ * arming OAuth without a bypass would auth-gate the SHARED harness and break
+ * every spec that runs after this file. The boot seed writes
+ * `auth.bypassUrls: ["/"]` alongside the provider: the prefix matches every
+ * URL, so the gate registers its routes while denying nothing. `afterAll`
+ * restores the seeded base so a later spec never inherits this file's edits.
  */
 
 const PROVIDER = "github";
@@ -47,29 +59,8 @@ async function serverIdentity(
     const body = (await res.json()) as { pid?: number; startedAt?: string };
     return body.pid == null ? null : { pid: body.pid, startedAt: body.startedAt! };
   } catch {
-    return null; // mid-restart: connection refused
+    return null; // server unreachable
   }
-}
-
-/** POST /api/restart and wait until a DIFFERENT server process answers /api/health. */
-async function restartServer(request: APIRequestContext): Promise<void> {
-  const before = await serverIdentity(request);
-  expect(before, "server identity must be readable before restart").not.toBeNull();
-
-  await request.post("/api/restart", { timeout: 10_000 }).catch(() => {
-    // The server tears the socket down mid-response; a transport error here is
-    // the expected shape of a successful restart request.
-  });
-
-  await expect
-    .poll(
-      async () => {
-        const now = await serverIdentity(request);
-        return now !== null && (now.pid !== before!.pid || now.startedAt !== before!.startedAt);
-      },
-      { timeout: 120_000, intervals: [500] },
-    )
-    .toBe(true);
 }
 
 /** Read the `redirect_uri` the server mints for a provider, without following it. */
@@ -85,46 +76,36 @@ async function mintedRedirectUri(
 }
 
 test.describe.serial("config-override-oauth-redirect-base", () => {
-  let originalBypassUrls: string[] = [];
-
   test.beforeAll(async ({ request }) => {
     const cfg = await request.get("/api/config");
-    test.skip(!cfg.ok(), "/api/config unavailable — cannot seed auth config");
-    const body = (await cfg.json()) as { auth?: { bypassUrls?: string[] } };
-    originalBypassUrls = body.auth?.bypassUrls ?? [];
+    test.skip(!cfg.ok(), "/api/config unavailable — cannot read auth config");
 
-    // Seed a resolvable provider (github needs no OIDC discovery, so it
-    // resolves with no outbound network) + the override + the "deny nothing"
-    // bypass, then restart so the auth plugin actually registers its routes.
-    const seeded = await request.put("/api/config", {
-      data: {
-        auth: {
-          providers: { [PROVIDER]: { clientId: "e2e-client-id", clientSecret: "e2e-client-secret" } },
-          bypassUrls: ["/"],
-          redirectBaseUrl: BASE_A,
-        },
-      },
-    });
-    expect(seeded.ok(), "seeding auth config must succeed").toBe(true);
-    await restartServer(request);
+    // The provider + bypass are already on disk (PI_E2E_OAUTH boot seed). If
+    // they are not, the harness was started without that env: skip loudly
+    // rather than fail with an unexplained 200 from `/auth/start`.
+    const probe = await request.get(`/auth/start/${PROVIDER}`, { maxRedirects: 0 });
+    test.skip(
+      probe.status() !== 302,
+      "no /auth/* routes — start the harness with PI_E2E_OAUTH=1 (see docker/test-entrypoint.sh)",
+    );
+
+    // Normalize the base to BASE_A through the hot-reload path this change
+    // added, so each run starts from a known value regardless of test order.
+    expect(
+      (await request.put("/api/config", { data: { auth: { redirectBaseUrl: BASE_A } } })).ok(),
+    ).toBe(true);
+    await expect
+      .poll(() => mintedRedirectUri(request), { timeout: 15_000, intervals: [250] })
+      .toBe(`${BASE_A}/auth/callback/${PROVIDER}`);
   });
 
   test.afterAll(async ({ request }) => {
-    // Disarm before any other spec file runs. Blanking the credentials empties
-    // the resolvable registry, so after the restart the auth plugin no-ops and
-    // the harness is exactly as unguarded as it was before this file.
+    // Restore the seeded base so a later spec never inherits this file's edits.
+    // The provider itself is boot-seeded and intentionally left armed — its
+    // `bypassUrls:["/"]` means the gate denies nothing.
     await request
-      .put("/api/config", {
-        data: {
-          auth: {
-            providers: { [PROVIDER]: { clientId: "", clientSecret: "" } },
-            bypassUrls: originalBypassUrls,
-            redirectBaseUrl: "",
-          },
-        },
-      })
+      .put("/api/config", { data: { auth: { redirectBaseUrl: BASE_A } } })
       .catch(() => {});
-    await restartServer(request).catch(() => {});
   });
 
   // F1 — the config file on disk reaches a real 302 Location.
@@ -189,9 +170,44 @@ test.describe.serial("config-override-oauth-redirect-base", () => {
     // Write a DIFFERENT auth field, omitting redirectBaseUrl entirely.
     expect((await request.put("/api/config", { data: { auth: { allowedUsers: [] } } })).ok()).toBe(true);
 
+    // `GET /api/config` answers the standard `{ success, data }` envelope —
+    // reading `body.auth` directly yields undefined and silently "passes" only
+    // because the value it compares against would also be undefined.
     const persisted = await request.get("/api/config");
-    const body = (await persisted.json()) as { auth?: { redirectBaseUrl?: string } };
-    expect(body.auth?.redirectBaseUrl).toBe(BASE_A);
+    const body = (await persisted.json()) as {
+      auth?: { redirectBaseUrl?: string };
+      data?: { auth?: { redirectBaseUrl?: string } };
+    };
+    expect((body.data ?? body).auth?.redirectBaseUrl).toBe(BASE_A);
     expect(await mintedRedirectUri(request)).toBe(`${BASE_A}/auth/callback/${PROVIDER}`);
+  });
+
+  // F10 — the operator surface. Until this change the field was config-file
+  // only: `writeConfigPartial` accepted the key and no UI ever sent it.
+  test("F10: Settings ▸ Security persists the redirect base and /auth/start reflects it", async ({
+    page,
+    request,
+  }) => {
+    await gotoDashboard(page);
+    await page.goto("/settings/security");
+    const input = page.getByTestId("redirect-base-url-input");
+    await input.waitFor({ state: "visible", timeout: 30_000 });
+
+    await input.fill(BASE_B);
+    await page.getByTestId("save-btn").click();
+
+    await expect
+      .poll(async () => {
+        const body = (await (await request.get("/api/config")).json()) as {
+          auth?: { redirectBaseUrl?: string };
+          data?: { auth?: { redirectBaseUrl?: string } };
+        };
+        return (body.data ?? body).auth?.redirectBaseUrl;
+      }, { timeout: 15_000, intervals: [500] })
+      .toBe(BASE_B);
+
+    await expect
+      .poll(() => mintedRedirectUri(request), { timeout: 15_000, intervals: [250] })
+      .toBe(`${BASE_B}/auth/callback/${PROVIDER}`);
   });
 });

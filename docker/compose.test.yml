@@ -32,8 +32,23 @@ services:
     # :local for the manual base flow. See change fix-parallel-e2e-docker-collisions.
     image: "pi-dashboard:${TEST_IMAGE_TAG:-local}"
 
-    # No restart — a QA instance should die when stopped, not respawn.
-    restart: "no"
+    # `unless-stopped`, NOT "no". The intent is unchanged — an explicitly stopped
+    # QA instance stays down (that is exactly what `unless-stopped` guarantees,
+    # and `test-down.sh` runs `compose down`, which removes it regardless).
+    #
+    # What "no" additionally did was kill the harness on `POST /api/restart`: the
+    # dashboard daemon IS this container's main process, so the restart exits PID
+    # 1 and nothing brings it back. That made a supported runtime operation
+    # untestable — `oauth-redirect-base.spec.ts` MUST restart, because a server
+    # that booted with zero resolvable OAuth providers registers no `/auth/*`
+    # route at all (design D6). The base `compose.yml` already ships
+    # `unless-stopped`, so this now matches the real deployment.
+    #
+    # Trade-off accepted: a genuinely crash-looping container respawns instead of
+    # staying dead. The health gate in `test-up.sh` still fails the run when the
+    # dashboard never answers.
+    # See change: config-override-oauth-redirect-base.
+    restart: unless-stopped
 
     # Build the path-parity overlay before launching the base entrypoint.
     # Bind-mounted (below) so no image rebuild is needed.
@@ -78,6 +93,14 @@ services:
       # both | no-am | legacy | bad-registration. Empty => test-entrypoint skips
       # all flow-peer wiring (non-flow specs unaffected). Requires PI_E2E_SEED=1.
       PI_TEST_PEERS: "${PI_TEST_PEERS:-}"
+      # PI_E2E_OAUTH=1 seeds a resolvable `github` OAuth provider plus
+      # `bypassUrls:["/"]` BEFORE the server boots, so `/auth/*` routes exist
+      # for oauth-redirect-base.spec.ts. A spec cannot arrange this itself:
+      # pi-state is a RAM-backed tmpfs, so every container start discards config
+      # written through the API. Requires PI_E2E_SEED=1. Unset = harness
+      # unchanged. See change: config-override-oauth-redirect-base.
+      PI_E2E_OAUTH: "${PI_E2E_OAUTH:-}"
+      PI_E2E_OAUTH_BASE: "${PI_E2E_OAUTH_BASE:-}"
 
     volumes:
       # Path-parity: host CWD as the read-only overlay lower layer. The

@@ -135,6 +135,47 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (${PI_E2E_TRUSTED_NETWORKS:-0.0.0.0/0}) + defaultModel + modelProxy apiKey → config.json"
   fi
 
+  # --- OAuth provider seed (PI_E2E_OAUTH=1) ---------------------------------
+  # `oauth-redirect-base.spec.ts` asserts on `/auth/*` routes, which only exist
+  # when the server booted with at least one RESOLVABLE provider: the auth
+  # plugin returns early on an empty registry, registering no route and no
+  # reload hook (design D6 of config-override-oauth-redirect-base).
+  #
+  # The provider therefore has to be on disk BEFORE the server starts. A spec
+  # cannot arrange that itself: `pi-state` is a RAM-backed tmpfs (compose.test
+  # .yml), so every container start hands the server a fresh, empty `~/.pi` and
+  # discards anything a previous process wrote through `PUT /api/config`. That
+  # is the harness's isolation model, not a bug — so the seed goes here.
+  #
+  # `github` is the one built-in provider that resolves with NO network I/O
+  # (static endpoints, no OIDC discovery), so this works in an offline CI box.
+  #
+  # `bypassUrls:["/"]` is MANDATORY and load-bearing: requests from the
+  # Playwright host arrive as NON-loopback, so an armed auth gate with no bypass
+  # would lock every other spec out of the shared harness. The prefix matches
+  # every URL, so the gate denies nothing while still registering the routes
+  # this spec needs.
+  #
+  # Opt-in only: unset (the default) leaves the harness exactly as it was.
+  # See change: config-override-oauth-redirect-base.
+  if [ "${PI_E2E_OAUTH:-}" = "1" ]; then
+    node -e '
+      const fs = require("node:fs");
+      const [out, base] = process.argv.slice(1);
+      let cfg = {};
+      try { cfg = JSON.parse(fs.readFileSync(out, "utf8")); } catch {}
+      cfg.auth = {
+        ...(cfg.auth ?? {}),
+        secret: "e2e-auth-secret-32-chars-longxxxx",
+        providers: { github: { clientId: "e2e-client-id", clientSecret: "e2e-client-secret" } },
+        bypassUrls: ["/"],
+        redirectBaseUrl: base,
+      };
+      fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
+    ' "${PI_DIR}/dashboard/config.json" "${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com}"
+    echo "[test-entrypoint] PI_E2E_OAUTH: seeded github provider + bypassUrls:[/] + redirectBaseUrl=${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com} → config.json"
+  fi
+
   # --- Faux model: stage the fixture as a global auto-discovered extension ---
   # pi auto-discovers ~/.pi/agent/extensions/*/index.ts (no -e, no trust gate).
   # Subdir form is required because the extension imports ./faux-scenarios.js.
