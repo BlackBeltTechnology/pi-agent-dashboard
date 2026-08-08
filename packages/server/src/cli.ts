@@ -122,7 +122,25 @@ export const PRODUCTION_DEFAULT_PORT = 8000;
  * the production port (the live incident was launched with an explicit
  * `--port 8000` from a worktree + faux HOME). Non-8000 ports (test servers use
  * random ones) pass through untouched. See change: guard-temp-home-production-port.
+ *
+ * Overloaded so the guard is null-preserving rather than null-widening: it only
+ * ever returns `port` unchanged or the ephemeral `0`, so a non-null input yields
+ * a non-null result. Without these signatures the single `number | null` return
+ * widens `ServerConfig["port"]` (a required `number`) at the `buildConfig` call
+ * site and fails `tsc --noEmit`.
  */
+export function guardTempHomePort(
+  port: number,
+  homeDir: string,
+  tmpDir: string,
+  warn?: (msg: string) => void,
+): number;
+export function guardTempHomePort(
+  port: number | null,
+  homeDir: string,
+  tmpDir: string,
+  warn?: (msg: string) => void,
+): number | null;
 export function guardTempHomePort(
   port: number | null,
   homeDir: string,
