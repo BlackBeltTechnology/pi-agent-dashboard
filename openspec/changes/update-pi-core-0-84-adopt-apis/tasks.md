@@ -32,11 +32,11 @@
 
 ## 4. Provider headers — null deletion markers
 
-- [ ] 4.1 Widen the header type in `packages/extension/src/auto-session-namer.ts` to `string | null` and forward null markers to pi-ai unchanged.
-- [ ] 4.2 Replace the `Object.keys(headers).length > 0` gate with a usable-value check that ignores null-only maps.
-- [ ] 4.3 Add an L1 test that nulls are forwarded — input: `getApiKeyAndHeaders()` → `{ "x-del": null, "x-keep": "v" }`; trigger: build the `streamSimple` request; observable: request carries `x-del` with value `null`, never the string `"null"` (test-plan #E9). See `packages/extension/src/__tests__/auto-session-namer.test.ts`.
-- [ ] 4.4 Add an L1 BVA test that a null-only map counts as empty — input: headers `{ "a": null, "b": null }` (key count 2, usable 0); trigger: evaluate the gate; observable: gate reports no usable headers and is not satisfied by the key count (test-plan #E10). See `packages/extension/src/__tests__/auto-session-namer.test.ts`.
-- [ ] 4.5 Add an L1 BVA test that a mixed map counts as non-empty — input: headers `{ "a": null, "b": "v" }`; trigger: evaluate the gate; observable: gate reports usable headers present (test-plan #E11). See `packages/extension/src/__tests__/auto-session-namer.test.ts`.
+- [x] 4.1 Widen the header type in `packages/extension/src/auto-session-namer.ts` to `string | null` and forward null markers to pi-ai unchanged.
+- [x] 4.2 Replace the `Object.keys(headers).length > 0` gate with a usable-value check that ignores null-only maps.
+- [x] 4.3 Add an L1 test that nulls are forwarded — input: `getApiKeyAndHeaders()` → `{ "x-del": null, "x-keep": "v" }`; trigger: build the `streamSimple` request; observable: request carries `x-del` with value `null`, never the string `"null"` (test-plan #E9). See `packages/extension/src/__tests__/auto-session-namer.test.ts`.
+- [x] 4.4 Add an L1 BVA test that a null-only map counts as empty — input: headers `{ "a": null, "b": null }` (key count 2, usable 0); trigger: evaluate the gate; observable: gate reports no usable headers and is not satisfied by the key count (test-plan #E10). See `packages/extension/src/__tests__/auto-session-namer.test.ts`.
+- [x] 4.5 Add an L1 BVA test that a mixed map counts as non-empty — input: headers `{ "a": null, "b": "v" }`; trigger: evaluate the gate; observable: gate reports usable headers present (test-plan #E11). See `packages/extension/src/__tests__/auto-session-namer.test.ts`.
 
 ## 5. Model-registry refresh — options and results
 
