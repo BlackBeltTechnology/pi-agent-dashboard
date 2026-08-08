@@ -26,9 +26,9 @@
 
 ## 3. Record the not-applicable streaming break as testable assertions
 
-- [ ] 3.1 Add an L1 test pinning the in-process event shape — input: installed pi types; trigger: read `dist/core/extensions/types.d.ts` `MessageUpdateEvent`; observable: the interface declares `message: AgentMessage`, so a future pi that removes it fails loudly (test-plan #E7). See `packages/extension/src/__tests__/pi-version-tracker.test.ts`.
-- [ ] 3.2 Add an L1 test pinning the bridge's event surface — input: `packages/extension/src/bridge.ts`; trigger: scan core-event subscription; observable: subscribes via `pi.on(<type>, handler)` with zero references to `toJsonEvent` / `JsonAgentSessionEvent` (test-plan #E8). See `packages/extension/src/__tests__/pi-version-tracker.test.ts`.
-- [ ] 3.3 Add an L1 test recording that `tool_call` `terminate` has no consumer — input: `packages/extension/src/bridge.ts`; trigger: scan the `tool_call` subscription; observable: `tool_call` is in `passThroughEventTypes` and no handler returns `block` or `terminate`, so a future blocking handler fails this assertion and forces the requirement to be revisited (test-plan #E17). See `packages/extension/src/__tests__/pi-version-tracker.test.ts`.
+- [x] 3.1 Add an L1 test pinning the in-process event shape — input: installed pi types; trigger: read `dist/core/extensions/types.d.ts` `MessageUpdateEvent`; observable: the interface declares `message: AgentMessage`, so a future pi that removes it fails loudly (test-plan #E7). See `packages/extension/src/__tests__/pi-version-tracker.test.ts`.
+- [x] 3.2 Add an L1 test pinning the bridge's event surface — input: `packages/extension/src/bridge.ts`; trigger: scan core-event subscription; observable: subscribes via `pi.on(<type>, handler)` with zero references to `toJsonEvent` / `JsonAgentSessionEvent` (test-plan #E8). See `packages/extension/src/__tests__/pi-version-tracker.test.ts`.
+- [x] 3.3 Add an L1 test recording that `tool_call` `terminate` has no consumer — input: `packages/extension/src/bridge.ts`; trigger: scan the `tool_call` subscription; observable: `tool_call` is in `passThroughEventTypes` and no handler returns `block` or `terminate`, so a future blocking handler fails this assertion and forces the requirement to be revisited (test-plan #E17). See `packages/extension/src/__tests__/pi-version-tracker.test.ts`.
 
 ## 4. Provider headers — null deletion markers
 
