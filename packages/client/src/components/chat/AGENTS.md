@@ -5,7 +5,7 @@ Files in this directory. One row per source file.
 | File | Purpose |
 |------|---------|
 | `BashOutputCard.tsx` | Renders `!`/`!!`/slash-exec bash output card (command header, exit badge, output pre). → see `BashOutputCard.tsx.AGENTS.md` |
-| `ChatView.tsx` | `msg.view` rows render as `<PreviewCard target={msg.view}>` (right-aligned, `bubbleMax` width) BEFORE… → see `ChatView.tsx.AGENTS.md` Merges a default `fileLink` into the supplied `toolContext` once via `useMemo` (`withDefaultFileLink`) and passes the merged value to EVERY consumer — including `ToolBurstGroup`/`CollapsedToolGroup`, which render `MarkdownContent` internally. `useMemo` is required: `MarkdownContent` is `React.memo`'d. Keeps linkification working for embedders who build a bare `ToolContext`. See change: cleanup-import-cycles. |
+| `ChatView.tsx` | `msg.view` rows render as `<PreviewCard target={msg.view}>` (right-aligned, `bubbleMax` width) BEFORE… → see `ChatView.tsx.AGENTS.md` Merges a default `fileLink` into `toolContext` once (`useMemo`) and passes it to ALL consumers incl. `ToolBurstGroup`/`CollapsedToolGroup`. See change: cleanup-import-cycles. |
 | `ChatViewMenu.tsx` | Discord-style ⚙ View popover mounted in chat toolbar. Edits per-session `displayPrefsOverride` via… → see `ChatViewMenu.tsx.AGENTS.md` |
 | `collapse-summary.tsx` | Shared PROCESS-subcard summary primitives: `splitOverflow<T>` (pure head/overflow-tail sort-then-slice split) + `<CollapseSummary>` (chevron toggle button owning `aria-expanded`+click→onToggle). See change: stable-process-line. |
 | `CollapsedToolGroup.tsx` | Renders collapsed group of repeated tool calls. Exports `CollapsedToolGroup`. → see `CollapsedToolGroup.tsx.AGENTS.md` |
