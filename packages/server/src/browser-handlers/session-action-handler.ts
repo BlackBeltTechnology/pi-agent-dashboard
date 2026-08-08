@@ -207,7 +207,25 @@ export async function handleSendPrompt(
 
   const promptSession = sessionManager.get(msg.sessionId);
 
-  if (promptSession?.status === "ended") {
+  // Reopen path fires for a cleanly-ended session OR a crash-orphaned "zombie":
+  // a dashboard-spawned session stuck at status "active" whose process is gone
+  // (no bridge + no keeper). Without the zombie arm the send fell through to
+  // `sendToSession` → "no bridge connection" and the prompt was dropped forever,
+  // because the auto-resume was gated on status==="ended" alone. See change:
+  // resume-zombie-active-session.
+  if (
+    promptSession &&
+    (promptSession.status === "ended" ||
+      shouldReopenDashboardZombie(
+        promptSession,
+        isSessionProcessGone(msg.sessionId, (id) => piGateway.isSessionConnected(id)),
+      ))
+  ) {
+    // Normalize a zombie's stale "active" to "ended" so the rest of this block
+    // drives the SAME proven ended→alive resume flow (pendingResume + continue).
+    if (promptSession.status !== "ended") {
+      sessionManager.update(msg.sessionId, { status: "ended" });
+    }
     if (!promptSession.sessionFile) {
       console.error(`[dashboard] auto-resume failed: no session file for session ${msg.sessionId}`);
       return;
@@ -279,6 +297,43 @@ function isSessionCarrierAlive(sessionId: string): boolean {
   }
 }
 
+/**
+ * A session's process is provably GONE when neither a live bridge nor a live
+ * keeper carries it. Distinguishes a genuinely-running session from a crash/
+ * OOM/kill-9 "zombie" whose stale record never transitioned to "ended".
+ * Reopening a zombie recovers it; reopening a LIVE session double-spawns (the
+ * gateway session→connection map is last-write-wins → routing breaks), which is
+ * why the bridge check is included, not just the keeper probe.
+ * See change: resume-zombie-active-session.
+ */
+export function isSessionProcessGone(
+  sessionId: string,
+  isBridgeConnected: (id: string) => boolean,
+  isCarrierAlive: (id: string) => boolean = isSessionCarrierAlive,
+): boolean {
+  return !isBridgeConnected(sessionId) && !isCarrierAlive(sessionId);
+}
+
+/**
+ * Should a send with no live bridge REOPEN the session instead of dropping the
+ * prompt? True only for a dashboard-spawned zombie: not cleanly "ended", its
+ * process gone, and a `sessionFile` to continue from. Scoped to
+ * `source === "dashboard"` so a cli/TUI session with a transient bridge drop is
+ * never given a headless twin (the TUI owns its own lifecycle).
+ * See change: resume-zombie-active-session.
+ */
+export function shouldReopenDashboardZombie(
+  session: { status: string; source: string; sessionFile?: string | null },
+  processGone: boolean,
+): boolean {
+  return (
+    session.status !== "ended" &&
+    session.source === "dashboard" &&
+    !!session.sessionFile &&
+    processGone
+  );
+}
+
 export async function handleResumeSession(
   msg: Extract<BrowserToServerMessage, { type: "resume_session" }>,
   ctx: BrowserHandlerContext,
@@ -298,7 +353,15 @@ export async function handleResumeSession(
     sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session file is unknown (pre-migration session)", code: "resume.session_file_unknown", requestId: msg.requestId });
     return;
   }
-  if (msg.mode === "continue" && session.status !== "ended") {
+  // Reject "already active" ONLY when the process is genuinely live. A zombie
+  // (stale "active" status, dead bridge + keeper) must fall through to the
+  // reopen path below, or it can never be recovered. See change:
+  // resume-zombie-active-session.
+  if (
+    msg.mode === "continue" &&
+    session.status !== "ended" &&
+    !isSessionProcessGone(msg.sessionId, (id) => ctx.piGateway.isSessionConnected(id))
+  ) {
     sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already active", code: "resume.already_active", requestId: msg.requestId });
     return;
   }
