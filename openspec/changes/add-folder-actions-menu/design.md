@@ -2,6 +2,32 @@
 
 Mockup: `mockups/index.html`. Token/state reference: `mockups/ui-plan.md`.
 
+> ## SCOPE WARNING — read before implementing
+>
+> This is the **shared design record for all four sequenced changes**, carried over from the
+> `reorganize-folder-card-header` umbrella that doubt-review forced apart. It describes the
+> **end state**, not the scope of the change it currently sits in.
+>
+> **`add-folder-actions-menu` (this change) implements D1 and D3 only**, plus the menu itself.
+> D8 supplies the trigger glyph; D11 and D12 are correction records, not deliverables — D12 is
+> what justifies retiring the `folder-action-bar` Pi Resources requirement.
+>
+> | Decision | Lands in |
+> |---|---|
+> | D1 Workspace leaves the session card, D3 open-in-new deleted, menu + cluster collapse | **1 · add-folder-actions-menu** (this) |
+> | D2 status capsule | 2 · unify-folder-status-capsule |
+> | D4 tier-0 banner, D5 idempotent setup, D6 staleness surfaces, D7 scope split | 3 · add-folder-action-banner |
+> | D9 slot-pill actions, D10 plugin contract | 4 · move-slot-actions-to-menu |
+>
+> Anything in this file describing a status capsule, a banner, a per-artifact setup tally, a
+> five-group menu, or the removal of `SlotPill.actions` is **out of scope here**. In particular
+> the tier diagram below shows the end state: this change delivers only the menu trigger on
+> tier 1 and leaves `FolderActionBar` in place.
+>
+> The `⋯` shorthand used throughout this document predates D8. The trigger glyph is
+> **`mdiFolderCogOutline`**; `mdiDotsHorizontal` was rejected. Read `⋯` as "the folder actions
+> menu", not as the glyph.
+
 ## The tier model
 
 ```
@@ -221,10 +247,10 @@ found the artifact under-scoped its delta set and mis-stated several counts. Rec
 |---|---|---|
 | `directory-home-page` whole-row requirement says the icon affordance "SHALL remain" | actionable | that requirement is now MODIFIED, not left dangling |
 | `sidebar-folder-header` layout + chevron requirements name `FolderActionBar` and the pin button | actionable | both MODIFIED |
-| `folder-action-bar` Pi Resources requirement orphaned | actionable | MODIFIED — rehomed to the menu |
-| `openspec-folder-section` mandates a Refresh control and a folder-level Refresh button | actionable | delta added |
-| `kb-plugin-folder-section` mandates a per-state reindex control | actionable | delta added |
-| `group-commit-btn` is a standalone mutation on the git row | actionable | git-row prohibition now names it; the dirty-count affordance is the only commit entry point |
+| `folder-action-bar` Pi Resources requirement orphaned | actionable | REMOVED in change 1 — see D12; it was already superseded, not rehomed |
+| `openspec-folder-section` mandates a Refresh control and a folder-level Refresh button | actionable | **deferred to change 4** — the delta drafted for the umbrella was withdrawn in the split |
+| `kb-plugin-folder-section` mandates a per-state reindex control | actionable | **deferred to change 4** — same |
+| `group-commit-btn` is a standalone mutation on the git row | actionable | **deferred to change 3**, which owns the git-facts row |
 | Menu re-enabled pin / add-to-workspace inside workspaces | actionable | placement gating now explicit in the spec |
 | Tier-0 "cannot proceed" vs a banner for merely-incomplete setup | actionable | banner now gated on **required** artifacts; optional ones are menu-only |
 | Probe failure could render a false "not a pi project" banner | actionable | fail-open now renders no banner |
@@ -242,6 +268,25 @@ found the artifact under-scoped its delta set and mis-stated several counts. Rec
 `Directory settings…` item uses `mdiCog`. Both are visible while the menu is open. This is a
 weaker echo than two identical `⋯` triggers (trigger vs. item, different levels) but it is not
 zero — flagged rather than hidden.
+
+## D12 — Pi Resources was already gone; the cog is Directory Settings
+
+A second doubt cycle (on the split artifact) flagged that removing the `FolderActionBar` cog
+"orphans Pi Resources". Checking source: the button's `title` and `aria-label` are both
+**"Directory Settings"**, and `directory-settings-page` records that this cog replaced "the
+prior `mdiToyBrickOutline` icon and 'Pi Resources' label". Only the handler prop still carries
+the legacy name `onOpenPiResources`.
+
+So there is no Pi Resources button to rehome — D9's earlier claim that the feature "was nearly
+destroyed" was itself based on the stale prop name, not on the rendered control. The
+`folder-action-bar` requirement is REMOVED as already-superseded, and the prop is renamed.
+
+`pi-resources-view`'s "Folder header navigation button" requirement is stale in exactly the
+same way. It is **not** fixed here — that drift predates this change and fixing it would widen
+the delta set for no behavioural gain. Recorded in the proposal instead.
+
+**Lesson:** a prop name is not evidence of a rendered control. D9 asserted a feature existed
+because a callback was named after it.
 
 ## Open
 
