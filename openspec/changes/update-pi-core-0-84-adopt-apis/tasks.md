@@ -50,10 +50,10 @@
 
 ## 6. OAuth refresh — concrete abort signal
 
-- [ ] 6.1 Pass a concrete `AbortSignal` on every `refreshToken` call in `packages/server/src/model-proxy/internal-auth-storage.ts` (lines ~129 and ~137).
-- [ ] 6.2 Add an L1 test that the signal is supplied — input: an OAuth credential due for refresh; trigger: internal auth storage refreshes it; observable: `refreshToken` receives a concrete `AbortSignal` as its second argument (test-plan #X4). See `packages/server/src/__tests__/provider-auth-storage.test.ts`.
-- [ ] 6.3 Add an L1 fault-injection test that an aborted refresh persists nothing — input: signal aborts mid-refresh; trigger: abort; observable: no partially-refreshed credential is written to storage (test-plan #X5). See `packages/server/src/__tests__/provider-auth-storage.test.ts`.
-- [ ] 6.4 Add an L1 fault-injection test that a failed refresh keeps the prior credential — input: `refreshToken` rejects; trigger: trigger refresh; observable: previously stored credential intact and the failure surfaced, not swallowed (test-plan #X6). See `packages/server/src/model-proxy/__tests__/oauth-compat.test.ts`.
+- [x] 6.1 Pass a concrete `AbortSignal` on every `refreshToken` call in `packages/server/src/model-proxy/internal-auth-storage.ts` (lines ~129 and ~137).
+- [x] 6.2 Add an L1 test that the signal is supplied — input: an OAuth credential due for refresh; trigger: internal auth storage refreshes it; observable: `refreshToken` receives a concrete `AbortSignal` as its second argument (test-plan #X4). See `packages/server/src/__tests__/provider-auth-storage.test.ts`.
+- [x] 6.3 Add an L1 fault-injection test that an aborted refresh persists nothing — input: signal aborts mid-refresh; trigger: abort; observable: no partially-refreshed credential is written to storage (test-plan #X5). See `packages/server/src/__tests__/provider-auth-storage.test.ts`.
+- [x] 6.4 Add an L1 fault-injection test that a failed refresh keeps the prior credential — input: `refreshToken` rejects; trigger: trigger refresh; observable: previously stored credential intact and the failure surfaced, not swallowed (test-plan #X6). See `packages/server/src/model-proxy/__tests__/oauth-compat.test.ts`.
 
 ## 7. v4 lane-based session model
 

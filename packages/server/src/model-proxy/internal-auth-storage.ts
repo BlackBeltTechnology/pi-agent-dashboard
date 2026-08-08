@@ -15,10 +15,17 @@ import {
   type OAuthCredential,
 } from "../auth/provider-auth-storage.js";
 
-/** Minimal pi-ai OAuth module surface (runtime-resolved from pi-ai/oauth). */
+/**
+ * Minimal pi-ai OAuth module surface (runtime-resolved from pi-ai/oauth).
+ *
+ * pi 0.84.0 BREAKING: `refreshToken(credentials, signal)` must accept and
+ * honor a concrete abort signal. See change: update-pi-core-0-84-adopt-apis.
+ */
 export interface PiAiOAuthModule {
-  getOAuthProvider: (id: string) => { refreshToken: (creds: any) => Promise<any> } | undefined;
-  refreshOAuthToken: (providerId: string, credentials: any) => Promise<any>;
+  getOAuthProvider: (
+    id: string,
+  ) => { refreshToken: (creds: any, signal: AbortSignal) => Promise<any> } | undefined;
+  refreshOAuthToken: (providerId: string, credentials: any, signal: AbortSignal) => Promise<any>;
 }
 
 /** OAuth provider ID mapping — pi uses these internal IDs for auth.json keys. */
@@ -31,6 +38,13 @@ const OAUTH_PROVIDER_MAP: Record<string, string> = {
 /** Buffer before expiry to trigger preemptive refresh (30s). */
 const REFRESH_BUFFER_MS = 30_000;
 
+/**
+ * Ceiling on a single OAuth refresh. Bounds the abort signal pi 0.84.0
+ * requires — without it a provider that never answers would hang every request
+ * routed through this credential.
+ */
+const REFRESH_TIMEOUT_MS = 30_000;
+
 export class InternalAuthStorage {
   private oauthModule: PiAiOAuthModule | null;
   private cachedAuth: AuthData | null = null;
@@ -42,13 +56,17 @@ export class InternalAuthStorage {
    * model falls back to this. See change: add-agent-role-model-tools.
    */
   private customProviderCreds: (() => Record<string, { type: "api_key"; key: string }>) | null;
+  /** Abort ceiling for one refresh. Injectable so tests can drive the signal. */
+  private refreshTimeoutMs: number;
 
   constructor(
     oauthModule: PiAiOAuthModule | null,
     customProviderCreds?: () => Record<string, { type: "api_key"; key: string }>,
+    refreshTimeoutMs: number = REFRESH_TIMEOUT_MS,
   ) {
     this.oauthModule = oauthModule;
     this.customProviderCreds = customProviderCreds ?? null;
+    this.refreshTimeoutMs = refreshTimeoutMs;
   }
 
   async getApiKeyAndHeaders(
@@ -123,21 +141,35 @@ export class InternalAuthStorage {
     const oauthId = OAUTH_PROVIDER_MAP[provider] ?? provider;
     let refreshed: any;
 
-    // Try provider-specific refresh via getOAuthProvider
-    const oauthProvider = this.oauthModule.getOAuthProvider(oauthId);
-    if (oauthProvider?.refreshToken) {
-      refreshed = await oauthProvider.refreshToken({
-        accessToken: cred.access,
-        refreshToken: cred.refresh,
-        expiresAt: cred.expires,
-      });
-    } else {
-      // Fall back to generic refreshOAuthToken
-      refreshed = await this.oauthModule.refreshOAuthToken(oauthId, {
-        accessToken: cred.access,
-        refreshToken: cred.refresh,
-        expiresAt: cred.expires,
-      });
+    // pi 0.84.0 requires a concrete AbortSignal on every OAuth refresh. Own the
+    // controller here so the timeout is enforced even when the provider ignores
+    // the signal. See change: update-pi-core-0-84-adopt-apis.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.refreshTimeoutMs);
+    const credentials = {
+      accessToken: cred.access,
+      refreshToken: cred.refresh,
+      expiresAt: cred.expires,
+    };
+
+    try {
+      // Try provider-specific refresh via getOAuthProvider
+      const oauthProvider = this.oauthModule.getOAuthProvider(oauthId);
+      if (oauthProvider?.refreshToken) {
+        refreshed = await oauthProvider.refreshToken(credentials, controller.signal);
+      } else {
+        // Fall back to generic refreshOAuthToken
+        refreshed = await this.oauthModule.refreshOAuthToken(oauthId, credentials, controller.signal);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+
+    // A provider that ignores the signal can still answer after we gave up.
+    // Persisting that answer would write a credential the caller already
+    // discarded, so treat a fired signal as authoritative.
+    if (controller.signal.aborted) {
+      throw new Error(`OAuth refresh for "${provider}" aborted before completing`);
     }
 
     // Map refreshed credentials back to storage format
