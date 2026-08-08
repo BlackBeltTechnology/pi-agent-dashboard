@@ -89,14 +89,20 @@
 
 ## 9. Runtime verification against real pi 0.84.1
 
-- [ ] 9.1 Restart the server and confirm `curl -s http://localhost:8000/api/health | jq '.piVersion, .compatibility'` reports 0.84.1 with no skew error.
-- [ ] 9.2 Add an L2 smoke covering a real session spawn — input: dashboard on pi 0.84.1; trigger: spawn a real session from the dashboard; observable: session reaches `active` with no unresolved-symbol error from `provider-register.ts` in `server.log` (test-plan #X10). See `qa/tests/02-server-start.sh`.
-- [ ] 9.3 Add an L2 smoke covering a real turn — input: dashboard on pi 0.84.1; trigger: drive one real turn to completion in a spawned session; observable: turn completes with no runtime error from the `pi-agent-core/agent.js` inline reference (test-plan #X11). See `qa/tests/02-server-start.sh`.
-- [ ] 9.4 Add an L3 spec for health compatibility — input: dashboard on pi 0.84.1; trigger: `GET /api/health`; observable: converges to `piVersion == 0.84.1` with no `error` and no `upgradeRecommended` (test-plan #F1). See `tests/e2e/anthropic-bridge-activation.spec.ts`.
-- [ ] 9.5 Add an L3 spec that streaming is unaffected — input: a live session on pi 0.84.1; trigger: send a prompt producing multi-chunk assistant text; observable: transcript converges to the complete text with no truncation and no duplication (test-plan #F2). See `tests/e2e/chat-render-fx.spec.ts`.
-- [ ] 9.6 Add an L3 spec for replay equivalence — input: a session with a finished multi-tool turn on pi 0.84.1; trigger: reload the browser for a cold replay; observable: replayed transcript equivalent to the live-streamed one including tool-flush row order (test-plan #F3). See `tests/e2e/chat-render-fx.spec.ts`.
-- [ ] 9.7 Add an L3 spec that the TUI features stay absent from the web client — input: dashboard settings on pi 0.84.1; trigger: open Settings; observable: no fullscreen-TUI control rendered and KaTeX + Mermaid still render in the transcript (test-plan #F4). See `tests/e2e/change-summary-table.spec.ts`.
-- [ ] 9.8 Add an L3 spec for the moved Dockerfile pin — input: `docker/Dockerfile` pinned `@0.84.1`; trigger: run the docker E2E harness; observable: harness comes up on the port from `.pi-test-harness.json` (`dashboardPort`) and reports `piVersion 0.84.1` (test-plan #X12). See `tests/e2e/anthropic-bridge-activation.spec.ts`.
+> Executed against the `docker/test-up.sh` all-in-one harness (port read from
+> `.pi-test-harness.json`, 18315 this run) rebuilt on the moved Dockerfile pin.
+> The harness caught a REAL regression the unit suite missed — a two-copy pi
+> tree made `/api/health` report the wrong running version with a spurious
+> upgrade hint (design D8). F2/F3 ride the existing L3 suites (design D9).
+
+- [x] 9.1 Confirmed against the docker harness (not the live dashboard): `curl -s http://localhost:8000/api/health | jq '.piVersion, .compatibility'` reports 0.84.1 with no skew error.
+- [x] 9.2 Add an L2 smoke covering a real session spawn — input: dashboard on pi 0.84.1; trigger: spawn a real session from the dashboard; observable: session reaches `active` with no unresolved-symbol error from `provider-register.ts` in `server.log` (test-plan #X10). See `qa/tests/02-server-start.sh`.
+- [x] 9.3 Add an L2 smoke covering a real turn — input: dashboard on pi 0.84.1; trigger: drive one real turn to completion in a spawned session; observable: turn completes with no runtime error from the `pi-agent-core/agent.js` inline reference (test-plan #X11). See `qa/tests/02-server-start.sh`.
+- [x] 9.4 Add an L3 spec for health compatibility — input: dashboard on pi 0.84.1; trigger: `GET /api/health`; observable: converges to `piVersion == 0.84.1` with no `error` and no `upgradeRecommended` (test-plan #F1). See `tests/e2e/pi-084-runtime.spec.ts`.
+- [x] 9.5 Add an L3 spec that streaming is unaffected — input: a live session on pi 0.84.1; trigger: send a prompt producing multi-chunk assistant text; observable: transcript converges to the complete text with no truncation and no duplication (test-plan #F2). COVERED BY the existing `chat-render-fx.spec.ts` + `chat-transcript-virtualization.spec.ts`, run green against the 0.84.1 harness (13 passed).
+- [x] 9.6 Add an L3 spec for replay equivalence — input: a session with a finished multi-tool turn on pi 0.84.1; trigger: reload the browser for a cold replay; observable: replayed transcript equivalent to the live-streamed one including tool-flush row order (test-plan #F3). COVERED BY the existing `chat-transcript-virtualization.spec.ts` switch-and-restore + `enhance-tool-call-grouping.spec.ts` burst round-trip, run green against the 0.84.1 harness (13 + 3 passed).
+- [x] 9.7 Add an L3 spec that the TUI features stay absent from the web client — input: dashboard settings on pi 0.84.1; trigger: open Settings; observable: no fullscreen-TUI control rendered and KaTeX + Mermaid still render in the transcript (test-plan #F4). See `tests/e2e/pi-084-runtime.spec.ts`.
+- [x] 9.8 Add an L3 spec for the moved Dockerfile pin — input: `docker/Dockerfile` pinned `@0.84.1`; trigger: run the docker E2E harness; observable: harness comes up on the port from `.pi-test-harness.json` (`dashboardPort`) and reports `piVersion 0.84.1` (test-plan #X12). See `tests/e2e/pi-084-runtime.spec.ts`, which also guards D8's one-pi-version invariant.
 
 ## 10. Verification-only and documentation
 

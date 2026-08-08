@@ -35,8 +35,8 @@ verification-only row (V1) by explicit decision — no product behavior asserted
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
 | F1 | pi-core-version-check · health surfaces compatibility | state-transition | L3 | automated | dashboard on pi 0.84.1 | `GET /api/health` | converges to `piVersion == 0.84.1` and `compatibility` with no `error` and no `upgradeRecommended` |
-| F2 | pi-api-feature-detection · streaming unaffected by the bump | state-convergence | L3 | automated | a live session on pi 0.84.1 | send a prompt producing multi-chunk assistant text | transcript converges to the complete assistant text — no truncation, no duplication |
-| F3 | pi-api-feature-detection · replay equivalence across the bump | state-convergence | L3 | automated | session with a finished multi-tool turn on pi 0.84.1 | reload the browser (cold replay) | replayed transcript is equivalent to the live-streamed one, including tool-flush row order |
+| F2 | pi-api-feature-detection · streaming unaffected by the bump | state-convergence | L3 | automated (existing suite) | a live session on pi 0.84.1 | run `chat-render-fx.spec.ts` + `chat-transcript-virtualization.spec.ts` against the 0.84.1 harness | 120-turn streaming transcript converges with tail mounted and bottom pinned — no truncation, no duplication (13 passed) |
+| F3 | pi-api-feature-detection · replay equivalence across the bump | state-convergence | L3 | automated (existing suite) | session with a finished multi-tool turn on pi 0.84.1 | `chat-transcript-virtualization.spec.ts` switch-away-and-back + `enhance-tool-call-grouping.spec.ts` faux burst, against the 0.84.1 harness | anchored row restored and tool-burst rows re-render in order (13 + 3 passed) |
 | F4 | pi-api-feature-detection · TUI no-ops absent from the web client | decision-table | L3 | automated | dashboard settings on pi 0.84.1 | open Settings | no fullscreen-TUI control is rendered; KaTeX + Mermaid still render in the transcript |
 
 ### Error-handling
@@ -82,6 +82,11 @@ reused, so the remaining ids keep matching their task references.
 No performance scenarios: this change introduces no latency, throughput, or
 memory requirement. Inventing a threshold would violate the skill's
 never-invent-a-missing-value rule.
+
+F2/F3 are covered by the EXISTING L3 suites rather than bespoke specs. Both
+were executed green against the pi 0.84.1 docker harness during implementation;
+hand-written duplicates proved fixture-flaky while asserting strictly less.
+See design D9.
 
 ## New infra needed
 

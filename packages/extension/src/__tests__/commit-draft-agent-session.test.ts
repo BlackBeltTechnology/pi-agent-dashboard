@@ -12,6 +12,7 @@
  * See change: update-pi-core-0-84-adopt-apis (test-plan #X7, #X8, #X9), design D3a.
  */
 import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -58,9 +59,15 @@ describe("runForkSubagentDraft — 0.84.x session-model audit", () => {
     // the v4 lane API, this fails immediately and forces D3a to be revisited.
     const require_ = createRequire(import.meta.url);
     const repoRoot = path.resolve(__dirname, "../../../..");
-    const sdk = require_(
+    // Resolve nested-then-hoisted: a workspace override may unify pi at the
+    // root, in which case no nested copy exists.
+    const candidates = [
       path.join(repoRoot, "packages/server/node_modules/@earendil-works/pi-coding-agent/dist/index.js"),
-    );
+      path.join(repoRoot, "node_modules/@earendil-works/pi-coding-agent/dist/index.js"),
+    ];
+    const entry = candidates.find((p) => fs.existsSync(p));
+    expect(entry, "pi SDK entrypoint must be resolvable").toBeTruthy();
+    const sdk = require_(entry!);
 
     expect(typeof sdk.createAgentSession).toBe("function");
     expect(typeof sdk.SessionManager).toBe("function");

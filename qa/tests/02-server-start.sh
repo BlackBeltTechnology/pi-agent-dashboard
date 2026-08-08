@@ -42,6 +42,29 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "Server log non-empty ($LOG_PATH, $(wc -c < "$LOG_PATH") bytes)"
 
+    # See change: update-pi-core-0-84-adopt-apis (test-plan #X10, #X11).
+    # The pi 0.84.1 bump touches provider-register.ts (model-registry refresh)
+    # and the auto-session-namer (null-bearing provider headers). Both are
+    # exercised through MOCKED catalog probes at L1, so a pi-ai symbol break
+    # would pass every unit test and only surface on a real boot. Assert the
+    # real server log carries no such runtime failure.
+    if grep -qiE "is not a function|is not defined|Cannot find module|SyntaxError" "$LOG_PATH"; then
+      echo "FAIL: server.log carries an unresolved-symbol/module error after the pi bump:"
+      grep -inE "is not a function|is not defined|Cannot find module|SyntaxError" "$LOG_PATH" | head -5
+      exit 1
+    fi
+    echo "No unresolved-symbol errors in server.log"
+
+    # The running pi must satisfy the declared compatibility floor, and the
+    # health probe must not report a blocking skew error.
+    COMPAT_ERROR=$(curl -s http://localhost:8000/api/health 2>/dev/null \
+      | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const c=JSON.parse(s).compatibility;process.stdout.write(c&&c.error?c.error:'')}catch{process.stdout.write('')}})" 2>/dev/null || echo "")
+    if [ -n "$COMPAT_ERROR" ]; then
+      echo "FAIL: /api/health reports a blocking pi compatibility error: $COMPAT_ERROR"
+      exit 1
+    fi
+    echo "No blocking pi compatibility error"
+
     echo "PASS: Server started successfully"
     exit 0
   fi
