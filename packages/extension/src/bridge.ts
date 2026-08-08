@@ -425,7 +425,10 @@ function initBridge(pi: ExtensionAPI) {
    * `executor` returns, pi's `finishRun()` flips `isStreaming = false` and
    * `activeRun = undefined`. After that point, anything queued into pi's
    * internal followUpQueue NEVER drains — pi has stopped reading it.
-   * (Verified at pi-coding-agent pi-agent-core/agent.js:307-330.)
+   * (Verified at pi-coding-agent pi-agent-core/agent.js: `finishRun()` clears
+   * `isStreaming` + `activeRun`, and `getFollowUpMessages` is only supplied to
+   * the loop while a run is active. Re-verified against pi 0.84.1 — behaviour
+   * unchanged, line numbers moved. See change: update-pi-core-0-84-adopt-apis.)
    *
    * Two retry loops handle the transition window correctly:
    *  - retryCount tracks how many setTimeout retries we've done

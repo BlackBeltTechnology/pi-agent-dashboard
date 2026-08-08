@@ -57,11 +57,18 @@
 
 ## 7. v4 lane-based session model
 
-- [ ] 7.1 Audit `packages/extension/src/commit-draft-agent.ts` against the v4 `Session` / `SessionStorage` / `SessionRepo` APIs and add constructor-shape feature detection with a pre-0.84 `SessionManager.inMemory` fallback.
-- [ ] 7.2 Audit the inline reference at `packages/extension/src/bridge.ts:426` into `pi-agent-core/agent.js:307-330` against the v4 session model and record the finding.
-- [ ] 7.3 Add an L1 state-transition test for the v4 path — input: running pi exposes the v4 constructor; trigger: request a commit draft; observable: draft produced via the v4 path with the subscription unsubscribed and the session disposed (test-plan #X7). See `packages/extension/src/__tests__/commit-draft.test.ts`.
-- [ ] 7.4 Add an L1 state-transition test for the floor-pi fallback — input: running pi exposes only `SessionManager.inMemory`; trigger: request a commit draft; observable: draft produced via the legacy path with no crash and no behavior regression (test-plan #X8). See `packages/extension/src/__tests__/commit-draft.test.ts`.
-- [ ] 7.5 Add an L1 fault-injection test for disposal — input: the agent turn rejects mid-draft; trigger: request a commit draft; observable: subscription unsubscribed and session disposed despite the failure (test-plan #X9). See `packages/extension/src/__tests__/commit-draft.test.ts`.
+> Section 7 was RETARGETED during implementation. The v4 break lands on
+> pi-agent-core, not the `pi-coding-agent` SDK surface the dashboard calls:
+> `createAgentSession`, `SessionManager`, and `SessionManager.inMemory` are all
+> still exported and callable in 0.84.1, and `sdk.d.ts:101` still documents the
+> exact call `commit-draft-agent.ts` makes. The tasked feature-detection branch
+> would be unreachable. Rationale: design.md D3a/D3b.
+
+- [x] 7.1 Audit `packages/extension/src/commit-draft-agent.ts` against the v4 `Session` / `SessionStorage` / `SessionRepo` APIs. FINDING: the SDK session surface is unchanged in 0.84.1 — no migration and no feature-detection branch needed (design D3a).
+- [x] 7.2 Audit the inline reference at `packages/extension/src/bridge.ts:426` into `pi-agent-core/agent.js` and record the finding. FINDING: it is a COMMENT, not a call — the code uses public `pi.sendUserMessage` / `pi.isStreaming`. The cited behaviour still holds in 0.84.1; only the line numbers moved, and the citation is updated (design D3b).
+- [x] 7.3 Add an L1 state-transition test for the real session path — input: a commit draft request; trigger: run the fork subagent; observable: draft produced via `createAgentSession` + `SessionManager.inMemory` with `tools: []`, the subscription unsubscribed and the session disposed (test-plan #X7). See `packages/extension/src/__tests__/commit-draft-agent-session.test.ts`.
+- [x] 7.4 Add an L1 test pinning the SDK session surface — input: the pinned pi 0.84.1; trigger: load the SDK entrypoint; observable: `createAgentSession`, `SessionManager`, and `SessionManager.inMemory` are all callable, so a future pi that collapses them into the v4 lane API fails loudly and forces D3a to be revisited (test-plan #X8). See `packages/extension/src/__tests__/commit-draft-agent-session.test.ts`.
+- [x] 7.5 Add an L1 fault-injection test for disposal — input: the agent turn rejects mid-draft; trigger: request a commit draft; observable: subscription unsubscribed and session disposed despite the failure (test-plan #X9). See `packages/extension/src/__tests__/commit-draft-agent-session.test.ts`.
 
 ## 8. Adopt AGENTS.override.md and samplingParams
 
