@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { browseDirectory, classifyPaths, createDirectory } from "../../lib/api/browse-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface Props {
   initialPath?: string;
@@ -204,7 +205,9 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
       const { parent, partial } = parseInput(initialPath);
       void fetchDir(parent, partial);
     } else {
-      fetchDir(undefined, "").then((result) => {
+      // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+      void fetchDir(undefined, "")
+        .then((result) => {
         // Never clobber input the user has already typed (see userEditedRef).
         if (result && !userEditedRef.current) {
           // Append OS-native separator using the platform the server
@@ -213,7 +216,8 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
           const platform = result.platform ?? inferPlatform([result.current]);
           setInputValue(withTrailingSep(result.current, platform));
         }
-      });
+        })
+        .catch(logRejection("PathPicker.fetchDir"));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

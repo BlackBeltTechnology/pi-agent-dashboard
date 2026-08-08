@@ -17,6 +17,7 @@
  * See change: register-bash-and-tool-install-help.
  */
 import { useEffect, useState } from "react";
+import { logRejection } from "../lib/report-error.js";
 
 /** Host platforms we render install hints for. Mirrors keyof InstallHints. */
 export type HostPlatform = "darwin" | "win32" | "linux";
@@ -41,7 +42,9 @@ export function browserPlatformFallback(): HostPlatform | null {
 }
 
 function probe(): Promise<HostPlatform | null> {
-  if (inflight) return inflight;
+  // Explicit nullish check — a `Promise` is always truthy, so the bare guard was
+  // correct only by accident. See change: cleanup-client-plugin-promises (D6).
+  if (inflight !== null) return inflight;
   inflight = (async () => {
     try {
       const res = await fetch("/api/health");
@@ -64,9 +67,13 @@ export function useHostPlatform(): HostPlatform | null {
       return;
     }
     let cancelled = false;
-    probe().then((v) => {
-      if (!cancelled) setValue(v ?? browserPlatformFallback());
-    });
+    // Effect callbacks must return void/cleanup, so the promise is discarded
+    // with a stated handler. See change: cleanup-client-plugin-promises.
+    void probe()
+      .then((v) => {
+        if (!cancelled) setValue(v ?? browserPlatformFallback());
+      })
+      .catch(logRejection("useHostPlatform.probe"));
     return () => {
       cancelled = true;
     };

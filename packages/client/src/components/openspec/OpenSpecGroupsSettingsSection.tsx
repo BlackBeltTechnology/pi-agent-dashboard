@@ -11,6 +11,7 @@ import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { createGroup, deleteGroup, fetchGroups, updateGroup } from "../../lib/openspec/openspec-groups-api.js";
 import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface CwdGroups {
   cwd: string;
@@ -57,7 +58,7 @@ export function OpenSpecGroupsSettingsSection() {
       }
     }
 
-    load();
+    void load().catch(logRejection("OpenSpecGroupsSettingsSection.load"));
     return () => { cancelled = true; };
   }, []);
 

@@ -11,6 +11,7 @@
  */
 import { useEffect, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
+import { logRejection } from "../lib/report-error.js";
 
 const SOURCE_LANG_MAP: Record<string, string> = {
   ".ts": "typescript", ".tsx": "typescript", ".js": "javascript", ".jsx": "javascript",
@@ -39,7 +40,8 @@ export function usePiResourceFileFetch(filePath: string): PiResourceFileFetchRes
   useEffect(() => {
     let cancelled = false;
     setResult({ isLoading: true });
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const res = await fetch(`${getApiBase()}/api/pi-resource-file?path=${encodeURIComponent(filePath)}`);
         const body = await res.json();
@@ -57,7 +59,7 @@ export function usePiResourceFileFetch(filePath: string): PiResourceFileFetchRes
         if (cancelled) return;
         setResult({ isLoading: false, error: err?.message ?? String(err) });
       }
-    })();
+    })().catch(logRejection("usePiResourceFileFetch.load"));
     return () => { cancelled = true; };
   }, [filePath]);
   return result;

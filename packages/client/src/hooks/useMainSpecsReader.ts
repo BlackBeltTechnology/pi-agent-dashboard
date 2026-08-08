@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
 import { t } from "../lib/i18n/i18n.js";
+import { logRejection } from "../lib/report-error.js";
 
 async function fetchDir(cwd: string, dirPath: string): Promise<string[]> {
   const res = await fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(dirPath)}`);
@@ -77,7 +78,9 @@ export function useMainSpecsReader(cwd: string): MainSpecsReaderState {
   }, [cwd]);
 
   useEffect(() => {
-    load();
+    // Effect callbacks must return void/cleanup, so the promise is discarded
+    // with a stated handler. See change: cleanup-client-plugin-promises.
+    void load().catch(logRejection("useMainSpecsReader.load"));
     return () => { abortRef.current?.abort(); };
   }, [load]);
 

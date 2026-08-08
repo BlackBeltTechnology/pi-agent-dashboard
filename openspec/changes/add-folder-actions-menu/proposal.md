@@ -58,9 +58,14 @@ change 3 empties it. Only the settings cog leaves it.
 ### New Capabilities
 
 - `folder-actions-menu`: a single grouped overflow menu that is the one home for every
-  directory mutation on the card.
+  directory mutation **in the folder header row**. Mutations elsewhere on the card — the init
+  and cleanup controls on `FolderActionBar`, and the slot pills' own action buttons — stay put;
+  changes 3 and 4 consolidate those.
 
 ### Modified Capabilities
+
+- `folder-action-bar`: the Directory Settings cog leaves the bar for the menu; the bar keeps
+  its Initialize and cleanup controls and continues to render.
 
 - `sidebar-folder-header`: the trailing cluster collapses to one control; the first content
   row carries the menu trigger instead of the pin button.
@@ -77,6 +82,11 @@ change 3 empties it. Only the settings cog leaves it.
 - `directory-home-page` → `Requirement: Sidebar open affordance`: superseded by
   `Requirement: Whole-row open affordance`, which already covers sidebar navigation to
   `/folder/:encodedCwd` without a dedicated icon.
+- `folder-action-bar` → `Requirement: Pi Resources button with updated icon`: already
+  superseded before this change. The control it describes was re-labelled by
+  `directory-settings-page`; in source the button's `title` and `aria-label` are both
+  "Directory Settings" and only its handler prop retains the legacy name
+  `onOpenPiResources`. There is no distinct Pi Resources button to preserve.
 
 ## Discipline Skills
 
@@ -98,14 +108,25 @@ change 3 empties it. Only the settings cog leaves it.
 - **Tests**: `tests/e2e/folder-membership-drag.spec.ts` (add-to-workspace at 151/171/194,
   `folder-open-home` at 49/136, `ws-remove-` at 189), `tests/e2e/directory-home.spec.ts`
   (navigates via `folder-open-home-<cwd>` throughout), `tests/e2e/kb-folder-slot.spec.ts`
-  (anchors on `folder-urgency-sort-<cwd>`), `tests/e2e/helpers/index.ts`;
+  (anchors on `folder-urgency-sort-<cwd>`);
   `SessionList.test.tsx` (`:840-845` asserts the cluster is exactly the four buttons being
   collapsed — that assertion inverts; `:889-900` targets the deleted session-card control;
   `:664-755` targets `folder-open-home`).
 - **A11y**: trigger carries `aria-haspopup="menu"` + `aria-expanded`; items carry
   `role="menuitem"`; the header row keeps `min-h-[44px] md:min-h-0` (WCAG 2.5.5); the mobile
   sheet returns focus to the trigger on dismissal.
-- **Known pre-existing drift, not fixed here**: `pi-resources-view` still requires a "Pi
-  Resources button" in the folder header, but `directory-settings-page` already replaced that
-  control with the Directory Settings cog. That contradiction predates this change.
+- **Prop rename**: `onOpenPiResources` → `onOpenDirectorySettings`, threaded through
+  `SessionList` and `App.tsx` (`handleOpenPiResources` → `handleOpenDirectorySettings`).
+  It already routes to `buildFolderSettingsUrl`; only the name is wrong. Behaviour unchanged.
+- **Known pre-existing drift, deliberately NOT fixed here** (fixing either would widen the
+  delta set for no behavioural gain):
+  - `pi-resources-view` carries **two** stale requirements describing the same superseded
+    control: `Requirement: Folder header navigation button` ("a Pi Resources button SHALL
+    appear in the button row") and `Requirement: Pi Resources button icon` ("the button SHALL
+    retain its right-aligned position in the action bar"). Both were falsified when
+    `directory-settings-page` re-labelled the cog; neither is resolved here.
+  - `sidebar-folder-header`'s **Purpose** paragraph still reads "Chevron OR the folder-name row
+    toggles collapse" and names the pin and action bar. Purpose prose is not a requirement and
+    `openspec validate` ignores it, but it now contradicts the modified requirements. Worth
+    correcting when this change is archived.
 - **Risk**: medium. Moves five previously one-click actions behind a menu.

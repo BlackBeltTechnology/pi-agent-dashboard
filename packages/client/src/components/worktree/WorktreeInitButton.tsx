@@ -36,6 +36,7 @@ import {
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { initStore, useInitRun } from "../../lib/git/worktree-init-store.js";
 import { WorktreeInitChip } from "./WorktreeInitChip.js";
+import { logRejection } from "../../lib/report-error.js";
 
 function describeRun(hook: WorktreeInitHook): string {
   return hook.run.type === "script"
@@ -73,7 +74,9 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
   useEffect(() => {
     if (rowOwnsProbe) return;
     let alive = true;
-    fetchWorktreeInitStatus(cwd).then((s) => { if (alive) setInternalStatus(s); });
+    void fetchWorktreeInitStatus(cwd)
+      .then((s) => { if (alive) setInternalStatus(s); })
+      .catch(logRejection("WorktreeInitButton.fetchStatus"));
     return () => { alive = false; };
   }, [cwd, rowOwnsProbe]);
 

@@ -6,6 +6,7 @@ import { useLocation } from "wouter";
 import type { ToastVariant } from "../../hooks/useAsyncAction.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { GatewayDialog } from "../Gateway/GatewayDialog.js";
+import { logRejection } from "../../lib/report-error.js";
 
 const POLL_INTERVAL = 30_000;
 
@@ -36,8 +37,8 @@ export function TunnelButton(_props: { showToast?: (text: string, variant?: Toas
   }, []);
 
   useEffect(() => {
-    fetchStatus();
-    const id = setInterval(fetchStatus, POLL_INTERVAL);
+    void fetchStatus().catch(logRejection("TunnelButton.fetchStatus"));
+    const id = setInterval(() => { void fetchStatus().catch(logRejection("TunnelButton.poll")); }, POLL_INTERVAL);
     return () => clearInterval(id);
   }, [fetchStatus]);
 
