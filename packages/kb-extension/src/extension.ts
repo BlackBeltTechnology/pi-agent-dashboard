@@ -28,7 +28,7 @@ import {
 } from "./reindex.js";
 
 const WRITE_TOOLS = new Set(["write", "edit", "bash"]);
-const AGENTS_NAMES = new Set(["AGENTS.md", "CLAUDE.md"]);
+const AGENTS_NAMES = new Set(["AGENTS.override.md", "AGENTS.md", "CLAUDE.md"]);
 
 function isMd(p: string): boolean {
   return /\.(md|mdx|markdown)$/i.test(p);

@@ -52,6 +52,7 @@ import { getOwnPgid, scanChildProcesses } from "./process-scanner.js";
 import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
+import { reportRefresh } from "./model-refresh.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
@@ -424,7 +425,10 @@ function initBridge(pi: ExtensionAPI) {
    * `executor` returns, pi's `finishRun()` flips `isStreaming = false` and
    * `activeRun = undefined`. After that point, anything queued into pi's
    * internal followUpQueue NEVER drains — pi has stopped reading it.
-   * (Verified at pi-coding-agent pi-agent-core/agent.js:307-330.)
+   * (Verified at pi-coding-agent pi-agent-core/agent.js: `finishRun()` clears
+   * `isStreaming` + `activeRun`, and `getFollowUpMessages` is only supplied to
+   * the loop while a run is active. Re-verified against pi 0.84.1 — behaviour
+   * unchanged, line numbers moved. See change: update-pi-core-0-84-adopt-apis.)
    *
    * Two retry loops handle the transition window correctly:
    *  - retryCount tracks how many setTimeout retries we've done
@@ -767,7 +771,21 @@ function initBridge(pi: ExtensionAPI) {
             );
           }
           cachedModelRegistry?.authStorage?.reload?.();
-          cachedModelRegistry?.refresh?.();
+          // pi 0.84.0: refresh() takes ModelsRefreshOptions and returns
+          // { aborted, errors }. Await + inspect it so getAvailable() below
+          // sees the refreshed catalogue and a per-provider failure is
+          // reported rather than silently dropped. Scope the refresh to the
+          // providers this reload actually touched -- an unrelated provider's
+          // catalogue has no reason to be re-fetched because one credential
+          // changed. Empty scope (removals only) => refresh nothing.
+          // See change: update-pi-core-0-84-adopt-apis.
+          const touched = [...new Set([...diff.added, ...diff.changed])];
+          if (touched.length > 0) {
+            await reportRefresh(
+              cachedModelRegistry?.refresh?.({ providers: touched }),
+              `credentials reload refresh (${touched.join(", ")})`,
+            );
+          }
         } catch (err) { console.error("[dashboard] credentials reload failed:", err); }
         // Push updated models list to dashboard client
         if (cachedModelRegistry && sessionReady) {

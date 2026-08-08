@@ -337,3 +337,86 @@ describe("createAutoNamer", () => {
     expect(hooks.applyName).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * pi 0.84.0 BREAKING: `ModelRegistry.getApiKeyAndHeaders()` returns
+ * `ProviderHeaders` with `string | null` values, preserving null header-deletion
+ * markers. The markers exist so placeholder OpenAI credentials are not sent
+ * through Cloudflare AI Gateway — coercing or dropping them re-opens that hole.
+ *
+ * Two distinct concerns: FORWARDING nulls to pi-ai unchanged (correctness), and
+ * COUNTING them as absent in the usable-credentials gate (see design D4).
+ *
+ * See change: update-pi-core-0-84-adopt-apis (test-plan #E9, #E10, #E11).
+ */
+describe("generateTitle — null-bearing provider headers (pi 0.84.x)", () => {
+  function captureOptions() {
+    const seen: any[] = [];
+    const streamSimple: StreamSimpleFn = (_m, _c, options) => {
+      seen.push(options);
+      return (async function* () {
+        yield { type: "done", message: { content: [{ type: "text", text: "T" }] } };
+      })();
+    };
+    return { seen, streamSimple };
+  }
+
+  it("E9: a null deletion marker reaches pi-ai as null, never the string 'null'", async () => {
+    const { seen, streamSimple } = captureOptions();
+    const res = await generateTitle({
+      registry: {
+        find: () => ({ provider: "openai", id: "gpt" }),
+        getApiKeyAndHeaders: async () =>
+          ({ apiKey: "sk-test", headers: { "x-del": null, "x-keep": "v" } }),
+      },
+      streamSimple,
+      modelRef: "openai/gpt",
+      transcript: "x",
+    });
+
+    expect(res).toEqual({ ok: true, text: "T" });
+    expect(seen).toHaveLength(1);
+    const headers = seen[0].headers;
+    expect(headers).toHaveProperty("x-del");
+    expect(headers["x-del"]).toBeNull();
+    expect(headers["x-del"]).not.toBe("null");
+    expect(headers["x-keep"]).toBe("v");
+  });
+
+  it("E10: a null-only header map counts as NO usable credentials", async () => {
+    // Key count is 2, usable count is 0 — the old
+    // `Object.keys(headers).length > 0` gate wrongly passed here.
+    const { streamSimple } = captureOptions();
+    const res = await generateTitle({
+      registry: {
+        find: () => ({ provider: "openai", id: "gpt" }),
+        getApiKeyAndHeaders: async () =>
+          ({ headers: { a: null, b: null } }),
+      },
+      streamSimple,
+      modelRef: "openai/gpt",
+      transcript: "x",
+    });
+
+    expect(res.ok).toBe(false);
+    expect((res as { hardError: boolean }).hardError).toBe(true);
+    expect((res as { reason: string }).reason).toMatch(/no usable credentials/i);
+  });
+
+  it("E11: a mixed header map counts as usable credentials", async () => {
+    const { seen, streamSimple } = captureOptions();
+    const res = await generateTitle({
+      registry: {
+        find: () => ({ provider: "openai", id: "gpt" }),
+        getApiKeyAndHeaders: async () =>
+          ({ headers: { a: null, b: "v" } }),
+      },
+      streamSimple,
+      modelRef: "openai/gpt",
+      transcript: "x",
+    });
+
+    expect(res).toEqual({ ok: true, text: "T" });
+    expect(seen[0].headers).toEqual({ a: null, b: "v" });
+  });
+});

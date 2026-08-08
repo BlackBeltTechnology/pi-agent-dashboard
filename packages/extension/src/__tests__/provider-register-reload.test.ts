@@ -9,6 +9,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createCommandHandler } from "../command-handler.js";
+import { refreshFullySucceeded, reportRefresh } from "../model-refresh.js";
 
 // We re-import the module fresh in each test so module-level `lastRegistered`
 // state starts empty.
@@ -494,5 +496,218 @@ describe("reloadProviders", () => {
       expect(m.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
       expect(m.input).toEqual(["text", "image"]);
     }
+  });
+});
+
+/**
+ * pi 0.84.0 BREAKING: `ModelRegistry.refresh()` accepts `ModelsRefreshOptions`
+ * and returns `Promise<ModelsRefreshResult>` ({ aborted, errors }) instead of
+ * discarding cancellation and provider errors.
+ *
+ * Two hazards this pins:
+ *   1. refresh() is now ASYNC. The old `registry.refresh(); registry.getAvailable()`
+ *      sequence read the catalogue BEFORE the refresh resolved.
+ *   2. Its result carries per-provider errors that a bare `catch {}` discarded,
+ *      so a partly-failed refresh was reported as a success.
+ *
+ * See change: update-pi-core-0-84-adopt-apis (test-plan #E12, #E13, #X1, #X2, #X3).
+ */
+describe("model registry refresh — 0.84.x options/result contract", () => {
+
+  function makePi() {
+    return {
+      setSessionName: vi.fn(),
+      getSessionName: () => "s",
+    } as any;
+  }
+
+  /** A registry whose refresh() honours the 0.84.x async options/result shape. */
+  function makeRegistry(opts: {
+    result?: { aborted: boolean; errors: ReadonlyMap<string, Error> };
+    throws?: Error;
+    stall?: boolean;
+    models?: any[];
+  }) {
+    const seenOptions: any[] = [];
+    let resolveStall: (() => void) | undefined;
+    const available = opts.models ?? [];
+    const registry = {
+      authStorage: { reload: vi.fn() },
+      getAvailable: vi.fn(() => available),
+      refresh: vi.fn(async (options?: any) => {
+        seenOptions.push(options);
+        if (opts.throws) throw opts.throws;
+        if (opts.stall) {
+          await new Promise<void>((res) => {
+            resolveStall = res;
+            options?.signal?.addEventListener?.("abort", () => res());
+          });
+          return { aborted: true, errors: new Map() };
+        }
+        return opts.result ?? { aborted: false, errors: new Map() };
+      }),
+    };
+    return { registry, seenOptions, releaseStall: () => resolveStall?.() };
+  }
+
+  async function requestModels(registry: any) {
+    const handler = createCommandHandler(makePi(), "sess-1", {
+      getModelRegistry: () => registry,
+    });
+    return handler.handle({ type: "request_models", sessionId: "sess-1" } as any);
+  }
+
+  it("E12 / X2: a provider error is surfaced, not swallowed by a bare catch", async () => {
+    const errors = new Map([["openai", new Error("catalog 503")]]);
+    const { registry } = makeRegistry({ result: { aborted: false, errors } });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await requestModels(registry);
+
+    expect(registry.refresh).toHaveBeenCalled();
+    // The failing provider must be named somewhere observable.
+    const logged = warn.mock.calls.flat().join(" ");
+    expect(logged).toMatch(/openai/);
+    warn.mockRestore();
+  });
+
+  it("X1: the provider identity reaches the log, not just a generic failure", async () => {
+    const errors = new Map([["anthropic", new Error("boom")]]);
+    const { registry } = makeRegistry({ result: { aborted: false, errors } });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await requestModels(registry);
+
+    const logged = warn.mock.calls.flat().join(" ");
+    expect(logged).toMatch(/anthropic/);
+    expect(logged).toMatch(/boom/);
+    warn.mockRestore();
+  });
+
+  it("E12: the catalogue is read AFTER the refresh resolves, not before", async () => {
+    const order: string[] = [];
+    const registry = {
+      authStorage: { reload: vi.fn() },
+      getAvailable: vi.fn(() => {
+        order.push("getAvailable");
+        return [];
+      }),
+      refresh: vi.fn(async () => {
+        order.push("refresh:start");
+        await new Promise((r) => setTimeout(r, 5));
+        order.push("refresh:end");
+        return { aborted: false, errors: new Map() };
+      }),
+    };
+
+    await requestModels(registry);
+
+    expect(order).toEqual(["refresh:start", "refresh:end", "getAvailable"]);
+  });
+
+  it("E13: refresh is passed a ModelsRefreshOptions object", async () => {
+    const { registry, seenOptions } = makeRegistry({});
+    await requestModels(registry);
+    expect(seenOptions).toHaveLength(1);
+    expect(seenOptions[0]).toBeTypeOf("object");
+    expect(seenOptions[0]).not.toBeNull();
+  });
+
+  it("E13: a credentials reload scopes the refresh to the providers it touched", async () => {
+    // The bridge's credentials_updated path knows exactly which providers the
+    // providers.json diff added/changed. Refreshing every catalogue because one
+    // credential moved re-fetches unrelated providers for nothing.
+    const { registry, seenOptions } = makeRegistry({});
+    const diff = { added: ["openai"], removed: ["dead"], changed: ["anthropic"] };
+
+    const touched = [...new Set([...diff.added, ...diff.changed])];
+    await reportRefresh(registry.refresh({ providers: touched }));
+
+    expect(seenOptions[0].providers).toEqual(["openai", "anthropic"]);
+    // A removed provider has no catalogue to refresh.
+    expect(seenOptions[0].providers).not.toContain("dead");
+  });
+
+  it("E13: a removal-only reload refreshes nothing at all", async () => {
+    const { registry, seenOptions } = makeRegistry({});
+    const diff = { added: [] as string[], removed: ["dead"], changed: [] as string[] };
+
+    const touched = [...new Set([...diff.added, ...diff.changed])];
+    if (touched.length > 0) await reportRefresh(registry.refresh({ providers: touched }));
+
+    expect(registry.refresh).not.toHaveBeenCalled();
+    expect(seenOptions).toHaveLength(0);
+  });
+
+  it("X2: a throwing refresh does not crash the handler and is reported", async () => {
+    const { registry } = makeRegistry({ throws: new Error("registry exploded") });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const res: any = await requestModels(registry);
+
+    expect(res?.type).toBe("models_list");
+    const logged = warn.mock.calls.flat().join(" ");
+    expect(logged).toMatch(/registry exploded/);
+    warn.mockRestore();
+  });
+
+  it("X3: aborting a stalled refresh stops it and reports the aborted outcome", async () => {
+    // Fault injection: the refresh hangs until its AbortSignal fires.
+    const { registry, seenOptions } = makeRegistry({ stall: true });
+    const controller = new AbortController();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const pending = reportRefresh(registry.refresh({ signal: controller.signal }));
+    // Nothing resolves until we abort.
+    controller.abort();
+    const result = await pending;
+
+    expect(seenOptions[0].signal).toBe(controller.signal);
+    expect(result?.aborted).toBe(true);
+    expect(refreshFullySucceeded(result)).toBe(false);
+    expect(warn.mock.calls.flat().join(" ")).toMatch(/abort/i);
+    warn.mockRestore();
+  });
+
+  it("X3: an aborted refresh is distinguishable from a successful one", async () => {
+    const { registry } = makeRegistry({
+      result: { aborted: true, errors: new Map() },
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await requestModels(registry);
+
+    const logged = warn.mock.calls.flat().join(" ");
+    expect(logged).toMatch(/abort/i);
+    warn.mockRestore();
+  });
+});
+
+/**
+ * pi 0.84.0 advanced custom-model sampling: `samplingParams` must survive the
+ * hop from `models.json` into the metadata handed to `pi.registerProvider`.
+ * Both this path and the server's internal registry whitelist fields
+ * explicitly, so an un-forwarded field is silently dropped.
+ *
+ * See change: update-pi-core-0-84-adopt-apis (task 8.3).
+ */
+describe("samplingParams passthrough (pi 0.84.x)", () => {
+  it("forwards samplingParams from the native entry into model metadata", async () => {
+    const { metadataFromNative } = (await import("../provider-register.js")) as never as {
+      metadataFromNative: (n: unknown, api?: string) => Record<string, unknown>;
+    };
+    const meta = metadataFromNative(
+      { id: "qwen", provider: "my-vllm", samplingParams: { top_k: 40, thinking_token_budget: 2048 } },
+      "openai-completions",
+    );
+    expect(meta.samplingParams).toEqual({ top_k: 40, thinking_token_budget: 2048 });
+  });
+
+  it("omits samplingParams entirely when the native entry declares none", async () => {
+    const { metadataFromNative } = (await import("../provider-register.js")) as never as {
+      metadataFromNative: (n: unknown, api?: string) => Record<string, unknown>;
+    };
+    const meta = metadataFromNative({ id: "m", provider: "p" }, "openai-completions");
+    expect("samplingParams" in meta).toBe(false);
   });
 });

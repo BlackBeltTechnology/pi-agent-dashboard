@@ -43,10 +43,27 @@ function allWorkspaces() {
 
 const nonPrivate = () => allWorkspaces().filter((w) => w.manifest.private !== true);
 
-/** Resolved version of `dep` from the hoisted tree, or null. */
-function resolvedVersion(dep) {
-  const p = join(REPO_ROOT, 'node_modules', dep, 'package.json');
-  return existsSync(p) ? readJson(p).version : null;
+/**
+ * Resolved version of `dep` AS THE DECLARING WORKSPACE SEES IT: its own nested
+ * copy when one exists, else the hoisted root copy. Returns null when absent.
+ *
+ * `nodeLinker: hoisted` hoists ONE version of a package to the root and nests
+ * the rest, and which version wins is a property of the whole tree — an
+ * unrelated dependency bump can flip it. Resolving only from the root therefore
+ * reports a PHANTOM violation whenever a workspace legitimately gets a
+ * correctly-satisfying nested copy (observed with `extension`'s
+ * `minimatch@^10.0.0`: nested 10.2.5, hoisted root 3.1.5).
+ * See change: update-pi-core-0-84-adopt-apis.
+ */
+function resolvedVersion(dep, workspace) {
+  const candidates = workspace
+    ? [join(REPO_ROOT, 'packages', workspace, 'node_modules', dep, 'package.json')]
+    : [];
+  candidates.push(join(REPO_ROOT, 'node_modules', dep, 'package.json'));
+  for (const p of candidates) {
+    if (existsSync(p)) return readJson(p).version;
+  }
+  return null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -88,7 +105,7 @@ describe('range selection (E19, E20, E21)', () => {
     for (const [ws, field, dep, expectedRange] of cases) {
       const manifest = readJson(join(REPO_ROOT, 'packages', ws, 'package.json'));
       expect(manifest[field]?.[dep], `${ws} ${field}.${dep}`).toBe(expectedRange);
-      const resolving = resolvedVersion(dep);
+      const resolving = resolvedVersion(dep, ws);
       if (resolving) expect(rangeIsSatisfiable(expectedRange, resolving), `${dep}@${resolving} vs ${expectedRange}`).toBe(true);
     }
   });
@@ -102,6 +119,12 @@ describe('range selection (E19, E20, E21)', () => {
     // Deliberately a one-way ratchet. The set may legitimately shrink when the
     // tree updates and a stale range starts resolving again, so a shrink must
     // not fail — only a NEW violation may.
+    //
+    // As of update-pi-core-0-84-adopt-apis this set is fully shrunk: once
+    // `resolvedVersion` resolves nested-then-hoisted (as the declaring
+    // workspace actually does), every entry below resolves correctly. They were
+    // artifacts of root-only resolution, not real unsatisfiable ranges. Kept as
+    // the upper bound the ratchet is defined against.
     const KNOWN_PREEXISTING = [
       'client devDependencies.jsdom',
       'dashboard-plugin-skill devDependencies.vitest',
@@ -118,7 +141,7 @@ describe('range selection (E19, E20, E21)', () => {
       for (const field of DEP_FIELDS) {
         for (const [dep, range] of Object.entries(manifest[field] ?? {})) {
           if (/^(workspace|file|link):/.test(range)) continue;
-          const resolving = resolvedVersion(dep);
+          const resolving = resolvedVersion(dep, name);
           if (!resolving) continue; // absent => unverifiable, covered by X3
           if (!rangeIsSatisfiable(range, resolving)) violations.push(`${name} ${field}.${dep}`);
         }

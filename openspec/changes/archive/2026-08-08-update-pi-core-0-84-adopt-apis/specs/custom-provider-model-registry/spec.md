@@ -2,7 +2,7 @@
 
 ### Requirement: Model-registry refresh SHALL honor cancellation and surface provider errors
 
-pi 0.84.0 changed `ModelRegistry.refresh()` to accept `ModelsRefreshOptions` and return a `ModelsRefreshResult` instead of discarding cancellation and provider errors. Every dashboard call site SHALL pass the options it needs and SHALL inspect the result rather than fire-and-forget. A refresh that fails for one provider SHALL NOT be reported as a successful refresh.
+pi 0.84.1 changed `ModelRegistry.refresh()` to accept `ModelsRefreshOptions` and return a `ModelsRefreshResult` instead of discarding cancellation and provider errors. Every dashboard call site SHALL pass the options it needs and SHALL inspect the result rather than fire-and-forget. A refresh that fails for one provider SHALL NOT be reported as a successful refresh.
 
 #### Scenario: Refresh result is inspected
 
