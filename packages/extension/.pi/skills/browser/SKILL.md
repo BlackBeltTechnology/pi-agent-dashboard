@@ -1,13 +1,14 @@
 ---
 name: browser
-description: 'Browser automation via the `agent-browser` CLI. Use when the user needs to interact with websites or Electron desktop apps — navigating pages, filling forms, clicking buttons, screenshots, extracting data, testing web apps, visual UI verification, or driving the Pi Dashboard''s Electron shell. Triggers: "open a website", "take a screenshot", "test this web app", "automate browser".'
+description: 'Browser automation via the `agent-browser` CLI. Use when the user needs to drive websites or Electron desktop apps — navigating, filling forms, clicking, screenshots, extracting data, testing web apps, visual UI checks, the Pi Dashboard''s Electron shell, or the user''s own logged-in browser (SSO/2FA sites). Triggers: "open a website", "take a screenshot", "test this web app", "use my own browser".'
 license: Apache-2.0
-allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*)
+allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(npx @panerelay/setup:*)
 metadata:
   author: pi-dashboard
-  version: "1.0"
+  version: "1.1"
   vendoredFrom: agent-browser
   vendoredVersion: "0.27.0"
+  verifiedAgainstCli: "0.33.2"
 ---
 
 # browser
@@ -15,7 +16,7 @@ metadata:
 Composite skill that gives the agent eyes and hands for any browser-driven
 task — web pages or Electron desktop apps — via the `agent-browser` CLI.
 
-Two recipes:
+Three recipes:
 
 - **Web automation** — generic web pages plus Pi Dashboard-specific helpers
   (dashboard URL detection, responsive testing, console-error hunting).
@@ -23,6 +24,10 @@ Two recipes:
 - **Electron automation** — drive any Chromium-based Electron app, including
   a worked example for the Pi Dashboard's own shell via `--debug-cdp`.
   Reference: [`references/electron.md`](references/electron.md).
+- **The user's own logged-in browser** — reach SSO/2FA-gated sites using the
+  user's real cookies via an extension bridge (Panerelay), plus how to list
+  and select Chrome profiles.
+  Reference: [`references/own-browser.md`](references/own-browser.md).
 
 ## Step 0a — Preflight: `agent-browser` CLI must be installed
 
@@ -77,6 +82,14 @@ that isn't Pi Dashboard (Slack, VS Code, Figma, …), route to
 `references/electron.md` even when `PD_RUNNING=no` — that recipe covers
 launching any Electron app with `--remote-debugging-port`.
 
+**Override (login state)**: if the target needs the user's *existing*
+session — "use my browser", "I'm already logged in", SSO/2FA, an internal
+tool the agent cannot sign into — route to `references/own-browser.md`
+regardless of the probe. The default bundled browser starts logged out and
+cannot be made to inherit those logins; `--profile` copies the profile and
+still loses macOS Keychain-encrypted cookies. Prefer the bundled browser
+whenever login state is irrelevant — it is faster and more capable.
+
 ## Step 1 — Read the matched recipe and execute
 
 Read the reference file selected above, then follow its workflow. Both
@@ -88,6 +101,17 @@ references are self-contained; you do not need to read both.
   snapshots of upstream `agent-browser` skill content (`core` and
   `electron`) at CLI version 0.27.0. See [`UPSTREAM.md`](UPSTREAM.md) for
   refresh procedure and [`LICENSE`](LICENSE) for upstream attribution.
+  `references/own-browser.md` is **authored, not vendored** — an upstream
+  refresh must not overwrite it.
+- **Surfaces share one browser**: the `browser` MCP tool and
+  `Bash: agent-browser …` drive the *same* daemon and *same* Chrome, with a
+  shared active page. Probing with one mid-task can silently move the page
+  out from under the other. Pick one surface per task; use
+  `--session <name>` for genuinely isolated browsers.
+- **Known wrapper bug**: the MCP tool's `eval` echoes the JS source instead
+  of executing it (and mangles regex escapes) — still present with CLI
+  0.33.2, so it is a `pi-agent-browser` wrapper defect, not a CLI one. Use
+  `Bash: agent-browser eval …` instead.
 - **No CLI bundled**: agents installing the bridge extension get the
   skill text but not the CLI; install on demand per Step 0a.
 - **User-local override**: if the user's project has its own

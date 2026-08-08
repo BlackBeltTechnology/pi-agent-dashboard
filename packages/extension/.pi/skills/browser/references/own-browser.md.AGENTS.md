@@ -1,0 +1,5 @@
+# browser/references/own-browser.md — index
+
+AUTHORED (not vendored). Recipe for driving the user's own logged-in browser via the Panerelay MV3 extension + native-messaging bridge; why CDP fails (Chrome M136+ refuses `--remote-debugging-port` on a real profile; `--profile` loses macOS Keychain cookies); profile list/select semantics; userAgent test to prove which browser is driven; rollback. Needs agent-browser >= 0.33.0.
+
+Multi-browser selection: extension registers once PER browser process; >1 ready → plugin refuses to guess → pick with `PANERELAY_BROWSER_ID=<uuid>`. `agent-browser` collapses every plugin error to `success=false` and drops the message — recover it by piping a `browser.launch` request to `~/.panerelay/bin/panerelay-native-host.cjs --agent-browser-plugin`. `@panerelay/setup doctor` passes ("Connected through N browser processes") while every call still fails. Session daemons stick to their first-resolved browser — use a fresh `--session`, NOT `close --all` (not session-scoped; kills unrelated sessions).
