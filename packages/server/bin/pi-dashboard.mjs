@@ -111,10 +111,25 @@ if (!loader) {
 // `C:\…` entries directly. See change: fix-windows-standalone-spawn.
 const entry = cliPath;
 
+// Heap headroom for the standalone launch path. The bridge launcher already
+// injects this (packages/extension/src/server-launcher.ts buildSpawnEnv,
+// DEFAULT_SERVER_MAX_OLD_SPACE_MB=8192); without it a bare `pi-dashboard`
+// start runs at Node's default ~4 GB old-space and the event store's
+// worst-case per-session buffer can drive an OOM crash. Mirror the bridge:
+// append the flag only when the user has not already pinned a limit, so an
+// explicit NODE_OPTIONS override still wins.
+const existingNodeOptions = process.env.NODE_OPTIONS ?? "";
+const childEnv = existingNodeOptions.includes("--max-old-space-size")
+  ? process.env
+  : {
+      ...process.env,
+      NODE_OPTIONS: `${existingNodeOptions} --max-old-space-size=8192`.trim(),
+    };
+
 const child = spawn(
   process.execPath,
   ["--import", loader, entry, ...process.argv.slice(2)],
-  { stdio: "inherit", windowsHide: true },
+  { stdio: "inherit", windowsHide: true, env: childEnv },
 );
 
 // Forward termination signals to the real server child.
