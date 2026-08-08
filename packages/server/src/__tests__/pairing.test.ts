@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PAIRING_PROTOCOL_VERSION, PairingManager } from "../pairing/pairing.js";
@@ -187,5 +188,28 @@ describe("D12 compare-code approval", () => {
     let lastOk = true;
     for (let i = 0; i < 12; i++) lastOk = mgr.redeem(p.code).ok;
     expect(lastOk).toBe(false); // hit MAX_REDEEM_ATTEMPTS
+  });
+});
+
+// G7 / D8 — the `publicBaseUrls` promotion moves the KEY, not the TLS gate.
+// The list is shared with the endpoint surfaces, so a plain-http entry is a
+// legitimate member of it; `reachableUrls()` is what must keep it out of the
+// payload. The fixture is deliberately NON-loopback: a `http://localhost`
+// entry would pass through the PI_E2E_SEED exception even with the gate broken.
+// See change: config-override-oauth-redirect-base.
+describe("G7: promoted publicBaseUrls stay behind the read-time TLS gate", () => {
+  it("a non-loopback http entry in the promoted list never reaches the payload", () => {
+    const config = { publicBaseUrls: ["http://192.168.1.9:8000", "https://pi.example.com"] };
+    urls = resolvePublicBaseUrls(config);
+    const { mgr } = mkManager();
+    expect(mgr.reachableUrls()).toEqual(["https://pi.example.com"]);
+    expect(mgr.createPayload()!.urls).not.toContain("http://192.168.1.9:8000");
+  });
+
+  it("the same gate applies to a legacy-sourced list", () => {
+    const config = { pairing: { publicBaseUrls: ["http://192.168.1.9:8000"] } };
+    urls = resolvePublicBaseUrls(config);
+    const { mgr } = mkManager();
+    expect(mgr.reachableUrls()).toEqual([]);
   });
 });

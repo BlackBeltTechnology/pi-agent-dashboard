@@ -25,6 +25,7 @@ export const MODULE_TOKEN_SOURCES: Record<string, string[]> = {
 	"build-reload": ["packages/extension/package.json"],
 	"install-topology": ["packages/shared/src/dashboard-paths.ts"],
 	"model-resolution": ["packages/extension/src/provider-register.ts"],
+	"oauth-redirect-base": ["packages/server/src/auth/auth.ts", "packages/server/src/routes/system-routes.ts"],
 };
 
 /**

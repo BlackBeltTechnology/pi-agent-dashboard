@@ -135,6 +135,15 @@ export default async function globalSetup(): Promise<void> {
     // Variant containers (no-am/legacy/bad-registration) are booted separately
     // via docker/test-up.sh with PI_TEST_PEERS set (opt-in / manual).
     PI_TEST_PEERS: process.env.PI_TEST_PEERS ?? "both",
+    // PI_E2E_OAUTH=1 seeds a resolvable `github` provider + `bypassUrls:["/"]`
+    // BEFORE the server boots, so `/auth/*` routes exist for
+    // oauth-redirect-base.spec.ts. The bypass matches every URL, so the gate
+    // denies nothing and the other specs are unaffected — which they must not
+    // be, since this is the SHARED harness. A spec cannot seed this itself:
+    // pi-state is a RAM-backed tmpfs, so every container start discards config
+    // written through `PUT /api/config`.
+    // See change: config-override-oauth-redirect-base.
+    PI_E2E_OAUTH: process.env.PI_E2E_OAUTH ?? "1",
     ANTHROPIC_API_KEY: "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",

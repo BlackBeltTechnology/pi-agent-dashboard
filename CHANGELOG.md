@@ -41,6 +41,46 @@ see [`docs/release-process.md`](docs/release-process.md).
   with optional `${configKey}` interpolation from the plugin's validated
   config. Surfaced as a non-actionable warning pill in the Plugins tab.
 
+- OAuth redirect URIs can now be pinned to a fixed public origin with the new
+  `auth.redirectBaseUrl` field in `~/.pi/dashboard/config.json`. Dashboards
+  behind a reverse proxy on a stable custom domain (`https://pi.example.com` →
+  nginx → `:8000`) previously had no supported way to state their public origin:
+  the redirect URI was always derived from the active tunnel URL, falling back
+  to `http://localhost:<port>`, which every provider rejects with
+  `redirect_uri_mismatch`. The configured base now takes precedence over the
+  tunnel, applies to the authorize redirect and the token exchange alike, and
+  changes take effect through `PUT /api/config` without a restart. A base that
+  is not an absolute `http(s)` origin is still used but logs a warning naming
+  the field, so a typo surfaces in the log instead of as an unexplained login
+  loop. The field affects OAuth only — pairing QR codes and
+  `GET /api/tunnel/endpoints` still advertise the tunnel URL. The field is now
+  editable in Settings ▸ Security instead of by hand-editing the config file.
+
+- One **"add gateway URL"** action states a public origin once and writes every
+  key that origin needs — `publicBaseUrls`, `cors.allowedOrigins`,
+  `auth.redirectBaseUrl` (when OAuth is selected) and `trustedNetworks` (when a
+  trusted network is) — in a single `PUT /api/config`, recording exactly what it
+  wrote so removal reverses that and nothing the operator authored themselves.
+  The dialog states the scheme rules inline rather than applying them silently:
+  a `http://` gateway cannot ride a pairing QR or an OAuth callback and is
+  reachable only through a trusted network, whose CIDR is pre-filled as an exact
+  `/32`. Each gateway row carries a computed status (OK / Incomplete /
+  Conflicting / Ineligible) and a **Fix** that restores only the missing values.
+  The same component is used by the first-run setup guide and the Gateway page.
+
+- An OAuth provider can now be removed with
+  `DELETE /api/config/auth/providers/:id`, behind the same guard as
+  `PUT /api/config`. Deleting the last remaining provider is refused without an
+  explicit `?force=true`, because at runtime it produces auth *enforced with no
+  login path* — not auth disabled — and can lock out a remote operator until
+  the server is restarted.
+
+- `GET /api/auth/diagnostics` reports which redirect base actually won and which
+  tier produced it, and the same line is written to `server.log` at every auth
+  registration and reload. A new `oauth-redirect-base` doctor module reads it
+  over loopback, so an operator whose OAuth is broken — and who therefore
+  cannot obtain a token — can still find out why.
+
 ### Changed
 
 - Upgraded the pinned pi runtime to `@earendil-works/pi-coding-agent@0.84.1`.
@@ -69,6 +109,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 - Package resources excluded by a package's own manifest patterns are now absent
   from the Resources view rather than shown as disabled, matching pi, which does
   not load them either. There is consequently no activation toggle for them.
+
+- `pairing.publicBaseUrls` is promoted to a top-level `publicBaseUrls`, read by
+  the pairing payload and the endpoint surfaces alike. Existing configurations
+  keep working untouched: the legacy key is still read when the top-level one is
+  absent, and no config file is rewritten on read. The publicly-trusted-TLS gate
+  is unchanged — it stays authoritative at read time, so promoting the key
+  cannot leak a plain-http address into a QR code. A legacy-sourced value never
+  feeds OAuth: that value was chosen to answer a different question, and an
+  OAuth redirect URI must be one origin the operator states explicitly.
 
 ### Fixed
 
@@ -122,6 +171,17 @@ see [`docs/release-process.md`](docs/release-process.md).
   the filesystem walk when pi is unavailable, resolution throws, or the resolver
   returns an empty result the walk contradicts. The payload is flagged as a
   degraded fallback rather than presented as pi's answer.
+
+- Origins and trusted networks written while the server is running now take
+  effect immediately instead of at the next restart. The CORS decision and the
+  network guard read the configuration at request time (mtime-gated, so an
+  unchanged file is parsed once), which is what makes the gateway action's own
+  claim true — previously a newly added origin stayed denied and the browser
+  aborted every module script loaded from it.
+
+- The runtime auth reload no longer drops top-level `trustedNetworks`. Any
+  `PUT /api/config` carrying an `auth` block silently disabled them until the
+  next restart; the reload now merges them exactly as boot does.
 
 ## [0.7.0] - 2026-07-24
 

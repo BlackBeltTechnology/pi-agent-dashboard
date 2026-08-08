@@ -13,6 +13,7 @@ import { runEnrollStep } from "../../lib/gateway/gateway-api.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
 import { GATEWAY_SETUP_STEPS, type SetupStep } from "../../lib/gateway/gateway-setup.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { GatewayUrlManager } from "./GatewayUrlManager.js";
 
 function InstallStep({ step }: { step: SetupStep }) {
   const { t } = useI18n();
@@ -147,7 +148,20 @@ function LinkStep({ step }: { step: SetupStep }) {
   );
 }
 
-export function GatewaySetupGuide({ provider }: { provider: GatewayProviderId }) {
+export function GatewaySetupGuide({
+  provider,
+  showGatewayUrls = true,
+}: {
+  provider: GatewayProviderId;
+  /**
+   * Render the shared `GatewayUrlManager` as the guide's last step (first-run
+   * entry point, D12). The Gateway PAGE embeds this guide but also mounts the
+   * manager as its own persistent section, so it passes `false` — otherwise the
+   * page shows two copies of the same control.
+   * See change: config-override-oauth-redirect-base.
+   */
+  showGatewayUrls?: boolean;
+}) {
   const { t } = useI18n();
   const steps = GATEWAY_SETUP_STEPS[provider];
   return (
@@ -174,6 +188,14 @@ export function GatewaySetupGuide({ provider }: { provider: GatewayProviderId })
           </div>
         ))}
       </div>
+      {/* Same component the Gateway page renders — first run and steady state
+          cannot drift (D12). See change: config-override-oauth-redirect-base. */}
+      {showGatewayUrls && (
+        <div className="mt-3 border-t border-[var(--border)] pt-3">
+          <GatewayUrlManager />
+        </div>
+      )}
+
       <p className="mt-2 text-[10.5px] text-[var(--text-muted)]">
         <b className="text-[var(--text-secondary)]">{t("gateway.setup.securityLabel", undefined, "Security:")}</b>{" "}
         {t(
