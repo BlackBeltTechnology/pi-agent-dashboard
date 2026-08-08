@@ -57,13 +57,16 @@ describe("router over real modules", () => {
 		modules = loadModules(MODULES_DIR);
 	});
 
-	it("loads all seven capability modules", () => {
+	it("loads all eight capability modules", () => {
 		const names = modules.map((m) => m.name).sort();
 		expect(names).toEqual([
 			"build-reload",
 			"env-node",
 			"install-topology",
 			"model-resolution",
+			// Which OAuth redirect base won + its tier.
+			// See change: config-override-oauth-redirect-base.
+			"oauth-redirect-base",
 			"peers",
 			"pi-resolution",
 			"plugins-bridges",

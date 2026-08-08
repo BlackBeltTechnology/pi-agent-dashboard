@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { loadConfig, ensureConfig, type DashboardConfig } from "../config.js";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type DashboardConfig, ensureConfig, loadConfig, resolvePublicBaseUrls } from "../config.js";
 
 describe("loadConfig", () => {
   let testDir: string;
@@ -721,5 +721,76 @@ describe("loadConfig gitWorktreeEnabled", () => {
     expect(c.gitWorktreeEnabled).toBe(false);
     expect(c.port).toBe(1234);
     expect(c.defaultModel).toBe("gpt-4");
+  });
+});
+
+// Slice 2 — `pairing.publicBaseUrls` promoted to top-level `publicBaseUrls`.
+// See change: config-override-oauth-redirect-base (D7).
+describe("publicBaseUrls promotion", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-config-pbu-${Date.now()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  // #G2
+  it("resolves a top-level publicBaseUrls list", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ publicBaseUrls: ["https://top.example", 7] }));
+    const c = loadConfig();
+    expect(c.publicBaseUrls).toEqual(["https://top.example"]);
+    expect(resolvePublicBaseUrls(c)).toEqual(["https://top.example"]);
+  });
+
+  // #G3 — a legacy-only config keeps working, byte-identical, and the legacy
+  // key is still readable in its old location.
+  it("falls back to the legacy pairing.publicBaseUrls when the top-level key is absent", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ pairing: { publicBaseUrls: ["https://legacy.example"] } }),
+    );
+    const c = loadConfig();
+    expect(c.publicBaseUrls).toBeUndefined();
+    expect(c.pairing.publicBaseUrls).toEqual(["https://legacy.example"]);
+    expect(resolvePublicBaseUrls(c)).toEqual(["https://legacy.example"]);
+  });
+
+  // #G4
+  it("prefers the top-level key when both are present", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({
+        publicBaseUrls: ["https://top.example"],
+        pairing: { publicBaseUrls: ["https://legacy.example"] },
+      }),
+    );
+    expect(resolvePublicBaseUrls(loadConfig())).toEqual(["https://top.example"]);
+  });
+
+  // Absence is load-bearing (D7): an empty top-level list must NOT fall back.
+  it("treats an empty top-level list as present-but-empty, not absent", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ publicBaseUrls: [], pairing: { publicBaseUrls: ["https://legacy.example"] } }),
+    );
+    expect(resolvePublicBaseUrls(loadConfig())).toEqual([]);
+  });
+
+  // #G5 — no default value is written; absence must stay representable.
+  it("ensureConfig never writes a top-level publicBaseUrls key", () => {
+    ensureConfig();
+    const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(Object.hasOwn(written, "publicBaseUrls")).toBe(false);
+    expect(loadConfig().publicBaseUrls).toBeUndefined();
   });
 });

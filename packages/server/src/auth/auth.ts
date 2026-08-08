@@ -4,9 +4,9 @@
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
-import jwt from "jsonwebtoken";
 import type { AuthConfig, AuthProviderConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import jwt from "jsonwebtoken";
 import { getTunnelUrl } from "../tunnel/tunnel.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────

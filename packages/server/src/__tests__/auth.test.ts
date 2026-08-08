@@ -1,21 +1,21 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  signToken,
-  verifyToken,
-  parseAuthCookie,
-  isUserAllowed,
-  ensureAuthSecret,
+  type AuthUser,
   buildAuthorizeUrl,
   buildProviderRegistry,
   buildRedirectUri,
   COOKIE_NAME,
-  type AuthUser,
+  ensureAuthSecret,
+  isUserAllowed,
+  parseAuthCookie,
   type ResolvedProvider,
+  signToken,
+  verifyToken,
 } from "../auth/auth.js";
-import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 
 // ─── JWT Token Tests ────────────────────────────────────────────────────────
 

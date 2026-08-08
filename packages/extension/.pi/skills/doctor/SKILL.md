@@ -34,6 +34,7 @@ CHECKS · FIX ROUTING · DERIVES-FROM** (+ a `<id>.knowledge.hash` sidecar).
 | `build-reload` | three-component rebuild/reload gaps |
 | `install-topology` | npm-global / Electron / Docker / dev + topology fixes |
 | `model-resolution` | model:resolve handler, roles/preset, @role resolvability |
+| `oauth-redirect-base` | which OAuth redirect base won + its tier (reverse-proxy `redirect_uri_mismatch`) |
 
 ## How to route
 

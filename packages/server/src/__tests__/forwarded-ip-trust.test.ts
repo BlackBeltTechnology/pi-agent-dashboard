@@ -21,9 +21,9 @@
 //
 // See change: config-override-oauth-redirect-base (design D14, test-plan S1/S2).
 
-import { describe, it, expect } from "vitest";
-import { createNetworkGuard, isBypassedHost } from "../auth/localhost-guard.js";
+import { describe, expect, it } from "vitest";
 import { validateWsUpgrade } from "../auth/auth-plugin.js";
+import { createNetworkGuard, isBypassedHost } from "../auth/localhost-guard.js";
 
 const TRUSTED = ["10.0.0.0/8"];
 const SPOOFED = "10.1.2.3"; // inside TRUSTED — the address an attacker would claim

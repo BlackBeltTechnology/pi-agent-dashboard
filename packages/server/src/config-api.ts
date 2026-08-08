@@ -65,6 +65,75 @@ export interface WriteConfigResult {
   error?: string;
 }
 
+/** Outcome of a provider deletion attempt. */
+export interface DeleteAuthProviderResult {
+  success: boolean;
+  /** True when a key was actually removed (false = idempotent no-op). */
+  deleted: boolean;
+  /** Providers left on disk after the call. */
+  remaining: number;
+  /** Set when `success` is false. */
+  reason?: "last-provider" | "write-failed";
+  error?: string;
+}
+
+/**
+ * Delete ONE provider from `auth.providers`, raw read → delete → raw write.
+ *
+ * Deliberately not built on the two obvious primitives (D9):
+ *   - `writeConfigPartial`'s providers merge is spread-then-overlay, so no
+ *     input value can remove a key — routing a DELETE through it is a silent
+ *     no-op;
+ *   - `readConfigRedacted()` would persist `"***"` over every SURVIVING
+ *     provider's real `clientSecret`, breaking the preservation contract the
+ *     merge exists to honour.
+ *
+ * Idempotent: deleting an absent provider is a success with no write.
+ *
+ * Removing the LAST provider is refused unless `force` is set. At runtime that
+ * state is auth *enforced with no login path* — the `onRequest` gate stays
+ * installed and `/auth/login` renders an empty list — so it can hard-lock a
+ * remote operator until restart.
+ *
+ * See change: config-override-oauth-redirect-base.
+ */
+export function deleteAuthProvider(
+  id: string,
+  opts: { force?: boolean } = {},
+): DeleteAuthProviderResult {
+  const { dir, file } = getConfigPaths();
+  try {
+    let existing: Record<string, unknown> = {};
+    try {
+      existing = JSON.parse(fs.readFileSync(file, "utf-8"));
+    } catch { /* treat an unreadable/absent file as "no providers" */ }
+
+    const auth = (existing.auth ?? {}) as { providers?: Record<string, unknown> };
+    const providers: Record<string, unknown> = auth.providers ?? {};
+    if (!Object.hasOwn(providers, id)) {
+      return { success: true, deleted: false, remaining: Object.keys(providers).length };
+    }
+    if (Object.keys(providers).length === 1 && !opts.force) {
+      return { success: false, deleted: false, remaining: 1, reason: "last-provider" };
+    }
+
+    delete providers[id];
+    const merged: Record<string, unknown> = { ...existing, auth: { ...auth, providers } };
+    delete merged.resolvedTrustedNetworks;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify(merged, null, 2)}\n`);
+    return { success: true, deleted: true, remaining: Object.keys(providers).length };
+  } catch (err) {
+    return {
+      success: false,
+      deleted: false,
+      remaining: 0,
+      reason: "write-failed",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 /**
  * Merge partial config into existing, preserving redacted secrets, write to disk.
  * Returns whether a restart is needed.

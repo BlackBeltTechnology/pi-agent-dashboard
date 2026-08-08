@@ -535,3 +535,125 @@ describe("buildRedirectUri — cost", () => {
     expect(elapsed).toBeLessThan(100);
   });
 });
+
+// ─── G6: `publicBaseUrls` is NOT an OAuth source (D7, revised) ───────────────
+
+describe("G6: the promoted publicBaseUrls list never feeds OAuth", () => {
+  it("a lone https publicBaseUrls entry loses to an active tunnel", () => {
+    tunnelUrl.value = TUNNEL;
+    // The override is what auth-plugin threads through — sourced from
+    // `auth.redirectBaseUrl` ONLY. `publicBaseUrls` has no path into it, so a
+    // config holding exactly one https entry still resolves to the tunnel.
+    const config = {
+      publicBaseUrls: ["https://pi.example.com"],
+      auth: {} as AuthConfig,
+    };
+    expect(resolveRedirectBase(PORT, config.auth.redirectBaseUrl)).toEqual({
+      base: TUNNEL,
+      source: "tunnel",
+    });
+    expect(buildRedirectUri("github", PORT, config.auth.redirectBaseUrl)).toBe(
+      `${TUNNEL}/auth/callback/github`,
+    );
+  });
+
+  it("with no tunnel either, it falls to localhost rather than the list", () => {
+    tunnelUrl.value = null;
+    const config = { publicBaseUrls: ["https://pi.example.com"], auth: {} as AuthConfig };
+    expect(buildRedirectUri("github", PORT, config.auth.redirectBaseUrl)).toBe(
+      `http://localhost:${PORT}/auth/callback/github`,
+    );
+  });
+
+  it("the operator's explicit scalar is the only way to state the OAuth base", () => {
+    tunnelUrl.value = TUNNEL;
+    const config = {
+      publicBaseUrls: ["https://a.example", "https://b.example"],
+      auth: { redirectBaseUrl: OVERRIDE } as AuthConfig,
+    };
+    expect(buildRedirectUri("github", PORT, config.auth.redirectBaseUrl)).toBe(
+      `${OVERRIDE}/auth/callback/github`,
+    );
+  });
+});
+
+// ─── S6 / S7: the resolved base is diagnosable, not silent (D10/D11) ─────────
+
+describe("S6: register and reload each log the resolved base and its tier", () => {
+  let app: Awaited<ReturnType<typeof makeApp>> | null = null;
+  let logs: string[] = [];
+
+  beforeEach(() => {
+    logs = [];
+    vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      logs.push(args.join(" "));
+    });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await app?.close();
+    app = null;
+  });
+
+  it("logs exactly one resolved-base line at registration", async () => {
+    tunnelUrl.value = TUNNEL;
+    app = await makeApp(OVERRIDE);
+    const lines = logs.filter((l) => l.includes("OAuth redirect base"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(OVERRIDE);
+    expect(lines[0]).toContain("auth.redirectBaseUrl");
+  });
+
+  it("logs the NEW base and tier on reload", async () => {
+    tunnelUrl.value = TUNNEL;
+    app = await makeApp(OVERRIDE);
+    logs.length = 0;
+    await (app as any)._reloadAuth({
+      secret: "test-secret-32-chars-long-abcdef",
+      providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+    } satisfies AuthConfig);
+    const lines = logs.filter((l) => l.includes("OAuth redirect base"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(TUNNEL);
+    expect(lines[0]).toContain("tunnel");
+  });
+});
+
+// S7 — D11 accepts that a config change between /auth/start and /auth/callback
+// breaks the byte-identity OAuth2 requires. What must NOT happen is a blank
+// screen: the mismatch has to be attributable from the log + the emitted URI.
+describe("S7: a mid-flow base change is diagnosable", () => {
+  let app: Awaited<ReturnType<typeof makeApp>> | null = null;
+
+  afterEach(async () => {
+    await app?.close();
+    app = null;
+    vi.restoreAllMocks();
+  });
+
+  it("the callback's rebuilt URI reflects the NEW base, and the change is logged", async () => {
+    tunnelUrl.value = null;
+    app = await makeApp(OVERRIDE);
+    const start = await app.inject({ method: "GET", url: "/auth/start/github" });
+    const minted = new URL(start.headers.location as string).searchParams.get("redirect_uri");
+    expect(minted).toBe(`${OVERRIDE}/auth/callback/github`);
+
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => logs.push(a.join(" ")));
+    await (app as any)._reloadAuth({
+      secret: "test-secret-32-chars-long-abcdef",
+      providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+      redirectBaseUrl: "https://moved.example.com",
+    } satisfies AuthConfig);
+
+    // The rebuilt URI now differs from the minted one — that is the D11 window.
+    const after = await app.inject({ method: "GET", url: "/auth/start/github" });
+    const rebuilt = new URL(after.headers.location as string).searchParams.get("redirect_uri");
+    expect(rebuilt).not.toBe(minted);
+    // …and the server log names the new base + tier, so the opaque provider-side
+    // "Token exchange failed" is attributable instead of a blank screen.
+    expect(logs.some((l) => l.includes("https://moved.example.com") && l.includes("auth.redirectBaseUrl")))
+      .toBe(true);
+  });
+});

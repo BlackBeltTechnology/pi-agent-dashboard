@@ -11,7 +11,8 @@ import { fileURLToPath } from "node:url";
 import { createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { liveCorsAllowedOrigins, liveTrustedNetworks } from "./config-snapshot.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
@@ -271,7 +272,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const urls: string[] = [];
       const tunnelUrl = getTunnelUrl();
       if (tunnelUrl) urls.push(tunnelUrl);
-      urls.push(...(loadConfig().pairing?.publicBaseUrls ?? []));
+      urls.push(...resolvePublicBaseUrls(loadConfig()));
       // Test-only (PI_E2E_SEED): expose the loopback http origin so the
       // Playwright/Docker harness can pair over http://localhost (a genuine
       // secure context) without TLS. `reachableUrls()` re-gates it behind the
@@ -1050,8 +1051,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   //     surface the error as HTTP 500 on every asset — far worse than
   //     silently omitting CORS headers and letting the browser enforce its
   //     own same-origin policy.
-  const corsAllowedOrigins = config.corsAllowedOrigins ?? [];
-  const corsTrustedNetworks = config.resolvedTrustedNetworks ?? [];
+  // (3) Both inputs are read from the mtime-gated config snapshot on every
+  //     decision, NOT captured here. A gateway origin added at runtime has to
+  //     apply without a restart, else the browser hits exactly the
+  //     ERR_ABORTED module-script failure described in (1). See change:
+  //     config-override-oauth-redirect-base (D15).
+  const corsAllowedOrigins = () => liveCorsAllowedOrigins(config.corsAllowedOrigins ?? []);
+  const corsTrustedNetworks = () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []);
   await fastify.register(cors, {
     // Decision extracted to a pure, unit-tested helper (cors-origin.ts) so the
     // security-critical allow/deny logic is tested against the REAL code, not a
@@ -1062,8 +1068,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // requests. See change: fix-remote-connect-cors-gates.
     origin: (origin, cb) => {
       const allowed = isCorsOriginAllowed(origin ?? undefined, {
-        configuredOrigins: corsAllowedOrigins,
-        trustedNetworks: corsTrustedNetworks,
+        configuredOrigins: corsAllowedOrigins(),
+        trustedNetworks: corsTrustedNetworks(),
         getTunnelUrl,
       });
       cb(null, allowed);
@@ -1110,7 +1116,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   // Register route modules
   // Create network guard from merged trusted networks
-  const networkGuard = createNetworkGuard(config.resolvedTrustedNetworks ?? [], { localToken });
+  // Thunk, not a boot snapshot (D15): a CIDR added through the gateway action
+  // must admit that range on the next request, with no restart.
+  const networkGuard = createNetworkGuard(
+    () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+    { localToken },
+  );
 
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
   registerGitRoutes(fastify, {

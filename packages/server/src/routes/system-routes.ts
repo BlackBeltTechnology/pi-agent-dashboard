@@ -21,7 +21,7 @@ import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
-import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
 import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
 import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
@@ -195,10 +195,11 @@ export function registerSystemRoutes(
       const providerEndpoints = url
         ? [{ kind: "public" as const, url, tls: url.startsWith("https://") }]
         : [];
-      const cfg = (await import("@blackbelt-technology/pi-dashboard-shared/config.js")).loadConfig();
+      const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+      const cfg = configModule.loadConfig();
       const endpoints = collectEndpoints({
         providerEndpoints,
-        publicBaseUrls: cfg.pairing?.publicBaseUrls,
+        publicBaseUrls: configModule.resolvePublicBaseUrls(cfg),
         port: config.port,
       });
       return { success: true, data: { endpoints } } satisfies ApiResponse;
@@ -255,7 +256,9 @@ export function registerSystemRoutes(
       if (partial.auth !== undefined) {
         config.authConfig = reloaded.auth;
         if (reloaded.auth && (fastify as any)._reloadAuth) {
-          await (fastify as any)._reloadAuth(reloaded.auth);
+          // Full config, not only `reloaded.auth`: the reload has to merge
+          // top-level `trustedNetworks` exactly as boot does (D15).
+          await (fastify as any)._reloadAuth(reloaded.auth, reloaded);
         }
       }
       if (partial.openspec !== undefined && directoryService) {
@@ -298,6 +301,81 @@ export function registerSystemRoutes(
       }
 
       return { success: true, restartRequired: result.restartRequired };
+    },
+  );
+
+  // Which redirect base actually WON, and which tier produced it (D10). The
+  // D4 warning says a value is malformed; this says which of the four tiers is
+  // in force — the actual question when OAuth breaks.
+  //
+  // Gated (it discloses the deployment's public origin) but deliberately NOT
+  // remote-only: `networkGuard` admits loopback, which is how the `doctor`
+  // skill module reads it server-side without a JWT. A remote operator whose
+  // OAuth is broken cannot obtain one.
+  //
+  // `authActive: false` when the boot registry was empty: in that state no
+  // `/auth/*` route and no `_reloadAuth` exist, so a live-looking value would
+  // be boot-frozen and misleading (D6).
+  // See change: config-override-oauth-redirect-base.
+  fastify.get(
+    "/api/auth/diagnostics",
+    { preHandler: networkGuard },
+    async () => {
+      const { resolveRedirectBase } = await import("../auth/auth.js");
+      const cfg = (await import("@blackbelt-technology/pi-dashboard-shared/config.js")).loadConfig();
+      const { base, source } = resolveRedirectBase(config.port, cfg.auth?.redirectBaseUrl);
+      return {
+        success: true,
+        data: {
+          redirectBase: base,
+          source,
+          authActive: Boolean((fastify as any)._reloadAuth),
+          providerCount: Object.keys(cfg.auth?.providers ?? {}).length,
+        },
+      } satisfies ApiResponse;
+    },
+  );
+
+  // Delete ONE OAuth provider. A separate verb rather than a delete sentinel
+  // inside the secret-preserving providers merge (D9), behind the same guard as
+  // PUT /api/config. Idempotent. Deleting the LAST provider leaves auth
+  // ENFORCED with no login path, so it is refused without `?force=true`.
+  // See change: config-override-oauth-redirect-base.
+  fastify.delete<{ Params: { id: string }; Querystring: { force?: string } }>(
+    "/api/config/auth/providers/:id",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { id } = request.params;
+      const force = request.query?.force === "true";
+      const result = deleteAuthProvider(id, { force });
+
+      if (!result.success && result.reason === "last-provider") {
+        return reply.code(409).send({
+          success: false,
+          error:
+            `"${id}" is the last OAuth provider. Deleting it does NOT disable auth: ` +
+            "the gate stays installed and /auth/login would list no way to sign in, " +
+            "which can lock out every remote operator until the server is restarted. " +
+            "Repeat with ?force=true to accept that.",
+        } satisfies ApiResponse);
+      }
+      if (!result.success) {
+        return reply.code(500).send({ success: false, error: result.error } satisfies ApiResponse);
+      }
+
+      if (result.deleted) {
+        const reloaded = (await import("@blackbelt-technology/pi-dashboard-shared/config.js")).loadConfig();
+        config.authConfig = reloaded.auth;
+        if (reloaded.auth && (fastify as any)._reloadAuth) {
+          // Full config, not only `reloaded.auth`: the reload has to merge
+          // top-level `trustedNetworks` exactly as boot does (D15).
+          await (fastify as any)._reloadAuth(reloaded.auth, reloaded);
+        }
+      }
+      return {
+        success: true,
+        data: { deleted: result.deleted, remaining: result.remaining },
+      } satisfies ApiResponse;
     },
   );
 
