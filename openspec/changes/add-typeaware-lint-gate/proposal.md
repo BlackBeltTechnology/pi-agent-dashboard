@@ -39,7 +39,7 @@ radius, not package name.
 > the same commit rather than left for the sibling. Server floating is therefore
 > **16**, not 17. This is the same-function coupling both proposals flagged;
 > whoever re-derives should count from Biome, not from these tables.
-
+>
 > The floating total is 143, not 142. A site-extraction filter matching only
 > `.ts/.tsx/.mjs/.js/.jsx` drops `packages/server/src/rpc-keeper/keeper.cjs:141`.
 > Include `.cjs` when re-deriving, or the gate will be flipped one site early.

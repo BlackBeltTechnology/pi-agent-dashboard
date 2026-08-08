@@ -24,17 +24,21 @@ import {
   useSessionData,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
-import { makeSafeSend } from "./send-safe.js";
+import { makeSafeSend, type PluginSend } from "./send-safe.js";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
+// Every flow action routes through here, so the discard is stated once at the
+// shared seam rather than at each of the five call sites. A dropped
+// `flow_management` message otherwise leaves the UI showing a run the server
+// never started. See change: cleanup-client-plugin-promises.
 function dispatchFlowAction(
-  send: (msg: unknown) => void,
+  send: PluginSend,
   sessionId: string,
   action: string,
   opts?: { flowName?: string; task?: string; description?: string },
 ): void {
-  send({
+  makeSafeSend(send)({
     type: "flow_management",
     sessionId,
     action,

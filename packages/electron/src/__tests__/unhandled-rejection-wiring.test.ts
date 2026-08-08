@@ -28,13 +28,26 @@ describe("X2 (static): electron main installs an unhandled-rejection reporter", 
     expect(mainSrc).toMatch(/process\.on\(\s*["']unhandledRejection["']/);
   });
 
-  it("routes the reason to the existing log() path, and the body is not empty", () => {
+  it("routes the reason itself into log(), not just any log call", () => {
     const match = mainSrc.match(
       /process\.on\(\s*["']unhandledRejection["'][\s\S]{0,400}?\n\}\);/,
     );
     expect(match, "unhandledRejection handler block not found").toBeTruthy();
     const body = match?.[0] ?? "";
-    expect(body).toContain("log(");
+
+    // The handler's parameter must be what reaches log() — a handler that logs
+    // a fixed string would satisfy a bare `log(` check while discarding the
+    // reason, which is precisely the swallow this change exists to remove.
+    const param = body.match(/\(\s*(\w+)\s*\)\s*=>/)?.[1];
+    expect(param, "handler takes a reason parameter").toBeTruthy();
+    const derived = body.match(/const\s+(\w+)\s*=[\s\S]*?\b\w+\b/)?.[1];
+    const logCall = body.match(/log\(([\s\S]*?)\);/)?.[1] ?? "";
+    expect(
+      logCall.includes(param ?? "\u0000") || (derived ? logCall.includes(derived) : false),
+      `log() must carry the reason (param "${param}"), got: ${logCall.trim()}`,
+    ).toBe(true);
+    // And the reason must be preserved, not flattened to a placeholder.
+    expect(body).toMatch(new RegExp(`\\b${param}\\b[\\s\\S]*stack|\\b${param}\\b[\\s\\S]*message`));
     // A swallowing handler is the defect this change exists to remove.
     expect(body).not.toMatch(/\{\s*\}\s*\)/);
   });

@@ -40,7 +40,10 @@ export function usePiCompatibility(): PiCompatibility | null {
 		mountedRef.current = true;
 		// Discarded with a stated handler. See change: cleanup-client-plugin-promises.
 		void fetchHealth().catch(logRejection("usePiCompatibility.mount"));
-		const timer = setInterval(() => fetchHealth(), POLL_INTERVAL_MS);
+		const timer = setInterval(
+			() => void fetchHealth().catch(logRejection("usePiCompatibility.poll")),
+			POLL_INTERVAL_MS,
+		);
 		return () => {
 			mountedRef.current = false;
 			clearInterval(timer);

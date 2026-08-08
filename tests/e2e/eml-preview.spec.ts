@@ -155,12 +155,22 @@ test.describe("EML preview in the editor pane", () => {
 
     const preview = await openEml(page, "rich.eml");
     await expect(preview).toBeVisible();
-    // Expand an attachment so the blob-fetch discard path runs too.
+
+    // The attachment path is REQUIRED, not best-effort: `EmlPreview`'s
+    // attachment blob fetch is one of the three rewritten discard sites, so
+    // skipping it would leave the row asserting nothing about that fix.
+    // `rich.eml` always carries attachments (the X4 test above relies on it).
     const expand = preview.getByTestId("eml-attachment-expand").first();
-    if (await expand.isVisible().catch(() => false)) {
-      await expand.click();
-      await page.waitForTimeout(1_000);
-    }
+    await expect(expand).toBeVisible({ timeout: 20_000 });
+    await expand.click();
+
+    // Terminal UI state, not a fixed sleep. Two signals, both meaningful:
+    // the toggle flips to "Collapse" (the panel opened), and the "Loading…"
+    // placeholder clears (the attachment blob fetch — the rewritten discard
+    // site — actually settled rather than hanging).
+    await expect(expand).toHaveText(/Collapse/i, { timeout: 20_000 });
+    const attachment = preview.getByTestId("eml-attachment").first();
+    await expect(attachment.getByText(/Loading/i)).toHaveCount(0, { timeout: 20_000 });
 
     await watcher.assertClean("eml preview");
   });

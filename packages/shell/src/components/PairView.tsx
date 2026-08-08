@@ -165,7 +165,15 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
         return;
       }
       setRaw(found);
-      startRun(decodePayloadString(found));
+      // A malformed QR payload is a PAIRING error, not a camera/scan error —
+      // decode separately so the message matches the paste path's wording
+      // instead of being mislabelled by the outer catch.
+      try {
+        startRun(decodePayloadString(found));
+      } catch (err) {
+        setPhase("error");
+        setError(err instanceof Error ? err.message : "Invalid pairing string");
+      }
     } catch (err) {
       setError(`Camera/scan error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {

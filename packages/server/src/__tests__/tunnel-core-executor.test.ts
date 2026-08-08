@@ -26,14 +26,17 @@ function makeSpec(overrides: Partial<ChildProviderSpec> = {}): ChildProviderSpec
   } as ChildProviderSpec;
 }
 
-/** Reject if `p` has not settled within `ms` — a hang must fail, not time out the suite. */
+/**
+ * Reject if `p` has not settled within `ms` — a hang must fail, not time out the
+ * suite. The timer is cleared once the race settles so a pending handle cannot
+ * hold the worker open after the test passes.
+ */
 function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("PENDING_PAST_DEADLINE")), ms),
-    ),
-  ]);
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("PENDING_PAST_DEADLINE")), ms);
+  });
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
 }
 
 describe("E1: a throw inside the createInner executor settles the outer promise", () => {
@@ -49,22 +52,14 @@ describe("E1: a throw inside the createInner executor settles the outer promise"
 
     // Before the fix, the throw is swallowed by the async executor and the
     // outer promise neither resolves nor rejects — this races the deadline.
-    const settled = await withDeadline(
-      runtime.createTunnel(8000).then(
-        (value) => ({ state: "resolved" as const, value }),
-        (err: unknown) => ({ state: "rejected" as const, err }),
-      ),
-      2000,
-    );
-
-    if (settled.state === "rejected") {
-      expect(settled.err).toBe(boom);
-    } else {
-      expect(settled.value).toBeNull();
-    }
+    //
+    // The injected error must REJECT, not resolve `null`: a `null` resolution is
+    // indistinguishable from the legitimate "no binary / not enrolled" paths, so
+    // accepting it would let a future regression that swallows the throw pass.
+    await expect(withDeadline(runtime.createTunnel(8000), 2000)).rejects.toBe(boom);
   });
 
-  it("a throw from an awaited step in the executor also settles", async () => {
+  it("a rejection from an awaited step in the executor propagates out", async () => {
     const boom = new Error("reserve exploded");
     const runtime = new ChildTunnelRuntime(
       makeSpec({
@@ -72,15 +67,7 @@ describe("E1: a throw inside the createInner executor settles the outer promise"
       }),
     );
 
-    const settled = await withDeadline(
-      runtime.createTunnel(8001).then(
-        (value) => ({ state: "resolved" as const, value }),
-        (err: unknown) => ({ state: "rejected" as const, err }),
-      ),
-      2000,
-    );
-
-    expect(["resolved", "rejected"]).toContain(settled.state);
+    await expect(withDeadline(runtime.createTunnel(8001), 2000)).rejects.toBe(boom);
   });
 });
 

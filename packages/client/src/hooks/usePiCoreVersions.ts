@@ -53,7 +53,10 @@ export function usePiCoreVersions(): UsePiCoreVersionsResult {
 		mountedRef.current = true;
 		// Discarded with a stated handler. See change: cleanup-client-plugin-promises.
 		void fetchStatus().catch(logRejection("usePiCoreVersions.mount"));
-		const timer = setInterval(() => fetchStatus(), POLL_INTERVAL_MS);
+		const timer = setInterval(
+			() => void fetchStatus().catch(logRejection("usePiCoreVersions.poll")),
+			POLL_INTERVAL_MS,
+		);
 		return () => {
 			mountedRef.current = false;
 			clearInterval(timer);

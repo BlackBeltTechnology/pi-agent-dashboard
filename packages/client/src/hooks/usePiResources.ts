@@ -55,7 +55,10 @@ export function usePiResources(cwd: string | null, opts?: { globalOnly?: boolean
       .catch(logRejection("usePiResources.poll"))
       .finally(() => setIsLoading(false));
 
-    const timer = setInterval(() => fetchResources(target), POLL_INTERVAL);
+    const timer = setInterval(
+      () => void fetchResources(target).catch(logRejection("usePiResources.pollTick")),
+      POLL_INTERVAL,
+    );
     return () => clearInterval(timer);
   }, [target, fetchResources]);
 

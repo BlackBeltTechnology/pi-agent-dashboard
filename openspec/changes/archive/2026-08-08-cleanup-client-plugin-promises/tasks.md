@@ -53,7 +53,7 @@
 
 ## 6. Validate
 
-- [x] 6.1 Re-derive both lint counts and confirm the 93 claimed sites are clear, with the sibling's 61 remaining as the only outstanding work for these two rules.
+- [x] 6.1 Re-derive both lint counts and confirm the 93 claimed sites are clear. DONE: this change's scope reports 0 for both rules; 54 floating + 6 misused remain, all in the sibling's scope (server 16 + extension 37 + electron 1 floating; electron 6 misused). Note the boundary moved: `tunnel-core.ts:160` was absorbed here, so the split settled at 89 + 54, not 88 + 55.
 - [x] 6.2 Confirm no new `noMisusedPromises` findings were introduced by `await`s added in section 4 — re-derive both rules together, not just floating.
-- [x] 6.3 Run the full suite and the E2E harness; confirm the new specs pass and nothing regressed.
+- [x] 6.3 Run the full suite and the E2E harness. DONE with a stated limit: the full vitest suite is green (12314 passed, 0 failed) and every scenario this change added passes against the docker harness (F1, F2, F3, F4, F6, X1). The full 80-spec browser suite was NOT run to completion — the harness container goes unhealthy under sustained load on the dev host. Every failure encountered was reproduced identically against a harness built from the base commit, so none is attributable to this change; they are tracked in the follow-up issue for develop's red E2E baseline. Do not read this box as 'the whole E2E suite is green'.
 - [x] 6.4 Confirm the fix-type distribution from 4.9 is recorded where `add-typeaware-lint-gate` can consume it.
