@@ -46,15 +46,29 @@ test.describe("promise-rejection observability per surface", () => {
     // conditional click would let the row pass while exercising nothing.
     const checkNow = page.getByTestId("unified-pkg-check-now");
     await expect(checkNow).toBeVisible({ timeout: 20_000 });
+
+    // Arm the response wait BEFORE clicking. `checkNow` is already enabled, so
+    // asserting "enabled" after the click could pass before the async work even
+    // starts — it would prove nothing. Waiting on the request the click issues
+    // proves the path actually ran.
+    const checkRequest = page.waitForResponse(
+      (r) => /\/api\/packages/.test(r.url()),
+      { timeout: 30_000 },
+    );
     await checkNow.click();
+    await checkRequest;
 
     // The debounced search path is the third rewritten site on this surface.
     const search = page.getByPlaceholder(/search/i).first();
     await expect(search).toBeVisible({ timeout: 20_000 });
+    const searchRequest = page.waitForResponse(
+      (r) => /\/api\/packages/.test(r.url()),
+      { timeout: 30_000 },
+    );
     await search.fill("pi-dashboard");
+    await searchRequest;
 
-    // Settle on the control re-enabling rather than a fixed sleep — that is the
-    // observable that the check actually completed.
+    // Then settle: the control returns to an interactive state.
     await expect(checkNow).toBeEnabled({ timeout: 30_000 });
 
     // Converged to a settled rendered state (not a spinner that never resolves).

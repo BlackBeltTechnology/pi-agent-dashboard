@@ -90,7 +90,11 @@ failure the test exists to catch. Test sites take `await` or `return` only.
   `void` / `.catch`. Where the unawaited call was deliberate (fire the request,
   then assert on adapter state), make that explicit rather than awaiting and
   changing what the test proves.
-- **Fix 13 production `noFloatingPromises` findings in `packages/server/src`** —
+- **Fix 12 production `noFloatingPromises` findings in `packages/server/src`**
+  (was 13 — `tunnel-core.ts:160` was absorbed by `cleanup-client-plugin-promises`,
+  see the Why note. **The "10 of the 13" coverage split below still reads 13 and
+  must be re-derived**: only this change's owner can say which bucket the
+  absorbed site fell in, so it was deliberately not renumbered by guesswork.) —
   `browser-handlers/subscription-handler.ts` (3), `server.ts` (2),
   `browser-handlers/directory-handler.ts` (2), and one each in
   `tunnel/tunnel-core.ts`, `session/session-load-worker-pool.ts`,
