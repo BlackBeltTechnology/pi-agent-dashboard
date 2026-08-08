@@ -506,12 +506,25 @@ linkification.** Three verified constraints bound D4b:
    server-resolve — an asymmetry with `App.tsx` that exists today and is
    unchanged by D4b.)*
 
-### D5 — No `specs/` delta
+### D5 — `specs/` delta (SUPERSEDED: there IS one)
 
-No spec in `openspec/specs/` mentions `noImportCycles`, and no requirement's
-behaviour changes. Per the proposal's own instruction ("if the delta cannot name
-a concrete requirement that changes, this section should be empty"), this change
-carries `design.md`, `tasks.md`, and `test-plan.md` only.
+**Corrected during implementation.** The original text below claimed no spec
+delta. That is wrong: `specs/code-quality-loop/spec.md` carries three ADDED
+requirements that generalise beyond this cleanup and are the reason the rule can
+graduate — (1) a cycle is broken only by removing an edge, never by `React.lazy`
+/ dynamic `import()` (Biome traverses dynamic edges); (2) a cycle fix must
+preserve import-time evaluation semantics, characterising any cross-edge
+import-time read before altering the edge, and must be verified against a
+production bundle build rather than `tsc --noEmit` alone; (3) this change claims
+all 17 repo-root sites, so nothing is handed off.
+
+Those requirements are durable knowledge (two independent designs picked the
+ineffective `lazy()` fix before the mechanism was checked), so they belong in the
+spec rather than in this change's design. `openspec archive` syncs them.
+
+*(Original, now-inaccurate text: "No spec in `openspec/specs/` mentions*
+*`noImportCycles`, and no requirement's behaviour changes … this change carries*
+*`design.md`, `tasks.md`, and `test-plan.md` only.")*
 
 ### D6 — Verification oracle
 
