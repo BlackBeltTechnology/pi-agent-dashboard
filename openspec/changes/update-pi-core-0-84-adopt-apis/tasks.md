@@ -40,13 +40,13 @@
 
 ## 5. Model-registry refresh — options and results
 
-- [ ] 5.1 Update the refresh call site in `packages/extension/src/command-handler.ts` to pass `ModelsRefreshOptions` and inspect the `ModelsRefreshResult`; remove the bare `catch {}`.
-- [ ] 5.2 Update the fire-and-forget refresh in `packages/extension/src/bridge.ts` to inspect its result.
-- [ ] 5.3 Add an L1 test that the result is inspected — input: refresh returning a result with one provider error; trigger: call the refresh site; observable: return value is read and the outcome is not reported as fully successful (test-plan #E12). See `packages/extension/src/__tests__/provider-register-reload.test.ts`.
-- [ ] 5.4 Add an L1 test for scoped refresh — input: one provider's credentials changed; trigger: trigger refresh; observable: `ModelsRefreshOptions` names that provider only and other catalogs are not re-fetched (test-plan #E13). See `packages/extension/src/__tests__/provider-register-reload.test.ts`.
-- [ ] 5.5 Add an L1 fault-injection test that a provider error is surfaced — input: one provider's catalog fetch rejects; trigger: trigger a refresh; observable: error logged with the provider identity and refresh not reported as fully successful (test-plan #X1). See `packages/extension/src/__tests__/provider-register-reload.test.ts`.
-- [ ] 5.6 Add an L1 test that refresh failure is not swallowed — input: refresh throws; trigger: call the refresh site; observable: failure is observable to the caller with no empty `catch {}` discarding it (test-plan #X2). See `packages/extension/src/__tests__/provider-register-reload.test.ts`.
-- [ ] 5.7 Add an L1 fault-injection test for cancellation — input: refresh stalls with a supplied `AbortSignal`; trigger: abort mid-refresh; observable: refresh stops and the aborted outcome is distinguishable from success (test-plan #X3). See `packages/extension/src/__tests__/provider-register-reload.test.ts`.
+- [x] 5.1 Update the refresh call site in `packages/extension/src/command-handler.ts` to pass `ModelsRefreshOptions` and inspect the `ModelsRefreshResult`; remove the bare `catch {}`.
+- [x] 5.2 Update the fire-and-forget refresh in `packages/extension/src/bridge.ts` to inspect its result.
+- [x] 5.3 Add an L1 test that the result is inspected — input: refresh returning a result with one provider error; trigger: call the refresh site; observable: return value is read and the outcome is not reported as fully successful (test-plan #E12). See `packages/extension/src/__tests__/provider-register-reload.test.ts`.
+- [x] 5.4 Add an L1 test for scoped refresh — input: one provider's credentials changed; trigger: trigger refresh; observable: `ModelsRefreshOptions` names that provider only and other catalogs are not re-fetched (test-plan #E13). See `packages/extension/src/__tests__/provider-register-reload.test.ts`.
+- [x] 5.5 Add an L1 fault-injection test that a provider error is surfaced — input: one provider's catalog fetch rejects; trigger: trigger a refresh; observable: error logged with the provider identity and refresh not reported as fully successful (test-plan #X1). See `packages/extension/src/__tests__/provider-register-reload.test.ts`.
+- [x] 5.6 Add an L1 test that refresh failure is not swallowed — input: refresh throws; trigger: call the refresh site; observable: failure is observable to the caller with no empty `catch {}` discarding it (test-plan #X2). See `packages/extension/src/__tests__/provider-register-reload.test.ts`.
+- [x] 5.7 Add an L1 fault-injection test for cancellation — input: refresh stalls with a supplied `AbortSignal`; trigger: abort mid-refresh; observable: refresh stops and the aborted outcome is distinguishable from success (test-plan #X3). See `packages/extension/src/__tests__/provider-register-reload.test.ts`.
 
 ## 6. OAuth refresh — concrete abort signal
 
