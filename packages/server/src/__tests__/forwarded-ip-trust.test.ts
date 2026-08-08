@@ -71,7 +71,11 @@ describe("S1: Fastify is not configured to trust proxy headers", () => {
   it("a default Fastify instance reports trustProxy off", async () => {
     const { default: Fastify } = await import("fastify");
     const app = Fastify();
-    expect(app.initialConfig.trustProxy).toBeFalsy();
+    // `trustProxy` IS on `initialConfig` at runtime but is absent from the
+    // published type, so read it through a narrow view rather than `any` — the
+    // assertion must keep testing the real runtime value.
+    const initialConfig = app.initialConfig as Readonly<{ trustProxy?: boolean | string }>;
+    expect(initialConfig.trustProxy).toBeFalsy();
     await app.close();
   });
 
