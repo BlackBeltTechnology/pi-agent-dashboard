@@ -1,6 +1,9 @@
 /**
  * Editor pane shell — composes the tab strip, the collapsible + resizable
- * file-tree rail, and the active viewer (resolved via the viewer registry).
+ * file-tree rail, and the active viewer. Viewer resolution is split by open
+ * path: the four pseudo-tab kinds render from `pseudoTabRegistry` directly,
+ * every other kind goes through `CappedViewer` (size gate + `viewerRegistry`).
+ * See change: cleanup-import-cycles (D3).
  * Co-mounts alongside `ChatView` inside `SplitWorkspace`. Read-only in v1.
  *
  * State (open tabs, tree expansion) and the file-open plumbing come from
@@ -30,6 +33,8 @@ import { EditorTabs } from "./EditorTabs.js";
 import { TerminalPaneLayer } from "./TerminalPaneLayer.js";
 import { useServerCapabilities } from "../../hooks/useServerCapabilities.js";
 import { CappedViewer } from "./CappedViewer.js";
+import { pseudoTabRegistry } from "./pseudo-tab-registry.js";
+import { isPseudoTabViewer, type OpenPathViewer } from "./viewer-kinds.js";
 import { TabActions, type TabActionTarget } from "./TabActions.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
@@ -117,11 +122,14 @@ export function EditorPane() {
   // file or a url tab exposes an action (virtual live-server/diff/terminal do
   // not). See change: open-view-command-in-editor-pane.
   const caps = useServerCapabilities();
+  // `url` MUST be tested before the pseudo-tab guard: it is the one pseudo-tab
+  // kind that still exposes an action. Collapsing all four onto the guard would
+  // silently drop system-open for `url:` tabs, with no type error.
   const tabActionTarget: TabActionTarget | null = !activeTab
     ? null
     : activeTab.viewer === "url"
       ? { kind: "url", url: activeTab.path.replace(/^url:/, "") }
-      : activeTab.viewer === "live-server" || activeTab.viewer === "diff" || activeTab.viewer === "terminal"
+      : isPseudoTabViewer(activeTab.viewer)
         ? null
         : { kind: "file", cwd, path: activeTab.path };
 
@@ -144,19 +152,33 @@ export function EditorPane() {
     );
   } else {
     const classification = fileKind(absOf(cwd, activeTab.path));
+    // NOTE: `classification` is computed for every tab, including pseudo-tab
+    // paths where its `.viewer` is wrong (`diff:src/foo.ts` → `monaco`). Only
+    // `.kind`/`.mimeType` are consumed. `activeTab.viewer` is the discriminator.
+    //
+    // Bound to a local so the `isPseudoTabViewer` guard narrows it: the else
+    // branch becomes `OpenPathViewer`, which is what lets `tsc` catch a
+    // mis-routed kind instead of deferring it to a runtime `<undefined/>`.
+    // Never replace this with a cast.
+    const viewer = activeTab.viewer;
+    const viewerKey = `${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}`;
+    const viewerProps = {
+      cwd,
+      path: activeTab.path,
+      kind: classification.kind,
+      mimeType: classification.mimeType,
+      size: 0,
+      line: lineForTab,
+      restrictCsp: activeTab.restrictCsp,
+    };
+    const PseudoTabViewerComponent = isPseudoTabViewer(viewer) ? pseudoTabRegistry[viewer] : null;
     body = (
       <Suspense fallback={<div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>}>
-        <CappedViewer
-          key={`${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}`}
-          viewer={activeTab.viewer}
-          cwd={cwd}
-          path={activeTab.path}
-          kind={classification.kind}
-          mimeType={classification.mimeType}
-          size={0}
-          line={lineForTab}
-          restrictCsp={activeTab.restrictCsp}
-        />
+        {PseudoTabViewerComponent ? (
+          <PseudoTabViewerComponent key={viewerKey} {...viewerProps} />
+        ) : isPseudoTabViewer(viewer) ? null : (
+          <CappedViewer key={viewerKey} viewer={viewer} {...viewerProps} />
+        )}
       </Suspense>
     );
   }

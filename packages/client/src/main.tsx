@@ -43,6 +43,7 @@ import { ToolCallStep } from "./components/chat/ToolCallStep.js";
 import { PairLanding } from "./components/connectivity/PairLanding.js";
 import { MarkdownContent } from "./components/preview/MarkdownContent.js";
 import { LogBlock } from "./components/primitives/LogBlock.js";
+import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { ModelSelector } from "./components/settings/ModelSelector.js";
 import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
 import { installUnhandledRejectionReporter } from "./lib/report-error.js";
@@ -116,7 +117,7 @@ const ToolCallStepPrimitive: React.FC<UiToolCallStepProps> = (props) => (
     toolDetails={props.toolDetails}
     startedAt={props.startedAt}
     duration={props.duration}
-    context={{ sessionId: props.sessionId }}
+    context={makeToolContext({ sessionId: props.sessionId })}
   />
 );
 registerUiPrimitive(

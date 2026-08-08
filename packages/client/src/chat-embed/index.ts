@@ -37,9 +37,20 @@
  * and the transcript fails to size/scroll.
  *
  * ── ToolContext CONSTRUCTION ─────────────────────────────────────────────────
- * `ChatView` requires a `ToolContext` (`{ cwd, editors, sessionId, session }`)
- * — hidden coupling, not a trivial type. Construct it from the same session the
- * `SessionState` was reduced for. See `docs/embedding-chat-view.md`.
+ * `ChatView` requires a `ToolContext` (`{ cwd, sessionId, session, send }` —
+ * every field optional) — hidden coupling, not a trivial type. Construct it
+ * from the same session the `SessionState` was reduced for. See
+ * `docs/embedding-chat-view.md`.
+ *
+ * `ToolContext` also carries an optional `fileLink` renderer, which is what
+ * turns file mentions in markdown into clickable links. `ChatView` merges a
+ * default in, so an embedder rendering `ChatView` needs no code change.
+ *
+ * HEADLESS EMBEDDERS: if you build your own transcript from the headless
+ * exports below (`useSessionState` / `createSessionAccumulator` /
+ * `applySessionMessage`) and render `MarkdownContent` directly WITHOUT
+ * mounting `ChatView`, attach `fileLink` yourself or file mentions render as
+ * plain text. See change: cleanup-import-cycles (D4b).
  *
  * ── SINGLE REACT ─────────────────────────────────────────────────────────────
  * `react`/`react-dom` are `dependencies` (not peer) on `packages/client`. The

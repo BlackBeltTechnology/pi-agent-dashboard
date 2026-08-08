@@ -11,7 +11,8 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `csp.ts` | Baseline Content-Security-Policy (defense in depth). `buildCsp()` (default-src/object-src… → see `csp.ts.AGENTS.md` |
 | `identity.ts` | Persistent Ed25519 server identity (D2, TOFU pinning). `ensureServerIdentity(path?)` generates/loads keypair… → see `identity.ts.AGENTS.md` |
 | `local-token.ts` | Local-IPC allowlist token (D10, narrowed). `ensureLocalToken(dir?)` writes high-entropy secret to… → see `local-token.ts.AGENTS.md` |
-| `localhost-guard.ts` | Network access guard: `createNetworkGuard(trustedNetworks, {localToken?})`… → see `localhost-guard.ts.AGENTS.md` |
+| `localhost-guard.ts` | Network access guard: `createNetworkGuard(trustedNetworks, {localToken?})`… → see `localhost-guard.ts.AGENTS.md` `isLoopback`/`LOOPBACK_ADDRESSES` now live in `auth/loopback.ts` (imported, NOT re-exported — a re-export keeps the cycle edge). See change: cleanup-import-cycles. |
+| `loopback.ts` | Import-free leaf: `LOOPBACK_ADDRESSES` set + `isLoopback(ip)`. Extracted from `localhost-guard.ts` so it and `tunnel/tunnel-block-events.ts` depend on this leaf instead of each other (broke the 2-edge cycle). Keep import-free — an import back into either former side re-forms the cycle. See change: cleanup-import-cycles. |
 | `node-guard.ts` | Re-exports `isAffectedNode`/`isOutOfEnginesRange` from shared `node-version.ts` (public API unchanged). → see `node-guard.ts.AGENTS.md` |
 | `oauth-callback-server.ts` | Temporary HTTP callback server for OAuth auth-code flows. → see `oauth-callback-server.ts.AGENTS.md` |
 | `provider-auth-handlers.ts` | OAuth provider handlers for browser-based provider auth. Exports `AuthCodeHandler`, `DeviceCodeHandler`,… → see `provider-auth-handlers.ts.AGENTS.md` |

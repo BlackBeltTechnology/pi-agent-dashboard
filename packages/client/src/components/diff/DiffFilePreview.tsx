@@ -20,6 +20,7 @@ import { useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { CappedViewer } from "../editor-pane/CappedViewer.js";
+import { isPseudoTabViewer } from "../editor-pane/viewer-kinds.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
@@ -82,6 +83,22 @@ export function DiffFilePreview({ cwd, path }: Props) {
   }
 
   const viewer = fileKind(absOf(cwd, path)).viewer;
+  // `fileKind()` never returns a pseudo-tab kind for a real file path, but its
+  // return type is the full `ViewerKind` declared in `packages/shared` (out of
+  // scope to narrow at source). Discharge it with the same guard the pane uses
+  // rather than casting — a cast here would erase D3's compile-time guarantee.
+  // This branch is unreachable in practice; it reuses the not-found rendering.
+  // See change: cleanup-import-cycles (D3).
+  if (isPseudoTabViewer(viewer)) {
+    return (
+      <div
+        data-testid="diff-preview-not-found"
+        className="flex h-32 items-center justify-center text-sm text-[var(--text-tertiary)]"
+      >
+        {i18nT("diff.previewFileMissing", undefined, "File is no longer available to preview.")}
+      </div>
+    );
+  }
   return (
     <div data-testid="diff-preview-body" className="h-full">
       <CappedViewer

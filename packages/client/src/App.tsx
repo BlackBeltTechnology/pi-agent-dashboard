@@ -123,6 +123,7 @@ import { FirstLaunchDisplayModal } from "./components/settings/FirstLaunchDispla
 import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
 import { SearchableSelectDialog, type SelectOption } from "./components/primitives/SearchableSelectDialog.js";
 import type { ToolContext } from "./components/tool-renderers/index.js";
+import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
 import { openArtifactForViewport } from "./lib/util/artifact-view-gate.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
@@ -1130,7 +1131,10 @@ export default function App() {
     ?? piResourcesCwd ?? folderSettingsCwd ?? null;
   useDocumentTitle(selectedSession, folderTitleCwd ?? undefined);
   const selectedCwd = selectedSession?.cwd;
-  const toolContext: ToolContext = useMemo(() => ({
+  // Built via `makeToolContext` so the `fileLink` renderer is attached — a
+  // hand-built literal here silently loses file-mention linkification with no
+  // type error. See change: cleanup-import-cycles (D4b).
+  const toolContext: ToolContext = useMemo(() => makeToolContext({
     cwd: selectedCwd,
     sessionId: selectedId,
     session: selectedId ? sessionStates.get(selectedId) : undefined,
