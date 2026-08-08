@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createNotifyProxy } from "../notify-proxy.js";
 import { PromptBus, type PromptAdapter, type PromptRequest, type PromptResponse, type PromptClaim, type PromptComponent } from "../prompt-bus.js";
 
 // ── Mock infrastructure (tasks 9.1) ────────────────────────────────
@@ -787,5 +788,81 @@ describe("PromptBus wiring integration", () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
+  });
+});
+
+// ── split-notify-from-prompt-request: ctx.ui.notify proxy ──────────
+//
+// The notify proxy is fire-and-forget: it sends on the dedicated `notify`
+// channel and never touches PromptBus. Tests drive the real proxy factory
+// (`createNotifyProxy`), which bridge.ts installs on `ctx.ui.notify`.
+
+describe("notify proxy — dedicated channel, never PromptBus", () => {
+  function setupNotify(originalNotify?: (m: string, l?: string) => void) {
+    const connection = createMockConnection();
+    let seq = 0;
+    const notify = createNotifyProxy({
+      sessionId: "test-session",
+      send: (msg) => connection.send(msg),
+      originalNotify,
+      newId: () => `n${++seq}`,
+    });
+    return { connection, notify };
+  }
+
+  it("E1: emits {type:'notify'} with no promptId/placement/component", () => {
+    const original = vi.fn();
+    const { connection, notify } = setupNotify(original);
+
+    notify("hello", "info");
+
+    expect(original).toHaveBeenCalledWith("hello", "info");
+    expect(connection._messagesOfType("prompt_request")).toHaveLength(0);
+    const frames = connection._messagesOfType("notify");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toEqual({
+      type: "notify",
+      sessionId: "test-session",
+      notifyId: "n1",
+      message: "hello",
+      level: "info",
+    });
+    expect("promptId" in frames[0]).toBe(false);
+    expect("placement" in frames[0]).toBe(false);
+    expect("component" in frames[0]).toBe(false);
+  });
+
+  it("E2: omits level when the caller passes none", () => {
+    const { connection, notify } = setupNotify();
+    notify("hi");
+    const frame = connection._messagesOfType("notify")[0];
+    expect("level" in frame).toBe(false);
+    expect(frame.message).toBe("hi");
+  });
+
+  it("E3: success level survives", () => {
+    const { connection, notify } = setupNotify();
+    notify("done", "success");
+    expect(connection._messagesOfType("notify")[0].level).toBe("success");
+  });
+
+  it("E4: unrecognized level is normalized to info at the send site", () => {
+    const { connection, notify } = setupNotify();
+    notify("x", "debug");
+    expect(connection._messagesOfType("notify")[0].level).toBe("info");
+  });
+
+  it("E12: notify never enters PromptBus", () => {
+    const stack = setupPromptBusStack({ hasUI: true });
+    const notify = createNotifyProxy({
+      sessionId: "test-session",
+      send: (msg) => stack.connection.send(msg),
+      newId: () => "n1",
+    });
+
+    notify("hello", "info");
+
+    expect(stack.bus.getPendingRequests()).toHaveLength(0);
+    expect(stack.connection._messagesOfType("prompt_request")).toHaveLength(0);
   });
 });

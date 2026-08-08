@@ -8,6 +8,8 @@ export interface PluginRequirementReport {
   piExtensions: { name: string; satisfied: boolean }[];
   binaries: { name: string; satisfied: boolean; resolvedPath?: string }[];
   services: { name: string; satisfied: boolean; error?: string }[];
+  /** Absolute-path existence probes. See change: add-apple-tools-imcp-plugin. */
+  paths: { name: string; satisfied: boolean }[];
 }
 
 export interface PluginRowStatus {
@@ -39,6 +41,7 @@ export interface PluginRow {
     piExtensions?: string[];
     binaries?: string[];
     services?: string[];
+    paths?: string[];
   } | null;
   /** Plugin ids this plugin depends on (verbatim from manifest). */
   dependsOn?: string[];

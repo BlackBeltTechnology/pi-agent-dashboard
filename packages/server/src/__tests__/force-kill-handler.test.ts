@@ -56,6 +56,7 @@ function createMockContext(sessionOverrides?: Record<string, any>): BrowserHandl
     getSubscribers: vi.fn().mockReturnValue([]),
     trackUiRequest: vi.fn(),
     replayPendingUiRequests: vi.fn(),
+    replayNotifyLog: vi.fn(),
     markReplaying: vi.fn(),
     clearReplaying: vi.fn(),
     sent,

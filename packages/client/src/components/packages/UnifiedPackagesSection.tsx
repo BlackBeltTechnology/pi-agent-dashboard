@@ -6,13 +6,17 @@
  * Replaces the two prior sibling sections (`PiCoreVersionsSection` and
  * the inline "Installed Global Packages" block in `SettingsPanel.tsx`).
  *
+ * Core in-flight state is NOT component-local: pi-core updates ride the
+ * singleton `packageQueue` (keyed `pi-core:<scoped-name>`) so a spinner
+ * survives this component unmounting. See change:
+ * unify-pi-core-into-package-queue.
+ *
  * See change: consolidate-packages-settings-ui.
  */
 
 import type {
 	InstalledPackage,NpmPackageResult, 
-	PiCorePackage,
-	PiCoreUpdateResponse
+	PiCorePackage
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
 	mdiAlertCircle,
@@ -35,6 +39,7 @@ import {
 	groupInstalledPackages,
 	isSourceOverride,
 } from "../../lib/package/package-classifier.js";
+import { piCoreSource } from "../../lib/package/package-queue.js";
 import { PackagePartialSuccessBanner } from "./PackagePartialSuccessBanner.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
 import { PackageRow, type PackageRowProps } from "./PackageRow.js";
@@ -61,8 +66,6 @@ function npmNameFromSource(source: string): string | null {
 	// at>0 strips a trailing @version while preserving a leading @scope.
 	return at > 0 ? spec.slice(0, at) : spec;
 }
-
-type ProgressMap = Map<string, { phase: "start" | "output" | "complete" | "error"; message?: string }>;
 
 function relativeTime(iso: string, t: ReturnType<typeof useI18n>["t"]): string {
 	const then = new Date(iso).getTime();
@@ -94,9 +97,6 @@ export function UnifiedPackagesSection() {
 
 	// ── Core data (Pi Ecosystem core: pi, pi-dashboard, pi-model-proxy) ──
 	const { status, isLoading, error, refresh } = usePiCoreVersions();
-	const [coreUpdating, setCoreUpdating] = useState<Set<string>>(new Set());
-	const [coreProgress, setCoreProgress] = useState<ProgressMap>(new Map());
-	const [coreErrors, setCoreErrors] = useState<Map<string, string>>(new Map());
 
 	// Live tick for "last checked N min ago"
 	const [, setTick] = useState(0);
@@ -104,65 +104,6 @@ export function UnifiedPackagesSection() {
 		const id = setInterval(() => setTick((n) => n + 1), 30_000);
 		return () => clearInterval(id);
 	}, []);
-
-	// Core update WS listener (mirrors PiCoreVersionsSection).
-	useEffect(() => {
-		const handler = (e: Event) => {
-			const msg = (e as CustomEvent).detail;
-			if (msg?.type === "pi_core_update_progress") {
-				setCoreProgress((prev) => {
-					const next = new Map(prev);
-					next.set(msg.name, { phase: msg.phase, message: msg.message });
-					return next;
-				});
-			} else if (msg?.type === "pi_core_update_complete") {
-				setCoreUpdating(new Set());
-				setCoreProgress(new Map());
-				const errs = new Map<string, string>();
-				for (const r of (msg.results ?? []) as Array<{ name: string; success: boolean; error?: string }>) {
-					if (!r.success && r.error) errs.set(r.name, r.error);
-				}
-				setCoreErrors(errs);
-			}
-		};
-		window.addEventListener("pi-core-event", handler);
-		return () => window.removeEventListener("pi-core-event", handler);
-	}, []);
-
-	const doCoreUpdate = useCallback(
-		async (packages: string[]) => {
-			if (packages.length === 0) return;
-			setCoreUpdating(new Set(packages));
-			setCoreErrors(new Map());
-			try {
-				const res = await fetch(`${getApiBase()}/api/pi-core/update`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ packages }),
-				});
-				const body = await res.json();
-				if (!body.success) {
-					const errs = new Map<string, string>();
-					for (const name of packages) errs.set(name, body.error ?? "Update failed");
-					setCoreErrors(errs);
-					setCoreUpdating(new Set());
-				} else {
-					const data = body.data as PiCoreUpdateResponse;
-					const errs = new Map<string, string>();
-					for (const r of data.results) if (!r.success && r.error) errs.set(r.name, r.error);
-					setCoreErrors(errs);
-					setCoreUpdating(new Set());
-					refresh(true);
-				}
-			} catch (err: any) {
-				const errs = new Map<string, string>();
-				for (const name of packages) errs.set(name, err?.message ?? "Network error");
-				setCoreErrors(errs);
-				setCoreUpdating(new Set());
-			}
-		},
-		[refresh],
-	);
 
 	const corePackages: PiCorePackage[] = status?.packages ?? [];
 	const updatableCore = useMemo(
@@ -206,6 +147,27 @@ export function UnifiedPackagesSection() {
 	const [checkingUpdates, setCheckingUpdates] = useState(false);
 	const [readmePkg, setReadmePkg] = useState<NpmPackageResult | null>(null);
 	const [movePickerSource, setMovePickerSource] = useState<string | null>(null);
+
+	// Core "Update All" stays CLICKABLE while operations run — clicking it
+	// mid-flight fills the queue and each row shows queued → running. The
+	// queue's (source, action) dedupe makes a repeat click idempotent, so
+	// nothing stacks. See change: unify-pi-core-into-package-queue (D9).
+	const coreUpdateAllSpinning = updatableCore.some((p) => {
+		const s = operations.statusFor(piCoreSource(p.name));
+		return s === "running" || s === "queued";
+	});
+
+	// Move / Reset-to-npm are the ONLY controls gated on "any op running".
+	// They bypass `packageQueue` (moveTracker: moveId-keyed, partial-success
+	// semantics that don't fit source-keyed statusFor) and take the server
+	// busy lock directly with no retry, so a mid-flight click would 409
+	// silently. Everything else enqueues and is safe to leave enabled.
+	const moveLocked = operations.isAnyRunning;
+	const moveLockedReason = t(
+		"packages.moveLockedWhileBusy",
+		undefined,
+		"Unavailable while a package operation is running — move and reset can't be queued yet",
+	);
 
 	const checkInFlightRef = useRef(false);
 	const handleCheckUpdates = useCallback(
@@ -300,6 +262,9 @@ export function UnifiedPackagesSection() {
 			currentVersion: pkg.version,
 			updateAvailable: hasUpdate,
 			busy: rowBusy,
+			queued: opStatus === "queued",
+			locked: moveLocked,
+			lockedReason: moveLockedReason,
 			progress: rowProgress,
 			error: rowError,
 			isOverride: isSourceOverride(pkg),
@@ -385,12 +350,12 @@ export function UnifiedPackagesSection() {
 					{updatableCore.length > 1 && (
 						<div className="mb-2">
 							<button
-								onClick={() => doCoreUpdate(updatableCore.map((p) => p.name))}
-								disabled={coreUpdating.size > 0}
+								onClick={() => updatableCore.forEach((p) => operations.coreUpdate(p.name))}
+								disabled={updatableCore.length === 0}
 								className="text-xs px-3 py-1 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 disabled:opacity-50 flex items-center gap-1"
 								data-testid="pi-core-update-all"
 							>
-								<Icon path={coreUpdating.size > 0 ? mdiLoading : mdiArrowUpBold} size={0.55} spin={coreUpdating.size > 0} />
+								<Icon path={coreUpdateAllSpinning ? mdiLoading : mdiArrowUpBold} size={0.55} spin={coreUpdateAllSpinning} />
 									{t("common.updateAll", { count: updatableCore.length }, `Update All (${updatableCore.length})`)}
 							</button>
 						</div>
@@ -398,6 +363,9 @@ export function UnifiedPackagesSection() {
 					<div className="space-y-1 mb-4">
 						{corePackages.map((pkg) => {
 							const isPi = isPiCorePkg(pkg.name);
+							const opSource = piCoreSource(pkg.name);
+							const busy = operations.runningSource === opSource;
+							const opStatus = operations.statusFor(opSource);
 							return (
 								<PackageRow
 									key={pkg.name}
@@ -407,12 +375,13 @@ export function UnifiedPackagesSection() {
 									currentVersion={pkg.currentVersion}
 									latestVersion={pkg.latestVersion}
 									updateAvailable={pkg.updateAvailable}
-									busy={coreUpdating.has(pkg.name)}
-									progress={coreProgress.get(pkg.name)?.message}
-									error={coreErrors.get(pkg.name)}
+									busy={busy}
+									queued={opStatus === "queued"}
+									progress={busy ? operations.operation.message : undefined}
+									error={opStatus === "error" ? operations.messageFor(opSource) : undefined}
 									canUpdate={true}
 									canUninstall={false}
-									onUpdate={() => doCoreUpdate([pkg.name])}
+									onUpdate={() => operations.coreUpdate(pkg.name)}
 									breakingChangeCount={isPi ? piBreakingCount : undefined}
 									whatsNewKind={isPi ? piWhatsNewKind : undefined}
 									onShowWhatsNew={isPi && piWhatsNewKind ? () => setWhatsNewOpen(true) : undefined}
@@ -476,7 +445,7 @@ export function UnifiedPackagesSection() {
 					displayName={piPkg.displayName}
 					latestVersion={piPkg.latestVersion ?? piChangelog.data.to}
 					onClose={() => setWhatsNewOpen(false)}
-					onUpdate={() => doCoreUpdate([piPkg?.name ?? PI_CORE_PKG])}
+					onUpdate={() => operations.coreUpdate(piPkg?.name ?? PI_CORE_PKG)}
 				/>
 			)}
 		</div>

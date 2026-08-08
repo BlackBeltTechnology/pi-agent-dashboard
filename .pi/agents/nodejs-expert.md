@@ -1,8 +1,7 @@
 ---
 description: Specializes in Node.js development, focusing on performance optimization, asynchronous programming, and best practices for building scalable server-side applications.
-display_name: Nodejs-Expert
-tools: read, bash, grep, find, ls, edit, write
-prompt_mode: replace
+model: "@coding"
+tools: [read, bash, edit, write, kb_search, kb_neighbors, kb_get, memory_search, session_search, memory, skill_manage, ask_user]
 ---
 
 ## Focus Areas

@@ -325,6 +325,7 @@ jobs:
             "@blackbelt-technology/anti-slop-frontend"
             "@blackbelt-technology/pi-dashboard-eng-disciplines"
             "@blackbelt-technology/pi-dashboard-authoring-toolkit"
+            "@blackbelt-technology/pi-dashboard-apple-tools"
             "@blackbelt-technology/pi-dashboard-video-transcription"
             "@blackbelt-technology/pi-dashboard-session-distiller"
             "@blackbelt-technology/pi-dashboard-distill-session-knowledge"
@@ -397,6 +398,58 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           exit $FAIL
+
+      # Post-release registry assertion. The publish loop reports its own
+      # failures, but "publish exited zero" is not the same as "the version is
+      # resolvable". Assert the registry actually serves <version> for every
+      # non-private workspace, so a silently-missing package is caught here
+      # rather than by a consumer's install.
+      # See change: cleanup-undeclared-dependencies (test-plan R1).
+      - name: Verify every non-private workspace resolves on the registry
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Captured into a variable, not piped through process substitution:
+          # a failure inside `< <(...)` does NOT fail `mapfile`, so a broken
+          # discovery would yield an empty set and the loop below would report a
+          # successful registry assertion having checked nothing.
+          names_text="$(node -e "
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const base = path.join(process.cwd(), 'packages');
+            const out = [];
+            for (const d of fs.readdirSync(base)) {
+              const p = path.join(base, d, 'package.json');
+              if (!fs.existsSync(p)) continue;
+              const m = JSON.parse(fs.readFileSync(p, 'utf8'));
+              if (m.private === true) continue;
+              out.push(m.name);
+            }
+            out.push(JSON.parse(fs.readFileSync('package.json', 'utf8')).name);
+            console.log(out.join('\n'));
+          ")"
+          if [ -z "$names_text" ]; then
+            echo "::error::workspace discovery returned no package names; refusing to report a vacuous pass"
+            exit 1
+          fi
+          mapfile -t names <<< "$names_text"
+          echo "Asserting ${#names[@]} package(s) resolve at ${VERSION}"
+          missing=()
+          for name in "${names[@]}"; do
+            actual=$(npm view "${name}@${VERSION}" version 2>/dev/null || true)
+            if [ "$actual" != "$VERSION" ]; then
+              echo "::error::${name} does not resolve at ${VERSION} on the registry (npm view returned '${actual:-<nothing>}')"
+              missing+=("$name")
+            else
+              echo "ok  ${name}@${VERSION}"
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::${#missing[@]} package(s) did not resolve at ${VERSION}"
+            exit 1
+          fi
 
   # ── Electron builds (parallel) ────────────────────────────────
   # MUST `needs: [resolve, publish]` — the bundled server's `npm install`

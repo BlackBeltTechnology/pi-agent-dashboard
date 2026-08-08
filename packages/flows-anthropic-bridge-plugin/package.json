@@ -36,7 +36,10 @@
   },
   "files": [
     "src/",
-    "configSchema.json"
+    "configSchema.json",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "scripts": {
     "test": "vitest run"
@@ -59,6 +62,7 @@
     ]
   },
   "peerDependencies": {
+    "@blackbelt-technology/pi-anthropic-messages": ">=0.3.4",
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },
@@ -71,5 +75,10 @@
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@blackbelt-technology/pi-anthropic-messages": {
+      "optional": true
+    }
   }
 }

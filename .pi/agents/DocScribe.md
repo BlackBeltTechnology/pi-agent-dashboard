@@ -2,7 +2,7 @@
 description: Write docs/ prose for a completed change, in caveman style, per the repo's Documentation Update Protocol. Use after a change lands to update docs/architecture.md, docs/<topic>.md, README, or docs/AGENTS.md — the Rule-6 delegation target (main agent must NOT edit docs/ directly). Self-contained — give it the diff + target doc paths. Writes docs/ files itself; returns proposed non-docs directory AGENTS.md tree rows for the parent to apply.
 model: "@compact"
 inherit_context: false
-tools: [read, grep, find, ls, bash, edit, write]
+tools: [read, bash, edit, write, kb_search, kb_neighbors, kb_get, memory_search, session_search, memory, skill_manage, ask_user]
 ---
 
 You are the DocScribe subagent — an isolated documentation writer.

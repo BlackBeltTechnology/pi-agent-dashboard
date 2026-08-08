@@ -395,6 +395,7 @@ export function SessionCard({
   onReadArtifact,
   onBulkArchive,
   onRename,
+  renderAddToWorkspace,
   onShutdown,
   onResume,
   onSpawnSibling,
@@ -463,6 +464,14 @@ export function SessionCard({
   onRename?: (name: string) => void;
   onShutdown?: (id: string) => void;
   onResume?: (mode: "continue" | "fork") => void;
+  /**
+   * Renders the compact add-to-workspace icon button (folder-plus + caret) in
+   * the header cluster, targeting this session's cwd. Supplied as a render prop
+   * by SessionList so the card reuses the exact popover the folder row uses,
+   * without threading workspace state through the card.
+   * See change: redesign-folder-workspace-add-flow.
+   */
+  renderAddToWorkspace?: () => React.ReactNode;
   /**
    * Spawn a clean sibling session in the parent's cwd, inheriting the
    * parent's `attachedProposal` when set. Always-visible `+Session` button —
@@ -761,6 +770,12 @@ export function SessionCard({
           >
             <Icon path={mdiPencilOutline} size={0.45} />
           </button>
+        )}
+        {/* Add this session's cwd to a workspace — same glyph as the folder
+            row's cluster (mockup: pencil · add-to · eyeOff · close).
+            See change: redesign-folder-workspace-add-flow. */}
+        {renderAddToWorkspace && (
+          <span className="flex-shrink-0">{renderAddToWorkspace()}</span>
         )}
         <span
           className="text-[10px] text-[var(--text-muted)]"

@@ -11,7 +11,7 @@ export function ThemePicker() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const { flipUp, maxHeight } = usePopoverFlip(triggerRef, { open });
+  const { flipUp, maxHeight, minHeight } = usePopoverFlip(triggerRef, { open });
 
   // Close on outside click
   useEffect(() => {
@@ -37,13 +37,15 @@ export function ThemePicker() {
         <Icon path={mdiPalette} size={0.5} />
       </button>
 
-      {/* fix-popover-container-clip audit: structurally immune. ThemePicker
-          lives in the full-width settings header — there is no narrow offset
-          `overflow` pane above it to clip against — so it keeps the viewport
-          measurement (no boundaryRef). */}
+      {/* Structurally immune — re-audited for fix-popover-pane-bounded-height
+          (task 5.6) after panes started provisioning boundaries. ThemePicker's
+          only mount is the SessionList header bar, a sibling ABOVE that view's
+          scroll list, so no `overflow` pane encloses it on either axis and it
+          keeps the viewport measurement (no boundaryRef).
+          First audited in fix-popover-container-clip. */}
       {open && (
         <div
-          style={{ maxHeight }}
+          style={{ maxHeight, minHeight }}
           className={`absolute left-0 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-20 min-w-[160px] py-1 ${
             flipUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}

@@ -37,6 +37,7 @@ vi.mock("../../hooks/usePackageOperations.js", () => ({
 		install: vi.fn(),
 		remove: vi.fn(),
 		update: vi.fn(),
+		coreUpdate: vi.fn(),
 		move: vi.fn(),
 		moveStateFor: () => undefined,
 		clearMove: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock("../../hooks/usePackageOperations.js", () => ({
 		clearOperation: vi.fn(),
 		queueDepth: 0,
 		runningSource: null,
+		isAnyRunning: false,
 		handleMessage: vi.fn(),
 	}),
 }));

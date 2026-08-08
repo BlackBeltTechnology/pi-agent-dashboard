@@ -30,6 +30,9 @@
     "src/",
     "bin/",
     "README.md",
-    "NOTICE"
+    "NOTICE",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ]
 }

@@ -47,7 +47,9 @@ export type {
   SettingsDraftSource,
 } from "./settings-draft-context.js";
 export {
+  PluginSettingsPageProvider,
   SettingsDraftProvider,
+  usePluginSettingsPageId,
   useSettingsDraftSource,
 } from "./settings-draft-context.js";
 export {

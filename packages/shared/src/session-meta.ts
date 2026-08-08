@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
+import type { NotifyLogEntry } from "./types.js";
 
 /**
  * Session metadata stored as a sidecar `.meta.json` file
@@ -125,6 +126,14 @@ export interface SessionMeta {
    * See change: add-embed-session-lifecycle.
    */
   lifecyclePolicy?: "ephemeral" | "durable";
+
+  /**
+   * Retained notification history mirror of `DashboardSession.notifyLog`
+   * (bounded, oldest evicted). Persisted so notifications are not the one
+   * transcript row type that disappears on `/api/restart`.
+   * See change: split-notify-from-prompt-request.
+   */
+  notifyLog?: NotifyLogEntry[];
 
   /**
    * Automation-run identity mirror of `DashboardSession.automationRun`.

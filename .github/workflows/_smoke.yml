@@ -1,7 +1,7 @@
 name: Standalone install smoke (reusable)
 
 # Reusable workflow that runs the full standalone-install-smoke matrix
-# (Linux × 6: Node 22/24/25 × bookworm-slim/alpine + Windows × 1: Node 22).
+# (Linux × 8: Node 22/24/25/26 × bookworm-slim/alpine + Windows × 1: Node 22).
 #
 # Consumed by:
 #   - .github/workflows/ci-smoke.yml  (on-demand manual dispatch)
@@ -46,6 +46,10 @@ jobs:
             node-version: 25
           - image: node:25-alpine
             node-version: 25
+          - image: node:26-bookworm-slim
+            node-version: 26
+          - image: node:26-alpine
+            node-version: 26
     container:
       image: ${{ matrix.image }}
     steps:
@@ -72,9 +76,31 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
-      # Preserve the engine-strict override: the transitive appdmg engine range
-      # fail-fasts on Node 24/25 under root `.npmrc engine-strict=true`.
-      - run: pnpm install --frozen-lockfile --config.engine-strict=false
+      # The engine-strict override is kept on the pre-26 legs for continuity
+      # only. Its stated rationale ("the transitive appdmg engine range
+      # fail-fasts on Node 24/25") is FALSE and was corrected in change
+      # fix-pi-install-node26-and-omit-dev-build: `appdmg@0.6.6` declares
+      # `engines: {node: '>=8.5'}` with `os: [darwin]` — no upper bound, and
+      # platform-filtered out of Linux installs entirely. The real historical
+      # cause per root `.npmrc` was native compilation of `macos-alias`.
+      # A whole-lockfile scan finds exactly one upper-bounded engines range
+      # (`>=6 <7 || >=8`), which admits Node 26.
+      - name: Install deps (engine-strict override, pre-26 legs)
+        if: matrix.node-version != 26
+        run: pnpm install --frozen-lockfile --config.engine-strict=false
+      # Node 26 legs run WITHOUT the override so the EBADENGINE half of #357 is
+      # regression-tested rather than assumed — with the override in place CI
+      # cannot distinguish "cap fixed" from "still refused".
+      # SCOPE: this leg runs `pnpm install`, whereas pi runs `npm install
+      # --omit=dev`; pnpm and npm resolve `engine-strict` through different
+      # config cascades. It proves the manifest engines range admits Node 26
+      # under a strict installer, NOT the exact pi codepath (that is
+      # `qa/tests/15-omit-dev-build.sh` arm 2, end-to-end is the manual M1).
+      # If this leg unexpectedly reds, restore the override HERE and record the
+      # real blocker in this comment.
+      - name: Install deps (engine-strict ON — Node 26 regression gate for #357)
+        if: matrix.node-version == 26
+        run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - name: Run standalone install smoke
         run: bash scripts/test-standalone-npm-install.sh --port 18000
@@ -111,7 +137,8 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
-      # Preserve the engine-strict override (Node 24/25 appdmg engine range).
+      # Engine-strict override kept for continuity; see the corrected rationale
+      # on standalone-install-smoke-linux (the appdmg justification was false).
       - run: pnpm install --frozen-lockfile --config.engine-strict=false
       - run: pnpm run build
       - name: Run standalone install smoke

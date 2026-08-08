@@ -1,8 +1,8 @@
 import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { DndContext, type DragEndEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
+import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -10,7 +10,7 @@ import { useFolderUrgencySort } from "../../hooks/useFolderUrgencySort.js";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../../lib/git/auto-init-worktree.js";
 import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
-import { resolveWorkspaceFolderReorder, resolveWorkspaceReorder, sameTypeClosestCenter } from "../../lib/layout/sidebar-dnd.js";
+import { compatibleClosestCenter, resolveFolderMove, resolveWorkspaceFolderReorder, resolveWorkspaceReorder, SPRING_LOAD_DWELL_MS } from "../../lib/layout/sidebar-dnd.js";
 import { buildFolderHomeUrl } from "../../lib/nav/route-builders.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
@@ -49,7 +49,8 @@ import { TagDeleteConfirmDialog } from "../tags/TagDeleteConfirmDialog.js";
 import { TagFilterGroup } from "../tags/TagFilterGroup.js";
 import { AddToWorkspaceMenu } from "../workspace/AddToWorkspaceMenu.js";
 import { NewWorkspaceDialog } from "../workspace/NewWorkspaceDialog.js";
-import { PinDirectoryDialog } from "../workspace/PinDirectoryDialog.js";
+import { AddFoldersDialog } from "../workspace/AddFoldersDialog.js";
+import { PinnedTierDropZone } from "../workspace/PinnedTierDropZone.js";
 import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
 import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
 import { WorkspaceHeader } from "../workspace/WorkspaceHeader.js";
@@ -72,6 +73,11 @@ export interface ContextUsageInfo {
 }
 
 /** Escape a session id for a `[data-session-id="…"]` selector. */
+/** Draggable types that can change workspace membership. See change: drag-folders-across-workspaces. */
+function isFolderLike(t: unknown): boolean {
+  return t === "workspace-folder" || t === "pinned-group";
+}
+
 function cssEscapeId(id: string): string {
   return (typeof window !== "undefined" && typeof window.CSS?.escape === "function")
     ? window.CSS.escape(id)
@@ -148,6 +154,8 @@ interface Props {
   onReorderWorkspaces?: (ids: string[]) => void;
   /** Reorder folders within one workspace. Sends `reorder_workspace_folders`. */
   onReorderWorkspaceFolders?: (id: string, paths: string[]) => void;
+  /** Move a folder into a workspace, or eject it (`toWorkspaceId: null`). See change: drag-folders-across-workspaces. */
+  onMoveFolderToWorkspace?: (path: string, toWorkspaceId: string | null, index?: number) => void;
   workspaces?: import("@blackbelt-technology/pi-dashboard-shared/browser-protocol.js").Workspace[];
   onCreateWorkspace?: (name: string) => void;
   onRenameWorkspace?: (id: string, name: string) => void;
@@ -240,7 +248,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -487,28 +495,86 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // See change: workspace-directory-drag-reorder.
   const [forceCollapsed, setForceCollapsed] = useState<Set<string>>(() => new Set());
 
+  // Spring-load (folder drags, local-only, visual). Hovering a collapsed
+  // workspace's header for SPRING_LOAD_DWELL_MS reveals its folders so the
+  // user can drop positionally. Like forceCollapsed this NEVER emits
+  // `set_workspace_collapsed`. The two pieces of state have deliberately
+  // different lifetimes: the dwell timer is keyed on the resolved WORKSPACE
+  // id (closestCenter jitters `over.id` at Voronoi boundaries, which would
+  // otherwise re-arm a timer that never completes) and is cleared when that
+  // workspace changes; `springOpen` is add-only for the whole drag, because
+  // clearing it on `over` change would re-collapse the instant the cursor
+  // entered the just-revealed children — a flicker loop.
+  // See design D6 / change: drag-folders-across-workspaces.
+  const [springOpen, setSpringOpen] = useState<Set<string>>(() => new Set());
+  /** Active draggable's `type` for the duration of a drag; gates the empty-tier eject zone. */
+  const [activeDragType, setActiveDragType] = useState<string | null>(null);
+  const springTimerRef = useRef<{ wsId: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+
+  const clearSpringTimer = useCallback(() => {
+    if (springTimerRef.current) {
+      clearTimeout(springTimerRef.current.timer);
+      springTimerRef.current = null;
+    }
+  }, []);
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveDragType((event.active.data.current?.type as string | undefined) ?? null);
     if (event.active.data.current?.type === "workspace") {
       setForceCollapsed(new Set([event.active.id as string]));
     }
   }, []);
 
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!isFolderLike(active.data.current?.type)) return;
+    const overType = over?.data.current?.type;
+    const wsId = overType === "workspace-header" ? (over?.data.current?.wsId as string | undefined) : undefined;
+    const ws = wsId ? (workspaces ?? []).find((w) => w.id === wsId) : undefined;
+    // Only a COLLAPSED workspace's header arms the timer.
+    if (!wsId || !ws || !ws.collapsed || springOpen.has(wsId)) {
+      clearSpringTimer();
+      return;
+    }
+    // Jitter within the same workspace's targets must not re-arm.
+    if (springTimerRef.current?.wsId === wsId) return;
+    clearSpringTimer();
+    springTimerRef.current = {
+      wsId,
+      timer: setTimeout(() => {
+        springTimerRef.current = null;
+        setSpringOpen((prev) => (prev.has(wsId) ? prev : new Set(prev).add(wsId)));
+      }, SPRING_LOAD_DWELL_MS),
+    };
+  }, [workspaces, springOpen, clearSpringTimer]);
+
   const handleDragCancel = useCallback(() => {
+    clearSpringTimer();
+    setActiveDragType(null);
     setForceCollapsed((prev) => (prev.size === 0 ? prev : new Set()));
-  }, []);
+    setSpringOpen((prev) => (prev.size === 0 ? prev : new Set()));
+  }, [clearSpringTimer]);
+
+  // Unmount safety: a pending dwell timer must not fire after teardown.
+  useEffect(() => clearSpringTimer, [clearSpringTimer]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
+    clearSpringTimer();
+    setActiveDragType(null);
     setForceCollapsed((prev) => (prev.size === 0 ? prev : new Set()));
+    setSpringOpen((prev) => (prev.size === 0 ? prev : new Set()));
     if (!over || active.id === over.id) return;
 
     const activeType = active.data.current?.type;
     const overType = over.data.current?.type;
 
-    // Cross-type drag is a no-op
-    if (activeType !== overType) return;
-
+    // Per-active-type dispatch. The shipped `session` / `workspace` gestures
+    // keep their same-type wall as a per-branch guard; folder-like actives
+    // route through `resolveFolderMove`, which is keyed on the (active, over)
+    // PAIR. See design D5 / change: drag-folders-across-workspaces.
     if (activeType === "session") {
+      if (overType !== "session") return;
       for (const group of allGroups) {
         // Session IDs only (terminals moved to TerminalsView)
         const sessionIds = group.sessions.map((s) => s.id);
@@ -547,32 +613,46 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           break;
         }
       }
-    } else if (activeType === "pinned-group") {
-      const ids = pinnedGroups.map((g) => g.cwd);
-      const oldIndex = ids.indexOf(active.id as string);
-      const newIndex = ids.indexOf(over.id as string);
-      if (oldIndex !== -1 && newIndex !== -1) {
-        const newOrder = arrayMove(ids, oldIndex, newIndex);
-        onReorderPinnedDirs?.(newOrder);
-      }
     } else if (activeType === "workspace") {
+      if (overType !== "workspace") return;
       const ids = (workspaces ?? []).map((w) => w.id);
       const newOrder = resolveWorkspaceReorder(ids, active.id as string, over.id as string);
       if (newOrder) onReorderWorkspaces?.(newOrder);
-    } else if (activeType === "workspace-folder") {
-      const wsId = active.data.current?.wsId as string | undefined;
-      const ws = (workspaces ?? []).find((w) => w.id === wsId);
-      if (!ws) return;
-      const newOrder = resolveWorkspaceFolderReorder(
-        ws.folders,
-        active.id as string,
-        over.id as string,
-        wsId,
-        over.data.current?.wsId as string | undefined,
-      );
-      if (newOrder) onReorderWorkspaceFolders?.(wsId!, newOrder);
+    } else if (activeType === "pinned-group" || activeType === "workspace-folder") {
+      const activeWsId = active.data.current?.wsId as string | undefined;
+      const move = resolveFolderMove({
+        activeId: active.id as string,
+        activeType,
+        activeWsId,
+        overId: over.id as string,
+        overType,
+        overWsId: over.data.current?.wsId as string | undefined,
+        workspaces: workspaces ?? [],
+      });
+      if (!move) return;
+      if (move.kind === "reorder-pinned") {
+        const ids = pinnedGroups.map((g) => g.cwd);
+        const oldIndex = ids.indexOf(active.id as string);
+        const newIndex = ids.indexOf(over.id as string);
+        if (oldIndex !== -1 && newIndex !== -1) {
+          onReorderPinnedDirs?.(arrayMove(ids, oldIndex, newIndex));
+        }
+      } else if (move.kind === "reorder-folders") {
+        const ws = (workspaces ?? []).find((w) => w.id === move.wsId);
+        if (!ws) return;
+        const newOrder = resolveWorkspaceFolderReorder(
+          ws.folders,
+          active.id as string,
+          over.id as string,
+          activeWsId,
+          over.data.current?.wsId as string | undefined,
+        );
+        if (newOrder) onReorderWorkspaceFolders?.(move.wsId, newOrder);
+      } else {
+        onMoveFolderToWorkspace?.(active.id as string, move.toWorkspaceId, move.index);
+      }
     }
-  }, [allGroups, pinnedGroups, workspaces, onReorderSessions, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onResume, onResumeKeepPosition]);
+  }, [allGroups, pinnedGroups, workspaces, onReorderSessions, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, onResume, onResumeKeepPosition, clearSpringTimer]);
 
   // Tag/phase axes derived flags + the per-session predicate. OR-within each
   // axis; AND-across. Empty axis = inert. See change: add-session-tags.
@@ -833,56 +913,84 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   useEffect(() => clearPendingReveal, [clearPendingReveal]);
 
   /**
-   * folder-workspaces: same as renderGroup but injects an "Add to
-   * workspace" affordance inside the header. Used for top-level groups
-   * only. Workspace-tier folders use the plain renderGroup since their
-   * membership is already established.
+   * folder-workspaces: same as renderGroup but with the "Add to workspace"
+   * affordance switched on. Used for top-level groups only — workspace-tier
+   * folders use the plain renderGroup since their membership is already
+   * established.
+   *
+   * The affordance used to be a `+ws` text token in an `absolute top-1 right-7`
+   * layer floating OUTSIDE the row's icon cluster. It is now an icon button
+   * rendered by renderGroup inside the cluster itself, so this wrapper is a
+   * thin flag-flip. See change: redesign-folder-workspace-add-flow.
    */
   function renderGroupWithWorkspaceMenu(group: DirectoryGroup, isPinned: boolean) {
-    const owningWsId = folderWorkspaceMap.get(group.cwd) ?? null;
-    const menuOpen = addToWsMenuFor === group.cwd;
+    const workspaceAction =
+      onCreateWorkspace || (workspaces && workspaces.length > 0)
+        ? renderAddToWorkspaceButton(
+            group.cwd,
+            t("sessionList.addToWorkspace", undefined, "Add to workspace"),
+            `folder:${group.cwd}`,
+            `add-to-workspace-btn-${group.cwd}`,
+            "ml-auto",
+          )
+        : null;
+    return renderGroup(group, isPinned, false, undefined, workspaceAction);
+  }
+
+  /**
+   * Add-to-workspace affordance: an `mdiViewGridPlus` + "Workspace" pill.
+   * PRESENTATION is add-to-workspace-affordance's labelled pill (a bare icon
+   * or the old `+ws` token did not read as "add to a workspace"). BEHAVIOUR is
+   * ours: the popover flag is keyed by SCOPE, and `aria-label`/`title` carry
+   * the full verb while `aria-expanded` tracks the popover.
+   * See change: redesign-folder-workspace-add-flow.
+   */
+  function renderAddToWorkspaceButton(cwd: string, label: string, scopeKey: string, testId: string, wrapperClass = "") {
+    const owningWsId = folderWorkspaceMap.get(cwd) ?? null;
+    // Keyed by SCOPE, not by cwd: a session card and its folder row share a cwd,
+    // so a cwd-keyed flag would pop both menus at once.
+    const menuOpen = addToWsMenuFor === scopeKey;
     return (
-      <div className="relative">
-        {renderGroup(group, isPinned)}
-        {(onCreateWorkspace || (workspaces && workspaces.length > 0)) && (
-          <div className="absolute top-1 right-7">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setAddToWsMenuFor(menuOpen ? null : group.cwd);
-              }}
-              className="text-[10px] px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-blue)]"
-              title={t("sessionList.addToWorkspace", undefined, "Add to workspace")}
-              data-testid={`add-to-workspace-btn-${group.cwd}`}
-            >
-              +ws
-            </button>
-            {menuOpen && (
-              <AddToWorkspaceMenu
-                workspaces={workspaces ?? []}
-                currentWorkspaceId={owningWsId}
-                onPick={(wsId) => {
-                  onAddFolderToWorkspace?.(wsId, group.cwd);
-                  setAddToWsMenuFor(null);
-                }}
-                onNewWorkspace={() => {
-                  setNewWsOpen({ pendingFolder: group.cwd });
-                  setAddToWsMenuFor(null);
-                }}
-                onRemoveFromWorkspace={() => {
-                  if (owningWsId) onRemoveFolderFromWorkspace?.(owningWsId, group.cwd);
-                  setAddToWsMenuFor(null);
-                }}
-                onClose={() => setAddToWsMenuFor(null)}
-              />
-            )}
-          </div>
+      <span className={`relative inline-flex ${wrapperClass}`}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setAddToWsMenuFor(menuOpen ? null : scopeKey);
+          }}
+          className="focus-ring text-xs px-2 py-1 min-h-[44px] md:min-h-0 rounded border inline-flex items-center gap-0.5 text-blue-500 border-blue-500/40 bg-blue-500/5 hover:text-blue-400 hover:border-blue-500/70"
+          title={label}
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          data-testid={testId}
+        >
+          <Icon path={mdiViewGridPlus} size={0.55} /> {t("sessionList.workspace", undefined, "Workspace")}
+        </button>
+        {menuOpen && (
+          <AddToWorkspaceMenu
+            workspaces={workspaces ?? []}
+            currentWorkspaceId={owningWsId}
+            onPick={(wsId) => {
+              onAddFolderToWorkspace?.(wsId, cwd);
+              setAddToWsMenuFor(null);
+            }}
+            onNewWorkspace={() => {
+              setNewWsOpen({ pendingFolder: cwd });
+              setAddToWsMenuFor(null);
+            }}
+            onRemoveFromWorkspace={() => {
+              if (owningWsId) onRemoveFolderFromWorkspace?.(owningWsId, cwd);
+              setAddToWsMenuFor(null);
+            }}
+            onClose={() => setAddToWsMenuFor(null)}
+          />
         )}
-      </div>
+      </span>
     );
   }
 
-  function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string) {
+  function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string, headerAction?: React.ReactNode) {
     const displayPath = truncatePathMiddle(group.cwd, 45);
     const lastSlash = displayPath.lastIndexOf('/');
     const parentPath = lastSlash >= 0 ? displayPath.slice(0, lastSlash + 1) : '';
@@ -937,12 +1045,30 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             title={t("sessionList.openFolderHome", undefined, "Open folder home")}
             data-testid={`folder-home-row-${group.cwd}`}
           >
-            <span className="text-xs font-medium text-[var(--text-secondary)] truncate flex items-center gap-1">
+            {/* Name region absorbs ALL horizontal squeeze (`min-w-0`) so the
+                action cluster below never wraps. Truncation priority: the
+                parent path may collapse entirely, the leaf folder name keeps a
+                legible 6ch floor — the name is the payload, the path is only
+                context. See change: redesign-folder-workspace-add-flow. */}
+            <span
+              className="text-xs font-medium text-[var(--text-secondary)] min-w-0 overflow-hidden flex items-center gap-1"
+              data-testid={`folder-header-name-${group.cwd}`}
+            >
               <Icon path={isCollapsed ? mdiFolder : mdiFolderOpen} size={0.5} className="shrink-0" />
-              <span className="truncate">{parentPath}</span>
-              <span className="font-bold text-base truncate">{lastSegment}</span>
+              <span
+                className="truncate flex-[0_1_auto] min-w-0"
+                data-testid={`folder-header-parent-${group.cwd}`}
+              >
+                {parentPath}
+              </span>
+              <span
+                className="font-bold text-base truncate flex-[0_1_auto] min-w-[6ch]"
+                data-testid={`folder-header-leaf-${group.cwd}`}
+              >
+                {lastSegment}
+              </span>
             </span>
-            <span className="text-[10px] text-[var(--text-muted)]">({group.sessions.length})</span>
+            <span className="text-[10px] text-[var(--text-muted)] shrink-0">({group.sessions.length})</span>
             {/* Needs-you rollup: count of chat-routed ask_user children.
                 Pill resolves the target id (widget-bar excluded) and passes it
                 up; we select + scroll it into view.
@@ -966,6 +1092,15 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 covered by the pill above. See change:
                 condense-collapsed-folder-header. */}
             {isCollapsed && <FolderStatusRollup sessions={group.sessions} />}
+            {/* Trailing action cluster — `flex-none` + `whitespace-nowrap` pins
+                it to the top-right at any sidebar width; it never wraps to a
+                second row and never leaves the card. Order:
+                sort · add-to · home · pin (· remove, workspace rows only).
+                See change: redesign-folder-workspace-add-flow. */}
+            <span
+              className="ml-auto flex items-center gap-px flex-none whitespace-nowrap"
+              data-testid={`folder-header-cluster-${group.cwd}`}
+            >
             {/* Opt-in per-folder urgency sort toggle (default off). Floats
                 blocked sessions to the top. See change:
                 improve-dashboard-attention-routing. */}
@@ -983,6 +1118,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 is irrelevant for visibility/ordering there. The pin state
                 itself is preserved on the server (orthogonal to workspace
                 membership). See change: folder-workspaces. */}
+            {/* Add-to-workspace pill — top-level rows only (a workspace-tier
+                folder already has its membership). Sits between sort and
+                open-home so it borrows the cluster's "these organise the
+                folder" meaning; its ml-auto right-aligns the cluster. */}
+            {headerAction}
             {/* Open the directory home page. Distinct from the collapse toggle
                 (the name row) and the drag gutter (a sibling) — stopPropagation
                 keeps the click from toggling collapse or starting a reorder.
@@ -997,7 +1137,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                   e.stopPropagation();
                   navigate(buildFolderHomeUrl(group.cwd));
                 }}
-                className="ml-auto px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                className={`${headerAction ? "" : "ml-auto "}px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]`}
                 title={t("sessionList.openFolderHome", undefined, "Open folder home")}
                 aria-label={t("sessionList.openFolderHome", undefined, "Open folder home")}
                 data-testid={`folder-open-home-${group.cwd}`}
@@ -1012,7 +1152,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                   if (isPinned) onUnpinDirectory?.(group.cwd);
                   else onPinDirectory?.(group.cwd);
                 }}
-                className={`ml-auto px-1 py-0.5 rounded ${isPinned ? "text-yellow-400 hover:text-yellow-300" : "text-[var(--text-tertiary)] hover:text-yellow-400"}`}
+                className={`${headerAction ? "" : "ml-auto "}px-1 py-0.5 rounded ${isPinned ? "text-yellow-400 hover:text-yellow-300" : "text-[var(--text-tertiary)] hover:text-yellow-400"}`}
                 title={isPinned ? t("sessionList.unpinDirectory", undefined, "Unpin directory") : t("sessionList.pinDirectory", undefined, "Pin directory")}
                 data-testid={isPinned ? "unpin-dir-btn" : "pin-dir-btn"}
               >
@@ -1036,6 +1176,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 <Icon path={mdiClose} size={0.5} />
               </button>
             )}
+            </span>
           </div>
           {/* Collapsed density (variant B): when collapsed, the heavy slots
               (git · action bar · plugin sections · OpenSpec proposal state ·
@@ -1279,6 +1420,18 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                         isHidden={!!session.hidden}
                         onHide={handleHide}
                         onUnhide={handleUnhide}
+                        // Same add-to-workspace glyph as the folder row, scoped
+                        // to this session's cwd. Passed as a render prop so the
+                        // card reuses the popover without threading workspace
+                        // state. See change: redesign-folder-workspace-add-flow.
+                        renderAddToWorkspace={onCreateWorkspace || (workspaces && workspaces.length > 0)
+                          ? () => renderAddToWorkspaceButton(
+                              session.cwd,
+                              t("sessionList.addCwdToWorkspace", undefined, "Add cwd to workspace…"),
+                              `session:${session.id}`,
+                              `session-card-add-to-workspace-${session.id}`,
+                            )
+                          : undefined}
 
                         contextUsage={contextUsageMap?.get(session.id)}
                         openspecChanges={openspecMap?.get(session.cwd)?.changes}
@@ -1531,7 +1684,12 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       {filteredSessions.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 ? (
         <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("sessionList.noActiveSessions", undefined, "No active sessions")}</div>
       ) : (
-        <DndContext sensors={sensors} collisionDetection={sameTypeClosestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
+        // `measuring.droppable.strategy = Always`: spring-load mounts folder
+        // droppables MID-DRAG, and the default `Optimized` strategy does not
+        // remeasure newly-registered containers, so a drop inside a revealed
+        // body would resolve against stale rects.
+        // See change: drag-folders-across-workspaces.
+        <DndContext sensors={sensors} collisionDetection={compatibleClosestCenter} measuring={{ droppable: { strategy: MeasuringStrategy.Always } }} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
         <ul className="flex flex-col gap-2 p-2">
           {/* Elevated dashboard-scope add buttons: rendered as the FIRST list
               item, above workspace tiers and pinned folder groups.
@@ -1551,7 +1709,12 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               {workspaceTiers.workspaces.map((ws) => {
                 // Drag-collapse: dragged workspace renders collapsed locally
                 // (OR of forceCollapsed and the server value). Never persisted.
-                const displayCollapsed = forceCollapsed.has(ws.id) || ws.collapsed;
+                // Spring-load wins over both the local drag-collapse and the
+                // server value; stated as a total precedence rather than an
+                // accidentally-exclusive one. See design D6.
+                const displayCollapsed = springOpen.has(ws.id)
+                  ? false
+                  : (forceCollapsed.has(ws.id) || ws.collapsed);
                 return (
                 <li key={`ws-${ws.id}`}>
                   <SortableWorkspace id={ws.id}>
@@ -1609,6 +1772,13 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               ))}
             </SortableContext>
           )}
+          {/* Eject affordance for the EMPTY pinned tier — mounted OUTSIDE the
+              gate above, which renders nothing exactly when it is needed.
+              Sole eject target in this case, so it never coexists with the
+              pinned groups. See design D4. */}
+          {visibleTopPinned.length === 0 && activeDragType === "workspace-folder" && (
+            <li><PinnedTierDropZone /></li>
+          )}
           {/* Gap between pinned and unpinned is handled by flex gap */}
           {/* Unpinned directory groups: rendered when the user is
               actively filtering folders, OR when the folder contains
@@ -1645,18 +1815,19 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         />
       )}
       {pickFolderForWsId && (
-        <PinDirectoryDialog
+        // Workspace-scoped `+ Add Folder` — the same multi-select dialog with
+        // THIS workspace preselected as the destination (still retargetable).
+        // Pin is implicit and sent first, so removing the folder from the
+        // workspace later leaves it visible at root instead of vanishing.
+        // See change: redesign-folder-workspace-add-flow.
+        <AddFoldersDialog
+          workspaces={workspaces ?? []}
+          initialWorkspaceId={pickFolderForWsId}
+          sessionCwds={sessions.map((s) => s.cwd)}
           onCancel={() => setPickFolderForWsId(null)}
-          onPin={(path) => {
-            // Workspace-scoped pin: add to workspace (authoritative) AND
-            // silently pin (kept in pinnedDirectories so removal from the
-            // workspace later returns the folder to top-level pinned).
-            // Workspace folders don't display pin state, so the pin is
-            // invisible to the user inside the container.
-            onAddFolderToWorkspace?.(pickFolderForWsId, path);
-            onPinDirectory?.(path);
-            setPickFolderForWsId(null);
-          }}
+          onPin={(path) => onPinDirectory?.(path)}
+          onAddFolderToWorkspace={(wsId, path) => onAddFolderToWorkspace?.(wsId, path)}
+          onCreateWorkspace={onCreateWorkspace ? (name) => onCreateWorkspace(name) : undefined}
         />
       )}
       {hiddenCount > 0 && !showHidden && (
@@ -1717,10 +1888,12 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
 
 /**
  * Folder header left gutter — chevron at top, drag-handle column extending
- * the full height of the header content. The chevron itself remains a
- * click-to-toggle button (pointer events stop propagation so the surrounding
- * drag listener doesn't compete on click). The empty space below the chevron
- * is the drag zone, mirroring the SessionCard gutter pattern.
+ * the full height of the header content. Both the chevron AND the column
+ * below it are drag handles: pointerdown bubbles to this div's dnd-kit
+ * listeners, and the PointerSensor's 5px activation distance means a plain
+ * click still toggles collapse while a drag (>5px) reorders — so collapsed
+ * folders stay reorderable via their always-visible chevron. Mirrors the
+ * SessionCard gutter pattern.
  */
 function FolderDragGutter({
   isCollapsed,
@@ -1739,8 +1912,7 @@ function FolderDragGutter({
     >
       <button
         onClick={(e) => { e.stopPropagation(); onToggle(); }}
-        onPointerDown={(e) => e.stopPropagation()}
-        className="inline-flex items-center justify-center cursor-pointer hover:text-[var(--text-secondary)]"
+        className="inline-flex items-center justify-center cursor-grab active:cursor-grabbing hover:text-[var(--text-secondary)]"
         title={isCollapsed ? "Expand folder" : "Collapse folder"}
         data-testid="folder-toggle-btn"
       >

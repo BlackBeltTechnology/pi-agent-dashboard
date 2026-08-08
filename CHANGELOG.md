@@ -12,6 +12,35 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- Skill cards in the Resources view now carry provenance. The server joins pi's
+  resolved skills against what an attached session actually loaded (from the
+  `commands_list` it already sends) on canonicalized real paths, so a card reads
+  `active`, `not loaded`, or `loaded elsewhere` — the last of which finally makes
+  runtime-registered skills (`~/.pi/agent/pi-hermes-memory/skills/`, an ancestor
+  `.agents/skills` chain, `--skill`, `skillPaths`) visible, with the path the
+  session reported. Provenance is a per-card badge plus a grid filter value: no
+  new sections, groups, or nesting. When no single session has reported (none, or
+  more than one), or when pi's resolver was unavailable, the grid says so
+  explicitly instead of implying a loaded set.
+- Themes discovered by pi's resolver now appear on the existing Themes page.
+- `scripts/check-skill-frontmatter.mjs`, a skill frontmatter guard wired into CI.
+  It fails only on what pi treats as fatal (missing, empty, or unparseable
+  `description` — pi drops such a skill), and warns on pi's 1024/64/charset/hyphen
+  limits plus a 400-character repository description budget. Every finding is
+  labelled `pi` or `repository` so a house rule is never mistaken for pi's.
+- **Apple Tools (iMCP) plugin** (`@blackbelt-technology/pi-dashboard-apple-tools`):
+  one-command provisioning of iMCP (Apple Calendar, Contacts, Reminders,
+  Messages, Location, Maps, Weather) for pi via `pi-mcp-adapter`. Ships a
+  `pi-apple-tools-install [--check]` CLI (a pure, macOS-only, nine-state
+  provisioning machine), a dashboard provisioning panel (status readout,
+  run-installer, path override, directTools, server enable/disable), an
+  agent skill, and a `doctor` probe. macOS-only; Apple Mail is out of scope
+  (use `apple-mail-fast-export`).
+- **`paths` plugin-requirement category**: `PluginRequirements.paths` declares
+  absolute filesystem paths (e.g. `.app`-bundled binaries) that must exist,
+  with optional `${configKey}` interpolation from the plugin's validated
+  config. Surfaced as a non-actionable warning pill in the Plugins tab.
+
 - OAuth redirect URIs can now be pinned to a fixed public origin with the new
   `auth.redirectBaseUrl` field in `~/.pi/dashboard/config.json`. Dashboards
   behind a reverse proxy on a stable custom domain (`https://pi.example.com` →
@@ -54,6 +83,19 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- The Resources view now sources skills, prompts, and themes from pi's own
+  resolver (`PackageManager.resolve()`) instead of a parallel filesystem walk,
+  and applies pi's load gate on top. Scope and package origin come from the
+  resolver's metadata as per-card attributes. `extensions` and `agents` remain
+  scanner-discovered (pi has no `agents` resource type).
+- Skill descriptions across the repository were trimmed to the new 400-character
+  budget, preserving their trigger phrasing. `ship-change`,
+  `frontend-mockup-loop`, and `anti-slop-frontend` are exempt: an existing
+  requirement locks their wording.
+- Package resources excluded by a package's own manifest patterns are now absent
+  from the Resources view rather than shown as disabled, matching pi, which does
+  not load them either. There is consequently no activation toggle for them.
+
 - `pairing.publicBaseUrls` is promoted to a top-level `publicBaseUrls`, read by
   the pairing payload and the endpoint surfaces alike. Existing configurations
   keep working untouched: the legacy key is still read when the top-level one is
@@ -64,6 +106,34 @@ see [`docs/release-process.md`](docs/release-process.md).
   OAuth redirect URI must be one origin the operator states explicitly.
 
 ### Fixed
+
+- `pi install git:github.com/BlackBeltTechnology/pi-agent-dashboard` works again
+  (issue #357). It was failing at two independent points. First, the Node engines cap
+  refused Node 26: pi installs with engine-strict, so the install aborted with
+  `EBADENGINE` before anything ran. The cap is raised one major, `>=22.19.0 <26`
+  → `>=22.19.0 <27`, and Node 26 is now a CI-validated target — the new
+  `_smoke.yml` Node 26 install legs deliberately run *without* the
+  `--config.engine-strict=false` override the other legs carry, so the
+  `EBADENGINE` regression is tested rather than assumed. Node 27+ stays refused
+  until separately validated. Second, the git-clone path runs
+  `npm install --omit=dev`, which drops `devDependencies`; the web client's
+  `prepare` Vite build then died with `Cannot find module 'vite/package.json'`.
+  Its direct build-time requirements — `vite`, `@vitejs/plugin-react`,
+  `@tailwindcss/vite`, `tailwindcss`, and `tsx` — are now runtime
+  `dependencies`, with `tsx` declared explicitly instead of resolving by accident
+  through a hoist of the server's copy. A release gate plus repo-lints keep both
+  fixes from silently regressing. The published npm install path was never
+  affected (it ships a prebuilt client and runs no `prepare`).
+  (change: `fix-pi-install-node26-and-omit-dev-build`)
+- Phantom skills are gone from the Resources view. `UPSTREAM.md`,
+  `dox-doctrine.md`, `AGENTS.md`, and `*.AGENTS.md` were being listed as skills
+  the dashboard's own walk had invented; pi never loaded them. Files beneath
+  `.worktrees/` and inside a built Electron bundle are likewise no longer
+  reported.
+- `resolveActivation()` is now bounded by a 5-second timeout and falls back to
+  the filesystem walk when pi is unavailable, resolution throws, or the resolver
+  returns an empty result the walk contradicts. The payload is flagged as a
+  degraded fallback rather than presented as pi's answer.
 
 - Origins and trusted networks written while the server is running now take
   effect immediately instead of at the next restart. The CORS decision and the

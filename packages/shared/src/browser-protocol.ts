@@ -7,6 +7,7 @@ import type {
   PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
+import type { NotifyLevel } from "./protocol.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type {
   CommandInfo,
@@ -32,6 +33,7 @@ export type {
   BatchQuestion,
   BatchResult,
   InteractiveMethod,
+  NotifyLevel,
 } from "./protocol.js";
 
 // ── Configurable chat display ───────────────────────────────────────
@@ -479,6 +481,19 @@ export interface BrowserPromptRequestMessage {
   placement: string;
 }
 
+/**
+ * Server → Browser notification. Render-only: the client appends an
+ * `interactiveUi` row to `messages` and never an `interactiveRequests` entry.
+ * See change: split-notify-from-prompt-request.
+ */
+export interface BrowserNotifyMessage {
+  type: "notify";
+  sessionId: string;
+  notifyId: string;
+  message: string;
+  level?: NotifyLevel;
+}
+
 export interface BrowserPromptDismissMessage {
   type: "prompt_dismiss";
   sessionId: string;
@@ -861,6 +876,7 @@ export type ServerToBrowserMessage =
   | ServersDiscoveredMessage
   | ServersUpdatedMessage
   | BrowserPromptRequestMessage
+  | BrowserNotifyMessage
   | BrowserPromptDismissMessage
   | BrowserPromptCancelMessage
   | ModelsRefreshedMessage
@@ -1367,6 +1383,20 @@ export interface ReorderWorkspacesMessage {
   ids: string[];
 }
 
+/**
+ * Move a folder into a workspace, or eject it from all workspaces.
+ * `toWorkspaceId: null` ejects the folder and pins it.
+ * `index` is the insert position in the target (omitted = append); it is
+ * clamped server-side and ignored when the target is null.
+ * See change: drag-folders-across-workspaces.
+ */
+export interface MoveFolderToWorkspaceMessage {
+  type: "move_folder_to_workspace";
+  path: string;
+  toWorkspaceId: string | null;
+  index?: number;
+}
+
 export interface OpenSpecBulkArchiveBrowserMessage {
   type: "openspec_bulk_archive";
   cwd: string;
@@ -1590,6 +1620,7 @@ export type BrowserToServerMessage =
   | RemoveFolderFromWorkspaceMessage
   | ReorderWorkspaceFoldersMessage
   | ReorderWorkspacesMessage
+  | MoveFolderToWorkspaceMessage
   | OpenSpecBulkArchiveBrowserMessage
   | CreateTerminalBrowserMessage
   | KillTerminalBrowserMessage

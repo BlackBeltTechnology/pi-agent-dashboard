@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   capString,
   createMemoryEventStore,
+  DEFAULT_MAX_EVENT_DATA_SIZE,
   exceedsSerializedSize,
   measureBytes,
   reduceSubagentEvent,
@@ -229,7 +230,9 @@ describe("memory-event-store", () => {
       // correctly trips the ceiling and gets the {__truncated} placeholder.
       // See change: head-tail-truncate-subagent-event-timeline (D8).
       const store = createMemoryEventStore(neverPinned); // production defaults
-      const bigImage = "A".repeat(100_000); // > 20KB ceiling
+      // Sized off the constant so the case keeps tripping the ceiling when the
+      // ceiling moves. See change: fit-attachments-for-display (task 5.4).
+      const bigImage = "A".repeat(DEFAULT_MAX_EVENT_DATA_SIZE * 2);
       const event: DashboardEvent = {
         eventType: "message_start",
         timestamp: Date.now(),
@@ -247,7 +250,9 @@ describe("memory-event-store", () => {
       const stored = store.getEvent("s1", 1) as any;
       expect(stored.data.__truncated).toBe(true);
       expect(stored.data.eventType).toBe("message_start");
-      expect(Buffer.byteLength(JSON.stringify(stored.data))).toBeLessThanOrEqual(20_000);
+      expect(Buffer.byteLength(JSON.stringify(stored.data))).toBeLessThanOrEqual(
+        DEFAULT_MAX_EVENT_DATA_SIZE,
+      );
     });
 
     it("truncates other fields alongside preserved image data", () => {
@@ -606,6 +611,10 @@ describe("memory-event-store", () => {
 
   // See change: head-tail-truncate-subagent-event-timeline.
   describe("subagent-timeline head+tail reduction", () => {
+    // Pinned explicitly rather than mirroring DEFAULT_MAX_EVENT_DATA_SIZE: these
+    // tests characterise the REDUCTION mechanism, so the ceiling must be small
+    // enough that the fixtures trip it. Every store below is built with this
+    // exact ceiling. See change: fit-attachments-for-display (task 5.4).
     const CEIL = 20_000;
 
     // Build a subagent `tool_execution_update` event: toolName Agent, entries at
@@ -684,7 +693,7 @@ describe("memory-event-store", () => {
 
     // --- reduction via insertEvent (E4..E9, E12..E15) ---
     it("E4: keeps first + last entries + a text sentinel, not {__truncated}", () => {
-      const store = createMemoryEventStore(neverPinned);
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       const entries = Array.from({ length: 30 }, (_, i) => toolEntry(i, 1500));
       store.insertEvent("s1", subagentEvent({ entries }));
       const stored = store.getEvent("s1", 1) as any;
@@ -699,7 +708,7 @@ describe("memory-event-store", () => {
     });
 
     it("E5: a large prompt does not starve the timeline", () => {
-      const store = createMemoryEventStore(neverPinned);
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       const entries = Array.from({ length: 10 }, (_, i) => toolEntry(i, 1500));
       store.insertEvent("s1", subagentEvent({ entries, prompt: "P".repeat(16_000) }));
       const stored = store.getEvent("s1", 1) as any;
@@ -712,7 +721,7 @@ describe("memory-event-store", () => {
     });
 
     it("E6: large content text does not starve the timeline", () => {
-      const store = createMemoryEventStore(neverPinned);
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       const entries = Array.from({ length: 10 }, (_, i) => toolEntry(i, 1500));
       store.insertEvent("s1", subagentEvent({ entries, contentText: "C".repeat(16_000) }));
       const stored = store.getEvent("s1", 1) as any;
@@ -724,7 +733,7 @@ describe("memory-event-store", () => {
     });
 
     it("E7: byte-accurate bound holds under escape/CJK-heavy entries", () => {
-      const store = createMemoryEventStore(neverPinned);
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       // "\" and CJK expand under JSON/UTF-8: code-unit count < ceiling, bytes >>.
       const nasty = '"\\\u4e2d\u6587'.repeat(3_000); // ~12k code units, far more bytes
       const entries = Array.from({ length: 12 }, (_, i) => ({
@@ -760,7 +769,7 @@ describe("memory-event-store", () => {
     it("E9: a >20-entry timeline is not clobbered to a string (maxStringFieldSize>0)", () => {
       // maxStringFieldSize = 4000 (default) so the generic array clobber WOULD
       // fire for a >20 array on the generic path.
-      const store = createMemoryEventStore(neverPinned);
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       const entries = Array.from({ length: 25 }, (_, i) => toolEntry(i, 1500));
       store.insertEvent("s1", subagentEvent({ entries }));
       const stored = store.getEvent("s1", 1) as any;
@@ -787,7 +796,7 @@ describe("memory-event-store", () => {
     });
 
     it("E11: image-bearing NON-subagent event is byte-detected → {__truncated}", () => {
-      const store = createMemoryEventStore(neverPinned);
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       const event: DashboardEvent = {
         eventType: "message_start",
         timestamp: Date.now(),
@@ -805,7 +814,7 @@ describe("memory-event-store", () => {
     });
 
     it("E12: an under-ceiling subagent event is stored unchanged", () => {
-      const store = createMemoryEventStore(neverPinned);
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       const entries = Array.from({ length: 3 }, (_, i) => toolEntry(i, 500)); // ~small
       const event = subagentEvent({ entries });
       expect(exceedsSerializedSize(event.data, CEIL)).toBe(false);
@@ -834,7 +843,7 @@ describe("memory-event-store", () => {
     });
 
     it("E14: pathological single huge final entry stays bounded", () => {
-      const store = createMemoryEventStore(neverPinned);
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       // Many entries so the middle elides; final entry alone is 40 KB.
       const entries = Array.from({ length: 25 }, (_, i) => toolEntry(i, 1000));
       entries[entries.length - 1] = toolEntry(24, 40_000);
@@ -860,7 +869,7 @@ describe("memory-event-store", () => {
     // --- performance (P1, P2) ---
     it("P1: size measurement is bounded and never full-stringifies oversized data", () => {
       const spy = vi.spyOn(JSON, "stringify");
-      const store = createMemoryEventStore(neverPinned);
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       const event: DashboardEvent = {
         eventType: "message_start",
         timestamp: Date.now(),
@@ -896,7 +905,7 @@ describe("memory-event-store", () => {
     // --- error-handling (X1, X2) ---
     it("X1: a 5MB base64 image in a subagent event does not OOM", () => {
       const spy = vi.spyOn(JSON, "stringify");
-      const store = createMemoryEventStore(neverPinned);
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       const entries = Array.from({ length: 6 }, (_, i) => toolEntry(i, 800));
       store.insertEvent(
         "s1",
@@ -913,7 +922,7 @@ describe("memory-event-store", () => {
     });
 
     it("X2: an unreducible empty-entries subagent event falls back to {__truncated}", () => {
-      const store = createMemoryEventStore(neverPinned);
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       // Empty entries + an oversized envelope the caps cannot shrink below ceiling:
       // a huge prompt beyond PROMPT_CAP still caps, so instead give a huge
       // non-capped envelope field (extra) that stays over ceiling.

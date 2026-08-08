@@ -1,10 +1,19 @@
 import { parsePathInput, withTrailingSep } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import type { BrowseEntry, BrowseResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import {
+  mdiArrowUp,
+  mdiCheckboxBlankOutline,
+  mdiCheckboxMarked,
+  mdiChevronRight,
+  mdiFolder,
+  mdiFolderPlusOutline,
+} from "@mdi/js";
+import { Icon } from "@mdi/react";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { browseDirectory, classifyPaths, createDirectory } from "../../lib/api/browse-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { inferPlatform } from "../../lib/session/session-grouping.js";
+import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
 
 interface Props {
   initialPath?: string;
@@ -18,6 +27,28 @@ interface Props {
    * See change: distinguish-offline-from-network-denied.
    */
   onOpenServers?: () => void;
+  /**
+   * Opt-in MULTI-SELECT mode. Absent (the default) keeps every existing caller
+   * single-select. Present, the picker becomes a file explorer: the row body
+   * still navigates (as it always has) and a per-row checkbox accumulates the
+   * caller's selection set — the caller commits the whole basket, so the picker
+   * never calls `onSelect` from a row.
+   * See change: redesign-folder-workspace-add-flow.
+   */
+  selection?: {
+    /** Absolute paths currently in the caller's basket. */
+    selected: Set<string>;
+    /** Toggle membership of `path` in the basket. */
+    onToggle: (path: string) => void;
+  };
+  /**
+   * Live-session counts keyed by `pathKey(cwd)` (NOT raw path strings — the key
+   * collapses trailing-separator / case drift). A row whose path resolves to a
+   * key in this map renders a session-count badge, surfacing loose cwds the
+   * user already works in without typing a path.
+   * See change: redesign-folder-workspace-add-flow.
+   */
+  sessionCounts?: Map<string, number>;
 }
 
 /**
@@ -37,7 +68,8 @@ type DisplayItem =
   | { type: "entry"; entry: BrowseEntry }
   | { type: "create-here"; name: string };
 
-export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenServers }: Props) {
+export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenServers, selection, sessionCounts }: Props) {
+  const multiSelect = selection !== undefined;
   const [inputValue, setInputValue] = useState(initialPath ?? "");
   const [entries, setEntries] = useState<BrowseEntry[]>([]);
   const [parentPath, setParentPath] = useState<string | null>(null);
@@ -345,6 +377,18 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
       } else if (filtered.length === 1) {
         descendInto(filtered[0].path);
       }
+    } else if (e.key === " " && multiSelect) {
+      // Multi-select only: Space TOGGLES the highlighted row's selection while
+      // Enter still ACTIVATES (descends). In single-select mode Space stays a
+      // literal space character for the path input.
+      // See change: redesign-folder-workspace-add-flow.
+      if (highlightIndex >= 0 && highlightIndex < displayItems.length) {
+        const item = displayItems[highlightIndex];
+        if (item.type === "entry") {
+          e.preventDefault();
+          selection?.onToggle(item.entry.path);
+        }
+      }
     } else if (e.key === "Enter") {
       e.preventDefault();
       // If the highlighted item is the create-here row, trigger it
@@ -354,7 +398,15 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
           handleItemClick(item);
           return;
         }
+        // Multi-select: Enter on a highlighted directory descends into it. The
+        // basket — not the input — is the answer, so tryConfirm never runs.
+        if (multiSelect && item.type === "entry") {
+          handleItemClick(item);
+          return;
+        }
       }
+      // Multi-select has no single-path answer to confirm.
+      if (multiSelect) return;
       void (async () => {
         const handled = await tryConfirm();
         if (!handled) triggerInvalid();
@@ -425,7 +477,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
       >
         {newFolderMode && (
           <div className="px-3 py-1 text-sm flex items-center gap-2 border-b border-[var(--border-secondary)]">
-            <span className="text-[var(--text-secondary)]">＋</span>
+            <Icon path={mdiFolderPlusOutline} size={0.6} className="shrink-0 text-[var(--text-secondary)]" />
             <input
               ref={newFolderInputRef}
               type="text"
@@ -474,7 +526,8 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
                     className={baseClass}
                     onClick={() => handleItemClick(item)}
                   >
-                    <span className="text-[var(--text-secondary)]">⬆</span>
+                    {multiSelect && <span className="w-4 shrink-0" aria-hidden="true" />}
+                    <Icon path={mdiArrowUp} size={0.6} className="shrink-0 text-[var(--text-secondary)]" />
                     <span>..</span>
                   </div>
                 );
@@ -488,7 +541,8 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
                     className={`${baseClass} text-blue-400`}
                     onClick={() => handleItemClick(item)}
                   >
-                    <span>＋</span>
+                    {multiSelect && <span className="w-4 shrink-0" aria-hidden="true" />}
+                    <Icon path={mdiFolderPlusOutline} size={0.6} className="shrink-0" />
                     <span className="flex-1 truncate">{i18nT("common.create2", undefined, "Create \"")}{item.name}{i18nT("common.here", undefined, "\" here")}</span>
                   </div>
                 );
@@ -502,13 +556,67 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
                   className={baseClass}
                   onClick={() => handleItemClick(item)}
                 >
-                  <span className="text-[var(--text-secondary)]">📁</span>
+                  {/* Row anatomy (mockup): [checkbox] [folder] name … [badges]
+                      [chevron]. Checkbox = SELECT, everything else = OPEN. */}
+                  {selection && (
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={selection.selected.has(entry.path)}
+                      aria-label={i18nT("folders.selectFolder", { name: entry.name }, `Select ${entry.name}`)}
+                      // stopPropagation so ticking never navigates.
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        selection.onToggle(entry.path);
+                      }}
+                      // Glyph stays compact; the hit box is padded to the
+                      // WCAG 2.5.8 minimum (24×24) so the small icon is still a
+                      // reachable target. See change: redesign-folder-workspace-add-flow.
+                      className="focus-ring shrink-0 inline-flex items-center justify-center min-w-6 min-h-6 -m-1 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-blue)]"
+                      data-testid={`path-picker-check-${entry.path}`}
+                    >
+                      <Icon
+                        path={selection.selected.has(entry.path) ? mdiCheckboxMarked : mdiCheckboxBlankOutline}
+                        size={0.65}
+                      />
+                    </button>
+                  )}
+                  <Icon path={mdiFolder} size={0.6} className="shrink-0 text-[var(--text-secondary)]" />
                   <span className="flex-1 truncate">{entry.name}</span>
+                  {(() => {
+                    const n = sessionCounts?.get(pathKey(entry.path, inferPlatform([entry.path])));
+                    return n ? (
+                      <span
+                        className="text-[10px] px-1.5 py-px rounded-full bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] shrink-0"
+                        data-testid={`path-picker-sessions-${entry.path}`}
+                      >
+                        {i18nT("folders.sessionCount", { count: n }, `${n} sessions`)}
+                      </span>
+                    ) : null;
+                  })()}
                   {entry.isGit && (
                     <span className="text-xs text-green-400" title={i18nT("git.gitRepo", undefined, "git repo")}>git</span>
                   )}
                   {entry.isPi && (
                     <span className="text-xs text-cyan-400" title={i18nT("common.piProject", undefined, "pi project")}>pi</span>
+                  )}
+                  {/* Explicit descend affordance — makes "open" discoverable
+                      rather than merely implied by the row being clickable. */}
+                  {multiSelect && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleItemClick(item);
+                      }}
+                      // Padded to the 24×24 WCAG 2.5.8 minimum (see checkbox).
+                      className="focus-ring shrink-0 inline-flex items-center justify-center min-w-6 min-h-6 -m-1 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-blue)]"
+                      title={i18nT("common.open", undefined, "Open")}
+                      aria-label={i18nT("folders.openFolder", { name: entry.name }, `Open ${entry.name}`)}
+                      data-testid={`path-picker-open-${entry.path}`}
+                    >
+                      <Icon path={mdiChevronRight} size={0.6} />
+                    </button>
                   )}
                 </div>
               );
@@ -522,34 +630,42 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
           </>
         )}
       </div>
-      <div className="flex flex-wrap justify-end gap-2 mt-2">
-        <button
-          onClick={onCancel}
-          className="px-4 py-2 rounded text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-        >
-          {i18nT("common.cancel", undefined, "Cancel")}
-        </button>
+      {/* Multi-select owns no answer, so Cancel/Select belong to the hosting
+          dialog's footer — only "New folder" stays with the picker.
+          See change: redesign-folder-workspace-add-flow. */}
+      <div className={`flex flex-wrap gap-2 mt-2 ${multiSelect ? "justify-start" : "justify-end"}`}>
+        {!multiSelect && (
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+          >
+            {i18nT("common.cancel", undefined, "Cancel")}
+          </button>
+        )}
         <button
           onClick={() => {
             setNewFolderMode(true);
             setNewFolderName("");
           }}
-          className="px-4 py-2 rounded text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-secondary)]"
+          className="px-4 py-2 rounded text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] inline-flex items-center gap-1.5"
         >
-          {i18nT("folders.newFolder", undefined, "＋ New folder")}
+          <Icon path={mdiFolderPlusOutline} size={0.65} />
+          {i18nT("folders.newFolder", undefined, "New folder")}
         </button>
-        <button
-          onClick={() => {
-            void (async () => {
-              const handled = await tryConfirm();
-              if (!handled) triggerInvalid();
-            })();
-          }}
-          disabled={!inputValue.trim()}
-          className="px-4 py-2 rounded text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50"
-        >
-          {i18nT("common.select", undefined, "Select")}
-        </button>
+        {!multiSelect && (
+          <button
+            onClick={() => {
+              void (async () => {
+                const handled = await tryConfirm();
+                if (!handled) triggerInvalid();
+              })();
+            }}
+            disabled={!inputValue.trim()}
+            className="px-4 py-2 rounded text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50"
+          >
+            {i18nT("common.select", undefined, "Select")}
+          </button>
+        )}
       </div>
     </div>
   );

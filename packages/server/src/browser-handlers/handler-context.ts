@@ -37,6 +37,18 @@ export interface BrowserHandlerContext {
    * See change: configurable-chat-display.
    */
   metaPersistence?: MetaPersistence;
+  /**
+   * Optional display-fit pool.
+   *
+   * Hydration strips inline image bytes to a bounded placeholder
+   * UNCONDITIONALLY — the bound must not depend on whether a fitter happens to
+   * be configured, or a replayed image-bearing event trips the per-event
+   * ceiling and its row vanishes. This pool only decides how the placeholder
+   * RESOLVES: with one, to the fitted derivative; without, every placeholder
+   * settles to an explicit failed state rather than spinning.
+   * See change: fit-attachments-for-display (test-plan #E9).
+   */
+  fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool;
   directoryService?: DirectoryService;
   terminalManager?: TerminalManager;
   headlessPidRegistry: HeadlessPidRegistry;
@@ -104,6 +116,12 @@ export interface BrowserHandlerContext {
   trackUiRequest(sessionId: string, requestId: string, method: string, params: Record<string, unknown>): boolean | void;
   /** Replay pending UI requests to a browser */
   replayPendingUiRequests(ws: WebSocket, sessionId: string): void;
+  /**
+   * Replay the retained notify log to a browser. Sibling of
+   * `replayPendingUiRequests` — kept separate because a notify is transcript
+   * history, never a pending ask. See change: split-notify-from-prompt-request.
+   */
+  replayNotifyLog(ws: WebSocket, sessionId: string): void;
   /** Mark a session as mid-replay for a specific WebSocket (suppresses live events) */
   markReplaying(ws: WebSocket, sessionId: string): void;
   /** Clear replay flag and send catch-up events */

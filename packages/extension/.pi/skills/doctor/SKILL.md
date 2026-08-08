@@ -1,14 +1,6 @@
 ---
 name: doctor
-description: >-
-  Diagnose why pi-flows, the Anthropic-messages bridge, model resolution, a pi
-  install, a peer, a plugin/bridge, or a build/reload is broken in the
-  pi-agent-dashboard. Derives every fact live (works with the server down),
-  reports pi across ALL install locations, detects peer name-skew, and routes
-  each failure to the topology-correct fix. Use on "flow won't show",
-  "bridge waiting_peers", "pi version mismatch", "I built it but it's still
-  broken", "which pi is this using", "agent model fails at spawn", "diagnose the
-  dashboard", "doctor".
+description: 'Diagnose why pi-flows, the Anthropic-messages bridge, model resolution, a pi install, a peer, a plugin/bridge, or a build/reload is broken in the pi-agent-dashboard. Derives every fact live (works with the server down). Use on "flow won''t show", "bridge waiting_peers", "pi version mismatch", "which pi is this using", "diagnose the dashboard", "doctor".'
 license: MIT
 ---
 
@@ -34,6 +26,7 @@ CHECKS · FIX ROUTING · DERIVES-FROM** (+ a `<id>.knowledge.hash` sidecar).
 | `build-reload` | three-component rebuild/reload gaps |
 | `install-topology` | npm-global / Electron / Docker / dev + topology fixes |
 | `model-resolution` | model:resolve handler, roles/preset, @role resolvability |
+| `apple-tools` | iMCP (Apple PIM) provisioning state for the apple-tools plugin |
 | `oauth-redirect-base` | which OAuth redirect base won + its tier (reverse-proxy `redirect_uri_mismatch`) |
 
 ## How to route

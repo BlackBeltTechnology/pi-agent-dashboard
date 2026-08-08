@@ -111,15 +111,57 @@ if (!loader) {
 // `C:\…` entries directly. See change: fix-windows-standalone-spawn.
 const entry = cliPath;
 
+// Heap headroom for the standalone launch path. The bridge launcher already
+// injects this (packages/extension/src/server-launcher.ts buildSpawnEnv,
+// DEFAULT_SERVER_MAX_OLD_SPACE_MB=8192); without it a bare `pi-dashboard`
+// start runs at Node's default ~4 GB old-space and the event store's
+// worst-case per-session buffer can drive an OOM crash. Mirror the bridge:
+// append the flag only when the user has not already pinned a limit, so an
+// explicit NODE_OPTIONS override still wins.
+const existingNodeOptions = process.env.NODE_OPTIONS ?? "";
+const childEnv = existingNodeOptions.includes("--max-old-space-size")
+  ? process.env
+  : {
+      ...process.env,
+      NODE_OPTIONS: `${existingNodeOptions} --max-old-space-size=8192`.trim(),
+    };
+
 const child = spawn(
   process.execPath,
   ["--import", loader, entry, ...process.argv.slice(2)],
-  { stdio: "inherit", windowsHide: true },
+  { stdio: "inherit", windowsHide: true, env: childEnv },
 );
+
+// Forward termination signals to the real server child.
+//
+// This wrapper is the process every external supervisor sees: it owns
+// `argv[1]`, so `kill <pid>`, a service manager tracking the CLI pid, and
+// Ctrl-C in a foreground shell all land HERE, not on the child. Without
+// forwarding, the wrapper died on SIGTERM and left the server child orphaned
+// and running — which also meant the server's own SIGTERM/SIGINT handler
+// (records `exitIntent:"signal"`, flushes `.meta.json` writes) never ran on
+// this path. Verified live: `kill <wrapper-pid>` left the server answering
+// /api/health with no exit intent recorded.
+//
+// Idempotent: repeat signals re-forward harmlessly; the child's own handler
+// is itself idempotent. After the child exits, the `exit` handler below
+// re-raises so the parent shell still sees the true exit reason.
+// See change: fix-recovery-exit-intent (task 3.5).
+for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+  process.on(sig, () => {
+    try {
+      child.kill(sig);
+    } catch {
+      /* child already gone — the exit handler below still fires */
+    }
+  });
+}
 
 child.on("exit", (code, signal) => {
   if (signal) {
     // Re-raise the signal so the parent shell sees the same exit reason.
+    // Drop our own handler first, or the re-raise is swallowed by it.
+    process.removeAllListeners(signal);
     process.kill(process.pid, signal);
   } else {
     process.exit(code ?? 0);

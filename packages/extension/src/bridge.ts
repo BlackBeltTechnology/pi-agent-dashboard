@@ -46,6 +46,7 @@ import { flipHasUI } from "./hasui-flip.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, defaultReadPiVersion } from "./model-tracker.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
+import { createNotifyProxy } from "./notify-proxy.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
 import { getOwnPgid, scanChildProcesses } from "./process-scanner.js";
 import { decideProjectTrust, readEventCwd } from "./project-trust.js";
@@ -53,6 +54,7 @@ import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { RetryTracker } from "./retry-tracker.js";
+import { readPiRetrySettings } from "./pi-retry-settings.js";
 import { activate as activateRoleManager, lookupRole } from "./role-manager.js";
 import { registerRoleModelTools } from "./role-model-tools.js";
 import { autoStartServer } from "./server-auto-start.js";
@@ -309,9 +311,11 @@ function initBridge(pi: ExtensionAPI) {
 
   // Provider-retry synthesis tracker. pi's ExtensionAPI does not expose
   // `auto_retry_*` events, so the bridge synthesizes them by OBSERVING pi's
-  // own retry behavior (error message_end → fresh assistant message_start →
-  // auto_retry_start). See change: simplify-error-retry-single-card.
-  const retryTracker = new RetryTracker();
+  // real event shape: one full agent_start…agent_end cycle PER attempt, with a
+  // single agent_settled as the sole terminal signal. `maxAttempts`/`delayMs`
+  // are sourced READ-ONLY from pi's retry settings for the display countdown;
+  // the bridge never writes them. See change: retry-forever-with-stop-control.
+  const retryTracker = new RetryTracker(readPiRetrySettings({ cwd: activationCwd }));
   // Empty-actionable-turn guard: when a terminal turn is a clean-but-empty
   // `stop` (thinking-only, no text, no tool call), continue-or-surface instead
   // of idling silently. Provider-agnostic. See change:
@@ -1503,13 +1507,29 @@ function initBridge(pi: ExtensionAPI) {
         if (abortLatch.shouldAbort(sessionId)) {
           try { cachedCtx?.abort?.(); } catch { /* idempotent */ }
         }
+        // Provider-retry synthesis: when this agent_start is the awaited retry
+        // attempt (a chain is armed), emit auto_retry_start so the surface
+        // flips waiting → in-flight. Deferred via setTimeout(0) so it lands on
+        // the wire AFTER this agent_start (the reducer defensively clears
+        // retryState on agent_start, so the synth must arrive next to re-set
+        // it). See change: retry-forever-with-stop-control (design D4).
+        const retryStart = retryTracker.observeAgentStart(sessionId);
+        if (retryStart) {
+          setTimeout(() => sendSyntheticRetryEvent(retryStart.eventType, retryStart.data), 0);
+        }
       }
       if (eventType === "agent_settled") {
         // Terminal settle (native pi ≥ 0.80.4, fires once after the run loop).
-        // Clear streaming and forward as-is; no synth. On floor pi this branch
-        // never fires from a real event (pi does not emit it) — the synth path
-        // below handles it. See change: adopt-pi-074-080-features (A.1).
+        // Clear streaming. This is the SOLE terminal signal for a retry chain:
+        // close it with auto_retry_end BEFORE forwarding the settle. On floor
+        // pi this branch never fires from a real event — the synth path below
+        // fires it after agent_end, and this handler re-runs for that synth.
+        // See changes: adopt-pi-074-080-features (A.1), retry-forever-with-stop-control.
         getBridgeState().isAgentStreaming = false;
+        const retryEnd = retryTracker.observeAgentSettled(sessionId);
+        if (retryEnd) {
+          sendSyntheticRetryEvent(retryEnd.eventType, retryEnd.data);
+        }
       }
       if (eventType === "agent_end") {
         getBridgeState().isAgentStreaming = false;
@@ -1517,12 +1537,12 @@ function initBridge(pi: ExtensionAPI) {
         // later, unrelated turn is not aborted. See change:
         // unify-error-retry-lifecycle.
         abortLatch.clear(sessionId);
-        // Provider-retry synthesis: forward auto_retry_end BEFORE agent_end
-        // when a retry chain was in flight, so the dashboard's retry sub-line
-        // clears before the settled error renders. A terminal error pi never
-        // re-attempted (no chain) yields nothing here — the reducer's own
-        // agent_end arm surfaces lastError.
-        // See change: simplify-error-retry-single-card.
+        // Provider-retry synthesis: an error agent_end means an attempt just
+        // failed and (optimistically) another is coming — emit the WAITING
+        // signal (attempt + computed delay + nextAttemptAt) so the surface
+        // shows a live countdown during pi's sleep. The chain is NOT closed
+        // here; only agent_settled (above) terminates it. A non-error agent_end
+        // returns null. See change: retry-forever-with-stop-control (design D4).
         const trackerSynth = retryTracker.observeAgentEnd(sessionId, event as any);
         if (trackerSynth) {
           sendSyntheticRetryEvent(trackerSynth.eventType, trackerSynth.data);
@@ -1682,14 +1702,10 @@ function initBridge(pi: ExtensionAPI) {
           } else if (abortLatch.shouldAbort(sessionId)) {
             try { cachedCtx?.abort?.(); } catch { /* idempotent */ }
           }
-          // Observe-based retry: an assistant message_start that follows an
-          // error message_end in the same turn (no user prompt between) is pi
-          // re-attempting — emit auto_retry_start so the dashboard shows the
-          // live retry sub-line. See change: simplify-error-retry-single-card.
-          if (role !== "user") {
-            const retrySynth = retryTracker.observeMessageStart(sessionId, messageRef as any);
-            if (retrySynth) sendSyntheticRetryEvent(retrySynth.eventType, retrySynth.data);
-          }
+          // NOTE: retry synthesis moved off `message_start`. pi ends a full
+          // agent turn per attempt, so the retry lifecycle is now driven by
+          // agent_start (in-flight) / agent_end (waiting) / agent_settled
+          // (terminal). See change: retry-forever-with-stop-control.
           if (role === "user") {
             // Per-entry shadow-queue drain matcher: mirror pi's internal
             // logic (`_processAgentEvent` in pi-coding-agent
@@ -2298,18 +2314,13 @@ function initBridge(pi: ExtensionAPI) {
           }
         });
 
-      // Notify is fire-and-forget: call original + forward to dashboard
-      (ctx.ui as any).notify = (message: string, level?: string) => {
-        originalNotify?.(message, level);
-        connection.send({
-          type: "prompt_request" as any,
-          sessionId,
-          promptId: crypto.randomUUID(),
-          prompt: { question: message, type: "notify" },
-          component: { type: "notify", props: { message, level } },
-          placement: "inline",
-        });
-      };
+      // Notify is fire-and-forget: call original + forward to dashboard on the
+      // dedicated `notify` channel. See change: split-notify-from-prompt-request.
+      (ctx.ui as any).notify = createNotifyProxy({
+        sessionId,
+        send: (msg) => connection.send(msg),
+        originalNotify,
+      });
     }
 
     // Flip ctx.hasUI=true now that ctx.ui.* has been patched to route
@@ -2595,7 +2606,11 @@ function initBridge(pi: ExtensionAPI) {
         // Fold the bridge→server ring-buffer eviction count into the heartbeat
         // so it reaches `/api/health`. See change:
         // fix-stuck-tool-card-on-dropped-event.
-        metrics: { ...collectMetrics(), droppedBufferedFrames: connection.getDroppedBufferedCount() },
+        metrics: {
+          ...collectMetrics(),
+          droppedBufferedFrames: connection.getDroppedBufferedCount(),
+          refusedInboundFrames: connection.getDroppedInboundCount(),
+        },
       });
     }, HEARTBEAT_INTERVAL);
     getBridgeState().timers!.push(heartbeatTimer);

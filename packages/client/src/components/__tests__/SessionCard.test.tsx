@@ -1411,3 +1411,43 @@ describe("SessionCard — +Worktree button (session-card-plus-session-button)", 
     expect(screen.getByTestId("session-card-spawn-worktree")).toBeTruthy();
   });
 });
+
+/**
+ * D7 — a prompt raised WITHOUT an `ask_user` tool call (flow adapter, plugin)
+ * now sets `currentTool`. `ActivityIndicator` suppresses the "Needs you" label
+ * for widget-bar-placed prompts and then falls through to the generic
+ * `currentTool` branch, so the card reads `⚡ ask_user` — deliberately, because
+ * the session IS blocked on the user and "Idle" was a lie.
+ *
+ * Delivered with no client code change; this pins the accepted outcome.
+ *
+ * See change: restore-ask-user-tool-state-on-reconnect, test-plan #F7.
+ */
+describe("SessionCard — widget-bar-placed prompt (test-plan #F7)", () => {
+  it("#F7 shows the ask_user tool label, never 'Idle', when a widget-bar prompt owns the prompt", async () => {
+    const runtime = await import("@blackbelt-technology/dashboard-plugin-runtime");
+    const spy = vi.spyOn(runtime, "useHasWidgetBarPrompt").mockReturnValue(true);
+    try {
+      // `status: "idle"` is the exact pair the change makes newly legal: an
+      // agent_end landed while a prompt is still pending. Pre-change this
+      // session rendered "Idle".
+      const session = makeSession({ status: "idle", currentTool: "ask_user" });
+      render(<SessionCard session={session} {...defaultProps} />);
+
+      expect(screen.getByText("ask_user")).toBeTruthy();
+      expect(screen.queryByText("Idle")).toBeNull();
+      // The chat-routed "Needs you" label stays suppressed — the widget bar
+      // owns the affordance.
+      expect(screen.queryByText("Needs you")).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("#F7 keeps the 'Needs you' label when no widget-bar slot owns the prompt", () => {
+    const session = makeSession({ status: "idle", currentTool: "ask_user" });
+    render(<SessionCard session={session} {...defaultProps} />);
+    expect(screen.getByText("Needs you")).toBeTruthy();
+    expect(screen.queryByText("Idle")).toBeNull();
+  });
+});

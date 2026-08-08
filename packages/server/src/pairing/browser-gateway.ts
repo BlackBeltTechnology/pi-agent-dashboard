@@ -8,6 +8,7 @@ import type {
   BrowserToServerMessage,
   ServerToBrowserMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
@@ -18,6 +19,7 @@ import type { SessionManager } from "../session/memory-session-manager.js";
 import type { SessionOrderManager } from "../session/session-order-manager.js";
 // PendingLoadManager removed — server loads sessions directly via DirectoryService
 import { createHeadlessPidRegistry, type HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
+import { createNotifyLog, type NotifyLogStats } from "./notify-log.js";
 
 /**
  * Pure helper: build the per-cwd `openspec_update` messages a freshly
@@ -63,7 +65,7 @@ export function buildOpenSpecConnectSnapshot(
   return out;
 }
 
-import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
+import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
@@ -101,6 +103,14 @@ export interface BrowserGateway {
    */
   hasPendingUiRequest(sessionId: string): boolean;
   /**
+   * Whether ≥1 unanswered PromptBus request is currently tracked for the
+   * session. Read by the `currentTool` derivation in event-wiring and by the
+   * embed-lifecycle reaper's pending-ask union. Returns a boolean, never the
+   * map — prompt payloads stay owned by the gateway.
+   * See change: restore-ask-user-tool-state-on-reconnect (D6).
+   */
+  hasPendingPromptRequests(sessionId: string): boolean;
+  /**
    * Per-hop dropped-frame counters for the diagnostics/health surface. A
    * server→browser frame is dropped when a browser socket's send buffer
    * crosses MAX_WS_BUFFER under back-pressure. See change:
@@ -111,10 +121,38 @@ export interface BrowserGateway {
   trackUiRequest(sessionId: string, requestId: string, method: string, params: Record<string, unknown>): boolean | void;
   /** Clear a pending interactive UI request (resolved or cancelled) */
   clearUiRequest(sessionId: string, requestId: string): void;
+  /**
+   * Append one notification to the session's bounded notify log (cap 50,
+   * oldest evicted) and persist it on the session record. Transcript history
+   * only — it never feeds `hasPendingPromptRequests` / `hasPendingAsk` / the
+   * `currentTool` fold. See change: split-notify-from-prompt-request.
+   */
+  appendNotify(sessionId: string, entry: NotifyLogEntry): void;
+  /**
+   * Notify-log eviction counters for `/api/health`. Cap-50 eviction is silent
+   * transcript loss, so it is counted beside `droppedFrames` / `storeTrim`.
+   * See change: split-notify-from-prompt-request.
+   */
+  getNotifyLogStats(): NotifyLogStats;
   /** Track a pending PromptBus request for replay on browser refresh */
   trackPromptRequest(sessionId: string, msg: Record<string, unknown>): void;
   /** Clear a pending PromptBus request (dismissed or cancelled) */
   clearPromptRequest(sessionId: string, promptId: string): void;
+  /**
+   * Snapshot setter over the PromptBus registry: drop every tracked prompt for
+   * the session whose id is not in `promptIds`. Used at each replay exit, where
+   * the bridge's re-sent prompt burst is the authoritative pending set — this is
+   * what recovers from a `prompt_dismiss` lost across a socket drop.
+   * See change: restore-ask-user-tool-state-on-reconnect (D4).
+   */
+  reconcilePromptRequests(sessionId: string, promptIds: readonly string[]): void;
+  /**
+   * Drop both pending registries for a dead session. Turning these maps into
+   * load-bearing reaper signals obliges this change to own their lifecycle —
+   * a leaked entry would make the session permanently unreapable.
+   * See change: restore-ask-user-tool-state-on-reconnect (D6b).
+   */
+  clearPendingRequestsForSession(sessionId: string): void;
   /** Tell browser subscribers to reset accumulated state for a session (bridge reconnected) */
   broadcastSessionStateReset(sessionId: string): void;
   /** Shut down all tracked headless child processes */
@@ -207,6 +245,9 @@ export function createBrowserGateway(
   pendingClientCorrelations?: import("../pending/pending-client-correlations.js").PendingClientCorrelations,
   pendingWorktreeBaseRegistry?: import("../pending/pending-worktree-base-registry.js").PendingWorktreeBaseRegistry,
   metaPersistence?: import("../persistence/meta-persistence.js").MetaPersistence,
+  /** Display-fit pool, so session hydration fits inline images like the live
+   *  path does. See change: fit-attachments-for-display (test-plan #E9). */
+  fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -250,6 +291,11 @@ export function createBrowserGateway(
   // Track pending PromptBus requests per session for replay on browser refresh
   const pendingPromptRequests = new Map<string, Map<string, Record<string, unknown>>>();
 
+  // Bounded per-session notification history. Strictly separate from the
+  // pending registries above: never a pending ask, retained after session end,
+  // persisted on the session record. See change: split-notify-from-prompt-request.
+  const notifyLog = createNotifyLog();
+
   // Track pending auto-resume prompts for ended sessions
   const pendingResumeRegistry = createPendingResumeRegistry({
     onTimeout(oldSessionId) {
@@ -280,6 +326,47 @@ export function createBrowserGateway(
         sendTo(ws, msg as any);
       }
     }
+  }
+
+  /**
+   * Replay the retained notifications to a single browser socket. A sibling of
+   * `replayPendingUiRequests`, deliberately NOT folded into it: the two stores
+   * have opposite semantics. The client dedups by `notifyId`, so re-firing on a
+   * warm reconnect is idempotent.
+   * See change: split-notify-from-prompt-request.
+   */
+  /**
+   * Cold hydration: after a server restart (or a bridge reattach) the in-memory
+   * log is empty while the restored session record still carries the persisted
+   * rows. Both readers AND the appender must seed from the record — an append
+   * onto an empty in-memory list would mirror back a one-row array and wipe the
+   * persisted history before any browser ever saw it.
+   */
+  function hydrateNotifyLog(sessionId: string): void {
+    if (!notifyLog.isEmpty(sessionId)) return;
+    const persisted = sessionManager.get(sessionId)?.notifyLog;
+    if (persisted && persisted.length > 0) notifyLog.hydrate(sessionId, persisted);
+  }
+
+  function replayNotifyLog(ws: WebSocket, sessionId: string) {
+    hydrateNotifyLog(sessionId);
+    for (const entry of notifyLog.get(sessionId)) {
+      sendTo(ws, {
+        type: "notify",
+        sessionId,
+        notifyId: entry.notifyId,
+        message: entry.message,
+        ...(entry.level === undefined ? {} : { level: entry.level }),
+      } as ServerToBrowserMessage);
+    }
+  }
+
+  function appendNotify(sessionId: string, entry: NotifyLogEntry): void {
+    hydrateNotifyLog(sessionId);
+    const list = notifyLog.append(sessionId, entry);
+    // Mirror onto the session record so the debounced `.meta.json` save carries
+    // the log across a server restart, like the rest of the transcript.
+    sessionManager.update(sessionId, { notifyLog: [...list] });
   }
 
   function trackUiRequest(sessionId: string, requestId: string, method: string, params: Record<string, unknown>): boolean | void {
@@ -318,6 +405,16 @@ export function createBrowserGateway(
       sessionMap.delete(promptId);
       if (sessionMap.size === 0) pendingPromptRequests.delete(sessionId);
     }
+  }
+
+  function reconcilePromptRequests(sessionId: string, promptIds: readonly string[]): void {
+    const sessionMap = pendingPromptRequests.get(sessionId);
+    if (!sessionMap) return;
+    const keep = new Set(promptIds);
+    for (const promptId of [...sessionMap.keys()]) {
+      if (!keep.has(promptId)) sessionMap.delete(promptId);
+    }
+    if (sessionMap.size === 0) pendingPromptRequests.delete(sessionId);
   }
 
   function getSubscribers(sessionId: string): WebSocket[] {
@@ -491,6 +588,7 @@ export function createBrowserGateway(
           ws, sessionManager, eventStore, piGateway,
           pendingForkRegistry, sessionOrderManager, preferencesStore,
           metaPersistence,
+          fitWorkerPool,
           directoryService, terminalManager,
           headlessPidRegistry, pendingResumeRegistry, pendingDashboardSpawns,
           pendingAttachRegistry,
@@ -499,7 +597,7 @@ export function createBrowserGateway(
           pendingClientCorrelations,
           pendingWorktreeBaseRegistry,
           isRecoveryLivenessPending: gateway.isRecoveryLivenessPending,
-          sendTo, broadcast, getSubscribers, replayPendingUiRequests,
+          sendTo, broadcast, getSubscribers, replayPendingUiRequests, replayNotifyLog,
           broadcastEvent: gateway.broadcastEvent,
           trackUiRequest: trackUiRequest,
           markReplaying(targetWs, sessionId) {
@@ -683,6 +781,9 @@ export function createBrowserGateway(
             break;
           case "reorder_workspaces":
             handleReorderWorkspaces(msg, ctx);
+            break;
+          case "move_folder_to_workspace":
+            handleMoveFolderToWorkspace(msg, ctx);
             break;
           case "openspec_refresh":
             handleOpenSpecRefresh(msg, ctx);
@@ -998,6 +1099,11 @@ export function createBrowserGateway(
       return sessionMap !== undefined && sessionMap.size > 0;
     },
 
+    hasPendingPromptRequests(sessionId: string): boolean {
+      const sessionMap = pendingPromptRequests.get(sessionId);
+      return sessionMap !== undefined && sessionMap.size > 0;
+    },
+
     getDroppedFrameStats() {
       return {
         total: droppedFramesTotal,
@@ -1017,8 +1123,22 @@ export function createBrowserGateway(
       }
     },
 
+    appendNotify,
+
+    getNotifyLogStats: () => notifyLog.getStats(),
+
     trackPromptRequest,
     clearPromptRequest,
+    reconcilePromptRequests,
+
+    clearPendingRequestsForSession(sessionId: string) {
+      pendingUiRequests.delete(sessionId);
+      pendingPromptRequests.delete(sessionId);
+      // The notify log is deliberately NOT cleared here: an ended session keeps
+      // the rows it displayed while alive (Contract 2). Reapability is protected
+      // by exclusion — no reaper signal reads this log — not by deletion.
+      // See change: split-notify-from-prompt-request.
+    },
 
     shutdownHeadlessProcesses() {
       headlessPidRegistry.killAll();

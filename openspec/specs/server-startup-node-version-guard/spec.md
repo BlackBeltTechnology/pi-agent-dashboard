@@ -7,21 +7,27 @@ Preflight refuse-to-start guard that prevents the dashboard server from booting 
 Complements (does NOT replace) the existing Fastify-bug guard `isAffectedNode` — the two predicates target overlapping but distinct version ranges:
 
 - `isAffectedNode` — Node v22.0–v22.18 and v24.1–v24.2 (Fastify ajv-compiler `ERR_INTERNAL_ASSERTION`, nodejs/node#58515).
-- `isOutOfEnginesRange` — Node `<22.19.0` OR `>=26` (engines-cap mirror).
+- `isOutOfEnginesRange` — Node `<22.19.0` OR `>=27` (engines-cap mirror).
 ## Requirements
 ### Requirement: Refuse server start on Node outside engines range
 
-`packages/server/src/node-guard.ts` SHALL expose a pure predicate `isOutOfEnginesRange(version: string): boolean` returning `true` when the running Node falls outside the cap declared in root `package.json#engines.node` (`>=22.19.0 <26`). `assertNodeVersionSupported()` — called at the top of every server entry point (`cmdStart`, `runForeground`) — SHALL write `buildEnginesRangeMessage(version)` to stderr and exit with code `1` when the predicate is true. The check fires AFTER the existing `isAffectedNode` Fastify-bug guard so both messages remain distinguishable.
+`packages/server/src/auth/node-guard.ts` SHALL expose a pure predicate `isOutOfEnginesRange(version: string): boolean` returning `true` when the running Node falls outside the cap declared in root `package.json#engines.node` (`>=22.19.0 <27`). `assertNodeVersionSupported()` — called at the top of every server entry point (`cmdStart`, `runForeground`) — SHALL write `buildEnginesRangeMessage(version)` to stderr and exit with code `1` when the predicate is true. The check fires AFTER the existing `isAffectedNode` Fastify-bug guard so both messages remain distinguishable.
 
 Lockstep contract: the upper bound MUST track `package.json#engines.node`. When the cap moves, the predicate moves with it.
 
-CI lockstep contract: `.github/workflows/ci.yml` `standalone-install-smoke-linux` and `standalone-install-smoke-windows` matrices SHALL include every Node major in the engines range. Today that is `[22, 24, 25]`.
+CI lockstep contract: the `.github/workflows/_smoke.yml` `standalone-install-smoke-linux` matrix SHALL include every SUPPORTED Node major. Today that set is `[22, 24, 25, 26]`. The supported set is a subset of what the engines range admits — `>=22.19.0 <27` also admits `23`, which is EOL and deliberately unlisted — so the matrix is checked against the declared supported set, not against the range bounds. (`standalone-install-smoke-windows` is pinned to a single `[22]` leg and is out of scope; `ci.yml` carries no Node-major matrix.)
 
-#### Scenario: Refuse Node 26 at startup
+#### Scenario: Refuse Node 27 at startup
 
-- **WHEN** the server entry point runs under `node v26.x.x` or newer
-- **THEN** `assertNodeVersionSupported()` SHALL write a message containing `❌  pi-dashboard cannot start on Node v26.` and `Required: >=22.19.0 <26` to stderr
+- **WHEN** the server entry point runs under `node v27.x.x` or newer
+- **THEN** `assertNodeVersionSupported()` SHALL write a message containing `❌  pi-dashboard cannot start on Node v27.` and `Required: >=22.19.0 <27` to stderr
 - **AND** SHALL call `process.exit(1)` before any Fastify route is registered
+
+#### Scenario: Allow Node 26
+
+- **WHEN** the server entry point runs under `node v26.x.x`
+- **THEN** `assertNodeVersionSupported()` SHALL return normally
+- **AND** the server SHALL proceed to start Fastify
 
 #### Scenario: Allow Node 25
 
@@ -52,14 +58,14 @@ CI lockstep contract: `.github/workflows/ci.yml` `standalone-install-smoke-linux
 
 #### Scenario: Message lists three install paths
 
-- **WHEN** `buildEnginesRangeMessage("v26.0.0")` is called
+- **WHEN** `buildEnginesRangeMessage("v27.0.0")` is called
 - **THEN** the returned string SHALL contain the substrings `nvm install`, `PATH="$HOME/.pi-dashboard/node/bin`, and `brew install node`
 
 ### Requirement: Single-source Node-version predicates
 
 The nodejs/node#58515 affected-range predicate and the engines-cap predicate SHALL be defined once, in `packages/shared/src/node-version.ts`, and exported as `isAffectedNode(version)`, `isOutOfEnginesRange(version)`, and the combined `isUsableNodeVersion(version)` = `!isOutOfEnginesRange(version) && !isAffectedNode(version)`. No package SHALL maintain a private inline copy of either range.
 
-`packages/server/src/node-guard.ts` SHALL import `isAffectedNode` and `isOutOfEnginesRange` from `@blackbelt-technology/pi-dashboard-shared` and re-export them, preserving its existing public API and `assertNodeVersionSupported()` behavior. `packages/electron/src/lib/dependency-detector.ts` SHALL import `isUsableNodeVersion` from the same source.
+`packages/server/src/auth/node-guard.ts` SHALL import `isAffectedNode` and `isOutOfEnginesRange` from `@blackbelt-technology/pi-dashboard-shared` and re-export them, preserving its existing public API and `assertNodeVersionSupported()` behavior. `packages/electron/src/lib/dependency-detector.ts` SHALL import `isUsableNodeVersion` from the same source.
 
 Lockstep contract: when `package.json#engines.node` or the Fastify-affected range changes, only `packages/shared/src/node-version.ts` changes; every consumer tracks it automatically.
 
@@ -76,6 +82,7 @@ Lockstep contract: when `package.json#engines.node` or the Fastify-affected rang
 
 #### Scenario: Range is defined in exactly one place
 
-- **WHEN** the repository is scanned for the literal affected-range arithmetic (`major === 22 && minor < 19`, `major === 24 && minor >= 1 && minor < 3`) and the engines-cap arithmetic (`major >= 26`)
+- **AND** the range SHALL additionally be asserted to match the `Required: …` string literal emitted by `buildEnginesRangeMessage`, which is a defining occurrence the arithmetic scan below cannot detect
+- **WHEN** the repository is scanned for the literal affected-range arithmetic (`major === 22 && minor < 19`, `major === 24 && minor >= 1 && minor < 3`) and the engines-cap arithmetic (`major >= 27`)
 - **THEN** the only defining occurrence SHALL be `packages/shared/src/node-version.ts` (consumers reference the exported predicates)
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isAffectedNode, isOutOfEnginesRange, isUsableNodeVersion } from "../node-version.js";
 
 // Canonical accept-set (see change: unify-node-version-gate / design D2):
-//   usable iff within engines range (>=22.19.0 <26) AND not Fastify-affected.
+//   usable iff within engines range (>=22.19.0 <27) AND not Fastify-affected.
 describe("isUsableNodeVersion", () => {
   const cases: Array<[string, boolean]> = [
     ["v21.9.0", false], // below floor (major < 22)
@@ -17,8 +17,8 @@ describe("isUsableNodeVersion", () => {
     ["v24.15.0", true], // bundled Node — usable
     ["v25.0.0", true], // entire 25.x usable
     ["v25.9.0", true],
-    ["v26.0.0", false], // engines cap (>=26)
-    ["v27.0.0", false],
+    ["v26.0.0", true], // in range since the cap raise (<26 -> <27)
+    ["v27.0.0", false], // engines cap (>=27)
   ];
 
   for (const [version, expected] of cases) {
@@ -55,5 +55,28 @@ describe("isUsableNodeVersion", () => {
       const expected = !isOutOfEnginesRange(version) && !isAffectedNode(version);
       expect(isUsableNodeVersion(version)).toBe(expected);
     }
+  });
+});
+
+// Engines-cap boundary, asserted directly on isOutOfEnginesRange — the accept-set
+// table above only drives isUsableNodeVersion.
+// See change: fix-pi-install-node26-and-omit-dev-build (test-plan #E1/#E2/#E3).
+describe("engines cap boundary (<27)", () => {
+  it("Node 26 is inside the engines range and usable", () => {
+    for (const v of ["v26.0.0", "v26.5.0"]) {
+      expect(isOutOfEnginesRange(v)).toBe(false);
+      expect(isUsableNodeVersion(v)).toBe(true);
+    }
+  });
+
+  it("Node 27 is the new refusal boundary", () => {
+    expect(isOutOfEnginesRange("v27.0.0")).toBe(true);
+    expect(isUsableNodeVersion("v27.0.0")).toBe(false);
+  });
+
+  it("leaves the floor and the Fastify-affected range untouched", () => {
+    expect(isUsableNodeVersion("v22.19.0")).toBe(true);
+    expect(isUsableNodeVersion("v22.18.0")).toBe(false);
+    expect(isUsableNodeVersion("v24.2.0")).toBe(false);
   });
 });

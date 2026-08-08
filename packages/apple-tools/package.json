@@ -1,0 +1,93 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-apple-tools",
+  "version": "0.7.0",
+  "description": "Provision and surface iMCP (Apple PIM: Calendar, Contacts, Reminders, Messages, Location, Maps, Weather) for pi. One-command installer, a dashboard provisioning panel, and an agent skill. macOS-only; no Apple Mail.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/apple-tools"
+  },
+  "keywords": [
+    "pi",
+    "pi-dashboard-plugin",
+    "imcp",
+    "mcp",
+    "apple",
+    "calendar",
+    "contacts",
+    "reminders",
+    "macos"
+  ],
+  "bin": {
+    "pi-apple-tools-install": "src/bin/install.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./client": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "config.schema.json",
+    ".pi/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/apple-tools"
+    ]
+  },
+  "pi-dashboard-plugin": {
+    "id": "apple-tools",
+    "displayName": "Apple Tools",
+    "priority": 100,
+    "client": "./src/client/index.tsx",
+    "server": "./src/server/index.ts",
+    "configSchema": "./config.schema.json",
+    "requires": {
+      "piExtensions": [
+        "pi-mcp-adapter"
+      ],
+      "paths": [
+        "${imcpServerPath}"
+      ]
+    },
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "AppleToolsSettings"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "pi-mcp-adapter": "^2.19.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

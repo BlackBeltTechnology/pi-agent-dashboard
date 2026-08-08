@@ -59,10 +59,10 @@ Rules (full rationale + caveman-style spec: [docs/architecture.md](docs/architec
 
 Full details: [docs/architecture.md](docs/architecture.md). Electron bootstrap: [docs/electron-bootstrap-flow.md](docs/electron-bootstrap-flow.md). Doctor skill: [docs/doctor-skill.md](docs/doctor-skill.md).
 
-- **Bridge Extension** (`src/extension/`) — runs in every pi session, forwards events via WebSocket
-- **Dashboard Server** (`src/server/`) — aggregates events, in-memory + JSON persistence, dual WebSocket servers
-- **Web Client** (`src/client/`) — React + Tailwind responsive UI
-- **Shared Types** (`src/shared/`) — protocol definitions
+- **Bridge Extension** (`packages/extension/src/`) — runs in every pi session, forwards events via WebSocket
+- **Dashboard Server** (`packages/server/src/`) — aggregates events, in-memory + JSON persistence, dual WebSocket servers
+- **Web Client** (`packages/client/src/`) — React + Tailwind responsive UI
+- **Shared Types** (`packages/shared/src/`) — protocol definitions
 
 ## Commands
 
@@ -83,10 +83,10 @@ PI_WORKSPACES="/abs/a:/abs/b" ./up.sh
 
 ## Running Tests
 
-Pipe once to a tmp file, then grep — never rerun to inspect errors:
+Pipe once to a tmp file, then grep — never rerun to inspect errors. Keep `pipefail` + the summary pattern: without them a failing run reports exit 0 and leaves no verdict in the transcript.
 ```bash
-npm test 2>&1 | tee /tmp/pi-test.log
-grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log
+set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log
+grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log
 ```
 
 ## Build & Restart Workflow
@@ -95,9 +95,9 @@ grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log
 
 Quick reference:
 ```bash
-npm run reload                              # after src/extension/ changes
-curl -X POST http://localhost:8000/api/restart   # after src/server|src/shared changes (jiti — no build)
-npm run build && curl -X POST .../api/restart    # after src/client changes (production)
+npm run reload                              # after packages/extension/ changes
+curl -X POST http://localhost:8000/api/restart   # after packages/server|packages/shared changes (jiti — no build)
+npm run build && curl -X POST .../api/restart    # after packages/client changes (production)
 curl -s http://localhost:8000/api/health | jq .mode   # dev | production
 ```
 `/api/restart` is the single restart source of truth (CLI `restart` delegates to it when the dashboard is up). `--dev` proxies to Vite with automatic production fallback. `full-rebuild.ts` = deploy checked-out dev to the local instance; NOT a feature step.
@@ -113,15 +113,15 @@ Delegate specialist work to the matching subagent (isolated context). Explicit `
 | Subagent | Use for |
 |---|---|
 | `Explore` | Read-only search / "where is X" when the tree misses (per-file lookups use `kb agents` directly). |
-| `react-expert` | React refactors/hooks/state/render-perf in `src/client/`, `packages/web/`. |
+| `react-expert` | React refactors/hooks/state/render-perf in `packages/client/`, `packages/*-plugin/src/client/`. |
 | `typescript-expert` | Type-system, generics, strict-mode, async typing, `.d.ts`. |
-| `nodejs-expert` | Server async/streams/perf in `src/server/`, `packages/server/`, Electron main. |
+| `nodejs-expert` | Server async/streams/perf in `packages/server/`, `packages/extension/`, `packages/electron/` main. |
 | `tailwind-expert` | Utility-class refactors, breakpoints, tokens, dark-mode. |
 | `Audit` | Deep security+perf pass on a diff (read-only findings; parent fixes). |
 | `DocScribe` | Write `docs/` prose in caveman style (Rule-6 target). Returns tree rows for parent to apply. |
 | `SessionGuideline` | Turn a session into a how-we-did-it playbook. |
 
-**Apply-loop spawn checkpoints** (signal in diff/tasks.md → spawn): touches auth/secrets/PII/untrusted-input/webhooks or a latency budget → `Audit`; contextFiles list large → `Explore`; a change landed + `docs/` needs prose → `DocScribe`.
+**Apply-loop spawn checkpoints** (signal in diff/tasks.md → spawn): touches auth/secrets/PII/untrusted-input/webhooks or a latency budget → `Audit`; contextFiles list large → `Explore`; a change landed + `docs/` needs prose → `DocScribe`; ≥3 React components touched, or a hook added/reworked, or a render-perf fix → `react-expert`; ≥3 server modules touched, or new async/stream/WS path → `nodejs-expert`.
 
 **Discipline-skill checkpoints** (invoke the `eng-disciplines` skill when the signal appears): auth/untrusted-input/secrets/PII → `security-hardening`; latency/throughput budget or large-data path → `performance-optimization`; new endpoint/job/external-call → `observability-instrumentation`; irreversible step (migration/public-API) before it stands → `doubt-driven-review`; bug mid-implementation → `systematic-debugging`; opaque runtime state (jiti/PTY/WS) → `node-inspect-debugger`; non-trivial change + tests pass before commit → `review-code`; works but feels heavy → `code-simplification`.
 

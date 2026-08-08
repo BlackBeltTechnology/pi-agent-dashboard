@@ -1,0 +1,151 @@
+# sidebar-drag-reorder Specification (delta)
+
+## MODIFIED Requirements
+
+### Requirement: Drag-to-reorder folders within a workspace
+Users SHALL be able to reorder folders inside a workspace by dragging. On drop
+within the same workspace, the client SHALL send
+`{ type: "reorder_workspace_folders", id, paths }` with the workspace id and the
+full new folder ordering. A folder dropped on a target belonging to a
+*different* workspace SHALL be handled as a membership move (see
+`Drag folders across workspace boundaries`), not as a reorder.
+
+#### Scenario: Reorder folders inside one workspace
+- **WHEN** a user drags a folder within workspace W from position 1 to position 2
+- **THEN** the client SHALL send `reorder_workspace_folders` with W's id and the swapped `paths`
+
+### Requirement: Type-aware drag collision detection
+The sidebar drag-and-drop SHALL constrain candidate drop targets using a
+compatibility matrix over the active draggable's `type`, so nested sortable
+contexts do not capture a drag intended for an outer target. `session` drags
+SHALL only resolve to `session` targets, and `workspace` drags SHALL only
+resolve to `workspace` targets. `workspace-folder` drags SHALL resolve to
+`workspace-folder`, `workspace-header`, `pinned-group`, and `pinned-tier`
+targets. `pinned-group` drags SHALL resolve to `workspace-folder`,
+`workspace-header`, and `pinned-group` targets, but NOT to `pinned-tier`.
+
+#### Scenario: Workspace drag is not captured by inner folders
+- **WHEN** a workspace is expanded (its folders visible) and the user drags that workspace over another workspace
+- **THEN** the drop target SHALL resolve to a workspace, not an inner folder or session
+- **AND** the workspace order SHALL update
+
+#### Scenario: Folder drag is not captured by inner sessions
+- **WHEN** a folder inside a workspace is expanded (its sessions visible) and the user drags that folder within the workspace
+- **THEN** the drop target SHALL resolve to a folder, not an inner session
+
+#### Scenario: Session drag never resolves to a workspace target
+- **WHEN** a session card is dragged over a workspace header or a workspace folder
+- **THEN** the drop target SHALL NOT resolve to a workspace or folder
+- **AND** no membership message SHALL be sent
+
+#### Scenario: Pinned-group reorder is not hijacked by the eject rule
+- **WHEN** a pinned directory is dragged onto another pinned directory
+- **THEN** the client SHALL send `reorder_pinned_dirs` as it does today
+- **AND** SHALL NOT send `move_folder_to_workspace`
+
+## ADDED Requirements
+
+### Requirement: Drag folders across workspace boundaries
+Users SHALL be able to change a directory's workspace membership by dragging.
+On such a drop the client SHALL send exactly one message
+`{ type: "move_folder_to_workspace", path, toWorkspaceId, index? }` and rely on
+the server's `workspaces_updated` broadcast to reflect the change. The server
+SHALL resolve `toWorkspaceId` BEFORE mutating any state, then detach `path` from
+every workspace and either insert it into the target at `index` (appending when
+`index` is omitted) or, when `toWorkspaceId` is `null`, pin the directory.
+`index` SHALL be clamped to the target's bounds. Only directories that are
+already draggable — pinned directories and workspace folders — participate;
+unpinned directory rows are out of scope.
+
+#### Scenario: Pinned directory dragged into a workspace header
+- **WHEN** a user drags a pinned directory onto a workspace's header
+- **THEN** the client SHALL send `move_folder_to_workspace` with that workspace's id and no `index`
+- **AND** the directory SHALL appear as the last folder of that workspace
+
+#### Scenario: Folder dragged into a positional slot
+- **WHEN** a user drags a workspace folder onto the slot before folder 2 of a different expanded workspace
+- **THEN** the client SHALL send `move_folder_to_workspace` with that workspace's id and `index` 1
+- **AND** the directory SHALL appear at that position
+
+#### Scenario: Pinned directory dragged into a positional slot
+- **WHEN** a user drags a pinned directory onto the slot before folder 2 of an expanded workspace
+- **THEN** the client SHALL send `move_folder_to_workspace` with that workspace's id and `index` 1
+
+#### Scenario: Folder dragged between two workspaces
+- **WHEN** a user drags a folder owned by workspace A onto workspace B
+- **THEN** the client SHALL send a single `move_folder_to_workspace` with B's id
+- **AND** the folder SHALL be a member of B only
+
+#### Scenario: Folder dragged out of a workspace
+- **WHEN** a user drags a workspace folder onto the pinned-directory tier
+- **THEN** the client SHALL send `move_folder_to_workspace` with `toWorkspaceId: null`
+- **AND** the directory SHALL be pinned so it remains visible even with no live sessions
+
+#### Scenario: Eject affordance exists when the pinned tier is empty
+- **WHEN** a workspace folder is dragged while no pinned directories are visible
+- **THEN** a dedicated pinned-tier drop area SHALL render with a visible drop indicator and a minimum height of 64px, so it is a real cursor target rather than a hairline
+- **AND** it SHALL NOT render while pinned directories are present, so there is only ever one eject target under the cursor
+
+#### Scenario: Ejecting runs the same directory discovery as pinning
+- **WHEN** a folder is ejected to the pinned tier
+- **THEN** the server SHALL run the same directory-added side effects as an explicit pin, so historical on-disk sessions and OpenSpec data for that directory are discovered
+
+#### Scenario: Drop on the folder's current position is a no-op
+- **WHEN** a membership drag begins and ends on the folder's own slot
+- **THEN** the client SHALL NOT send `move_folder_to_workspace`
+
+#### Scenario: Drop on the folder's own workspace header is a no-op
+- **WHEN** a user drops a folder onto the header of the workspace it already belongs to
+- **THEN** the client SHALL NOT send `move_folder_to_workspace`
+- **AND** the folder SHALL keep its current position rather than jumping to the end
+
+#### Scenario: Unknown workspace id is rejected before any mutation
+- **WHEN** the server receives `move_folder_to_workspace` naming a workspace that does not exist
+- **THEN** the server SHALL NOT detach the folder from its current workspace
+- **AND** SHALL NOT mutate state or broadcast `workspaces_updated`
+
+#### Scenario: Rejected requests produce no side effects
+- **WHEN** the server receives `move_folder_to_workspace` that it rejects — an unknown workspace id, a folder already in the target workspace, or an eject for a folder that belongs to no workspace
+- **THEN** the server SHALL NOT pin the directory, SHALL NOT run directory-added side effects, and SHALL NOT broadcast
+
+#### Scenario: Out-of-range index is clamped
+- **WHEN** the server receives `move_folder_to_workspace` with a negative or oversized `index`
+- **THEN** the insert position SHALL be clamped to the target workspace's bounds rather than splicing from the end
+
+#### Scenario: Non-integer index is rejected
+- **WHEN** the server receives `move_folder_to_workspace` with an `index` that is not a finite integer
+- **THEN** the server SHALL reject the request rather than coercing it to a front insert
+
+#### Scenario: Ejecting does not flash the folder out of the sidebar
+- **WHEN** a workspace folder with no live sessions is ejected to the pinned tier
+- **THEN** the directory SHALL remain continuously visible in the sidebar across the update
+- **AND** SHALL NOT disappear or momentarily render in the unpinned tier
+
+### Requirement: Spring-load collapsed workspaces during a drag
+While a folder-like drag hovers a collapsed workspace header, that workspace
+SHALL auto-expand after a short dwell so its positional drop slots become
+reachable. Once expanded, the workspace SHALL REMAIN expanded for the rest of
+the drag even as the hovered target changes, so that moving the pointer into the
+newly revealed folders does not re-collapse it. The expansion SHALL be
+client-local and visual only and SHALL NOT emit `set_workspace_collapsed`.
+
+#### Scenario: Hovering a collapsed workspace expands it
+- **WHEN** a user drags a directory over a collapsed workspace header and dwells there
+- **THEN** that workspace SHALL render expanded for the remainder of the drag
+
+#### Scenario: Entering the revealed folders does not re-collapse
+- **WHEN** a spring-loaded workspace has expanded and the pointer moves onto one of its now-visible folders
+- **THEN** that workspace SHALL stay expanded
+- **AND** the drop target SHALL resolve to the hovered folder
+
+#### Scenario: Spring-load never persists
+- **WHEN** a spring-loaded workspace's drag ends or is cancelled
+- **THEN** the client SHALL NOT have sent `set_workspace_collapsed`
+- **AND** the workspace SHALL return to its persisted collapsed state
+
+## REMOVED Requirements
+
+### Requirement: Cross-workspace folder drag is rejected
+**Reason**: Superseded by `Drag folders across workspace boundaries` — the
+gesture is now the primary way to change workspace membership.
+**Migration**: None; the rejection was a client-side no-op with no persisted state.

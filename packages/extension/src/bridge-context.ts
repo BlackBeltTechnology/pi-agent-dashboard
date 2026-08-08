@@ -92,12 +92,30 @@ export interface BridgeContext {
 // separately by the `__`-prefix rule. See change: fix-extension-slash-commands-in-dashboard.
 export const DASHBOARD_NATIVE_COMMANDS = new Set(["roles"]);
 
-/** Filter out hidden commands (names starting with __) and dashboard-native commands from commands list */
+/**
+ * Filter out hidden commands (names starting with __) and dashboard-native
+ * commands from the commands list, and fill in `CommandInfo.path` from pi's
+ * `sourceInfo.path`.
+ *
+ * The path mapping lives here, not at a sender, because all five
+ * `commands_list` senders pass through this one function (session register,
+ * spawn, flow rediscovery, `session_start` reload, `request_commands`). The
+ * server retains the *latest* list, so a sender that skipped the mapping would
+ * replace a good list with a path-less one and flip every skill to
+ * `not-loaded`. `sourceInfo` is a pi-internal shape, so its absence is
+ * tolerated rather than assumed. See change: fix-skill-discovery-parity.
+ */
 export function filterHiddenCommands(commands: any[]): any[] {
-  return commands.filter((cmd) =>
-    !cmd.name.startsWith("__") &&
-    !DASHBOARD_NATIVE_COMMANDS.has(cmd.name)
-  );
+  return commands
+    .filter((cmd) =>
+      !cmd.name.startsWith("__") &&
+      !DASHBOARD_NATIVE_COMMANDS.has(cmd.name)
+    )
+    .map((cmd) => {
+      const sourcePath = cmd?.sourceInfo?.path;
+      if (cmd?.path !== undefined || typeof sourcePath !== "string") return cmd;
+      return { ...cmd, path: sourcePath };
+    });
 }
 
 /**

@@ -18,6 +18,8 @@
  *
  * See change: add-plugin-activation-ui (Layer 1.5).
  */
+import { existsSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import type {
   PluginManifest,
   PluginRequirements,
@@ -50,7 +52,24 @@ export interface RequirementProbeDeps {
   toolRegistry?: ToolRegistryLike;
   /** Optional fetch impl for service probes (tests inject). */
   fetchImpl?: typeof fetch;
+  /**
+   * Declaring plugin's validated config (schema defaults already applied),
+   * used to resolve a `${configKey}` placeholder in a `paths` requirement.
+   * See change: add-apple-tools-imcp-plugin.
+   */
+  pluginConfig?: Record<string, unknown>;
+  /**
+   * Keys declared in the plugin's `configSchema`. A `${configKey}` naming a
+   * key absent from this set is unsatisfied (never a throw). When omitted,
+   * the key-existence guard is skipped (bare-requires callers with no schema).
+   */
+  configSchemaKeys?: readonly string[];
+  /** Injectable existence check for `paths` probes (tests inject; defaults to fs.existsSync). */
+  pathExists?: (p: string) => boolean;
 }
+
+/** A `paths` entry may be exactly one `${configKey}` placeholder. */
+const CONFIG_PLACEHOLDER = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 
 const KNOWN_SERVICES: Record<
   string,
@@ -102,6 +121,44 @@ export function probeBinary(
   }
 }
 
+/**
+ * Probe a single `paths` requirement: an existence check on an absolute path,
+ * with optional `${configKey}` interpolation against the plugin's validated
+ * config. Never executes the path, never follows into it, never builds a shell
+ * string from it. A relative path, an unresolved/absent config key, or a
+ * non-absolute resolved value yields `satisfied: false` — never a throw.
+ * See change: add-apple-tools-imcp-plugin.
+ */
+export function probePath(
+  rawPath: string,
+  deps: RequirementProbeDeps,
+): { name: string; satisfied: boolean } {
+  const exists = deps.pathExists ?? existsSync;
+  const m = CONFIG_PLACEHOLDER.exec(rawPath);
+  let resolved = rawPath;
+  if (m) {
+    const key = m[1];
+    if (deps.configSchemaKeys && !deps.configSchemaKeys.includes(key)) {
+      return { name: rawPath, satisfied: false };
+    }
+    const val = deps.pluginConfig?.[key];
+    if (typeof val !== "string" || !isAbsolute(val)) {
+      return { name: rawPath, satisfied: false };
+    }
+    resolved = val;
+  } else if (!isAbsolute(rawPath)) {
+    return { name: rawPath, satisfied: false };
+  }
+  // On successful interpolation the resolved value is the legible name;
+  // otherwise the declared path verbatim.
+  const name = m ? resolved : rawPath;
+  try {
+    return { name, satisfied: exists(resolved) };
+  } catch {
+    return { name, satisfied: false };
+  }
+}
+
 export async function probeService(
   name: string,
   deps: RequirementProbeDeps,
@@ -133,8 +190,9 @@ export async function runRequirementProbesFor(
   );
   const binaries = binNames.map((n) => probeBinary(n, deps));
   const services = await Promise.all(svcNames.map((n) => probeService(n, deps)));
+  const paths = (req.paths ?? []).map((p) => probePath(p, deps));
 
-  return { piExtensions, binaries, services };
+  return { piExtensions, binaries, services, paths };
 }
 
 export async function runRequirementProbes(
@@ -150,6 +208,7 @@ export function missingFromReport(report: PluginRequirementReport): string[] {
   for (const e of report.piExtensions) if (!e.satisfied) out.push(e.name);
   for (const e of report.binaries) if (!e.satisfied) out.push(e.name);
   for (const e of report.services) if (!e.satisfied) out.push(e.name);
+  for (const e of report.paths) if (!e.satisfied) out.push(e.name);
   return out;
 }
 

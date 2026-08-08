@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OpenSpec board — drag & drop fix mockup</title>
+<style>
+  :root{
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+    --border-primary:#e0e0e0; --border-subtle:#0000000f;
+    --text-primary:#1a1a1a; --text-muted:#aaa; --text-tertiary:#777;
+    --accent-primary:#2563eb;
+    --drop:#2563eb; --drop-soft:#2563eb14; --ok:#16a34a;
+  }
+  html[data-theme="dark"]{
+    --bg-primary:#141414; --bg-secondary:#1b1b1b; --bg-tertiary:#232323;
+    --border-primary:#2e2e2e; --border-subtle:#ffffff14;
+    --text-primary:#ededed; --text-muted:#666; --text-tertiary:#8a8a8a;
+    --accent-primary:#60a5fa; --drop:#60a5fa; --drop-soft:#60a5fa1f;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg-primary); color:var(--text-primary);
+    font:13px/1.45 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ── chrome ───────────────────────────────────────────── */
+  header{
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    padding:12px 16px; border-bottom:1px solid var(--border-primary);
+    background:var(--bg-secondary);
+  }
+  header h1{font-size:14px; margin:0; font-weight:700; letter-spacing:-.01em}
+  header .sub{color:var(--text-tertiary); font-size:12px}
+  .spacer{margin-left:auto}
+  .btn{
+    border:1px solid var(--border-primary); background:var(--bg-primary);
+    color:var(--text-primary); border-radius:7px; padding:5px 11px;
+    font-size:12px; cursor:pointer; font-family:inherit;
+  }
+  .btn:hover{border-color:var(--accent-primary); color:var(--accent-primary)}
+  .btn[aria-pressed="true"]{background:var(--accent-primary); border-color:var(--accent-primary); color:#fff}
+
+  .legend{
+    display:flex; gap:18px; flex-wrap:wrap; padding:9px 16px;
+    border-bottom:1px solid var(--border-primary); font-size:11.5px;
+    color:var(--text-tertiary); background:var(--bg-primary);
+  }
+  .legend b{color:var(--text-primary); font-weight:600}
+  .swatch{display:inline-block; width:22px; height:3px; border-radius:2px; background:var(--drop); vertical-align:middle; margin-right:5px}
+
+  /* ── board ────────────────────────────────────────────── */
+  .board{
+    display:flex; gap:12px; padding:16px; align-items:flex-start;
+    overflow-x:auto; height:calc(100vh - 140px);
+  }
+  .column{
+    flex:0 0 300px; max-width:300px; display:flex; flex-direction:column;
+    background:var(--bg-secondary); border:1px solid var(--border-primary);
+    border-radius:12px; max-height:100%; position:relative;
+    transition:border-color .13s, box-shadow .13s, opacity .13s;
+  }
+
+  /* FIX 3 — the WHOLE column is the drop target, header included. */
+  body.dragging .column.is-target{
+    border-color:var(--drop);
+    box-shadow:0 0 0 3px var(--drop-soft), 0 6px 20px -8px var(--drop);
+  }
+  /* FIX 4 — non-target columns recede so the live target reads instantly. */
+  body.dragging .column:not(.is-target){opacity:.42}
+
+  .col-head{
+    display:flex; align-items:center; gap:8px; padding:10px 12px;
+    border-bottom:1px solid var(--border-primary); cursor:grab; flex:none;
+    border-radius:12px 12px 0 0;
+  }
+  .col-head .dot{width:10px; height:10px; border-radius:3px; flex:none}
+  .col-head .nm{font-weight:650; font-size:12px; flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .col-head .ct{color:var(--text-muted); font-size:11px;
+    background:var(--bg-tertiary); border-radius:20px; padding:1px 7px}
+
+  .col-body{
+    padding:8px; display:flex; flex-direction:column; gap:8px;
+    overflow-y:auto; flex:1 1 auto; min-height:70px; position:relative;
+    scrollbar-width:thin;
+  }
+
+  /* FIX 5 — edge auto-scroll affordance, only while dragging. */
+  .col-body::before,.col-body::after{
+    content:""; position:sticky; left:0; height:26px; margin:0 -8px; z-index:4;
+    pointer-events:none; opacity:0; transition:opacity .13s; flex:none;
+  }
+  .col-body::before{top:-8px; margin-bottom:-26px;
+    background:linear-gradient(to bottom,var(--drop-soft),transparent)}
+  .col-body::after{bottom:-8px; margin-top:-26px;
+    background:linear-gradient(to top,var(--drop-soft),transparent)}
+  .col-body.scroll-up::before,.col-body.scroll-dn::after{opacity:1}
+
+  /* ── card ─────────────────────────────────────────────── */
+  .card{
+    background:var(--bg-tertiary); border:1px solid var(--border-subtle);
+    border-radius:10px; padding:8px 10px; cursor:grab; flex:none;
+    touch-action:none; user-select:none; position:relative;
+    transition:transform .13s, opacity .13s;
+  }
+  .card:active{cursor:grabbing}
+  .card.ghost{opacity:.3; filter:grayscale(.6)}
+  .card .row1{display:flex; align-items:center; gap:6px}
+  .card .nm{font-weight:650; font-size:12px; flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .pill{
+    font-size:8.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+    border-radius:20px; padding:2px 6px; border:1px solid currentColor; flex:none;
+  }
+  .pill.implementing{color:#d97706}
+  .pill.planning{color:#6b7280}
+  .pill.ready{color:#2563eb}
+  .pill.complete{color:#16a34a}
+  .bar{height:3px; border-radius:3px; background:var(--bg-secondary);
+    overflow:hidden; margin-top:7px}
+  .bar i{display:block; height:100%; background:var(--ok)}
+  .meta{font-size:9.5px; color:var(--text-tertiary); margin-top:3px}
+
+  /* ── FIX 2 — the insertion line: exactly where it lands ── */
+  .insert{
+    flex:none; height:3px; border-radius:3px; background:var(--drop);
+    position:relative; margin:-2.5px 0; box-shadow:0 0 0 4px var(--drop-soft);
+    animation:pop .14s ease-out;
+  }
+  .insert::before,.insert::after{
+    content:""; position:absolute; top:50%; width:8px; height:8px;
+    border-radius:50%; background:var(--drop); transform:translateY(-50%);
+  }
+  .insert::before{left:-3px}
+  .insert::after{right:-3px}
+  @keyframes pop{from{transform:scaleX(.4); opacity:0}to{transform:scaleX(1); opacity:1}}
+
+  /* ── FIX 1 — the append rail: last position always reachable ── */
+  .tail{
+    flex:none; display:none; align-items:center; justify-content:center; gap:6px;
+    min-height:52px; border:1.5px dashed var(--border-primary); border-radius:10px;
+    color:var(--text-tertiary); font-size:11px; font-weight:600;
+    background:transparent; transition:.13s;
+  }
+  body.dragging .tail{display:flex}
+  .tail.hot{
+    border-color:var(--drop); border-style:solid; color:var(--drop);
+    background:var(--drop-soft);
+  }
+  .tail svg{width:13px; height:13px}
+
+  /* ── drag preview following the pointer ───────────────── */
+  #preview{
+    position:fixed; z-index:60; pointer-events:none; width:280px;
+    transform-origin:12px 12px; opacity:0;
+    filter:drop-shadow(0 12px 26px rgba(0,0,0,.28));
+  }
+  #preview.on{opacity:1}
+  #preview .card{
+    transform:rotate(-1.6deg) scale(1.02); border-color:var(--drop);
+    box-shadow:0 0 0 2px var(--drop-soft); background:var(--bg-primary);
+  }
+  #preview .badge{
+    position:absolute; top:-9px; right:-9px; background:var(--drop); color:#fff;
+    font-size:10px; font-weight:700; border-radius:20px; padding:2px 8px;
+    white-space:nowrap; box-shadow:0 2px 6px rgba(0,0,0,.25);
+  }
+
+  /* ── live status readout (mockup instrumentation) ─────── */
+  footer{
+    position:fixed; left:0; right:0; bottom:0; display:flex; gap:16px;
+    align-items:center; padding:7px 16px; font-size:11.5px;
+    background:var(--bg-secondary); border-top:1px solid var(--border-primary);
+    color:var(--text-tertiary);
+  }
+  footer code{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
+    background:var(--bg-tertiary); border-radius:4px; padding:1px 6px;
+    color:var(--text-primary);
+  }
+  .board{padding-bottom:44px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>OpenSpec board — drag &amp; drop fix</h1>
+  <span class="sub">mockup · drag any card</span>
+  <span class="spacer"></span>
+  <button class="btn" id="fixToggle" aria-pressed="true">Fixes: ON</button>
+  <button class="btn" id="themeToggle">Dark</button>
+</header>
+
+<div class="legend">
+  <span><span class="swatch"></span><b>Insertion line</b> — the exact slot, incl. after the last card</span>
+  <span><b>Whole column lit</b> — header + body + rail all accept the drop</span>
+  <span><b>Append rail</b> — permanent “drop at end” target, no empty space needed</span>
+  <span><b>Edge glow</b> — auto-scroll zone on overflowing columns</span>
+</div>
+
+<div class="board" id="board"></div>
+
+<div id="preview"></div>
+
+<footer>
+  <span>over: <code id="stOver">—</code></span>
+  <span>lands: <code id="stLands">—</code></span>
+  <span>mode: <code id="stMode">idle</code></span>
+</footer>
+
+<script>
+/* ────────────────────────────────────────────────────────────
+   Mockup data — mirrors the real board shape (tall cards, deep
+   overflow) so the last-position problem is actually reproduced.
+   ──────────────────────────────────────────────────────────── */
+const STATES = ["implementing","planning","ready","complete"];
+const NAMES = [
+  "add-mid-turn-tool-oauth","add-skill-tool-provisioning","fix-attachments-for-display",
+  "add-codegraph-code-plane","distill-hermes-memory-index","add-lora-dataset-export",
+  "add-automatic-session-title","port-session-card-visuals","replace-proposal-dialog",
+  "redesign-openspec-board","fix-pi-install-node26","friendlier-worktree-init",
+  "openspec-artifact-dialog","kb-session-index","harden-bridge-reconnect",
+  "split-large-agents-rows","zrok-tunnel-recovery","electron-bootstrap-flow",
+  "trace-subagent-identity","pnpm-migration-spike","observability-baseline",
+  "scenario-design-fold","doctor-regenerate-tables","board-column-persist"
+];
+const COLUMNS = [
+  { key:"__ungrouped__", name:"Ungrouped",  color:"#9ca3af", n:5 },
+  { key:"current",       name:"Current",    color:"#16a34a", n:3 },
+  { key:"next-phase",    name:"Next phase", color:"#2563eb", n:9 },  // deep overflow
+  { key:"knowledge",     name:"Knowledge Base", color:"#f97316", n:4 },
+  { key:"future",        name:"Future",     color:"#a855f7", n:2 },
+];
+
+let uid = 0;
+const model = COLUMNS.map(c => ({
+  ...c,
+  cards: Array.from({length:c.n}, () => {
+    const total = 20 + ((uid*7)%60);
+    const done  = (uid*13) % (total+1);
+    return {
+      id: "c"+(++uid),
+      name: NAMES[(uid*5) % NAMES.length],
+      state: STATES[uid % STATES.length],
+      done, total
+    };
+  })
+}));
+
+let FIXES = true;
+
+/* ── render ─────────────────────────────────────────────── */
+const board = document.getElementById("board");
+
+function cardHTML(c){
+  const pct = c.total ? Math.round(100*c.done/c.total) : 0;
+  return `<div class="row1">
+      <span class="nm">${c.name}</span>
+      <span class="pill ${c.state}">${c.state}</span>
+    </div>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+    <div class="meta">${c.done}/${c.total} tasks · ${pct}%</div>`;
+}
+
+function render(){
+  board.innerHTML = "";
+  for (const col of model){
+    const el = document.createElement("div");
+    el.className = "column";
+    el.dataset.col = col.key;
+    el.innerHTML = `
+      <div class="col-head">
+        <span class="dot" style="background:${col.color}"></span>
+        <span class="nm">${col.name}</span>
+        <span class="ct">${col.cards.length}</span>
+      </div>
+      <div class="col-body" data-body="${col.key}"></div>`;
+    const body = el.querySelector(".col-body");
+    for (const c of col.cards){
+      const d = document.createElement("div");
+      d.className = "card";
+      d.dataset.id = c.id; d.dataset.col = col.key;
+      d.innerHTML = cardHTML(c);
+      body.appendChild(d);
+    }
+    const tail = document.createElement("div");
+    tail.className = "tail"; tail.dataset.tail = col.key;
+    tail.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      Drop at end of ${col.name}`;
+    body.appendChild(tail);
+    board.appendChild(el);
+  }
+}
+render();
+
+/* ── drag engine ────────────────────────────────────────── */
+const preview = document.getElementById("preview");
+const stOver = document.getElementById("stOver");
+const stLands = document.getElementById("stLands");
+const stMode = document.getElementById("stMode");
+
+let drag = null;          // {id, fromCol, el}
+let marker = null;        // the .insert element
+let target = null;        // {col, index}
+let scrollTimer = null;
+
+function findCard(id){
+  for (const col of model){
+    const i = col.cards.findIndex(c => c.id === id);
+    if (i >= 0) return { col, i, card: col.cards[i] };
+  }
+  return null;
+}
+
+board.addEventListener("pointerdown", e => {
+  const card = e.target.closest(".card");
+  if (!card) return;
+  e.preventDefault();
+  const hit = findCard(card.dataset.id);
+  drag = { id: card.dataset.id, fromCol: card.dataset.col, el: card, card: hit.card };
+  card.classList.add("ghost");
+  document.body.classList.add("dragging");
+
+  preview.innerHTML = `<div class="card">${cardHTML(hit.card)}</div>
+    <span class="badge">moving</span>`;
+  preview.classList.add("on");
+  movePreview(e.clientX, e.clientY);
+
+  marker = document.createElement("div");
+  marker.className = "insert";
+  stMode.textContent = FIXES ? "fixed" : "current (before-only)";
+  board.setPointerCapture(e.pointerId);
+});
+
+board.addEventListener("pointermove", e => {
+  if (!drag) return;
+  movePreview(e.clientX, e.clientY);
+  updateTarget(e.clientX, e.clientY);
+});
+
+board.addEventListener("pointerup", () => { if (drag) commit(); });
+board.addEventListener("pointercancel", () => { if (drag) cancel(); });
+
+function movePreview(x,y){
+  preview.style.left = (x - 14) + "px";
+  preview.style.top  = (y - 14) + "px";
+}
+
+function updateTarget(x,y){
+  document.querySelectorAll(".column.is-target").forEach(c=>c.classList.remove("is-target"));
+  document.querySelectorAll(".tail.hot").forEach(t=>t.classList.remove("hot"));
+  if (marker && marker.parentNode) marker.remove();
+
+  const colEl = document.elementFromPoint(x,y)?.closest(".column");
+  if (!colEl){ target = null; stOver.textContent="—"; stLands.textContent="—"; return; }
+
+  /* FIX 3 — the whole column counts, header included. */
+  colEl.classList.add("is-target");
+  const colKey = colEl.dataset.col;
+  const col = model.find(c => c.key === colKey);
+  const body = colEl.querySelector(".col-body");
+  const tail = colEl.querySelector(".tail");
+
+  /* FIX 5 — edge auto-scroll while dragging an overflowing column. */
+  const br = body.getBoundingClientRect();
+  const overflowing = body.scrollHeight > body.clientHeight + 2;
+  const nearTop = overflowing && y < br.top + 34 && body.scrollTop > 0;
+  const nearBot = overflowing && y > br.bottom - 34 &&
+                  body.scrollTop < body.scrollHeight - body.clientHeight - 1;
+  body.classList.toggle("scroll-up", !!nearTop);
+  body.classList.toggle("scroll-dn", !!nearBot);
+  clearInterval(scrollTimer);
+  if (nearTop || nearBot){
+    scrollTimer = setInterval(()=>{ body.scrollTop += nearTop ? -14 : 14; }, 16);
+  }
+
+  const cards = [...body.querySelectorAll(".card")].filter(c => c.dataset.id !== drag.id);
+
+  /* ── the append rail: last position, always reachable ── */
+  if (tail && FIXES){
+    const tr = tail.getBoundingClientRect();
+    if (y >= tr.top && y <= tr.bottom){
+      tail.classList.add("hot");
+      target = { col: colKey, index: col.cards.filter(c=>c.id!==drag.id).length };
+      stOver.textContent = colKey + " · append rail";
+      stLands.textContent = "last position";
+      return;
+    }
+  }
+
+  if (!cards.length){
+    body.insertBefore(marker, tail);
+    target = { col: colKey, index: 0 };
+    stOver.textContent = colKey + " · empty";
+    stLands.textContent = "position 1";
+    return;
+  }
+
+  /* FIX 1 — midpoint test: above → before, below → AFTER.
+     The old code only ever produced "before", so the slot after
+     the final card could never be expressed. */
+  let index = cards.length, ref = null;
+  for (let i=0;i<cards.length;i++){
+    const r = cards[i].getBoundingClientRect();
+    const mid = r.top + r.height/2;
+    if (y < mid){ index = i; ref = cards[i]; break; }
+    if (!FIXES && y < r.bottom){ index = i; ref = cards[i]; break; } // legacy: before-only
+  }
+
+  /* FIX 2 — draw the line exactly at the resolved slot. */
+  if (ref) body.insertBefore(marker, ref);
+  else body.insertBefore(marker, tail);
+
+  target = { col: colKey, index };
+  stOver.textContent = colKey + " · " +
+    (ref ? "before " + model.find(c=>c.key===colKey).cards.find(c=>c.id===ref.dataset.id)?.name : "end of list");
+  stLands.textContent = "position " + (index+1) + " of " + (cards.length+1);
+}
+
+function cleanup(){
+  clearInterval(scrollTimer);
+  if (marker && marker.parentNode) marker.remove();
+  document.querySelectorAll(".column.is-target").forEach(c=>c.classList.remove("is-target"));
+  document.querySelectorAll(".tail.hot").forEach(t=>t.classList.remove("hot"));
+  document.querySelectorAll(".col-body").forEach(b=>b.classList.remove("scroll-up","scroll-dn"));
+  preview.classList.remove("on");
+  document.body.classList.remove("dragging");
+  drag = null; target = null;
+  stMode.textContent = "idle";
+}
+
+function commit(){
+  if (target){
+    const src = findCard(drag.id);
+    src.col.cards.splice(src.i, 1);
+    const dst = model.find(c => c.key === target.col);
+    dst.cards.splice(target.index, 0, src.card);
+    cleanup(); render();
+    stLands.textContent = "dropped ✓";
+    return;
+  }
+  cancel();
+}
+function cancel(){ drag?.el.classList.remove("ghost"); cleanup(); }
+
+/* ── controls ───────────────────────────────────────────── */
+document.getElementById("fixToggle").addEventListener("click", e => {
+  FIXES = !FIXES;
+  e.target.setAttribute("aria-pressed", String(FIXES));
+  e.target.textContent = "Fixes: " + (FIXES ? "ON" : "OFF");
+});
+document.getElementById("themeToggle").addEventListener("click", e => {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+  e.target.textContent = dark ? "Dark" : "Light";
+});
+</script>
+</body>
+</html>

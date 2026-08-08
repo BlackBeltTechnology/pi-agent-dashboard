@@ -15,6 +15,19 @@ import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 export interface ChatImage {
   data: string;
   mimeType: string;
+  /**
+   * sha256 of the original base64 text, present when the server used the two-phase
+   * attachment path. Addresses this block for the later `attachment_fitted`
+   * resolution and for fetching the full-resolution original.
+   * See change: fit-attachments-for-display (D12).
+   */
+  attachmentId?: string;
+  /**
+   * `pending` until its fitted derivative arrives, then `ready`, or `failed`
+   * when fitting could not produce one. Absent for legacy inline blocks that
+   * already carry their bytes.
+   */
+  attachmentState?: "pending" | "ready" | "failed";
 }
 
 export interface ChatMessage {
@@ -308,15 +321,22 @@ export interface SessionState {
    */
   notice?: { message: string; timestamp: number };
   /**
-   * In-flight LLM-provider auto-retry state. Set on `auto_retry_start`,
-   * cleared on `auto_retry_end` / `agent_start` / `agent_end`. Drives the
-   * `SessionBanner` UI (retrying variant) and the session-card amber dot.
-   * See change: fix-provider-retry-infinite-loop.
+   * LLM-provider auto-retry state, covering BOTH the wait between attempts
+   * (`waiting: true`, set on `auto_retry_waiting`) and an in-flight attempt
+   * (`waiting: false`, set on `auto_retry_start`). Cleared on `auto_retry_end`,
+   * `agent_start`, and `agent_settled` — but NOT on `agent_end`, because pi
+   * fires one `agent_end` per attempt and only `agent_settled` is terminal.
+   * Drives the `SessionBanner` UI and the session-card amber dot.
+   * See change: retry-forever-with-stop-control.
    */
   retryState?: {
     attempt: number;
     maxAttempts: number;
     delayMs: number;
+    /** Absolute epoch ms of the next attempt, when known (waiting phase). */
+    nextAttemptAt?: number;
+    /** true between attempts, false while an attempt is in flight. */
+    waiting: boolean;
     reason: string;
     startedAt: number;
   };
@@ -896,6 +916,47 @@ export function truncateOutputForDisplay(
  *
  * See change: fix-interactive-ui-reorder.
  */
+/**
+ * Append a notification as a chat row — and ONLY a chat row.
+ *
+ * A notify is not an unanswered ask, so it deliberately does NOT go through
+ * `addInteractiveRequest`: that helper also pushes an `interactiveRequests`
+ * entry, which is where the "user is blocked" semantics live. Chat position is
+ * preserved because it IS insertion order in `messages`.
+ *
+ * Dedup is by `notifyId`, never by message text: `replayNotifyLog` fires at
+ * both delta-subscribe sites, so a warm reconnect must not duplicate a row,
+ * while two distinct notifications with identical text must both render.
+ * See change: split-notify-from-prompt-request.
+ */
+export function addNotify(
+  state: SessionState,
+  notifyId: string,
+  message: string,
+  level?: string,
+): SessionState {
+  const id = `ui-${notifyId}`;
+  if (state.messages.some((m) => m.id === id)) return state;
+  return {
+    ...state,
+    messages: [
+      ...state.messages,
+      {
+        id,
+        role: "interactiveUi",
+        content: "notify",
+        timestamp: Date.now(),
+        args: {
+          requestId: notifyId,
+          method: "notify",
+          params: { message, ...(level === undefined ? {} : { level }) },
+          status: "pending",
+        } as any,
+      },
+    ],
+  };
+}
+
 export function addInteractiveRequest(
   state: SessionState,
   requestId: string,
@@ -1009,13 +1070,36 @@ export function findLastUserPrompt(
   return null;
 }
 
+/**
+ * Humanize a provider error string. pi forwards some provider failures as a raw
+ * JSON envelope (e.g. `{"type":"error","error":{"type":"overloaded_error",
+ * "message":"Overloaded"},...}`). Render that as a compact `type: message` (or
+ * just `message` when no type) instead of dumping the JSON. Any non-JSON string,
+ * malformed JSON, or envelope without a string `error.message` passes through
+ * UNCHANGED. Pure. See change: humanize-provider-error-json.
+ */
+export function humanizeProviderError(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return raw;
+  try {
+    const parsed = JSON.parse(trimmed) as { error?: { type?: unknown; message?: unknown } };
+    const err = parsed?.error;
+    const message = typeof err?.message === "string" ? err.message.trim() : "";
+    if (!message) return raw;
+    const type = typeof err?.type === "string" ? err.type.trim() : "";
+    return type ? `${type}: ${message}` : message;
+  } catch {
+    return raw;
+  }
+}
+
 /** Extract error info from agent_end event's messages array. */
 export function extractAgentEndError(data: Record<string, unknown>): string | undefined {
   const messages = data.messages;
   if (!Array.isArray(messages) || messages.length === 0) return undefined;
   const last = messages[messages.length - 1] as Record<string, unknown> | undefined;
   if (!last || last.stopReason !== "error") return undefined;
-  return (last.errorMessage as string) || "An unknown error occurred";
+  return humanizeProviderError((last.errorMessage as string) || "An unknown error occurred");
 }
 
 /**
@@ -1065,6 +1149,10 @@ export interface BannerRetry {
   attempt: number;
   maxAttempts: number;
   delayMs: number;
+  /** Absolute epoch ms of the next attempt, when known (waiting phase). */
+  nextAttemptAt?: number;
+  /** true between attempts, false while an attempt is in flight. */
+  waiting: boolean;
   startedAt: number;
   reason: string;
 }
@@ -1086,6 +1174,8 @@ export function deriveBannerState(state: SessionState): BannerState {
       attempt: state.retryState.attempt,
       maxAttempts: state.retryState.maxAttempts,
       delayMs: state.retryState.delayMs,
+      nextAttemptAt: state.retryState.nextAttemptAt,
+      waiting: state.retryState.waiting,
       startedAt: state.retryState.startedAt,
       reason: state.retryState.reason,
     };
@@ -1153,7 +1243,10 @@ export function reduceEvent(
         // See change: unify-error-retry-lifecycle.
         next.lastError = undefined;
       }
-      next.retryState = undefined;
+      // retryState is NOT cleared here: pi fires one agent_end PER attempt, so
+      // clearing would wipe the waiting/in-flight state between every attempt.
+      // Only agent_settled (the sole terminal signal) clears it.
+      // See change: retry-forever-with-stop-control.
       break;
     }
 
@@ -1167,6 +1260,34 @@ export function reduceEvent(
       // adopt-pi-074-080-features (A.1).
       next.isStreaming = false;
       next.status = "idle";
+      // Sole terminal signal for a retry chain — clear the retry state. The
+      // matching auto_retry_end (bridge-synthesized before this settle) already
+      // set lastError on failure. See change: retry-forever-with-stop-control.
+      next.retryState = undefined;
+      break;
+    }
+
+    case "auto_retry_waiting": {
+      // The wait between attempts: pi is sleeping before the next try. Carries a
+      // real delay + absolute next-attempt time so the surface renders an exact
+      // countdown. No fresh-error guard here — this signal is EXPECTED to arrive
+      // right after an error agent_end (which sets lastError).
+      // See change: retry-forever-with-stop-control.
+      const attempt = typeof data.attempt === "number" ? data.attempt : 1;
+      const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
+      const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
+      const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
+      const reason =
+        typeof data.errorMessage === "string" ? humanizeProviderError(data.errorMessage) : "Provider error";
+      next.retryState = {
+        attempt,
+        maxAttempts,
+        delayMs,
+        nextAttemptAt,
+        waiting: true,
+        reason,
+        startedAt: event.timestamp,
+      };
       break;
     }
 
@@ -1189,10 +1310,20 @@ export function reduceEvent(
         break;
       }
       const attempt = typeof data.attempt === "number" ? data.attempt : 1;
-      const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 1;
+      const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
-      const reason = typeof data.errorMessage === "string" ? data.errorMessage : "Provider error";
-      next.retryState = { attempt, maxAttempts, delayMs, reason, startedAt: event.timestamp };
+      const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
+      const reason =
+        typeof data.errorMessage === "string" ? humanizeProviderError(data.errorMessage) : "Provider error";
+      next.retryState = {
+        attempt,
+        maxAttempts,
+        delayMs,
+        nextAttemptAt,
+        waiting: false,
+        reason,
+        startedAt: event.timestamp,
+      };
       break;
     }
 
@@ -1206,6 +1337,51 @@ export function reduceEvent(
       if (data.success === false && typeof data.finalError === "string" && !state.lastError) {
         next.lastError = { message: data.finalError, timestamp: event.timestamp };
       }
+      break;
+    }
+
+    // Phase 2 of the two-phase attachment render: swap a pending placeholder
+    // for its fitted derivative (or an explicit failed state). Addressed by
+    // `attachmentId` rather than seq because this fold never sees a seq and
+    // replay may deliver the resolution well after its row.
+    // See change: fit-attachments-for-display (D12, test-plan #F2 #F3 #F7).
+    case "attachment_fitted": {
+      const attachmentId = typeof data.attachmentId === "string" ? data.attachmentId : "";
+      if (!attachmentId) break;
+      // A `ready` claim is only honoured with bytes to back it. Trusting the
+      // flag alone turned a payload-less resolution into
+      // `data:image/png;base64,` — a broken-image glyph, which is strictly worse
+      // than the explicit failed state this flow guarantees.
+      const fittedData = typeof data.data === "string" ? data.data : "";
+      const state_ = data.state === "failed" || fittedData === "" ? "failed" : "ready";
+      let patched = false;
+      // Patch EVERY occurrence, not just the first. `attachmentId` is the sha256
+      // of the bytes, so the same screenshot pasted twice legitimately appears
+      // under one id in several rows (and can repeat within a single row).
+      // Stopping at the first match left every later copy stuck on "loading"
+      // forever. One resolution is authoritative for all of them, and applying
+      // it repeatedly is idempotent.
+      // See change: fit-attachments-for-display (task 9.4).
+      const messages = next.messages.map((m) => {
+        if (!m.images) return m;
+        if (!m.images.some((img) => img.attachmentId === attachmentId)) return m;
+        patched = true;
+        return {
+          ...m,
+          images: m.images.map((img) =>
+            img.attachmentId === attachmentId
+              ? {
+                  ...img,
+                  data: state_ === "failed" ? "" : fittedData,
+                  mimeType: typeof data.mimeType === "string" ? data.mimeType : img.mimeType,
+                  attachmentState: state_ as "ready" | "failed",
+                }
+              : img,
+          ),
+        };
+      });
+      // Unknown id (evicted row, foreign session): ignore rather than disturb state.
+      if (patched) next.messages = messages;
       break;
     }
 
@@ -1230,13 +1406,20 @@ export function reduceEvent(
             .filter((c: any) => c.type === "text")
             .map((c: any) => c.text)
             .join("");
+          // A two-phase placeholder has NO bytes yet but must still occupy its
+          // slot, otherwise the attachment position is lost and the later
+          // `attachment_fitted` event has nothing to fill. Legacy inline blocks
+          // (bytes present, no attachmentId) keep the original predicate.
+          // See change: fit-attachments-for-display (D12).
           const imgBlocks = msg.content.filter(
-            (c: any) => c.type === "image" && c.data && c.mimeType,
+            (c: any) => c.type === "image" && c.mimeType && (c.data || c.attachmentId),
           );
           if (imgBlocks.length > 0) {
             images = imgBlocks.map((c: any) => ({
-              data: c.data,
+              data: c.data ?? "",
               mimeType: c.mimeType,
+              ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
+              ...(c.attachmentState ? { attachmentState: c.attachmentState } : {}),
             }));
           }
         } else {

@@ -285,7 +285,7 @@ export function BuiltInRolesSettings() {
     flushPending();
   };
   const reset = () => setPending({});
-  useSettingsDraftSource({ id: "plugin:roles", page: "general", isDirty, commit, reset });
+  useSettingsDraftSource({ id: "plugin:roles", isDirty, commit, reset });
 
   function loadPreset(name: string) {
     if (!liveSessionId) return;
@@ -506,18 +506,13 @@ export function BuiltInRolesSettings() {
     </button>
   );
 
+  // No self-header: the host owns the chrome on `/settings/plugins/roles`, so a
+  // second `<section>`/`<h3>` here would double-header (design D1).
+  // See change: plugin-settings-pages.
   return (
-    <section
-      data-testid="roles-settings"
-      className="border border-[var(--border-primary)] rounded-lg p-4 space-y-3"
-    >
-      <div className="flex items-baseline justify-between">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-          {t("rolesHeading", undefined, "Roles")}
-        </h3>
-        <span className="text-[10px] text-[var(--text-muted)]">
-          {t("rolesSubheading", undefined, "global role → model assignments")}
-        </span>
+    <div data-testid="roles-settings" className="space-y-3">
+      <div className="text-[10px] text-[var(--text-muted)]">
+        {t("rolesSubheading", undefined, "global role → model assignments")}
       </div>
 
       {/* Setup banner (shadow-disabled state): a small error message shown
@@ -677,6 +672,6 @@ export function BuiltInRolesSettings() {
           />
         </div>
       )}
-    </section>
+    </div>
   );
 }

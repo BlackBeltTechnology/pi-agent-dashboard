@@ -17,11 +17,13 @@ import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/das
 import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
+import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import { recordExitIntent } from "../persistence/boot-state.js";
 import type { DirectoryService } from "../directory-service.js";
 import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
 import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
@@ -102,6 +104,7 @@ export function registerSystemRoutes(
       // Per-hop dropped-frame counters for the diagnostics surface.
       // See change: fix-stuck-tool-card-on-dropped-event.
       getDroppedFrameStats?: () => { total: number; bySession: Record<string, number> };
+      getNotifyLogStats?: () => { evictedEntries: number; bySession: Record<string, number> };
     };
     // Shared hydration-timing recorder; `/api/health` reads its snapshot.
     // See change: instrument-session-hydration-timing.
@@ -133,7 +136,6 @@ export function registerSystemRoutes(
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
   // suppress only the spawn step in `server-auto-start.ts` for `quiesceMs`;
   // discovery + reconnection still run.
-  const RESTART_QUIESCE_MS = 5000;
   const SHUTDOWN_QUIESCE_MS = 60000;
   const announceRestart = (
     reason: "restart" | "shutdown",
@@ -450,6 +452,8 @@ export function registerSystemRoutes(
     try { hydration = hydrationMetrics?.snapshot() ?? hydration; } catch { /* keep empty */ }
     let eventLoopSpikesSnap: ReturnType<EventLoopSpikeMetrics["snapshot"]> = [];
     try { eventLoopSpikesSnap = eventLoopSpikes?.snapshot() ?? eventLoopSpikesSnap; } catch { /* keep empty */ }
+    let notifyLogStats = { evictedEntries: 0, bySession: {} as Record<string, number> };
+    try { notifyLogStats = browserGateway?.getNotifyLogStats?.() ?? notifyLogStats; } catch { /* keep zeros */ }
     const activeSessions = sessionManager.listActive();
     const agentMetrics = activeSessions
       .filter(s => s.processMetrics)
@@ -555,6 +559,10 @@ export function registerSystemRoutes(
           0,
         ),
       },
+      // Notify-log cap evictions (silent transcript loss on a chatty emitter),
+      // surfaced beside the other silent-loss counters.
+      // See change: split-notify-from-prompt-request.
+      notifyLog: notifyLogStats,
       // In-memory event-store shed counters (per-session trim + cross-session
       // LRU eviction). The third silent tool_execution_end loss path, made
       // observable beside droppedFrames. See change: instrument-event-store-trim.
@@ -577,10 +585,19 @@ export function registerSystemRoutes(
   });
 
   // Shutdown endpoint — used by devBuildOnReload
-  fastify.post(
+  fastify.post<{ Body?: { userQuit?: boolean } }>(
     "/api/shutdown",
     { preHandler: networkGuard },
-    async () => {
+    async (request) => {
+      // Record WHY the server is going away, before anything can kill us.
+      // Default `shutdown`: this process exits without touching the pi
+      // sessions and announces a 60 s bridge quiesce, so those sessions are
+      // still running and will reattach long after any recovery grace window
+      // — offering them would be a phantom offer. An Electron `before-quit`
+      // declares `userQuit`, where the sessions may genuinely be gone; that
+      // case is left to the liveness gate rather than suppressed.
+      // See change: fix-recovery-exit-intent.
+      recordExitIntent(request.body?.userQuit === true ? "user-quit" : "shutdown");
       metaPersistence.flushAll();
       preferencesStore.flush();
       // Tell every connected bridge that the server is going away deliberately
@@ -620,6 +637,13 @@ export function registerSystemRoutes(
     "/api/restart",
     { preHandler: networkGuard },
     async (request) => {
+      // The false positive this change exists to kill: `/api/restart` exits via
+      // `process.exit(0)` without clearing a single `live` marker, so every
+      // surviving session looked crashed to the next boot. Record the intent
+      // BEFORE the exit sequence — write-once, so the restart-helper's
+      // SIGTERM ladder cannot overwrite it with `signal`.
+      // See change: fix-recovery-exit-intent.
+      recordExitIntent("restart");
       metaPersistence.flushAll();
       preferencesStore.flush();
 
@@ -657,6 +681,12 @@ export function registerSystemRoutes(
         cliPath,
         loader,
         port: config.port,
+        // Carry the bound gateway port across the restart. Without it the new
+        // process re-resolves it from the file config (which usually has no
+        // `piPort`), lands on the 9999 default, and every live pi bridge — still
+        // dialling the old port — fails to re-register.
+        // See change: restore-ask-user-tool-state-on-reconnect.
+        piPort: config.piPort,
         extraArgs,
         dev: useDev,
       });
