@@ -578,7 +578,7 @@ Scenario coverage is derived in `test-plan.md`, not here.
   inside `ToolCallStepPrimitive`; neither is reachable from an L1 test without
   mounting the whole app shell and its 7+ providers. So D4b also extracts the
   construction into an exported builder in its **own module**
-  (`tool-renderers/make-tool-context.ts` — NOT `tool-renderers/types.ts`. Every
+  (`tool-renderers/make-tool-context.tsx` — NOT `tool-renderers/types.ts`. Every
   SCC-B consumer of `types.ts` imports it with `import type` today
   (`MarkdownContent.tsx:25`, `FileLink.tsx:7`, `useFileOpenRouting.ts:3`), so
   putting the builder there would not re-form the cycle *today*; the separate

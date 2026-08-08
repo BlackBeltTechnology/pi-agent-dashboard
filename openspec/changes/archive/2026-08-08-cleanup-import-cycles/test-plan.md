@@ -38,7 +38,7 @@ Stage: design   Generated: 2026-08-06
 | E2 | D1 `isLoopback` extracted, semantics preserved | EP | L1 | automated | each member of `LOOPBACK_ADDRESSES`; a non-loopback `203.0.113.1`; `undefined` | call `isLoopback` from its new leaf module | `true` for every set member, `false` for `203.0.113.1` and `undefined` — identical to pre-extraction results |
 | E3 | D1 guard + block-events unchanged | regression | L1 | automated | existing `localhost-guard.test.ts` + `tunnel-block-events.test.ts` suites, import paths updated | run both suites | all assertions pass unchanged; no re-export edge left behind in `localhost-guard.ts` |
 | E4 | D2 `formatCost` extracted, not conflated | BVA (the $1 boundary) | L1 | automated | `0`, `0.005`, `0.999`, `1`, `1.5`, `1234.567` | call extracted `formatCost` | **hybrid precision, exactly as `FlowAgentCard.tsx:27-29` today: `n >= 1 ? toFixed(2) : toFixed(4)`.** So `$0.0000`, `$0.0050`, `$0.9990`, `$1.00`, `$1.50`, `$1234.57`. An always-2-decimal implementation is a **sub-dollar rendering regression**, not a simplification |
-| E5 | D3 split is total and disjoint | exhaustiveness | L1 | automated | both registry halves + the `OPEN_PATH_VIEWERS` / `PSEUDO_TAB_VIEWERS` const arrays from the `viewer-kinds.ts` leaf | `Object.keys(a)` ∪ `Object.keys(b)`, compared against the const arrays | union === all **18** members (14 + 4); intersection empty; each half's `Record` total over its own subset. **`ViewerKind` is a type with no runtime representation and `packages/shared` is out of scope, so the test enumerates the const arrays — the four `_AssertNever` checks in `viewer-kinds.ts` (`_Uncovered`, `_NoExtraOpen`, `_NoExtraPseudo`, `_NoOverlap`) are what prove those arrays exactly cover and partition the union.** Assert `Object.keys(half) === [...array]` so a registry gap fails at runtime and an array/union drift fails at `tsc`. The checks MUST use `_AssertNever<T extends never>`; the `const _x: T[] = []` form is vacuous and proves nothing |
+| E5 | D3 split is total and disjoint | exhaustiveness | L1 | automated | both registry halves + the `OPEN_PATH_VIEWERS` / `PSEUDO_TAB_VIEWERS` const arrays from the `viewer-kinds.ts` leaf | `Object.keys(a)` ∪ `Object.keys(b)`, compared against the const arrays | union === all **18** members (14 + 4); intersection empty; each half's `Record` total over its own subset. **`ViewerKind` is a type with no runtime representation and `packages/shared` is out of scope, so the test enumerates the const arrays — the four `_AssertNever` checks in `viewer-kinds.ts` (`_Uncovered`, `_NoExtraOpen`, `_NoExtraPseudo`, `_NoOverlap`) are what prove those arrays exactly cover and partition the union.** Compare as SETS (sort both sides, or compare membership) — the requirement is coverage + disjointness, not object-property insertion order, so an order-sensitive assertion would fail on a harmless reordering. A registry gap must fail at runtime and an array/union drift must fail at `tsc`. The checks MUST use `_AssertNever<T extends never>`; the `const _x: T[] = []` form is vacuous and proves nothing |
 | E6 | D3 kinds land in the right half | decision-table | L1 | automated | all **18** `ViewerKind` members | look each up | the **14** `fileKind()`-returnable kinds resolve from half (a) and are **absent** from (b); the 4 pseudo-tab kinds (`diff`/`terminal`/`url`/`live-server`) resolve from (b) and are **absent** from (a). Half (a) MUST include `binary-warn` and `monaco` — both are `fileKind()`-returnable and are the two most likely to be dropped |
 | E7 | D3 size gate preserved for real files | BVA | L1 | automated | `size` = `MAX_PREVIEW_BYTES-1`, `= MAX_PREVIEW_BYTES`, `= MAX_PREVIEW_BYTES+1`, for a non-`monaco` file-kind viewer | mount `CappedViewer` | first two render the viewer; third renders `TooLargePreview`. `monaco` bypasses at all three |
 | E8 | D3 oversized pseudo-tab | BVA | L3 | ~~automated~~ **retired** | a `diff:` tab whose content exceeds `MAX_PREVIEW_BYTES` | open the tab | **RETIRED per the C1 resolution above** — the size gate never fired for a pseudo-tab (the `/api/file` probe always missed → `size` 0), so there is no oversized-pseudo-tab state to observe and no behaviour change to assert. Coverage for these kinds is F1/F2 (they render) |
@@ -81,6 +81,32 @@ Stage: design   Generated: 2026-08-06
   execute the built UI, and per design D6 they are the sole oracle capable of
   catching a D3 mis-route or a D4b silent drop. `npm run test:e2e` must be run
   and green before merge; a green default CI is insufficient.
+### E2E completion record (implementation)
+
+Run against a harness **rebuilt from local code** (`PI_E2E_SEED=1
+docker/test-up.sh -d --build`, derived port from `.pi-test-harness.json`, host
+Chrome via `PW_CHANNEL`). Result: **16 passed, 5 failed**.
+
+**All 5 failures are PRE-EXISTING, not regressions.** An identical harness built
+from `origin/develop` (separate compose project + ports) fails the same 5:
+
+| Spec | Status |
+|---|---|
+| `editor-pane.spec.ts` — OpenFileButton / markdown + monaco viewers | red on develop too |
+| `editor-pane.spec.ts` — F3 pane captions | red on develop too |
+| `file-preview-survives-churn.spec.ts` — overlay stays open (**F5**) | red on develop too |
+| `tool-output-links.spec.ts` — `a/` prefix stripped | red on develop too |
+| `out-of-cwd-session-diffs.spec.ts` — out-of-cwd row | red on develop too |
+
+**Consequence — the planned oracle is weaker than this plan assumed.** F5 (and
+the two prompt-driven editor-pane rows) are red on `develop`, so they could not
+serve as the D3/D4b regression oracle. The substitute evidence actually relied
+on is: the D4b test asserts through the REAL builders and is **mutation-verified**
+(removing `fileLink` from `makeToolContext` turns 9 assertions red), the D3
+partition guard is verified fail-closed against 4 mutations, the full unit suite
+is green, and the production bundle builds. F1/F2 (the pseudo-tab render rows)
+did pass.
+
 - **⚠ The E2E run MUST be rebuilt from local code.** `npm run test:e2e` is
   `playwright test` against the `docker/` all-in-one harness, which by default
   uses a **cached image** — i.e. the *pre-change* client bundle. Run against a
@@ -89,9 +115,12 @@ Stage: design   Generated: 2026-08-06
   X3 all pass **vacuously**, testing code this change never touched — which
   would leave every eval-order and linkification failure mode unguarded while
   reporting green.
-- Scenarios by class: edge 10 · perf 0 · frontend 7 · error 4 · manual 1
-- Scenarios by level: L1 12 · L2 0 · L3 4 · ci 5 · — 1
-- Scenarios by disposition: automated 21 · manual-only 1
+- Scenarios by class: edge 9 · perf 0 · frontend 7 · error 4 · manual 1 (E8 retired)
+- Scenarios by level: L1 12 · L2 0 · L3 3 · ci 5 · — 1 (E8 was the 4th L3)
+- Scenarios by disposition: automated **20** · manual-only 1 · retired 1 (E8)
+
+**Totals restated after the C1 resolution retired E8** — the size gate never
+fired for a pseudo-tab, so there was no oversized-pseudo-tab state to assert.
 
 **No performance scenarios, deliberately.** The change states no latency,
 throughput, or bundle-size requirement, and the design explicitly dropped the
@@ -105,7 +134,7 @@ spawn, or multi-OS process behaviour — it is entirely in-bundle module structu
 
 None. Every level already has a harness and a close exemplar:
 `packages/server/src/__tests__/localhost-guard.test.ts` (E2/E3),
-`packages/flows-plugin/src/__tests__/authoring-renderers.test.tsx` (F7),
+`packages/flows-plugin/src/__tests__/flow-agent-cost.test.tsx` (F7),
 `packages/client/src/components/editor-pane/__tests__/viewer-registry.test.tsx`
 (E5/E6/E7), `packages/client/src/components/tool-renderers/__tests__/FileLink.test.tsx`
 (F3/F4), `tests/e2e/editor-pane.spec.ts` (F1/F2/E8),
