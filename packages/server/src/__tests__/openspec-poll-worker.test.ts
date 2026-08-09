@@ -7,7 +7,7 @@
  *
  * See change: offload-openspec-poll-to-worker.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -22,6 +22,14 @@ import {
   type PollWorkerRequest,
 } from "../openspec/openspec-poll-worker.js";
 import { createOpenSpecPollWorkerPool } from "../openspec/openspec-poll-worker-pool.js";
+
+// Spy-wrap the REAL `deriveAndSerialize` so parity tests keep the true
+// derivation while #X10 can make a single call throw.
+// See change: cleanup-async-semantics-server-extension (test-plan #X10).
+vi.mock("../openspec/openspec-poll-worker.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../openspec/openspec-poll-worker.js")>();
+  return { ...actual, deriveAndSerialize: vi.fn(actual.deriveAndSerialize) };
+});
 import {
   effectiveMtimeOr,
   perChangeArtifactPaths,
@@ -213,6 +221,47 @@ describe("openspec-poll-worker-pool — fallback", () => {
       const expected = inProcessDerive(cwd);
       expect(out.data).toEqual(expected.data);
       expect(out.serialized).toBe(expected.serialized);
+    } finally {
+      await pool.dispose();
+    }
+  });
+});
+
+// See change: cleanup-async-semantics-server-extension (test-plan #X10)
+//
+// A poll task that rejects must not leave the slot leaked or the caller
+// pending: the pool settles the request and keeps polling. NOTE ON TEETH:
+// the change added the OUTER `.catch` on the in-process microtask, but that
+// specific handler is unreachable-by-construction — `fallbackSettle` wraps
+// `deriveAndSerialize` in its OWN try/catch (the source comment concurs:
+// "this handler is a guard rather than an expected path"). This test therefore
+// gates the reachable observable (rejection absorbed, slot released, polling
+// continues), not the dead outer handler; reverting the outer `.catch` alone
+// does not turn it red.
+describe("openspec-poll-worker-pool — a throwing poll task is absorbed", () => {
+  let cwd: string;
+  beforeEach(() => { cwd = mkFixture(); });
+  afterEach(() => { try { fs.rmSync(cwd, { recursive: true, force: true }); } catch { /* ignore */ } });
+
+  it("X10 a throwing derivation still settles, releases the slot, and polling continues", async () => {
+    vi.mocked(deriveAndSerialize).mockImplementationOnce(() => {
+      throw new Error("derive boom");
+    });
+    const pool = createOpenSpecPollWorkerPool({ useWorker: false });
+    try {
+      // First request hits the throwing derivation → defensive settle, no hang.
+      const out = await Promise.race([
+        pool.process(buildRequest(cwd)),
+        new Promise((r) => setTimeout(() => r({ __hang: true }), 1500)),
+      ]);
+      expect((out as { __hang?: boolean }).__hang).toBeUndefined();
+      expect(pool.inFlight()).toBe(0); // slot released, not leaked
+
+      // Polling continues: a subsequent request derives correctly.
+      const out2 = await pool.process(buildRequest(cwd));
+      const expected = inProcessDerive(cwd);
+      expect(out2.data).toEqual(expected.data);
+      expect(out2.serialized).toBe(expected.serialized);
     } finally {
       await pool.dispose();
     }
