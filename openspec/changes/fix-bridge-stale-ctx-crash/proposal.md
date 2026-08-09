@@ -71,8 +71,16 @@ session-replacement lifecycle itself. No protocol or server change.
 
 - `packages/extension/src/bridge.ts` — one small guard helper plus its four call
   sites.
-- Restores the entire faux E2E suite. Unblocks `unify-folder-status-capsule`
-  tasks 2.21–2.28 and any other change whose L3 rows drive a prompt.
+- Removes a crash that can kill any session whose auto-start is still in flight
+  when the session is replaced or reloaded.
+
+  **Correction:** an earlier draft of this line claimed the fix "restores the
+  entire faux E2E suite". It does not, and it does not unblock
+  `unify-folder-status-capsule` tasks 2.21–2.28. Follow-up investigation showed
+  spawn, bridge registration, prompt delivery and the faux model all work over
+  REST against the same container; the remaining E2E failure is client-side (an
+  optimistic prompt stuck at `sending`). See the correction section in
+  `test-plan.md`.
 - Requires `npm run reload` (extension change), not a server restart.
 
 ## Discipline Skills
