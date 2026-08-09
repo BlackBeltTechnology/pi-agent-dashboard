@@ -21,6 +21,7 @@ import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSup
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/chat/event-reducer.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
+import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { formatMessageTime } from "../../lib/util/format.js";
 import { buildTurnSummaries, type TurnSummary } from "../../lib/util/lineDelta.js";
@@ -549,7 +550,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     return span;
   }, []);
 
-  const { isSelecting, selectionSpanRef } = useActiveChatSelection(scrollRef, mapChatRange);
+  const { isSelecting, isSelectingRef, selectionSpanRef, selectionAnchorRef } = useActiveChatSelection(
+    scrollRef,
+    mapChatRange,
+  );
   // Freeze/flush the streaming tail around an anchored selection (change:
   // preserve-streaming-tail-selection). On the isSelecting false→true edge, if
   // the selection sits inside the live tail, snapshot streamingText so the tail
@@ -595,10 +599,23 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     e.clipboardData.setData("text/plain", text);
     e.preventDefault();
   }, []);
-  // Mirror into a ref so the virtualizer `onChange` (created once, invoked
-  // outside render during scroll) reads the latest value.
-  const isSelectingRef = useRef(false);
-  isSelectingRef.current = isSelecting;
+  // Anchor-shift compensation state (change:
+  // anchor-chat-selection-against-row-growth). `isSelectingRef` now comes from
+  // the hook, published synchronously inside the `selectionchange` listener
+  // (D6) — the old render-time mirror `isSelectingRef.current = isSelecting`
+  // lagged by a microtask AND a render, so a chunk landing on the first frame
+  // of a drag still hit the bottom-pin.
+  //
+  // `anchorPrevTopRef` is the anchor row's viewport-relative top at the last
+  // baseline; null means "not baselined yet" (first frame of a drag).
+  const anchorPrevTopRef = useRef<number | null>(null);
+  // D2 veto: a real `scroll` event landed since the last baseline, so the
+  // VIEWPORT moved rather than the content — re-baseline, never compensate.
+  const userScrolledRef = useRef(false);
+  // The scrollTop value our own compensation wrote. A scroll event reporting
+  // exactly this value is our own echo, not a user gesture; without this a
+  // continuously-growing row would only be compensated on alternate frames.
+  const selfScrollTopRef = useRef<number | null>(null);
 
   const virtualizer = useVirtualizer({
     count: displayRows.length,
@@ -699,6 +716,8 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // D2 veto, unless this event is the echo of our own compensation write.
+    if (el.scrollTop !== selfScrollTopRef.current) userScrolledRef.current = true;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
     const nearTop = el.scrollTop <= SCROLL_THRESHOLD;
     if (descendingRef.current) {
@@ -830,6 +849,70 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       lastScrollHeightRef.current = el.scrollHeight;
     }
   }, [state.messages.length, state.streamingText, state.pendingPrompt, state.streamingThinking, pendingSteering, isSelecting]);
+
+  // Anchor the viewport to the selection's drag-origin row while a selection is
+  // held (change: anchor-chat-selection-against-row-growth, D1/D3/D5).
+  //
+  // NO dependency array on purpose (D3): every mutation that can shift a row
+  // routes through a React commit (measureElement → resizeItem →
+  // measurementsCache setState → render; tool_execution_end → reducer → render;
+  // insert/reorder → render), so "after every commit" covers the whole trigger
+  // table without enumerating it. A layout effect runs after DOM mutation and
+  // BEFORE paint, the only window where a correction is invisible; useEffect
+  // would show the jump and then undo it.
+  //
+  // Runs DOWNSTREAM of TanStack's own above-viewport `resizeItem` correction, so
+  // a resize it already handled presents as ~0 residual and writes nothing (D1)
+  // — the double-move that `fix-chat-scroll-to-top-estimate-drift` decision (2)
+  // forbids is avoided by ordering, not by re-implementing its predicate.
+  //
+  // Reads exactly one rect and performs at most one scrollTop write per commit,
+  // and only while selecting; with no selection it early-returns before touching
+  // the DOM, so the idle render cost is unchanged.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const anchorEl = selectionAnchorRef.current;
+    // A detached anchor (rangeExtractor bug, or a selection past the retain cap)
+    // must STOP compensation, never correct against a stale rect.
+    if (!el || !isSelectingRef.current || !anchorEl?.isConnected) {
+      anchorPrevTopRef.current = null;
+      userScrolledRef.current = false;
+      selfScrollTopRef.current = null;
+      return;
+    }
+
+    const nextTop = anchorEl.getBoundingClientRect().top;
+    const prevTop = anchorPrevTopRef.current;
+    const userScrolled = userScrolledRef.current;
+    userScrolledRef.current = false;
+
+    // First commit of this drag: establish the baseline, correct nothing.
+    if (prevTop === null) {
+      anchorPrevTopRef.current = nextTop;
+      return;
+    }
+
+    const correction = computeAnchorCorrection({ prevTop, nextTop, userScrolled });
+    if (correction === 0) {
+      anchorPrevTopRef.current = nextTop;
+      return;
+    }
+
+    const scrollBefore = el.scrollTop;
+    el.scrollTop = scrollBefore + correction;
+    // Re-baseline immediately after the write, inside the same effect, so the
+    // next commit does not observe our own correction as new drift (the feedback
+    // loop in the design's Risks section).
+    //
+    // Derived, NOT re-measured: a second `getBoundingClientRect()` here would be
+    // a second forced reflow per commit. The anchor's new viewport top is
+    // `nextTop - applied` by construction, and reading back `scrollTop` (rather
+    // than trusting `correction`) keeps that exact when the browser CLAMPS the
+    // write to [0, scrollHeight - clientHeight].
+    const applied = el.scrollTop - scrollBefore;
+    selfScrollTopRef.current = el.scrollTop;
+    anchorPrevTopRef.current = nextTop - applied;
+  });
 
   useImperativeHandle(ref, () => ({
     scrollToTurn(turnIndex: number) {

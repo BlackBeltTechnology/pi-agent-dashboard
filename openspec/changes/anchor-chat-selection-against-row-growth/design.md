@@ -58,33 +58,45 @@ This is the load-bearing decision, and it resolves the double-move hazard by con
         └── TanStack ignored it        ──► residual = delta ──► correct once
 ```
 
-Because we run downstream of TanStack's own adjustment, an above-viewport resize presents as ~0 residual and we do nothing. The spec scenario *"Above-viewport correction is not doubled"* holds without a single conditional.
+Because we run downstream of TanStack's own adjustment, an above-viewport resize presents as ~0 residual and we do nothing. The spec scenario *"Above-viewport correction is not doubled"* holds without classifying anything.
+
+Verified against the installed `@tanstack/virtual-core@3.13.12`: `resizeItem` adjusts only when `item.start < getScrollOffset() + scrollAdjustments` (`index.cjs:536` — above-viewport only, as described), and it adjusts by writing `scrollTop = offset + (scrollAdjustments += delta)` (`index.cjs:540-541`). That write is a **programmatic scroll of exactly `delta`**, which is why D2 measures viewport-relative movement and gates on the scroll event rather than summing a scroll term.
 
 **Alternatives rejected:**
 - *Classify each resize as above/in viewport and compensate only the latter.* Requires mirroring TanStack's internal `start < scrollOffset` predicate. Any divergence (theirs changes, ours doesn't) silently reintroduces the double-move that decision (2) was written to kill.
 - *Fork/patch TanStack's `resizeItem`.* Rejected — pins us to an internal.
-- *Re-enable native scroll anchoring.* `ChatView.tsx:780` sets `style={{ overflowAnchor: "none" }}` on the scroll container, explicitly disabling the CSS feature built for this exact problem. Deleting that line is the shortest conceivable fix and will be the first thing a reviewer proposes, so it is recorded here as considered and rejected: native anchoring selects its **own** anchor node by heuristic, which for absolutely-positioned virtual rows over a `getTotalSize()` spacer is unpredictable, and it fights both `scrollToIndex` and the sticky-bottom pin — the reasons it is off. Our compensator anchors a node **we** choose (the selection anchor), only while a selection is held. Confirm the historical reason for `overflowAnchor: "none"` before shipping; if it was disabled for a reason that no longer applies, that is worth knowing, but it does not change this decision.
+- *Re-enable native scroll anchoring.* `ChatView.tsx:780` sets `style={{ overflowAnchor: "none" }}` on the scroll container, explicitly disabling the CSS feature built for this exact problem. Deleting that line is the shortest conceivable fix and will be the first thing a reviewer proposes, so it is recorded here as considered and rejected: native anchoring selects its **own** anchor node by heuristic, which for absolutely-positioned virtual rows over a `getTotalSize()` spacer is unpredictable, and it fights both `scrollToIndex` and the sticky-bottom pin — the reasons it is off. Our compensator anchors a node **we** choose (the selection anchor), only while a selection is held. **Historical reason for `overflowAnchor: "none"`, confirmed (task 1.5):** it was set to `"none"` by `virtualize-chat-transcript-tanstack` (task 9.2, flipping the container from `"auto"`), and reaffirmed by `fix-chat-scroll-to-top-estimate-drift` decision (3). The in-tree comment above the container at `ChatView.tsx:854-859` states the reason directly: TanStack's `resizeItem` drives scroll compensation itself, so browser scroll-anchoring must stay OFF or it double-moves. So the reason very much still applies — and it is the *same* double-move hazard this change navigates in D1/D2. Deleting that line would hand anchor selection to a browser heuristic *and* re-arm the double-move. Rejected on current, not historical, grounds.
 
-### D2 — Measure in content space, so user scrolling is never fought
+### D2 — Measure viewport-relative movement, and let the scroll event veto
 
-**Decision:** The shift is computed as
+**Decision:** The shift is viewport-relative movement of the anchor row,
 
 ```
-  residual = (anchorTop_now − anchorTop_prev) + (scrollTop_now − scrollTop_prev)
+  residual = anchorTop_now − anchorTop_prev
 ```
 
-Viewport-relative movement alone cannot distinguish "content moved under a still viewport" from "viewport moved over still content". Adding the scroll delta cancels the second:
+and compensation is **vetoed** (re-baseline only, no write) on any commit where a real `scroll` event fired since the last baseline.
 
-| Situation | `Δ anchorTop` | `Δ scrollTop` | residual | action |
+Viewport-relative movement alone cannot distinguish "content moved under a still viewport" from "viewport moved over still content" — but the `scroll` event can, and it is the browser's own ground truth for the second. The container already has a `scroll` handler (`handleScroll`); it sets a veto flag that the layout effect consumes.
+
+| Situation | `Δ anchorTop` | scroll event? | residual | action |
 |---|---|---|---|---|
-| User scrolls down 100px | −100 | +100 | **0** | none — correct |
-| Row above grows 800px | +800 | 0 | **+800** | `scrollTop += 800` |
-| TanStack already corrected | ~0 | +delta … | ~**0** | none |
-| Drag-autoscroll at viewport edge | −n | +n | **0** | none — correct |
+| User scrolls down 100px | −100 | yes | — | veto — re-baseline, no write |
+| Row above grows 800px (in viewport) | +800 | no | **+800** | `scrollTop += 800` |
+| Row above shrinks 300px (in viewport) | −300 | no | **−300** | `scrollTop −= 300` |
+| TanStack already corrected (above viewport) | ~0 | yes or not-yet | ~**0** | none — safe either way |
+| Drag-autoscroll at viewport edge | −n | yes | — | veto — re-baseline, no write |
+| Our own correction write | — | yes | — | veto — re-baseline (D-risk loop guard) |
 
-Without the scroll term, every wheel tick and every browser drag-autoscroll during a selection would be treated as drift and fought, pinning the user in place. That failure would be worse than the bug.
+Ordering is what makes the veto reliable: a user scroll dispatches its `scroll` event **synchronously into `handleScroll` before** the commit it provokes, so the flag is always set in time. TanStack's programmatic write dispatches its `scroll` event asynchronously and may land *after* our layout effect — which is harmless, because that case presents `Δ anchorTop ≈ 0` and so writes nothing whether it is vetoed or not. Both orderings are correct.
 
-**Alternative rejected:** track `vi.start` of the anchor row in virtual coordinates. Cheaper (no `getBoundingClientRect`), but blind to anything the virtualizer does not model — image decode inside a measured row, the non-virtualized streaming tail, container padding. Real geometry is the source of truth.
+**Why not sum a scroll term.** The obvious formula `residual = Δ anchorTop + Δ scrollTop` is what this design originally specified, and it is **unsatisfiable**. Writing the correction as `α·Δtop + β·Δscroll`: the user-scroll row `(−d, +d) → 0` forces `α = β`; the in-viewport-growth row `(+G, 0) → G` forces `α = 1` and hence `β = 1`; but the above-viewport row `(0, +G) → 0` forces `β = 0`. No linear formula over those two numbers satisfies all three, because a programmatic scroll and a user scroll *are the same two numbers*. Summing the scroll term therefore writes a second `scrollTop += delta` on every above-viewport resize — reintroducing exactly the double-move that `fix-chat-scroll-to-top-estimate-drift` decision (2) exists to kill, and failing the spec scenario *"Above-viewport correction is not doubled"*. The veto supplies the missing bit of information from outside the arithmetic.
+
+**Alternatives rejected:**
+- *Subtract the virtualizer's own adjustment:* `residual = Δtop + (Δscroll − Δ scrollAdjustments)`. Keeps the summed shape, but `scrollAdjustments` is reset to `0` on every observed scroll offset change (`index.cjs:331`) while `scrollOffset` moves, so the derived user-scroll position is discontinuous and emits a spurious `+G` correction on the commit after the reset. Rejected as fragile, and it leans on a library field this design has no contract over.
+- *Track `vi.start` of the anchor row in virtual coordinates.* Cheaper (no `getBoundingClientRect`), but blind to anything the virtualizer does not model — image decode inside a measured row, the non-virtualized streaming tail, container padding. Real geometry is the source of truth.
+
+**Accepted limitation:** a wheel tick *in the same commit as* an in-viewport growth is vetoed, so that one growth goes uncompensated and the baseline absorbs it. Deliberate: mis-firing against a real user scroll is worse than missing one frame of compensation, and wheeling mid-drag is rare.
 
 ### D3 — Hook: `useLayoutEffect` after every commit while selecting
 
@@ -110,8 +122,10 @@ Holding an element rather than a `data-index` matters because `data-index` is po
 ### D5 — Extract the arithmetic as a pure function
 
 **Decision:** New module `packages/client/src/lib/chat/selection-anchor.ts` exporting a pure
-`computeAnchorCorrection({ prevTop, nextTop, prevScrollTop, nextScrollTop, epsilon })` → `number`.
+`computeAnchorCorrection({ prevTop, nextTop, userScrolled, epsilon })` → `number`.
 `ChatView` keeps only the DOM plumbing: read rect, call it, conditionally write `scrollTop`, re-baseline.
+
+The `userScrolled` boolean is D2's veto, passed in rather than sensed — the function stays pure and the decision table stays directly executable. `prevScrollTop`/`nextScrollTop` are **not** inputs: per D2 no scroll term is summed, so feeding them in would only invite a future reader to reintroduce the unsatisfiable formula.
 
 jsdom has no layout engine — `getBoundingClientRect()` returns zeros — so a DOM-level unit test of this behaviour can only assert a tautology. Isolating the arithmetic makes the decision table in D2 directly executable in vitest, and leaves real-layout verification to Playwright where it means something.
 
@@ -159,6 +173,54 @@ The mockup additionally resolves the questions that manual QA would otherwise ab
 ## Migration Plan
 
 Pure client-side change: no protocol, persistence, migration, or server involvement. Ships via `npm run build` + `/api/restart` (client-package path in the rebuild matrix). Rollback is a revert of the commit — no state is written, so no cleanup. Not flagged: the behaviour is inert unless a selection is active, which is a narrower guard than a feature flag would give.
+
+## Measured Evidence (D8 mockup)
+
+`mockups/chat-selection-anchor/index.html`, driven by real Chromium input (mouse
+down → move → resize a row above → 1px nudge, pointer never travelling backwards).
+`ANCHOR DRIFT` is the anchor row's viewport-top movement across the shift.
+
+| Scenario | Fixes | correction | anchor drift | selection |
+|---|---|---|---|---|
+| Tool row 2 grows +800 mid-drag in row 7 | OFF | 0 px | **+800 px** | 35 → 545 chars — **RETARGETED** |
+| same | ON | +800 px | **0 px** | 35 → 35 chars — unchanged |
+| Tool row 2 shrinks −800 mid-drag | OFF | 0 px | −32 px | 35 → 112 chars — **RETARGETED** |
+| same | ON | −32 px | **0 px** | 35 → 35 chars — unchanged |
+| Row ABOVE viewport grows +800 (virtualizer corrects) | ON | **0 px** | 0 px | applied exactly once |
+| Wheel 150px during an active selection | ON | 0 px | — | `scrollTop` 480 → 630, not clawed back |
+
+The reported defect reproduces (1.2) and the correction fixes it (1.3), in both
+directions. The above-viewport row is the load-bearing one: the compensator
+writes **0** there, so the resize is applied once — whereas the summed formula
+this design originally specified would have written a second `+800`.
+
+### Keyboard selection — resolves the 1.4 open question
+
+**Finding: compensation is redundant for keyboard-selection correctness, is never
+harmful, and is beneficial for visibility. No keyboard-specific gating.**
+
+Two measured facts:
+
+1. `Shift+ArrowRight` inside the transcript is a **no-op**. Transcript rows are
+   not editable, and Chromium does not extend a selection with arrow keys in
+   non-editable content unless caret browsing (F7) is enabled. So the keyboard
+   path is not even reachable by default.
+2. Driving the primitive the key handler drives when caret browsing IS on
+   (`Selection.modify("extend", "forward", "character")`), the selected string is
+   **byte-identical with the fix ON and OFF** — `"age 7: the p"` →
+   `"age 7: the prose "`, growing by exactly the 5 characters typed, across an
+   +800px shift of a row above.
+
+The asymmetry with the mouse is the root cause, and it explains the whole bug:
+keyboard extension advances the focus by **character offset**, so content moving
+under the cursor is irrelevant. Mouse extension re-resolves the focus by
+**hit-testing a screen point**, so content moving under a stationary pointer
+silently retargets it. Only the mouse path can run backwards.
+
+Compensation still helps the keyboard case, just not for correctness: with the
+fix OFF the anchor drifted 800px (the selected text scrolls off-screen while the
+user keeps extending it); with the fix ON the drift was 0px. Keeping it ungated
+is therefore strictly better than special-casing it — and one less conditional.
 
 ## Open Questions
 
