@@ -71,10 +71,11 @@ describe("browser-gateway — shutdown handler rejection is owned", () => {
   });
 
   it("X12 a rejected handleShutdown reaches the dispatch catch; no unhandled rejection; next message still handled", async () => {
+    const piGateway = makeStubPiGateway();
     const gateway = createBrowserGateway(
       createMemorySessionManager(),
       createMemoryEventStore(() => false),
-      makeStubPiGateway(),
+      piGateway,
     );
     const ws = makeFakeWs();
     gateway.wss.emit("connection", ws, {});
@@ -93,11 +94,16 @@ describe("browser-gateway — shutdown handler rejection is owned", () => {
     expect(unhandled).toEqual([]);
 
     // Terminal state: the connection is not closed and still dispatches the
-    // next message (a malformed frame is silently dropped without throwing).
+    // NEXT valid message. The mocked `handleShutdown` throws before touching
+    // `piGateway`, so no dispatch effect exists yet — then a valid `subscribe`
+    // fans metadata requests out via `piGateway.sendToSession`, an observable
+    // effect proving the handler loop kept running after the rejected shutdown.
     expect(ws.close).not.toHaveBeenCalled();
-    ws.emit("message", Buffer.from("{not json"));
+    expect(piGateway.sendToSession).not.toHaveBeenCalled();
+    ws.emit("message", Buffer.from(JSON.stringify({ type: "subscribe", sessionId: "s2" })));
     await new Promise((r) => setImmediate(r));
-    // No new handler-error line for the malformed frame (it is dropped, not run).
+    expect(piGateway.sendToSession).toHaveBeenCalled();
+    // The subscribe dispatched cleanly — no new handler-error line.
     const afterCount = errorSpy.mock.calls.filter(
       (args: unknown[]) => typeof args[0] === "string" && args[0].includes("[browser-gw] handler error"),
     ).length;

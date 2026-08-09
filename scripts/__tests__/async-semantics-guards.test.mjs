@@ -78,6 +78,14 @@ const ARTIFACT_TEST = "packages/server/src/__tests__/pi-resource-activation-time
  */
 const VOID_FUNCTION = /function\s+([A-Za-z_$][\w$]*)\s*\((?:[^()]|\([^()]*\))*\)\s*:\s*void\b/g;
 
+/**
+ * `const name = (params): void => …` and `const name: () => void = …`.
+ * Declaration form matters: a syntax-only guard that only knew `function`
+ * declarations would miss `const settle = (): void => {}; await settle();`.
+ */
+const VOID_ARROW =
+  /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*\([^)]*\)\s*=>\s*void\b|=\s*(?:async\s*)?\((?:[^()]|\([^()]*\))*\)\s*:\s*void\b)/g;
+
 describe("E1: a non-promise inference artifact takes an annotation, not an await", () => {
   it("`withPiResolve` is annotated `: void`", () => {
     const src = fs.readFileSync(path.join(repoRoot, ARTIFACT_TEST), "utf8");
@@ -109,7 +117,7 @@ describe("E2: no `await` was applied to an expression that is not a promise", ()
    * generalisation of the `withPiResolve` artifact — the class of mistake the
    * rule's own suggested fix would have produced.
    */
-  it("nothing awaits a function declared to return `void`", () => {
+  it("nothing awaits a function or arrow declared to return `void`", () => {
     // Matching is per-file, not repo-wide by name. Several suites declare their
     // own local `git()` / `build()` helpers, some `: void` and some
     // `: Promise<void>`; a global name table flags awaiting the async ones,
@@ -119,11 +127,13 @@ describe("E2: no `await` was applied to an expression that is not a promise", ()
     const offenders = [];
     for (const file of ownedFiles) {
       const src = fs.readFileSync(path.join(repoRoot, file), "utf8");
-      for (const m of src.matchAll(VOID_FUNCTION)) {
-        const name = m[1];
-        seenNames.add(name);
-        if (new RegExp(`await\\s+${name}\\s*\\(`).test(src)) {
-          offenders.push(`${file}: await ${name}(`);
+      for (const re of [VOID_FUNCTION, VOID_ARROW]) {
+        for (const m of src.matchAll(re)) {
+          const name = m[1];
+          seenNames.add(name);
+          if (new RegExp(`await\\s+${name}\\s*\\(`).test(src)) {
+            offenders.push(`${file}: await ${name}(`);
+          }
         }
       }
     }
@@ -131,9 +141,25 @@ describe("E2: no `await` was applied to an expression that is not a promise", ()
     expect([...seenNames]).toContain("withPiResolve");
     expect(offenders).toEqual([]);
   });
+
+  it("detects an awaited `void` arrow, not just a `function` declaration", () => {
+    // Pins the arrow form explicitly: the guard is syntax-only (no type
+    // information), so its blind spots have to be closed by example.
+    const sample = "const settle = (): void => {};\nawait settle();";
+    const names = [...sample.matchAll(VOID_ARROW)].map((m) => m[1]);
+    expect(names).toContain("settle");
+    expect(new RegExp(`await\\s+settle\\s*\\(`).test(sample)).toBe(true);
+  });
 });
 
-describe("E3: every discard states its handling (bare `void` ban)", () => {
+/**
+ * SCOPE, stated precisely because the assertion is easy to over-read: this is a
+ * CHANGE-SCOPED baseline guard, not a repo-wide prohibition. 54 bare discards
+ * predate this change across the three packages; they are recorded in the
+ * fixture and explicitly permitted. What the guard proves is that the live set
+ * never grows. Driving the baseline to zero is a separate rung's job.
+ */
+describe("E3: no NEW bare `void` discard (change-scoped baseline guard)", () => {
   it("the baseline fixture is non-empty, so a subset check can actually fail", () => {
     // Guards the guard: an empty baseline would make the subset assertion below
     // pass for any tree.
@@ -176,6 +202,22 @@ describe("E3: every discard states its handling (bare `void` ban)", () => {
     };
     const hits = scanBareVoidDiscards((f) => sources[f], files);
     expect(hits).toEqual(["a.ts\tvoid doThing();"]);
+  });
+
+  it("a `//` inside a string does not hide a discard after it", () => {
+    // Without string-blanking the line truncates at the URL and the real
+    // discard escapes the scan entirely.
+    const line = 'const u = "http://x"; void work();';
+    expect(scanBareVoidDiscards(() => line, ["s.ts"])).toEqual([`s.ts\t${line}`]);
+  });
+
+  it("an EMPTY `.catch()` is not a guarded discard", () => {
+    // `.catch()` installs no handler, so the rejection is still swallowed —
+    // D1 requires the handler to exist.
+    expect(scanBareVoidDiscards(() => "void work().catch();", ["t.ts"])).toEqual([
+      "t.ts\tvoid work().catch();",
+    ]);
+    expect(scanBareVoidDiscards(() => "void work().catch((e) => log(e));", ["u.ts"])).toEqual([]);
   });
 });
 

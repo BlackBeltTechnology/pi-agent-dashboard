@@ -168,10 +168,13 @@ describe("session-load-worker-pool — in-process settle rejection is owned", ()
       const { result } = pool.load({ sessionId: "s-x9", sessionFile: "/does/not/matter" });
       // Guard so a REVERTED fix (dropped `.catch`) surfaces as a hang, not a
       // 30s vitest timeout.
+      let hangTimer: ReturnType<typeof setTimeout> | undefined;
       const out = await Promise.race([
         result,
-        new Promise((r) => setTimeout(() => r({ __hang: true }), 1500)),
-      ]);
+        new Promise((r) => {
+          hangTimer = setTimeout(() => r({ __hang: true }), 1500);
+        }),
+      ]).finally(() => clearTimeout(hangTimer));
       expect(out).toMatchObject({ success: false, error: "cancelled" });
       expect(pool.inFlight()).toBe(0); // slot released, job not leaked
       expect(

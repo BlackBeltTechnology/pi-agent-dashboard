@@ -40,17 +40,32 @@ function postText(url: string): Promise<{ status: number; body: string }> {
 describe("recovery server — reinstall rejection is owned", () => {
   let errorSpy: ReturnType<typeof vi.spyOn>;
   let logSpy: ReturnType<typeof vi.spyOn>;
+  // `startRecoveryServer` returns only the port — no close handle. Spy on
+  // `http.createServer` (call-through: the spy records the real return value)
+  // to capture the bound `http.Server` and close it in teardown, so the
+  // listener cannot keep the Vitest worker alive after the assertion. Test-
+  // local; no production change.
+  let createServerSpy: ReturnType<typeof vi.spyOn>;
   let unhandled: unknown[];
   const onUnhandled = (reason: unknown) => unhandled.push(reason);
 
   beforeEach(() => {
     errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    createServerSpy = vi.spyOn(http, "createServer");
     unhandled = [];
     process.on("unhandledRejection", onUnhandled);
   });
-  afterEach(() => {
+  afterEach(async () => {
+    for (const result of createServerSpy.mock.results) {
+      if (result.type !== "return") continue;
+      const server = result.value as http.Server | undefined;
+      if (!server || typeof server.close !== "function") continue;
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
     process.off("unhandledRejection", onUnhandled);
+    createServerSpy.mockRestore();
     errorSpy.mockRestore();
     logSpy.mockRestore();
   });

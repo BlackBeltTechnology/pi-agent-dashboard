@@ -1,6 +1,6 @@
 {
   "note": "Bare `void <expr>` discards (no `.catch(` in the same statement) in packages/{server,extension,electron} as of the merge-base BELOW, i.e. BEFORE cleanup-async-semantics-server-extension. The live set must stay a SUBSET of this multiset: shrinking is welcome, adding is a regression. Keyed by path + statement text, not line number, so unrelated edits above a site do not churn the fixture.",
-  "baseCommit": "7fb769968169124f4821178697a1f1830603d964",
+  "baseCommit": "280518c2c514dfbc942adbe58ddd8301aa8ef252",
   "sites": [
     "packages/electron/src/lib/doctor-window.ts\tvoid app;",
     "packages/electron/src/lib/tray.ts\tpollInterval = setInterval(() => { void probe(); }, 3000);",

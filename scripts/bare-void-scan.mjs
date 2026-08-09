@@ -33,8 +33,29 @@ const STATEMENT_LOOKAHEAD = 8;
  */
 function stripComment(line) {
   if (/^\s*(\*|\/\/|\/\*)/.test(line)) return "";
-  const idx = line.indexOf("//");
-  return idx === -1 ? line : line.slice(0, idx);
+  // Blank out string literals first, so a `//` inside one does not truncate the
+  // line and hide a real discard after it (`const u = "http://x"; void work();`).
+  // Quotes are replaced rather than removed to keep column semantics simple.
+  const withoutStrings = line.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""');
+  const idx = withoutStrings.indexOf("//");
+  return idx === -1 ? withoutStrings : withoutStrings.slice(0, idx);
+}
+
+/**
+ * True when the statement carries a `.catch(` with a NON-EMPTY handler.
+ *
+ * `void p.catch()` is not a guarded discard — it installs no handler at all, so
+ * the rejection is still swallowed. D1 requires the handler to exist and do
+ * something, so an empty `.catch()` must read as bare.
+ */
+function hasNonEmptyCatch(statement) {
+  const at = statement.indexOf(".catch(");
+  if (at === -1) return false;
+  const afterOpenParen = statement.slice(at + ".catch(".length);
+  // Anything other than an immediate `)` (modulo whitespace) counts as an
+  // argument. An empty arrow body (`() => {}`) is still an explicit decision and
+  // is accepted here; the ban this scanner enforces is on the *bare* form.
+  return !/^\s*\)/.test(afterOpenParen);
 }
 
 /**
@@ -67,7 +88,7 @@ export function scanBareVoidDiscards(readFile, files) {
         .slice(i, i + STATEMENT_LOOKAHEAD)
         .join("\n")
         .split(/;\s*$/m)[0];
-      if (/\.catch\(/.test(statement)) return; // guarded discard — allowed
+      if (hasNonEmptyCatch(statement)) return; // guarded discard — allowed
       found.push(`${file}\t${line.trim()}`);
     });
   }

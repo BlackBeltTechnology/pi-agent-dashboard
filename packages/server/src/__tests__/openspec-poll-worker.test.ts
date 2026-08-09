@@ -250,10 +250,13 @@ describe("openspec-poll-worker-pool — a throwing poll task is absorbed", () =>
     const pool = createOpenSpecPollWorkerPool({ useWorker: false });
     try {
       // First request hits the throwing derivation → defensive settle, no hang.
+      let hangTimer: ReturnType<typeof setTimeout> | undefined;
       const out = await Promise.race([
         pool.process(buildRequest(cwd)),
-        new Promise((r) => setTimeout(() => r({ __hang: true }), 1500)),
-      ]);
+        new Promise((r) => {
+          hangTimer = setTimeout(() => r({ __hang: true }), 1500);
+        }),
+      ]).finally(() => clearTimeout(hangTimer));
       expect((out as { __hang?: boolean }).__hang).toBeUndefined();
       expect(pool.inFlight()).toBe(0); // slot released, not leaked
 

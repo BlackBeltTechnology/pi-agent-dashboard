@@ -41,6 +41,21 @@ const TARGETS = [
         find: "const id = crypto.randomUUID();",
         replace: 'const id = "mutation-fixed-id";',
       },
+      {
+        // Targets the settle path specifically: the tests edited by this change
+        // fire a request and settle it via `cancel`. If cancellation stopped
+        // resolving, a file-level mutation elsewhere would not notice.
+        name: "cancel no longer resolves the pending request",
+        source: "packages/extension/src/prompt-bus.ts",
+        find: "entry.resolve({ id, cancelled: true, source: \"__bus__\" });",
+        replace: "/* mutated: cancel no longer settles */",
+      },
+      {
+        name: "first-response-wins no longer resolves the caller",
+        source: "packages/extension/src/prompt-bus.ts",
+        find: "entry.resolve(response);",
+        replace: "/* mutated: respond no longer settles */",
+      },
     ],
   },
   {
@@ -63,6 +78,12 @@ const TARGETS = [
         find: "answer = await ui.confirm(prompt.question, promptMessage(prompt), {",
         replace: 'answer = await ui.confirm(prompt.question, "", {',
       },
+      {
+        name: "the TUI adapter stops answering the bus",
+        source: "packages/extension/src/tui-prompt-adapter.ts",
+        find: "      void present();",
+        replace: "      /* mutated: adapter never presents */",
+      },
     ],
   },
   {
@@ -78,14 +99,23 @@ const TARGETS = [
   },
 ];
 
+/**
+ * SCOPE: this is FILE-level mutation coverage, matching X15's wording ("every
+ * touched test file goes red under mutation"). A red file proves at least one
+ * test in it detects the mutation, not that every individual test does. Where
+ * the settle path itself is the risk, extra mutations target it directly rather
+ * than relying on the file-level signal.
+ */
 describe("X15: every touched test file still has teeth", () => {
-  it("the four touched test files pass on the unmutated tree", () => {
-    // Baseline. Without it, a file that is red for an unrelated reason would
-    // "survive" nothing and look like a pass below.
-    for (const target of TARGETS) {
+  // One baseline test PER TARGET: a single loop shares one timeout budget, so a
+  // slow target could time out before the later baselines ever run.
+  for (const target of TARGETS) {
+    it(`${target.test} passes on the unmutated tree`, () => {
+      // Without this, a file red for an unrelated reason would "survive"
+      // nothing and look like a pass below.
       expect(runTestFile(repoRoot, target.test), `${target.test} is red before mutation`).toBe(true);
-    }
-  }, PER_TARGET_TIMEOUT);
+    }, PER_TARGET_TIMEOUT);
+  }
 
   for (const target of TARGETS) {
     it(`${target.test} goes red under mutation`, () => {

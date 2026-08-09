@@ -76,6 +76,14 @@ export function runTestFile(repoRoot, testFile, { timeoutMs = 180_000 } = {}) {
     return true;
   } catch {
     return false; // non-zero exit === at least one failing test
+  } finally {
+    // One temp HOME per invocation, and this harness runs many of them — clean
+    // up rather than leaving a pile behind in TMPDIR.
+    try {
+      fs.rmSync(home, { recursive: true, force: true });
+    } catch {
+      // Best effort: a leftover temp dir must never fail the check.
+    }
   }
 }
 

@@ -22,7 +22,12 @@ change started (confirmed — the file reports no floating diagnostic).
 | `: void` return annotation (non-promise artifact) | 3 | `pi-resource-activation-timeout.test.ts` |
 | `!== null` narrowing (misused, behaviour-preserving) | 2 | electron inflight guards |
 | wrapper `() => { void p.catch(h) }` (misused) | 4 | electron `createTray` ×4 — **one wrapper**, `requestQuit`, applied 4× |
+| same wrapper reused (floating) | 1 | electron `main.ts` `window-all-closed` — was a floating `quit()` |
 | **total** | **60** | |
+
+The electron rows are 7 sites but only **one** new function: `requestQuit`
+covers the 4 misused `createTray` arguments and the 1 floating
+`window-all-closed` call, and the 2 remaining sites are narrowings.
 
 Bare `void` used: **0**. Verified mechanically and continuously by test-plan #E3
 (`scripts/__tests__/async-semantics-guards.test.mjs`), which holds the live
