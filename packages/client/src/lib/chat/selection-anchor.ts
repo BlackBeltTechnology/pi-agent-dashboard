@@ -20,11 +20,10 @@ export interface AnchorCorrectionInput {
   prevTop: number;
   /** Anchor row's viewport-relative `top` measured on this commit. */
   nextTop: number;
-  /**
-   * D2 veto: a real `scroll` event fired since the last baseline, so the
-   * viewport moved rather than the content. Re-baseline, never compensate.
-   */
-  userScrolled: boolean;
+  /** Container `scrollTop` at the last baseline. */
+  prevScrollTop: number;
+  /** Container `scrollTop` on this commit. */
+  nextScrollTop: number;
   /** Dead-band override; defaults to {@link ANCHOR_EPSILON}. */
   epsilon?: number;
 }
@@ -32,20 +31,41 @@ export interface AnchorCorrectionInput {
 /**
  * How far to move `scrollTop` so the anchor row returns to where it was.
  *
- * `residual = nextTop − prevTop` — viewport-relative movement of the anchor.
- * Positive means content pushed the anchor down, so scrolling down by the same
- * amount cancels it.
+ * The two signals do two DIFFERENT jobs, and conflating them is the trap:
  *
- * Deliberately does NOT take a scroll delta. Summing one is unsatisfiable: a
- * programmatic scroll (TanStack's above-viewport `resizeItem` correction) and a
- * user scroll present identical `(Δtop, Δscroll)` pairs, so any linear formula
- * that ignores a user scroll must also double-correct an above-viewport resize.
- * `userScrolled` supplies that missing bit from outside the arithmetic. See D2.
+ *   - **Magnitude** is `Δtop = nextTop − prevTop` — viewport-relative movement
+ *     of the anchor. Positive means content pushed it down, so scrolling down
+ *     by the same amount cancels it.
+ *   - **Discriminator** is `Δtop + Δscroll`. It is ~0 exactly when the viewport
+ *     moved over stationary content (a user scroll or drag-autoscroll, where the
+ *     two deltas are anti-correlated by construction). Anything else — a real
+ *     resize, or the virtualizer's own above-viewport correction — leaves a
+ *     non-zero sum.
+ *
+ * `Δscroll` CANNOT be the magnitude. Writing the correction as
+ * `α·Δtop + β·Δscroll`, the decision table forces α = β (user scroll → 0),
+ * α = 1 (in-viewport growth → G, hence β = 1), and β = 0 (above-viewport growth
+ * the virtualizer already corrected → 0). No linear formula satisfies all three.
+ * Splitting the roles — magnitude from `Δtop`, veto from the sum — does.
+ *
+ * Deliberately STATELESS. An earlier revision vetoed on a "did a scroll event
+ * fire?" boolean; that flag cannot distinguish the virtualizer's programmatic
+ * `scrollToFn` write from a user gesture, and a stale flag silently skipped a
+ * genuine compensation for good (the drift is then absorbed by the next
+ * baseline). Geometry cannot go stale.
  */
-export function computeAnchorCorrection({ prevTop, nextTop, userScrolled, epsilon }: AnchorCorrectionInput): number {
-  if (userScrolled) return 0;
-  if (!Number.isFinite(prevTop) || !Number.isFinite(nextTop)) return 0;
+export function computeAnchorCorrection({
+  prevTop,
+  nextTop,
+  prevScrollTop,
+  nextScrollTop,
+  epsilon,
+}: AnchorCorrectionInput): number {
+  if (![prevTop, nextTop, prevScrollTop, nextScrollTop].every(Number.isFinite)) return 0;
   const residual = nextTop - prevTop;
   const band = epsilon ?? ANCHOR_EPSILON;
+  // Pure viewport move: the user (or drag-autoscroll) moved the view over
+  // stationary content. Never fight it.
+  if (Math.abs(residual + (nextScrollTop - prevScrollTop)) < band) return 0;
   return Math.abs(residual) < band ? 0 : residual;
 }

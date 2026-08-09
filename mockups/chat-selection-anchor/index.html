@@ -157,11 +157,13 @@
 // Mirrors packages/client/src/lib/chat/selection-anchor.ts. Any divergence here
 // is either a bug or a deliberate adaptation (task 5.6).
 const ANCHOR_EPSILON = 1;
-function computeAnchorCorrection({ prevTop, nextTop, userScrolled, epsilon }) {
-  if (userScrolled) return 0;
-  if (!Number.isFinite(prevTop) || !Number.isFinite(nextTop)) return 0;
+function computeAnchorCorrection({ prevTop, nextTop, prevScrollTop, nextScrollTop, epsilon }) {
+  if (![prevTop, nextTop, prevScrollTop, nextScrollTop].every(Number.isFinite)) return 0;
   const residual = nextTop - prevTop;
   const band = epsilon ?? ANCHOR_EPSILON;
+  // Pure viewport move (user scroll / drag-autoscroll): the two deltas are
+  // anti-correlated. Magnitude comes from Δtop; the sum is only the veto.
+  if (Math.abs(residual + (nextScrollTop - prevScrollTop)) < band) return 0;
   return Math.abs(residual) < band ? 0 : residual;
 }
 
@@ -246,6 +248,7 @@ document.addEventListener("selectionchange", () => {
     // Capture ONCE, on the collapsed→non-collapsed transition (D4).
     anchorEl = rowElementFor(sel.anchorNode);
     prevTop = null;
+    prevScrollTop = scroller.scrollTop;
     baselineSelText = sel.toString();
     render();
     // Baseline immediately, so the FIRST layout shift is already compensated.
@@ -257,44 +260,40 @@ document.addEventListener("selectionchange", () => {
 });
 
 // ── D2: veto flag fed by the real scroll event ───────────────────────────────
-let userScrolled = false;
-let selfScrollTop = null;
+// No scroll-event flag: it cannot tell the virtualizer's programmatic write
+// from a user gesture, and a stale flag skips a real compensation for good.
 scroller.addEventListener("scroll", () => {
-  if (scroller.scrollTop !== selfScrollTop) userScrolled = true;
   measured.dScroll = scroller.scrollTop - (measured.prevScroll ?? scroller.scrollTop);
 });
 
 // ── D3: compensate after every layout change, before paint ──────────────────
 let prevTop = null;
+let prevScrollTop = 0;
 let baselineSelText = null;
 const measured = { dTop: 0, dScroll: 0, correction: 0, prevScroll: 0, drift: 0 };
 
 function compensate() {
   if (!fixesOn || !isSelecting || !anchorEl || !anchorEl.isConnected) {
     prevTop = null;
-    userScrolled = false;
-    selfScrollTop = null;
     return;
   }
   const nextTop = anchorEl.getBoundingClientRect().top;
-  if (prevTop === null) { prevTop = nextTop; return; }
-  if (nextTop === prevTop && !userScrolled) return; // idle frame: nothing moved
+  const nextScrollTop = scroller.scrollTop;
+  if (prevTop === null) { prevTop = nextTop; prevScrollTop = nextScrollTop; return; }
+  if (nextTop === prevTop && nextScrollTop === prevScrollTop) return; // idle frame
 
   measured.dTop = nextTop - prevTop;
-  const wasUserScrolled = userScrolled;
-  userScrolled = false;
-  const correction = computeAnchorCorrection({ prevTop, nextTop, userScrolled: wasUserScrolled });
+  const correction = computeAnchorCorrection({ prevTop, nextTop, prevScrollTop, nextScrollTop });
   measured.correction = correction;
-  if (correction === 0) { prevTop = nextTop; return; }
+  if (correction === 0) { prevTop = nextTop; prevScrollTop = nextScrollTop; return; }
 
   // Derived re-baseline, never a second getBoundingClientRect — one forced
   // reflow per commit. `applied` (read back from scrollTop) keeps it exact when
   // the browser clamps the write. Mirrors ChatView.tsx.
-  const scrollBefore = scroller.scrollTop;
-  scroller.scrollTop = scrollBefore + correction;
-  const applied = scroller.scrollTop - scrollBefore;
-  selfScrollTop = scroller.scrollTop;
+  scroller.scrollTop = nextScrollTop + correction;
+  const applied = scroller.scrollTop - nextScrollTop;
   prevTop = nextTop - applied;
+  prevScrollTop = scroller.scrollTop;
 }
 
 /**
@@ -327,7 +326,8 @@ function paint() {
   $("mAnchor").textContent = anchorEl ? "[data-index=" + anchorEl.getAttribute("data-index") + "]" : "—";
   $("mDeltaTop").textContent = measured.dTop.toFixed(1) + " px";
   $("mDeltaScroll").textContent = measured.dScroll.toFixed(1) + " px";
-  $("mUserScrolled").textContent = String(userScrolled);
+  $("mUserScrolled").textContent =
+    Math.abs(measured.dTop + measured.dScroll) < ANCHOR_EPSILON ? "yes — viewport move (vetoed)" : "no";
   $("mCorrection").textContent = measured.correction.toFixed(1) + " px";
   $("mDrift").textContent = measured.drift.toFixed(1) + " px";
 
@@ -367,7 +367,6 @@ $("growAboveViewport").addEventListener("click", () => {
     () => { rows[above].height += delta; },
     () => {
       // `resizeItem` adjusts scrollTop itself for a row with start < scrollOffset.
-      selfScrollTop = null;
       scroller.scrollTop += delta;
     },
   );
@@ -388,7 +387,7 @@ $("themeToggle").addEventListener("click", () => {
 $("reset").addEventListener("click", () => {
   rows = makeRows();
   spacer.innerHTML = "";
-  anchorEl = null; prevTop = null; baselineSelText = null;
+  anchorEl = null; prevTop = null; prevScrollTop = 0; baselineSelText = null;
   measured.dTop = measured.dScroll = measured.correction = measured.drift = 0;
   window.getSelection() && window.getSelection().removeAllRanges();
   render(); paint();

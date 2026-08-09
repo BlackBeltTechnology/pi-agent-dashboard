@@ -67,33 +67,35 @@ Verified against the installed `@tanstack/virtual-core@3.13.12`: `resizeItem` ad
 - *Fork/patch TanStack's `resizeItem`.* Rejected — pins us to an internal.
 - *Re-enable native scroll anchoring.* `ChatView.tsx:780` sets `style={{ overflowAnchor: "none" }}` on the scroll container, explicitly disabling the CSS feature built for this exact problem. Deleting that line is the shortest conceivable fix and will be the first thing a reviewer proposes, so it is recorded here as considered and rejected: native anchoring selects its **own** anchor node by heuristic, which for absolutely-positioned virtual rows over a `getTotalSize()` spacer is unpredictable, and it fights both `scrollToIndex` and the sticky-bottom pin — the reasons it is off. Our compensator anchors a node **we** choose (the selection anchor), only while a selection is held. **Historical reason for `overflowAnchor: "none"`, confirmed (task 1.5):** it was set to `"none"` by `virtualize-chat-transcript-tanstack` (task 9.2, flipping the container from `"auto"`), and reaffirmed by `fix-chat-scroll-to-top-estimate-drift` decision (3). The in-tree comment above the container at `ChatView.tsx:854-859` states the reason directly: TanStack's `resizeItem` drives scroll compensation itself, so browser scroll-anchoring must stay OFF or it double-moves. So the reason very much still applies — and it is the *same* double-move hazard this change navigates in D1/D2. Deleting that line would hand anchor selection to a browser heuristic *and* re-arm the double-move. Rejected on current, not historical, grounds.
 
-### D2 — Measure viewport-relative movement, and let the scroll event veto
+### D2 — Magnitude from `Δtop`, veto from `Δtop + Δscroll`
 
-**Decision:** The shift is viewport-relative movement of the anchor row,
+**Decision:** two signals doing two **different** jobs — conflating them is the whole trap.
 
+```text
+  magnitude     = anchorTop_now − anchorTop_prev                 (the correction)
+  discriminator = magnitude + (scrollTop_now − scrollTop_prev)   (the veto only)
 ```
-  residual = anchorTop_now − anchorTop_prev
-```
 
-and compensation is **vetoed** (re-baseline only, no write) on any commit where a real `scroll` event fired since the last baseline.
+Compensate by `magnitude`, unless `|discriminator| < ε`, which happens exactly when the viewport moved over stationary content — a user scroll or drag-autoscroll, where the two deltas are anti-correlated by construction.
 
-Viewport-relative movement alone cannot distinguish "content moved under a still viewport" from "viewport moved over still content" — but the `scroll` event can, and it is the browser's own ground truth for the second. The container already has a `scroll` handler (`handleScroll`); it sets a veto flag that the layout effect consumes.
-
-| Situation | `Δ anchorTop` | scroll event? | residual | action |
+| Situation | `Δ anchorTop` | `Δ scrollTop` | discriminator | action |
 |---|---|---|---|---|
-| User scrolls down 100px | −100 | yes | — | veto — re-baseline, no write |
-| Row above grows 800px (in viewport) | +800 | no | **+800** | `scrollTop += 800` |
-| Row above shrinks 300px (in viewport) | −300 | no | **−300** | `scrollTop −= 300` |
-| TanStack already corrected (above viewport) | ~0 | yes or not-yet | ~**0** | none — safe either way |
-| Drag-autoscroll at viewport edge | −n | yes | — | veto — re-baseline, no write |
-| Our own correction write | — | yes | — | veto — re-baseline (D-risk loop guard) |
+| User scrolls down 100px | −100 | +100 | **~0** | veto — re-baseline, no write |
+| Drag-autoscroll at viewport edge | −n | +n | **~0** | veto — re-baseline, no write |
+| Row above grows 800px (in viewport) | +800 | 0 | +800 | `scrollTop += 800` |
+| Row above shrinks 300px (in viewport) | −300 | 0 | −300 | `scrollTop −= 300` |
+| TanStack already corrected (above viewport) | ~0 | +G | +G | none — magnitude is ~0 |
+| TanStack corrected **and** an in-viewport row grew H | +H | +G | H+G | `scrollTop += H` |
 
-Ordering is what makes the veto reliable: a user scroll dispatches its `scroll` event **synchronously into `handleScroll` before** the commit it provokes, so the flag is always set in time. TanStack's programmatic write dispatches its `scroll` event asynchronously and may land *after* our layout effect — which is harmless, because that case presents `Δ anchorTop ≈ 0` and so writes nothing whether it is vetoed or not. Both orderings are correct.
+The last two rows are why the veto cannot be a **flag**. A stateful "did a `scroll` event fire?" boolean cannot tell TanStack's programmatic `scrollToFn` write from a user gesture, so the virtualizer's own correction arms it; if that flag then survives into a later commit, a genuine growth is skipped and the drift is absorbed by the next baseline — permanently, which *is* the bug this change exists to fix. Caught in review on PR #439 and pinned by the regression test *"still compensates a real growth after a programmatic (virtualizer) scroll event"*. **Geometry cannot go stale.**
 
-**Why not sum a scroll term.** The obvious formula `residual = Δ anchorTop + Δ scrollTop` is what this design originally specified, and it is **unsatisfiable**. Writing the correction as `α·Δtop + β·Δscroll`: the user-scroll row `(−d, +d) → 0` forces `α = β`; the in-viewport-growth row `(+G, 0) → G` forces `α = 1` and hence `β = 1`; but the above-viewport row `(0, +G) → 0` forces `β = 0`. No linear formula over those two numbers satisfies all three, because a programmatic scroll and a user scroll *are the same two numbers*. Summing the scroll term therefore writes a second `scrollTop += delta` on every above-viewport resize — reintroducing exactly the double-move that `fix-chat-scroll-to-top-estimate-drift` decision (2) exists to kill, and failing the spec scenario *"Above-viewport correction is not doubled"*. The veto supplies the missing bit of information from outside the arithmetic.
+**Why the scroll delta cannot be the magnitude.** The obvious formula `residual = Δtop + Δscroll` is what this design originally specified, and it is **unsatisfiable**. Writing the correction as `α·Δtop + β·Δscroll`: the user-scroll row `(−d, +d) → 0` forces `α = β`; the in-viewport-growth row `(+G, 0) → G` forces `α = 1` and hence `β = 1`; but the above-viewport row `(0, +G) → 0` forces `β = 0`. No **linear** formula over those two numbers satisfies all three. Splitting the roles — magnitude from `Δtop`, veto from the sum — is not linear, and does satisfy the table. Summing the scroll term instead writes a second `scrollTop += delta` on every above-viewport resize, reintroducing exactly the double-move that `fix-chat-scroll-to-top-estimate-drift` decision (2) exists to kill and failing the spec scenario *"Above-viewport correction is not doubled"*.
+
+**Accepted imperfection:** a user scroll `d` landing in the *same* commit window as a virtualizer correction reads as `Δtop = −d`, `Δscroll = d + G` → discriminator `G` → no veto → a spurious `−d` write. Bounded by one wheel tick and self-correcting on the next baseline, versus the flag design's failure mode of dropping an entire multi-thousand-px compensation. Wheeling mid-drag is already rare.
 
 **Alternatives rejected:**
-- *Subtract the virtualizer's own adjustment:* `residual = Δtop + (Δscroll − Δ scrollAdjustments)`. Keeps the summed shape, but `scrollAdjustments` is reset to `0` on every observed scroll offset change (`index.cjs:331`) while `scrollOffset` moves, so the derived user-scroll position is discontinuous and emits a spurious `+G` correction on the commit after the reset. Rejected as fragile, and it leans on a library field this design has no contract over.
+- *A `scroll`-event veto flag.* Rejected above — cannot attribute programmatic scrolls, and goes stale.
+- *Subtract the virtualizer's own adjustment:* `Δtop + (Δscroll − Δ scrollAdjustments)`. `scrollAdjustments` is reset to `0` on every observed scroll offset change (`index.cjs:331`) while `scrollOffset` moves, so the derived position is discontinuous and emits a spurious `+G` correction on the commit after the reset. Fragile, and it leans on a library field this design has no contract over.
 - *Track `vi.start` of the anchor row in virtual coordinates.* Cheaper (no `getBoundingClientRect`), but blind to anything the virtualizer does not model — image decode inside a measured row, the non-virtualized streaming tail, container padding. Real geometry is the source of truth.
 
 **Accepted limitation:** a wheel tick *in the same commit as* an in-viewport growth is vetoed, so that one growth goes uncompensated and the baseline absorbs it. Deliberate: mis-firing against a real user scroll is worse than missing one frame of compensation, and wheeling mid-drag is rare.
@@ -122,10 +124,12 @@ Holding an element rather than a `data-index` matters because `data-index` is po
 ### D5 — Extract the arithmetic as a pure function
 
 **Decision:** New module `packages/client/src/lib/chat/selection-anchor.ts` exporting a pure
-`computeAnchorCorrection({ prevTop, nextTop, userScrolled, epsilon })` → `number`.
+`computeAnchorCorrection({ prevTop, nextTop, prevScrollTop, nextScrollTop, epsilon })` → `number`.
 `ChatView` keeps only the DOM plumbing: read rect, call it, conditionally write `scrollTop`, re-baseline.
 
-The `userScrolled` boolean is D2's veto, passed in rather than sensed — the function stays pure and the decision table stays directly executable. `prevScrollTop`/`nextScrollTop` are **not** inputs: per D2 no scroll term is summed, so feeding them in would only invite a future reader to reintroduce the unsatisfiable formula.
+The function is **stateless** — both of D2's signals are derived from the four measurements, so there is no flag to go stale and nothing to reset. `ChatView` therefore holds only two baselines (`anchorPrevTopRef`, `anchorPrevScrollTopRef`) and no scroll-event bookkeeping at all.
+
+The scroll pair IS an input, but only as D2's discriminator. The module doc states in terms why it must never become the correction magnitude, because "there is a scroll delta in scope" is precisely the invitation to re-derive the unsatisfiable formula.
 
 jsdom has no layout engine — `getBoundingClientRect()` returns zeros — so a DOM-level unit test of this behaviour can only assert a tautology. Isolating the arithmetic makes the decision table in D2 directly executable in vitest, and leaves real-layout verification to Playwright where it means something.
 
@@ -184,7 +188,7 @@ down → move → resize a row above → 1px nudge, pointer never travelling bac
 |---|---|---|---|---|
 | Tool row 2 grows +800 mid-drag in row 7 | OFF | 0 px | **+800 px** | 35 → 545 chars — **RETARGETED** |
 | same | ON | +800 px | **0 px** | 35 → 35 chars — unchanged |
-| Tool row 2 shrinks −800 mid-drag | OFF | 0 px | −32 px | 35 → 112 chars — **RETARGETED** |
+| Tool row 2 shrinks (−800 requested, **−32 effective**) mid-drag | OFF | 0 px | −32 px | 35 → 112 chars — **RETARGETED** |
 | same | ON | −32 px | **0 px** | 35 → 35 chars — unchanged |
 | Row ABOVE viewport grows +800 (virtualizer corrects) | ON | **0 px** | 0 px | applied exactly once |
 | Wheel 150px during an active selection | ON | 0 px | — | `scrollTop` 480 → 630, not clawed back |

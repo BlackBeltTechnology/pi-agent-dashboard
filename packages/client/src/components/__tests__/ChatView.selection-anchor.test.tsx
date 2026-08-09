@@ -144,6 +144,58 @@ async function mountAnchored(messageCount = 30) {
   return { view, scrollEl, writes, row, rect, rerender };
 }
 
+// D6 / spec scenario "Chunk arrives on the first frame of a drag".
+//
+// `isSelecting` STATE crosses a queueMicrotask AND a render before it flips, so
+// there is a window where a drag has begun but every state-gated guard still
+// reads false. The virtualizer `onChange` pin already reads the synchronous ref;
+// the sticky-bottom layout effect must too, or a chunk landing in that window
+// still executes `el.scrollTop = el.scrollHeight` and yanks the selection away.
+describe("ChatView bottom-pin on the first frame of a drag (D6)", () => {
+  it("suspends the bottom-pin before the debounced isSelecting state catches up", async () => {
+    const view = render(
+      <ThemeProvider>
+        <ChatView state={stateWith(30)} toolContext={defaultToolContext} />
+      </ThemeProvider>,
+    );
+    await flushRaf();
+    const scrollEl = getScrollContainer(view.container);
+
+    // Park at the bottom so sticky-bottom follow is ARMED.
+    let scrollTop = 600;
+    Object.defineProperty(scrollEl, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (v: number) => {
+        scrollTop = v;
+      },
+    });
+    Object.defineProperty(scrollEl, "scrollHeight", { value: 1_000, writable: true, configurable: true });
+    Object.defineProperty(scrollEl, "clientHeight", { value: 400, writable: true, configurable: true });
+    fireEvent.scroll(scrollEl); // nearBottom → stickToBottomRef = true
+
+    // Begin a drag and deliver the chunk in the SAME synchronous task, so the
+    // hook's `queueMicrotask` debounce has not run when React commits. `act`
+    // must be the SYNC overload here: the async one awaits, which drains the
+    // microtask queue and flips `isSelecting` before the commit — closing the
+    // very window under test and making the assertion vacuous.
+    Object.defineProperty(scrollEl, "scrollHeight", { value: 5_000, writable: true, configurable: true });
+    act(() => {
+      selectInside(firstRow(scrollEl)); // sync: only `isSelectingRef` knows
+      const next = stateWith(40);
+      next.streamingText = "assistant is typing…";
+      view.rerender(
+        <ThemeProvider>
+          <ChatView state={next} toolContext={defaultToolContext} />
+        </ThemeProvider>,
+      );
+    });
+
+    // Must NOT have been yanked to the new bottom.
+    expect(scrollTop).not.toBe(5_000);
+  });
+});
+
 describe("ChatView selection-anchor compensation", () => {
   it("writes scrollTop exactly once, by the residual, when a row above grows while selecting", async () => {
     const { scrollEl, writes, row, rect, rerender } = await mountAnchored();
@@ -262,6 +314,35 @@ describe("ChatView selection-anchor compensation", () => {
     await rerender();
 
     expect(writes.length).toBe(before);
+  });
+
+  // CodeRabbit #439 (Major): a programmatic scroll the virtualizer performs
+  // (`resizeItem` → scrollToFn) dispatches a `scroll` event we cannot attribute,
+  // arming the D2 veto. If that flag survives into a LATER commit, a genuine
+  // in-viewport growth is silently skipped and the drift is absorbed by the
+  // baseline — permanently. That is the bug this change exists to fix.
+  it("still compensates a real growth after a programmatic (virtualizer) scroll event", async () => {
+    const { scrollEl, writes, row, rect, rerender } = await mountAnchored();
+
+    rect.top = 120;
+    await act(async () => selectInside(row));
+    await flushMicrotasks();
+    await rerender(); // baseline established
+    const before = writes.length;
+    const scrollBefore = scrollEl.scrollTop;
+
+    // The virtualizer corrects an above-viewport resize itself: it moves
+    // scrollTop and the browser dispatches a scroll event. The anchor has NOT
+    // moved (that correction is content-neutral for it).
+    fireEvent.scroll(scrollEl);
+
+    // NEXT commit: a row above the anchor grows INSIDE the viewport. Nothing
+    // about this is a user gesture, so it must be compensated.
+    rect.top = 920;
+    await rerender();
+
+    expect(writes.length - before).toBe(1);
+    expect(scrollEl.scrollTop).toBe(scrollBefore + 800);
   });
 
   // Task 4.3 — a detached anchor must stop compensation, not correct against a

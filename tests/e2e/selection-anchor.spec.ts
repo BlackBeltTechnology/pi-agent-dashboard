@@ -165,11 +165,16 @@ test.describe("selection anchoring against row growth", () => {
     expect(before).toContain("ANCHORSTART");
 
     // Collapse the big bash card above → the rows below shrink upward.
+    // Asserted, NOT branched on: if the header were missing the shrink would
+    // never happen and the assertions below would still pass, reporting success
+    // without ever exercising the path under test.
     const header = page.getByText(/seq 1 600/).first();
-    if (await header.count()) {
-      await header.click({ force: true });
-      await page.waitForTimeout(600);
-    }
+    await expect(header).toBeVisible({ timeout: 30_000 });
+    const heightBefore = (await scrollMetrics(page)).scrollHeight;
+    await header.click({ force: true });
+    await expect
+      .poll(async () => (await scrollMetrics(page)).scrollHeight, { timeout: 10_000 })
+      .toBeLessThan(heightBefore);
 
     await nudge(page, at);
     const after = await selectionText(page);

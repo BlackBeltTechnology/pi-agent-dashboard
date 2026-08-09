@@ -9,14 +9,14 @@
 ## 2. Pure anchor arithmetic (D5)
 
 - [x] 2.1 Write `packages/client/src/lib/__tests__/selection-anchor.test.ts` FIRST, encoding the D2 decision table plus whatever 1.2/1.3 measured: user-scroll-only → `0`; row-above-grows → full delta; TanStack-already-corrected (both deltas cancel) → `0`; drag-autoscroll → `0`; row-above-shrinks → negative delta; sub-epsilon jitter → `0`. Run and confirm red.
-- [x] 2.2 Create `packages/client/src/lib/chat/selection-anchor.ts` exporting pure `computeAnchorCorrection({ prevTop, nextTop, prevScrollTop, nextScrollTop, epsilon })` implementing `residual = (nextTop − prevTop) + (nextScrollTop − prevScrollTop)`, returning `0` when `|residual| < epsilon`. No DOM access in this module.
+- [x] 2.2 Create `packages/client/src/lib/chat/selection-anchor.ts` exporting pure `computeAnchorCorrection({ prevTop, nextTop, prevScrollTop, nextScrollTop, epsilon })`. **Shipped contract (amended — the summed formula originally written here is unsatisfiable, see D2):** magnitude is `nextTop − prevTop`; the scroll pair is only the VETO discriminator, `magnitude + (nextScrollTop − prevScrollTop) ≈ 0` ⇒ pure viewport move ⇒ `0`. Also `0` on a sub-epsilon magnitude or any non-finite input. Stateless; no DOM access in this module.
 - [x] 2.3 Re-run 2.1 — green. Confirm zero imports from `react` or `../components/`.
 
 ## 3. Single-clock selection signal (D6)
 
 - [x] 3.1 Extend `packages/client/src/hooks/__tests__/useActiveChatSelection.test.tsx` with a failing case: on a `selectionchange` that starts a selection, the returned `isSelectingRef.current` is `true` **synchronously**, before any microtask flush or re-render (while the debounced `isSelecting` state must stay debounced).
 - [x] 3.2 In `useActiveChatSelection.ts`, set a new `isSelectingRef` synchronously inside the `selectionchange` listener next to the existing `selectionSpanRef` write; return it. Do NOT change the `queueMicrotask` debounce on the state.
-- [x] 3.3 In `ChatView.tsx`, delete the render-time mirror `isSelectingRef.current = isSelecting` and feed the `virtualizer.onChange` bottom-pin gate from the hook's synchronous ref. Leave the D2 sticky-bottom `useLayoutEffect` reading the `isSelecting` **state** unchanged (it needs the re-render; `wasSelectingRef` needs the →false edge).
+- [x] 3.3 In `ChatView.tsx`, delete the render-time mirror `isSelectingRef.current = isSelecting` and feed the `virtualizer.onChange` bottom-pin gate from the hook's synchronous ref. ~~Leave the D2 sticky-bottom `useLayoutEffect` reading the `isSelecting` **state** unchanged.~~ **SUPERSEDED (PR #439 review):** leaving it state-only left a reproducible first-frame hole — that effect now early-returns on `isSelecting || isSelectingRef.current`. The **state** remains in the dep array, which is what the →false edge and `wasSelectingRef` actually needed; the ref only widens the suspend.
 - [x] 3.4 Re-run the hook tests plus the existing `chat-scroll-lock` and selection-preservation suites — green, no regressions.
 
 ## 4. Anchor capture (D4)
@@ -29,7 +29,7 @@
 
 - [x] 5.1 Add a driven-geometry test (stub `getBoundingClientRect` and `scrollTop`, since jsdom has no layout) asserting: a simulated row-above growth while selecting produces exactly one `scrollTop` write of the residual; the same growth with no active selection produces none.
 - [x] 5.2 In `ChatView.tsx`, add a `useLayoutEffect` with NO dependency array that early-returns unless a selection is active and an anchor element is stored. Read `anchorEl.getBoundingClientRect().top` and `scrollRef.current.scrollTop`, call `computeAnchorCorrection`, apply `scrollTop += correction` when non-zero.
-- [x] 5.3 Re-baseline `prevTop`/`prevScrollTop` from freshly-read values **immediately after** the write, inside the same effect, so the next commit does not observe our own correction as new drift.
+- [x] 5.3 Re-baseline `prevTop`/`prevScrollTop` **immediately after** the write, inside the same effect, so the next commit does not observe our own correction as new drift. **Amended:** `prevTop` is DERIVED as `nextTop − applied` (with `applied` read back from `scrollTop` so a CLAMPED write stays exact), never re-measured — a second `getBoundingClientRect()` would cost a second forced reflow per commit, which task 7.1 forbids.
 - [x] 5.4 Confirm placement is downstream of TanStack: an above-viewport resize must yield a ~0 residual and write nothing (D1). Assert explicitly rather than relying on ordering by accident.
 - [x] 5.5 Verify no manual `scrollTop += delta` exists outside the active-selection guard — `fix-chat-scroll-to-top-estimate-drift` decision (2) must still hold on every non-selecting path.
 - [x] 5.6 Diff the shipped implementation against the mockup's `Fixes: ON` branch; any divergence is either a bug or a deliberate adaptation that belongs in `design.md`.
@@ -58,16 +58,18 @@
 > `tool-collapse-narration` passes FIRST — if the control still fails, a
 > `selection-anchor` failure means nothing.
 >
-> **Known residual for 6.5:** D6 fixed the `virtualizer.onChange` bottom-pin gate
-> (now the synchronous ref), but the sticky-bottom `useLayoutEffect` still reads
-> the debounced `isSelecting` STATE, per task 3.3's explicit instruction. A chunk
-> landing inside the microtask+render lag window at the very start of a drag can
-> still reach `el.scrollTop = el.scrollHeight` through that effect, and the
-> compensator does not undo it (the yank is a scroll write, so D2's veto
-> suppresses correction that frame). Widening that effect's early-return to also
-> honour `isSelectingRef.current` would close it while preserving the →false edge
-> (the ref clears synchronously, before the state). Deliberately NOT applied: it
-> contradicts task 3.3 and 6.5 is the scenario that would settle it.
+> **First-frame residual: CLOSED (was deferred, then fixed in review).** The
+> sticky-bottom `useLayoutEffect` originally read only the debounced
+> `isSelecting` STATE, per task 3.3's instruction, leaving a window where a chunk
+> could still reach `el.scrollTop = el.scrollHeight`. CodeRabbit flagged it as a
+> Major on PR #439 and it turned out to be REPRODUCIBLE in jsdom after all — but
+> only with the SYNC `act` overload, because the async one drains the microtask
+> queue and closes the very window under test (the first attempt passed
+> vacuously). Red message: `expected 5000 not to be 5000`. Fixed by gating that
+> effect on `isSelecting || isSelectingRef.current`; the STATE stays in the dep
+> array so the → false edge still re-fires the pin. Task 3.3's "leave it
+> unchanged" instruction is superseded. Regression test: "suspends the bottom-pin
+> before the debounced isSelecting state catches up".
 
 - [ ] 6.1 Add the acceptance scenario for the original report: seed a transcript with a running tool card above a prose message, drag inside that one message, complete the tool card mid-drag so its output body renders, assert `getSelection().toString()` never extends above the drag origin.
 - [ ] 6.2 Shrink counterpart: a row above the anchor collapses mid-drag; assert the selection does not extend below the drag origin.
@@ -82,7 +84,7 @@
 - [x] 7.1 Profile a streaming turn with a held selection; confirm one `getBoundingClientRect` + at most one `scrollTop` write per commit, and no second forced reflow.
 - [x] 7.2 Confirm the `chat-idle-render-cost` budget is unregressed — the compensator must be fully inert with no selection active.
 - [x] 7.3 Add a regression assertion that the scroll container carries neither `scroll-behavior: smooth` nor a smooth-scroll call on the compensation path.
-- [x] 7.4 `npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log` — full suite green.
+- [x] 7.4 `npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log`. **Outcome (not "green"):** 12 545 passed / 13 failed, and each of the 13 was confirmed PRE-EXISTING by re-running it with this work `git stash`-ed. Those failures were separately root-caused and fixed in PR #441 (zombie-resume test-mock drift), after which CI on this branch is green. Log: `/tmp/pi-test.log`.
 - [x] 7.5 `npm run quality:changed` — Biome clean on changed files.
 - [ ] 7.6 Rebuild per the client path of the rebuild matrix: `npm run build && curl -X POST http://localhost:8000/api/restart`, then reproduce the original report manually and confirm it is fixed.
 

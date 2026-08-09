@@ -606,16 +606,14 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // lagged by a microtask AND a render, so a chunk landing on the first frame
   // of a drag still hit the bottom-pin.
   //
-  // `anchorPrevTopRef` is the anchor row's viewport-relative top at the last
-  // baseline; null means "not baselined yet" (first frame of a drag).
+  // `anchorPrevTopRef` / `anchorPrevScrollTopRef` are the anchor row's
+  // viewport-relative top and the container's scrollTop at the last baseline;
+  // null means "not baselined yet" (first frame of a drag). The pair is all the
+  // compensator needs — D2's veto is derived from their geometry, NOT from a
+  // scroll-event flag, which could not tell the virtualizer's programmatic
+  // `scrollToFn` write from a user gesture and went stale.
   const anchorPrevTopRef = useRef<number | null>(null);
-  // D2 veto: a real `scroll` event landed since the last baseline, so the
-  // VIEWPORT moved rather than the content — re-baseline, never compensate.
-  const userScrolledRef = useRef(false);
-  // The scrollTop value our own compensation wrote. A scroll event reporting
-  // exactly this value is our own echo, not a user gesture; without this a
-  // continuously-growing row would only be compensated on alternate frames.
-  const selfScrollTopRef = useRef<number | null>(null);
+  const anchorPrevScrollTopRef = useRef(0);
 
   const virtualizer = useVirtualizer({
     count: displayRows.length,
@@ -716,8 +714,6 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    // D2 veto, unless this event is the echo of our own compensation write.
-    if (el.scrollTop !== selfScrollTopRef.current) userScrolledRef.current = true;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
     const nearTop = el.scrollTop <= SCROLL_THRESHOLD;
     if (descendingRef.current) {
@@ -835,9 +831,20 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // at a stale position). On that edge lastScrollHeightRef is resynced so the
   // next onChange does not read a stale height and fire a spurious pin.
   const wasSelectingRef = useRef(false);
+  // `isSelectingRef` is read for its CURRENT value at commit time and must NOT
+  // become a dependency — that is the render-time mirror D6 deleted, and it
+  // re-opens the first-frame hole. The listed deps are deliberate TRIGGERS (new
+  // content, and the `isSelecting` → false edge that resumes follow).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refs are read at commit time, never dependencies
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (isSelecting) {
+    // Read BOTH clocks (D6). The `isSelecting` STATE crosses a queueMicrotask
+    // AND a render, so on the first frame of a drag it is still false while the
+    // synchronous ref already knows — and a chunk landing in that window would
+    // otherwise execute `el.scrollTop = el.scrollHeight` and yank the selection
+    // away. The state is still required for the dep array: it is what re-runs
+    // this effect on the → false edge so follow resumes with no new content.
+    if (isSelecting || isSelectingRef.current) {
       wasSelectingRef.current = true;
       return;
     }
@@ -876,30 +883,29 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     // must STOP compensation, never correct against a stale rect.
     if (!el || !isSelectingRef.current || !anchorEl?.isConnected) {
       anchorPrevTopRef.current = null;
-      userScrolledRef.current = false;
-      selfScrollTopRef.current = null;
       return;
     }
 
     const nextTop = anchorEl.getBoundingClientRect().top;
+    const nextScrollTop = el.scrollTop;
     const prevTop = anchorPrevTopRef.current;
-    const userScrolled = userScrolledRef.current;
-    userScrolledRef.current = false;
+    const prevScrollTop = anchorPrevScrollTopRef.current;
 
     // First commit of this drag: establish the baseline, correct nothing.
     if (prevTop === null) {
       anchorPrevTopRef.current = nextTop;
+      anchorPrevScrollTopRef.current = nextScrollTop;
       return;
     }
 
-    const correction = computeAnchorCorrection({ prevTop, nextTop, userScrolled });
+    const correction = computeAnchorCorrection({ prevTop, nextTop, prevScrollTop, nextScrollTop });
     if (correction === 0) {
       anchorPrevTopRef.current = nextTop;
+      anchorPrevScrollTopRef.current = nextScrollTop;
       return;
     }
 
-    const scrollBefore = el.scrollTop;
-    el.scrollTop = scrollBefore + correction;
+    el.scrollTop = nextScrollTop + correction;
     // Re-baseline immediately after the write, inside the same effect, so the
     // next commit does not observe our own correction as new drift (the feedback
     // loop in the design's Risks section).
@@ -909,9 +915,9 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     // `nextTop - applied` by construction, and reading back `scrollTop` (rather
     // than trusting `correction`) keeps that exact when the browser CLAMPS the
     // write to [0, scrollHeight - clientHeight].
-    const applied = el.scrollTop - scrollBefore;
-    selfScrollTopRef.current = el.scrollTop;
+    const applied = el.scrollTop - nextScrollTop;
     anchorPrevTopRef.current = nextTop - applied;
+    anchorPrevScrollTopRef.current = el.scrollTop;
   });
 
   useImperativeHandle(ref, () => ({
