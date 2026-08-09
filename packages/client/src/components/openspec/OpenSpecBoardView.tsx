@@ -22,12 +22,15 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ChangeState, deriveChangeState, OPENSPEC_UNGROUPED_KEY } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
-  closestCenter,
   DndContext,
   type DragEndEvent,
+  type DragMoveEvent,
   DragOverlay,
   type DragStartEvent,
   PointerSensor,
+  pointerWithin,
+  useDndContext,
+  useDndMonitor,
   useDroppable,
   useSensor,
   useSensors,
@@ -37,7 +40,6 @@ import {
   horizontalListSortingStrategy,
   SortableContext,
   useSortable,
-  verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -62,7 +64,18 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { computeReorder, orderChangesForGroup } from "../../lib/openspec/openspec-board-order.js";
+import {
+  type CardRectMap,
+  COL_ROOT_PREFIX,
+  computeReorder,
+  type DropSlot,
+  markerHostIndex,
+  orderChangesForGroup,
+  RAIL_PREFIX,
+  resolveDropSlot,
+  resolveDropTarget,
+  slotsEqual,
+} from "../../lib/openspec/openspec-board-order.js";
 import { deriveWorktreeProgress } from "../../lib/openspec/openspec-board-worktree.js";
 import { useOpenSpecConfig } from "../../lib/openspec/openspec-config-api.js";
 import { GROUP_PALETTE, resolveGroupColor } from "../../lib/openspec/openspec-group-palette.js";
@@ -278,6 +291,37 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
   // DnD ------------------------------------------------------------
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const [activeDrag, setActiveDrag] = useState<{ type: "column" | "card"; id: string } | null>(null);
+  // Slot resolved during the drag by <DropSlotProbe>; `handleDragEnd` only
+  // commits it. See change: fix-openspec-board-drop-targeting (design D1).
+  const [dropSlot, setDropSlot] = useState<DropSlot | null>(null);
+  const dropSlotRef = useRef<DropSlot | null>(null);
+  // True between drag start and drag end/cancel. An interrupted drag (cancel,
+  // tab hide, window blur) clears it, which is what makes `handleDragEnd` bail
+  // instead of committing a slot the user never confirmed.
+  const dragAliveRef = useRef(false);
+
+  const handleDropSlot = useCallback((slot: DropSlot | null) => {
+    dropSlotRef.current = slot;
+    setDropSlot(slot);
+  }, []);
+
+  const clearDrag = useCallback(() => {
+    dragAliveRef.current = false;
+    dropSlotRef.current = null;
+    setActiveDrag(null);
+    setDropSlot(null);
+  }, []);
+
+  // dnd-kit binds `pointercancel`, `resize`, and `visibilitychange`, but there
+  // is no `blur` listener in core, so an alt-tab away with the tab still
+  // visible would leave the marker, rail, and receded columns on screen.
+  // See design D5a.
+  useEffect(() => {
+    if (!activeDrag) return;
+    const onBlur = () => { clearDrag(); };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [activeDrag, clearDrag]);
 
   const persistGroupOrder = useCallback(async (ordered: OpenSpecGroup[]) => {
     await Promise.all(ordered.map((g, i) => (g.order === i ? null : updateGroup(cwd, g.id, { order: i }))).filter(Boolean) as Promise<unknown>[]);
@@ -285,19 +329,39 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
 
   const handleDragStart = useCallback((e: DragStartEvent) => {
     const t = e.active.data.current?.type;
-    if (t === "column" || t === "card") setActiveDrag({ type: t, id: String(e.active.id) });
+    if (t === "column" || t === "card") {
+      dragAliveRef.current = true;
+      dropSlotRef.current = null;
+      setDropSlot(null);
+      setActiveDrag({ type: t, id: String(e.active.id) });
+    }
   }, []);
 
   const handleDragEnd = useCallback((e: DragEndEvent) => {
-    setActiveDrag(null);
+    const alive = dragAliveRef.current;
+    const slot = dropSlotRef.current;
+    clearDrag();
+    // An interrupted drag already cleared the state; never commit after it.
+    if (!alive) return;
     const { active, over } = e;
+    // `pointerWithin` alone (no `closestCorners` fallback), so a null `over` is
+    // a genuine cancel — the gutter and the page margin commit nothing.
+    // See design D3.
     if (!over) return;
     const aType = active.data.current?.type as string | undefined;
+    // Every `over` id becomes a group key in exactly one place, so a namespaced
+    // droppable (`rail:<k>`, `col-root:<k>`) can never be persisted as a bogus
+    // group. Both branches route through it. See design D4/D5b.
+    const target = resolveDropTarget({
+      id: String(over.id),
+      data: over.data.current as { type?: string; groupKey?: string } | null,
+    });
+    if (!target) return;
 
     // Column reorder (real groups only) -----------------------------
     if (aType === "column") {
       const fromId = String(active.id);
-      const overId = String(over.id);
+      const overId = target.colKey;
       if (fromId === overId) return;
       const ids = groups.map((g) => g.id);
       const from = ids.indexOf(fromId);
@@ -313,24 +377,22 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
     if (aType === "card") {
       const movedName = String(active.id);
       const sourceKey = active.data.current?.groupKey as string;
-      const overType = over.data.current?.type as string | undefined;
-      const targetKey = overType === "card" ? (over.data.current?.groupKey as string) : String(over.id);
-      if (!targetKey) return;
-
+      const targetKey = target.colKey;
       const targetCol = columns.find((c) => c.key === targetKey);
-      const targetNames = (targetCol?.changes ?? []).map((c) => c.name).filter((n) => n !== movedName);
-      let insertIndex = targetNames.length;
-      if (overType === "card") {
-        const overName = String(over.id);
-        const idx = targetNames.indexOf(overName);
-        if (idx >= 0) insertIndex = idx; // drop before the hovered card
-      }
+      if (!targetCol) return;
+
+      // Frame-race guard (design D3): commit the resolved slot only when the
+      // end event's live `over` agrees with it. A single-frame move into the
+      // gutter followed by a release would otherwise land a stale slot.
+      if (!slot || slot.colKey !== targetKey) return;
 
       const groupChanged = sourceKey !== targetKey;
+      // `slot.index` is already an index into the without-moved list, which is
+      // exactly `computeReorder`'s contract — no `+1` correction.
       const newTargetOrder = computeReorder(
-        (targetCol?.changes ?? []).map((c) => c.name),
+        targetCol.changes.map((c) => c.name),
         movedName,
-        insertIndex + ((targetCol?.changes ?? []).some((c) => c.name === movedName) && insertIndex > (targetCol?.changes ?? []).findIndex((c) => c.name === movedName) ? 1 : 0),
+        slot.index,
       );
 
       // Optimistic local update.
@@ -360,7 +422,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
         } catch {/* tolerate; WS will reconcile */}
       })();
     }
-  }, [groups, columns, cwd, persistGroupOrder]);
+  }, [groups, columns, cwd, persistGroupOrder, clearDrag]);
 
   // Group mutations ------------------------------------------------
   const handleCreateGroup = useCallback(async (name: string, color: string) => {
@@ -435,7 +497,14 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
       </div>
 
       {/* Board */}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={pointerWithin}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={clearDrag}
+      >
+        <DropSlotProbe columns={columns} onSlot={handleDropSlot} />
         <div ref={boardScrollRef} className="flex gap-3 p-4 items-start overflow-x-auto flex-1 min-h-0 board-columns" data-testid="board-columns">
           <SortableContext items={groups.map((g) => g.id)} strategy={horizontalListSortingStrategy}>
             {columns.map((col) => (
@@ -446,11 +515,16 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
                 changes={col.changes}
                 draggableHeader={col.group != null}
                 isDragging={activeDrag?.type === "column" && activeDrag.id === col.key}
+                cardDragActive={activeDrag?.type === "card"}
+                movedName={activeDrag?.type === "card" ? activeDrag.id : null}
+                dropIndex={dropSlot?.colKey === col.key ? dropSlot.index : null}
+                receded={activeDrag?.type === "card" && dropSlot != null && dropSlot.colKey !== col.key}
                 onNewProposal={() => setProposalDialogGroup({ open: true, groupId: col.key })}
                 onManage={col.group ? () => setManageGroupId(col.group!.id) : undefined}
-                renderCard={(c) => (
+                renderCard={(c, markerBefore) => (
                   <ProposalCard
                     key={c.name}
+                    markerBefore={markerBefore}
                     cwd={cwd}
                     change={c}
                     groupKey={col.key}
@@ -608,60 +682,326 @@ function DragChip({ activeDrag, changes, groups }: {
   );
 }
 
+// ── Drop-slot probe ───────────────────────────────────────────────
+// MUST render inside <DndContext>: dnd-kit's `droppableRects` map is reachable
+// only through `useDndContext()`, and the board's own handlers live in the
+// PARENT of <DndContext>, where the map measures 0 entries (verified by spike)
+// — resolving there would land every drop at index 0. See design D5c.
+//
+// Renders nothing; resolves the slot on every pointer move and lifts it up.
+const NO_SORT_STRATEGY = () => null;
+
+/** Resolve the slot a `dragmove` points at, or null when it points at nothing. */
+function resolveMoveSlot(
+  e: DragMoveEvent,
+  columns: Array<{ key: string; changes: OpenSpecChange[] }>,
+  rects: Map<string | number, { top: number; bottom: number }>,
+): DropSlot | null {
+  if (!e.over) return null;
+  const target = resolveDropTarget({
+    id: String(e.over.id),
+    data: e.over.data.current as { type?: string; groupKey?: string } | null,
+  });
+  if (!target) return null;
+  const col = columns.find((c) => c.key === target.colKey);
+  if (!col) return null;
+
+  const movedName = String(e.active.id);
+  const columnNames = col.changes.map((c) => c.name);
+  // The rail always means "last", and suppresses the in-gap marker.
+  if (target.kind === "rail") {
+    return { colKey: target.colKey, index: columnNames.filter((n) => n !== movedName).length };
+  }
+  // Measured 0px error against a real pointer (spike, design D5c).
+  const pointerY = ((e.activatorEvent as PointerEvent | undefined)?.clientY ?? 0) + e.delta.y;
+  // Read the ADJUSTED getters (`rect.top`/`rect.bottom`) — they are scroll-live,
+  // so they stay correct through auto-scroll. The raw `rect.rect` snapshot is
+  // frozen at measure time. See design D2.
+  const cardRects: CardRectMap = new Map();
+  for (const name of columnNames) {
+    const r = rects.get(name);
+    if (r) cardRects.set(name, { top: r.top, bottom: r.bottom });
+  }
+  return { colKey: target.colKey, index: resolveDropSlot({ cardRects, pointerY, movedName, columnNames }) };
+}
+
+function DropSlotProbe({ columns, onSlot }: {
+  columns: Array<{ key: string; changes: OpenSpecChange[] }>;
+  onSlot: (slot: DropSlot | null) => void;
+}) {
+  const { droppableRects } = useDndContext();
+  const lastRef = useRef<DropSlot | null>(null);
+  const colsRef = useRef(columns);
+  colsRef.current = columns;
+  const rectsRef = useRef(droppableRects);
+  rectsRef.current = droppableRects;
+
+  const listener = useMemo(() => {
+    const reset = () => { lastRef.current = null; };
+    return {
+      onDragMove: (e: DragMoveEvent) => {
+        if (e.active.data.current?.type !== "card") return; // column drags have no slot
+        const slot = resolveMoveSlot(e, colsRef.current, rectsRef.current);
+        // Suppress the update while the resolved slot is unchanged, so a move
+        // within one gap costs no render. See design D1.
+        if (slotsEqual(lastRef.current, slot)) return;
+        lastRef.current = slot;
+        onSlot(slot);
+      },
+      onDragEnd: reset,
+      onDragCancel: reset,
+    };
+  }, [onSlot]);
+
+  useDndMonitor(listener);
+  return null;
+}
+
+/**
+ * Which drag-time affordance indicates the resolved slot for one column.
+ * `markerHost` is a rendered index, or -1 when the last slot (the rail) is what
+ * indicates the drop instead. See design D6.
+ */
+function deriveColumnDropState(changes: OpenSpecChange[], movedName: string | null | undefined, dropIndex: number | null | undefined) {
+  if (dropIndex == null) return { isDropTarget: false, railActive: false, markerHost: -1 };
+  const withoutCount = changes.reduce((n, c) => (c.name === movedName ? n : n + 1), 0);
+  // The final slot has no following card to host a marker, so the rail is what
+  // indicates it — driven by the RESOLVED SLOT being last, not by the pointer
+  // being over the rail.
+  if (dropIndex === withoutCount) return { isDropTarget: true, railActive: true, markerHost: -1 };
+  const movedRenderedIndex = movedName ? changes.findIndex((c) => c.name === movedName) : -1;
+  return {
+    isDropTarget: true,
+    railActive: false,
+    markerHost: markerHostIndex(dropIndex, movedRenderedIndex >= 0 ? movedRenderedIndex : null),
+  };
+}
+
+/**
+ * Whether a scroller has room left in each direction. Tracked only while a card
+ * drag is active, to gate the edge-glow zones.
+ */
+function useScrollRoom(ref: React.MutableRefObject<HTMLElement | null>, enabled: boolean | undefined) {
+  const [room, setRoom] = useState({ up: false, down: false });
+  useEffect(() => {
+    if (!enabled) return;
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      const up = el.scrollTop > 2;
+      const down = el.scrollTop + el.clientHeight < el.scrollHeight - 2;
+      setRoom((prev) => (prev.up === up && prev.down === down ? prev : { up, down }));
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    return () => el.removeEventListener("scroll", update);
+  }, [enabled, ref]);
+  return room;
+}
+
+// ── Column body (scroller + droppable) ────────────────────────────────
+// The droppable stays HERE rather than moving to the column root: dnd-kit's
+// auto-scroll walks the over node's ancestors, so the scroller must remain on
+// the drop path. See design D5.
+function BoardColumnBody({
+  colKey, changes, cardDragActive, railLabel, railActive, markerHost, dropIndex, isDropTarget, renderCard,
+}: {
+  colKey: string;
+  changes: OpenSpecChange[];
+  cardDragActive?: boolean;
+  railLabel: string;
+  railActive: boolean;
+  markerHost: number;
+  dropIndex?: number | null;
+  isDropTarget: boolean;
+  renderCard: (c: OpenSpecChange, markerBefore: boolean) => React.ReactNode;
+}) {
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: colKey, data: { type: "column", groupKey: colKey } });
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const setBodyRef = useCallback((node: HTMLDivElement | null) => {
+    bodyRef.current = node;
+    setDropRef(node);
+  }, [setDropRef]);
+  const scrollRoom = useScrollRoom(bodyRef, cardDragActive);
+
+  return (
+    <div
+      ref={setBodyRef}
+      className={`p-2 flex flex-col gap-2 overflow-y-auto board-column-body rounded-b-xl ${isOver ? "board-column-body-over" : ""}`}
+      data-testid={`board-column-body-${colKey}`}
+      data-over={isOver ? "true" : undefined}
+      data-drop-slot={isDropTarget ? String(dropIndex) : undefined}
+    >
+      {cardDragActive && <EdgeGlow side="top" active={isDropTarget && scrollRoom.up} />}
+      {/* The strategy is neutralised (NOT `strategy={undefined}`, which falls
+          back to `rectSortingStrategy` and still displaces). Displacement would
+          make the cards' visual positions diverge from data order mid-drag,
+          invalidating the rect-midpoint count. See design D6. */}
+      <SortableContext items={changes.map((c) => c.name)} strategy={NO_SORT_STRATEGY}>
+        {changes.length > 0
+          ? changes.map((c, i) => renderCard(c, i === markerHost))
+          : <EmptyState className="py-3.5" title={i18nT("openspec.noProposals", undefined, "No proposals")} />}
+      </SortableContext>
+      {cardDragActive && <ColumnAppendRail colKey={colKey} label={railLabel} active={railActive} />}
+      {cardDragActive && <EdgeGlow side="bottom" active={isDropTarget && scrollRoom.down} />}
+    </div>
+  );
+}
+
+// ── Column header ────────────────────────────────────────────────
+// When `draggableHeader` the header carries the column-sortable listeners; they
+// fire only on pointer-down, so accepting a CARD drop here (via the column-root
+// droppable) cannot conflict with starting a column drag. See design D5.
+function BoardColumnHeader({ colKey, name, dotColor, count, draggableHeader, dragProps, onNewProposal, onManage }: {
+  colKey: string;
+  name: string;
+  dotColor: string;
+  count: number;
+  draggableHeader: boolean;
+  dragProps: Record<string, unknown>;
+  onNewProposal: () => void;
+  onManage?: () => void;
+}) {
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border-primary)]"
+      {...dragProps}
+      style={draggableHeader ? { cursor: "grab" } : undefined}
+      data-testid={`board-column-head-${colKey}`}
+    >
+      <span className="w-2.5 h-2.5 rounded-[3px] flex-none" style={{ background: dotColor }} />
+      <span className="font-semibold text-[var(--text-primary)] text-[12px] truncate">{name}</span>
+      <span className="text-[var(--text-muted)] text-[11px]">{count}</span>
+      <span className="ml-auto flex items-center gap-1.5">
+        <button onClick={(e) => { e.stopPropagation(); onNewProposal(); }} title={i18nT("openspec.newProposalInThisGroup", undefined, "New proposal in this group")} className="text-[var(--text-muted)] hover:text-green-400 text-[13px] font-bold" data-testid={`col-new-proposal-${colKey}`}>＋</button>
+        {onManage && (
+          <button onClick={(e) => { e.stopPropagation(); onManage(); }} title={i18nT("common.renameRecolorDeleteGroup", undefined, "Rename · recolor · delete group")} className="text-[var(--text-muted)] hover:text-blue-400" data-testid={`col-manage-${colKey}`}>
+            <Icon path={mdiCog} size={0.5} />
+          </button>
+        )}
+        {draggableHeader && <Icon path={mdiDragVertical} size={0.6} className="text-[var(--text-muted)]" />}
+      </span>
+    </div>
+  );
+}
+
+// ── Auto-scroll edge glow ─────────────────────────────────────────
+// Indicates (it cannot drive) dnd-kit's built-in auto-scroll. Zero height plus
+// a negative margin cancels the flex gap it would otherwise introduce, so
+// mounting it mid-drag shifts no card.
+function EdgeGlow({ side, active }: { side: "top" | "bottom"; active: boolean }) {
+  return (
+    <i
+      className={`board-edge-glow board-edge-glow-${side}`}
+      aria-hidden="true"
+      data-active={active ? "true" : undefined}
+    />
+  );
+}
+
+// ── Column append rail ────────────────────────────────────────────
+// Sticky to the body's bottom edge so the last slot is reachable without
+// scrolling first — an in-flow rail sits below the scroll fold in 8 of 9
+// measured columns. Drag-only, ≥44px, own id namespace. See design D4.
+function ColumnAppendRail({ colKey, label, active }: { colKey: string; label: string; active: boolean }) {
+  const { setNodeRef } = useDroppable({ id: `${RAIL_PREFIX}${colKey}`, data: { type: "rail", groupKey: colKey } });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`board-append-rail${active ? " board-append-rail-active" : ""}`}
+      data-testid={`board-append-rail-${colKey}`}
+      data-rail-active={active ? "true" : undefined}
+    >
+      {label}
+    </div>
+  );
+}
+
 // ── Column ────────────────────────────────────────────────────────
 function BoardColumn({
-  colKey, group, changes, draggableHeader, isDragging, onNewProposal, onManage, renderCard,
+  colKey, group, changes, draggableHeader, isDragging, cardDragActive, movedName, dropIndex, receded,
+  onNewProposal, onManage, renderCard,
 }: {
   colKey: string;
   group: OpenSpecGroup | null;
   changes: OpenSpecChange[];
   draggableHeader: boolean;
   isDragging: boolean;
+  /** A card drag is in progress anywhere on the board. */
+  cardDragActive?: boolean;
+  /** The dragged card's name, when a card drag is in progress. */
+  movedName?: string | null;
+  /** Resolved without-moved slot index for THIS column, else null. */
+  dropIndex?: number | null;
+  /** Another column is the resolved drop target. */
+  receded?: boolean;
   onNewProposal: () => void;
   onManage?: () => void;
-  renderCard: (c: OpenSpecChange) => React.ReactNode;
+  renderCard: (c: OpenSpecChange, markerBefore: boolean) => React.ReactNode;
 }) {
   const sortable = useSortable({ id: colKey, data: { type: "column" }, disabled: !draggableHeader });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: colKey, data: { type: "column", groupKey: colKey } });
+  // A second, separately-identified droppable on the column ROOT so the header
+  // and outer padding accept drops too. The body keeps its own droppable
+  // because dnd-kit's auto-scroll walks the OVER NODE's ancestors — moving the
+  // ref to the root would leave the scroller a descendant. See design D5.
+  const { setNodeRef: setRootDropRef } = useDroppable({
+    id: `${COL_ROOT_PREFIX}${colKey}`,
+    data: { type: "column-root", groupKey: colKey },
+  });
+  const setSortableRef = sortable.setNodeRef;
+  // The root already carries `sortable.setNodeRef`; a second `ref=` cannot be
+  // assigned, so the merge is explicit.
+  const setRootRef = useCallback((node: HTMLElement | null) => {
+    setSortableRef(node);
+    setRootDropRef(node);
+  }, [setSortableRef, setRootDropRef]);
+
+  const { isDropTarget, railActive, markerHost } = deriveColumnDropState(changes, movedName, dropIndex);
+
   const dotColor = group ? resolveGroupColor(group.color) : "var(--text-muted)";
   const name = group ? group.name : "Ungrouped";
+  // A drop on the Ungrouped rail CLEARS the group assignment, so the label must
+  // not read as "add to a group".
+  const railLabel = group
+    ? i18nT("openspec.dropAtEndOfGroup", { group: name }, "Drop at end of {group}")
+    : i18nT("openspec.dropHereToUngroup", undefined, "Drop here to remove from its group");
+
+  const rootClass = [
+    "flex-[0_0_300px] max-w-[300px] bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl flex flex-col max-h-full board-column",
+    sortable.isDragging || isDragging ? "opacity-50" : "",
+    isDropTarget ? "board-column-target" : "",
+    receded ? "board-column-receded" : "",
+  ].filter(Boolean).join(" ");
 
   return (
     <div
-      ref={sortable.setNodeRef}
+      ref={setRootRef}
       style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
-      className={`flex-[0_0_300px] max-w-[300px] bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl flex flex-col max-h-full board-column ${sortable.isDragging || isDragging ? "opacity-50" : ""}`}
+      className={rootClass}
       data-testid={`board-column-${colKey}`}
+      data-drop-target={isDropTarget ? "true" : undefined}
     >
-      <div
-        className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border-primary)]"
-        {...(draggableHeader ? { ...sortable.attributes, ...sortable.listeners } : {})}
-        style={draggableHeader ? { cursor: "grab" } : undefined}
-        data-testid={`board-column-head-${colKey}`}
-      >
-        <span className="w-2.5 h-2.5 rounded-[3px] flex-none" style={{ background: dotColor }} />
-        <span className="font-semibold text-[var(--text-primary)] text-[12px] truncate">{name}</span>
-        <span className="text-[var(--text-muted)] text-[11px]">{changes.length}</span>
-        <span className="ml-auto flex items-center gap-1.5">
-          <button onClick={(e) => { e.stopPropagation(); onNewProposal(); }} title={i18nT("openspec.newProposalInThisGroup", undefined, "New proposal in this group")} className="text-[var(--text-muted)] hover:text-green-400 text-[13px] font-bold" data-testid={`col-new-proposal-${colKey}`}>＋</button>
-          {onManage && (
-            <button onClick={(e) => { e.stopPropagation(); onManage(); }} title={i18nT("common.renameRecolorDeleteGroup", undefined, "Rename · recolor · delete group")} className="text-[var(--text-muted)] hover:text-blue-400" data-testid={`col-manage-${colKey}`}>
-              <Icon path={mdiCog} size={0.5} />
-            </button>
-          )}
-          {draggableHeader && <Icon path={mdiDragVertical} size={0.6} className="text-[var(--text-muted)]" />}
-        </span>
-      </div>
-      <div ref={setDropRef} className={`p-2 flex flex-col gap-2 overflow-y-auto board-column-body rounded-b-xl ${isOver ? "ring-2 ring-inset ring-blue-500/60 bg-blue-500/5" : ""}`} data-testid={`board-column-body-${colKey}`} data-over={isOver ? "true" : undefined}>
-        <SortableContext items={changes.map((c) => c.name)} strategy={verticalListSortingStrategy}>
-          {changes.length > 0
-            ? changes.map((c) => renderCard(c))
-            : <EmptyState
-                className="py-3.5"
-                title={i18nT("openspec.noProposals", undefined, "No proposals")}
-              />}
-        </SortableContext>
-      </div>
+      <BoardColumnHeader
+        colKey={colKey}
+        name={name}
+        dotColor={dotColor}
+        count={changes.length}
+        draggableHeader={draggableHeader}
+        dragProps={draggableHeader ? { ...sortable.attributes, ...sortable.listeners } : {}}
+        onNewProposal={onNewProposal}
+        onManage={onManage}
+      />
+      <BoardColumnBody
+        colKey={colKey}
+        changes={changes}
+        cardDragActive={cardDragActive}
+        railLabel={railLabel}
+        railActive={railActive}
+        markerHost={markerHost}
+        dropIndex={dropIndex}
+        isDropTarget={isDropTarget}
+        renderCard={renderCard}
+      />
     </div>
   );
 }
@@ -694,6 +1034,8 @@ function ProposalCard(props: {
   openspecConfig: ReturnType<typeof useOpenSpecConfig>;
   isGitRepo: boolean;
   gitWorktreeEnabled: boolean;
+  /** Paint the insertion marker in the gap above this card (drag-time only). */
+  markerBefore?: boolean;
 }) {
   const { change: c, groupKey, sessions, openspecMap } = props;
   const sortable = useSortable({ id: c.name, data: { type: "card", groupKey } });
@@ -707,7 +1049,7 @@ function ProposalCard(props: {
     <div
       ref={sortable.setNodeRef}
       style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
-      className={`relative isolate bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-[10px] px-2.5 py-2 board-card cursor-grab active:cursor-grabbing ${sortable.isDragging ? "opacity-40" : ""}`}
+      className={`relative isolate bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-[10px] px-2.5 py-2 board-card cursor-grab active:cursor-grabbing ${sortable.isDragging ? "opacity-40" : ""}${props.markerBefore ? " board-drop-marker" : ""}`}
       data-testid={`board-card-${c.name}`}
       {...sortable.attributes}
       {...sortable.listeners}

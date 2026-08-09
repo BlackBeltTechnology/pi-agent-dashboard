@@ -526,6 +526,8 @@ const zhCN: Record<string, string> = {
   "openspec.bulkArchiveChanges": "批量归档更改？",
   "openspec.buttonOnOpenspecRowsThe": "按钮(位于 OpenSpec 行)。",
   "openspec.detachChange": "分离变更",
+  "openspec.dropAtEndOfGroup": "拖放到「{group}」末尾",
+  "openspec.dropHereToUngroup": "拖放到此处以移出分组",
   "openspec.filterProposalsSessions": "筛选提案与会话…",
   "openspec.jumpToSpec": "跳转到规范…",
   "openspec.loadingArchive": "正在加载归档...",

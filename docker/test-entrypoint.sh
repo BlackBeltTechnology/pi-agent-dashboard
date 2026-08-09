@@ -56,6 +56,24 @@ if [ -d /fixtures-src ] && [ -d /fixtures ]; then
         && echo "[test-entrypoint] git fixture ready: /fixtures/${fx}"
     fi
   done
+
+  # The board drop-targeting specs need a column deep enough to overflow its
+  # visible height (≥14 cards) and a 64-card column for the frame-budget
+  # assertion. Generated here so 64 change directories stay out of the repo.
+  # See change: fix-openspec-board-drop-targeting.
+  BOARD_FX=/fixtures/openspec-board/openspec/changes
+  if [ -d "/fixtures/openspec-board/openspec" ] && ! [ -d "${BOARD_FX}/board-card-01" ]; then
+    for i in $(seq -w 1 64); do
+      mkdir -p "${BOARD_FX}/board-card-${i}"
+      printf '# Proposal - board card %s\n\n## Why\n\nBoard drop-target fixture card.\n' "${i}" \
+        > "${BOARD_FX}/board-card-${i}/proposal.md"
+      # One unchecked task each, so every card derives the same in-progress
+      # state and the cards render at a uniform height.
+      printf '# Tasks - board card %s\n\n## 1. Fixture\n\n- [ ] 1.1 Fixture card.\n' "${i}" \
+        > "${BOARD_FX}/board-card-${i}/tasks.md"
+    done
+    echo "[test-entrypoint] board fixture ready: 64 changes in ${BOARD_FX}"
+  fi
 fi
 
 # --- 1c. E2E credential + network seed (gated; BEFORE base entrypoint) ------
