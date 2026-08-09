@@ -1,20 +1,38 @@
 ## ADDED Requirements
 
-### Requirement: Plugin activates only when `pi-blackhole` is installed
+### Requirement: The plugin self-gates on extension presence
 
-The `blackhole` plugin manifest SHALL declare `requires.piExtensions: ["pi-blackhole"]` so the dashboard treats it as inactive when the extension is absent.
+An unsatisfied `requires.piExtensions` does not deactivate a plugin or drop its claims, so the plugin SHALL gate its own visibility rather than relying on the host to withhold it. The manifest SHALL still declare `requires.piExtensions: ["pi-blackhole"]` for the Packages-page install affordance.
 
 #### Scenario: Extension present
 
 - **WHEN** `pi-blackhole` is installed and the plugin is enabled
 - **THEN** `/settings/plugins/blackhole` SHALL render the configuration form
-- **AND** the plugin's `settings-section` claim SHALL be registered
 
 #### Scenario: Extension absent
 
-- **WHEN** `pi-blackhole` is not installed
+- **WHEN** `pi-blackhole` is not present in pi's installed-package registry
 - **THEN** `/settings/plugins/blackhole` SHALL render a not-installed state naming the install command `pi install npm:pi-blackhole`
 - **AND** SHALL NOT render any configuration control
+- **AND** the not-installed state SHALL be produced by the plugin's own component, not by the host declining to mount it
+
+#### Scenario: Installed-ness comes from the package registry, not the filesystem
+
+- **WHEN** the plugin determines whether the extension is installed
+- **THEN** it SHALL consult pi's installed-package registry, the same source the host's requirement probes use
+- **AND** SHALL NOT infer installation from the existence of blackhole's directory or config file, which the extension creates on first run and which therefore means "has run at least once"
+
+#### Scenario: Installed but never run
+
+- **WHEN** `pi-blackhole` is in the package registry but has never run, so no config file exists
+- **THEN** the settings page SHALL render the configuration form populated with defaults
+- **AND** SHALL NOT render the not-installed state
+
+#### Scenario: Manifest declares the requirement for the install prompt
+
+- **WHEN** the manifest is inspected
+- **THEN** `requires.piExtensions` SHALL list `pi-blackhole`
+- **AND** the plugin SHALL NOT depend on that declaration to hide any surface
 
 #### Scenario: Plugin declares no dependency on the extension package
 
@@ -23,7 +41,7 @@ The `blackhole` plugin manifest SHALL declare `requires.piExtensions: ["pi-black
 
 ### Requirement: Config file location and discovery
 
-The server SHALL resolve the config file at `<agentDir>/pi-blackhole/pi-blackhole-config.json`, where `<agentDir>` honours the `PI_CODING_AGENT_DIR` environment variable and otherwise defaults to `~/.pi/agent`.
+The server SHALL resolve the config file at `<agentDir>/pi-blackhole/pi-blackhole-config.json`, mirroring the extension's own agent-directory resolution: `PI_CODING_AGENT_DIR` when set, otherwise `~/.pi/agent`. The filename SHALL be a fixed constant, never derived from request input.
 
 #### Scenario: Default location
 
@@ -98,11 +116,19 @@ When the config file exists but cannot be parsed, the server SHALL report a pars
 - **AND** any save is performed
 - **THEN** that key SHALL be present in the written file with its original value
 
+#### Scenario: Key order is preserved
+
+- **WHEN** a file whose keys are in a deliberate non-alphabetical order is saved
+- **THEN** the written file SHALL list keys in their original relative order
+- **AND** keys newly set by the save SHALL be appended rather than interleaved
+
 #### Scenario: Concurrent external edit is not clobbered by stale form state
 
-- **WHEN** the file is modified on disk after the client loaded it
+- **WHEN** the file is modified on disk after the client loaded it but before the request's own read
 - **AND** a client saves a change to one key
-- **THEN** only that key SHALL differ from the on-disk file's prior content
+- **THEN** only that key SHALL differ from the content observed at the request's read
+
+> Note: this bounds staleness of the *client's* snapshot only. A write landing between the request's read and its write is outside this guarantee, per the requirement below on concurrent external writes.
 
 ### Requirement: Server-side validation is the security boundary
 
@@ -122,7 +148,19 @@ When the config file exists but cannot be parsed, the server SHALL report a pars
 #### Scenario: Bound violation rejected
 
 - **WHEN** a request sets `dropperPressureThreshold` to `1.8`
-- **THEN** the server SHALL reject the request, the accepted range being `0`–`1`
+- **THEN** the server SHALL reject the request, the accepted interval being `(0, 1]`
+
+#### Scenario: Validation mirrors the extension's own coercion rules
+
+- **WHEN** the descriptor bounds are compared against blackhole's config parser
+- **THEN** token and turn counts SHALL accept integers strictly greater than `0`
+- **AND** `cooldownHours` SHALL additionally accept `0`, meaning disabled
+- **AND** `dropperPressureThreshold` SHALL reject `0` and accept `1`
+
+#### Scenario: A value the extension would silently discard is rejected at the door
+
+- **WHEN** a request carries a value blackhole's parser would coerce away, such as `observeAfterTokens` of `0`
+- **THEN** the server SHALL reject the request rather than writing a value the extension will ignore in favour of its default
 
 #### Scenario: Unknown key in the request is rejected
 
@@ -161,6 +199,12 @@ The settings section SHALL render `model`, `observerModel` + `observerFallbackMo
 - **WHEN** an entry is first in its chain
 - **THEN** its move-up control SHALL be present and disabled
 
+#### Scenario: A worker chain cannot be emptied
+
+- **WHEN** a worker chain contains only its primary entry
+- **THEN** that entry SHALL NOT offer a remove control
+- **AND** the primary SHALL be changeable only by editing it or by promoting a fallback above it
+
 #### Scenario: Per-model fields are editable
 
 - **WHEN** a chain entry is expanded
@@ -178,12 +222,36 @@ The settings section SHALL render `model`, `observerModel` + `observerFallbackMo
 - **WHEN** `sessionFallback` is `false`
 - **THEN** the session-model tail SHALL be rendered as excluded
 
-### Requirement: Saved configuration applies without a session restart
+### Requirement: Apply semantics are stated without asserting a guarantee
 
-The settings section SHALL communicate that saved changes take effect immediately in running sessions, because the extension re-reads its config from disk after every write.
+The settings section SHALL NOT tell the user a session restart is required. Whether a running session picks up the change is a property of the pinned `pi-blackhole` version, not something the dashboard controls or can guarantee.
 
-#### Scenario: Apply semantics stated
+#### Scenario: Restart is not demanded
 
 - **WHEN** the configuration form renders in a non-error state
-- **THEN** it SHALL state that saved changes apply to running sessions immediately
-- **AND** SHALL NOT state that a session restart is required
+- **THEN** it SHALL NOT state that a session restart is required
+
+#### Scenario: Immediate apply is attributed, not guaranteed
+
+- **WHEN** the form describes when changes take effect
+- **THEN** the statement SHALL be attributed to the extension's own reload behaviour
+- **AND** SHALL NOT be phrased as a guarantee made by the dashboard
+
+### Requirement: Concurrent external writes are narrowed, not claimed to be prevented
+
+Blackhole writes the same config file, and no cross-process lock exists. The server SHALL narrow the write window and SHALL NOT present the result as exclusive access.
+
+#### Scenario: Re-read happens immediately before the write
+
+- **WHEN** a save is performed
+- **THEN** the merge SHALL use content read within the same request, not content from the client's load
+
+#### Scenario: The write is atomic from a reader's perspective
+
+- **WHEN** the file is written
+- **THEN** a concurrent reader SHALL observe either the previous content or the new content, never a partial file
+
+#### Scenario: An interleaved external write is not silently reported as merged
+
+- **WHEN** the file changes on disk between the request's read and its write
+- **THEN** the outcome SHALL NOT be reported to the user as having preserved that external change

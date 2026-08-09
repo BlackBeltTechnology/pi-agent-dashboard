@@ -1,0 +1,86 @@
+## 1. Capture the pre-fix baseline
+
+- [ ] 1.1 Boot a harness for this worktree (build the per-worktree tag, then `PI_E2E_SEED=1 PI_TEST_PEERS=both ./docker/test-up.sh -d`) and record the container name + derived port from `.pi-test-harness.json`.
+- [ ] 1.2 Write the out-of-band probe (a script under `scripts/`, invoked from the host) that prints `memory.max`, `memory.current`, `memory.events`, `pids.current` from the container cgroup plus the resident `pi` process count and summed RSS. The image has no `ps` — enumerate `/proc/[0-9]*/status` for `VmRSS`.
+- [ ] 1.3 Run a ~30-spec chunk and sample the probe before and after; record the numbers in the change folder. This is the "climbs monotonically" baseline the fix must flatten.
+- [ ] 1.4 Record measured per-session RSS (average and range), dashboard server RSS, and the concurrent-session ceiling derived from them. These are the derivation inputs the budget requirement demands. Note explicitly that summed RSS overcounts shared pages relative to the cgroup figure.
+
+## 2. Bus-backed reap fixture (D1–D3)
+
+- [ ] 2.1 Add `tests/e2e/fixtures.ts` exporting `test` (extended from `@playwright/test`) and re-exporting `expect` plus **every** type the 87 specs currently import from that statement (`Page`, `Locator`, `APIRequestContext`, `WebSocket`) — 9 distinct import spellings, 27 files pulling types.
+- [ ] 2.2 Implement session enumeration over `BusClient` (`packages/bus-client`): connect per test, `read.sessions()` for the pre-body snapshot, `close()` in teardown. Do NOT hold a worker-scoped client — `faux-ask.spec.ts:101` restarts the daemon mid-suite and `BusClient` has no reconnect.
+- [ ] 2.3 Implement the delta: after the body, settle adaptively (poll until the session count is stable for 1 s, cap 5 s), then compute ids that appeared during the test. The settle is what stops a late-registering spawn from being misclassified as pre-existing forever.
+- [ ] 2.4 Implement the reap: send `{type:"shutdown", sessionId}` for each delta id **concurrently**, awaiting each `session_removed` (the server emits it after the SIGTERM→SIGKILL ladder completes, so it is the post-termination ack). Treat an unknown/already-gone session as success.
+- [ ] 2.5 Swallow every reap error and report it as a diagnostic — never as the test's failure.
+- [ ] 2.6 Register the fixture with `auto: true` so it runs without per-spec opt-in, on both pass and fail.
+- [ ] 2.7 Make global-setup wait for harness-owned sessions (notably `PI_E2E_INDEPENDENT_SESSION`) to be registered before the first test, so they are always inside the first snapshot and can never be reaped as a delta.
+
+## 2b. Tests — reap mechanism (folded from test-plan.md)
+
+- [ ] 2b.1 L1: delta classification decision table — ids present pre-only / post-only / both / neither · compute delta · only post-only ids returned for reap (test-plan #E1). Exemplar: a sibling `packages/*/src/**/__tests__/*.test.ts` covering pure helper logic.
+- [ ] 2b.2 L1: adaptive settle — session list gains an id 800 ms after the body ends · delta computed with the stable-for-1s/cap-5s settle · the late id is classified as spawned-during-test (test-plan #E4). Exemplar: same sibling unit test as 2b.1.
+- [ ] 2b.3 L1: reap-error isolation — bus unreachable at teardown · a test that already failed an assertion · reported failure stays the original assertion failure, reap error only a diagnostic (test-plan #X2). Exemplar: same sibling unit test as 2b.1.
+- [ ] 2b.4 L1: teardown tail-latency — teardown reaping 1 and 3 sessions, 20 iterations · timed · p95 < 5 s irrespective of session count (test-plan #P2). Exemplar: `tests/e2e/chat-render-perf.spec.ts` for the timing-assertion shape, authored as a vitest timed test.
+- [ ] 2b.5 L3: spawned sessions do not outlive the test — a spec spawning 2 sessions in the git fixture · body ends · both ids absent from the session list before the next test and resident `pi` count drops by 2 (test-plan #E2). Exemplar: `tests/e2e/bus-client-goal-plugin-action.spec.ts` (headless BusClient against the harness).
+- [ ] 2b.6 L3: pre-existing harness session survives — harness booted `PI_E2E_INDEPENDENT_SESSION=1` · a spec spawns and ends · the `source:"tui"` session is still live (test-plan #E3). Exemplar: `tests/e2e/faux-ask.spec.ts` (#F6 reconnect scenario).
+- [ ] 2b.7 L3: already-gone session tolerated — `notify-channel.spec.ts` force-kills its own session mid-test · reap targets the dead id · not-found treated as success, spec still passes (test-plan #X1). Exemplar: `tests/e2e/notify-channel.spec.ts` itself.
+- [ ] 2b.8 L3: reaped session is not a recovery candidate — session reaped over the bus, then the server cold-starts · recovery scan runs · not offered as a candidate, does not reappear (test-plan #X7). Exemplar: `tests/e2e/faux-ask.spec.ts:101` for the `/api/restart` pattern.
+- [ ] 2b.9 L3: reap does not race an in-flight turn — a session mid-stream when the body ends · reap fires · converges to removed with no uncaught `pageerror` (test-plan #F4). Exemplar: `tests/e2e/optimistic-prompt.spec.ts`.
+
+## 3. Adopt the fixture across the suite (D2)
+
+- [ ] 3.1 Rewrite the `@playwright/test` import in all 87 `tests/e2e/*.spec.ts` files to import from `./fixtures.js`, preserving each file's named-import set. Mechanical, but type-check the result — a missing re-export breaks all 87 at once while the guard test still passes.
+- [ ] 3.2 Audit the 5 specs with their own teardown hooks (`gateway-url-action`, `oauth-redirect-base`, `plugin-settings-pages`, `tool-created-files`, `uncommitted-indicator-commit`): `afterEach` runs before fixture teardown (session live), `afterAll` runs after it (session already reaped). Confirm no hook needs a live session in an `afterAll`.
+- [ ] 3.3 Add the guard test that fails any `tests/e2e/*.spec.ts` importing `test` from `@playwright/test` directly, with a message naming the file and the one-line correction.
+
+## 3b. Tests — adoption + ordering (folded from test-plan.md)
+
+- [ ] 3b.1 L1: guard decision table — spec importing `test` from `@playwright/test` / from `./fixtures.js` / importing only types from `@playwright/test` · guard runs · first fails naming file + correction, other two pass (test-plan #E6). Exemplar: the repo's existing skill-frontmatter guard test for the file-walking shape.
+- [ ] 3b.2 L1: guard fails closed — one spec's import deliberately reverted · guard runs · guard FAILS (test-plan #E7). Exemplar: same guard test as 3b.1.
+- [ ] 3b.3 L3: `afterEach` hook still sees a live session — a spec registering `afterEach` that reads its session · test ends · hook observes the session live, reap runs after it (test-plan #F1). Exemplar: `tests/e2e/uncommitted-indicator-commit.spec.ts`.
+- [ ] 3b.4 L3: `afterAll` ordering — a spec registering `afterAll` · file ends · hook runs after fixture teardown against an already-reaped session and still completes (test-plan #F2). Exemplar: `tests/e2e/plugin-settings-pages.spec.ts`.
+- [ ] 3b.5 L3: bus client survives the mid-suite restart — `faux-ask.spec.ts` calls `POST /api/restart`, dropping every socket · the next spec's reap runs · reap succeeds, no `bus client not connected` (test-plan #F3). Exemplar: `tests/e2e/faux-ask.spec.ts:101`.
+- [ ] 3b.6 L3: idempotent against an empty container — zero session cards after a prior reap · a spawn-round-trip spec starts · it pins the fixture, spawns, and reaches its assertions (test-plan #E8). Exemplar: `tests/e2e/navigation.spec.ts`.
+
+## 4. Harness-down latch (D4)
+
+- [ ] 4.1 Probe `GET /api/health` before each test body — explicitly, not via bus connection state, which `BusClient` does not expose and which stays "open" through the memory thrash this must detect.
+- [ ] 4.2 Require N ≥ 2 consecutive probe failures before declaring the harness down, so a harness merely slow under memory pressure is not misreported as dead.
+- [ ] 4.3 Run the probe before consulting the latch, so a CI retry (`retries: 1`) re-probes rather than reporting as a skip.
+- [ ] 4.4 On declaration, fail the current test with a harness-down message naming the harness, then `testInfo.skip()` every subsequent test.
+- [ ] 4.5 Document in the fixture that the latch is module state shared via the single worker, and therefore depends on `workers: 1` + `fullyParallel: false`.
+## 4b. Tests — harness-down latch (folded from test-plan.md)
+
+- [ ] 4b.1 L1: slow harness is not declared dead — probe fails twice (10 s timeout each) then succeeds · latch evaluated · harness NOT declared down, run continues (test-plan #X3). Exemplar: a sibling `__tests__/*.test.ts` unit test with a stubbed probe.
+- [ ] 4b.2 L1: dead harness latches — probe fails 3 consecutive times · latch evaluated · harness declared down, current test fails with a message naming the harness (test-plan #X4). Exemplar: same unit test as 4b.1.
+- [ ] 4b.3 L1: latch skips the remainder — latch already armed · subsequent tests start · each calls `testInfo.skip()`, none reported as a product failure (test-plan #X5). Exemplar: same unit test as 4b.1.
+- [ ] 4b.4 L1: retry re-probes rather than skipping — CI `retries: 1`, harness-down test retried · retry runs · probe runs before the latch is consulted, so the retry fails again rather than reporting as a skip (test-plan #X6). Exemplar: same unit test as 4b.1.
+
+## 5. Residual-session budget (D5)
+
+- [ ] 5.1 Declare the budget (starting value 8) in the fixture alongside a comment carrying its derivation from the group-1 measurements, and stating that it bounds *residual* sessions, not peak capacity.
+- [ ] 5.2 Assert live-session count ≤ budget after reaping; on breach, fail with the offending session ids and cwds.
+- [ ] 5.3 Record the observed peak residual across a chunk run; if a spec legitimately exceeds the budget, raise it to that peak + 2 rather than exempting the spec.
+
+## 5b. Tests — budget (folded from test-plan.md)
+
+- [ ] 5b.1 L1: budget boundary — post-reap live counts 7 / 8 / 9 against budget 8 · budget assertion · 7 and 8 pass, 9 fails naming the offending ids + cwds (test-plan #E5). Exemplar: a sibling `__tests__/*.test.ts` unit test.
+
+## 6. Verify the bound
+
+- [ ] 6.0 Author the L2 smoke script under `qa/tests/` that wraps an E2E chunk or full run and samples the container cgroup (`memory.max`, `memory.current`, `memory.events`, `pids.current`) plus the resident `pi` count from `/proc`, before and after. This is the change's only new infra; it keeps cgroup sampling out-of-band per design D5 and carries NO rendered-UI assertions. Exemplar: an existing `qa/tests/*.sh` process-smoke script.
+- [ ] 6.0a L2: memory does not climb — an early ~30-spec chunk then a later one against the same container · sampled out-of-band · `memory.current` after the later chunk ≤ early sample + 10 % (test-plan #P1). Exemplar: the script from 6.0.
+- [ ] 6.0b L2: resident process count tracks session count — full acceptance run sampled at chunk boundaries · resident `pi` count minus reported live-session count stays constant; any persistent divergence recorded (test-plan #P3). Exemplar: the script from 6.0.
+- [ ] 6.0c L2: full-run survival — all 87 specs, one container, `globalTimeout` overridden · run to completion · reaches the final spec, container still `healthy`, no unexplained `daemon restarted` line (test-plan #P4). Exemplar: the script from 6.0.
+- [ ] 6.1 Re-run the ~30-spec chunk from 1.3 and compare probe samples: resident pi count and `memory.current` must be flat run-over-run instead of climbing.
+- [ ] 6.2 Measure the wall-clock delta for that chunk versus the 1.3 baseline (lost session reuse plus reap time is expected to cost) and record it. If teardown is pushing specs toward the 60 s per-test timeout, address it there rather than by weakening the reap.
+- [ ] 6.3 Acceptance run: the full 87-spec suite in one container, with `globalTimeout` overridden on the CLI (the committed 15-minute value is out of scope here). It must reach the final spec with the container still healthy and no unexplained `daemon restarted` line.
+- [ ] 6.4 Record the acceptance run's spec-level results verbatim — this is the input #433 part 1 (red-spec triage) has been waiting for.
+
+## 7. Documentation and handoff
+
+- [ ] 7.1 Update `tests/e2e/README.md`: sessions are reaped per test over the bus, specs import `test` from `./fixtures.js`, and the budget with its derivation.
+- [ ] 7.2 Add per-file rows for `tests/e2e/fixtures.ts` and the probe script to the nearest directory `AGENTS.md` (delegate any `docs/` prose to DocScribe).
+- [ ] 7.3 File the REST/WS shutdown divergence as its own issue: `POST /api/session/:id/shutdown` omits the `setLiveness({closedReason:"manual"})` write that the WS `handleShutdown` and `handleForceKill` both perform, so REST-closed sessions stay cold-start recovery candidates.
+- [ ] 7.4 File the follow-up for `playwright.config.ts`'s 15-minute `globalTimeout`, which blocks an unattended full run and is deliberately not changed here.
+- [ ] 7.5 Comment on #433 with the measured root cause, the fix, and the acceptance-run results; state explicitly that parts 1 and 2 remain open and are now unblocked.
