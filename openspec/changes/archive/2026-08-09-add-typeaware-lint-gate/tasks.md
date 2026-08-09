@@ -11,7 +11,7 @@
 - [x] 2.2 Add `suspicious.noImportCycles: "error"` to the existing `suspicious` block in `biome.json`.
 - [x] 2.3 Confirm `biome.json` contains no `linter.domains` block (rules named individually — design D1).
 - [x] 2.4 Run `npx biome lint . --max-diagnostics=20000` and confirm zero errors repo-wide.
-- [x] 2.5 Run the quality gate and confirm it passes. NOTE: `npm run quality:changed` exits 1 here for a benign reason — the diff holds only `.md` + `biome.json`, so Biome processes 0 files ("No files were processed in the specified paths"). Verified instead by running the three legs directly: `npx biome lint .` (0 errors), `npx tsc --noEmit` (clean), `npm test` (12690 passed). Quirk recorded in `docs/code-quality.md`.
+- [x] 2.5 Verify the quality gate by running its three legs directly: `npx biome lint .` (0 errors), `npx tsc --noEmit` (clean), `npm test` (12690 passed, 0 failed). The aggregate `npm run quality:changed` is **not applicable** to this diff and was not used as the gate: the diff holds only `.md` + `biome.json`, so `biome check --changed` processes 0 files and exits 1 with "No files were processed in the specified paths". That exit is a scope artifact, not a violation. Quirk recorded in `docs/code-quality.md`.
 
 ## 3. Triage the four candidate type-aware rules
 

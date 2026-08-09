@@ -38,24 +38,56 @@ Method: copy `biome.json`, add the three rules at `error`, run a plain
 warnings** — the pre-existing warn-tier backlog, unchanged. Cost ~1.3s over
 2916 files.
 
-The oracle was proven non-vacuous before being trusted: a deliberate
-`function g() { f(); }` over an `async f()` was planted under
-`packages/server/src/` and `noFloatingPromises` reported it. A zero from a rule
-that cannot fire is worthless.
+Re-verified twice more, because a single reading proves nothing about the tree
+that actually merges: once **after `pnpm install`** (type-aware inference is
+dependency-sensitive — see the table below), and once **after merging
+`origin/develop`** (2923 files, still **0 errors, 2843 warnings**). The
+graduation therefore rests on the integrated tree, not the tree as it stood when
+planning finished.
 
-Re-probed counts for the four **untriaged** type-aware rules (whole repo, `--only`):
+The oracle was proven non-vacuous before being trusted. One deliberate violation
+was planted per rule under `packages/server/src/` and each was reported:
 
-| Rule | Findings |
-|---|---|
-| `suspicious.noUnnecessaryConditions` | 601 |
-| `nursery.noBaseToString` | 47 |
-| `nursery.useAwaitThenable` | 3 |
-| `nursery.useExhaustiveSwitchCases` | 2 |
+| Rule | Planted violation | Reported |
+|---|---|---|
+| `noFloatingPromises` | bare `f()` over an `async f()` | 1 error |
+| `noMisusedPromises` | `async` callback passed to a sync-callback param | 1 error |
+| `noImportCycles` | two-module static import loop | 2 errors |
 
-These differ sharply from the proposal's planning-time numbers (296 / 18 / 235 /
-4). Two of the four rules also live in a different group than the proposal
-assumed (`noUnnecessaryConditions` is `suspicious`, not `nursery`). Both facts
-are why this change re-derives rather than trusts.
+A zero from a rule that cannot fire is worthless — and indistinguishable from a
+clean tree.
+
+Counts for the four **untriaged** type-aware rules (whole repo, `--only`).
+Measured twice — the first pass ran **before `pnpm install`**, with workspace
+deps absent, and is retained only to document that type-aware inference is
+dependency-sensitive. **The post-install column is the authoritative evidence;
+the pre-install column MUST NOT be cited as a finding count.**
+
+| Rule | Planning-time (proposal) | Pre-install — INVALID | Post-install — AUTHORITATIVE |
+|---|---|---|---|
+| `suspicious.noUnnecessaryConditions` | 296 | 601 | **487** |
+| `nursery.noBaseToString` | 18 | 47 | **21** |
+| `nursery.useAwaitThenable` | 235 | 3 | **285** |
+| `nursery.useExhaustiveSwitchCases` | 4 | 2 | **4** |
+
+Two lessons, both load-bearing:
+
+1. **Type-aware counts depend on installed deps.** With `node_modules` missing,
+   Biome cannot resolve imported types and silently under-reports —
+   `useAwaitThenable` read 3 instead of 285. Any probe taken before
+   `pnpm install` is worthless. The three graduated rules were therefore
+   re-verified at zero *after* install and again after the `develop` merge.
+2. **Rule group is not assumable.** `noUnnecessaryConditions` lives in
+   `suspicious`, not `nursery` as the proposal assumed. A rule named under the
+   wrong group reports a silent zero indistinguishable from a clean tree.
+
+The final triage in `tasks.md` group 3 is conducted against the post-install
+column only.
+
+> `noUnnecessaryConditions` post-install is **487**, reconciled against Biome's
+> reported total. An initial extraction read 485 because the regex was anchored
+> `^[a-z]` and dropped two dot-path sites
+> (`.pi/skills/implement/scripts/restart-server.ts:35,38`).
 
 ## Goals / Non-Goals
 
