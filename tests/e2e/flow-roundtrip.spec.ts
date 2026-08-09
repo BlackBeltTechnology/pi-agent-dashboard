@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
 
 // Scenario 5.1 (change: add-flow-plugin-e2e-tests) — L3 full-stack activation +

@@ -1,5 +1,5 @@
 import { mdiDotsHorizontal } from "@mdi/js";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { gotoDashboard, pinDirectory } from "./helpers/index.js";
 
 /**

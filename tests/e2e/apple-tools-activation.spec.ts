@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { byTestId, gotoDashboard } from "./helpers/index.js";
 
 // apple-tools plugin — activation UI + provisioning panel (L3).

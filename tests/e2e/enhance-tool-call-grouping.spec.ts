@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 // Faux round-trip — universal tool-call grouping + turn-scoped reasoning fold.

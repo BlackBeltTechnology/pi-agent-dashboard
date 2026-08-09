@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
 import { watchRejections } from "./helpers/rejections.js";
 

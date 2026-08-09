@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { LIST_MODELS_MARKER_PREFIX } from "../../qa/fixtures/faux-scenarios.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 

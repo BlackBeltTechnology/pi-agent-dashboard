@@ -114,7 +114,11 @@ export default async function globalSetup(): Promise<void> {
   // Ports are NOT pre-pinned: test-up.sh hash-derives them in-window from the
   // unique workspace path (change fix-parallel-e2e-docker-collisions D1); we
   // read the chosen pair back from the state file below.
-  const env = {
+  // Annotated (rather than inferred) so the `delete env.DASHBOARD_PORT` strips
+  // below typecheck: an inferred object literal has no such optional keys.
+  // Surfaced by `npm run lint:e2e` — tests/ was never typechecked before
+  // change fix-e2e-harness-memory-exhaustion.
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     PI_E2E_SEED: "1",
     // Independent (NOT dashboard-spawned) pi session — required by the reconnect
