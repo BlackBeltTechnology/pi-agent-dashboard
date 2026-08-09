@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PromptBus } from "../prompt-bus.js";
 import { createTuiPromptAdapter } from "../tui-prompt-adapter.js";
+import { settlePrompts } from "./helpers/settle-prompts.js";
 
 function createMockUi() {
   const signals: Record<string, AbortSignal | undefined> = {};
@@ -45,23 +46,25 @@ describe("Bridge TUI adapter", () => {
     vi.useRealTimers();
   });
 
-  it("calls original select with question and options", () => {
+  it("calls original select with question and options", async () => {
     bus.registerAdapter(createTuiPromptAdapter(mockUi, bus));
-    bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A", "B"] });
+    const pending = bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A", "B"] });
 
     expect(mockUi.select).toHaveBeenCalledWith("Pick:", ["A", "B"], expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    await settlePrompts(bus, pending);
   });
 
-  it("calls original input with question and defaultValue", () => {
+  it("calls original input with question and defaultValue", async () => {
     bus.registerAdapter(createTuiPromptAdapter(mockUi, bus));
-    bus.request({ pipeline: "command", type: "input", question: "Name:", defaultValue: "default" });
+    const pending = bus.request({ pipeline: "command", type: "input", question: "Name:", defaultValue: "default" });
 
     expect(mockUi.input).toHaveBeenCalledWith("Name:", "default", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    await settlePrompts(bus, pending);
   });
 
-  it("calls original editor with question and prefill", () => {
+  it("calls original editor with question and prefill", async () => {
     bus.registerAdapter(createTuiPromptAdapter(mockUi, bus));
-    bus.request({
+    const pending = bus.request({
       pipeline: "command",
       type: "editor",
       question: "Edit response:",
@@ -73,11 +76,12 @@ describe("Bridge TUI adapter", () => {
       "draft",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+    await settlePrompts(bus, pending);
   });
 
-  it("calls original confirm with question and message context", () => {
+  it("calls original confirm with question and message context", async () => {
     bus.registerAdapter(createTuiPromptAdapter(mockUi, bus));
-    bus.request({
+    const pending = bus.request({
       pipeline: "command",
       type: "confirm",
       question: "Run production promotion?",
@@ -89,17 +93,19 @@ describe("Bridge TUI adapter", () => {
       "Staging passed all verification checks.",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+    await settlePrompts(bus, pending);
   });
 
-  it("passes an empty confirm message when context is absent", () => {
+  it("passes an empty confirm message when context is absent", async () => {
     bus.registerAdapter(createTuiPromptAdapter(mockUi, bus));
-    bus.request({ pipeline: "command", type: "confirm", question: "Sure?" });
+    const pending = bus.request({ pipeline: "command", type: "confirm", question: "Sure?" });
 
     expect(mockUi.confirm).toHaveBeenCalledWith(
       "Sure?",
       "",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+    await settlePrompts(bus, pending);
   });
 
   it("does not present multiselect prompts in the TUI", () => {
@@ -186,7 +192,7 @@ describe("Bridge TUI adapter", () => {
   it("does not respond after being aborted", async () => {
     const respondSpy = vi.spyOn(bus, "respond");
     bus.registerAdapter(createTuiPromptAdapter(mockUi, bus));
-    bus.request({ pipeline: "command", type: "select", question: "Q", options: ["A"] });
+    const pending = bus.request({ pipeline: "command", type: "select", question: "Q", options: ["A"] });
 
     const id = (bus as any).pending.keys().next().value;
     // Dashboard answers first
@@ -199,6 +205,7 @@ describe("Bridge TUI adapter", () => {
 
     // respond was called exactly once (by dashboard)
     expect(respondSpy.mock.calls.filter(c => c[0].id === id)).toHaveLength(1);
+    await settlePrompts(bus, pending);
   });
 
   it("returns empty claim (no component)", () => {

@@ -451,7 +451,11 @@ export async function readServerLogTail(lines: number = 20): Promise<string> {
  * Never throws — failures are returned as `{ kind: "failed", reason, logTail }`.
  */
 export async function requestServerLaunch(opts: { force?: boolean } = {}): Promise<LaunchOutcome> {
-  if (inflightLaunch) return inflightLaunch;
+  // Explicit nullish check: a `Promise` is always truthy, so the bare guard was
+  // correct only by accident. Narrowing preserves the inflight memoization
+  // exactly — do not `await` here, the caller awaits the shared promise.
+  // See change: cleanup-async-semantics-server-extension (design D4).
+  if (inflightLaunch !== null) return inflightLaunch;
   inflightLaunch = (async (): Promise<LaunchOutcome> => {
     try {
       emitLaunchStatus({ phase: "starting" });

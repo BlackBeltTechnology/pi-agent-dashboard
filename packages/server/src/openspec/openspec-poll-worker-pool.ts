@@ -275,7 +275,20 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
       if (workersDisabled) {
         // In-process path. Defer to microtask so callers can rely on async
         // semantics regardless of the path taken.
-        Promise.resolve().then(() => fallbackSettle(p));
+        // `fallbackSettle` try/catches its own derivation, so this handler is a
+        // guard rather than an expected path — but this pool runs on worker
+        // threads that plausibly do not reach the `cli.ts` crash-safety net, so
+        // an escaping rejection would be invisible AND leave the caller
+        // pending. Free the slot and log instead.
+        // See change: cleanup-async-semantics-server-extension (design D1).
+        Promise.resolve()
+          .then(() => fallbackSettle(p))
+          .catch((err: unknown) => {
+            console.warn(`[openspec-poll-worker-pool] in-process settle failed for ${p.payload.cwd}:`, err);
+            pending.delete(p.id);
+            const slot = slots[p.slotIndex];
+            if (slot) slot.busy = false;
+          });
         return;
       }
       const idx = pickFreeSlot();

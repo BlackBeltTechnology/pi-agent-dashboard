@@ -10,7 +10,7 @@
  *
  * See change: offload-session-events-load-to-worker.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -18,6 +18,15 @@ import { loadSessionEntries } from "../session/session-file-reader.js";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
 import { loadAndReplay } from "../session/session-load-worker.js";
 import { createSessionLoadWorkerPool } from "../session/session-load-worker-pool.js";
+
+// Spy-wrap the REAL `loadAndReplay` so parity tests keep the true projection
+// while #X9 can make a single call throw. The pool imports the same binding,
+// so the mock reaches `fallbackSettle`. See change:
+// cleanup-async-semantics-server-extension (test-plan #X9).
+vi.mock("../session/session-load-worker.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../session/session-load-worker.js")>();
+  return { ...actual, loadAndReplay: vi.fn(actual.loadAndReplay) };
+});
 
 let tmpDir: string;
 
@@ -138,6 +147,42 @@ describe("session-load-worker-pool — fallback + parity", () => {
       expect(out.events).toEqual(inProcessEvents("sess-tree", file, 200_000));
     } finally {
       await pool.dispose();
+    }
+  });
+});
+
+// See change: cleanup-async-semantics-server-extension (test-plan #X9)
+//
+// The in-process settle path defers `fallbackSettle` to a microtask. If that
+// throws (worker task rejects), the added `.catch` MUST free the slot, delete
+// the job, and settle the outer promise `cancelled` — rather than leaving the
+// caller pending forever and floating the rejection.
+describe("session-load-worker-pool — in-process settle rejection is owned", () => {
+  it("X9 a throwing pooled task settles the outer promise and releases the slot", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(loadAndReplay).mockImplementationOnce(() => {
+      throw new Error("settle boom");
+    });
+    const pool = createSessionLoadWorkerPool({ useWorker: false });
+    try {
+      const { result } = pool.load({ sessionId: "s-x9", sessionFile: "/does/not/matter" });
+      // Guard so a REVERTED fix (dropped `.catch`) surfaces as a hang, not a
+      // 30s vitest timeout.
+      let hangTimer: ReturnType<typeof setTimeout> | undefined;
+      const out = await Promise.race([
+        result,
+        new Promise((r) => {
+          hangTimer = setTimeout(() => r({ __hang: true }), 1500);
+        }),
+      ]).finally(() => clearTimeout(hangTimer));
+      expect(out).toMatchObject({ success: false, error: "cancelled" });
+      expect(pool.inFlight()).toBe(0); // slot released, job not leaked
+      expect(
+        warnSpy.mock.calls.some((c) => String(c[0]).includes("in-process settle failed")),
+      ).toBe(true);
+    } finally {
+      await pool.dispose();
+      warnSpy.mockRestore();
     }
   });
 });
