@@ -1,3 +1,3 @@
 # replay-persist.ts — index
 
-Debounced replay-cache writer. createReplayPersister(cache,debounceMs). Owns per-session raw-event buffer (monotonic by seq, dedup append). record/seed/drop/flush. drop clears buffer + deletes cache entry. See change: reduce-session-replay-traffic.
+Debounced replay-cache writer. createReplayPersister(cache,debounceMs). Owns per-session raw-event buffer (monotonic by seq, dedup append). record(id,events,origin)/seed/drop/flush. origin: "live"|"replay". drop clears buffer + deletes cache entry. PROVENANCE: per-session `descended` set; seed() + replay-origin record() set it, live-origin record() never does. flush() persists only when descended, else returns SILENTLY and never deletes (store shared across tabs, buffers per-tab). Live-origin seq > max+1 = dropped frame → clears descended until re-seed; replay-path gaps exempt (compaction). See change: reduce-session-replay-traffic, fix-replay-cache-partial-payload-cursor.
