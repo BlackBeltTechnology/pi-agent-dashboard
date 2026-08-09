@@ -1111,7 +1111,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           style={folderTint}
         />
         <div
-          className={`relative overflow-hidden bg-[var(--bg-primary)] border border-[var(--border-subtle)] p-1.5 ${isCollapsed ? "rounded-[14px] shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]" : "rounded-t-[14px] border-b-0 shadow-[inset_0_1px_0_var(--elevation-rim)]"}`}
+          // NO `overflow-hidden`: the folder actions menu is an absolutely
+          // positioned popover inside this card and would be clipped to the
+          // card bounds. Nothing inside needs clipping (the tab nub is a
+          // sibling, not a child).
+          className={`relative bg-[var(--bg-primary)] border border-[var(--border-subtle)] p-1.5 ${isCollapsed ? "rounded-[14px] shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]" : "rounded-t-[14px] border-b-0 shadow-[inset_0_1px_0_var(--elevation-rim)]"}`}
           style={folderTint}
         >
         <div className="relative z-[1]">

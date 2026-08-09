@@ -859,6 +859,19 @@ describe("SessionList add-to-workspace button", () => {
     expect(ids).toEqual([`folder-actions-menu-${CWD}`]);
   });
 
+  // The open menu is absolutely positioned inside the folder header card; any
+  // ancestor carrying `overflow-hidden` clips it to the card bounds.
+  it("no ancestor of the open menu panel clips it with overflow-hidden", () => {
+    renderList();
+    openMenu();
+    const panel = screen.getByTestId(`folder-actions-menu-panel-${CWD}`);
+    const clipping: string[] = [];
+    for (let n = panel.parentElement; n && n !== document.body; n = n.parentElement) {
+      if (/\boverflow-hidden\b/.test(n.className)) clipping.push(n.className);
+    }
+    expect(clipping).toEqual([]);
+  });
+
   it("the cluster never wraps and the parent path yields before the folder name", () => {
     renderList();
     const cluster = screen.getByTestId(`folder-header-cluster-${CWD}`);
