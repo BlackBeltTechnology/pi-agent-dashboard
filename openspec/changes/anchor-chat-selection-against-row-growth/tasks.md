@@ -36,10 +36,38 @@
 
 ## 6. Integration verification (Playwright)
 
-> BLOCKED — specs authored in `tests/e2e/selection-anchor.spec.ts`, but the docker
-> browser-E2E harness cannot run them: an UNTOUCHED control spec
-> (`tool-collapse-narration`) fails identically on a pristine tree. Pre-existing,
-> not caused by this change. See `SHIP_IT_BLOCKED.md`.
+> **BLOCKED (pre-existing, not caused by this change).** The specs are authored in
+> `tests/e2e/selection-anchor.spec.ts` but could not be verified: the faux
+> round-trip through the dashboard's browser path renders no transcript content,
+> so every spec times out on its marker.
+>
+> Evidence it is not this change: `pi --print "[[faux:poll-narrated]] go"` inside
+> the container works; the client renders with no page errors; and the UNTOUCHED
+> control spec `tool-collapse-narration.spec.ts` fails identically on a **pristine
+> tree** (`git stash -u` + full `docker compose build`). Host load was ruled out
+> (retried at load 3.0 vs 19 — same result).
+>
+> It rotted invisibly because the browser E2E suite is **not in CI** —
+> `.github/workflows/` runs only `test:e2e:electron`. Worth its own proposal.
+>
+> **To unblock:** repair the faux round-trip, then `docker compose -f
+> docker/compose.yml build` → `PI_E2E_SEED=1 PI_TEST_PEERS=both
+> ./docker/test-up.sh -d` → `PW_CHANNEL=chrome PW_E2E_USE_RUNNING=1
+> PW_E2E_PORT=$(jq -r .dashboardPort .pi-test-harness.json) npx playwright test
+> selection-anchor` → `./docker/test-down.sh`. **Sanity gate:** confirm
+> `tool-collapse-narration` passes FIRST — if the control still fails, a
+> `selection-anchor` failure means nothing.
+>
+> **Known residual for 6.5:** D6 fixed the `virtualizer.onChange` bottom-pin gate
+> (now the synchronous ref), but the sticky-bottom `useLayoutEffect` still reads
+> the debounced `isSelecting` STATE, per task 3.3's explicit instruction. A chunk
+> landing inside the microtask+render lag window at the very start of a drag can
+> still reach `el.scrollTop = el.scrollHeight` through that effect, and the
+> compensator does not undo it (the yank is a scroll write, so D2's veto
+> suppresses correction that frame). Widening that effect's early-return to also
+> honour `isSelectingRef.current` would close it while preserving the →false edge
+> (the ref clears synchronously, before the state). Deliberately NOT applied: it
+> contradicts task 3.3 and 6.5 is the scenario that would settle it.
 
 - [ ] 6.1 Add the acceptance scenario for the original report: seed a transcript with a running tool card above a prose message, drag inside that one message, complete the tool card mid-drag so its output body renders, assert `getSelection().toString()` never extends above the drag origin.
 - [ ] 6.2 Shrink counterpart: a row above the anchor collapses mid-drag; assert the selection does not extend below the drag origin.
