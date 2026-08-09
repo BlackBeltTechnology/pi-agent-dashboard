@@ -370,16 +370,28 @@ export async function startRecoveryServer(info: RecoveryInfo): Promise<number> {
       runReinstall(layout, (s) => {
         lines.push(s);
         console.log("[recovery-install] " + s);
-      }).then((code) => {
-        if (res.writableEnded) return;
-        if (code === 0) {
-          res.writeHead(200, { "content-type": "text/plain" });
-          res.end("Reinstall complete. Click Retry start.");
-        } else {
+      })
+        .then((code) => {
+          if (res.writableEnded) return;
+          if (code === 0) {
+            res.writeHead(200, { "content-type": "text/plain" });
+            res.end("Reinstall complete. Click Retry start.");
+          } else {
+            res.writeHead(500, { "content-type": "text/plain" });
+            res.end("Reinstall failed (exit " + code + ").\n\n" + lines.slice(-30).join("\n"));
+          }
+        })
+        // Recovery mode is the last line of defence, so a rejected reinstall
+        // must not float: without this the request hangs until the browser
+        // times out and the operator sees nothing at all.
+        // See change: cleanup-async-semantics-server-extension (design D1).
+        .catch((err: unknown) => {
+          const detail = err instanceof Error ? err.message : String(err);
+          console.error("[recovery-install] reinstall threw:", err);
+          if (res.writableEnded) return;
           res.writeHead(500, { "content-type": "text/plain" });
-          res.end("Reinstall failed (exit " + code + ").\n\n" + lines.slice(-30).join("\n"));
-        }
-      });
+          res.end("Reinstall failed: " + detail + "\n\n" + lines.slice(-30).join("\n"));
+        });
       return;
     }
 

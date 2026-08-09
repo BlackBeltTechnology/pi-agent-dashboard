@@ -2178,7 +2178,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // present; the tunnel-creation branch below is gated separately.
       const hasZrok = detectZrokBinary();
       if (hasZrok) {
-        cleanupStaleZrok();
+        // Boot must not hang or die on a failed sweep: a leftover zrok process
+        // is a degraded state, not a fatal one. Log and keep booting.
+        // See change: cleanup-async-semantics-server-extension (design D1).
+        cleanupStaleZrok().catch((err: unknown) => {
+          console.warn("[zrok] stale-process cleanup failed (continuing boot):", err);
+        });
         scavengeOrphanZrokProcesses(config.port);
       }
 
@@ -2214,7 +2219,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       // Discover sessions and start OpenSpec polling (async, non-blocking)
-      discoverAndBroadcastSessions({ sessionManager, browserGateway, directoryService });
+      // Deliberately not awaited — boot proceeds to listening while discovery
+      // runs. The rejection needs an owner all the same, or a discovery failure
+      // is invisible except as an anonymous crash-safety-net line.
+      // See change: cleanup-async-semantics-server-extension (design D1).
+      discoverAndBroadcastSessions({ sessionManager, browserGateway, directoryService }).catch(
+        (err: unknown) => {
+          console.warn("[boot] session discovery failed:", err);
+        },
+      );
 
       // Auto-register plugin bridge entries
       const discoveredPlugins = discoverPlugins();

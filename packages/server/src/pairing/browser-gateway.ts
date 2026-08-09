@@ -683,7 +683,10 @@ export function createBrowserGateway(
             handleSubagentResyncRequest(msg, ctx);
             break;
           case "shutdown":
-            handleShutdown(msg, ctx);
+            // Awaited like every other async case in this switch, so a rejection
+            // reaches the dispatch-level catch below instead of floating.
+            // See change: cleanup-async-semantics-server-extension (design D1).
+            await handleShutdown(msg, ctx);
             break;
           case "rename_session":
             handleRenameSession(msg, ctx);

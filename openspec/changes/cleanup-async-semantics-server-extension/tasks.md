@@ -19,14 +19,14 @@
 
 ## 4. Production server sites (13)
 
-- [ ] 4.1 Classify each of the 13 sites into `await`, `return`, `Promise.all`/`allSettled`, or `.catch(handler)` and record the choice. Bare `void` is banned; a discard is `void p.catch(handler)` with a non-empty handler routed to the existing logging path. Prefer `.catch(handler)` over `await` unless ordering is demonstrably load-bearing.
-- [ ] 4.2 Fix `browser-handlers/subscription-handler.ts:220,243,249`.
-- [ ] 4.3 Fix `server.ts:2144,2180` (boot path: zrok cleanup, session discovery).
-- [ ] 4.4 Fix `browser-handlers/directory-handler.ts:226,247`.
-- [ ] 4.5 Fix `tunnel/tunnel-core.ts:160`. Coordinate with `cleanup-client-plugin-promises`, which narrows `:156` and restructures the async executor at `:167` in the same `createTunnel`/`createInner` block — whichever change lands second re-derives the diagnostics for this file rather than assuming its patch still applies.
-- [ ] 4.6 Fix `session/session-load-worker-pool.ts:254` and `openspec/openspec-poll-worker-pool.ts:278`. Note these run on worker threads and plausibly do not route to the `cli.ts:493` crash-safety net, so an unhandled rejection here may be genuinely invisible.
-- [ ] 4.7 Fix `lifecycle/recovery-server.ts:370` and `pairing/browser-gateway.ts:621` (`handleShutdown` in the WS message dispatch).
-- [ ] 4.8 Fix `rpc-keeper/keeper.cjs:141` (`startServer(true).then(resolve)` in the backoff retry). CommonJS file — confirm the fix style matches the surrounding module.
+- [x] 4.1 Classify each of the 13 sites into `await`, `return`, `Promise.all`/`allSettled`, or `.catch(handler)` and record the choice. Bare `void` is banned; a discard is `void p.catch(handler)` with a non-empty handler routed to the existing logging path. Prefer `.catch(handler)` over `await` unless ordering is demonstrably load-bearing.
+- [x] 4.2 Fix `browser-handlers/subscription-handler.ts:220,243,249`.
+- [x] 4.3 Fix `server.ts:2144,2180` (boot path: zrok cleanup, session discovery).
+- [x] 4.4 Fix `browser-handlers/directory-handler.ts:226,247`.
+- [x] 4.5 Fix `tunnel/tunnel-core.ts:160`. Coordinate with `cleanup-client-plugin-promises`, which narrows `:156` and restructures the async executor at `:167` in the same `createTunnel`/`createInner` block — whichever change lands second re-derives the diagnostics for this file rather than assuming its patch still applies.
+- [x] 4.6 Fix `session/session-load-worker-pool.ts:254` and `openspec/openspec-poll-worker-pool.ts:278`. Note these run on worker threads and plausibly do not route to the `cli.ts:493` crash-safety net, so an unhandled rejection here may be genuinely invisible.
+- [x] 4.7 Fix `lifecycle/recovery-server.ts:370` and `pairing/browser-gateway.ts:621` (`handleShutdown` in the WS message dispatch).
+- [x] 4.8 Fix `rpc-keeper/keeper.cjs:141` (`startServer(true).then(resolve)` in the backoff retry). CommonJS file — confirm the fix style matches the surrounding module.
 
 ## 5. Inherited electron sites (7)
 
