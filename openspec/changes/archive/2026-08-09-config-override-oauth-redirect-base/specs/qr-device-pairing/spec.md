@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Pairing payload URL source is the promoted `publicBaseUrls`
 The pairing payload's operator-designated addresses SHALL be sourced from the
