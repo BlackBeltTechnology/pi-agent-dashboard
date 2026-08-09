@@ -1236,3 +1236,45 @@ describe("SessionList folder header keyboard accessibility", () => {
     expect(name.querySelector(`[data-testid="folder-actions-menu-${CWD}"]`)).toBeNull();
   });
 });
+
+// See change: unify-folder-status-capsule.
+describe("SessionList folder header liveness surface", () => {
+  const CWD = "/home/user/project";
+
+  function renderList(sessions: DashboardSession[]) {
+    const { hook } = memoryLocation({ path: "/", static: true });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <SessionList sessions={sessions} onSelect={() => {}} />
+        </ThemeProvider>
+      </Router>,
+    );
+  }
+
+  it("the capsule is the folder header's only liveness surface (test-plan #E15)", () => {
+    renderList([
+      makeSession({ id: "s1", cwd: CWD, status: "idle" }),
+      makeSession({ id: "s2", cwd: CWD, status: "streaming" }),
+      makeSession({ id: "s3", cwd: CWD, status: "idle" }),
+    ]);
+
+    // The capsule renders — unconditional on collapse state.
+    expect(screen.getByTestId(`folder-status-capsule-${CWD}`)).toBeTruthy();
+
+    // The three surfaces it replaced are gone.
+    expect(screen.queryByTestId("folder-needs-you-pill")).toBeNull();
+    expect(screen.queryByTestId("folder-status-rollup")).toBeNull();
+    // No raw `(N)` session count anywhere in the header.
+    const header = screen.getByTestId(`folder-header-name-${CWD}`).parentElement;
+    expect(header?.textContent).not.toMatch(/\(\d+\)/);
+  });
+
+  it("renders no capsule for a folder whose sessions have all ended (test-plan #E5)", () => {
+    renderList([
+      makeSession({ id: "e1", cwd: CWD, status: "ended" }),
+      makeSession({ id: "e2", cwd: CWD, status: "ended" }),
+    ]);
+    expect(screen.queryByTestId(`folder-status-capsule-${CWD}`)).toBeNull();
+  });
+});
