@@ -191,6 +191,38 @@ a replay-path gap is not evidence of loss.
 - **THEN** the buffer SHALL remain descended
 - **AND** the entry SHALL still be persisted and used as a cursor
 
+### Requirement: Only a wholesale reseed SHALL restore provenance to a contaminated buffer
+
+A buffer is **contaminated** once it holds live content the client cannot vouch
+for — a live event appended while the buffer was not descended, or a hole left by
+a dropped live frame. A recorded `event_replay` batch SHALL NOT restore
+provenance to a contaminated buffer; only a seeding operation, which replaces the
+buffer wholesale, SHALL clear contamination.
+
+Recording dedups by sequence number, so replayed events at or below the buffered
+maximum are discarded. A replay batch may therefore leave a contaminated buffer
+byte-for-byte unchanged while appearing to authorize it — re-persisting exactly
+the partial-payload cursor this capability exists to prevent.
+
+#### Scenario: A replay batch does not re-authorize a live-contaminated buffer
+
+- **GIVEN** a buffer holding only a stray broadcast event at seq N
+- **WHEN** a compacted `event_replay` batch whose events are all at or below seq
+  N is recorded, and a persist flush runs
+- **THEN** every replayed event SHALL be discarded as already-seen
+- **AND** the buffer SHALL remain non-descended
+- **AND** the entry SHALL NOT be persisted
+
+#### Scenario: A replay batch does not restore provenance across a live gap
+
+- **GIVEN** a descended buffer whose provenance was voided by a dropped live
+  frame
+- **WHEN** a later `event_replay` batch appends events above the hole and a
+  persist flush runs
+- **THEN** the buffer SHALL remain non-descended
+- **AND** the entry SHALL NOT be persisted
+- **AND** only a subsequent seeding operation SHALL make it persistable again
+
 ### Requirement: Pre-change cache entries SHALL be purged once on upgrade
 
 Cache entries written before this change carry no provenance marker, so the client

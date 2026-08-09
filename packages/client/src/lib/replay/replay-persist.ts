@@ -45,6 +45,13 @@ export function createReplayPersister(
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Sessions whose buffer descends from a replay this tab received. */
   const descended = new Set<string>();
+  /** Sessions whose buffer holds unauthorized live content (a stray broadcast
+   *  row, or a hole left by a dropped live frame). A replay batch CANNOT clear
+   *  this: `record()` dedups by seq, so replayed rows at or below the buffered
+   *  max are discarded and the contaminated buffer would survive unchanged
+   *  while gaining provenance. Only `seed()`, which replaces the buffer
+   *  wholesale, can restore it. */
+  const contaminated = new Set<string>();
 
   function maxSeqOf(buf: CachedEvent[]): number {
     let m = 0;
@@ -87,19 +94,29 @@ export function createReplayPersister(
         // Live frames are contiguous by construction, so a jump means a frame
         // was dropped (gateway back-pressure) and the cursor would skip it
         // permanently. Replay-path gaps are legitimate (compaction) — exempt.
-        if (origin === "live" && max > 0 && e.seq > max + 1) descended.delete(sessionId);
+        if (origin === "live" && max > 0 && e.seq > max + 1) {
+          descended.delete(sessionId);
+          contaminated.add(sessionId);
+        }
         buf.push(e);
         max = e.seq;
       }
     }
+    // Live rows appended to a buffer with no provenance are unauthorized
+    // content: it can never be promoted, only replaced by seed().
+    if (origin === "live" && !descended.has(sessionId)) contaminated.add(sessionId);
+    // A replay envelope only ever answers this tab's own subscribe — but it can
+    // only vouch for a buffer it actually constituted.
+    if (origin === "replay" && !contaminated.has(sessionId)) descended.add(sessionId);
     buffers.set(sessionId, buf);
-    // A replay envelope only ever answers this tab's own subscribe.
-    if (origin === "replay") descended.add(sessionId);
     schedule(sessionId);
   }
 
   function seed(sessionId: string, events: CachedEvent[]): void {
+    // Wholesale replacement: no unauthorized row survives, so provenance is
+    // restorable even after contamination.
     buffers.set(sessionId, [...events]);
+    contaminated.delete(sessionId);
     descended.add(sessionId);
     schedule(sessionId);
   }
@@ -112,6 +129,7 @@ export function createReplayPersister(
     }
     buffers.delete(sessionId);
     descended.delete(sessionId);
+    contaminated.delete(sessionId);
     await cache.delete(sessionId);
   }
 

@@ -183,6 +183,33 @@ describe("replay-persist", () => {
     expect((await inner.get("X"))?.maxSeq).toBe(200);
   });
 
+  it("does not let a replay batch re-authorize a live-contaminated buffer", async () => {
+    const { cache, put } = spyCache(createReplayCache({ factory }));
+    const p = createReplayPersister(cache, 0);
+    // A stray broadcast lands first.
+    p.record("X", [evt(250)], "live");
+    // A compacted replay of 5..250 then arrives: every row is <= the buffered
+    // max, so the dedup drops them all and the buffer is STILL just the stray
+    // row. Marking it descended here would persist the original poison.
+    p.record("X", [evt(5), evt(120), evt(250)], "replay");
+    await p.flush("X");
+
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("does not let a replay batch restore provenance across a live gap", async () => {
+    const { cache, put } = spyCache(createReplayCache({ factory }));
+    const p = createReplayPersister(cache, 0);
+    p.seed("X", [evt(9), evt(10)]);
+    p.record("X", [evt(12)], "live"); // 11 lost → provenance voided
+    // Appending above the hole must not make the gapped buffer persistable;
+    // only a wholesale seed() can restore it.
+    p.record("X", [evt(13)], "replay");
+    await p.flush("X");
+
+    expect(put).not.toHaveBeenCalled();
+  });
+
   it("stays silent on non-descended flushes (test-plan #X2)", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
