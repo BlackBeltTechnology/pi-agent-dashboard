@@ -31,7 +31,12 @@
         "noDuplicateCase": "error",
         "noFallthroughSwitchClause": "error",
         "noSelfCompare": "error",
-        "noExplicitAny": "warn"
+        "noExplicitAny": "warn",
+        "noImportCycles": "error"
+      },
+      "nursery": {
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error"
       },
       "correctness": {
         "noUnreachable": "error",
