@@ -9,10 +9,13 @@ relative to the viewport, the view SHALL compensate so that the anchor row's
 viewport position is preserved and the text under the pointer remains the text
 the pointer addressed before the layout change.
 
-Compensation SHALL apply only to shifts that the virtualizer does not already
-correct — that is, resizes of rows inside the viewport — so that the
-virtualizer's own above-viewport correction is never applied twice. Outside an
-active selection, layout and scroll behaviour SHALL be unchanged.
+Compensation SHALL be defined by the anchor row's RESIDUAL shift — how far it
+still moved once the virtualizer has applied its own correction — and not by
+the kind of mutation that caused it. It therefore covers in-viewport resizes,
+insertions, and reorders alike, while a shift the virtualizer has already
+corrected presents a residual of ~0 and SHALL produce no further adjustment, so
+its above-viewport correction is never applied twice. Outside an active
+selection, layout and scroll behaviour SHALL be unchanged.
 
 Retention of intersected rows (the existing requirement) guarantees a selection
 is not destroyed; this requirement additionally guarantees it is not silently
@@ -35,6 +38,13 @@ retargeted onto different content.
 - **WHEN** a row above the selection anchor is re-measured to a height smaller than its estimate while a selection is held
 - **THEN** the anchor row's position relative to the viewport SHALL be preserved
 - **AND** the selection SHALL NOT extend to content below the point where the drag began
+
+#### Scenario: Correction is clamped at a scroll boundary
+
+- **WHEN** the correction required to hold the anchor would move `scrollTop` outside `[0, scrollHeight − clientHeight]` (for example a shrink above the selection while already at the top)
+- **THEN** the view SHALL apply as much of the correction as the clamp permits
+- **AND** the compensator SHALL re-baseline from the ACTUALLY APPLIED delta, so the un-applied remainder is NOT re-issued on every subsequent commit
+- **AND** the anchor-position guarantee holds only to the extent the clamp allows
 
 #### Scenario: Above-viewport correction is not doubled
 
