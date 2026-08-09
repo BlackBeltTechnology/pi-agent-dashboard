@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { IDBFactory } from "fake-indexeddb";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { IDBFactory } from "fake-indexeddb";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
+  type CachedEvent,
   createReplayCache,
   REPLAY_CACHE_SCHEMA_VERSION,
-  type CachedEvent,
 } from "../replay/replay-cache.js";
 
 function evt(seq: number): CachedEvent {
@@ -61,6 +61,34 @@ describe("replay-cache", () => {
     await cache.put("huge", { maxSeq: 50, payload: big });
     // Over-cap payload is not persisted → next load full-replays.
     expect(await cache.get("huge")).toBeNull();
+  });
+
+  // --- Schema bump (change: fix-replay-cache-partial-payload-cursor) ---
+
+  it("purges a pre-change (schemaVersion 1) partial-payload entry (test-plan #E9)", async () => {
+    expect(REPLAY_CACHE_SCHEMA_VERSION).toBeGreaterThanOrEqual(2);
+    const v1 = createReplayCache({ factory, schemaVersion: 1 });
+    // The field-poisoned shape: a high cursor over a single stray broadcast row.
+    await v1.put("X", { maxSeq: 250, payload: [evt(250)] });
+
+    const current = createReplayCache({ factory });
+    expect(await current.get("X")).toBeNull();
+    // Purged, not merely skipped: even a v1 reader now misses.
+    expect(await v1.get("X")).toBeNull();
+  });
+
+  it("purges once on the schema bump, then caches normally (test-plan #P1)", async () => {
+    const ids = Array.from({ length: 50 }, (_, i) => `s${i}`);
+    const v1 = createReplayCache({ factory, schemaVersion: 1 });
+    for (const id of ids) await v1.put(id, { maxSeq: 100, payload: [evt(100)] });
+
+    const current = createReplayCache({ factory, maxEntries: 100 });
+    // One load cycle at the current version: every entry misses exactly once.
+    for (const id of ids) expect(await current.get(id)).toBeNull();
+
+    // Normal caching resumes — no purge loop on the re-written entries.
+    for (const id of ids) await current.put(id, { maxSeq: 5, payload: [evt(5)] });
+    for (const id of ids) expect((await current.get(id))?.maxSeq).toBe(5);
   });
 
   it("evicts the least-recently-accessed entry past the cap", async () => {

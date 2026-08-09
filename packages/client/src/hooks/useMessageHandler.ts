@@ -391,7 +391,9 @@ export function useMessageHandler(
           maxSeqMapRef.current.set(msg.sessionId, msg.seq);
         }
         // Strategy A: accumulate the live event into the durable replay buffer.
-        replayPersister?.record(msg.sessionId, [{ seq: msg.seq, event: msg.event }]);
+        // Origin `live`: broadcast fan-out reaches sessions this tab never
+        // subscribed to, so it establishes no provenance on its own.
+        replayPersister?.record(msg.sessionId, [{ seq: msg.seq, event: msg.event }], "live");
         // Publish to the plugin-runtime per-session event store so
         // plugin slot consumers calling `useSessionEvents(sessionId)`
         // re-render with the extended event list. The shell's reducer
@@ -672,7 +674,10 @@ export function useMessageHandler(
         // See change: reduce-session-replay-traffic.
         if (msg.events.length > 0) {
           if (shouldReset) replayPersister?.seed(msg.sessionId, msg.events);
-          else replayPersister?.record(msg.sessionId, msg.events);
+          // Origin `replay`: this envelope answers THIS tab's subscribe, so it
+          // establishes provenance even when a compacted/capped cold replay
+          // starts past seq 1 (i.e. does not reset).
+          else replayPersister?.record(msg.sessionId, msg.events, "replay");
         }
         // Exit LOADING: first content (clear immediately so partial history
         // paints) OR terminal marker for a genuinely-empty session
