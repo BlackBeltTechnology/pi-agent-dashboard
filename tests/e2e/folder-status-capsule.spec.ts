@@ -38,8 +38,12 @@ function folderCard(page: Page, cwd: string): Locator {
 }
 
 async function isCollapsed(page: Page): Promise<boolean> {
-  // The body's session cards only mount when expanded.
-  return (await folderCard(page, CWD).getByTestId("session-card-desktop").count()) === 0;
+  // Read the collapse state from the folder BODY, which `SessionList` renders
+  // only when expanded. Inferring it from card presence is wrong twice over: a
+  // folder with no live sessions renders expanded with no cards, and one whose
+  // sessions have all ended keeps its cards behind the "Show N ended"
+  // disclosure — both would misreport as collapsed and hang the poll below.
+  return (await page.getByTestId(`folder-body-${CWD}`).count()) === 0;
 }
 
 async function setCollapsed(page: Page, want: boolean): Promise<void> {
@@ -128,7 +132,12 @@ test.describe("folder status capsule", () => {
 
   test("segments render in fixed severity order (test-plan #F1)", async ({ page }) => {
     await gotoDashboard(page);
+    // Without these two guards an absent capsule yields [], and [] trivially
+    // equals the filtered severity list — the assertion could never fail.
+    await expect(capsule(page)).toBeVisible({ timeout: 15_000 });
     const rendered = await renderedSegments(page);
+    expect(rendered.length).toBeGreaterThan(0);
+
     const severity = ["needs-you", "error", "working", "idle"];
     // Whatever subset is present must appear in severity order.
     expect(rendered).toEqual(severity.filter((k) => rendered.includes(k)));
@@ -151,11 +160,14 @@ test.describe("folder status capsule", () => {
     await expect(page.getByTestId("error-banner")).toBeVisible({ timeout: 30_000 });
 
     // #F4: the scroll is sequenced AFTER the expansion commits, so the target
-    // card is actually laid out (height > 0) rather than a silent no-op
-    // against a body that had not mounted.
-    const selected = page.locator("[data-session-id].card-seek-flash, [data-session-id]").first();
-    await expect(selected).toBeVisible();
-    const box = await selected.boundingBox();
+    // card is actually laid out (height > 0) rather than a silent no-op against
+    // a body that had not mounted. Locate the FLASHED card specifically — the
+    // reveal path adds `card-seek-flash` only once it has scrolled a laid-out
+    // element. Falling back to any `[data-session-id]` would pass even if the
+    // reveal never ran.
+    const flashed = page.locator("[data-session-id].card-seek-flash").first();
+    await expect(flashed).toBeVisible({ timeout: 15_000 });
+    const box = await flashed.boundingBox();
     expect(box?.height ?? 0).toBeGreaterThan(0);
   });
 
@@ -170,12 +182,15 @@ test.describe("folder status capsule", () => {
     await expect(segment(page, "error")).toBeVisible({ timeout: 15_000 });
     await segment(page, "error").click();
 
+    // Wait for a state that PROVES the click was processed — otherwise a polled
+    // negative matcher passes on the first tick, before any navigation could
+    // have happened, and the assertion is vacuous.
+    await expect(page.getByTestId("error-banner")).toBeVisible({ timeout: 30_000 });
+
     // The row's own click handler navigates to the directory home. Propagation
-    // is stopped, so the URL must NOT become /folder/<encoded cwd>.
-    await expect
-      .poll(() => page.url(), { timeout: 5_000 })
-      .not.toMatch(/\/folder\//);
+    // is stopped, so the URL must NOT have become /folder/<encoded cwd>.
     expect(before).not.toMatch(/\/folder\//);
+    expect(page.url()).not.toMatch(/\/folder\//);
     // And the folder stays expanded — activation never toggles the row.
     expect(await isCollapsed(page)).toBe(false);
   });
@@ -190,6 +205,9 @@ test.describe("folder status capsule", () => {
     await gotoDashboard(page);
     await expect(capsule(page)).toBeVisible({ timeout: 15_000 });
     const wideSegments = await renderedSegments(page);
+    expect(wideSegments.length).toBeGreaterThan(0);
+    const leaf = page.getByTestId(`folder-header-leaf-${CWD}`).first();
+    const nameWidthBefore = (await leaf.boundingBox())?.width ?? 0;
 
     await page.setViewportSize({ width: 900, height: 800 });
     const sidebar = folderCard(page, CWD);
@@ -210,11 +228,12 @@ test.describe("folder status capsule", () => {
     expect(segBox).toBeTruthy();
     expect(capsuleBox!.height).toBeLessThan((segBox!.height ?? 0) * 1.6);
 
-    // The name region absorbed the reduction by clipping.
-    const leaf = page.getByTestId(`folder-header-leaf-${CWD}`).first();
-    const clipped = await leaf.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
-    const nameBox = await leaf.boundingBox();
-    expect(clipped || (nameBox?.width ?? 999) < 220).toBe(true);
+    // The name region absorbed the reduction. Asserted as a strict shrink of
+    // the name against its own pre-narrowing width — an `A || B` over a clipped
+    // flag and an absolute width was satisfiable without the capsule behaving.
+    const nameWidthAfter = (await leaf.boundingBox())?.width ?? 0;
+    expect(nameWidthBefore).toBeGreaterThan(0);
+    expect(nameWidthAfter).toBeLessThan(nameWidthBefore);
 
     await page.setViewportSize({ width: 1280, height: 800 });
   });
@@ -244,6 +263,8 @@ test.describe("folder status capsule", () => {
       await page.waitForTimeout(80);
     }
     await expect(capsule(page)).toBeVisible({ timeout: 15_000 });
+    // An empty sample set would skip the loop entirely and pass vacuously.
+    expect(samples.length).toBeGreaterThan(0);
     for (const s of samples) expect(s).toBeLessThanOrEqual(settled);
   });
 
@@ -263,37 +284,40 @@ test.describe("folder status capsule", () => {
     await expect(segment(page, "error")).toBeVisible();
     await segment(page, "error").click();
 
-    // Degrades through the reveal path's existing notice — never a silent no-op.
-    await expect(page.getByText(/filter is hiding|Couldn.t reveal/i).first()).toBeVisible({
+    // Degrades through the reveal path's FILTERED notice specifically. Also
+    // accepting the generic 5 s give-up toast would let an unrelated reveal
+    // failure satisfy #X1; `classifyDegrade` returns "filtered" here, so the
+    // filtered copy is the only correct outcome.
+    await expect(page.getByText(/filter is hiding/i).first()).toBeVisible({
       timeout: 15_000,
     });
 
     await page.getByTestId("session-search-input").first().fill("");
   });
 
-  test("a hidden target is either uncounted or degrades with a notice (test-plan #X2)", async ({
+  test("hiding the only errored session drops its segment, never a dead target (test-plan #X2)", async ({
     page,
   }) => {
     await gotoDashboard(page);
-    await expect(capsule(page)).toBeVisible({ timeout: 15_000 });
+    await setCollapsed(page, false);
 
-    // Hidden sessions are excluded from the counting pass entirely (#E7), so
-    // the capsule must never advertise a hidden-only state. Whichever way the
-    // folder is currently populated, activation must not silently no-op:
-    // either the segment is absent, or the reveal path surfaces its notice.
+    // Seed an errored session in THIS page (errorSessionIds is client-side
+    // reducer state — see seedError) and confirm the segment appears, so the
+    // disappearance below is attributable to hiding rather than to it never
+    // having rendered.
+    await seedError(page);
     const errorSeg = segment(page, "error");
-    if ((await errorSeg.count()) === 0) {
-      // State not counted — the #E7 exclusion branch. Nothing to activate.
-      expect(await errorSeg.count()).toBe(0);
-      return;
-    }
-    await errorSeg.click();
-    // Something observable happened: either the card was revealed, or a notice.
-    await expect(
-      page
-        .getByTestId("error-banner")
-        .first()
-        .or(page.getByText(/hidden|filter is hiding|Couldn.t reveal/i).first()),
-    ).toBeVisible({ timeout: 20_000 });
+    await expect(errorSeg).toBeVisible({ timeout: 15_000 });
+
+    // Hide the errored session. `showHidden` is off by default, so the card
+    // leaves the list.
+    const card = page.locator("[data-session-id]").filter({ has: page.getByTestId("error-banner") });
+    const target = (await card.count()) > 0 ? card.first() : page.locator("[data-session-id]").first();
+    await target.getByRole("button", { name: /hide session/i }).first().click();
+
+    // #E7: hidden sessions are excluded BEFORE bucketing, so the capsule must
+    // stop counting that state entirely rather than keep a segment whose only
+    // target is unreachable.
+    await expect(errorSeg).toHaveCount(0, { timeout: 15_000 });
   });
 });

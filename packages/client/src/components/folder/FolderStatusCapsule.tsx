@@ -91,19 +91,23 @@ const SEGMENT_META: Record<
 };
 
 function segmentLabel(bucket: CapsuleBucket, count: number): string {
+  // The fallback is what a screen reader announces verbatim when the
+  // translation key is missing, so it has to agree in number — "1 sessions
+  // blocked on you" is read out as-is.
+  const s = count === 1 ? "session" : "sessions";
   switch (bucket) {
     case "needsYou":
       return i18nT(
         "folders.capsuleNeedsYou",
         { count },
-        `${count} sessions blocked on you — go to first`,
+        `${count} ${s} blocked on you — go to first`,
       );
     case "error":
-      return i18nT("folders.capsuleError", { count }, `${count} errored sessions — go to first`);
+      return i18nT("folders.capsuleError", { count }, `${count} errored ${s} — go to first`);
     case "working":
-      return i18nT("folders.capsuleWorking", { count }, `${count} working sessions — go to first`);
+      return i18nT("folders.capsuleWorking", { count }, `${count} working ${s} — go to first`);
     case "idle":
-      return i18nT("folders.capsuleIdle", { count }, `${count} idle sessions`);
+      return i18nT("folders.capsuleIdle", { count }, `${count} idle ${s}`);
   }
 }
 
@@ -185,6 +189,12 @@ export function FolderStatusCapsule({
                   className={shared}
                   data-testid={testId}
                   data-capsule-segment={meta.testKey}
+                  // `aria-label` on a bare <span> is not reliably announced:
+                  // HTML-AAM only applies it to elements with a supported
+                  // role, and a bare span maps to `generic`. `role="img"`
+                  // exposes the name while staying non-focusable and
+                  // non-interactive, so the segment remains inert.
+                  role="img"
                   aria-label={label}
                 >
                   {icon}

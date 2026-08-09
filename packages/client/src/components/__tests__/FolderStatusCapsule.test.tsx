@@ -96,7 +96,11 @@ describe("FolderStatusCapsule", () => {
 
   it("renders a count of 999 exactly (test-plan #E13)", () => {
     renderCapsule(Array.from({ length: 999 }, (_, i) => makeSession({ id: `i${i}`, status: "idle" })));
-    expect(screen.getByTestId(`folder-capsule-seg-idle-${CWD}`).textContent).toContain("999");
+    const text = screen.getByTestId(`folder-capsule-seg-idle-${CWD}`).textContent;
+    // `toContain("999")` alone also matches "999+", so an off-by-one cap
+    // (`n >= 999`) would still pass. Pin the absence of the marker too.
+    expect(text).not.toContain("+");
+    expect(text).toContain("999");
   });
 
   it("caps a count above 999 as `999+` (test-plan #E14)", () => {
@@ -111,8 +115,9 @@ describe("FolderStatusCapsule", () => {
     // as an unavailable control.
     expect(idle.tagName).not.toBe("BUTTON");
     expect(idle.hasAttribute("tabindex")).toBe(false);
-    // Still names its state, so a screen reader does not announce a bare number.
-    expect(idle.getAttribute("aria-label")).toMatch(/idle/i);
+    // Named AND exposed: aria-label on a roleless span is not reliably
+    // announced, so assert the accessible name via the role, not the attribute.
+    expect(screen.getByRole("img", { name: /idle/i })).toBe(idle);
   });
 
   it("gives every non-idle segment a distinct label naming count and state (test-plan #F6)", () => {
@@ -131,8 +136,9 @@ describe("FolderStatusCapsule", () => {
     );
     // Distinct.
     expect(new Set(labels).size).toBe(4);
-    // Each names its count AND its state.
-    for (const label of labels) expect(label).toMatch(/1/);
+    // Each names its count AND its state, agreeing in number (count is 1 here,
+    // so a hardcoded plural fallback would read "1 sessions").
+    for (const label of labels) expect(label).toMatch(/\b1 \S*\s?session\b/);
     expect(labels[0]).toMatch(/blocked on you|need/i);
     expect(labels[1]).toMatch(/error/i);
     expect(labels[2]).toMatch(/working|running/i);
