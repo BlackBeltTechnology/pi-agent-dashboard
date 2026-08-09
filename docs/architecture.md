@@ -1149,6 +1149,32 @@ Board route `/folder/:encodedCwd/openspec` (`OpenSpecBoardView`) replaces inline
 
 Groups = columns. Always-present Ungrouped column. Proposal cards draggable (@dnd-kit): reassign group + reorder within group.
 
+**Drop-target resolution.** Collision detection = `pointerWithin`, single `DndContext` prop; applies to card AND column drags. No `closestCorners` fallback: `closestCorners` empty only when zero droppables exist; fallback makes `over` non-null in the board gutter, turns intended cancel into commit into a neighbouring column. Null `over` = real cancel.
+
+Drop slot resolved by ONE midpoint rule, direction- and scope-independent: `index` = count of cards in target column (excluding moved card) whose rect midpoint Y is at/above pointer Y; exact midpoint resolves after. Result = index into the without-moved list — `computeReorder`'s existing contract, so no caller `+1`.
+
+Pure resolver `resolveDropSlot` in `packages/client/src/lib/openspec/openspec-board-order.ts`; `computeReorder` unchanged.
+
+Resolution runs on `onDragMove`, not `onDragOver` (`onDragOver` deps are `[overId]` — does not fire on a midpoint crossing inside one droppable).
+
+Resolution lives in `DropSlotProbe`, headless child of `<DndContext>`: `droppableRects` reachable only through `useDndContext()`; the parent of `<DndContext>` measures 0 rects. `pointerY = activatorEvent.clientY + delta.y`. Rects read via scroll-live `rect.top`/`rect.bottom` getters, not the frozen `rect.rect` snapshot.
+
+`handleDragEnd` only commits. Re-resolves slot from end event itself, via `resolveMoveSlot` — no trust in last `onDragMove`. Rect map reaches it through `dropRectsRef`, ref `DropSlotProbe` keeps current; parent still never calls `useDndContext()` (would measure 0 rects). `dropSlot` state drives INDICATOR only, not the commit.
+
+colKey-only guard insufficient: one-frame flick off append rail onto card in SAME column agrees on column, disagrees on index → colKey-only guard commits stale "last" slot. Found by CodeRabbit on PR #438.
+
+Commit bails when `over` null (gutter / page margin) and when re-resolved slot's column ≠ end event's target.
+
+Whole column accepts drops: body keeps its `useDroppable` (dnd-kit auto-scroll walks the OVER NODE's ancestors → scroller must stay on the drop path) plus a second `col-root:<groupKey>` droppable on the column root for header + outer padding.
+
+Drag-only append rail `rail:<groupKey>`: sticky to the body's visible bottom edge, ≥44px, present in empty columns; resolves to last position. `resolveDropTarget` normalises `rail:<k>`/`col-root:<k>` back to the bare group key in ONE place — a namespaced droppable id never persists as a group key.
+
+Indication: insertion marker painted into the existing flex gap via a pseudo-element on the card following the slot (no inserted flex child). Final slot has no following card → the rail's active state indicates it — driven by the resolved slot being last, not pointer-over-rail. Vertical `SortableContext` strategy neutralised with an explicit no-op (`strategy={undefined}` falls back to `rectSortingStrategy` and still displaces → decouples visual position from data order, invalidates the midpoint count).
+
+Production test hooks: `data-drop-target` (column root), `data-drop-slot="<index>"` (column body), `data-rail-active` (rail).
+
+No persistence/protocol change: `changeOrder[]` keeps its shape. See change: fix-openspec-board-drop-targeting.
+
 Per-change order persisted in groups.json `changeOrder` keyed by groupId (`__ungrouped__` sentinel = `OPENSPEC_UNGROUPED_KEY`). Mutated via PUT `/api/openspec/groups/change-order` → `store.setChangeOrder`. Broadcast via `openspec_groups_update`. Ordering applied client-side by `orderChangesForGroup` (`openspec-board-order.ts`): persisted names first, unordered appended by `defaultChangeSort`, stale entries ignored.
 
 Worktree delta derived read-only from per-cwd OpenSpec poll. `deriveWorktreeProgress` (`openspec-board-worktree.ts`) reads worktree own OpenSpecData by `session.cwd`, computes `delta` = worktree-done minus main-done. No extra server poll.

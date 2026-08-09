@@ -950,6 +950,8 @@ export const huCatalog: Record<string, string> = {
   "openspec.bulkArchiveChanges": "Módosítások tömeges archiválása?",
   "openspec.buttonOnOpenspecRowsThe": "gomb az OpenSpec sorokon. A",
   "openspec.detachChange": "Módosítás leválasztása",
+  "openspec.dropAtEndOfGroup": "Ejtsd a(z) „{group}” végére",
+  "openspec.dropHereToUngroup": "Ejtsd ide a csoportból való kivevéshez",
   "openspec.filterProposalsSessions": "Javaslatok és munkamenetek szűrése…",
   "openspec.jumpToSpec": "Ugrás a specifikációhoz...",
   "openspec.loadingArchive": "Archívum betöltése...",
