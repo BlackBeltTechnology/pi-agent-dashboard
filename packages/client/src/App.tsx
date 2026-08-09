@@ -598,7 +598,7 @@ export default function App() {
   // are NOT migrated by this change (see proposal §6).
 
   const {
-    handleOpenPiResources,
+    handleOpenDirectorySettings,
     handleViewPiResourceFile,
   } = useContentViews({ navigate });
 
@@ -1400,7 +1400,7 @@ export default function App() {
       onOpenSpecRefresh={handleOpenSpecRefresh}
       onBulkArchive={handleBulkArchive}
       onReadArtifact={openArtifact}
-      onOpenPiResources={handleOpenPiResources}
+      onOpenDirectorySettings={handleOpenDirectorySettings}
       onOpenSpecs={(cwd) => navigate(buildOpenSpecSpecsUrl(cwd))}
       onOpenArchive={(cwd) => navigate(buildOpenSpecArchiveUrl(cwd))}
       onOpenBoard={(cwd) => navigate(buildOpenSpecBoardUrl(cwd))}

@@ -7,16 +7,22 @@ Defines the directory-scoped settings page: a cog-iconed surface at `/folder/:cw
 
 The dashboard SHALL expose a route `/folder/:cwd/settings/:page?` that renders a directory-scoped settings page in the content area. The page SHALL present a left-nav (grouped, mirroring the global settings page) on wide viewports and SHALL degrade to the mobile settings hierarchy on narrow viewports. The valid pages SHALL be `instructions`, `packages`, and `resources`, with `packages` as the default when `:page?` is omitted.
 
-The entry-point control on `FolderActionBar` SHALL use a cog icon (`mdiCog`) and the label "Directory Settings" (replacing the prior `mdiToyBrickOutline` icon and "Pi Resources" label).
+The entry-point control SHALL be an item in the folder actions menu, under the directory group, using a cog icon (`mdiCog`) and the label "Directory Settings". It SHALL NOT render as a button on `FolderActionBar`.
 
-#### Scenario: Cog button opens Directory Settings
+#### Scenario: Menu item opens Directory Settings
+
 - **GIVEN** a folder header for cwd `/Users/u/proj`
-- **WHEN** the user clicks the cog "Directory Settings" button on `FolderActionBar`
-- **THEN** the content area renders the directory settings page for `/Users/u/proj`
-- **AND** the `packages` page is active by default
-- **AND** the URL is `/folder/<encoded cwd>/settings/packages`
+- **WHEN** the user opens the folder actions menu and activates the "Directory Settings" item
+- **THEN** the client SHALL navigate to that directory's settings route
+- **AND** the `packages` page SHALL render by default
+
+#### Scenario: No settings cog remains on the action bar
+
+- **WHEN** an expanded folder card renders
+- **THEN** no Directory Settings cog SHALL render on `FolderActionBar`
 
 #### Scenario: Legacy pi-resources route redirects
+
 - **GIVEN** an existing deep-link `/folder/<encoded cwd>/pi-resources`
 - **WHEN** the user navigates to it
 - **THEN** the app replace-redirects to `/folder/<encoded cwd>/settings/packages`
@@ -71,6 +77,7 @@ The `DirectorySettingsPage` union SHALL enumerate `skills`, `agents`,
 - **WHEN** the user selects the `Agents` page from the left-nav
 - **THEN** the URL becomes `…/settings/agents`
 - **AND** the agent card grid renders
+
 ### Requirement: Instructions file selection SHALL be URL-encoded
 
 On the Instructions page, selecting a file in the scoped file picker SHALL be a URL navigation, not React-only component state. Selecting a candidate SHALL push `/folder/:cwd/settings/instructions?file=<encoded relPath>` (global scope: `/settings/:page?...` equivalent) via history push. The active file SHALL be derived from the `?file=` query so the URL is the single source of truth for which file is shown.
