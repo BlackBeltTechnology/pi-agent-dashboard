@@ -24,6 +24,20 @@ export const SCANNED_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 const STATEMENT_LOOKAHEAD = 8;
 
 /**
+ * Drop the comment part of a line: a whole-line `//` or `*` comment yields "".
+ *
+ * Deliberately simple — it does not parse strings, so a `//` inside a string
+ * literal truncates the line early. That direction is safe: it can only cause a
+ * MISS, never a false positive, and a discard written inside a string literal is
+ * not a discard.
+ */
+function stripComment(line) {
+  if (/^\s*(\*|\/\/|\/\*)/.test(line)) return "";
+  const idx = line.indexOf("//");
+  return idx === -1 ? line : line.slice(0, idx);
+}
+
+/**
  * Find bare `void` discards.
  *
  * @param {(path: string) => string} readFile resolves a repo-relative path to source
@@ -40,12 +54,15 @@ export function scanBareVoidDiscards(readFile, files) {
       continue; // unreadable / deleted between listing and read
     }
     lines.forEach((line, i) => {
+      // Comments discuss this pattern constantly (the ban is documented at the
+      // sites it applies to), so strip them before matching. Without this, a
+      // comment quoting `void p.then(...)` is reported as a violation of the
+      // very rule it is explaining.
+      const code = stripComment(line);
       // `void` as an operator, not `.void` / `myvoid` / a bare `void;`
-      if (!/(^|[^.\w])void\s+(?![\s;)])/.test(line)) return;
-      // A doc-comment line mentioning the pattern is not a discard.
-      if (/^\s*\*/.test(line)) return;
+      if (!/(^|[^.\w])void\s+(?![\s;)])/.test(code)) return;
       // Type position: `: void`, `(): void`, `=> void`.
-      if (/\)\s*:\s*void|:\s*void\b|=>\s*void/.test(line)) return;
+      if (/\)\s*:\s*void|:\s*void\b|=>\s*void/.test(code)) return;
       const statement = lines
         .slice(i, i + STATEMENT_LOOKAHEAD)
         .join("\n")

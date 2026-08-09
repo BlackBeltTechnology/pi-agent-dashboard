@@ -64,8 +64,8 @@
 
 ## 7. Validate
 
-- [ ] 7.1 Confirm CI actually runs the electron vitest project. `packages/electron` is deliberately excluded from the root `vitest.config.ts` projects and runs via `cd packages/electron && npm test`; if CI does not invoke it, tasks 6.4, 6.5 and 6.23 never execute.
-- [ ] 7.2 Re-derive both rules over all three packages and confirm this change's 61 claimed sites are clear, leaving only the sibling's `tunnel-core.ts:156,167` misused sites.
-- [ ] 7.3 Confirm no new `noMisusedPromises` findings were introduced by `await`s added in sections 3–5 — re-derive both rules together, not just floating.
-- [ ] 7.4 Run the full suite plus the extended load harness; confirm no budget regressed and the new per-site tests pass.
-- [ ] 7.5 Confirm the recorded fix-type distribution is available to `add-typeaware-lint-gate` for its severity decision.
+- [x] 7.1 **Confirmed: it does NOT.** `packages/electron` is excluded from the root `vitest.config.ts` projects and no `ci.yml` step runs it, so 6.4/6.5/6.23 pass locally but never execute in CI. Exclusion is pre-existing and tracked as a separate cleanup; not widened here. The graduation oracle (#E6) is unaffected — `ci.yml` runs `biome lint .` repo-wide, covering electron. Recorded in `classification.md`. Original task: Confirm CI actually runs the electron vitest project. `packages/electron` is deliberately excluded from the root `vitest.config.ts` projects and runs via `cd packages/electron && npm test`; if CI does not invoke it, tasks 6.4, 6.5 and 6.23 never execute.
+- [x] 7.2 Re-derive both rules over all three packages and confirm this change's 61 claimed sites are clear, leaving only the sibling's `tunnel-core.ts:156,167` misused sites.
+- [x] 7.3 Confirm no new `noMisusedPromises` findings were introduced by `await`s added in sections 3–5 — re-derive both rules together, not just floating.
+- [x] 7.4 Run the full suite plus the extended load harness; confirm no budget regressed and the new per-site tests pass.
+- [x] 7.5 Confirm the recorded fix-type distribution is available to `add-typeaware-lint-gate` for its severity decision.

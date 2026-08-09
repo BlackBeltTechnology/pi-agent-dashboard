@@ -164,11 +164,15 @@ describe("E3: every discard states its handling (bare `void` ban)", () => {
   it("a bare discard is detected and a guarded one is not", () => {
     // Unit-checks the scanner itself, so a regex that silently matches nothing
     // cannot make the tree assertions vacuous.
-    const files = ["a.ts", "b.ts", "c.ts"];
+    const files = ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"];
     const sources = {
       "a.ts": "void doThing();",
       "b.ts": "void doThing().catch((e) => log(e));",
       "c.ts": "function f(): void {}\n * void inACommentBlock();",
+      // Regression: comments discuss this very pattern at the sites that apply
+      // it, and an earlier scanner reported those comments as violations.
+      "d.ts": "// void promise.then(clearPending, onErr) is the guarded form",
+      "e.ts": "const x = 1; // void doThing();",
     };
     const hits = scanBareVoidDiscards((f) => sources[f], files);
     expect(hits).toEqual(["a.ts\tvoid doThing();"]);
