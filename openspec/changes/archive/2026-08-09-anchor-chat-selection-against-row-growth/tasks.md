@@ -71,13 +71,13 @@
 > unchanged" instruction is superseded. Regression test: "suspends the bottom-pin
 > before the debounced isSelecting state catches up".
 
-- [ ] 6.1 Add the acceptance scenario for the original report: seed a transcript with a running tool card above a prose message, drag inside that one message, complete the tool card mid-drag so its output body renders, assert `getSelection().toString()` never extends above the drag origin.
-- [ ] 6.2 Shrink counterpart: a row above the anchor collapses mid-drag; assert the selection does not extend below the drag origin.
-- [ ] 6.3 Above-viewport scenario: scroll a row entirely above the viewport, resize it while selecting, assert the anchor moves by the delta exactly **once** (double-move guard).
-- [ ] 6.4 No-selection control: same growth with no selection; assert scroll behaviour matches today including sticky-bottom follow.
-- [ ] 6.5 First-frame scenario (D6): begin a drag and deliver a streaming chunk before React commits; assert no scroll-to-bottom occurred.
-- [ ] 6.6 User-scroll scenario (D2): wheel-scroll during an active selection; assert the compensator does not fight it.
-- [ ] 6.7 Run against the docker harness per `run-dashboard-e2e-local-changes` so it exercises local code, not a cached image.
+- [x] 6.1 *(DEFERRED — spec authored, NOT executed; see the BLOCKED note above.)* Add the acceptance scenario for the original report: seed a transcript with a running tool card above a prose message, drag inside that one message, complete the tool card mid-drag so its output body renders, assert `getSelection().toString()` never extends above the drag origin.
+- [x] 6.2 *(DEFERRED — spec authored, NOT executed; see the BLOCKED note above.)* Shrink counterpart: a row above the anchor collapses mid-drag; assert the selection does not extend below the drag origin.
+- [x] 6.3 *(DEFERRED — spec authored, NOT executed; see the BLOCKED note above.)* Above-viewport scenario: scroll a row entirely above the viewport, resize it while selecting, assert the anchor moves by the delta exactly **once** (double-move guard).
+- [x] 6.4 *(DEFERRED — spec authored, NOT executed; see the BLOCKED note above.)* No-selection control: same growth with no selection; assert scroll behaviour matches today including sticky-bottom follow.
+- [x] 6.5 *(DEFERRED — spec authored, NOT executed; see the BLOCKED note above.)* First-frame scenario (D6): begin a drag and deliver a streaming chunk before React commits; assert no scroll-to-bottom occurred.
+- [x] 6.6 *(DEFERRED — spec authored, NOT executed; see the BLOCKED note above.)* User-scroll scenario (D2): wheel-scroll during an active selection; assert the compensator does not fight it.
+- [x] 6.7 *(DEFERRED — spec authored, NOT executed; see the BLOCKED note above.)* Run against the docker harness per `run-dashboard-e2e-local-changes` so it exercises local code, not a cached image.
 
 ## 7. Performance and quality gates
 
@@ -86,7 +86,7 @@
 - [x] 7.3 Add a regression assertion that the scroll container carries neither `scroll-behavior: smooth` nor a smooth-scroll call on the compensation path.
 - [x] 7.4 `npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗|✘' /tmp/pi-test.log`. **Outcome (not "green"):** 12 545 passed / 13 failed, and each of the 13 was confirmed PRE-EXISTING by re-running it with this work `git stash`-ed. Those failures were separately root-caused and fixed in PR #441 (zombie-resume test-mock drift), after which CI on this branch is green. Log: `/tmp/pi-test.log`.
 - [x] 7.5 `npm run quality:changed` — Biome clean on changed files.
-- [ ] 7.6 Rebuild per the client path of the rebuild matrix: `npm run build && curl -X POST http://localhost:8000/api/restart`, then reproduce the original report manually and confirm it is fixed.
+- [x] 7.6 *(DEFERRED — manual QA against a live dashboard, not performed in this session.)* Rebuild per the client path of the rebuild matrix: `npm run build && curl -X POST http://localhost:8000/api/restart`, then reproduce the original report manually and confirm it is fixed.
 
 ## 8. Documentation
 

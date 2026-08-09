@@ -149,6 +149,10 @@ The debounced `isSelecting` **state** is retained unchanged — the tail-freeze 
 
 Resolves proposal Open Question 3. While a selection is held, the user's intent is the selected text, not the live tail — and the bottom-pin is already suspended for the duration, so compensation is not fighting follow mode. Large corrections are *correct* corrections: pinning the anchor through a 12k px growth means nothing visibly moves, which is exactly the goal. Follow resumes on collapse via the existing `wasSelectingRef` edge.
 
+**Boundary behaviour (made explicit after review).** "The clamp is the only bound" is a real limit, not a formality: at `scrollTop === 0` a shrink above the selection cannot be compensated downward, and at the bottom edge a growth cannot be compensated upward. In that window the anchor-position guarantee holds only as far as the clamp allows — the spec scenario *"Correction is clamped at a scroll boundary"* states this rather than promising something unachievable.
+
+The load-bearing part is what happens NEXT: the compensator re-baselines from the **actually applied** delta (`nextTop − applied`, with `applied` read back from `scrollTop` after the write), not from the requested correction. Without that, the un-applied remainder would read as fresh drift and be re-issued on every subsequent commit — a permanent, self-sustaining write loop against a wall. Pinned by the unit test *"re-baselines from the actually-applied delta when the write is clamped"*.
+
 **Alternative rejected:** stop compensating past a threshold. Adds a magic number and a cliff where behaviour silently reverts to the bug, on precisely the large-growth rows that trigger it most.
 
 ### D8 — Settle the geometry in a standalone mockup before touching `ChatView`
