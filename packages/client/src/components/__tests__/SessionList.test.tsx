@@ -4,9 +4,11 @@ import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, useLocation } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { buildFolderSettingsUrl } from "../../lib/nav/route-builders.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { groupSessionsByDirectory, SessionList } from "../session/SessionList.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { AddToWorkspaceMenu } from "../workspace/AddToWorkspaceMenu.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });
@@ -479,6 +481,8 @@ describe("SessionList add-to-workspace affordance", () => {
         </ThemeProvider>
       </TestRouter>,
     );
+    // Now hosted inside the folder actions menu. See change: add-folder-actions-menu.
+    fireEvent.click(screen.getByTestId("folder-actions-menu-/root/proj"));
     const btn = screen.getByTestId("add-to-workspace-btn-/root/proj");
     expect(btn.textContent).toContain("Workspace");
     expect(btn.textContent).not.toContain("+ws");
@@ -497,6 +501,7 @@ describe("SessionList add-to-workspace affordance", () => {
         </ThemeProvider>
       </TestRouter>,
     );
+    fireEvent.click(screen.getByTestId("folder-actions-menu-/root/proj"));
     fireEvent.click(screen.getByTestId("add-to-workspace-btn-/root/proj"));
     // The menu surfaces the "+ New workspace…" entry.
     expect(screen.getByText("+ New workspace…")).toBeTruthy();
@@ -513,6 +518,7 @@ describe("SessionList add-to-workspace affordance", () => {
         </ThemeProvider>
       </TestRouter>,
     );
+    fireEvent.click(screen.getByTestId("folder-actions-menu-/root/proj"));
     expect(screen.queryByTestId("add-to-workspace-btn-/root/proj")).toBeNull();
   });
 });
@@ -631,8 +637,9 @@ describe("groupSessionsByDirectory", () => {
   });
 });
 
-// F2 — the pinned-row "open" affordance navigates to the folder home without
-// toggling collapse. See change: add-directory-home-page (D3).
+// F2 — the folder header ROW navigates to the folder home without toggling
+// collapse. See change: add-directory-home-page (D3); migrated off the deleted
+// `folder-open-home-<cwd>` icon by change: add-folder-actions-menu (D3).
 describe("SessionList folder-home open affordance", () => {
   function LocationProbe() {
     const [loc] = useLocation();
@@ -659,16 +666,17 @@ describe("SessionList folder-home open affordance", () => {
     return { cwd };
   }
 
-  it("renders the open affordance on a pinned row", () => {
+  it("renders NO dedicated open icon on a pinned row (the row itself is the affordance)", () => {
     const { cwd } = renderPinned();
-    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
+    expect(screen.queryByTestId(`folder-open-home-${cwd}`)).toBeNull();
+    expect(screen.getByTestId(`folder-home-row-${cwd}`)).toBeTruthy();
   });
 
   it("navigates to /folder/<enc> and leaves the folder expanded (collapse not toggled)", () => {
     const { cwd } = renderPinned();
     // Expanded row shows the spawn/action bar; collapsing would hide it.
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
-    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
+    fireEvent.click(screen.getByTestId(`folder-home-row-${cwd}`));
     expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
     // stopPropagation kept the collapse toggle from firing: still expanded.
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
@@ -688,10 +696,10 @@ describe("SessionList folder-home open affordance", () => {
   });
 });
 
-// enable-workspace-folder-home-page — the open affordance now renders on
-// workspace-folder rows too (condition `isPinned || inWorkspace`). An UNPINNED
-// workspace folder has `folder.pinned === false`, so the affordance must show
-// via `inWorkspace`. Scenario ids per that change's test-plan.md.
+// enable-workspace-folder-home-page — the open affordance renders on
+// workspace-folder rows too. The dedicated icon is deleted by change
+// add-folder-actions-menu (D3); the header ROW carries the gesture for every
+// row shape, so these cases now drive `folder-home-row-<cwd>`.
 describe("SessionList workspace-folder open affordance (enable-workspace-folder-home-page)", () => {
   function LocationProbe() {
     const [loc] = useLocation();
@@ -721,14 +729,15 @@ describe("SessionList workspace-folder open affordance (enable-workspace-folder-
 
   it("F3: an unpinned workspace-folder row shows the open affordance", () => {
     const { cwd } = renderWorkspaceFolder();
-    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
+    expect(screen.getByTestId(`folder-home-row-${cwd}`)).toBeTruthy();
+    expect(screen.queryByTestId(`folder-open-home-${cwd}`)).toBeNull();
   });
 
   it("F4: activating the affordance navigates to /folder/<enc> without toggling collapse", () => {
     const { cwd } = renderWorkspaceFolder();
     // Expanded row shows the spawn/action bar; collapsing would hide it.
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
-    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
+    fireEvent.click(screen.getByTestId(`folder-home-row-${cwd}`));
     expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
     // stopPropagation kept the collapse toggle from firing: still expanded.
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
@@ -751,8 +760,8 @@ describe("SessionList workspace-folder open affordance (enable-workspace-folder-
         </ThemeProvider>
       </Router>,
     );
-    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
-    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
+    expect(screen.queryByTestId(`folder-open-home-${cwd}`)).toBeNull();
+    fireEvent.click(screen.getByTestId(`folder-home-row-${cwd}`));
     expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
   });
 });
@@ -784,8 +793,14 @@ describe("SessionList add-to-workspace button", () => {
     );
   }
 
+  /** The affordance now lives inside the folder actions menu. See change: add-folder-actions-menu. */
+  function openMenu() {
+    fireEvent.click(screen.getByTestId(`folder-actions-menu-${CWD}`));
+  }
+
   it("renders a labelled pill whose accessible name carries the add-to-workspace verb", () => {
     renderList();
+    openMenu();
     const btn = screen.getByTestId(`add-to-workspace-btn-${CWD}`);
     // The visible label is the noun ("Workspace", per add-to-workspace-affordance);
     // the accessible name still carries the full verb, so the two do not collapse.
@@ -798,6 +813,7 @@ describe("SessionList add-to-workspace button", () => {
 
   it("exposes aria-haspopup and reflects popover state in aria-expanded", () => {
     renderList();
+    openMenu();
     const btn = screen.getByTestId(`add-to-workspace-btn-${CWD}`);
     expect(btn.getAttribute("aria-haspopup")).toBe("menu");
     expect(btn.getAttribute("aria-expanded")).toBe("false");
@@ -825,23 +841,22 @@ describe("SessionList add-to-workspace button", () => {
 
   it("the popover offers no pin destination", () => {
     renderList();
+    openMenu();
     fireEvent.click(screen.getByTestId(`add-to-workspace-btn-${CWD}`));
     const menu = screen.getByTestId("add-to-workspace-menu");
     expect(menu.textContent).not.toMatch(/pin to dashboard/i);
   });
 
-  it("sits inside the header action cluster in the order sort · add-to · home · pin", () => {
+  // E1 (migrated) — the cluster used to be exactly
+  // `[folder-urgency-sort, add-to-workspace-btn, folder-open-home, unpin-dir-btn]`.
+  // add-folder-actions-menu collapses all four into ONE trigger.
+  it("the header action cluster is exactly the folder actions menu trigger", () => {
     renderList();
     const cluster = screen.getByTestId(`folder-header-cluster-${CWD}`);
     const ids = Array.from(cluster.querySelectorAll("button[data-testid]")).map((b) =>
       b.getAttribute("data-testid"),
     );
-    expect(ids).toEqual([
-      `folder-urgency-sort-${CWD}`,
-      `add-to-workspace-btn-${CWD}`,
-      `folder-open-home-${CWD}`,
-      "unpin-dir-btn",
-    ]);
+    expect(ids).toEqual([`folder-actions-menu-${CWD}`]);
   });
 
   it("the cluster never wraps and the parent path yields before the folder name", () => {
@@ -884,20 +899,327 @@ describe("SessionCard add-to-workspace icon button", () => {
     );
   }
 
-  it("renders on the card header with an accessible name naming the cwd scope", () => {
+  // F10 (migrated) — workspace membership is directory-scoped, so the affordance
+  // left the session card entirely. See change: add-folder-actions-menu (D1).
+  it("renders NO add-to-workspace control on the session card", () => {
     renderList();
-    const btn = screen.getByTestId("session-card-add-to-workspace-s1");
-    expect(btn.getAttribute("aria-label")).toMatch(/add cwd to workspace/i);
-    expect(btn.getAttribute("aria-haspopup")).toBe("menu");
-    expect(btn.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByTestId("session-card-add-to-workspace-s1")).toBeNull();
   });
 
-  it("opens its own popover without also opening the folder header's", () => {
+  it("the folder actions menu is the only place the affordance lives", () => {
     renderList();
-    fireEvent.click(screen.getByTestId("session-card-add-to-workspace-s1"));
-    // Exactly one popover on screen — the card's, not the same-cwd folder row's.
-    expect(screen.getAllByTestId("add-to-workspace-menu")).toHaveLength(1);
-    expect(screen.getByTestId(`add-to-workspace-btn-${CWD}`).getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByTestId("session-card-add-to-workspace-s1").getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByTestId(`folder-actions-menu-${CWD}`));
+    expect(screen.getAllByTestId(`add-to-workspace-btn-${CWD}`)).toHaveLength(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// add-folder-actions-menu — the header's trailing cluster collapses to ONE
+// trigger; every header-row mutation moves into a grouped popover.
+// Scenarios E1-E7, E10-E15, X3 from openspec/changes/add-folder-actions-menu/test-plan.md.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("SessionList folder actions menu", () => {
+  const CWD = "/home/user/project";
+
+  function LocationProbe() {
+    const [loc] = useLocation();
+    return <span data-testid="loc">{loc}</span>;
+  }
+
+  function renderList(extra: Partial<React.ComponentProps<typeof SessionList>> = {}, path = "/") {
+    const { hook } = memoryLocation({ path });
+    const utils = render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <LocationProbe />
+          <SessionList
+            sessions={[makeSession({ id: "s1", cwd: CWD })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            {...extra}
+          />
+        </ThemeProvider>
+      </Router>,
+    );
+    return utils;
+  }
+
+  function openMenu(cwd = CWD) {
+    fireEvent.click(screen.getByTestId(`folder-actions-menu-${cwd}`));
+    return screen.getByTestId(`folder-actions-menu-panel-${cwd}`);
+  }
+
+  // E1 — the cluster collapses to a single control.
+  it("E1: the trailing cluster holds exactly one control and none of the old buttons", () => {
+    renderList({ pinnedDirectories: [CWD], onUnpinDirectory: () => {}, onCreateWorkspace: () => {} });
+    const cluster = screen.getByTestId(`folder-header-cluster-${CWD}`);
+    expect(cluster.children).toHaveLength(1);
+    expect(screen.getByTestId(`folder-actions-menu-${CWD}`)).toBeTruthy();
+    for (const id of [
+      `folder-urgency-sort-${CWD}`,
+      `add-to-workspace-btn-${CWD}`,
+      `folder-open-home-${CWD}`,
+      "unpin-dir-btn",
+      "pin-dir-btn",
+    ]) {
+      expect(screen.queryByTestId(id)).toBeNull();
+    }
+  });
+
+  // E2 — top-level folder outside a workspace.
+  it("E2: workspace group carries add-to-workspace; directory group carries pin, sort, settings", () => {
+    renderList({
+      onPinDirectory: () => {},
+      onOpenDirectorySettings: () => {},
+      workspaces: [{ id: "w1", name: "WS", collapsed: false, folders: [] }],
+    });
+    const panel = openMenu();
+    expect(panel.querySelector("[data-testid='folder-menu-group-workspace']")).toBeTruthy();
+    expect(screen.getByTestId(`add-to-workspace-btn-${CWD}`)).toBeTruthy();
+    expect(screen.getByTestId("folder-menu-item-pin")).toBeTruthy();
+    expect(screen.getByTestId("folder-menu-item-urgency-sort")).toBeTruthy();
+    expect(screen.getByTestId("folder-menu-item-directory-settings")).toBeTruthy();
+    expect(screen.queryByTestId("folder-menu-item-remove-from-workspace")).toBeNull();
+  });
+
+  // E3 — workspace-owned folder omits what does not apply.
+  it("E3: a workspace-owned folder gets remove-from-workspace, no add-to-workspace, no pin", () => {
+    renderList({
+      onPinDirectory: () => {},
+      onOpenDirectorySettings: () => {},
+      onRemoveFolderFromWorkspace: () => {},
+      workspaces: [{ id: "w1", name: "WS", collapsed: false, folders: [CWD] }],
+    });
+    openMenu();
+    expect(screen.getByTestId("folder-menu-item-remove-from-workspace")).toBeTruthy();
+    expect(screen.queryByTestId(`add-to-workspace-btn-${CWD}`)).toBeNull();
+    expect(screen.queryByTestId("folder-menu-item-pin")).toBeNull();
+  });
+
+  // E4 — a group with no applicable item does not render its heading.
+  it("E4: the workspace group heading is absent when no workspace item applies", () => {
+    renderList({ workspaces: [], onOpenDirectorySettings: () => {} });
+    const panel = openMenu();
+    expect(panel.querySelector("[data-testid='folder-menu-group-workspace']")).toBeNull();
+    expect(panel.querySelector("[data-testid='folder-menu-group-directory']")).toBeTruthy();
+  });
+
+  // E5 — gating is unchanged: a create handler alone is enough.
+  it("E5: with no workspaces but a create handler, add-to-workspace still renders", () => {
+    renderList({ workspaces: [], onCreateWorkspace: () => {} });
+    openMenu();
+    expect(screen.getByTestId(`add-to-workspace-btn-${CWD}`)).toBeTruthy();
+  });
+
+  // E6 — the historical test id survives the relocation.
+  it("E6: add-to-workspace-btn-<cwd> exists inside the menu", () => {
+    const cwd = "/a/b";
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ id: "s1", cwd })]}
+            onSelect={() => {}}
+            onCreateWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </Router>,
+    );
+    const panel = openMenu(cwd);
+    expect(panel.querySelector(`[data-testid='add-to-workspace-btn-${cwd}']`)).toBeTruthy();
+  });
+
+  // E7 — open state is keyed per folder scope.
+  it("E7: opening one folder's menu leaves the other closed and closes the first", () => {
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ id: "s1", cwd: "/a" }), makeSession({ id: "s2", cwd: "/b" })]}
+            onSelect={() => {}}
+          />
+        </ThemeProvider>
+      </Router>,
+    );
+    fireEvent.click(screen.getByTestId("folder-actions-menu-/a"));
+    expect(screen.getByTestId("folder-actions-menu-panel-/a")).toBeTruthy();
+    expect(screen.queryByTestId("folder-actions-menu-panel-/b")).toBeNull();
+    fireEvent.click(screen.getByTestId("folder-actions-menu-/b"));
+    expect(screen.getByTestId("folder-actions-menu-panel-/b")).toBeTruthy();
+    expect(screen.queryByTestId("folder-actions-menu-panel-/a")).toBeNull();
+  });
+
+  // E10 — pin from the menu.
+  it("E10: activating the pin item pins the directory once and closes the menu", () => {
+    const onPinDirectory = vi.fn();
+    renderList({ onPinDirectory });
+    openMenu();
+    fireEvent.click(screen.getByTestId("folder-menu-item-pin"));
+    expect(onPinDirectory).toHaveBeenCalledTimes(1);
+    expect(onPinDirectory).toHaveBeenCalledWith(CWD);
+    expect(screen.queryByTestId(`folder-actions-menu-panel-${CWD}`)).toBeNull();
+  });
+
+  // E11 — unpin from the menu.
+  it("E11: on a pinned folder the pin item unpins", () => {
+    const onUnpinDirectory = vi.fn();
+    renderList({ pinnedDirectories: [CWD], onUnpinDirectory });
+    openMenu();
+    const item = screen.getByTestId("folder-menu-item-pin");
+    expect(item.textContent).toMatch(/unpin/i);
+    fireEvent.click(item);
+    expect(onUnpinDirectory).toHaveBeenCalledTimes(1);
+    expect(onUnpinDirectory).toHaveBeenCalledWith(CWD);
+  });
+
+  // E12 — the pinned state is an inert indicator, not a control.
+  it("E12: a pinned folder shows a non-interactive pin indicator", () => {
+    renderList({ pinnedDirectories: [CWD], onUnpinDirectory: () => {} });
+    const indicator = screen.getByTestId(`folder-pinned-indicator-${CWD}`);
+    expect(indicator.tagName).not.toBe("BUTTON");
+    expect(indicator.querySelector("button")).toBeNull();
+    expect(indicator.hasAttribute("tabindex")).toBe(false);
+    expect(indicator.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  // E13 — no indicator when unpinned.
+  it("E13: an unpinned folder renders no pin indicator", () => {
+    renderList({ onPinDirectory: () => {} });
+    expect(screen.queryByTestId(`folder-pinned-indicator-${CWD}`)).toBeNull();
+  });
+
+  // E14 — accepted duplication: the menu's remove item and the
+  // AddToWorkspaceMenu popover's own remove entry have identical effect.
+  //
+  // Reachability note: on a folder ROW the popover's entry is currently
+  // unreachable — `AddToWorkspaceMenu` renders its remove entry only when
+  // `currentWorkspaceId !== null`, while the top-level tiers filter
+  // workspace-owned folders out (`visibleTopPinned` / `visibleTopUnpinned`), so
+  // a row that carries the add-to-workspace affordance always resolves
+  // `owningWsId === null`. That predates this change and is NOT fixed here. The
+  // duplication is therefore pinned where it is observable: the menu item's
+  // args, and the popover's own entry driven directly.
+  it("E14: the menu's remove item removes the folder from its owning workspace", () => {
+    const onRemoveFolderFromWorkspace = vi.fn();
+    renderList({
+      onRemoveFolderFromWorkspace,
+      workspaces: [{ id: "w1", name: "WS", collapsed: false, folders: [CWD] }],
+      onCreateWorkspace: () => {},
+    });
+    openMenu();
+    fireEvent.click(screen.getByTestId("folder-menu-item-remove-from-workspace"));
+    expect(onRemoveFolderFromWorkspace).toHaveBeenCalledTimes(1);
+    expect(onRemoveFolderFromWorkspace).toHaveBeenCalledWith("w1", CWD);
+  });
+
+  it("E14: the AddToWorkspaceMenu popover keeps its own remove entry, with the same effect", () => {
+    const onRemoveFromWorkspace = vi.fn();
+    render(
+      <ThemeProvider>
+        <AddToWorkspaceMenu
+          workspaces={[{ id: "w1", name: "WS", collapsed: false, folders: [CWD] }]}
+          currentWorkspaceId="w1"
+          onPick={() => {}}
+          onNewWorkspace={() => {}}
+          onRemoveFromWorkspace={onRemoveFromWorkspace}
+          onClose={() => {}}
+        />
+      </ThemeProvider>,
+    );
+    fireEvent.click(screen.getByTestId("remove-from-workspace"));
+    // SessionList wires this callback to
+    // `onRemoveFolderFromWorkspace(owningWsId, cwd)` — the same pair the menu
+    // item passes above.
+    expect(onRemoveFromWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  // E15 — Directory Settings item navigates to the settings route.
+  it("E15: the Directory Settings item opens that directory's settings route", () => {
+    const cwd = "/Users/u/proj";
+    const onOpenDirectorySettings = vi.fn();
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ id: "s1", cwd })]}
+            onSelect={() => {}}
+            onOpenDirectorySettings={onOpenDirectorySettings}
+          />
+        </ThemeProvider>
+      </Router>,
+    );
+    openMenu(cwd);
+    fireEvent.click(screen.getByTestId("folder-menu-item-directory-settings"));
+    expect(onOpenDirectorySettings).toHaveBeenCalledWith(cwd);
+    // The handler routes to the settings page; the page segment is omitted so
+    // the route handler defaults to `packages`.
+    expect(buildFolderSettingsUrl(cwd)).toBe(`/folder/${encodeFolderPath(cwd)}/settings`);
+  });
+
+  // X3 — the trigger's click does not reach the navigating header row.
+  it("X3: activating the trigger neither navigates nor collapses", () => {
+    renderList({ onPinDirectory: () => {} });
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+    openMenu();
+    expect(screen.getByTestId("loc").textContent).toBe("/");
+    // Still expanded — collapse did not toggle.
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+  });
+
+  // The leaf name reads as a link on hover (3.10).
+  it("the folder leaf name carries a hover affordance", () => {
+    renderList();
+    const leaf = screen.getByTestId(`folder-header-leaf-${CWD}`);
+    expect(leaf.className).toMatch(/group-hover:underline/);
+  });
+});
+
+// add-folder-actions-menu (CodeRabbit review) — deleting `folder-open-home`
+// removed the only FOCUSABLE open control, so the whole-row navigation had no
+// keyboard route. The name region carries link semantics; the row itself cannot,
+// because it also hosts the menu trigger and a button may not nest in a link.
+describe("SessionList folder header keyboard accessibility", () => {
+  const CWD = "/home/user/project";
+
+  function LocationProbe() {
+    const [loc] = useLocation();
+    return <span data-testid="loc">{loc}</span>;
+  }
+
+  function renderList() {
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <LocationProbe />
+          <SessionList sessions={[makeSession({ id: "s1", cwd: CWD })]} onSelect={() => {}} />
+        </ThemeProvider>
+      </Router>,
+    );
+  }
+
+  it("the folder name exposes link semantics and is focusable", () => {
+    renderList();
+    const name = screen.getByTestId(`folder-header-name-${CWD}`);
+    expect(name.getAttribute("role")).toBe("link");
+    expect(name.getAttribute("tabindex")).toBe("0");
+  });
+
+  it("Enter on the focused folder name navigates to the directory home", () => {
+    renderList();
+    const name = screen.getByTestId(`folder-header-name-${CWD}`);
+    name.focus();
+    expect(document.activeElement).toBe(name);
+    fireEvent.keyDown(name, { key: "Enter" });
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(CWD)}`);
+  });
+
+  it("the menu trigger is not nested inside the link region", () => {
+    renderList();
+    const name = screen.getByTestId(`folder-header-name-${CWD}`);
+    expect(name.querySelector(`[data-testid="folder-actions-menu-${CWD}"]`)).toBeNull();
   });
 });

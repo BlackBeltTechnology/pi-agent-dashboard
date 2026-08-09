@@ -24,7 +24,7 @@ export interface UseContentViewsOptions {
 export function useContentViews(options: UseContentViewsOptions) {
   const { navigate } = options;
 
-  const handleOpenPiResources = useCallback((cwd: string) => {
+  const handleOpenDirectorySettings = useCallback((cwd: string) => {
     // Repointed to the Directory Settings page (defaults to the packages
     // page). See change: directory-settings-page-and-scoped-md-editing.
     navigate(buildFolderSettingsUrl(cwd));
@@ -35,7 +35,7 @@ export function useContentViews(options: UseContentViewsOptions) {
   }, [navigate]);
 
   return {
-    handleOpenPiResources,
+    handleOpenDirectorySettings,
     handleViewPiResourceFile,
   };
 }
