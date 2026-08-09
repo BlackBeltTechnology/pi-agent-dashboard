@@ -38,6 +38,7 @@ const baseConfig: ServerConfig = {
   host: "127.0.0.1",
   dev: true,
   autoShutdown: false,
+  shutdownIdleSeconds: 0,
   tunnel: false,
   pingInterval: 0,
 };
