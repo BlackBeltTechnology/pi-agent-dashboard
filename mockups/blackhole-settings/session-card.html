@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session card → MEMORY subcard (blackhole)</title>
+<style>
+  :root, [data-theme="studio"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444;
+    --accent-purple:#a855f7; --accent-primary:#3b82f6; --on-accent:#ffffff;
+  }
+  [data-theme="light"]{
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5;
+    --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#5f5f5f; --text-muted:#767676;
+    --border-primary:#e0e0e0; --border-secondary:#cccccc; --border-subtle:rgba(0,0,0,.10);
+    --accent-primary:#2563eb; --accent-blue:#2563eb; --accent-green:#15803d;
+    --accent-yellow:#a16207; --accent-red:#dc2626; --accent-purple:#7e22ce; --on-accent:#ffffff;
+  }
+  :focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;border-radius:4px;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg-primary);color:var(--text-secondary);font-size:14px;line-height:1.45;}
+  .wrap{max-width:1080px;margin:0 auto;padding:14px 20px 60px;}
+  .topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+  .topbar h1{font-size:13px;font-weight:600;color:var(--text-tertiary);margin:0;letter-spacing:.02em;text-transform:uppercase;}
+  .tbtn{font:inherit;font-size:12px;color:var(--text-secondary);background:var(--bg-tertiary);
+    border:1px solid var(--border-secondary);border-radius:6px;padding:6px 10px;cursor:pointer;min-height:32px;}
+  .tbtn:hover{background:var(--bg-hover);}
+  .lede{font-size:12.5px;color:var(--text-tertiary);margin:0 0 18px;max-width:760px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--text-primary);
+    background:var(--bg-tertiary);padding:1px 5px;border-radius:4px;}
+
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;align-items:start;}
+  .variant > h2{font-size:12px;font-weight:600;color:var(--text-primary);margin:0 0 3px;
+    text-transform:uppercase;letter-spacing:.04em;}
+  .variant > p{font-size:11.5px;color:var(--text-tertiary);margin:0 0 10px;min-height:32px;}
+
+  /* ── session card (approximates SessionCard) ── */
+  .scard{border:1px solid var(--border-primary);border-radius:12px;background:var(--bg-secondary);padding:10px 11px;}
+  .scard-head{display:flex;align-items:center;gap:8px;}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;}
+  .dot.busy{background:var(--accent-green);}
+  .dot.idle{background:var(--text-muted);}
+  .scard-name{font-size:13px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .scard-cwd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;color:var(--text-tertiary);
+    margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .scard-badges{display:flex;gap:4px;margin-left:auto;flex:0 0 auto;}
+  .bdg{font-size:10px;color:var(--text-secondary);border:1px solid var(--border-subtle);
+    border-radius:999px;padding:2px 7px;background:var(--bg-tertiary);}
+
+  /* ── SessionSubcard — visual contract copied from SessionSubcard.tsx ── */
+  .subcard{position:relative;margin-top:10px;border-radius:8px;border:1px solid var(--border-subtle);
+    background:color-mix(in srgb,var(--bg-surface) 50%,transparent);padding:8px;}
+  .subcard > .legend{position:absolute;top:-6px;left:50%;transform:translateX(-50%);
+    padding:1px 6px;border-radius:999px;background:var(--bg-tertiary);border:1px solid var(--border-subtle);
+    /* shipped SessionSubcard uses --text-tertiary here = 4.22:1 on --bg-tertiary (fails AA in dark).
+       Bumped to --text-secondary; the shipped contract is the real defect. */
+    font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary);line-height:1.35;}
+
+  /* ── the blackhole contribution ── */
+  .bh{display:flex;flex-direction:column;gap:7px;}
+  .bh-row{display:flex;align-items:center;gap:7px;}
+  .pips{display:flex;gap:3px;flex:0 0 auto;}
+  .pip{width:19px;height:19px;border-radius:5px;display:grid;place-items:center;font-size:9.5px;font-weight:700;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid var(--border-subtle);
+    background:var(--bg-tertiary);color:var(--text-tertiary);}
+  .pip.ok{color:var(--accent-green);border-color:color-mix(in srgb,var(--accent-green) 45%,transparent);
+    background:color-mix(in srgb,var(--accent-green) 14%,transparent);}
+  .pip.warn{color:var(--accent-yellow);border-color:color-mix(in srgb,var(--accent-yellow) 50%,transparent);
+    background:color-mix(in srgb,var(--accent-yellow) 16%,transparent);}
+  .pip.run{color:var(--accent-blue);border-color:color-mix(in srgb,var(--accent-blue) 50%,transparent);
+    background:color-mix(in srgb,var(--accent-blue) 16%,transparent);}
+  .pip.off{color:var(--text-secondary);opacity:.8;}
+
+  .minibar{flex:1 1 auto;height:5px;border-radius:999px;background:var(--bg-tertiary);
+    border:1px solid var(--border-subtle);overflow:hidden;min-width:40px;}
+  .minibar > i{display:block;height:100%;background:var(--accent-blue);border-radius:999px;}
+  .minibar > i.warn{background:var(--accent-yellow);}
+  .mini-v{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;color:var(--text-tertiary);
+    flex:0 0 auto;font-variant-numeric:tabular-nums;}
+  /* approximate proxy: coarse, tilde-marked, dashed underline signalling "not exact" */
+  .approx{font-size:10.5px;color:var(--text-tertiary);flex:0 0 auto;
+    border-bottom:1px dashed var(--border-secondary);cursor:help;}
+  /* exact figure: solid, monospace, no marker */
+  .exact{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;
+    color:var(--text-secondary);flex:0 0 auto;font-variant-numeric:tabular-nums;}
+
+  .bh-note{font-size:10.5px;color:var(--text-tertiary);display:flex;align-items:center;gap:5px;}
+  .bh-note.alert{color:var(--accent-yellow);}
+  .bh-note svg{flex:0 0 auto;}
+  .bh-link{font:inherit;font-size:10.5px;color:var(--accent-blue);background:none;border:none;cursor:pointer;
+    padding:5px 2px;margin:-5px 0;text-align:left;}
+  .bh-link:hover{text-decoration:underline;}
+  .bh-off{font-size:10.5px;color:var(--text-tertiary);display:flex;align-items:center;gap:6px;}
+
+  .note{font-size:11.5px;color:var(--text-tertiary);margin:8px 0 0;padding-left:12px;border-left:2px solid var(--border-secondary);}
+  .note b{color:var(--text-primary);font-weight:600;}
+  .verdict{font-size:11px;margin-top:7px;font-weight:600;}
+  .verdict.yes{color:var(--accent-green);}
+  .verdict.no{color:var(--accent-red);}
+
+  hr.sep{border:none;border-top:1px solid var(--border-secondary);margin:30px 0 22px;}
+  h3.blk{font-size:13px;font-weight:600;color:var(--text-primary);margin:0 0 4px;}
+  p.blk{font-size:12.5px;color:var(--text-tertiary);margin:0 0 14px;max-width:760px;}
+
+  /* full detail view */
+  .cv{border:1px solid var(--border-secondary);border-radius:12px;background:var(--bg-secondary);padding:14px;max-width:760px;}
+  .cv-head{display:flex;align-items:center;gap:9px;margin-bottom:12px;flex-wrap:wrap;}
+  .cv-title{font-size:14px;font-weight:600;color:var(--text-primary);}
+  .cv-sub{font-size:11.5px;color:var(--text-tertiary);}
+  .cv-cfg{margin-left:auto;font:inherit;font-size:11.5px;color:var(--accent-blue);background:none;border:none;cursor:pointer;padding:6px;}
+  .kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:9px;margin-bottom:14px;}
+  .kvi{border:1px solid var(--border-subtle);border-radius:8px;padding:9px 10px;background:var(--bg-tertiary);}
+  .kvi .k{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-secondary);}
+  .kvi .v{font-size:13px;color:var(--text-primary);margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .kvi .s{font-size:10.5px;color:var(--text-secondary);margin-top:2px;}
+  .src{font-size:10px;color:var(--text-secondary);border:1px solid var(--border-subtle);border-radius:4px;
+    padding:1px 5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  table.t{width:100%;border-collapse:collapse;font-size:12px;}
+  table.t th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-tertiary);
+    font-weight:600;padding:6px 8px;border-bottom:1px solid var(--border-secondary);}
+  table.t td{padding:8px;border-bottom:1px solid var(--border-subtle);color:var(--text-secondary);}
+  table.t tr:last-child td{border-bottom:none;}
+  table.t td.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--text-tertiary);}
+  .cv-foot{font-size:11px;color:var(--text-tertiary);margin-top:12px;padding-top:10px;border-top:1px solid var(--border-subtle);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>Session card · MEMORY subcard · blackhole</h1>
+    <button class="tbtn" id="themeBtn">◐ Light</button>
+  </div>
+  <p class="lede">
+    The pipeline is per-session state (<code>~/.pi/agent/pi-blackhole/&lt;sessionId&gt;-pending.json</code>), so it belongs on the
+    session card via the reserved <code>session-card-memory</code> slot — not on the global settings page.
+    Three densities below, scored against what a subcard can actually afford.
+  </p>
+
+  <p class="lede" style="margin-top:-8px">
+    <span class="exact">exact</span> = read verbatim from <code>pending.json</code> &nbsp;·&nbsp;
+    <span class="approx">~approximate</span> = derived from the dashboard's own token count, not blackhole's
+  </p>
+  <div class="cols">
+    <!-- A -->
+    <div class="variant">
+      <h2>A · Meter only</h2>
+      <p>Just progress toward the next compaction.</p>
+      <div class="scard">
+        <div class="scard-head">
+          <span class="dot busy"></span>
+          <span><span class="scard-name">refactor-auth-flow</span><br><span class="scard-cwd">~/Project/pi-agent-dashboard</span></span>
+          <span class="scard-badges"><span class="bdg">sonnet</span></span>
+        </div>
+        <div class="subcard">
+          <span class="legend">Memory</span>
+          <div class="bh">
+            <div class="bh-row">
+              <span class="mini-v">compact</span>
+              <span class="minibar"><i style="width:64%"></i></span>
+              <span class="approx" title="Approximate. Blackhole counts a different quantity (transcript entries since the last compaction); the dashboard counts what the provider reported. The two are not convertible.">~2/3 to compact</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">One fact, zero ambiguity. But it says nothing when a worker is silently failing — the exact case you'd want a card for.</p>
+      <p class="verdict no">Too thin — hides the failure mode</p>
+    </div>
+
+    <!-- B -->
+    <div class="variant">
+      <h2>B · Pips + meter <span style="color:var(--accent-green)">◄ pick</span></h2>
+      <p>Three worker pips carry health; the bar carries progress.</p>
+      <div class="scard">
+        <div class="scard-head">
+          <span class="dot busy"></span>
+          <span><span class="scard-name">refactor-auth-flow</span><br><span class="scard-cwd">~/Project/pi-agent-dashboard</span></span>
+          <span class="scard-badges"><span class="bdg">sonnet</span></span>
+        </div>
+        <div class="subcard">
+          <span class="legend">Memory</span>
+          <div class="bh">
+            <div class="bh-row">
+              <span class="pips">
+                <span class="pip run" title="Observer — running now">O</span>
+                <span class="pip ok" title="Reflector — healthy">R</span>
+                <span class="pip ok" title="Dropper — healthy">D</span>
+              </span>
+              <span class="exact" title="Exact — observer cursor vs branch tip, from pending.json">38 behind</span>
+              <span class="minibar"><i style="width:64%"></i></span>
+              <span class="approx" title="Approximate. Blackhole counts a different quantity (transcript entries since the last compaction); the dashboard counts what the provider reported. The two are not convertible.">~2/3 to compact</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Health and progress in one 19px row. Pips use letter + colour + tooltip, so colour is never the only channel (<b>WCAG 1.4.1</b>).</p>
+      <p class="verdict yes">Fits the space, shows the failure mode</p>
+    </div>
+
+    <!-- C -->
+    <div class="variant">
+      <h2>C · + degraded note</h2>
+      <p>Adds a second line only when something needs saying.</p>
+      <div class="scard">
+        <div class="scard-head">
+          <span class="dot busy"></span>
+          <span><span class="scard-name">refactor-auth-flow</span><br><span class="scard-cwd">~/Project/pi-agent-dashboard</span></span>
+          <span class="scard-badges"><span class="bdg">sonnet</span></span>
+        </div>
+        <div class="subcard">
+          <span class="legend">Memory</span>
+          <div class="bh">
+            <div class="bh-row">
+              <span class="pips">
+                <span class="pip warn" title="Observer — primary model cooling, on fallback 1">O</span>
+                <span class="pip ok" title="Reflector — healthy">R</span>
+                <span class="pip ok" title="Dropper — healthy">D</span>
+              </span>
+              <span class="exact" title="Exact — observer cursor vs branch tip, from pending.json">38 behind</span>
+              <span class="minibar"><i class="warn" style="width:64%"></i></span>
+              <span class="approx" title="Approximate. Blackhole counts a different quantity (transcript entries since the last compaction); the dashboard counts what the provider reported. The two are not convertible.">~2/3 to compact</span>
+            </div>
+            <div class="bh-note alert">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+              Observer on fallback · <code style="font-size:10px">qwen3-next-80b</code> cooling 2h
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">The extra row is <b>conditional</b> — it exists only in the degraded state, so the healthy card stays as quiet as B.</p>
+      <p class="verdict yes">B and C are the same design, two states</p>
+    </div>
+  </div>
+
+  <hr class="sep" />
+  <h3 class="blk">The other states</h3>
+  <p class="blk">A session card is glanced at, not read. Each state has to survive a half-second look.</p>
+
+  <div class="cols">
+    <div class="variant">
+      <h2>Memory off</h2>
+      <p><code>memory: false</code> or <code>/blackhole om-off</code>.</p>
+      <div class="scard">
+        <div class="scard-head"><span class="dot idle"></span>
+          <span><span class="scard-name">docs-pass</span><br><span class="scard-cwd">~/Project/pi-agent-dashboard</span></span></div>
+        <div class="subcard"><span class="legend">Memory</span>
+          <div class="bh"><div class="bh-off">
+            <span class="pips"><span class="pip off">O</span><span class="pip off">R</span><span class="pip off">D</span></span>
+            Workers off · compaction still runs
+          </div></div>
+        </div>
+      </div>
+      <p class="note">Pips stay present but muted — the absence is <b>stated</b>, not implied by a missing subcard.</p>
+    </div>
+
+    <div class="variant">
+      <h2>Manual mode, unflushed</h2>
+      <p><code>compaction: "manual"</code> with pending batches on disk.</p>
+      <div class="scard">
+        <div class="scard-head"><span class="dot idle"></span>
+          <span><span class="scard-name">spike-worker-pool</span><br><span class="scard-cwd">~/Project/pi-agent-dashboard</span></span></div>
+        <div class="subcard"><span class="legend">Memory</span>
+          <div class="bh">
+            <div class="bh-row">
+              <span class="pips"><span class="pip ok">O</span><span class="pip ok">R</span><span class="pip ok">D</span></span>
+              <span class="minibar"><i style="width:88%"></i></span>
+              <span class="approx" title="Approximate — see explanation.">~most of the way</span>
+            </div>
+            <div class="bh-note">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v13M7 12l5 5 5-5M5 21h14"/></svg>
+              3 batches pending · manual mode — run <code style="font-size:10px">/blackhole</code> to flush
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Straight from <code>&lt;sessionId&gt;-pending.json</code> — a real, at-rest fact. This is the one state a user genuinely can't see today.</p>
+    </div>
+
+    <div class="variant">
+      <h2>High proximity</h2>
+      <p>Proxy reads high. No automatic alarm — the number is approximate.</p>
+      <div class="scard">
+        <div class="scard-head"><span class="dot busy"></span>
+          <span><span class="scard-name">long-migration-run</span><br><span class="scard-cwd">~/Project/pi-agent-dashboard</span></span></div>
+        <div class="subcard"><span class="legend">Memory</span>
+          <div class="bh">
+            <div class="bh-row">
+              <span class="pips"><span class="pip ok">O</span><span class="pip run">R</span><span class="pip ok">D</span></span>
+              <span class="minibar"><i class="warn" style="width:96%"></i></span>
+              <span class="approx" title="Approximate — see explanation.">~most of the way</span>
+            </div>
+            <button class="bh-link">View pipeline →</button>
+          </div>
+        </div>
+      </div>
+      <p class="note">The detail link is <b>always</b> present, never triggered by the proxy crossing a threshold — an approximate number must not raise definite alarms.</p>
+    </div>
+  </div>
+
+  <hr class="sep" />
+  <h3 class="blk">Drill-in — <code>content-view</code>, not the settings page</h3>
+  <p class="blk">Every number is tagged with where it comes from. Anything not readable at rest is <b>not shown</b>.</p>
+
+  <div class="cv">
+    <div class="cv-head">
+      <span class="cv-title">Memory pipeline</span>
+      <span class="cv-sub">refactor-auth-flow</span>
+      <button class="cv-cfg">Configure blackhole →</button>
+    </div>
+
+    <div class="kv">
+      <div class="kvi"><div class="k">Observer cursor <span class="src">pending.json</span></div><div class="v">entry #412</div><div class="s">state: idle · 38 entries behind tip</div></div>
+      <div class="kvi"><div class="k">Reflector cursor <span class="src">pending.json</span></div><div class="v">entry #390</div><div class="s">state: running</div></div>
+      <div class="kvi"><div class="k">Dropper cursor <span class="src">pending.json</span></div><div class="v">entry #366</div><div class="s">state: idle</div></div>
+      <div class="kvi"><div class="k">Pending batches <span class="src">pending.json</span></div><div class="v">0</div><div class="s">auto mode — flushed on compact</div></div>
+    </div>
+
+    <table class="t">
+      <thead><tr><th>Worker</th><th>Resolved model</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Observer</td><td class="mono">gemma4:31b-cloud</td><td>primary <code style="font-size:10px">qwen3-next-80b</code> cooling until 18:41 <span class="src">cooldown.json</span></td></tr>
+        <tr><td>Reflector</td><td class="mono">gpt-oss-120b</td><td>primary, no cooldown <span class="src">cooldown.json</span></td></tr>
+        <tr><td>Dropper</td><td class="mono">gpt-oss-120b</td><td>primary, no cooldown <span class="src">cooldown.json</span></td></tr>
+      </tbody>
+    </table>
+
+    <p class="cv-foot">
+      Observations and reflections are folded into the session transcript, not a separate store — they surface in the
+      chat view, not here. Live counters and last-error strings exist only inside the running session
+      (<code>StatusInfo</code>); showing them here would require the bridge extension to forward them.
+    </p>
+  </div>
+</div>
+<script>
+  const html=document.documentElement, tb=document.getElementById('themeBtn');
+  tb.onclick=()=>{const light=html.getAttribute('data-theme')==='light';
+    html.setAttribute('data-theme',light?'studio':'light');tb.textContent=light?'◐ Light':'◑ Dark';};
+</script>
+</body>
+</html>
