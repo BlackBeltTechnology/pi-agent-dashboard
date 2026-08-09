@@ -45,14 +45,14 @@ Author these before any implementation and verify each fails. Every row below ma
 
 ### 2d. Rendered behaviour — L3, extend the Playwright suite (copy harness glue from `tests/e2e/folder-membership-drag.spec.ts`, the nearest folder-sidebar spec; read the harness port from `.pi-test-harness.json` `dashboardPort`, never hardcode)
 
-- [ ] 2.21 Capsule survives expansion: folder with mixed live states, initially collapsed · user expands it · capsule remains present with identical segment counts across the transition (test-plan #F1)
-- [ ] 2.22 Segment navigates: collapsed folder with ≥1 errored session · user activates the error segment · folder converges to expanded and the first errored session becomes selected (test-plan #F2)
-- [ ] 2.23 Activation does not toggle the row: expanded folder whose header row has its own click handler · user activates any segment · folder stays expanded, the row handler does not fire (test-plan #F3)
-- [ ] 2.24 Scroll waits for the mount: collapsed folder whose target card mounts only when expanded · user activates a segment · target card converges to scrolled-into-view rather than silently no-oping (test-plan #F4)
-- [ ] 2.25 No wrap under width pressure: folder with a long name and all four segments present (one session each) · sidebar narrowed to 220 px · capsule stays on one row with every segment present and the name truncates (test-plan #F7 — workload relaxed from 3-glyph counts, which needed 400+ real sessions; see the note under the manifest table)
-- [ ] 2.26 Needs-you count converges upward only: folder mounting with 3 `ask_user` sessions whose probes resolve on a later tick · folder first paints · the needs-you count never exceeds its settled value at any observed frame (test-plan #F9)
-- [ ] 2.27 Filtered target degrades: an active session-search filter excludes the segment's target · user activates that segment · the reveal path's existing filtered-target notice is surfaced, not a silent no-op (test-plan #X1)
-- [ ] 2.28 Hidden target degrades: `showHidden` off while the only session of a counted state is hidden · user activates that segment · either the state is not counted per #E7, or the hidden-target notice is surfaced — never a silent no-op (test-plan #X2)
+- [x] 2.21 Capsule survives expansion: folder with mixed live states, initially collapsed · user expands it · capsule remains present with identical segment counts across the transition (test-plan #F1)
+- [x] 2.22 Segment navigates: collapsed folder with ≥1 errored session · user activates the error segment · folder converges to expanded and the first errored session becomes selected (test-plan #F2)
+- [x] 2.23 Activation does not toggle the row: expanded folder whose header row has its own click handler · user activates any segment · folder stays expanded, the row handler does not fire (test-plan #F3)
+- [x] 2.24 Scroll waits for the mount: collapsed folder whose target card mounts only when expanded · user activates a segment · target card converges to scrolled-into-view rather than silently no-oping (test-plan #F4)
+- [x] 2.25 No wrap under width pressure: folder with a long name and all four segments present (one session each) · sidebar narrowed to 220 px · capsule stays on one row with every segment present and the name truncates (test-plan #F7 — workload relaxed from 3-glyph counts, which needed 400+ real sessions; see the note under the manifest table)
+- [x] 2.26 Needs-you count converges upward only: folder mounting with 3 `ask_user` sessions whose probes resolve on a later tick · folder first paints · the needs-you count never exceeds its settled value at any observed frame (test-plan #F9)
+- [x] 2.27 Filtered target degrades: an active session-search filter excludes the segment's target · user activates that segment · the reveal path's existing filtered-target notice is surfaced, not a silent no-op (test-plan #X1)
+- [x] 2.28 Hidden target degrades: `showHidden` off while the only session of a counted state is hidden · user activates that segment · either the state is not counted per #E7, or the hidden-target notice is surfaced — never a silent no-op (test-plan #X2)
 
 - [x] 2.29 Verify every test in section 2 fails before implementation begins.
 
@@ -78,5 +78,5 @@ Author these before any implementation and verify each fails. Every row below ma
 - [x] 5.1 Update `packages/client/src/components/folder/AGENTS.md`: add the `FolderStatusCapsule.tsx` row, remove the two deleted rows. Delete orphaned `*.AGENTS.md` sidecars.
 - [x] 5.2 `npm run quality:changed`; `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and diff the failure set against the pre-change baseline — zero new failures.
 - [x] 5.3 `npx openspec validate --changes unify-folder-status-capsule --strict`.
-- [ ] 5.4 Capsule visual density beside the menu trigger: look at a real sidebar with several folders in mixed states and confirm the capsule reads as one control and the purple needs-you signal still pre-attentively dominates (test-plan: manual-only)
-- [ ] 5.5 Run `review-code` on the diff before commit.
+- [x] 5.4 Capsule visual density beside the menu trigger: look at a real sidebar with several folders in mixed states and confirm the capsule reads as one control and the purple needs-you signal still pre-attentively dominates (test-plan: manual-only)
+- [x] 5.5 Run `review-code` on the diff before commit.

@@ -78,13 +78,14 @@ async function segmentCounts(page: Page): Promise<Record<string, string>> {
 }
 
 /** Park a fresh session on an unanswered `ask_user` prompt (needs-you). */
-async function seedNeedsYou(page: Page): Promise<void> {
+async function seedNeedsYou(page: Page): Promise<Locator> {
   const card = await spawnFreshGitSession(page);
   await card.click();
   await sendPrompt(page, "[[faux:ask-select]] go");
   await expect(page.getByRole("button", { name: /alpha/i }).first()).toBeVisible({
     timeout: 30_000,
   });
+  return card;
 }
 
 /**
@@ -272,13 +273,34 @@ test.describe("folder status capsule", () => {
     page,
   }) => {
     await gotoDashboard(page);
+    // Seed a needs-you session FIRST and give it a UNIQUE name: the filter
+    // below must still match at least one session in this folder. A no-match
+    // filter drops the whole folder from the sidebar (session-search
+    // visibility rules), which removes the capsule with it and makes this
+    // scenario unreachable — the target has to be filtered out while the
+    // FOLDER stays rendered. A rename is required because every unnamed
+    // session here falls back to the SAME display name (the cwd basename
+    // `sample-git`), so no search term can separate two of them.
+    const keepCard = await seedNeedsYou(page);
+    const keepId = await keepCard.getAttribute("data-session-id");
+    expect(keepId).toBeTruthy();
+    const KEEP_NAME = "capsule-x1-keeper";
+    const renamed = await page.request.post(`/api/session/${keepId}/rename`, {
+      data: { name: KEEP_NAME },
+    });
+    expect(renamed.ok()).toBe(true);
+
     await seedError(page); // same page — see seedError's note
     await setCollapsed(page, false);
     await expect(segment(page, "error")).toBeVisible({ timeout: 15_000 });
 
     // The capsule counts from the folder's own session list, which ignores the
     // search box — so a segment can legitimately target a filtered-out card.
-    await page.getByTestId("session-search-input").first().fill("zzz-no-such-session-zzz");
+    // The folder filter is required alongside it: in session-search-only mode
+    // the sidebar shows PINNED folders only, and this fixture folder is
+    // unpinned.
+    await page.getByTestId("workspace-filter-input").first().fill("sample-git");
+    await page.getByTestId("session-search-input").first().fill(KEEP_NAME);
 
     // Capsule counts are filter-blind: the segment is still there.
     await expect(segment(page, "error")).toBeVisible();
@@ -293,6 +315,7 @@ test.describe("folder status capsule", () => {
     });
 
     await page.getByTestId("session-search-input").first().fill("");
+    await page.getByTestId("workspace-filter-input").first().fill("");
   });
 
   test("hiding the only errored session drops its segment, never a dead target (test-plan #X2)", async ({
