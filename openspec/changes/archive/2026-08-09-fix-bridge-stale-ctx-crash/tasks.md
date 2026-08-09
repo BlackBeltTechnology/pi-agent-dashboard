@@ -37,4 +37,4 @@ Author these before the fix and verify each fails. Extend `packages/extension/sr
 - [x] 4.6 `npm run quality:changed`.
 - [x] 4.7 `npx openspec validate --changes fix-bridge-stale-ctx-crash --strict`.
 - [x] 4.8 Update `packages/extension/src/bridge.ts.AGENTS.md` (or the nearest directory `AGENTS.md`) with the guard's purpose and the pi>=0.84 invalidation contract.
-- [ ] 4.9 Run `review-code` on the diff before commit.
+- [x] 4.9 Run `review-code` on the diff before commit. (No blocking findings: guard wraps only `ctx.ui` so E5 holds; interval released before the guarded call; the widening from "only the invalidation throw" to "any UI throw" is deliberate and documented.)
