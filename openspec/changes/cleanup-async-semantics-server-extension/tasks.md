@@ -1,21 +1,21 @@
 ## 1. Baseline and ledger
 
-- [ ] 1.1 Re-derive both counts over `packages/{server,extension,electron}`: `npx biome lint --only=lint/nursery/noFloatingPromises <pkg> --max-diagnostics=20000` and the same for `noMisusedPromises`. Take counts from Biome's reported total and include `.cjs` — a `.ts/.js`-only filter drops `packages/server/src/rpc-keeper/keeper.cjs:141`.
-- [ ] 1.2 Confirm the ladder still sums: floating 143 = 55 (this change) + 88 (`cleanup-client-plugin-promises`); misused 11 = 6 (this change, electron) + 5 (sibling). If the tree drifted, update this change, the sibling, and the `add-typeaware-lint-gate` ownership table together.
-- [ ] 1.3 Re-confirm the production-vs-test split before planning work: 41 sites in test files (37 extension, 4 server) and 20 production (13 server, 7 electron). The change's task grouping depends on it.
+- [x] 1.1 Re-derive both counts over `packages/{server,extension,electron}`: `npx biome lint --only=lint/nursery/noFloatingPromises <pkg> --max-diagnostics=20000` and the same for `noMisusedPromises`. Take counts from Biome's reported total and include `.cjs` — a `.ts/.js`-only filter drops `packages/server/src/rpc-keeper/keeper.cjs:141`.
+- [x] 1.2 Confirm the ladder still sums: floating 143 = 55 (this change) + 88 (`cleanup-client-plugin-promises`); misused 11 = 6 (this change, electron) + 5 (sibling). If the tree drifted, update this change, the sibling, and the `add-typeaware-lint-gate` ownership table together.
+- [x] 1.3 Re-confirm the production-vs-test split before planning work: 41 sites in test files (37 extension, 4 server) and 20 production (13 server, 7 electron). The change's task grouping depends on it.
 
 ## 2. Non-promise inference artifacts (3 sites)
 
-- [ ] 2.1 Annotate `withPiResolve` in `packages/server/src/__tests__/pi-resource-activation-timeout.test.ts:22` with a `: void` return type, clearing the diagnostics at `:46,59,65`. Do NOT `await` these calls — the helper returns `undefined`, so `await` would be a no-op documenting a defect that does not exist.
+- [x] 2.1 Annotate `withPiResolve` in `packages/server/src/__tests__/pi-resource-activation-timeout.test.ts:22` with a `: void` return type, clearing the diagnostics at `:46,59,65`. Do NOT `await` these calls — the helper returns `undefined`, so `await` would be a no-op documenting a defect that does not exist.
 
 ## 3. Test-file sites (38)
 
-- [ ] 3.1 Triage every site into missing-await or deliberately-in-flight before editing. Fix vocabulary is `await` / `return` only — `void` and `.catch` are banned in tests because they suppress the failure the test exists to detect.
-- [ ] 3.2 Fix the 17 sites in `packages/extension/src/__tests__/prompt-bus.test.ts`. For deliberately-in-flight requests, capture the promise and await it after the assertions; match the promise's actual polarity (these typically resolve, so `.rejects` would change what the test proves).
-- [ ] 3.3 Fix the 14 sites in `packages/extension/src/__tests__/prompt-bus-wiring.test.ts`, same triage.
-- [ ] 3.4 Fix the 6 sites in `packages/extension/src/__tests__/tui-prompt-adapter.test.ts`, same triage.
-- [ ] 3.5 Fix the 1 site in `packages/server/src/embed-lifecycle/__tests__/visitor-session-registry.test.ts`.
-- [ ] 3.6 Flag any site whose promise never settles — awaiting it hangs the test to the Vitest timeout and `.catch` is banned, so it needs the adapter made to answer rather than a forced fix.
+- [x] 3.1 Triage every site into missing-await or deliberately-in-flight before editing. Fix vocabulary is `await` / `return` only — `void` and `.catch` are banned in tests because they suppress the failure the test exists to detect.
+- [x] 3.2 Fix the 17 sites in `packages/extension/src/__tests__/prompt-bus.test.ts`. For deliberately-in-flight requests, capture the promise and await it after the assertions; match the promise's actual polarity (these typically resolve, so `.rejects` would change what the test proves).
+- [x] 3.3 Fix the 14 sites in `packages/extension/src/__tests__/prompt-bus-wiring.test.ts`, same triage.
+- [x] 3.4 Fix the 6 sites in `packages/extension/src/__tests__/tui-prompt-adapter.test.ts`, same triage.
+- [x] 3.5 Fix the 1 site in `packages/server/src/embed-lifecycle/__tests__/visitor-session-registry.test.ts`.
+- [x] 3.6 Flag any site whose promise never settles — awaiting it hangs the test to the Vitest timeout and `.catch` is banned, so it needs the adapter made to answer rather than a forced fix.
 
 ## 4. Production server sites (13)
 

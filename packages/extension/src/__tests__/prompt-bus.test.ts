@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PromptBus, type PromptAdapter, type PromptRequest, type PromptResponse } from "../prompt-bus.js";
+import { settlePrompts } from "./helpers/settle-prompts.js";
 
 function createMockAdapter(name: string, claim: any = {}) {
   return {
@@ -40,7 +41,7 @@ describe("PromptBus", () => {
       expect(bus.adapterNames).toEqual(["test"]);
     });
 
-    it("should replace adapter with same name on re-registration", () => {
+    it("should replace adapter with same name on re-registration", async () => {
       const adapter1 = createMockAdapter("test");
       const adapter2 = createMockAdapter("test");
       bus.registerAdapter(adapter1);
@@ -48,9 +49,10 @@ describe("PromptBus", () => {
       expect(bus.adapterNames).toEqual(["test"]);
 
       // Verify new adapter is used
-      bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A"] });
+      const pending = bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A"] });
       expect(adapter2.onRequest).toHaveBeenCalled();
       expect(adapter1.onRequest).not.toHaveBeenCalled();
+      await settlePrompts(bus, pending);
     });
 
     it("should unregister adapter via returned function", () => {
@@ -69,13 +71,13 @@ describe("PromptBus", () => {
   });
 
   describe("request distribution", () => {
-    it("should call onRequest on all registered adapters", () => {
+    it("should call onRequest on all registered adapters", async () => {
       const a = createMockAdapter("a");
       const b = createMockAdapter("b");
       bus.registerAdapter(a);
       bus.registerAdapter(b);
 
-      bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A", "B"] });
+      const pending = bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A", "B"] });
 
       expect(a.onRequest).toHaveBeenCalledWith(expect.objectContaining({
         pipeline: "command",
@@ -86,50 +88,54 @@ describe("PromptBus", () => {
       expect(b.onRequest).toHaveBeenCalledWith(expect.objectContaining({
         pipeline: "command",
       }));
+      await settlePrompts(bus, pending);
     });
 
-    it("should generate a unique id for each request", () => {
+    it("should generate a unique id for each request", async () => {
       const adapter = createMockAdapter("a");
       bus.registerAdapter(adapter);
 
-      bus.request({ pipeline: "command", type: "select", question: "Q1", options: ["A"] });
-      bus.request({ pipeline: "command", type: "select", question: "Q2", options: ["B"] });
+      const first = bus.request({ pipeline: "command", type: "select", question: "Q1", options: ["A"] });
+      const second = bus.request({ pipeline: "command", type: "select", question: "Q2", options: ["B"] });
 
       const id1 = (adapter.onRequest.mock.calls[0][0] as PromptRequest).id;
       const id2 = (adapter.onRequest.mock.calls[1][0] as PromptRequest).id;
       expect(id1).not.toBe(id2);
+      await settlePrompts(bus, first, second);
     });
 
-    it("should send prompt_request to dashboard with custom component if claimed", () => {
+    it("should send prompt_request to dashboard with custom component if claimed", async () => {
       const adapter = createMockAdapter("arch", {
         component: { type: "architect-prompt", props: { foo: 1 } },
         placement: "widget-bar",
       });
       bus.registerAdapter(adapter);
 
-      bus.request({ pipeline: "architect-new", type: "select", question: "Save?", options: ["Save", "Cancel"] });
+      const pending = bus.request({ pipeline: "architect-new", type: "select", question: "Save?", options: ["Save", "Cancel"] });
 
       expect(onDashboardRequest).toHaveBeenCalledWith(
         expect.objectContaining({ question: "Save?" }),
         { type: "architect-prompt", props: { foo: 1 } },
         "widget-bar",
       );
+      await settlePrompts(bus, pending);
     });
 
-    it("should fall back to generic-dialog when no adapter claims with component", () => {
+    it("should fall back to generic-dialog when no adapter claims with component", async () => {
       const adapter = createMockAdapter("tui", {}); // no component
       bus.registerAdapter(adapter);
 
-      bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A"] });
+      const pending = bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A"] });
 
       expect(onDashboardRequest).toHaveBeenCalledWith(
         expect.objectContaining({ question: "Pick:" }),
         expect.objectContaining({ type: "generic-dialog" }),
         "inline",
       );
+      await settlePrompts(bus, pending);
     });
 
-    it("should use first adapter's component when multiple claim", () => {
+    it("should use first adapter's component when multiple claim", async () => {
       const a = createMockAdapter("a", {
         component: { type: "custom-a", props: {} },
         placement: "widget-bar",
@@ -141,38 +147,41 @@ describe("PromptBus", () => {
       bus.registerAdapter(a);
       bus.registerAdapter(b);
 
-      bus.request({ pipeline: "test", type: "select", question: "Q", options: [] });
+      const pending = bus.request({ pipeline: "test", type: "select", question: "Q", options: [] });
 
       expect(onDashboardRequest).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({ type: "custom-a" }),
         "widget-bar",
       );
+      await settlePrompts(bus, pending);
     });
 
-    it("should skip adapters that return null", () => {
+    it("should skip adapters that return null", async () => {
       const a = createMockAdapter("a");
       a.onRequest.mockReturnValue(null);
       const b = createMockAdapter("b", {});
       bus.registerAdapter(a);
       bus.registerAdapter(b);
 
-      bus.request({ pipeline: "command", type: "select", question: "Q", options: [] });
+      const pending = bus.request({ pipeline: "command", type: "select", question: "Q", options: [] });
 
       // Should still send to dashboard (generic fallback since b has no component)
       expect(onDashboardRequest).toHaveBeenCalled();
+      await settlePrompts(bus, pending);
     });
 
-    it("should handle adapter onRequest throwing without breaking", () => {
+    it("should handle adapter onRequest throwing without breaking", async () => {
       const bad = createMockAdapter("bad");
       bad.onRequest.mockImplementation(() => { throw new Error("boom"); });
       const good = createMockAdapter("good", {});
       bus.registerAdapter(bad);
       bus.registerAdapter(good);
 
-      bus.request({ pipeline: "command", type: "select", question: "Q", options: [] });
+      const pending = bus.request({ pipeline: "command", type: "select", question: "Q", options: [] });
 
       expect(good.onRequest).toHaveBeenCalled();
+      await settlePrompts(bus, pending);
     });
   });
 
@@ -294,17 +303,18 @@ describe("PromptBus", () => {
       expect(onDashboardCancel).toHaveBeenCalledWith(id);
     });
 
-    it("should be a no-op when cancelling already-resolved prompt", () => {
+    it("should be a no-op when cancelling already-resolved prompt", async () => {
       const adapter = createMockAdapter("a");
       bus.registerAdapter(adapter);
 
-      bus.request({ pipeline: "command", type: "select", question: "Q", options: [] });
+      const pending = bus.request({ pipeline: "command", type: "select", question: "Q", options: [] });
       const id = (adapter.onRequest.mock.calls[0][0] as PromptRequest).id;
 
       bus.respond({ id, answer: "A", source: "a" });
       bus.cancel(id); // no-op, no error
 
       expect(adapter.onCancel).not.toHaveBeenCalled();
+      await settlePrompts(bus, pending);
     });
   });
 
@@ -378,11 +388,12 @@ describe("PromptBus", () => {
       const adapter = createMockAdapter("a");
       infiniteBus.registerAdapter(adapter);
 
-      infiniteBus.request({ pipeline: "command", type: "select", question: "Q", options: [] });
+      const pending = infiniteBus.request({ pipeline: "command", type: "select", question: "Q", options: [] });
 
       vi.advanceTimersByTime(10 * 60 * 1000);
       expect(adapter.onCancel).not.toHaveBeenCalled();
       expect(infiniteBus.pendingCount).toBe(1);
+      await settlePrompts(infiniteBus, pending);
     });
   });
 
@@ -416,8 +427,8 @@ describe("PromptBus", () => {
       const adapter = createMockAdapter("a");
       bus.registerAdapter(adapter);
 
-      bus.request({ pipeline: "command", type: "select", question: "Q1", options: [] });
-      bus.request({ pipeline: "command", type: "select", question: "Q2", options: [] });
+      const first = bus.request({ pipeline: "command", type: "select", question: "Q1", options: [] });
+      const second = bus.request({ pipeline: "command", type: "select", question: "Q2", options: [] });
 
       const id1 = (adapter.onRequest.mock.calls[0][0] as PromptRequest).id;
 
@@ -425,6 +436,7 @@ describe("PromptBus", () => {
 
       // Second prompt should still be pending
       expect(bus.pendingCount).toBe(1);
+      await settlePrompts(bus, first, second);
     });
   });
 
@@ -440,14 +452,14 @@ describe("PromptBus", () => {
       expect(bus.getPendingRequests()).toEqual([]);
     });
 
-    it("should return pending prompt with resolved component", () => {
+    it("should return pending prompt with resolved component", async () => {
       const adapter = createMockAdapter("a", {
         component: { type: "custom-ui", props: { x: 1 } },
         placement: "widget-bar",
       });
       bus.registerAdapter(adapter);
 
-      bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A"] });
+      const inflight = bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A"] });
 
       const pending = bus.getPendingRequests();
       expect(pending).toHaveLength(1);
@@ -458,18 +470,20 @@ describe("PromptBus", () => {
       }));
       expect(pending[0].component).toEqual({ type: "custom-ui", props: { x: 1 } });
       expect(pending[0].placement).toBe("widget-bar");
+      await settlePrompts(bus, inflight);
     });
 
-    it("should return generic-dialog component when no adapter claims with component", () => {
+    it("should return generic-dialog component when no adapter claims with component", async () => {
       const adapter = createMockAdapter("tui", {}); // no component
       bus.registerAdapter(adapter);
 
-      bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A"] });
+      const inflight = bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A"] });
 
       const pending = bus.getPendingRequests();
       expect(pending).toHaveLength(1);
       expect(pending[0].component.type).toBe("generic-dialog");
       expect(pending[0].placement).toBe("inline");
+      await settlePrompts(bus, inflight);
     });
 
     it("should omit resolved prompts", async () => {
@@ -500,14 +514,15 @@ describe("PromptBus", () => {
       expect(bus.getPendingRequests()).toEqual([]);
     });
 
-    it("should return multiple pending prompts", () => {
+    it("should return multiple pending prompts", async () => {
       const adapter = createMockAdapter("a");
       bus.registerAdapter(adapter);
 
-      bus.request({ pipeline: "command", type: "select", question: "Q1", options: ["A"] });
-      bus.request({ pipeline: "command", type: "input", question: "Q2" });
+      const first = bus.request({ pipeline: "command", type: "select", question: "Q1", options: ["A"] });
+      const second = bus.request({ pipeline: "command", type: "input", question: "Q2" });
 
       expect(bus.getPendingRequests()).toHaveLength(2);
+      await settlePrompts(bus, first, second);
     });
   });
 });
