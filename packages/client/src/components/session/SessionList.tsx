@@ -1140,9 +1140,26 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 action cluster below never wraps. Truncation priority: the
                 parent path may collapse entirely, the leaf folder name keeps a
                 legible 6ch floor — the name is the payload, the path is only
-                context. See change: redesign-folder-workspace-add-flow. */}
+                context. See change: redesign-folder-workspace-add-flow.
+
+                It also carries the KEYBOARD route to the directory home. The
+                row's `onClick` serves pointers, but a bare `div` is not
+                focusable — and deleting `folder-open-home` removed the only
+                focusable open control, so keyboard users would otherwise have
+                lost the gesture entirely. Semantics live here rather than on
+                the row because the row also contains the menu trigger, and
+                nesting a button inside a `role="link"` is invalid.
+                See change: add-folder-actions-menu (D3). */}
             <span
-              className="text-xs font-medium text-[var(--text-secondary)] min-w-0 overflow-hidden flex items-center gap-1"
+              role="link"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                e.stopPropagation();
+                navigate(buildFolderHomeUrl(group.cwd));
+              }}
+              className="focus-ring rounded text-xs font-medium text-[var(--text-secondary)] min-w-0 overflow-hidden flex items-center gap-1"
               data-testid={`folder-header-name-${group.cwd}`}
             >
               <Icon path={isCollapsed ? mdiFolder : mdiFolderOpen} size={0.5} className="shrink-0" />

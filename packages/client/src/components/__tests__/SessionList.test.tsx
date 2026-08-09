@@ -1176,3 +1176,50 @@ describe("SessionList folder actions menu", () => {
     expect(leaf.className).toMatch(/group-hover:underline/);
   });
 });
+
+// add-folder-actions-menu (CodeRabbit review) — deleting `folder-open-home`
+// removed the only FOCUSABLE open control, so the whole-row navigation had no
+// keyboard route. The name region carries link semantics; the row itself cannot,
+// because it also hosts the menu trigger and a button may not nest in a link.
+describe("SessionList folder header keyboard accessibility", () => {
+  const CWD = "/home/user/project";
+
+  function LocationProbe() {
+    const [loc] = useLocation();
+    return <span data-testid="loc">{loc}</span>;
+  }
+
+  function renderList() {
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <LocationProbe />
+          <SessionList sessions={[makeSession({ id: "s1", cwd: CWD })]} onSelect={() => {}} />
+        </ThemeProvider>
+      </Router>,
+    );
+  }
+
+  it("the folder name exposes link semantics and is focusable", () => {
+    renderList();
+    const name = screen.getByTestId(`folder-header-name-${CWD}`);
+    expect(name.getAttribute("role")).toBe("link");
+    expect(name.getAttribute("tabindex")).toBe("0");
+  });
+
+  it("Enter on the focused folder name navigates to the directory home", () => {
+    renderList();
+    const name = screen.getByTestId(`folder-header-name-${CWD}`);
+    name.focus();
+    expect(document.activeElement).toBe(name);
+    fireEvent.keyDown(name, { key: "Enter" });
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(CWD)}`);
+  });
+
+  it("the menu trigger is not nested inside the link region", () => {
+    renderList();
+    const name = screen.getByTestId(`folder-header-name-${CWD}`);
+    expect(name.querySelector(`[data-testid="folder-actions-menu-${CWD}"]`)).toBeNull();
+  });
+});
