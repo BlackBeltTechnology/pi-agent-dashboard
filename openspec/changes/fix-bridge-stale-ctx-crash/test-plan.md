@@ -34,3 +34,33 @@ which is where the logic lives.
   regression's whole signature is that these already-shipped specs fail. Their
   transition RED → GREEN against the docker harness is the acceptance gate.
 - Run unit tests HOME-isolated: `HOME=$(mktemp -d) npx vitest run <paths>`.
+
+## Outcome (implementation)
+
+**E1–E6 green**, with fails-on-revert teeth proven: defeating `runUiSafely`'s
+`try/catch` turns 5 of 8 tests RED (including E1's unhandled-rejection
+assertion); restoring it returns them to green with `git diff` clean of
+production changes.
+
+**The crash is fixed**, verified in-container on the exact repro:
+
+```
+$ pi -p "[[faux:plain-text]] go" --model faux/faux-1
+[dashboard] sendFlowsList: 1 flows, sessionId=019fe855
+The quick brown faux jumps over the lazy dog.
+                       <-- clean exit; previously a stale-ctx stack trace here
+```
+
+**F1/F2 remain RED — a SECOND, distinct fault.** With the crash gone, a
+dashboard-spawned session still shows `Dashboard server failed to start:
+readiness timeout`, the prompt stuck at `sending`, and the composer disabled.
+That notice was present in the ORIGINAL failure too: this change stopped it from
+killing the process, but it was never the delivery blocker.
+
+Next lead (separate change): in the harness the bridge of a *dashboard-spawned*
+session fails `autoStartServer` discovery against the server already listening on
+`:8000` in the same container, so the bridge never connects and prompts are never
+delivered. Note the headless in-container run connects fine — the fault is
+specific to the dashboard-spawned path. Start at `autoStartServer`'s
+`discoverDashboard` / `isDashboardRunning` and the spawned session's `piPort`
+config, not at the faux provider (proven healthy).

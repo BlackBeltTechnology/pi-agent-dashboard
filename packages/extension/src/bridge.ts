@@ -19,6 +19,7 @@ import { Loader } from "@earendil-works/pi-tui";
 import { AbortLatch } from "./abort-latch.js";
 import { nativeAgentSettledSupported, settleFollowUp } from "./agent-settled.js";
 import { isUnderArtifactRoot, resolveArtifactRoots } from "./artifact-roots.js";
+import { runUiSafely } from "./ui-stale-guard.js";
 import {
   MAX_PER_MESSAGE_BYTES as ATTACH_MAX_PER_MESSAGE_BYTES,
   cleanupAttachmentsForSession,
@@ -2545,25 +2546,31 @@ function initBridge(pi: ExtensionAPI) {
     let spinnerStart = 0;
     let activeLoader: Loader | null = null;
     const stopSpinner = () => {
+      // Release the interval BEFORE the guarded ctx.ui call, so a stale ctx
+      // still stops the 1s label refresh instead of leaking it.
       if (spinnerTimer) {
         clearInterval(spinnerTimer);
         spinnerTimer = null;
       }
       activeLoader = null;
-      ctx.ui.setWidget("pi-dashboard-launch", undefined);
+      // This runs from `onLaunchEnd` AND from the terminal .then()/.catch()
+      // below, either of which can land after a session replacement/reload has
+      // invalidated `ctx`. See ui-stale-guard.ts.
+      runUiSafely(() => ctx.ui.setWidget("pi-dashboard-launch", undefined));
     };
     autoStartServer(config, {
       discoverDashboard,
       isDashboardRunning,
       launchServer,
-      notify: (msg, level) => ctx.ui.notify(msg, level),
+      notify: (msg, level) => runUiSafely(() => ctx.ui.notify(msg, level)),
       onLaunchStart: () => {
         spinnerStart = Date.now();
         const buildMessage = () => {
           const elapsed = Math.floor((Date.now() - spinnerStart) / 1000);
           return `starting dashboard server … (${elapsed}s)`;
         };
-        ctx.ui.setWidget(
+        runUiSafely(() =>
+          ctx.ui.setWidget(
           "pi-dashboard-launch",
           (tui: unknown, theme: { fg: (role: string, s: string) => string }) => {
             const loader = new Loader(
@@ -2579,6 +2586,7 @@ function initBridge(pi: ExtensionAPI) {
             return loader;
           },
           { placement: "aboveEditor" },
+          ),
         );
         // Refresh the elapsed-seconds label every second. Frame animation is
         // driven by the Loader's own 80ms interval.
