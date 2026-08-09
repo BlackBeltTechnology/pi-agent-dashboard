@@ -291,23 +291,26 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
   // DnD ------------------------------------------------------------
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const [activeDrag, setActiveDrag] = useState<{ type: "column" | "card"; id: string } | null>(null);
-  // Slot resolved during the drag by <DropSlotProbe>; `handleDragEnd` only
-  // commits it. See change: fix-openspec-board-drop-targeting (design D1).
+  // Slot resolved during the drag by <DropSlotProbe>. This drives the INDICATOR
+  // only — the commit re-resolves from the end event (see `handleDragEnd`).
+  // See change: fix-openspec-board-drop-targeting (design D1).
   const [dropSlot, setDropSlot] = useState<DropSlot | null>(null);
-  const dropSlotRef = useRef<DropSlot | null>(null);
+  // dnd-kit's live droppable-rect map, kept current by the probe. The parent
+  // cannot read it itself (`useDndContext()` outside the provider measures 0
+  // rects — design D5c), but it needs it at drag end to re-resolve the slot
+  // against the event that actually committed.
+  const dropRectsRef = useRef<Map<string | number, { top: number; bottom: number }>>(new Map());
   // True between drag start and drag end/cancel. An interrupted drag (cancel,
   // tab hide, window blur) clears it, which is what makes `handleDragEnd` bail
   // instead of committing a slot the user never confirmed.
   const dragAliveRef = useRef(false);
 
   const handleDropSlot = useCallback((slot: DropSlot | null) => {
-    dropSlotRef.current = slot;
     setDropSlot(slot);
   }, []);
 
   const clearDrag = useCallback(() => {
     dragAliveRef.current = false;
-    dropSlotRef.current = null;
     setActiveDrag(null);
     setDropSlot(null);
   }, []);
@@ -331,7 +334,6 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
     const t = e.active.data.current?.type;
     if (t === "column" || t === "card") {
       dragAliveRef.current = true;
-      dropSlotRef.current = null;
       setDropSlot(null);
       setActiveDrag({ type: t, id: String(e.active.id) });
     }
@@ -339,7 +341,6 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
 
   const handleDragEnd = useCallback((e: DragEndEvent) => {
     const alive = dragAliveRef.current;
-    const slot = dropSlotRef.current;
     clearDrag();
     // An interrupted drag already cleared the state; never commit after it.
     if (!alive) return;
@@ -381,9 +382,12 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
       const targetCol = columns.find((c) => c.key === targetKey);
       if (!targetCol) return;
 
-      // Frame-race guard (design D3): commit the resolved slot only when the
-      // end event's live `over` agrees with it. A single-frame move into the
-      // gutter followed by a release would otherwise land a stale slot.
+      // Frame-race guard (design D3): re-resolve from THIS event rather than
+      // trusting the last `onDragMove`. `dropSlot` is only refreshed by a
+      // subsequent move, so a pointer jump released within one frame would
+      // otherwise commit a stale slot — including a same-column jump off the
+      // rail onto a card, where the column matches but the index does not.
+      const slot = resolveMoveSlot(e, columns, dropRectsRef.current);
       if (!slot || slot.colKey !== targetKey) return;
 
       const groupChanged = sourceKey !== targetKey;
@@ -504,7 +508,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
         onDragEnd={handleDragEnd}
         onDragCancel={clearDrag}
       >
-        <DropSlotProbe columns={columns} onSlot={handleDropSlot} />
+        <DropSlotProbe columns={columns} onSlot={handleDropSlot} rectsOut={dropRectsRef} />
         <div ref={boardScrollRef} className="flex gap-3 p-4 items-start overflow-x-auto flex-1 min-h-0 board-columns" data-testid="board-columns">
           <SortableContext items={groups.map((g) => g.id)} strategy={horizontalListSortingStrategy}>
             {columns.map((col) => (
@@ -691,9 +695,15 @@ function DragChip({ activeDrag, changes, groups }: {
 // Renders nothing; resolves the slot on every pointer move and lifts it up.
 const NO_SORT_STRATEGY = () => null;
 
-/** Resolve the slot a `dragmove` points at, or null when it points at nothing. */
+/**
+ * Resolve the slot a drag event points at, or null when it points at nothing.
+ *
+ * Takes the fields `DragMoveEvent` and `DragEndEvent` share, so the same rule
+ * serves the live indicator AND the commit — the end event re-resolves rather
+ * than trusting the last move.
+ */
 function resolveMoveSlot(
-  e: DragMoveEvent,
+  e: Pick<DragMoveEvent, "active" | "over" | "delta" | "activatorEvent">,
   columns: Array<{ key: string; changes: OpenSpecChange[] }>,
   rects: Map<string | number, { top: number; bottom: number }>,
 ): DropSlot | null {
@@ -725,9 +735,11 @@ function resolveMoveSlot(
   return { colKey: target.colKey, index: resolveDropSlot({ cardRects, pointerY, movedName, columnNames }) };
 }
 
-function DropSlotProbe({ columns, onSlot }: {
+function DropSlotProbe({ columns, onSlot, rectsOut }: {
   columns: Array<{ key: string; changes: OpenSpecChange[] }>;
   onSlot: (slot: DropSlot | null) => void;
+  /** Lifts the live rect map to the board, which cannot read it itself. */
+  rectsOut: React.MutableRefObject<Map<string | number, { top: number; bottom: number }>>;
 }) {
   const { droppableRects } = useDndContext();
   const lastRef = useRef<DropSlot | null>(null);
@@ -735,6 +747,7 @@ function DropSlotProbe({ columns, onSlot }: {
   colsRef.current = columns;
   const rectsRef = useRef(droppableRects);
   rectsRef.current = droppableRects;
+  rectsOut.current = droppableRects;
 
   const listener = useMemo(() => {
     const reset = () => { lastRef.current = null; };

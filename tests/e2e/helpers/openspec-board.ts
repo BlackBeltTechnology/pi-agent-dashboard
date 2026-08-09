@@ -196,7 +196,7 @@ export async function beginCardDrag(
   name: string,
 ): Promise<(p: Point, steps?: number) => Promise<void>> {
   const handle = cardEl(page, name);
-  await handle.scrollIntoViewIfNeeded();
+  await scrollIntoViewStable(page, handle);
   const b = await boxOf(handle);
   // Grab near the card's top edge: the lower part of a card hosts the stepper
   // and action buttons, which stop `pointerdown`.
@@ -222,9 +222,30 @@ export async function beginCardDrag(
  * point also sits over the group NAME (left side), not the header centre: the
  * right side carries the new-proposal / manage buttons.
  */
+/**
+ * `scrollIntoViewIfNeeded`, retried across a remount.
+ *
+ * A groups broadcast (or a theme reload) can replace the board's nodes between
+ * the locator resolving and the scroll landing, which throws "Element is not
+ * attached to the DOM". That is the app converging, not the behaviour under
+ * test, so it is retried rather than failed.
+ */
+async function scrollIntoViewStable(page: Page, loc: Locator): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await loc.waitFor({ state: "visible", timeout: 10_000 });
+      await loc.scrollIntoViewIfNeeded({ timeout: 5_000 });
+      return;
+    } catch (err) {
+      if (attempt >= 3) throw err;
+      await page.waitForTimeout(200);
+    }
+  }
+}
+
 export async function headerGrabPoint(page: Page, colKey: string): Promise<Point> {
   const head = columnHead(page, colKey);
-  await head.scrollIntoViewIfNeeded();
+  await scrollIntoViewStable(page, head);
   const b = await boxOf(head);
   const vp = page.viewportSize()!;
   const x = Math.max(2, Math.min(b.x + Math.min(60, b.width / 2), vp.width - 4));

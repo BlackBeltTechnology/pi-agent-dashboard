@@ -387,6 +387,35 @@ test.describe("board card drag cancellation", () => {
     });
   }
 
+  // #X6b — the SAME-COLUMN variant of the frame race, which a colKey-only
+  // guard cannot catch: the rail resolves to the last slot, so a one-frame
+  // flick from the rail onto a card in the SAME column agrees on the column
+  // while disagreeing on the index. Caught only because the commit re-resolves
+  // from the end event instead of trusting the last `onDragMove`.
+  test("X6b: a one-frame flick from the rail onto a card commits the card's slot", async ({ page }) => {
+    const ids = await setBoardLayout(page, [
+      { name: "E2E Flick", changes: [A, B, C] },
+      { name: "E2E FlickSrc", changes: [X] },
+    ]);
+    const col = ids.get("E2E Flick")!;
+
+    const move = await beginCardDrag(page, X);
+    // Park on the rail so the resolved slot becomes "last".
+    await move(await headerGrabPoint(page, col));
+    await move(await midpointOf(rail(page, col)));
+    await expect(rail(page, col)).toHaveAttribute("data-rail-active", "true");
+    await expect(columnBody(page, col)).toHaveAttribute("data-drop-slot", "3");
+
+    // One un-stepped jump above A's midpoint, then release in the same frame:
+    // no intermediate `onDragMove` refreshes the slot.
+    const a = await midpointOf(cardEl(page, A));
+    await page.mouse.move(a.x, a.y - 6);
+    await page.mouse.up();
+
+    // Must land FIRST (the card's midpoint slot), not last (the stale rail slot).
+    await expect.poll(async () => orderOf(page, col), { timeout: 15_000 }).toEqual([X, A, B, C]);
+  });
+
   // #X6 — the commit is gated on the END event's live `over`, not on the last
   // resolved slot: `dropSlot` is only cleared by a subsequent `onDragMove`, so
   // a single-frame move into the gutter followed by a release would otherwise
