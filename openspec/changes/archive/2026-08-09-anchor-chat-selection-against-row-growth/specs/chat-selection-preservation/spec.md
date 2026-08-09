@@ -50,9 +50,12 @@ retargeted onto different content.
 ### Requirement: Selection state is published on a single clock
 
 The active-selection signal SHALL be readable synchronously by every consumer
-that gates behaviour on it. Consumers that run outside React's render cycle —
-notably the virtualizer `onChange` bottom-pin — SHALL NOT observe a stale
-`false` after a selection has begun.
+that gates behaviour on it, whether it runs outside React's render cycle (the
+virtualizer `onChange` bottom-pin) or inside it (the sticky-bottom layout
+effect). No such consumer SHALL observe a stale `false` after a selection has
+begun. A debounced, render-driven copy of the signal MAY additionally exist for
+effects that need a re-render and the `→ false` edge, but SHALL NOT be the only
+gate on any suspend.
 
 #### Scenario: Chunk arrives on the first frame of a drag
 
