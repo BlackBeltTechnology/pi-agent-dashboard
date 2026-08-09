@@ -8,12 +8,25 @@ let httpPort: number;
 let piPort: number;
 let server: DashboardServer;
 
+// Sessions whose process carrier (keeper) is genuinely alive. `resume` rejects
+// "already active" ONLY when the process is provably live; a session that is
+// merely RECORDED as active with a dead carrier is a crash-orphaned zombie and
+// must fall through to reopen. See change: resume-zombie-active-session.
+// `vi.hoisted` because `vi.mock` factories are hoisted above module init.
+const { liveCarriers } = vi.hoisted(() => ({ liveCarriers: new Set<string>() }));
+
 // Mock spawnPiSession to avoid actually spawning processes
 vi.mock("../spawn-process/process-manager.js", async (importOriginal) => {
   const orig: any = await importOriginal();
   return {
     ...orig,
     spawnPiSession: vi.fn().mockResolvedValue({ success: true, message: "spawned" }),
+    // No bridge is connected in these tests, so the keeper probe is the only
+    // thing that can make a session read as genuinely live.
+    getKeeperManager: () => ({
+      ...orig.getKeeperManager(),
+      isKeeperAlive: (sessionId: string) => liveCarriers.has(sessionId),
+    }),
   };
 });
 
@@ -173,8 +186,26 @@ describe("Session Control REST API", () => {
 
   it("POST /api/session/:id/resume — 409 if session still active", async () => {
     registerSession("resume-active", { sessionFile: "/path/session.jsonl" });
-    const res = await postJson("/api/session/resume-active/resume", { mode: "continue" });
-    expect(res.status).toBe(409);
+    // Genuinely live: a keeper still carries the process. Reopening this would
+    // double-spawn (the gateway session→connection map is last-write-wins).
+    liveCarriers.add("resume-active");
+    try {
+      const res = await postJson("/api/session/resume-active/resume", { mode: "continue" });
+      expect(res.status).toBe(409);
+    } finally {
+      liveCarriers.delete("resume-active");
+    }
+  });
+
+  // Counterpart of the above, and the REST-layer coverage the zombie fix never
+  // got: same "active" record, but NO live carrier and no bridge. This is the
+  // crash/OOM/kill-9 case that used to be permanently unrecoverable — 409 on
+  // resume, prompt dropped on send. It MUST fall through to reopen.
+  it("POST /api/session/:id/resume — reopens a crash-orphaned zombie whose process is gone", async () => {
+    registerSession("resume-zombie", { sessionFile: "/path/zombie.jsonl" });
+    expect(liveCarriers.has("resume-zombie")).toBe(false);
+    const res = await postJson("/api/session/resume-zombie/resume", { mode: "continue" });
+    expect(res.status).toBe(200);
   });
 
   // ── flow-control ────────────────────────────────────────────────
