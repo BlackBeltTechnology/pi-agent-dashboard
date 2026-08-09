@@ -128,6 +128,7 @@ const BUNDLED_PLUGINS = [
   "subagents-plugin",
   "kb-plugin",
   "hermes-memory-plugin",
+  "blackhole-plugin",
   "apple-tools",
 ];
 const BUNDLED_PLUGINS_DIR = path.join(SERVER_BUNDLE, "resources", "plugins");
