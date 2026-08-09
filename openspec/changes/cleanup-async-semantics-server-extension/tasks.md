@@ -30,9 +30,9 @@
 
 ## 5. Inherited electron sites (7)
 
-- [ ] 5.1 Narrow `packages/electron/src/lib/server-lifecycle.ts:454` and `packages/electron/src/lib/doctor-window.ts:52` with `!== null`, preserving inflight-memoization semantics exactly. Do not `await` — prefer narrowing for minimality.
-- [ ] 5.2 Fix the 4 `noMisusedPromises` sites at `packages/electron/src/main.ts:531,557,607,654`. These are the same `createTray(() => mainWindow, quit, { … })` call repeated four times, where `async function quit(): Promise<void>` (`main.ts:469`) is passed as `createTray`'s `onQuit: () => void` (`lib/tray.ts:86`). Fix the pattern once and apply it four times, or widen `onQuit` to accept an async callback and handle it inside `tray.ts`. The wrapper must be `() => { void quit().catch(<handler>); }` — the natural `() => { void quit(); }` is bare `void`, which this change bans, and making `quit` sync is infeasible because it awaits `stopServerIfNeeded()`.
-- [ ] 5.3 Fix the floating site at `packages/electron/src/main.ts:675`. Rebase against `cleanup-client-plugin-promises`, which installs the global unhandled-rejection handler in the same file.
+- [x] 5.1 Narrow `packages/electron/src/lib/server-lifecycle.ts:454` and `packages/electron/src/lib/doctor-window.ts:52` with `!== null`, preserving inflight-memoization semantics exactly. Do not `await` — prefer narrowing for minimality.
+- [x] 5.2 Fix the 4 `noMisusedPromises` sites at `packages/electron/src/main.ts:531,557,607,654`. These are the same `createTray(() => mainWindow, quit, { … })` call repeated four times, where `async function quit(): Promise<void>` (`main.ts:469`) is passed as `createTray`'s `onQuit: () => void` (`lib/tray.ts:86`). Fix the pattern once and apply it four times, or widen `onQuit` to accept an async callback and handle it inside `tray.ts`. The wrapper must be `() => { void quit().catch(<handler>); }` — the natural `() => { void quit(); }` is bare `void`, which this change bans, and making `quit` sync is infeasible because it awaits `stopServerIfNeeded()`.
+- [x] 5.3 Fix the floating site at `packages/electron/src/main.ts:675`. Rebase against `cleanup-client-plugin-promises`, which installs the global unhandled-rejection handler in the same file.
 
 ## 6. Tests
 

@@ -492,6 +492,25 @@ async function quit(): Promise<void> {
   app.quit();
 }
 
+/**
+ * Sync entrypoint for `quit`, for the callers that cannot await it: `createTray`
+ * declares `onQuit: () => void` and Electron's `app.on(...)` listeners are sync.
+ * Defined once and passed at every site rather than hand-rolled per call.
+ *
+ * `quit` cannot be made sync (it awaits `stopServerIfNeeded`), and bare
+ * `void quit()` is banned, so the rejection gets a named owner here. The
+ * fallback `app.quit()` is load-bearing: a rejecting `stopServerIfNeeded` skips
+ * the `destroyTray()`/`app.quit()` tail of `quit`, which would strand the app
+ * running with no way to exit.
+ * See change: cleanup-async-semantics-server-extension (design D1, D4).
+ */
+function requestQuit(): void {
+  void quit().catch((err: unknown) => {
+    log(`quit failed: ${err instanceof Error ? err.message : String(err)}`);
+    app.quit();
+  });
+}
+
 async function main(): Promise<void> {
   // Single-instance lock
   if (!app.requestSingleInstanceLock()) {
@@ -544,7 +563,7 @@ async function main(): Promise<void> {
       const win = createMainWindow(remoteUrl);
       closeSplash();
       showLoadingPage(win, remoteUrl);
-      createTray(() => mainWindow, quit, {
+      createTray(() => mainWindow, requestQuit, {
         getServerOwnership,
         onLaunch: (force) => { void requestServerLaunch({ force }); },
       });
@@ -570,7 +589,7 @@ async function main(): Promise<void> {
       const win = createMainWindow(source.url);
       closeSplash();
       showLoadingPage(win, source.url);
-      createTray(() => mainWindow, quit, {
+      createTray(() => mainWindow, requestQuit, {
         getServerOwnership,
         onLaunch: (force) => { void requestServerLaunch({ force }); },
       });
@@ -620,7 +639,7 @@ async function main(): Promise<void> {
     const win = createMainWindow(serverUrl);
     closeSplash();
     showLoadingPage(win, serverUrl);
-    createTray(() => mainWindow, quit, {
+    createTray(() => mainWindow, requestQuit, {
       getServerOwnership,
       onLaunch: (force) => { void requestServerLaunch({ force }); },
     });
@@ -667,7 +686,7 @@ async function main(): Promise<void> {
     const win = createMainWindow(serverUrl);
     closeSplash();
     showLoadingPage(win, serverUrl);
-    createTray(() => mainWindow, quit, {
+    createTray(() => mainWindow, requestQuit, {
       getServerOwnership,
       onLaunch: (force) => { void requestServerLaunch({ force }); },
     });
@@ -688,7 +707,7 @@ app.on("activate", () => {
 // macOS: keep running (hide to tray)
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin" && mainWindow === null && !isStartingUp) {
-    quit();
+    requestQuit();
   }
 });
 
