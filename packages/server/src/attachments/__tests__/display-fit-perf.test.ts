@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Jimp, JimpMime } from "jimp";
@@ -13,8 +14,34 @@ import { findOriginalInTranscript } from "../original-store.js";
 
 /** Default browser-gateway back-pressure ceiling (`browser-gateway.ts`). */
 const MAX_WS_BUFFER = 4 * 1024 * 1024;
-/** test-plan #P1/#P2 budget. */
-const MAX_LAG_MS = 50;
+/**
+ * test-plan #P1/#P2 budget — DERIVED, not chosen. See design.md D1.
+ *
+ *     healthy worker lag          1.1–11.9 ms   worker pool, single + burst
+ *     worst observed contention   62.9 ms       failing full-suite `npm test`
+ *     smallest regression signal  349 ms        in-process, single 2400x1600
+ *
+ * The budget must sit above contention and below the smallest regression, i.e.
+ * inside `(62.9, 349)`. 200 ms clears contention by 3.2x and sits 1.75x below
+ * the regression signal. The old 50 ms cleared contention by 0.8x — it was
+ * BELOW the noise floor it had to clear, which is why it flaked.
+ *
+ * RE-DERIVATION RULE: if this gate flakes, do not nudge the number. Re-measure
+ * all three anchors (procedure in design.md D3) and check the window is still
+ * non-empty. A closed window means contention now overlaps the regression
+ * signal, and the gate needs a different observable — not a bigger budget.
+ */
+const MAX_LAG_MS = 200;
+/** Anchors of the D1 derivation; #E1/#E2 assert the window stays non-empty. */
+const WORST_OBSERVED_CONTENTION_MS = 62.9;
+const SMALLEST_REGRESSION_SIGNAL_MS = 349;
+/**
+ * A real offload regression is `workersDisabled = true` after a spawn failure,
+ * which runs `size` concurrent ON-LOOP decodes. Production builds the pool with
+ * `size: 2` (`server.ts`), while `fit-worker-pool.ts` defaults to 1 — so the
+ * anti-vacuity check MUST set size explicitly. See design.md D4; #X2 guards it.
+ */
+const FALLBACK_POOL_OPTS = { useWorker: false, size: 2 } as const;
 
 async function photoLikePng(w: number, h: number): Promise<string> {
   // Gradient + high-frequency detail: compresses like a real screenshot rather
@@ -34,7 +61,7 @@ async function photoLikePng(w: number, h: number): Promise<string> {
 describe("display-fit perf — event-loop offload (P1/P2)", () => {
   it("P1: fitting one large image keeps event-loop lag within budget", async () => {
     const data = await photoLikePng(2400, 1600);
-    const pool = createFitWorkerPool({ size: 1 });
+    const pool = createFitWorkerPool({ size: 2 });
     // Let the worker spawn + jiti-compile BEFORE measuring: that cost is paid
     // once at boot in production, not per attachment, so folding it into the
     // per-fit budget would measure the wrong thing.
@@ -53,77 +80,105 @@ describe("display-fit perf — event-loop offload (P1/P2)", () => {
     );
   }, 120_000);
 
-  // DEVIATION from test-plan #P2's literal "max event-loop lag < 50 ms".
+  // CORRIGENDUM (design.md D5) — this test was previously skipped on the basis
+  // of a measurement that has since been DISPROVEN. The archived record claimed
+  // in-process fitting blocks the loop for ~0 ms because "jimp v1's async API
+  // yields". Re-measured on this exact 5 x 1600x1200 burst, 3 runs:
   //
-  // Under a concurrent burst the monitor's wall-clock ticks also capture GC
-  // pauses from several multi-MB buffers and CPU contention from the worker
-  // threads themselves — neither of which is our code blocking the loop. The
-  // absolute number therefore measures the test host, not the design: the same
-  // burst reports ~1200 ms while a SINGLE larger image (P1) stays under 50 ms.
+  //     in-process      wall 1419–2170 ms   max lag 1409–2160 ms
+  //     worker (2)      wall 1164–1259 ms   max lag 1.1–11.9 ms
   //
-  // What D4 actually claims is OFFLOAD, so this asserts offload directly, by
-  // running the identical workload both ways. That is the invariant worth
-  // locking: doing the work in-process must be dramatically worse.
-  // RESOLVED (task 9.5) — kept SKIPPED as a record of a measurement pitfall.
-  //
-  // This test once appeared to show the worker offload was counterproductive
-  // (~1030 ms "worker lag" vs ~0 ms in-process). That reading was WRONG: inside
-  // vitest the sample captured the burst's WALL TIME (runner CPU contention +
-  // worker startup), not loop blocking. Measured cleanly outside the runner,
-  // 3 consecutive runs on a 5 x 1.84 MB burst:
-  //
-  //     in-process           wall ~1710 ms   max lag 0 ms
-  //     worker pool (2)      wall ~1030 ms   max lag 1 ms
-  //     structuredClone only wall ~6 ms      max lag 0 ms
-  //
-  // So: neither path blocks the loop (jimp v1's async API yields), transfer cost
-  // is negligible, and the pool is ~1.7x faster through parallelism. D4 stands;
-  // its rationale was corrected to throughput + CPU isolation (see design.md).
-  //
-  // The assertion below is left intact but skipped because it compares two
-  // near-zero lag figures, which is not a stable thing to assert. If you want a
-  // perf gate here, assert THROUGHPUT (worker burst wall time < in-process), and
-  // measure it outside vitest.
-  // DISPOSITION: test-plan #P2 is DEFERRED, not automated — `it.skip` means it
-  // contributes no coverage, and the plan's totals count it as deferred so the
-  // suite cannot appear to gate something it never runs.
-  it.skip("P2 [DEFERRED]: a concurrent burst blocks the loop far less on workers than in-process", async () => {
-    const makeBlocks = async () =>
-      await Promise.all(
-        Array.from({ length: 5 }, async (_, i) => ({
-          blockIndex: i,
-          data: await photoLikePng(1600, 1200),
-          mimeType: "image/png",
-        })),
-      );
+  // The wall times reproduce; only the lag column did not. The old `0 ms` was a
+  // pre-fix artifact of `event-loop-lag.ts` — without the final sample `stop()`
+  // now takes, a continuously-blocking window reports 0. jimp v1 does NOT yield,
+  // so the offload is justified by loop-blocking, and this scenario is a real
+  // gate again: assert the worker-path burst against the same derived budget.
+  it("P2: a concurrent burst of pastes keeps event-loop lag within budget", async () => {
+    const blocks = await Promise.all(
+      Array.from({ length: 5 }, async (_, i) => ({
+        blockIndex: i,
+        data: await photoLikePng(1600, 1200),
+        mimeType: "image/png",
+      })),
+    );
 
-    // In-process: the resize runs ON the event loop — the pre-D4 behaviour.
-    const inProcBlocks = await makeBlocks();
-    const inProcPool = createFitWorkerPool({ useWorker: false });
-    const m1 = startLagMonitor(10);
-    await Promise.all(inProcBlocks.map((b) => inProcPool.fit({ blocks: [b] })));
-    const inProcessLag = m1.stop();
-    await inProcPool.dispose();
-
-    // Worker-backed: the same work, off the loop.
-    const workerBlocks = await makeBlocks();
     const pool = createFitWorkerPool({ size: 2 });
+    // Warm both slots before measuring — spawn + jiti compile is a boot cost.
     const warm = await photoLikePng(80, 60);
     await Promise.all([
       pool.fit({ blocks: [{ blockIndex: 0, data: warm, mimeType: "image/png" }] }),
       pool.fit({ blocks: [{ blockIndex: 1, data: warm, mimeType: "image/png" }] }),
     ]);
-    const m2 = startLagMonitor(10);
-    const outs = await Promise.all(workerBlocks.map((b) => pool.fit({ blocks: [b] })));
-    const workerLag = m2.stop();
-    await pool.dispose();
+
+    const monitor = startLagMonitor(10);
+    let lag: number;
+    let outs: Awaited<ReturnType<typeof pool.fit>>[];
+    try {
+      outs = await Promise.all(blocks.map((b) => pool.fit({ blocks: [b] })));
+    } finally {
+      lag = monitor.stop();
+      await pool.dispose();
+    }
 
     for (const o of outs) expect(o.results[0].fitted).toBe(true);
-    expect(
-      workerLag,
-      `worker lag ${workerLag.toFixed(0)}ms should be well under in-process ${inProcessLag.toFixed(0)}ms`,
-    ).toBeLessThan(inProcessLag * 0.6);
+    expect(lag, `max event-loop lag ${lag.toFixed(1)}ms exceeded ${MAX_LAG_MS}ms`).toBeLessThan(
+      MAX_LAG_MS,
+    );
   }, 300_000);
+});
+
+describe("display-fit perf — budget derivation window (E1/E2)", () => {
+  it("E1: the budget sits strictly above the worst observed contention", () => {
+    // The old 50 ms sat BELOW this floor (0.8x margin) — that is the flake.
+    expect(MAX_LAG_MS).toBeGreaterThan(WORST_OBSERVED_CONTENTION_MS);
+  });
+
+  it("E2: the budget sits strictly below the smallest regression signal", () => {
+    // Above this and the gate can no longer catch the regression it exists for.
+    expect(MAX_LAG_MS).toBeLessThan(SMALLEST_REGRESSION_SIGNAL_MS);
+  });
+});
+
+describe("display-fit perf — the lag gate is not vacuous (X1/X2)", () => {
+  it("X1: a forced on-loop fallback blows the budget", async () => {
+    const data = await photoLikePng(2400, 1600);
+    const pool = createFitWorkerPool(FALLBACK_POOL_OPTS);
+    // Warm the same way P1 does, so the two runs differ only in the offload.
+    await pool.fit({
+      blocks: [{ blockIndex: 0, data: await photoLikePng(80, 60), mimeType: "image/png" }],
+    });
+
+    const monitor = startLagMonitor(10);
+    let lag: number;
+    try {
+      const out = await pool.fit({ blocks: [{ blockIndex: 0, data, mimeType: "image/png" }] });
+      expect(out.results[0].fitted).toBe(true);
+    } finally {
+      lag = monitor.stop();
+      await pool.dispose();
+    }
+    // Measured 349–416 ms. If this ever drops under the budget, P1 is passing
+    // for free and the gate is asserting nothing.
+    expect(
+      lag,
+      `on-loop fallback lag ${lag.toFixed(1)}ms did not exceed ${MAX_LAG_MS}ms — P1 is vacuous`,
+    ).toBeGreaterThan(MAX_LAG_MS);
+  }, 120_000);
+
+  it("X2: the fallback anchor uses the production pool size, not the default", async () => {
+    const serverSrc = await readFile(
+      new URL("../../server.ts", import.meta.url),
+      "utf8",
+    );
+    const match = serverSrc.match(/createFitWorkerPool\(\{\s*size:\s*(\d+)/);
+    expect(match, "could not read the production pool size from server.ts").not.toBeNull();
+    const productionSize = Number(match?.[1]);
+
+    // A fallback modelled at the pool's default size 1 would anchor the check to
+    // a workload production never runs (design.md D4).
+    expect(FALLBACK_POOL_OPTS.size).toBe(productionSize);
+    expect(FALLBACK_POOL_OPTS.size).toBeGreaterThan(1);
+  });
 });
 
 describe("display-fit perf — broadcast payload (P3)", () => {
