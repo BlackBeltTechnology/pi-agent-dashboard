@@ -2,7 +2,7 @@ import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiOpenInNew, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant, mdiViewGridPlus } from "@mdi/js";
+import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -35,6 +35,7 @@ import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
 import { TunnelButton } from "../connectivity/TunnelButton.js";
 import { FolderActionBar } from "../folder/FolderActionBar.js";
+import { FolderActionsMenu, type FolderMenuItem } from "../folder/FolderActionsMenu.js";
 import { FolderNeedsYouPill } from "../folder/FolderNeedsYouPill.js";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
 import { FolderStatusRollup } from "../folder/FolderStatusRollup.js";
@@ -113,7 +114,11 @@ interface Props {
   onAttachProposal?: (sessionId: string, changeName: string) => void;
   onBulkArchive?: (cwd: string) => void;
   onReadArtifact?: (cwd: string, changeName: string, artifactId: string) => void;
-  onOpenPiResources?: (cwd: string) => void;
+  /** Opens the directory's settings page. Renamed from `onOpenPiResources`:
+   *  the control's label and route have said "Directory Settings" since change
+   *  `directory-settings-page-and-scoped-md-editing`; only the prop name lagged.
+   *  See change: add-folder-actions-menu (D12). */
+  onOpenDirectorySettings?: (cwd: string) => void;
   onDetachProposal?: (sessionId: string) => void;
   /** Accept/dismiss a suggested proposal replacement.
    *  See change: replace-proposal-dialog-with-race-handling. */
@@ -248,7 +253,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -459,6 +464,10 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // Inline state for AddToWorkspace popover and NewWorkspace dialog.
   // See change: folder-workspaces.
   const [addToWsMenuFor, setAddToWsMenuFor] = React.useState<string | null>(null);
+  // Folder actions menu open flag, keyed by folder SCOPE (`folder:<cwd>`) the
+  // same way `addToWsMenuFor` is — a cwd key would co-open a folder row and a
+  // same-cwd card. See change: add-folder-actions-menu.
+  const [folderMenuFor, setFolderMenuFor] = React.useState<string | null>(null);
   const [newWsOpen, setNewWsOpen] = React.useState<{ pendingFolder: string | null } | null>(null);
   // Workspace id awaiting a path-picker selection. When set, a
   // PinDirectoryDialog is open; on confirm the picked folder is added to
@@ -918,10 +927,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
    * folders use the plain renderGroup since their membership is already
    * established.
    *
-   * The affordance used to be a `+ws` text token in an `absolute top-1 right-7`
-   * layer floating OUTSIDE the row's icon cluster. It is now an icon button
-   * rendered by renderGroup inside the cluster itself, so this wrapper is a
-   * thin flag-flip. See change: redesign-folder-workspace-add-flow.
+   * The affordance used to be a `+ws` text token, then a button in the header
+   * cluster. It now lands in the folder actions menu's WORKSPACE group;
+   * renderGroup decides where the node goes, so the gating here (and therefore
+   * `add-to-workspace-affordance`'s contract) is untouched.
+   * See change: redesign-folder-workspace-add-flow, add-folder-actions-menu.
    */
   function renderGroupWithWorkspaceMenu(group: DirectoryGroup, isPinned: boolean) {
     const workspaceAction =
@@ -931,7 +941,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             t("sessionList.addToWorkspace", undefined, "Add to workspace"),
             `folder:${group.cwd}`,
             `add-to-workspace-btn-${group.cwd}`,
-            "ml-auto",
+            "",
+            true,
           )
         : null;
     return renderGroup(group, isPinned, false, undefined, workspaceAction);
@@ -945,7 +956,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
    * the full verb while `aria-expanded` tracks the popover.
    * See change: redesign-folder-workspace-add-flow.
    */
-  function renderAddToWorkspaceButton(cwd: string, label: string, scopeKey: string, testId: string, wrapperClass = "") {
+  function renderAddToWorkspaceButton(cwd: string, label: string, scopeKey: string, testId: string, wrapperClass = "", asMenuItem = false) {
     const owningWsId = folderWorkspaceMap.get(cwd) ?? null;
     // Keyed by SCOPE, not by cwd: a session card and its folder row share a cwd,
     // so a cwd-keyed flag would pop both menus at once.
@@ -963,6 +974,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           aria-label={label}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
+          // When hosted inside FolderActionsMenu this button IS the menu item.
+          role={asMenuItem ? "menuitem" : undefined}
           data-testid={testId}
         >
           <Icon path={mdiViewGridPlus} size={0.55} /> {t("sessionList.workspace", undefined, "Workspace")}
@@ -971,23 +984,100 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           <AddToWorkspaceMenu
             workspaces={workspaces ?? []}
             currentWorkspaceId={owningWsId}
+            // Each terminal action also closes the hosting folder actions menu
+            // — otherwise picking a workspace leaves the outer menu open behind
+            // the dismissed popover. See change: add-folder-actions-menu.
             onPick={(wsId) => {
               onAddFolderToWorkspace?.(wsId, cwd);
               setAddToWsMenuFor(null);
+              setFolderMenuFor(null);
             }}
             onNewWorkspace={() => {
               setNewWsOpen({ pendingFolder: cwd });
               setAddToWsMenuFor(null);
+              setFolderMenuFor(null);
             }}
             onRemoveFromWorkspace={() => {
               if (owningWsId) onRemoveFolderFromWorkspace?.(owningWsId, cwd);
               setAddToWsMenuFor(null);
+              setFolderMenuFor(null);
             }}
             onClose={() => setAddToWsMenuFor(null)}
           />
         )}
       </span>
     );
+  }
+
+  /**
+   * Builds the folder actions menu's items for one folder row.
+   *
+   * Placement gating is PRESERVED, not widened: add-to-workspace only where the
+   * affordance rendered before (its node is supplied by
+   * `renderGroupWithWorkspaceMenu`, i.e. top-level rows gated on
+   * `onCreateWorkspace || workspaces.length`), remove-from-workspace only on
+   * workspace-owned rows, pin only outside a workspace container.
+   * Directory-group order is pin · urgency sort · directory settings.
+   * See change: add-folder-actions-menu.
+   */
+  function folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction }: {
+    group: DirectoryGroup;
+    isPinned: boolean;
+    inWorkspace: boolean;
+    workspaceId?: string;
+    headerAction?: React.ReactNode;
+  }): FolderMenuItem[] {
+    const items: FolderMenuItem[] = [];
+
+    if (headerAction) {
+      items.push({
+        id: "add-to-workspace",
+        group: "workspace",
+        label: t("sessionList.addToWorkspace", undefined, "Add to workspace"),
+        icon: mdiViewGridPlus,
+        onSelect: () => {},
+        node: headerAction,
+      });
+    }
+    if (inWorkspace && workspaceId && onRemoveFolderFromWorkspace) {
+      items.push({
+        id: "remove-from-workspace",
+        group: "workspace",
+        label: t("sessionList.removeFromWorkspace", undefined, "Remove from workspace"),
+        icon: mdiClose,
+        onSelect: () => onRemoveFolderFromWorkspace(workspaceId, group.cwd),
+      });
+    }
+    if (!inWorkspace && (isPinned || onPinDirectory)) {
+      items.push({
+        id: "pin",
+        group: "directory",
+        label: isPinned
+          ? t("sessionList.unpinDirectory", undefined, "Unpin directory")
+          : t("sessionList.pinDirectory", undefined, "Pin directory"),
+        icon: mdiPin,
+        onSelect: () => {
+          if (isPinned) onUnpinDirectory?.(group.cwd);
+          else onPinDirectory?.(group.cwd);
+        },
+      });
+    }
+    items.push({
+      id: "urgency-sort",
+      group: "directory",
+      label: t("sessionList.urgencySort", undefined, "Float blocked sessions to top"),
+      icon: mdiSortVariant,
+      pressed: urgencySort.isOn(group.cwd),
+      onSelect: () => urgencySort.toggle(group.cwd),
+    });
+    items.push({
+      id: "directory-settings",
+      group: "directory",
+      label: t("folders.directorySettings", undefined, "Directory Settings"),
+      icon: mdiCog,
+      onSelect: () => onOpenDirectorySettings?.(group.cwd),
+    });
+    return items;
   }
 
   function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false, workspaceId?: string, headerAction?: React.ReactNode) {
@@ -1034,13 +1124,14 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           <div className="flex-1 min-w-0">
           {/* Whole header row is clickable to open the directory home page —
               same affordance as clicking a session card selects its session.
-              Collapse/expand now lives solely on the chevron in the drag
-              gutter (folder-toggle-btn). The small mdiOpenInNew icon below is
-              kept as a redundant explicit affordance. Child buttons/pills
-              stopPropagation so they don't trigger navigation.
-              See change: directory-card-clickable-select. */}
+              Collapse/expand lives solely on the chevron in the drag gutter
+              (folder-toggle-btn). The redundant mdiOpenInNew icon is DELETED —
+              the row is the only open affordance and the leaf name underlines
+              on hover to say so. Child buttons/pills stopPropagation so they
+              don't trigger navigation.
+              See change: directory-card-clickable-select, add-folder-actions-menu (D3). */}
           <div
-            className="flex items-center gap-1.5 cursor-pointer"
+            className="group flex items-center gap-1.5 cursor-pointer"
             onClick={() => navigate(buildFolderHomeUrl(group.cwd))}
             title={t("sessionList.openFolderHome", undefined, "Open folder home")}
             data-testid={`folder-home-row-${group.cwd}`}
@@ -1049,9 +1140,26 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 action cluster below never wraps. Truncation priority: the
                 parent path may collapse entirely, the leaf folder name keeps a
                 legible 6ch floor — the name is the payload, the path is only
-                context. See change: redesign-folder-workspace-add-flow. */}
+                context. See change: redesign-folder-workspace-add-flow.
+
+                It also carries the KEYBOARD route to the directory home. The
+                row's `onClick` serves pointers, but a bare `div` is not
+                focusable — and deleting `folder-open-home` removed the only
+                focusable open control, so keyboard users would otherwise have
+                lost the gesture entirely. Semantics live here rather than on
+                the row because the row also contains the menu trigger, and
+                nesting a button inside a `role="link"` is invalid.
+                See change: add-folder-actions-menu (D3). */}
             <span
-              className="text-xs font-medium text-[var(--text-secondary)] min-w-0 overflow-hidden flex items-center gap-1"
+              role="link"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                e.stopPropagation();
+                navigate(buildFolderHomeUrl(group.cwd));
+              }}
+              className="focus-ring rounded text-xs font-medium text-[var(--text-secondary)] min-w-0 overflow-hidden flex items-center gap-1"
               data-testid={`folder-header-name-${group.cwd}`}
             >
               <Icon path={isCollapsed ? mdiFolder : mdiFolderOpen} size={0.5} className="shrink-0" />
@@ -1062,13 +1170,26 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 {parentPath}
               </span>
               <span
-                className="font-bold text-base truncate flex-[0_1_auto] min-w-[6ch]"
+                className="font-bold text-base truncate flex-[0_1_auto] min-w-[6ch] group-hover:underline"
                 data-testid={`folder-header-leaf-${group.cwd}`}
               >
                 {lastSegment}
               </span>
             </span>
             <span className="text-[10px] text-[var(--text-muted)] shrink-0">({group.sessions.length})</span>
+            {/* Pinned state is an INERT indicator, not a control — the pin/unpin
+                action lives in the folder actions menu. It sits in the name
+                region, not the cluster, so the cluster stays exactly one
+                control. See change: add-folder-actions-menu (3.12). */}
+            {isPinned && (
+              <span
+                aria-hidden="true"
+                data-testid={`folder-pinned-indicator-${group.cwd}`}
+                className="shrink-0 text-yellow-400"
+              >
+                <Icon path={mdiPin} size={0.5} />
+              </span>
+            )}
             {/* Needs-you rollup: count of chat-routed ask_user children.
                 Pill resolves the target id (widget-bar excluded) and passes it
                 up; we select + scroll it into view.
@@ -1094,88 +1215,20 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             {isCollapsed && <FolderStatusRollup sessions={group.sessions} />}
             {/* Trailing action cluster — `flex-none` + `whitespace-nowrap` pins
                 it to the top-right at any sidebar width; it never wraps to a
-                second row and never leaves the card. Order:
-                sort · add-to · home · pin (· remove, workspace rows only).
-                See change: redesign-folder-workspace-add-flow. */}
+                second row and never leaves the card. It now holds EXACTLY ONE
+                control: the folder actions menu trigger. Urgency sort, pin,
+                add-to-workspace, remove-from-workspace and Directory Settings
+                are its items. See change: add-folder-actions-menu. */}
             <span
               className="ml-auto flex items-center gap-px flex-none whitespace-nowrap"
               data-testid={`folder-header-cluster-${group.cwd}`}
             >
-            {/* Opt-in per-folder urgency sort toggle (default off). Floats
-                blocked sessions to the top. See change:
-                improve-dashboard-attention-routing. */}
-            <button
-              onClick={(e) => { e.stopPropagation(); urgencySort.toggle(group.cwd); }}
-              className={`px-1 py-0.5 rounded ${urgencySort.isOn(group.cwd) ? "text-[var(--status-needs-you)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"}`}
-              title={t("sessionList.urgencySort", undefined, "Float blocked sessions to top")}
-              aria-label={t("sessionList.urgencySort", undefined, "Float blocked sessions to top")}
-              aria-pressed={urgencySort.isOn(group.cwd)}
-              data-testid={`folder-urgency-sort-${group.cwd}`}
-            >
-              <Icon path={mdiSortVariant} size={0.5} />
-            </button>
-            {/* Pin/Unpin toggle. Hidden inside a workspace container — pin
-                is irrelevant for visibility/ordering there. The pin state
-                itself is preserved on the server (orthogonal to workspace
-                membership). See change: folder-workspaces. */}
-            {/* Add-to-workspace pill — top-level rows only (a workspace-tier
-                folder already has its membership). Sits between sort and
-                open-home so it borrows the cluster's "these organise the
-                folder" meaning; its ml-auto right-aligns the cluster. */}
-            {headerAction}
-            {/* Open the directory home page. Distinct from the collapse toggle
-                (the name row) and the drag gutter (a sibling) — stopPropagation
-                keeps the click from toggling collapse or starting a reorder.
-                Pinned rows only. See change: add-directory-home-page (D3).
-                Also shown on workspace-folder rows: an unpinned workspace
-                folder has `folder.pinned === false`, so `isPinned` alone would
-                hide it (change: enable-workspace-folder-home-page, D2). */}
-            {(isPinned || inWorkspace) && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(buildFolderHomeUrl(group.cwd));
-                }}
-                className={`${headerAction ? "" : "ml-auto "}px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]`}
-                title={t("sessionList.openFolderHome", undefined, "Open folder home")}
-                aria-label={t("sessionList.openFolderHome", undefined, "Open folder home")}
-                data-testid={`folder-open-home-${group.cwd}`}
-              >
-                <Icon path={mdiOpenInNew} size={0.5} />
-              </button>
-            )}
-            {!inWorkspace && (isPinned || onPinDirectory) && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (isPinned) onUnpinDirectory?.(group.cwd);
-                  else onPinDirectory?.(group.cwd);
-                }}
-                className={`${headerAction ? "" : "ml-auto "}px-1 py-0.5 rounded ${isPinned ? "text-yellow-400 hover:text-yellow-300" : "text-[var(--text-tertiary)] hover:text-yellow-400"}`}
-                title={isPinned ? t("sessionList.unpinDirectory", undefined, "Unpin directory") : t("sessionList.pinDirectory", undefined, "Pin directory")}
-                data-testid={isPinned ? "unpin-dir-btn" : "pin-dir-btn"}
-              >
-                <Icon path={mdiPin} size={0.55} />
-              </button>
-            )}
-            {/* Remove-from-workspace — grouped inline after the open-home
-                icon (workspace folders only), not floated in the card corner. */}
-            {inWorkspace && workspaceId && onRemoveFolderFromWorkspace && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemoveFolderFromWorkspace(workspaceId, group.cwd);
-                }}
-                className="px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-red-400 hover:bg-[var(--bg-hover)]"
-                title={t("sessionList.removeFromWorkspace", undefined, "Remove from workspace")}
-                aria-label={t("sessionList.removeFromWorkspace", undefined, "Remove from workspace")}
-                data-testid={`ws-remove-${workspaceId}-${group.cwd}`}
-              >
-                <Icon path={mdiClose} size={0.5} />
-              </button>
-            )}
+              <FolderActionsMenu
+                cwd={group.cwd}
+                open={folderMenuFor === `folder:${group.cwd}`}
+                onOpenChange={(next) => setFolderMenuFor(next ? `folder:${group.cwd}` : null)}
+                items={folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction })}
+              />
             </span>
           </div>
           {/* Collapsed density (variant B): when collapsed, the heavy slots
@@ -1205,7 +1258,6 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             </div>
             <FolderActionBar
               cwd={group.cwd}
-              onOpenPiResources={() => onOpenPiResources?.(group.cwd)}
               onInitializeProject={onSpawnSession ? (cwd) => onSpawnSession(cwd, undefined, { initialPrompt: "/skill:project-init" }) : undefined}
               brokenSessionCount={group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended" && !s.hidden).length}
               onCleanUpBroken={onHideSession ? () => {
@@ -1420,18 +1472,6 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                         isHidden={!!session.hidden}
                         onHide={handleHide}
                         onUnhide={handleUnhide}
-                        // Same add-to-workspace glyph as the folder row, scoped
-                        // to this session's cwd. Passed as a render prop so the
-                        // card reuses the popover without threading workspace
-                        // state. See change: redesign-folder-workspace-add-flow.
-                        renderAddToWorkspace={onCreateWorkspace || (workspaces && workspaces.length > 0)
-                          ? () => renderAddToWorkspaceButton(
-                              session.cwd,
-                              t("sessionList.addCwdToWorkspace", undefined, "Add cwd to workspace…"),
-                              `session:${session.id}`,
-                              `session-card-add-to-workspace-${session.id}`,
-                            )
-                          : undefined}
 
                         contextUsage={contextUsageMap?.get(session.id)}
                         openspecChanges={openspecMap?.get(session.cwd)?.changes}

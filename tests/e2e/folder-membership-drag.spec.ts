@@ -1,3 +1,4 @@
+import { mdiDotsHorizontal } from "@mdi/js";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { gotoDashboard, pinDirectory } from "./helpers/index.js";
 
@@ -46,12 +47,28 @@ async function workspaceIds(page: Page): Promise<Map<string, string>> {
 function folderRow(page: Page, cwd: string): Locator {
   return page
     .locator('[data-testid="sortable-workspace-folder"], [data-testid="sortable-pinned-group"]')
-    .filter({ has: page.getByTestId(`folder-open-home-${cwd}`) })
+    .filter({ has: page.getByTestId(`folder-home-row-${cwd}`) })
     .first();
 }
 
 function folderHandle(page: Page, cwd: string): Locator {
   return folderRow(page, cwd).getByTestId("drag-handle-pinned").first();
+}
+
+/**
+ * Every directory mutation now lives behind the folder actions menu trigger
+ * (change: add-folder-actions-menu) — the header cluster is one control, so the
+ * menu must be opened before add-to-workspace / remove-from-workspace are
+ * reachable. Idempotent: a menu already open is left open.
+ */
+async function openFolderMenu(page: Page, cwd: string): Promise<void> {
+  const trigger = page.getByTestId(`folder-actions-menu-${cwd}`).first();
+  await expect(trigger).toBeVisible({ timeout: 15_000 });
+  if ((await trigger.getAttribute("aria-expanded")) === "true") return;
+  await trigger.click();
+  await expect(page.getByTestId(`folder-actions-menu-panel-${cwd}`).first()).toBeVisible({
+    timeout: 15_000,
+  });
 }
 
 async function centerOf(loc: Locator): Promise<{ x: number; y: number }> {
@@ -133,9 +150,9 @@ async function setupWorkspaces(page: Page): Promise<{ idA: string; idB: string }
   await expandAllWorkspaces(page);
 
   for (const cwd of ALL_FIXTURES) {
-    if (!(await visible(page.getByTestId(`folder-open-home-${cwd}`)))) {
+    if (!(await visible(page.getByTestId(`folder-home-row-${cwd}`)))) {
       await pinDirectory(page, cwd);
-      await expect(page.getByTestId(`folder-open-home-${cwd}`)).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId(`folder-home-row-${cwd}`)).toBeVisible({ timeout: 15_000 });
     }
   }
 
@@ -148,6 +165,7 @@ async function setupWorkspaces(page: Page): Promise<{ idA: string; idB: string }
     if (!(await workspaceIds(page)).has(name)) {
       // Creating from a folder's menu also assigns that folder.
       await ensureTopLevel(page, folders[0]);
+      await openFolderMenu(page, folders[0]);
       await page.getByTestId(`add-to-workspace-btn-${folders[0]}`).first().click();
       await page.getByTestId("add-to-workspace-new").click();
       await page.getByTestId("new-workspace-input").fill(name);
@@ -168,6 +186,7 @@ async function setupWorkspaces(page: Page): Promise<{ idA: string; idB: string }
     for (const cwd of folders) {
       if ((await foldersOf(page, id)).includes(cwd)) continue;
       await ensureTopLevel(page, cwd);
+      await openFolderMenu(page, cwd);
       await page.getByTestId(`add-to-workspace-btn-${cwd}`).first().click();
       await page.getByTestId(`add-to-workspace-pick-${id}`).click();
       await expect
@@ -186,14 +205,19 @@ async function setupWorkspaces(page: Page): Promise<{ idA: string; idB: string }
 async function ensureTopLevel(page: Page, cwd: string): Promise<void> {
   for (const id of (await workspaceIds(page)).values()) {
     if (!(await foldersOf(page, id)).includes(cwd)) continue;
-    await page.getByTestId(`ws-remove-${id}-${cwd}`).first().click();
+    await openFolderMenu(page, cwd);
+    await page.getByTestId("folder-menu-item-remove-from-workspace").first().click();
     await expect
       .poll(async () => (await foldersOf(page, id)).includes(cwd), { timeout: 15_000 })
       .toBe(false);
   }
+  await openFolderMenu(page, cwd);
   await expect(page.getByTestId(`add-to-workspace-btn-${cwd}`).first()).toBeVisible({
     timeout: 15_000,
   });
+  // Leave the sidebar in a neutral state for the caller: toggle the trigger.
+  await page.getByTestId(`folder-actions-menu-${cwd}`).first().click();
+  await expect(page.getByTestId(`folder-actions-menu-panel-${cwd}`)).toHaveCount(0);
 }
 
 /** Folder cwds currently rendered inside workspace `id`, in DOM order. */
@@ -201,9 +225,9 @@ async function foldersOf(page: Page, id: string): Promise<string[]> {
   return page
     .getByTestId(`workspace-header-${id}`)
     .locator("xpath=../..")
-    .locator('[data-testid="sortable-workspace-folder"] [data-testid^="folder-open-home-"]')
+    .locator('[data-testid="sortable-workspace-folder"] [data-testid^="folder-home-row-"]')
     .evaluateAll((nodes) =>
-      nodes.map((n) => (n as HTMLElement).dataset.testid!.replace("folder-open-home-", "")),
+      nodes.map((n) => (n as HTMLElement).dataset.testid!.replace("folder-home-row-", "")),
     );
 }
 
@@ -299,7 +323,7 @@ test.describe("folder membership drag", () => {
     // is not the contract (React may move the node between tiers); PRESENCE
     // is, so the observer counts frames where no such row exists at all.
     await page.evaluate((cwd) => {
-      const present = () => !!document.querySelector(`[data-testid="folder-open-home-${cwd}"]`);
+      const present = () => !!document.querySelector(`[data-testid="folder-home-row-${cwd}"]`);
       (window as any).__absent = 0;
       const obs = new MutationObserver(() => {
         if (!present()) (window as any).__absent++;
@@ -311,7 +335,7 @@ test.describe("folder membership drag", () => {
     await expect
       .poll(async () => (await foldersOf(page, idA)).includes(F_A), { timeout: 15_000 })
       .toBe(false);
-    await expect(page.getByTestId(`folder-open-home-${F_A}`)).toBeVisible();
+    await expect(page.getByTestId(`folder-home-row-${F_A}`)).toBeVisible();
     expect(await page.evaluate(() => (window as any).__absent)).toBe(0);
   });
 
@@ -363,5 +387,117 @@ test.describe("folder membership drag", () => {
       .toBe(true);
     expect(await foldersOf(second, idB)).not.toContain(moved);
     await second.close();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// add-folder-actions-menu — glyph uniqueness on the RENDERED card, the session
+// card losing its add-to-workspace affordance, and the menu surviving the two
+// state changes that can yank its anchor out from under it.
+// Covers test-plan F9, F10, X5, X6.
+// ─────────────────────────────────────────────────────────────────────────────
+test.describe("folder actions menu — anchor stability and glyph uniqueness", () => {
+  /** Every `d` attribute the trigger's glyph renders. */
+  async function glyphPaths(loc: Locator): Promise<string[]> {
+    return loc.locator("svg path").evaluateAll((nodes) =>
+      nodes.map((n) => n.getAttribute("d") ?? ""),
+    );
+  }
+
+  /**
+   * Harness-emitted console noise that has nothing to do with the interaction
+   * under test. The container serves the SW registration path as `text/html`,
+   * so Chrome logs this on every page load. Filtering it keeps the X5/X6
+   * "no console error" assertion about the menu instead of about the fixture.
+   */
+  const HARNESS_NOISE = [/unsupported MIME type/i];
+
+  /**
+   * Start collecting console/page errors. Call AFTER setup so only errors the
+   * interaction under test provokes are captured.
+   */
+  function collectErrors(page: Page): () => string[] {
+    const errors: string[] = [];
+    const push = (text: string) => {
+      if (HARNESS_NOISE.some((re) => re.test(text))) return;
+      errors.push(text);
+    };
+    page.on("console", (m) => { if (m.type() === "error") push(m.text()); });
+    page.on("pageerror", (e) => push(e.message));
+    return () => errors;
+  }
+
+  // F9 — the folder trigger must not reuse the worktree actions menu's glyph:
+  // a worktree session card renders INSIDE the folder body, so two identical
+  // triggers would share one card with different scopes.
+  test("F9: the folder trigger's glyph is not the worktree menu's glyph", async ({ page }) => {
+    await setupWorkspaces(page);
+    const trigger = page.getByTestId(`folder-actions-menu-${F_A}`).first();
+    await expect(trigger).toBeVisible({ timeout: 15_000 });
+    const paths = await glyphPaths(trigger);
+    expect(paths.length).toBeGreaterThanOrEqual(1);
+    // `mdiDotsHorizontal` is what WorktreeActionsMenu renders as its trigger.
+    expect(paths).not.toContain(mdiDotsHorizontal);
+  });
+
+  // F10 — workspace membership is directory-scoped, so the affordance left the
+  // session card entirely (it rendered N identical buttons with one effect).
+  test("F10: no session card carries an add-to-workspace control", async ({ page }) => {
+    await setupWorkspaces(page);
+    await expect(page.locator('[data-testid^="session-card-add-to-workspace-"]')).toHaveCount(0);
+
+    await page.setViewportSize({ width: 375, height: 900 });
+    await gotoDashboard(page);
+    await expect(page.locator('[data-testid^="session-card-add-to-workspace-"]')).toHaveCount(0);
+  });
+
+  // X5 — the header row renders in both collapse states, so the trigger keeps
+  // its anchor; the invariant is that no popover is left floating without one.
+  test("X5: collapsing the folder while its menu is open leaves no orphaned popover", async ({ page }) => {
+    await setupWorkspaces(page);
+    const errors = collectErrors(page);
+    await openFolderMenu(page, F_A);
+    const panel = page.getByTestId(`folder-actions-menu-panel-${F_A}`);
+    await expect(panel).toBeVisible();
+
+    await folderRow(page, F_A).getByTestId("folder-toggle-btn").first().click();
+
+    // Either it closed cleanly, or it is still anchored to a rendered trigger.
+    if ((await panel.count()) > 0) {
+      await expect(panel).toBeVisible();
+      await expect(page.getByTestId(`folder-actions-menu-${F_A}`).first()).toBeVisible();
+    }
+    expect(errors()).toEqual([]);
+  });
+
+  // X6 — a drag-reorder moves the row's DOM node; the popover must not be left
+  // painted at the old position.
+  test("X6: drag-reordering the folder while its menu is open leaves no orphaned popover", async ({ page }) => {
+    // Target the OTHER workspace: F_A already lives in idA, so aiming at idA's
+    // own header resolves above the row and `beginDragOnto` rejects the move as
+    // off-screen. idB is a real relocation, the same move the sibling cases use.
+    const { idB } = await setupWorkspaces(page);
+    const errors = collectErrors(page);
+    await openFolderMenu(page, F_A);
+    const panel = page.getByTestId(`folder-actions-menu-panel-${F_A}`);
+    await expect(panel).toBeVisible();
+    const before = (await panel.boundingBox())!;
+
+    await beginDragOnto(page, F_A, page.getByTestId(`workspace-header-${idB}`));
+    await page.mouse.up();
+
+    // Exactly zero or one panel — never a second, stranded copy.
+    expect(await panel.count()).toBeLessThanOrEqual(1);
+    if ((await panel.count()) === 1) {
+      // Still anchored: it tracks its trigger rather than the old coordinates.
+      const trigger = page.getByTestId(`folder-actions-menu-${F_A}`).first();
+      await expect(trigger).toBeVisible();
+      const after = (await panel.boundingBox())!;
+      const triggerBox = (await trigger.boundingBox())!;
+      expect(Math.abs(after.y - (triggerBox.y + triggerBox.height))).toBeLessThan(
+        Math.abs(before.y - after.y) + 60,
+      );
+    }
+    expect(errors()).toEqual([]);
   });
 });

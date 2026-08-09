@@ -15,6 +15,10 @@ of navigating.
 Activating the row SHALL NOT toggle the folder's collapsed state; collapse lives solely on the
 chevron in the drag gutter.
 
+The open gesture SHALL be reachable by keyboard. Because the row also hosts the folder actions
+menu trigger, and a button may not nest inside a link, the link semantics SHALL live on the
+folder name region rather than on the row element itself.
+
 #### Scenario: Row click opens the home page
 
 - **WHEN** the user activates a directory header row (pinned, unpinned, or workspace-owned)
@@ -37,6 +41,13 @@ chevron in the drag gutter.
 - **GIVEN** a folder is expanded
 - **WHEN** the user activates its header row
 - **THEN** the folder SHALL remain expanded
+
+#### Scenario: Folder name is keyboard reachable
+
+- **WHEN** a directory header row renders
+- **THEN** the folder name region SHALL expose link semantics and SHALL be focusable
+- **WHEN** the user focuses it and presses Enter
+- **THEN** the client SHALL navigate to `/folder/<encodedCwd>` for that directory
 
 #### Scenario: Folder name signals it is a link
 

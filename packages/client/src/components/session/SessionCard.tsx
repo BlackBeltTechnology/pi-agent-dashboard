@@ -395,7 +395,6 @@ export function SessionCard({
   onReadArtifact,
   onBulkArchive,
   onRename,
-  renderAddToWorkspace,
   onShutdown,
   onResume,
   onSpawnSibling,
@@ -464,14 +463,6 @@ export function SessionCard({
   onRename?: (name: string) => void;
   onShutdown?: (id: string) => void;
   onResume?: (mode: "continue" | "fork") => void;
-  /**
-   * Renders the compact add-to-workspace icon button (folder-plus + caret) in
-   * the header cluster, targeting this session's cwd. Supplied as a render prop
-   * by SessionList so the card reuses the exact popover the folder row uses,
-   * without threading workspace state through the card.
-   * See change: redesign-folder-workspace-add-flow.
-   */
-  renderAddToWorkspace?: () => React.ReactNode;
   /**
    * Spawn a clean sibling session in the parent's cwd, inheriting the
    * parent's `attachedProposal` when set. Always-visible `+Session` button —
@@ -771,12 +762,10 @@ export function SessionCard({
             <Icon path={mdiPencilOutline} size={0.45} />
           </button>
         )}
-        {/* Add this session's cwd to a workspace — same glyph as the folder
-            row's cluster (mockup: pencil · add-to · eyeOff · close).
-            See change: redesign-folder-workspace-add-flow. */}
-        {renderAddToWorkspace && (
-          <span className="flex-shrink-0">{renderAddToWorkspace()}</span>
-        )}
+        {/* Workspace membership is DIRECTORY-scoped, so the add-to-workspace
+            affordance left this card — rendering it per session produced N
+            identical buttons with one effect. It now lives once, in the owning
+            folder's actions menu. See change: add-folder-actions-menu (D1). */}
         <span
           className="text-[10px] text-[var(--text-muted)]"
           title={i18nT("session.startedAtTime", { time: new Date(session.startedAt).toLocaleString() }, "Started {time}")}

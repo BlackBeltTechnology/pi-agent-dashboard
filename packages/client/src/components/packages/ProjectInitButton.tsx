@@ -31,12 +31,23 @@ interface Props {
   onInitializeProject?: (cwd: string) => void;
 }
 
+/**
+ * Single source of truth for whether this button renders at all.
+ * Strict `=== false`: only an explicitly-unconfigured directory offers the
+ * scaffold. Absent `configured` (degraded probe) or `configured:true` (already
+ * a pi project) render nothing. Exported so `FolderActionBar` can decide it has
+ * nothing to show without duplicating the predicate.
+ * See change: add-folder-actions-menu (3.8).
+ */
+export function shouldShowProjectInit(
+  status: WorktreeInitStatus | null,
+  onInitializeProject?: (cwd: string) => void,
+): boolean {
+  return !!status && status.hasHook === false && status.configured === false && !!onInitializeProject;
+}
+
 export function ProjectInitButton({ cwd, status, onInitializeProject }: Props) {
-  // Strict `=== false`: only an explicitly-unconfigured directory offers the
-  // scaffold. Absent `configured` (degraded probe) or `configured:true`
-  // (already a pi project) render nothing.
-  const show = !!status && status.hasHook === false && status.configured === false && !!onInitializeProject;
-  if (!show) return null;
+  if (!shouldShowProjectInit(status, onInitializeProject)) return null;
 
   return (
     <button

@@ -40,3 +40,14 @@ This knowingly places `mdiPin` in two roles on one card: state in the header, an
 - **GIVEN** a folder inside a workspace container
 - **WHEN** the folder actions menu opens
 - **THEN** no pin item SHALL render
+
+#### Scenario: Pinned directory group header collapsed
+
+- **WHEN** a directory group is pinned and collapsed
+- **THEN** the left icon SHALL be `mdiFolder`
+- **AND** the header SHALL render the non-interactive `mdiPin` indicator
+
+#### Scenario: No duplicate pin indicator on left
+
+- **WHEN** a directory group is pinned
+- **THEN** the left side SHALL NOT display a pin icon — only the folder icon
