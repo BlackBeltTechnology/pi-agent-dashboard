@@ -32,6 +32,12 @@ sessions has none, and the bar SHALL be absent rather than render empty.
 - **THEN** the collapse chevron SHALL live in the left gutter
 - **AND** the surrounding gutter area SHALL act as the drag handle
 
+#### Scenario: Branch row sits in the content column with no extra indent
+
+- **WHEN** a pinned folder header is rendered with a known git branch
+- **THEN** the branch row SHALL NOT carry an `ml-5` or `ml-3` class
+- **AND** the branch text SHALL render at the start of the content column
+
 ### Requirement: Chevron toggles collapse; surrounding gutter area is the drag handle
 
 The chevron in the left gutter SHALL toggle the folder's collapsed state.

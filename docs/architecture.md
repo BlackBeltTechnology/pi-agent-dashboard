@@ -137,7 +137,7 @@ TypeScript type definitions shared across all components:
 - **Non-hue shape channel.** `deriveStatusShape` + `statusShapeIcon` map status to filled/half/ring/cross marker. `SessionCard.tsx::StatusShapeBadge` overlays marker on session-status-icon (`data-status-shape`). Color-blind-safe redundant encoding.
 - **Label split.** `ActivityIndicator`: ask_user → "Needs you" (`--status-needs-you`); idle/active → "Idle" (muted). "Waiting for input" retired.
 - **Folder needs-you rollup.** `FolderNeedsYouPill` counts chat-routed ask_user child sessions per folder (`countNeedsYou` / `needsYouSessionIds`), excludes widget-bar via per-session `WidgetBarProbe` + `useHasWidgetBarPrompt`. Hidden at 0. Click → scroll+select first blocked. Mobile ≤375px hides label.
-- **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle `mdiSortVariant` in folder header.
+- **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle = folder actions menu item `urgency-sort` (`mdiSortVariant`), `aria-pressed` bound to `urgencySort.isOn(cwd)`. Per-folder persisted preference unchanged.
 
 ### Retry Lifecycle (change: retry-forever-with-stop-control)
 
@@ -1053,7 +1053,7 @@ See change: add-worktree-lifecycle-actions.
 
 **Pin now implicit visibility primitive.** Adding folder always pins (`pin_directory`). `AddToWorkspaceMenu` + add dialog offer NO "Pin to dashboard". Safe: `visibleTopPinned`/`visibleTopUnpinned` already filter workspace-owned cwd out of top tier (renders once); redundant pin = fallback so removing from workspace leaves folder visible at root.
 
-**Add-to-workspace affordance.** LABELLED PILL: `mdiViewGridPlus` glyph + visible text label "Workspace" in folder-header cluster, order: `sort · add-to · home · pin`. Same button on session-card header (`session-card-add-to-workspace-<id>`, targets `session.cwd`). `aria-haspopup="menu"` + `aria-expanded` + `aria-label`/`title` "Add to workspace…". Popover state keyed by SCOPE (`folder:<cwd>` vs `session:<id>`) so card + same-cwd folder row never co-open. Old `+ws` text token removed. `renderAddToWorkspaceButton(cwd,label,scopeKey,testId,wrapperClass)` builds pill, passes as `headerAction?: React.ReactNode` to `renderGroup` (5th param); when `headerAction` present, cluster `ml-auto` moves to it.
+**Add-to-workspace affordance.** LABELLED PILL: `mdiViewGridPlus` glyph + visible text label "Workspace", lives inside folder actions menu WORKSPACE group. Session-card copy removed. `aria-haspopup="menu"` + `aria-expanded` + `aria-label`/`title` "Add to workspace…". Popover state keyed by SCOPE (`folder:<cwd>`). Old `+ws` text token removed. `renderAddToWorkspaceButton(cwd,label,scopeKey,testId,wrapperClass)` builds pill, passes as `headerAction?: React.ReactNode` to `renderGroup` (5th param); `renderGroup` routes it into the menu instead of the cluster. See change: add-folder-actions-menu.
 
 **Folder-header cluster never wraps.** `folder-header-cluster-<cwd>` = `flex-none whitespace-nowrap`; name region `folder-header-name-<cwd>` = `min-w-0` absorbs squeeze; parent path `folder-header-parent-<cwd>` = `flex-[0_1_auto] min-w-0` collapses first; leaf `folder-header-leaf-<cwd>` = `min-w-[6ch]` floor.
 
@@ -1062,6 +1062,40 @@ See change: add-worktree-lifecycle-actions.
 **AddFoldersDialog** (`packages/client/src/components/workspace/AddFoldersDialog.tsx`): multi-select picker + removable-pill basket (persists across navigation) + single-select workspace destination (radio, default None, empty state "None — no workspaces yet", eager `+ New workspace…` that becomes selected once `workspaces_updated` echo lands) + count-bearing commit (`add-folders-commit`). Commit sends `pin_directory` for every path FIRST, then `add_folder_to_workspace` per path when destination set (pins first → folder never momentarily invisible). Reuses existing per-path messages, no new protocol. Wired to both entry points: App sidebar `+ Add Folder` → dest None; `SessionList` workspace-scoped `+ Add Folder` → that workspace preselected. `PinDirectoryDialog` retained ONLY for packages move-to-local single-select picker (`UnifiedPackagesSection`).
 
 See change: redesign-folder-workspace-add-flow.
+
+### Folder actions menu (add-folder-actions-menu)
+
+**Cluster = one control.** `folder-header-cluster-<cwd>` holds EXACTLY ONE control: `FolderActionsMenu` trigger. Component `packages/client/src/components/folder/FolderActionsMenu.tsx`. Exports `FolderActionsMenu`, `FolderMenuItem`, `FOLDER_MENU_GROUPS`, `FolderMenuGroup`.
+
+**Trigger.** Glyph `mdiFolderCogOutline`. `mdiDotsHorizontal` REJECTED — `WorktreeActionsMenu` renders it on worktree session cards inside the folder body; two identical triggers, different scopes, one card. Testid `folder-actions-menu-<cwd>`. Carries `aria-haspopup="menu"` + `aria-expanded`. `onClick` calls `stopPropagation` — header row navigates to the directory home page, so opening must not navigate nor toggle collapse.
+
+**Panel.** Testid `folder-actions-menu-panel-<cwd>`, `role="menu"`, `data-menu-form="sheet"|"popover"`. Items carry `role="menuitem"`, testid `folder-menu-item-<id>`. Keyboard: ArrowDown/ArrowUp rove focus over `[role=menuitem]`; Escape closes + returns focus to trigger. Outside `mousedown`/`touchstart` closes.
+
+**Groups.** Host-owned fixed taxonomy, stable order: `workspace` then `directory` (`FOLDER_MENU_GROUPS`). Group heading testid `folder-menu-group-<group>`. Group renders only when it holds >=1 item. Item ids: `add-to-workspace`, `remove-from-workspace`, `pin`, `urgency-sort`, `directory-settings`. Directory-group order: pin, urgency-sort, directory-settings.
+
+**Open state.** `SessionList` owns `folderMenuFor`, keyed by SCOPE `folder:<cwd>` — mirrors `addToWsMenuFor`; a cwd key would co-open a folder row and a same-cwd card.
+
+**Form factor.** Mobile: `useMobile()` (compound `<768w OR <600h`, reused verbatim) → full-width sheet via `DialogPortal`, `data-menu-form="sheet"`. Desktop → `usePopoverFlip` popover, `data-menu-form="popover"`.
+
+**Node escape hatch.** `FolderMenuItem.node`: item that carries its own popover + testid renders its own node. Only user today = add-to-workspace, so `renderAddToWorkspaceButton(cwd,label,scopeKey,testId,wrapperClass,asMenuItem)` keeps `add-to-workspace-btn-<cwd>` + `AddToWorkspaceMenu` popover verbatim; `asMenuItem` adds `role="menuitem"`.
+
+**Placement gating preserved, not widened.** add-to-workspace only on top-level rows gated `onCreateWorkspace || workspaces.length`; remove-from-workspace only on workspace-owned rows; pin only outside a workspace container.
+
+**Pinned indicator.** Inert indicator, testid `folder-pinned-indicator-<cwd>`, `aria-hidden="true"`, `mdiPin`, NOT a button, no tabindex. Lives in name region, not cluster — keeps cluster at exactly one control. Pin/unpin action lives in the menu.
+
+**Open-home button deleted.** `mdiOpenInNew` GONE. Testid `folder-open-home-<cwd>` GONE. Header row `folder-home-row-<cwd>` = only open affordance; leaf `folder-header-leaf-<cwd>` gains `group-hover:underline`, row gains `group`.
+
+**SessionCard prop removed.** `renderAddToWorkspace` REMOVED. Testid `session-card-add-to-workspace-<id>` GONE. Workspace membership is directory-scoped; per-session rendering produced N identical buttons with one effect.
+
+**FolderActionBar Directory Settings.** `mdiCog` REMOVED (moved to menu item `directory-settings`). `FolderActionBar` returns `null` when it holds nothing — predicate composed from exported `shouldShowProjectInit(status,onInitializeProject)` (`ProjectInitButton.tsx`) + `shouldShowWorktreeInitButton(status)` (`WorktreeInitButton.tsx`) + `useInitRun(cwd)` + cleanup gate, so it cannot drift from what the buttons render.
+
+**Prop rename.** `onOpenPiResources` → `onOpenDirectorySettings` on `SessionList`; `useContentViews` `handleOpenPiResources` → `handleOpenDirectorySettings`. Route unchanged: `buildFolderSettingsUrl(cwd)` (page segment omitted → route handler defaults `packages`). Only the name lagged; label + `aria-label` already read "Directory Settings".
+
+**Accepted echoes (recorded, not fixed).** Trigger cog vs item `mdiCog`; `mdiPin` indicator vs `mdiPin` action.
+
+**Known dead path, PRE-EXISTING, NOT fixed.** `AddToWorkspaceMenu` remove entry unreachable on folder rows — renders only when `currentWorkspaceId !== null`, but `visibleTopPinned`/`visibleTopUnpinned` filter workspace-owned folders out of the top tiers, the only rows carrying the affordance.
+
+See change: add-folder-actions-menu.
 
 ### OpenSpec Polling (Server-Side)
 

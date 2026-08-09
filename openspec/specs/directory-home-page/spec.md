@@ -27,64 +27,59 @@ routes.
 - **WHEN** the user triggers back
 - **THEN** navigation SHALL pop to the surface the user came from (not treat the home page as depth-0)
 
-### Requirement: Sidebar open affordance
-
-Each directory sidebar row — whether pinned OR a workspace-owned folder — SHALL
-expose an "open" affordance distinct from the collapse toggle that navigates to
-`/folder/:encodedCwd`. Activating it SHALL NOT toggle the folder's collapsed state
-and SHALL NOT initiate a drag-reorder.
-
-#### Scenario: Open affordance appears on an UNPINNED workspace-folder row
-
-- **GIVEN** a folder rendered inside a workspace container that is NOT pinned (its `DirectoryGroup.pinned` is `false`)
-- **THEN** its row SHALL expose the "open" affordance (the render condition SHALL treat workspace membership, not only pinned state, as sufficient)
-
-#### Scenario: Open affordance navigates to the home page
-
-- **WHEN** the user activates the open affordance on any directory row (pinned or workspace)
-- **THEN** the client SHALL navigate to `/folder/<encodedCwd>` for that directory
-
-#### Scenario: Open affordance does not toggle collapse
-
-- **GIVEN** a folder is expanded
-- **WHEN** the user activates its open affordance
-- **THEN** the folder SHALL remain expanded (the collapse state is unchanged)
-
 ### Requirement: Whole-row open affordance
 
-The folder header name-row (folder icon, path, session count, status rollups)
-SHALL itself be a click target that navigates to `/folder/:encodedCwd` for that
-directory, mirroring how clicking a session card selects its session. This
-whole-row affordance SHALL apply to EVERY folder row regardless of pinned or
-workspace membership. Collapse/expand SHALL be exposed SOLELY via the chevron
-toggle in the folder's drag gutter; the name-row click SHALL NOT toggle the
-collapsed state. Child controls within the row (needs-you pill, urgency-sort,
-open affordance, pin toggle) SHALL stop propagation so activating them does NOT
-trigger the whole-row navigation. The dedicated icon open affordance (previous
-requirement) SHALL remain as a redundant explicit control.
+The folder header name-row SHALL itself be the open affordance: activating it SHALL navigate
+to `/folder/:encodedCwd`. The folder name SHALL carry a hover affordance so the row reads as a
+link.
 
-#### Scenario: Clicking the header row navigates to the home page
+There SHALL be no separate icon open affordance. The row click is the only open gesture on the
+card, so the destination has exactly one control.
 
-- **WHEN** the user clicks the folder header name-row (outside any child control)
+Child controls within the row SHALL stop propagation so they perform their own action instead
+of navigating.
+
+Activating the row SHALL NOT toggle the folder's collapsed state; collapse lives solely on the
+chevron in the drag gutter.
+
+The open gesture SHALL be reachable by keyboard. Because the row also hosts the folder actions
+menu trigger, and a button may not nest inside a link, the link semantics SHALL live on the
+folder name region rather than on the row element itself.
+
+#### Scenario: Row click opens the home page
+
+- **WHEN** the user activates a directory header row (pinned, unpinned, or workspace-owned)
 - **THEN** the client SHALL navigate to `/folder/<encodedCwd>` for that directory
+
+#### Scenario: No dedicated icon open control renders
+
+- **WHEN** a directory header row renders
+- **THEN** no separate icon-only open control SHALL render in the header cluster
+
+#### Scenario: Child controls do not trigger whole-row navigation
+
+- **GIVEN** a folder header row carrying the folder actions menu trigger
+- **WHEN** the user activates that trigger
+- **THEN** the menu SHALL open
+- **AND** the client SHALL NOT navigate to the directory home page
 
 #### Scenario: Whole-row navigation does not collapse the folder
 
 - **GIVEN** a folder is expanded
-- **WHEN** the user clicks its header name-row
-- **THEN** the folder SHALL remain expanded (collapse is owned by the chevron toggle only)
+- **WHEN** the user activates its header row
+- **THEN** the folder SHALL remain expanded
 
-#### Scenario: Whole-row affordance applies to unpinned non-workspace folders
+#### Scenario: Folder name is keyboard reachable
 
-- **GIVEN** a folder that is neither pinned nor a workspace member
-- **WHEN** the user clicks its header name-row
-- **THEN** the client SHALL navigate to `/folder/<encodedCwd>` (which renders the eligibility notice with a pin call-to-action)
+- **WHEN** a directory header row renders
+- **THEN** the folder name region SHALL expose link semantics and SHALL be focusable
+- **WHEN** the user focuses it and presses Enter
+- **THEN** the client SHALL navigate to `/folder/<encodedCwd>` for that directory
 
-#### Scenario: Child controls do not trigger whole-row navigation
+#### Scenario: Folder name signals it is a link
 
-- **GIVEN** a folder header row with its child controls (pin toggle, urgency-sort, needs-you pill, icon open affordance)
-- **WHEN** the user activates one of those child controls
-- **THEN** that control's own action SHALL run and the whole-row navigation SHALL NOT fire
+- **WHEN** the user hovers the folder header row
+- **THEN** the folder leaf name SHALL show a hover affordance indicating the row navigates
 
 ### Requirement: Centered prompt spawns a session
 
