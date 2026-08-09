@@ -57,10 +57,31 @@ readiness timeout`, the prompt stuck at `sending`, and the composer disabled.
 That notice was present in the ORIGINAL failure too: this change stopped it from
 killing the process, but it was never the delivery blocker.
 
-Next lead (separate change): in the harness the bridge of a *dashboard-spawned*
-session fails `autoStartServer` discovery against the server already listening on
-`:8000` in the same container, so the bridge never connects and prompts are never
-delivered. Note the headless in-container run connects fine — the fault is
-specific to the dashboard-spawned path. Start at `autoStartServer`'s
-`discoverDashboard` / `isDashboardRunning` and the spawned session's `piPort`
-config, not at the faux provider (proven healthy).
+### Correction — the delivery pipeline is NOT broken
+
+A follow-up investigation disproved the "prompts are never delivered" reading
+above. Driven through the REST API against the same container:
+
+- `POST /api/session/spawn` → the session registers. An earlier "0 sessions"
+  reading was a parsing mistake on my side: `/api/sessions` returns
+  `{success, data:[...]}`, not a bare array.
+- `POST /api/session/:id/prompt` with `[[faux:plain-text]] go` → the session
+  answers (`tokensOut` 12) and returns to `idle`.
+
+So spawn, bridge registration, prompt delivery and the faux model all work.
+
+`Dashboard server failed to start: readiness timeout` is real but **cosmetic
+here**: it is a stale `notifyLog` entry from a boot-time race in which the
+bridge's `launchServer` readiness probe expires while the server is still
+coming up (`autoStartServer` then does a single immediate `isDashboardRunning`
+recheck and gives up). The server does come up, the bridge does connect, and a
+session spawned once the server is healthy shows no warning at all. Worth
+hardening (widen the recheck window), but it is not what fails the E2E specs.
+
+**The remaining E2E failure is UI-level and NOT yet root-caused.** The spec
+drives the composer, and the failure signature is an optimistic prompt stuck at
+`sending` with the composer disabled — i.e. the browser client never settles the
+send, even though the same prompt succeeds over REST. Next investigation starts
+at the client's optimistic-prompt ack path and the browser↔server websocket, NOT
+at the bridge, the faux provider, or session registration — all three are proven
+healthy.
