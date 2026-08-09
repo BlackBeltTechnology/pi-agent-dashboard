@@ -238,7 +238,18 @@ describe("settings page composition", () => {
 
     // one control from each of the three sub-sections
     for (const label of ["Token stats bar", "Reasoning blocks", "Tool result bodies"]) {
-      fireEvent.click(screen.getByText(label).closest("div")!.querySelector("button")!);
+      // Address the switch by its accessible name rather than walking up to the
+      // nearest <div> and taking that subtree's first <button>: the old
+      // selector silently clicks a neighbouring control whenever the field
+      // markup regroups, and a click on the wrong control still "succeeds".
+      const toggle = screen.getByRole("switch", { name: label });
+      const before = toggle.getAttribute("aria-checked");
+      fireEvent.click(toggle);
+      // Pin the click itself. Without this the two failure modes -- the click
+      // never landed, vs. it landed but the dirty state never reached the save
+      // bar -- are indistinguishable, and both surface as the same misleading
+      // "unable to find settings-save-bar".
+      expect(toggle.getAttribute("aria-checked"), `${label} did not flip`).not.toBe(before);
       const saveBar = await waitFor(() => screen.getByTestId("settings-save-bar"));
       expect(within(saveBar).getAllByRole("button", { name: "General" })).toHaveLength(1);
     }
