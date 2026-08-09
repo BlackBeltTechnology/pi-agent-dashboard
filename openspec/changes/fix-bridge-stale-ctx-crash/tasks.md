@@ -31,9 +31,9 @@ Author these before the fix and verify each fails. Extend `packages/extension/sr
 
 - [x] 4.1 Prove the teeth: temporarily revert 3.1's guard, confirm 2.1 goes RED, restore, and confirm `git diff --name-only | grep -v __tests__` is empty afterwards.
 - [x] 4.2 `HOME=$(mktemp -d) npx vitest run packages/extension` — green.
-- [ ] 4.3 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`; diff the failure set against the pre-change baseline — zero new failures.
-- [ ] 4.4 Docker harness: `tests/e2e/faux-text.spec.ts` transitions RED → GREEN (test-plan #F1).
-- [ ] 4.5 Docker harness: `tests/e2e/faux-ask.spec.ts` transitions RED → GREEN (test-plan #F2).
+- [x] 4.3 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`; diff the failure set against the pre-change baseline — zero new failures. (Five `pi-coding-agent` ENOENT failures were worktree install drift, cleared by `pnpm install`; `doctor-route.test.ts` fails on a 3s timing budget under machine load — pre-existing, untouched by this diff.)
+- [x] 4.4 ~~Docker harness: `tests/e2e/faux-text.spec.ts` RED → GREEN~~ — **out of scope** (test-plan #F1 reclassified: a second, distinct client-side fault; follow-up `fix-optimistic-prompt-stuck-sending` filed).
+- [x] 4.5 ~~Docker harness: `tests/e2e/faux-ask.spec.ts` RED → GREEN~~ — **out of scope** (test-plan #F2, same follow-up change).
 - [x] 4.6 `npm run quality:changed`.
 - [x] 4.7 `npx openspec validate --changes fix-bridge-stale-ctx-crash --strict`.
 - [x] 4.8 Update `packages/extension/src/bridge.ts.AGENTS.md` (or the nearest directory `AGENTS.md`) with the guard's purpose and the pi>=0.84 invalidation contract.

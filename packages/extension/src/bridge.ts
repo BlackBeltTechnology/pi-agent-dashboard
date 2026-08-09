@@ -19,7 +19,6 @@ import { Loader } from "@earendil-works/pi-tui";
 import { AbortLatch } from "./abort-latch.js";
 import { nativeAgentSettledSupported, settleFollowUp } from "./agent-settled.js";
 import { isUnderArtifactRoot, resolveArtifactRoots } from "./artifact-roots.js";
-import { runUiSafely } from "./ui-stale-guard.js";
 import {
   MAX_PER_MESSAGE_BYTES as ATTACH_MAX_PER_MESSAGE_BYTES,
   cleanupAttachmentsForSession,
@@ -69,6 +68,7 @@ import { inlineToolResultImages } from "./tool-result-image-inliner.js";
 import { createTuiPromptAdapter } from "./tui-prompt-adapter.js";
 import { classifyTurnActionability } from "./turn-actionability.js";
 import { handleUiManagement, refreshUiModules, subscribeUiInvalidate, type UiModulesBridgeCtx } from "./ui-modules.js";
+import { runUiSafely } from "./ui-stale-guard.js";
 import { detectIsGitRepo } from "./vcs-info.js";
 import { buildVisibilityRegisterFields } from "./visibility-intent.js";
 
