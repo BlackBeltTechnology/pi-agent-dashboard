@@ -1,0 +1,3 @@
+# resource-activation-trust.spec.ts — index
+
+L3 spec (change: project-scope-disable-global-resources). Folder Resources surface (`/folder/<b64>/settings/skills`). F1-F5: trust dialog blocks convergence + explains an implicitly-trusted folder, Esc dismissal reverts and calls no trust endpoint, a rejected toggle reverts and shows the server message (`data-kind=server`) while a dead request reads `data-kind=network`, a disabled global resource keeps its row + gains `badge-folder-controlled` and re-enable restores the grouping, the repo-scope notice names the tracked shared `.pi/settings.json` and the whole-file diff. `/api/resources/toggle` stubbed via `page.route` — these are frontend-quirk scenarios; the write semantics are covered by the L1 suites.

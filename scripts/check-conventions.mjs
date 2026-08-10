@@ -89,8 +89,45 @@ export function mermaidViolationsIn(touched) {
   return out;
 }
 
-/** Commands that drive a RENDERED browser UI. WS/HTTP/health/display-server do not. */
-const BROWSER_DRIVER = /\b(agent-browser|playwright|puppeteer|chromedriver|selenium)\b/;
+/**
+ * A driver counts only in COMMAND position — actually invoked, optionally via a
+ * runner prefix. The word inside a comment (`# ... a Playwright test ...`) or an
+ * echoed string (`info "playwright exit=$rc"`) is prose about the run, not a
+ * browser being driven from bash.
+ */
+const DRIVER_INVOCATION = new RegExp(
+  String.raw`(?:^|[|;&(]|&&|\|\||\$\(|\x60)\s*` +
+    String.raw`(?:(?:npx|pnpm|yarn|sudo|exec|dlx)\s+)*` +
+    String.raw`(agent-browser|playwright|puppeteer|chromedriver|selenium)\b[^\n]*`,
+  "gm",
+);
+
+/**
+ * Invoking the Playwright RUNNER is delegation, not authorship: the browser
+ * scenarios stay in tests/e2e/*.spec.ts and the script merely wraps the run to
+ * observe something a spec cannot (e.g. the container cgroup, readable only via
+ * `docker exec` from the host).
+ */
+const PLAYWRIGHT_RUNNER = /^playwright\s+(?:test|install|show-report)\b/;
+
+/** Strip full-line shell comments before looking for an invocation. */
+function stripComments(content) {
+  return content
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .join("\n");
+}
+
+/** True when the script actually invokes a browser driver (not merely names one). */
+function drivesBrowser(content) {
+  for (const m of stripComments(content).matchAll(DRIVER_INVOCATION)) {
+    // Re-anchor on the driver token so the runner check sees `playwright test`.
+    const invocation = m[0].slice(m[0].indexOf(m[1]));
+    if (m[1] === "playwright" && PLAYWRIGHT_RUNNER.test(invocation)) continue;
+    return true;
+  }
+  return false;
+}
 
 /**
  * Rule 2 — browser scenarios belong in tests/e2e Playwright specs, not qa/*.sh.
@@ -100,7 +137,7 @@ const BROWSER_DRIVER = /\b(agent-browser|playwright|puppeteer|chromedriver|selen
  */
 export function shellBrowserViolations(file, content) {
   if (!/^qa\/tests\/.*\.sh$/.test(file)) return [];
-  if (!BROWSER_DRIVER.test(content)) return [];
+  if (!drivesBrowser(content)) return [];
   return [
     {
       file,

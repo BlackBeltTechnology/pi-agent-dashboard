@@ -139,6 +139,46 @@ describe("Browser scenarios are Playwright specs (#E8)", () => {
   it("only applies to qa/tests/*.sh", () => {
     expect(shellBrowserViolations("scripts/x.sh", 'agent-browser open "http://x"')).toHaveLength(0);
   });
+
+  // A shell script that DELEGATES to the Playwright runner is the rule being
+  // obeyed, not broken: the browser scenarios live in tests/e2e/*.spec.ts and
+  // the script only wraps the run to sample something Playwright cannot see
+  // (here: the container cgroup, readable only via `docker exec` from the host).
+  // Flagging it would demand migrating an out-of-band memory probe INTO the
+  // very process whose memory it measures. Caught on the develop merge.
+  it("#E8 does NOT flag a shell wrapper that invokes the Playwright runner", () => {
+    const sh = [
+      "#!/usr/bin/env bash",
+      "# Wraps an E2E chunk and samples the cgroup out-of-band.",
+      'npx playwright test --global-timeout 7200000 "$@" > "$log" 2>&1',
+      '$PROBE --json --label "$label-after"',
+    ].join("\n");
+    expect(shellBrowserViolations("qa/tests/16-e2e-memory-bound.sh", sh)).toHaveLength(0);
+  });
+
+  it("#E8 does NOT flag driver words in comments or echoed strings", () => {
+    const sh = [
+      "#!/usr/bin/env bash",
+      "# cannot be asserted from inside a Playwright test — see design D5",
+      'info "playwright exit=$rc (spec failures are NOT this script\'s verdict)"',
+      'echo "run agent-browser by hand to debug"',
+    ].join("\n");
+    expect(shellBrowserViolations("qa/tests/16-e2e-memory-bound.sh", sh)).toHaveLength(0);
+  });
+
+  it("#E8 flags a driver invoked after a pipe or &&", () => {
+    const sh = "#!/usr/bin/env bash\ncat urls.txt | agent-browser open -\n";
+    expect(shellBrowserViolations("qa/tests/97-pipe.sh", sh)).toHaveLength(1);
+  });
+
+  it("#E8 still flags a direct browser driver even when playwright is also invoked", () => {
+    const sh = [
+      "#!/usr/bin/env bash",
+      "npx playwright test tests/e2e/foo.spec.ts",
+      'agent-browser open "http://localhost:$PORT"',
+    ].join("\n");
+    expect(shellBrowserViolations("qa/tests/98-mixed.sh", sh)).toHaveLength(1);
+  });
 });
 
 describe("Root AGENTS.md has no per-file index (#E6, #E7)", () => {
