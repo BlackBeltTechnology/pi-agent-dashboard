@@ -15,30 +15,43 @@ rebuilt.
       derive-from-id is possible. The existing `PI_DASHBOARD_SPAWN_TOKEN`
       correlation channel — already passed into the tmux pane and echoed back in
       `session_register.spawnToken` — is the join key. See design.md D5.
-- [ ] 1.2 Read `headlessPidRegistry` + `killBySessionId` and record the exact
-      escalation ladder (signal, grace, escalation) so the tmux path reuses it
-      rather than growing a second one.
-- [ ] 1.3 Enumerate every supported `PI_SPAWN_STRATEGY` value and every call site
-      that ends a session (WS `shutdown`, REST shutdown route, force-kill), so no
-      entry point is left on the old behaviour.
+- [x] 1.2 Read `headlessPidRegistry` + `killBySessionId` and record the exact
+      escalation ladder. **Finding:** the ladder is `killProcess(pid, { timeoutMs:
+      2000 })` = SIGTERM → 2 s → SIGKILL (`headless-pid-registry.ts:269-330`,
+      keeper-aware). It is already shared and needs no reimplementation. Also:
+      `findBySpawnToken` exists, and the idle-reaper reclaims through
+      `killBySessionId` too — so tmux sessions are never idle-reclaimed either.
+- [x] 1.3 Enumerate the session-ending call sites. **Finding — this reframes the
+      whole change:** `handleForceKill` (:766) ALREADY kills any strategy via
+      `killProcess(session.pid, ...)`; `handleShutdown` (:625) never references
+      `session.pid`. Its `killHeadlessBySessionId` resolves PIDs by
+      `findPidByMarker(sessionId)`, which returns `[]` for tmux because the pane
+      command carries no session id. The bug is one handler forgetting the PID it
+      already has — not tmux being unreachable. See design D6.
 
-## 2. Give tmux sessions a recoverable handle
+## 2. ~~Give tmux sessions a recoverable handle~~ — DROPPED (design D6)
 
-- [ ] 2.1 L1: every strategy resolves a teardown path; an unhandled strategy
-      fails loudly rather than no-opping (test-plan #T1). Exemplar for the
-      decision-table shape: `scripts/__tests__/e2e-reap-core.test.mjs`.
-- [ ] 2.2 Record the tmux session→window handle at spawn time, per the 1.1
-      finding. Symmetry with `headlessPidRegistry` is preferred.
-- [ ] 2.3 L1: the handle survives a server restart, or its absence is detected
-      and reported — a handle the server forgets reproduces the original bug
-      after any restart.
+D6 removed this whole section's premise. The server does not need a tmux handle:
+it already stores `session.pid`, and killing pi collapses its pane as a
+consequence (the pane runs `cd <cwd> && pi`; `remain-on-exit` is off). No `-n`
+flag, no window registry, no tmux CLI, no new correlation mechanism.
+
+- [→] 2.1 **MOVED to 3.6** — "every strategy resolves a teardown path" is still
+      worth pinning (test-plan #T1), but it now asserts PID-based termination
+      rather than a per-strategy handle lookup.
+- [→] 2.2 **DROPPED.** No handle to record.
+- [→] 2.3 **DROPPED.** No handle to survive a restart. The equivalent risk — a
+      session whose PID the server does not know — is covered by 3.7.
 
 ## 3. Terminate, using the shared ladder
 
 - [ ] 3.1 L1: headless behaviour is unchanged by the refactor (test-plan #T3).
       Write this BEFORE touching the shared ladder — it is the regression net.
-- [ ] 3.2 Route tmux teardown through the shared SIGTERM → grace → SIGKILL
-      ladder: kill the window, then escalate on the pane process.
+- [ ] 3.2 Make `handleShutdown` escalate to `session.pid` with the same
+      `killProcess(pid, { timeoutMs: 2000 })` ladder `handleForceKill` uses, AFTER
+      a bounded grace window for the graceful `sendToSession({type:"shutdown"})`
+      to work. Shutdown stays polite; the ladder is the backstop, not the opening
+      move (design D6).
 - [ ] 3.3 L1: the ladder escalates to SIGKILL against a process that ignores
       SIGTERM (test-plan #T4).
 - [ ] 3.4 L1: double shutdown / shutdown-after-natural-exit is success, not error
@@ -47,6 +60,19 @@ rebuilt.
       accepted as termination — deleting the escalation MUST turn this red
       (test-plan #T6). Verify by actually reverting the escalation once and
       observing the failure.
+- [ ] 3.6 L1 (was 2.1): a session is terminable regardless of spawn strategy,
+      because termination keys on the stored PID rather than on any
+      strategy-specific lookup (test-plan #T1). Assert `handleShutdown` reaches
+      `killProcess` for a session that is NOT in `headlessPidRegistry` — that is
+      exactly the tmux case.
+- [ ] 3.7 L1: a session with NO stored PID (bridge never registered) degrades to
+      today's behaviour and is REPORTED, never claimed as terminated. Mirror
+      `handleForceKill`'s existing no-PID branch rather than inventing a second
+      policy.
+- [ ] 3.8 Decide whether the idle-reaper (`embed-lifecycle/idle-reaper.ts`)
+      should route through the same escalation: it reclaims via
+      `killBySessionId`, so tmux sessions are never idle-reclaimed either (same
+      root cause, wider blast radius). If out of scope, file it.
 
 ## 4. Stop reporting unverified success
 
