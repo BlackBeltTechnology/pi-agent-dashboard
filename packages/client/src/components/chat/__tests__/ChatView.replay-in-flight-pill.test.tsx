@@ -230,4 +230,53 @@ describe("ChatView replay-in-flight pill", () => {
       expect(screen.queryByTestId(PILL)).toBeNull();
     }
   });
+
+  it("F8b the switched-to session never paints A's pill on its FIRST render", () => {
+    // An effect-based reset runs only AFTER B's first render, so B would flash
+    // A's pill for one frame. The visible bit is keyed by session id and
+    // checked at render time, so the very first committed render for B is
+    // already pill-free — asserted WITHOUT advancing timers in between.
+    const { rerender } = renderChat({ sessionId: "A", replayInFlight: true });
+    React.act(() => {
+      vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS);
+    });
+    expect(screen.getByTestId(PILL)).toBeTruthy();
+
+    // Switch to B with the flag STILL true (a replay is in flight for B too):
+    // the pill must not carry over, and must re-earn its delay under B.
+    React.act(() => {
+      rerender(
+        <ThemeProvider>
+          <ChatView sessionId="B" state={stateWithMessages("other")} toolContext={defaultToolContext} replayInFlight={true} />
+        </ThemeProvider>,
+      );
+    });
+    expect(screen.queryByTestId(PILL)).toBeNull();
+
+    React.act(() => {
+      vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS);
+    });
+    expect(screen.getByTestId(PILL)).toBeTruthy();
+  });
+
+  it("F8d no A-armed timer resurrects the pill later on B's timeline", () => {
+    const { rerender } = renderChat({ sessionId: "A", replayInFlight: true });
+    React.act(() => {
+      vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS - 50);
+    });
+    React.act(() => {
+      rerender(
+        <ThemeProvider>
+          <ChatView sessionId="B" state={stateWithMessages("other")} toolContext={defaultToolContext} replayInFlight={false} />
+        </ThemeProvider>,
+      );
+    });
+
+    for (const step of [1, REPLAY_PILL_DELAY_MS, REPLAY_PILL_DELAY_MS * 10]) {
+      React.act(() => {
+        vi.advanceTimersByTime(step);
+      });
+      expect(screen.queryByTestId(PILL)).toBeNull();
+    }
+  });
 });

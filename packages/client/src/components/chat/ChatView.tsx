@@ -336,19 +336,19 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // been true for REPLAY_PILL_DELAY_MS, so a fast replay never flashes an
   // indicator. Deliberately NOT conditioned on replay-cache state.
   // See change: show-replay-in-flight-indicator.
-  const [showReplayPill, setShowReplayPill] = useState(false);
-  const replayPillTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  //
+  // The visible bit stores the SESSION the pill belongs to, not a bare boolean.
   // `<ChatView>` is rendered without a `key` and is React.memo'd, so the
-  // instance is REUSED across session switches — the visible bit must be reset
-  // on a session change or a pill armed for session A leaks into session B.
-  // Tracked with a ref rather than a second effect: a separate reset effect
-  // would also run on MOUNT, tearing down the timer this one just armed.
-  const replayPillSessionRef = useRef(sessionId);
+  // instance is reused across session switches, and an effect-based reset runs
+  // only AFTER the new session's first render — session B would briefly paint
+  // A's pill. Requiring `pillForSession === sessionId` AT RENDER TIME closes
+  // that frame without reaching for `useLayoutEffect`.
+  const [pillForSession, setPillForSession] = useState<string | null>(null);
+  // `sessionId` is optional on the published embed surface; an undefined id can
+  // never match a recorded one, so the pill stays down for it.
+  const showReplayPill = pillForSession !== null && pillForSession === sessionId;
+  const replayPillTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (replayPillSessionRef.current !== sessionId) {
-      replayPillSessionRef.current = sessionId;
-      setShowReplayPill(false);
-    }
     if (!replayInFlight) {
       // Cancel a pending timer AND reset the visible bit: a replay that
       // resolves at 250ms must not leave a timer that paints the pill after.
@@ -356,12 +356,12 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         clearTimeout(replayPillTimerRef.current);
         replayPillTimerRef.current = null;
       }
-      setShowReplayPill(false);
+      setPillForSession(null);
       return;
     }
     replayPillTimerRef.current = setTimeout(() => {
       replayPillTimerRef.current = null;
-      setShowReplayPill(true);
+      setPillForSession(sessionId ?? null);
     }, REPLAY_PILL_DELAY_MS);
     return () => {
       if (replayPillTimerRef.current) {

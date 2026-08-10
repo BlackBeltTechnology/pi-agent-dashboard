@@ -241,8 +241,13 @@ describe("useMessageHandler replayInFlight — clear/re-arm edges", () => {
     expect(s.replayTimersRef.current.has(SID)).toBe(false);
   });
 
-  it("X8 a client with no replayInFlight wiring still clears loadingHistory on the empty terminal", () => {
-    // Simulate the old client: no setReplayInFlight / timers ref supplied.
+  it("X8 the empty terminal batch still clears loadingHistory when no in-flight replay is armed", () => {
+    // NOT an old-client simulation: `setup()` always wires the new handler.
+    // What this pins is the back-compat REGRESSION surface X8 cares about —
+    // the pre-existing `loadingHistory` path must keep handling
+    // `event_replay { events: [], isLast: true }` (→ "No messages yet") with no
+    // in-flight flag armed and no unknown-message-type path taken. A genuine
+    // old-client artifact cannot be exercised from this tree.
     const s = setup();
     s.setLoadingHistory((prev: Map<string, boolean>) => new Map(prev).set(SID, true));
     s.timersRef.current.set(SID, setTimeout(() => {}, 99999));
