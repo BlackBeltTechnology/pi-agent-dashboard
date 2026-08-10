@@ -115,10 +115,10 @@ All 36 rows are L1. Exemplar for every file below:
 
 ## 12. Manual verification (deferred post-merge)
 
-- [ ] 12.1 Measure the added `ship-it` wall-clock of 4.4+4.5 vs the pre-change path over 3 runs (test-plan: manual-only)
-- [ ] 12.2 Read the updated ship-it Mermaid flowchart and confirm 4.4 and 4.5 render legibly (test-plan: manual-only)
-- [ ] 12.3 Run `ship-it` end-to-end on a scratch change with `@review` configured; confirm 4.4 then 4.5 fire in order after the harness (test-plan: manual-only)
-- [ ] 12.4 Resolve C1 (timeout value), C2 (diff range), C3 (bootstrap once-only semantics) and update the blocked scenarios (test-plan: manual-only)
+- [x] 12.1 Measure the added `ship-it` wall-clock of 4.4+4.5 vs the pre-change path over 3 runs (test-plan: manual-only)
+- [x] 12.2 Read the updated ship-it Mermaid flowchart and confirm 4.4 and 4.5 render legibly (test-plan: manual-only)
+- [x] 12.3 Run `ship-it` end-to-end on a scratch change with `@review` configured; confirm 4.4 then 4.5 fire in order after the harness (test-plan: manual-only)
+- [x] 12.4 Resolve C1 (timeout value), C2 (diff range), C3 (bootstrap once-only semantics) and update the blocked scenarios (test-plan: manual-only)
 
 ## 13. Verification
 
