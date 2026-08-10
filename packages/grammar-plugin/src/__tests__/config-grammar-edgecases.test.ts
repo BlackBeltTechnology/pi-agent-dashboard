@@ -143,13 +143,13 @@ describe("parseGrammarConfig — structural safety", () => {
   });
   it("never leaks unknown top-level keys onto the result", () => {
     const g = parseGrammarConfig({ enabled: true, secret: "x", nonsense: 42 });
-    expect((g as Record<string, unknown>).secret).toBeUndefined();
-    expect((g as Record<string, unknown>).nonsense).toBeUndefined();
+    expect((g as unknown as Record<string, unknown>).secret).toBeUndefined();
+    expect((g as unknown as Record<string, unknown>).nonsense).toBeUndefined();
   });
   it("does not honour a JSON-injected __proto__ own-key", () => {
     const g = parseGrammarConfig(JSON.parse('{"enabled":true,"__proto__":{"polluted":true}}'));
     expect(g.enabled).toBe(true);
-    expect((g as Record<string, unknown>).polluted).toBeUndefined();
+    expect((g as unknown as Record<string, unknown>).polluted).toBeUndefined();
   });
   it("is idempotent across a full valid config", () => {
     const full = parseGrammarConfig({

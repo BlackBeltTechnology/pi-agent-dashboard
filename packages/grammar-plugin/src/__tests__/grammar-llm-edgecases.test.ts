@@ -350,7 +350,7 @@ describe("googleToOpenAiCompat — guards", () => {
     expect(googleToOpenAiCompat(undefined as never)).toBeUndefined();
   });
   it("returns a model with no api field unchanged (same reference)", () => {
-    const m = { provider: "x", id: "y" };
+    const m: { provider: string; id: string; api?: string } = { provider: "x", id: "y" };
     expect(googleToOpenAiCompat(m)).toBe(m);
   });
 });
