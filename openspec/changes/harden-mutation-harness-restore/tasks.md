@@ -196,9 +196,9 @@ builds a throwaway `repoRoot` under `mkdtempSync` (test-plan "Fixture rule").
 - [x] 6.2 `npm run quality:changed`.
 - [x] 6.3 Confirm `scripts/__tests__/async-semantics-mutation.test.mjs` still
       passes end to end (the harness must keep its teeth).
-- [ ] 6.4 Grep every worktree for `mutated:` residue and confirm hits appear only
+- [x] 6.4 Grep every worktree for `mutated:` residue and confirm hits appear only
       inside the harness test's own string literals. (test-plan #M2, manual-only)
-- [ ] 6.5 Have someone who did not write this change read a conflict report cold
+- [x] 6.5 Have someone who did not write this change read a conflict report cold
       and confirm they can clear it from the message alone, without opening the
       source file. (test-plan #M1, manual-only)
 - [x] 6.6 Run `review-code` before commit.
