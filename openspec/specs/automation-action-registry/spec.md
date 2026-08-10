@@ -60,6 +60,8 @@ A registered action MAY declare `buildEvent(args: { payload, automation }) => { 
 
 The registry SHALL remain agnostic to which events exist — the registering plugin owns the `eventType` and `data` shape.
 
+NOTE: the scenario title `Run finalization is unchanged` is retained verbatim because the archiver cannot retire a scenario name inside a MODIFIED requirement; its body is normative and supersedes the previous `agent_end` claim. How a run of an event action FINISHES is NOT specified by this capability. Finalization is governed solely by `automation-run-lifecycle`: a run whose dispatch declared a completion event finalizes on that forwarded event, and every other run finalizes on `agent_end`. This capability SHALL NOT restate or contradict that rule.
+
 #### Scenario: Event action emits its configured event
 
 - **WHEN** an action registered with `buildEvent` returning `{ eventType: "flow:run", data: { flowName, task } }` fires
@@ -72,8 +74,9 @@ The registry SHALL remain agnostic to which events exist — the registering plu
 
 #### Scenario: Run finalization is unchanged
 
-- **WHEN** an event action's run session completes
-- **THEN** the run SHALL finalize on `agent_end` exactly as prompt actions do (event actions add no new completion signal).
+- **WHEN** an event action's run needs to be finalized
+- **THEN** the governing rule SHALL be the one in `automation-run-lifecycle`
+- **AND** this capability SHALL assert nothing about `agent_end` versus a declared completion event.
 
 ### Requirement: Action availability gating by cwd
 

@@ -7,9 +7,15 @@ import { defineConfig } from "vitest/config";
  * `test.projects` here. Each entry points at a per-package vitest.config.ts
  * which carries the package-specific `environment` (jsdom for client, node
  * for server/shared/extension), include globs, and pool settings.
+ *
+ * `globalSetup` lives HERE, at root, on purpose: it reconciles leftovers from a
+ * killed mutation-harness run, and must complete before ANY project fork loads
+ * a source file. Projects run concurrently, so a per-project reconcile would
+ * race them. See scripts/mutation-journal-global-setup.mjs.
  */
 export default defineConfig({
   test: {
+    globalSetup: ["./scripts/mutation-journal-global-setup.mjs"],
     projects: [
       "packages/shared",
       "packages/bus-client",
@@ -34,6 +40,9 @@ export default defineConfig({
       "packages/goal-plugin",
       "packages/blackhole-plugin",
       "scripts",
+      // ship-it's pure decision helpers. Added by wire-local-review-gate: they
+      // gate real ship decisions but were collected by no project before.
+      ".pi/skills/ship-it",
       // NOTE: packages/electron is intentionally NOT included here — it has
       // pre-existing orphaned tests that depend on ambient PATH/mocks never
       // wired up. Offline-packages tests are runnable via

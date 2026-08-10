@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>notify level gate — mockup</title>
+<style>
+/* ── Tokens mirrored verbatim from packages/client/src/index.css ───────── */
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+  --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+  --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308;
+  --accent-red:#ef4444; --accent-orange:#f97316; --accent-primary:#3b82f6;
+  --focus-ring:var(--accent-primary);
+  --severity-error-bg:color-mix(in srgb,var(--accent-red) 10%,var(--bg-tertiary));
+  --severity-error-fg:color-mix(in srgb,var(--accent-red) 46%,var(--text-primary));
+  --severity-error-border:color-mix(in srgb,var(--accent-red) 40%,transparent);
+  --severity-warning-bg:color-mix(in srgb,var(--accent-orange) 10%,var(--bg-tertiary));
+  --severity-warning-fg:color-mix(in srgb,var(--accent-orange) 46%,var(--text-primary));
+  --severity-warning-border:color-mix(in srgb,var(--accent-orange) 40%,transparent);
+  --severity-success-bg:color-mix(in srgb,var(--accent-green) 10%,var(--bg-tertiary));
+  --severity-success-fg:color-mix(in srgb,var(--accent-green) 46%,var(--text-primary));
+  --severity-success-border:color-mix(in srgb,var(--accent-green) 40%,transparent);
+  --severity-info-bg:color-mix(in srgb,var(--accent-blue) 10%,var(--bg-tertiary));
+  --severity-info-fg:color-mix(in srgb,var(--accent-blue) 46%,var(--text-primary));
+  --severity-info-border:color-mix(in srgb,var(--accent-blue) 40%,transparent);
+}
+[data-theme="light"]{
+  --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+  --bg-surface:#e0e0e0; --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5;
+  --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777;
+  --text-muted:#aaa;
+  --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+  --accent-primary:#2563eb; --focus-ring:var(--accent-primary);
+}
+/* ── page chrome (mockup-only scaffolding) ────────────────────────────── */
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 20px 96px}
+h1{font-size:19px;margin:0 0 4px;letter-spacing:-.01em}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--text-secondary);margin:40px 0 12px;font-weight:600}
+h3{font-size:12px;color:var(--text-secondary);margin:0 0 8px;font-weight:500}
+.sub{color:var(--text-secondary);font-size:13px;margin:0 0 8px}
+.grid2{display:grid;gap:20px;grid-template-columns:1fr}
+@media(min-width:900px){.grid2{grid-template-columns:1fr 1fr}}
+.panel{background:var(--bg-secondary);border:1px solid var(--border-primary);
+  border-radius:12px;padding:16px}
+.chat{background:var(--bg-primary);border:1px solid var(--border-primary);
+  border-radius:12px;padding:8px 0}
+.bad{border-color:var(--severity-error-border)}
+.tag{display:inline-block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  padding:2px 7px;border-radius:999px;border:1px solid var(--border-secondary);
+  color:var(--text-tertiary);vertical-align:2px;margin-left:8px}
+.tag.fail{color:var(--severity-error-fg);border-color:var(--severity-error-border);
+  background:var(--severity-error-bg)}
+.tag.ok{color:var(--severity-success-fg);border-color:var(--severity-success-border);
+  background:var(--severity-success-bg)}
+button,select{font:inherit}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px;border-radius:4px}
+.bar{position:sticky;top:0;z-index:20;display:flex;gap:8px;align-items:center;
+  flex-wrap:wrap;
+  background:var(--bg-secondary);border-bottom:1px solid var(--border-primary);
+  padding:10px 20px;margin:-24px -20px 20px}
+.bar button{background:var(--bg-tertiary);color:var(--text-secondary);
+  border:1px solid var(--border-secondary);border-radius:8px;
+  padding:0 14px;min-height:44px;cursor:pointer}
+/* Selected state carries THREE non-colour channels (weight + border + surface)
+   because --accent-primary as 12-14px text measures only 3.9:1 on --bg-surface,
+   under the 4.5:1 floor (WCAG 2.2 §1.4.3). Text stays --text-primary. */
+.bar button[aria-pressed="true"]{background:var(--bg-surface);
+  color:var(--text-primary);border-color:var(--accent-primary);
+  box-shadow:inset 0 -2px 0 var(--accent-primary);font-weight:700}
+svg{display:block}
+
+/* ── A. notify row ────────────────────────────────────────────────────── */
+/* current shipped implementation, reproduced faithfully */
+.notify-old{margin:8px 16px;padding:8px 12px;border-radius:8px;
+  border:1px solid var(--border-subtle);background:var(--bg-tertiary);font-size:14px}
+.old-info{color:#60a5fa}.old-success{color:#4ade80}
+.old-warning{color:#facc15}.old-error{color:#f87171}
+/* proposed — InlineMessage tone maps */
+.notify{position:relative;overflow:hidden;margin:8px 16px;border-radius:12px;
+  border:1px solid;padding:8px 12px 8px 14px;display:flex;gap:10px;align-items:flex-start}
+.notify .accent{position:absolute;inset:0 auto 0 0;width:3px}
+.notify .ico{flex:none;margin-top:1px}
+.notify .body{min-width:0;flex:1}
+.notify .lvl{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  opacity:.85;display:block;margin-bottom:1px}
+.notify .msg{font-size:13px;word-break:break-word;color:var(--text-primary)}
+.n-info{background:var(--severity-info-bg);border-color:var(--severity-info-border);color:var(--severity-info-fg)}
+.n-info .accent{background:var(--severity-info-fg)}
+.n-success{background:var(--severity-success-bg);border-color:var(--severity-success-border);color:var(--severity-success-fg)}
+.n-success .accent{background:var(--severity-success-fg)}
+.n-warning{background:var(--severity-warning-bg);border-color:var(--severity-warning-border);color:var(--severity-warning-fg)}
+.n-warning .accent{background:var(--severity-warning-fg)}
+.n-error{background:var(--severity-error-bg);border-color:var(--severity-error-border);color:var(--severity-error-fg)}
+.n-error .accent{background:var(--severity-error-fg)}
+.hidden-row{display:none!important}
+.ghost{margin:8px 16px;padding:6px 12px;border-radius:8px;border:1px dashed var(--border-secondary);
+  color:var(--text-muted);font-size:11px;font-style:italic}
+
+/* bubbles for chat context */
+.bub{margin:10px 16px;max-width:78%;padding:8px 12px;border-radius:12px;
+  background:var(--bg-tertiary);color:var(--text-secondary);font-size:13px}
+.bub.me{margin-left:auto;background:var(--bg-surface);color:var(--text-primary)}
+
+/* ── B. settings field ────────────────────────────────────────────────── */
+.field{padding:10px 0;border-bottom:1px solid var(--border-subtle)}
+.field:last-child{border-bottom:0}
+.field .head{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.field label{font-size:14px;color:var(--text-secondary)}
+.field .hint{margin:5px 0 0;font-size:12px;color:var(--text-tertiary);max-width:52ch}
+.sel{background:var(--bg-secondary);border:1px solid var(--border-secondary);
+  border-radius:6px;padding:0 8px;min-height:44px;color:var(--text-primary);font-size:14px}
+.switch{position:relative;width:40px;height:20px;border-radius:999px;border:0;
+  background:var(--bg-tertiary);cursor:pointer;flex:none}
+.switch[aria-checked="true"]{background:var(--accent-primary)}
+.switch .knob{position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;
+  background:#fff;transition:transform .15s}
+.switch[aria-checked="true"] .knob{transform:translateX(20px)}
+
+/* ── C. popover ───────────────────────────────────────────────────────── */
+.pop{width:256px;background:var(--bg-secondary);border:1px solid var(--border-secondary);
+  border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35);padding:8px;font-size:12px}
+.pop .row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:4px 8px;border-radius:6px;color:var(--text-secondary);cursor:pointer;min-height:26px}
+.pop .row:hover{background:var(--bg-hover)}
+.pop .row input{accent-color:var(--accent-primary)}
+.pop .row.tall{min-height:44px}
+.pop .divider{border-top:1px solid var(--border-subtle);margin:8px 0}
+.pop .grouphead{color:var(--text-tertiary);margin:0 0 4px;padding:0 8px}
+.mark{color:var(--accent-yellow);flex:none}
+.seg{display:flex;gap:2px;background:var(--bg-tertiary);border-radius:6px;padding:2px}
+.seg button{flex:1;min-height:40px;border:0;background:transparent;border-radius:4px;
+  color:var(--text-secondary);font-size:10px;cursor:pointer;padding:0 2px}
+.seg button[aria-pressed="true"]{background:var(--bg-secondary);
+  color:var(--text-primary);font-weight:700;
+  box-shadow:0 0 0 1px var(--accent-primary) inset}
+.lb{border:1px solid var(--border-secondary);border-radius:6px;overflow:hidden;
+  background:var(--bg-secondary)}
+.lb button{display:flex;width:100%;gap:8px;align-items:center;min-height:44px;
+  padding:0 10px;border:0;background:transparent;color:var(--text-secondary);
+  font-size:12px;cursor:pointer;text-align:left}
+.lb button:hover{background:var(--bg-hover)}
+.lb button[aria-selected="true"]{color:var(--text-primary);font-weight:700;
+  box-shadow:inset 3px 0 0 var(--accent-primary)}
+.lb .tick{width:16px;flex:none;opacity:0}
+.lb button[aria-selected="true"] .tick{opacity:1}
+/* --text-muted (#585858 dark / #aaa light) measures 2.59:1 / 2.23:1 here —
+   well under the 4.5:1 floor. Option descriptions are real copy, not chrome. */
+.lb .desc{color:var(--text-secondary);font-size:10px;font-weight:400}
+.note{font-size:12px;color:var(--text-secondary);margin:8px 0 0;max-width:64ch}
+.note b{color:var(--text-secondary);font-weight:600}
+code{background:var(--bg-code);border:1px solid var(--border-subtle);border-radius:4px;
+  padding:1px 5px;font-size:12px;color:var(--text-secondary)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="bar">
+  <button id="theme" aria-pressed="false" onclick="toggleTheme()">Light theme</button>
+  <span style="color:var(--text-tertiary);font-size:12px">floor:</span>
+  <button onclick="setFloor('all')"      aria-pressed="true"  data-f="all">all</button>
+  <button onclick="setFloor('success')"  aria-pressed="false" data-f="success">success</button>
+  <button onclick="setFloor('warnings')" aria-pressed="false" data-f="warnings">warnings</button>
+  <button onclick="setFloor('errors')"   aria-pressed="false" data-f="errors">errors</button>
+</div>
+
+<h1>notifyMinLevel — extension notify rows</h1>
+<p class="sub">Change <code>gate-notify-rows-by-level</code>. Use the floor buttons above to see the gate act on the transcript; toggle the theme to check both.</p>
+
+<h2>A · The notify row</h2>
+<div class="grid2">
+  <div>
+    <h3>Shipped today <span class="tag fail">4 × WCAG AA fail in light</span></h3>
+    <div class="chat bad">
+      <div class="notify-old old-info">Memory store indexed 412 entries.</div>
+      <div class="notify-old old-success">Session transcript saved.</div>
+      <div class="notify-old old-warning">Model fell back to the secondary provider.</div>
+      <div class="notify-old old-error">Soniox API key rejected — transcription aborted.</div>
+    </div>
+    <p class="note"><b>Level is carried by hue alone.</b> Hardcoded <code>text-*-400</code> literals bypass the
+      <code>--severity-*</code> tokens, so in light theme they measure 1.34:1–2.43:1 against a 4.5:1 floor
+      (WCAG 2.2 §1.4.3), and there is no icon or text fallback (§1.4.1). Switch the theme to see it.</p>
+  </div>
+  <div>
+    <h3>Proposed — <code>InlineMessage</code> tone <span class="tag ok">5.45:1 – 8.25:1</span></h3>
+    <div class="chat">
+      <div class="notify n-info"    data-lvl="info">
+        <span class="accent"></span>
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg>
+        <span class="body"><span class="lvl">info</span><span class="msg">Memory store indexed 412 entries.</span></span>
+      </div>
+      <div class="notify n-success" data-lvl="success">
+        <span class="accent"></span>
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z"/></svg>
+        <span class="body"><span class="lvl">success</span><span class="msg">Session transcript saved.</span></span>
+      </div>
+      <div class="notify n-warning" data-lvl="warning">
+        <span class="accent"></span>
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12,2L1,21H23M12,6L19.53,19H4.47M11,10V14H13V10M11,16V18H13V16"/></svg>
+        <span class="body"><span class="lvl">warning</span><span class="msg">Model fell back to the secondary provider.</span></span>
+      </div>
+      <div class="notify n-error"   data-lvl="error">
+        <span class="accent"></span>
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11,15H13V17H11V15M11,7H13V13H11V7M12,2C6.47,2 2,6.5 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20Z"/></svg>
+        <span class="body"><span class="lvl">error</span><span class="msg">Soniox API key rejected — transcription aborted.</span></span>
+      </div>
+    </div>
+    <p class="note">Accent bar + icon + level word carry the level in three non-colour channels.
+      Same tone maps as <code>InlineMessage</code>, whose <code>Severity</code> union gains <code>success</code>
+      (the <code>--severity-success-*</code> tokens already exist and have no consumer yet).</p>
+  </div>
+</div>
+
+<h2>A2 · The gate acting on a real transcript</h2>
+<div class="chat" id="live">
+  <div class="bub me">run the transcription over yesterday's recordings</div>
+  <div class="notify n-info" data-lvl="info"><span class="accent"></span>
+    <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg>
+    <span class="body"><span class="lvl">info</span><span class="msg">video-transcription: scanning ~/Movies…</span></span></div>
+  <div class="notify n-info" data-lvl="info"><span class="accent"></span>
+    <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg>
+    <span class="body"><span class="lvl">info</span><span class="msg">video-transcription: 3 files queued.</span></span></div>
+  <div class="bub">Found 3 recordings. Starting with the standup.</div>
+  <div class="notify n-success" data-lvl="success"><span class="accent"></span>
+    <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z"/></svg>
+    <span class="body"><span class="lvl">success</span><span class="msg">standup.mkv → standup.srt (14:02, 2 speakers).</span></span></div>
+  <div class="notify n-warning" data-lvl="warning"><span class="accent"></span>
+    <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12,2L1,21H23M12,6L19.53,19H4.47M11,10V14H13V10M11,16V18H13V16"/></svg>
+    <span class="body"><span class="lvl">warning</span><span class="msg">retro.mkv has no audio track — skipped.</span></span></div>
+  <div class="notify n-error" data-lvl="error"><span class="accent"></span>
+    <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11,15H13V17H11V15M11,7H13V13H11V7M12,2C6.47,2 2,6.5 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20Z"/></svg>
+    <span class="body"><span class="lvl">error</span><span class="msg">planning.mkv: Soniox returned 402 — quota exhausted.</span></span></div>
+  <div class="bub">2 of 3 transcribed. The planning recording needs a quota top-up.</div>
+</div>
+<p class="note" id="gatenote"></p>
+
+<h2>B · Settings ▸ General ▸ Chat display</h2>
+<div class="panel" style="max-width:620px">
+  <div class="field">
+    <div class="head"><label for="f1">Reasoning blocks</label>
+      <button class="switch" id="f1" role="switch" aria-checked="false" onclick="this.setAttribute('aria-checked',this.getAttribute('aria-checked')==='true'?'false':'true')"><span class="knob"></span></button></div>
+  </div>
+  <div class="field">
+    <div class="head"><label for="f2">Tool result bodies</label>
+      <button class="switch" id="f2" role="switch" aria-checked="true" onclick="this.setAttribute('aria-checked',this.getAttribute('aria-checked')==='true'?'false':'true')"><span class="knob"></span></button></div>
+  </div>
+  <div class="field">
+    <div class="head">
+      <label for="f3">Extension notifications</label>
+      <select class="sel" id="f3" aria-describedby="f3h" onchange="setFloor(this.value)">
+        <option value="all">All</option>
+        <option value="success">Success and above</option>
+        <option value="warnings">Warnings and above</option>
+        <option value="errors">Errors only</option>
+      </select>
+    </div>
+    <p class="hint" id="f3h">Lowest level an extension notification must reach to appear in the chat. Errors always appear.<br><span style="color:var(--severity-warning-fg)">⚠ measured 4.29:1 in light — pre-existing <code>FieldShell</code> hint token, not introduced here</span></p>
+  </div>
+  <div class="field">
+    <div class="head"><label for="f4">Debug events</label>
+      <button class="switch" id="f4" role="switch" aria-checked="false" onclick="this.setAttribute('aria-checked',this.getAttribute('aria-checked')==='true'?'false':'true')"><span class="knob"></span></button></div>
+  </div>
+</div>
+<p class="note">Uses the existing <code>SelectField</code> (<code>SettingsPanel.tsx:2445</code>) — <code>FieldShell</code> label,
+  <code>aria-describedby</code> hint, no new component. The hint states the guarantee (<b>errors always appear</b>)
+  at the point of decision rather than in docs — Nielsen H10, contextual help.</p>
+
+<h2>C · Chat toolbar ⚙ View popover — three candidates</h2>
+<div class="grid2" style="align-items:start">
+  <div>
+    <h3>C1 · native select, inline right <span class="tag ok">recommended</span></h3>
+    <div class="pop">
+      <div class="row"><span>Token stats bar</span><input type="checkbox" checked></div>
+      <div class="row"><span>Reasoning blocks</span><input type="checkbox"></div>
+      <div class="row tall">
+        <span style="display:flex;align-items:center;gap:2px">
+          <svg class="mark" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><title>Overrides global</title><path d="M12,10A2,2 0 0,0 10,12C10,13.11 10.9,14 12,14C13.11,14 14,13.11 14,12A2,2 0 0,0 12,10Z"/></svg>
+          Notifications</span>
+        <select class="sel" style="min-height:36px;font-size:12px;padding:0 6px" onchange="setFloor(this.value)">
+          <option value="all">All</option><option value="success">Success+</option>
+          <option value="warnings">Warnings+</option><option value="errors">Errors</option>
+        </select>
+      </div>
+      <div class="row"><span>Tool result bodies</span><input type="checkbox" checked></div>
+      <div class="row"><span>Debug events</span><input type="checkbox"></div>
+    </div>
+    <p class="note">Keeps the popover's <b>label-left / control-right</b> rhythm (Gestalt similarity;
+      rubric 9). Native select ⇒ platform picker on mobile, keyboard + SR support for free (Jakob's Law).
+      One row of height.</p>
+  </div>
+  <div>
+    <h3>C2 · segmented control</h3>
+    <div class="pop">
+      <div class="row"><span>Token stats bar</span><input type="checkbox" checked></div>
+      <div class="row"><span>Reasoning blocks</span><input type="checkbox"></div>
+      <div style="padding:4px 8px 8px">
+        <div style="color:var(--text-tertiary);margin-bottom:4px">Notifications</div>
+        <div class="seg" role="group" aria-label="Notifications">
+          <button aria-pressed="true"  onclick="segpick(this,'all')">All</button>
+          <button aria-pressed="false" onclick="segpick(this,'success')">Succ+</button>
+          <button aria-pressed="false" onclick="segpick(this,'warnings')">Warn+</button>
+          <button aria-pressed="false" onclick="segpick(this,'errors')">Err</button>
+        </div>
+      </div>
+      <div class="row"><span>Tool result bodies</span><input type="checkbox" checked></div>
+    </div>
+    <p class="note">All options visible (recognition over recall, H6) — but 4 labels in a 240px
+      popover forces <b>“Succ+ / Warn+ / Err”</b>. Truncated labels break H2 (match the real world)
+      and the ordinal reading is guessable, not readable. Also breaks the row rhythm.</p>
+  </div>
+</div>
+
+<div style="max-width:520px;margin-top:20px">
+  <h3>C3 · listbox sub-popover (ThinkingLevelSelector pattern)</h3>
+  <div class="pop">
+    <div class="row"><span>Reasoning blocks</span><input type="checkbox"></div>
+    <div class="row tall"><span>Notifications</span>
+      <span style="display:flex;align-items:center;gap:3px;color:var(--text-primary);font-weight:600">warnings
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></span></div>
+    <div class="lb" role="listbox" aria-label="Notifications" style="margin:4px 0">
+      <button role="option" aria-selected="false" onclick="lbpick(this,'all')"><span class="tick"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></span><span>All <span class="desc">— every notification</span></span></button>
+      <button role="option" aria-selected="false" onclick="lbpick(this,'success')"><span class="tick"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></span><span>Success and above <span class="desc">— outcomes and problems</span></span></button>
+      <button role="option" aria-selected="true" onclick="lbpick(this,'warnings')"><span class="tick"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></span><span>Warnings and above <span class="desc">— problems only</span></span></button>
+      <button role="option" aria-selected="false" onclick="lbpick(this,'errors')"><span class="tick"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></span><span>Errors only <span class="desc">— failures only</span></span></button>
+    </div>
+    <div class="row"><span>Debug events</span><input type="checkbox"></div>
+  </div>
+  <p class="note">Full labels + a description per option, and it reuses a pattern already in the
+    chat toolbar (rubric 9). Cost: a nested popover inside a popover — a second dismiss layer,
+    a second flip calculation, and <code>usePopoverFlip</code> is not currently nested anywhere.
+    Held as the fallback if C1's native control proves too cramped on mobile.</p>
+</div>
+
+</div>
+<script>
+const ORDER = { info:0, success:1, warning:2, error:3 };
+const FLOOR = { all:0, success:1, warnings:2, errors:3 };
+let floor = 'all';
+function apply(){
+  document.querySelectorAll('[data-lvl]').forEach(function(el){
+    el.classList.toggle('hidden-row', ORDER[el.dataset.lvl] < FLOOR[floor]);
+  });
+  document.querySelectorAll('.bar button[data-f]').forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.f === floor));
+  });
+  const shown = document.querySelectorAll('#live [data-lvl]:not(.hidden-row)').length;
+  const total = document.querySelectorAll('#live [data-lvl]').length;
+  document.getElementById('gatenote').innerHTML =
+    'Floor <b>' + floor + '</b> — ' + shown + ' of ' + total +
+    ' notify rows render. The error row survives every setting; the assistant bubbles and the ' +
+    'user prompt are never touched.';
+}
+function setFloor(f){ floor = f; apply();
+  document.querySelectorAll('select').forEach(function(s){ if(s.querySelector('option[value="'+f+'"]')) s.value = f; });
+}
+function segpick(btn,f){ btn.parentElement.querySelectorAll('button')
+  .forEach(function(b){ b.setAttribute('aria-pressed', String(b===btn)); }); setFloor(f); }
+function lbpick(btn,f){ btn.parentElement.querySelectorAll('button')
+  .forEach(function(b){ b.setAttribute('aria-selected', String(b===btn)); }); setFloor(f); }
+function toggleTheme(){
+  const h = document.documentElement, b = document.getElementById('theme');
+  const light = h.getAttribute('data-theme') === 'light';
+  h.setAttribute('data-theme', light ? 'dark' : 'light');
+  b.setAttribute('aria-pressed', String(!light));
+  b.textContent = light ? 'Light theme' : 'Dark theme';
+}
+apply();
+// Allow ?theme=light so the scoring tool can capture the light theme directly.
+if (new URLSearchParams(location.search).get('theme') === 'light') toggleTheme();
+</script>
+</body>
+</html>

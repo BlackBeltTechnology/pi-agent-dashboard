@@ -44,39 +44,57 @@ told the client to forget (case 1), and stale bytes accumulating indefinitely
   "refresh" means "forget everything about this session" at every layer. The two
   duplicated nine-line blocks collapse into one shared `handleRefreshChat(sid)`
   callback so the two sites cannot drift.
-- **Server switch clears the whole store.** `clearInMemoryState` additionally
-  clears every replay-cache entry. Deliberately blunt: dropping the entire store
-  costs one full replay per switch and requires **no server identity**, which is
-  what makes this change self-contained (see *Explicitly deferred*).
-- No protocol change, no server change, no new message type, no schema-version
-  bump (nothing about the persisted shape changes).
+- **Entries are scoped to the server that wrote them.** Each entry records a
+  `serverKey` (`host:port`, derived from `wsUrl` — information the client already
+  has). `get()` treats a key mismatch as a miss, exactly as it already treats a
+  `schemaVersion` mismatch. A switch therefore needs **no durable purge at all**:
+  nothing foreign is readable, so nothing has to be reclaimed. `clearInMemoryState`
+  additionally discards the persister's in-memory buffers, so server A's buffered
+  content cannot be flushed under server B's key.
+- No protocol change, no server change, no new message type. **`REPLAY_CACHE_SCHEMA_VERSION`
+  bumps to 3** — the persisted shape gains a field, and the bump purges v2 entries
+  (which carry no server identity and are therefore unattributable) on first read,
+  exactly as the v2 bump purged ambiguous v1 cursors.
+
+> **Superseded approach.** An earlier draft cleared the entire store on switch,
+> chosen as the blunt option that needed no server identity. Adversarial review
+> killed it: the old socket stays open until React tears it down, so server A
+> frames can still arrive after the clear, and once server B's `lastSeq: 0`
+> replay calls `seed()` the buffer is descended again — A's stragglers then ride
+> B's buffer into the store. Provenance distinguishes *descended vs not*, never
+> *which socket*. Patching that needed an epoch guard, a timeout, and a
+> suppression flag, each of which introduced its own defect. Scoping the entry
+> removes the entire class instead of guarding it, and is strictly cheaper.
 
 ### Explicitly deferred
 
 **Orphan GC by reconciling against `sessions_snapshot`** is **not** in this
-change, despite being the direct fix for case 3. It cannot be done safely today:
+change, despite being the direct fix for case 3. `sessions_snapshot`
+(`browser-gateway.ts:515`, `sessionManager.listAll()`) is correctly unfiltered —
+no hidden/ended filter — so it is a usable reconcile source, and with `serverKey`
+on the entry a reconcile can now be scoped to the current server without
+classifying another server's entries as orphans. That makes GC *possible* as a
+follow-up; it is left out here to keep this change to one idea. Orphans stay
+bounded by the 50-entry LRU in the meantime.
 
-- `sessions_snapshot` (`browser-gateway.ts:515`, `sessionManager.listAll()`) is
-  correctly unfiltered — no hidden/ended filter — so it is a usable reconcile
-  source. That part is fine.
-- But the store has **no server identity**. `serverId`/`instanceId` do not exist
-  anywhere in the repo; a server is keyed only by `host:port`. Since switching
-  servers does not change origin, a naive reconcile on connect to server B would
-  classify server A's entries as orphans and **delete them** — turning "user
-  alternates between two dashboards" into "cache never hits". Reconcile therefore
-  requires a per-entry server identity first.
-- `host:port` is too weak to be that identity: one machine reached via
-  `localhost:8000`, a LAN IP, and a zrok tunnel yields three keys for one server,
-  fragmenting the cache. A robust fix needs a server-generated id on the wire —
-  a shared-protocol addition, and a scope decision of its own.
-
-Clearing the store on switch (above) makes cross-server contamination moot in the
-meantime, at the cost of a full replay per switch.
+**A server-generated id on the wire** is also deferred. `host:port` is a weaker
+identity than a real `serverId`: one machine reached via `localhost:8000`, a LAN
+IP, and a zrok tunnel yields three keys for one server, fragmenting the cache.
+That is accepted deliberately — fragmentation costs a full replay, whereas the
+bug being fixed shows the wrong server's history. `host:port` is *sufficient for
+correctness* (distinct servers never share a key) and merely *imperfect for hit
+rate*. A real `serverId` is a shared-protocol addition and a scope decision of
+its own; adopting one later only needs another schema bump.
 
 **Dropping on `session_removed`** is also deferred, deliberately. With `seq`
 stability confirmed, an orphaned entry is bytes only — never a wrong view — and
 it is bounded by the LRU. Adding a second purge site buys earlier reclamation of
 a bounded, harmless quantity while creating another site that must stay in sync.
+
+**Guarding the `session_state_reset` invalidation** against a failed delete is
+deferred. That site keeps its current fire-and-forget semantics per the change's
+constraints; extending the refresh path's suppression guard to it is a one-line
+follow-up, left out so this change touches one invalidation path only.
 
 ## Capabilities
 
@@ -87,23 +105,29 @@ _None._
 ### Modified Capabilities
 
 - `session-replay-persistence`: adds a **client-initiated invalidation**
-  requirement to the existing "cache is an optimization only" contract. A user
-  action that resets a session's chat, and a switch to a different server, SHALL
-  invalidate the corresponding durable entries — so no reset path leaves the
-  durable layer authoritative over state the client was told to discard. The
-  capability currently states no requirement about entry lifetime at all.
+  requirement and an **entry-attribution** requirement to the existing "cache is
+  an optimization only" contract. A user action that resets a session's chat
+  SHALL invalidate that session's durable entry; an entry SHALL only be served to
+  the server that produced it; and an unavailable durable store SHALL NOT impair
+  the refresh. The capability currently states no requirement about entry lifetime
+  or attribution at all.
 
 ## Impact
 
 - `packages/client/src/App.tsx` — extract the duplicated refresh block into one
-  `handleRefreshChat(sid)` callback that also calls `replayPersister.drop(sid)`;
-  wire it to both the header `onRefresh` and `mobileActions.onRefresh`. Add a
-  full-store clear to `clearInMemoryState`.
-- `packages/client/src/lib/replay/replay-cache.ts` — add a `clear()` method to
-  the `ReplayCache` interface (the store has `get`/`put`/`delete` only).
-- `packages/client/src/lib/replay/replay-persist.ts` — expose the store-wide
-  clear through the persister so buffered-but-unflushed state is dropped too,
-  matching how `drop()` already clears both the buffer and the entry.
+  `handleRefreshChat(sid)` callback that awaits `replayPersister.drop(sid)`
+  *before* the in-memory reset; wire it to both the header `onRefresh` and
+  `mobileActions.onRefresh`. Add the persister buffer reset to
+  `clearInMemoryState`. Own the `serverKeyRef`, updated synchronously wherever
+  `wsUrl` is set.
+- `packages/client/src/lib/replay/replay-cache.ts` — add `serverKey` to the entry,
+  bump `REPLAY_CACHE_SCHEMA_VERSION` to 3, take the key on `get()`/`put()` and
+  treat a mismatch as a miss *without* deleting. `delete()` stays unkeyed.
+- `packages/client/src/lib/replay/replay-persist.ts` — take the current-server key
+  as an injected getter (read at flush time) and add an in-memory buffer reset for
+  the switch path.
+- `packages/client/src/lib/replay/rehydrate-session.ts` — take the current
+  `serverKey` and pass it through to `get()`.
 - Tests: vitest alongside the existing `useMessageHandler.replay-cache.test.tsx`
   and `rehydrate-session.poisoned-cache.test.ts`.
 - **Not changed:** `session_state_reset` → `drop()` (`useMessageHandler.ts:378`),

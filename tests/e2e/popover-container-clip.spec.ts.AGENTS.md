@@ -1,0 +1,3 @@
+# popover-container-clip.spec.ts — index
+
+Browser E2E gate for `fix-popover-container-clip` (F5–F8, F11–F12). Spawns a session at viewport 1440; asserts each popover's horizontal bounds ⊆ `split-chat-pane` bounds (`expectWithinPaneX`): F5 ChatViewMenu no left-clip (all row labels rendered), F6 ModelSelector left-preserved/flips-within-pane (opens split via `editor-peek` + drags `split-divider` to the 25% floor), F7 regression (natural 320px width when it fits), F8 ThinkingLevelSelector via `⋯` overflow, F11 attach + overflow menus, F12 slash dropdown dual-edge immunity. `dismissOverlays` guards leaked `propose-dialog-overlay`. `PW_CHANNEL=chrome` for host-browser runs. F9/F10 realized as component tests (no worktree/narrow-packages fixture).

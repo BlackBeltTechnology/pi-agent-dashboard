@@ -1,7 +1,11 @@
 import { type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
-import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import {
+  DISPLAY_PRESETS,
+  type DisplayPrefs,
+  normalizeNotifyMinLevel,
+} from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -1901,6 +1905,20 @@ function DisplayPrefsSection() {
       <ToggleField label={t("settings.turnMetadata", undefined, "Turn metadata separators")} value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} hint={i18nT("settings.hint.turnMetadataSeparators", undefined, "Thin rule between turns carrying model, duration, and timestamp.")} />
       <ToggleField label={t("settings.changeSummaryTable", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} onChange={(v) => patch({ changeSummaryTable: v })} hint={i18nT("settings.hint.perTurnChangeSummary", undefined, "Table of files added/changed/deleted by each turn.")} />
       <ToggleField label={t("settings.reserveProcessLineAtIdle", undefined, "Reserve process line at idle")} value={prefs.reserveProcessLineAtIdle} onChange={(v) => patch({ reserveProcessLineAtIdle: v })} hint={i18nT("settings.hint.reserveProcessLine", undefined, "Keep the status line's height reserved while idle so the composer does not jump when a turn starts.")} />
+      {/* A floor, not a switch: `errors` is the strictest stop, so a failing
+          extension can always report. See change: gate-notify-rows-by-level. */}
+      <SelectField
+        label={t("settings.notifyMinLevel", undefined, "Extension notifications")}
+        value={normalizeNotifyMinLevel(prefs.notifyMinLevel)}
+        options={[
+          { value: "all", label: t("settings.notifyMinLevel.all", undefined, "All") },
+          { value: "success", label: t("settings.notifyMinLevel.success", undefined, "Outcomes and problems") },
+          { value: "warnings", label: t("settings.notifyMinLevel.warnings", undefined, "Problems only") },
+          { value: "errors", label: t("settings.notifyMinLevel.errors", undefined, "Failures only") },
+        ]}
+        onChange={(v) => patch({ notifyMinLevel: v as DisplayPrefs["notifyMinLevel"] })}
+        hint={i18nT("settings.hint.notifyMinLevel", undefined, "Minimum level of extension notification shown in chat. Errors are never hidden, and questions that need an answer always appear.")}
+      />
       <h3 className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{t("settings.chatDisplayReasoning", undefined, "Reasoning")}</h3>
       <ToggleField label={t("settings.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} hint={i18nT("settings.hint.reasoningBlocks", undefined, "Show the model's thinking. Off hides it entirely and disables the two settings below.")} />
       <GatedGroup>

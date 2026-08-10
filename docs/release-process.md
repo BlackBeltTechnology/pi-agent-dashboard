@@ -6,14 +6,9 @@ tooling; discipline during dev + curation pass at tag time.
 
 ## Overview
 
-```
- ┌────────────────┐     ┌────────────────┐     ┌────────────────┐
- │  Development   │ ──▶ │   Cut release  │ ──▶ │   CI publishes │
- │                │     │                │     │                │
- │  PR appends    │     │  Promote       │     │  npm +         │
- │  bullets to    │     │  [Unreleased]  │     │  Electron      │
- │  [Unreleased]  │     │  bump + tag    │     │  GitHub Release│
- └────────────────┘     └────────────────┘     └────────────────┘
+```mermaid
+flowchart LR
+    Dev["Development: PR appends bullets to [Unreleased]"] --> Cut["Cut release: Promote [Unreleased], bump + tag"] --> CI["CI publishes: npm + Electron, GitHub Release"]
 ```
 
 Single source of truth: [`CHANGELOG.md`](../CHANGELOG.md). GitHub Release

@@ -1,0 +1,3 @@
+# live-server.ts — index
+
+Pure browser-safe live-server SSRF boundary. `validateLiveTarget({host,port,label})` — loopback-only (`LOOPBACK_HOSTS` = localhost/127.0.0.1/::1), port 1..65535; rejects cloud-metadata/private/public. `liveServerPath(id)`→`/live/<id>/`. Types `LiveServerTarget`, `LiveTargetValidation`. `isLoopbackUrl(href)`→bool: true only for `http(s)://{localhost,127.0.0.1,::1}[:port]/…` (brackets stripped, case-insensitive); credential-in-host/`0.0.0.0`/IPv4-mapped-IPv6/punycode → false. UX router for the split-viewer link routing, not a trust boundary. Shared by client pre-validation + server enforcement. See change: improve-content-editor; open-loopback-links-in-split-viewer.
