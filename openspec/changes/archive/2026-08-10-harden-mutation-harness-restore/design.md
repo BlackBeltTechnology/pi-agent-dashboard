@@ -74,6 +74,19 @@ treated as D3 row 3: report it, fail the run, do not touch the source file and
 do not remove the entry. Deleting an entry the harness cannot understand throws
 away the only record that a file may still be mutated.
 
+### D1c: An entry is untrusted input — containment before any write
+
+Reconciliation's whole job is to overwrite the file an entry names, so the entry
+decides what gets written where. `path.join(repoRoot, "../../x")` leaves the
+tree, and type-checking the field says nothing about where it points. Every
+entry path is therefore resolved and required to stay under `repoRoot`; one that
+does not is a conflict like any other — reported, never obeyed.
+
+The journal is gitignored local state rather than a network input, so this is
+defence in depth against a corrupted, hand-edited, or stale-format entry, not a
+threat model. It costs two lines and removes an arbitrary-file-write primitive
+from a script that runs on every `npm test`. Raised by CodeRabbit on PR #455.
+
 ### D2: Restore from journaled bytes, never from git
 
 `git checkout -- <path>` is the obvious one-liner and is wrong. A mutated file

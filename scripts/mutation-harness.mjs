@@ -319,12 +319,22 @@ function reconcileEntry(repoRoot, entryPath) {
     return conflict(null, `journal entry is unreadable (${err.message})`);
   }
 
+  // Containment BEFORE any write. `path.join(repoRoot, "../../etc/thing")`
+  // escapes the tree, and reconciliation's whole job is to overwrite the file
+  // it resolves — so a corrupted or hand-edited entry could clobber anything the
+  // user can write. Type-checking `entry.path` above says nothing about where
+  // it points.
+  const abs = path.resolve(repoRoot, entry.path);
+  const rel = path.relative(repoRoot, abs);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+    return conflict(entry.path, "journal entry resolves outside the repository — refusing to touch it");
+  }
+
   if (ownerAlive(entry.pid)) {
     // In-flight, not residue. Touching it would corrupt a running harness.
     return { kind: "skipped", path: entry.path };
   }
 
-  const abs = path.join(repoRoot, entry.path);
   const original = Buffer.from(entry.originalBytes, "base64");
   const mutated = Buffer.from(entry.mutatedBytes, "base64");
 

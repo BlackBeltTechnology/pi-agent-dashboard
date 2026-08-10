@@ -409,6 +409,38 @@ describe("mutation journal", () => {
     expect(entries(root)).toHaveLength(0);
   }, 30_000);
 
+  // ---- test-plan #X14 -------------------------------------------------------
+  it("refuses a journal entry that resolves outside the repository", () => {
+    const outside = path.join(os.tmpdir(), `mut-outside-${process.pid}.txt`);
+    const sacred = "do not touch me\n";
+    writeFileSync(outside, sacred);
+
+    try {
+      mkdirSync(journalDir(root), { recursive: true });
+      const escaping = path.relative(root, outside); // ../../..-style
+      writeFileSync(
+        path.join(journalDir(root), "escape.json"),
+        JSON.stringify({
+          version: 1,
+          path: escaping,
+          pid: deadPid(),
+          originalBytes: Buffer.from("pwned").toString("base64"),
+          mutatedBytes: Buffer.from(sacred).toString("base64"),
+        }),
+      );
+
+      const { restored, conflicts } = reconcile(root);
+
+      // Without containment this is a write of "pwned" over a file outside the tree.
+      expect(restored).toEqual([]);
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0].reason).toMatch(/outside the repository/);
+      expect(readFileSync(outside, "utf8")).toBe(sacred);
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  });
+
   // ---- test-plan #X13 -------------------------------------------------------
   it("leaves an entry owned by a LIVE process strictly alone", async () => {
     // The regression that caught this: `runTestFile` spawns `npx vitest`, that

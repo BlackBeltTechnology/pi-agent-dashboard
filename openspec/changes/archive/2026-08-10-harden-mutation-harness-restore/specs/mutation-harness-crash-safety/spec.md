@@ -165,6 +165,18 @@ the mutation its parent just applied and report every mutation as survived.
   exists
 - **THEN** it SHALL treat the entry as residue and reconcile it normally
 
+### Requirement: Reconciliation SHALL stay inside the working tree
+
+A journal entry names the file it restores. Reconciliation overwrites that file,
+so an entry resolving outside the working tree SHALL be refused rather than
+obeyed, however it came to be there.
+
+#### Scenario: An entry points outside the repository
+
+- **WHEN** reconciliation finds an entry whose path resolves outside `repoRoot`
+- **THEN** it SHALL NOT read or write that path
+- **AND** it SHALL report the entry as a conflict and fail the run non-zero
+
 ### Requirement: A second concurrent run SHALL be refused
 
 The harness assumes a single writer per working tree. A second run that finds an

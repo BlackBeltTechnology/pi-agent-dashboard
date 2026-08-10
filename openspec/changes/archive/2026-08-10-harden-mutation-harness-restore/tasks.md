@@ -45,6 +45,10 @@
       PROCEED; fail non-zero only when an entry could not be cleanly resolved
       (design D4).
 - [x] 3.7 Proceed silently when the journal is empty or absent.
+- [x] 3.6a Refuse any entry whose path resolves outside `repoRoot` before
+      reading or writing it — reconciliation overwrites what it resolves, so a
+      corrupted entry could otherwise clobber any file the user can write
+      (CodeRabbit finding, PR #455).
 - [x] 3.7a Record the owning pid on every entry, and SKIP — neither restore nor
       conflict — any entry whose owner is still alive (design D4b). Without this
       the harness's own `npx vitest` child reconciles its parent's live mutation
@@ -183,6 +187,10 @@ builds a throwaway `repoRoot` under `mkdtempSync` (test-plan "Fixture rule").
       the entry is removed — proving the journal is additive, not a replacement.
       (test-plan #X12) See
       `scripts/__tests__/async-semantics-mutation.test.mjs`.
+- [x] 5.23 Reconciliation stays inside the tree — input: an entry whose `path`
+      resolves outside `repoRoot` · trigger: `reconcile()` · observable: reported
+      as a conflict, the outside file byte-unchanged, nothing restored.
+      (test-plan #X14) See `scripts/__tests__/mutation-journal.test.mjs`.
 - [x] 5.22 A live owner's mutation is untouchable — input: a child harness
       process holding a mutation on disk, still running · trigger: `reconcile()`
       in a different process · observable: the entry is skipped (not restored,
