@@ -125,8 +125,8 @@ no-blank-gap/tail assertions. Read the derived harness port from
 
 ## 7. Docs
 
-- [ ] 7.1 `docs/chat-display-preferences.md` — the **Non-hidable** section currently reads "Inline ask-user / interactive-UI dialogs always render regardless of toggles", which this change makes false for notify. Narrow it to *blocking* interactive rows and add the `notifyMinLevel` axis. **Delegate to DocScribe** (caveman style) per the Documentation Update Protocol.
-- [ ] 7.2 Tree rows for touched source files via their nearest `AGENTS.md` (main agent edits these directly): `packages/shared/src/AGENTS.md`, `packages/client/src/components/chat/ChatView.tsx.AGENTS.md`, `ChatViewMenu.tsx.AGENTS.md`.
+- [x] 7.1 `docs/chat-display-preferences.md` — the **Non-hidable** section currently reads "Inline ask-user / interactive-UI dialogs always render regardless of toggles", which this change makes false for notify. Narrow it to *blocking* interactive rows and add the `notifyMinLevel` axis. **Delegate to DocScribe** (caveman style) per the Documentation Update Protocol.
+- [x] 7.2 Tree rows for touched source files via their nearest `AGENTS.md` (main agent edits these directly): `packages/shared/src/AGENTS.md`, `packages/client/src/components/chat/ChatView.tsx.AGENTS.md`, `ChatViewMenu.tsx.AGENTS.md`.
 
 ## 8. Verify
 
@@ -135,4 +135,4 @@ no-blank-gap/tail assertions. Read the derived harness port from
 - [ ] 8.3 Manual: trigger notifies at all four levels from a real extension, walk the four settings, confirm the ladder and that `error` never disappears.
 - [ ] 8.3a Manual, **light theme** (test-plan: manual-only): confirm the four re-toned levels read clearly and are mutually distinguishable. This is the defect the mockup demonstrates; dark mode alone will not show it. Token contrast itself is already automated by the pre-existing `tests/e2e/severity-contrast.spec.ts` (9 themes × 2 modes), so only the aesthetic call is manual (test-plan #F19)
 - [ ] 8.4 Manual (the one that matters): set `"errors"`, then have a session call `ask_user`. The dialog must appear and be answerable.
-- [ ] 8.5 `openspec validate gate-notify-rows-by-level --strict`.
+- [x] 8.5 `openspec validate gate-notify-rows-by-level --strict`.

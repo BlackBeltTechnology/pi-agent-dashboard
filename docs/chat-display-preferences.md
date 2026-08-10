@@ -1,10 +1,10 @@
 # Chat display preferences
 
-See change: configurable-chat-display, fix-first-launch-display-modal-stuck-on-mobile.
+See change: configurable-chat-display, fix-first-launch-display-modal-stuck-on-mobile, gate-notify-rows-by-level.
 
 ## What
 
-Global + per-session `DisplayPrefs` gate chat-view chrome (thinking blocks, tool-call cards per kind, tool-result bodies, turn separators, debug tools, token-stats bar, context-usage bar, etc.). Users edit globals in Settings ▸ General ▸ Chat display; per-session overrides via ⚙ View popover in chat toolbar.
+Global + per-session `DisplayPrefs` gate chat-view chrome (thinking blocks, tool-call cards per kind, tool-result bodies, turn separators, debug tools, token-stats bar, context-usage bar, notify rows by severity floor, etc.). Users edit globals in Settings ▸ General ▸ Chat display; per-session overrides via ⚙ View popover in chat toolbar.
 
 ## Storage
 
@@ -33,7 +33,27 @@ Global + per-session `DisplayPrefs` gate chat-view chrome (thinking blocks, tool
 ## Non-hidable
 
 - `ask_user` tool calls always render. `toolCallPrefKey("ask_user")` returns `null`.
-- Inline ask-user / interactive-UI dialogs always render regardless of `toolCalls.*` toggles.
+- Blocking interactive dialogs always render at EVERY `notifyMinLevel`, including `errors`: `confirm` / `select` / `input` / `ask_user`. Never gated by `toolCalls.*` or `notifyMinLevel`.
+- Notify rows are the ONE interactive-UI kind that IS gated — by `notifyMinLevel`, never by `toolCalls.*`.
+
+## Notify rows
+
+`notifyMinLevel` gates interactive notify rows by severity floor.
+
+- `NotifyMinLevel = "all" | "success" | "warnings" | "errors"`. `NOTIFY_MIN_LEVELS` exports the four stops in ladder order (settings controls iterate it).
+- Ladder: `info < success < warning < error`. `success` deliberately outranks `info`.
+- No `"off"` value. `errors` is the strictest floor; `error` notify rows ALWAYS render.
+- Default `"all"` in all three presets (`simple` / `standard` / `everything`). Zero visibility change on upgrade.
+- Server `backfillDisplayPrefs` defaults legacy files to `"all"`.
+- Single shared predicate `isNotifyRowVisible(row, minLevel)` in `packages/shared/src/display-prefs.ts`. Applied at BOTH `ChatView` gate sites: `isRowVisible` filter + `interactiveUi` render branch.
+- Fails open on BOTH inputs:
+  - Row not positively identified as notify renders. Discriminator requires BOTH `content === "notify"` AND `args.method === "notify"`.
+  - Unrecognized floor degrades to `"all"`. Prevents NaN comparison hiding `error`.
+- Control: Settings ▸ General ▸ Chat display (`SelectField`).
+- Control: per-session ⚙ View popover (`ChatViewMenu`, first non-boolean row).
+- `NotifyRenderer` renders through the shared `InlineMessage` primitive. Colour from `--severity-*` tokens; four `text-{blue,green,yellow,red}-400` literals gone.
+- Level survives without colour: accent bar + per-level icon + level word.
+- `InlineMessage.Severity` gained `"success"`.
 
 ## Migration
 
@@ -74,5 +94,7 @@ After first PATCH, modal never re-opens (global now defined).
 - `packages/server/src/preferences-store.ts` — `getDisplayPrefs` / `setDisplayPrefs`.
 - `packages/server/src/meta-persistence.ts` — `setDisplayPrefsOverride`.
 - `packages/client/src/lib/DisplayPrefsContext.tsx` + `hooks/useDisplayPrefs.ts` — client read path.
-- `packages/client/src/components/ChatViewMenu.tsx` — per-session toolbar popover.
+- `packages/client/src/components/chat/ChatViewMenu.tsx` — per-session toolbar popover; hosts `notifyMinLevel` row.
 - `packages/client/src/components/FirstLaunchDisplayModal.tsx` — onboarding preset picker.
+- `packages/client/src/components/chat/ChatView.tsx` — both `isNotifyRowVisible` gate sites (filter + render branch).
+- `packages/client/src/components/interactive-renderers/NotifyRenderer.tsx` + `primitives/InlineMessage.tsx` — notify row presentation; `Severity` includes `"success"`.

@@ -10,6 +10,14 @@ Passes `showResultBody={prefs.toolResultBodies}` to `<ToolCallStep>`.
 
 See change: configurable-chat-display.
 
+## gate-notify-rows-by-level
+
+- Gates `ctx.ui.notify` rows on `prefs.notifyMinLevel` via the shared predicate `isNotifyRowVisible` (`@blackbelt-technology/pi-dashboard-shared/display-prefs.js`).
+- Applied at BOTH sites: the `isRowVisible` `interactiveUi` case (filters `displayRows`) AND the `msg.role === "interactiveUi"` render branch (`return null`), mirroring the `rawEvent` precedent.
+- Asymmetry is deliberate (design D3): a row filtered from `displayRows` is never counted by the virtualizer nor mounted, so `isRowVisible` alone is functionally sufficient; the render-branch gate is the defensive half. Consequence: the row-count invariant passes with EITHER site alone, so it does NOT prove both — the render branch needs its own assertion.
+- Each site adapts its local object to the shared descriptor `{ content, method, level }` (`isRowVisible` reads `msg.args.method`; the render branch reads the built `request.method`).
+- Blocking asks are untouched at every floor — the gate keys on the notify discriminator, never on `role`.
+
 Sticky-bottom auto-scroll via `useLayoutEffect` (synchronizes scroll before paint, avoids per-line jumps). `stickToBottomRef` chases new content until scroll-up or `scrollToTurn`; re-arms on scroll-to-bottom button or near-bottom (`SCROLL_THRESHOLD`). Scroll-to-bottom uses `behavior: "instant"` while `streamingText`/`streamingThinking`/`pendingSteering` active, else `"smooth"`. Scroll container `overflowAnchor: "auto"`. Per-session scroll position persisted across switches. Replaces old `markProgrammatic`/`programmaticScroll` suppression window. See change: fix-chat-scroll-race-during-replay.
 
 **User-message branch routes to `<SkillInvocationCard>` when `msg.skill` is set** (raw `<MessageBubble>` for plain users); container preserves `mt-4 mb-4 flex justify-end` + `bubbleMax`. See change: render-skill-invocations-collapsibly.
