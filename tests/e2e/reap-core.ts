@@ -17,6 +17,27 @@
 export interface SessionLike {
   id: string;
   cwd?: string;
+  /** Absent means live; the server only sets this to `false` on close. */
+  live?: boolean;
+  status?: string;
+}
+
+/**
+ * Is this session record backed by a process that is still running?
+ *
+ * `BusClient.read.sessions()` is a local map fed by `sessions_snapshot` +
+ * deltas, and it only DROPS an entry on `session_removed`. A session that has
+ * been shut down keeps its record (with `live:false` / `status:"ended"`) until
+ * the server removes it, which can lag well behind the process exiting.
+ *
+ * Counting those records as live made the residual budget fire on almost every
+ * test (96 false breaches in one acceptance run) while only 2 `pi` processes
+ * were actually resident, and made the reap send `shutdown` to already-dead
+ * sessions and then block for the ack timeout. Both call sites filter through
+ * here instead.
+ */
+export function isLiveSession(s: SessionLike): boolean {
+  return s.live !== false && s.status !== "ended";
 }
 
 /**

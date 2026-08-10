@@ -60,6 +60,7 @@ import {
   checkBudget,
   computeDelta,
   createLatch,
+  isLiveSession,
   settleSessionIds,
   type SessionLike,
 } from "./reap-core.js";
@@ -105,8 +106,12 @@ async function connectBus(): Promise<BusClient> {
  * force-kills its own session mid-test, and that must not be an error here.
  */
 async function shutdownSession(client: BusClient, sessionId: string): Promise<void> {
-  const live = client.read.sessions().some((s) => s.id === sessionId);
-  if (!live) return; // already gone — success
+  // `isLiveSession`, not mere presence: a shut-down session KEEPS its record
+  // until `session_removed`. Treating a lingering `live:false`/`ended` record as
+  // live meant sending `shutdown` to a dead session and then blocking the full
+  // ack timeout waiting for a `session_removed` that had already been sent.
+  const record = client.read.sessions().find((s) => s.id === sessionId);
+  if (!record || !isLiveSession(record)) return; // already gone — success
 
   const removed = client
     .waitFor<SessionRemovedMessage>(
@@ -181,7 +186,13 @@ export const test = base.extend<{ reapSessions: void }>({
         }
 
         // ---- BUDGET (D5) --------------------------------------------------
-        const live: SessionLike[] = bus.read.sessions().map((s) => ({ id: s.id, cwd: s.cwd }));
+        // Filter to PROCESS-BACKED sessions. Counting lingering closed records
+        // made this fire on nearly every test while the container was in fact
+        // healthy — a budget that cries wolf teaches everyone to ignore it.
+        const live: SessionLike[] = bus.read
+          .sessions()
+          .map((s) => ({ id: s.id, cwd: s.cwd, live: s.live, status: s.status }))
+          .filter(isLiveSession);
         const budget = checkBudget(live, RESIDUAL_SESSION_BUDGET);
         if (!budget.ok) {
           // A breach IS attributable to this spec, so it is reported loudly.

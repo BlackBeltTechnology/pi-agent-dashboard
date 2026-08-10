@@ -22,6 +22,7 @@ import {
   checkBudget,
   computeDelta,
   createLatch,
+  isLiveSession,
   settleSessionIds,
 } from "../../tests/e2e/reap-core.ts";
 
@@ -175,6 +176,24 @@ describe("createLatch — harness-down latch (X3, X4, X5, X6)", () => {
   });
 });
 
+describe("isLiveSession — only process-backed sessions count", () => {
+  // Regression: read.sessions() keeps a record until `session_removed`, so a
+  // shut-down session lingers with live:false / status:"ended". Counting those
+  // produced 96 false budget breaches in an acceptance run while only 2 pi
+  // processes were resident.
+  it.each([
+    ["no liveness fields (fresh snapshot entry)", { id: "a" }, true],
+    ["live:true", { id: "a", live: true }, true],
+    ["status:idle", { id: "a", status: "idle" }, true],
+    ["status:streaming", { id: "a", status: "streaming" }, true],
+    ["live:false", { id: "a", live: false }, false],
+    ["status:ended", { id: "a", status: "ended" }, false],
+    ["live:false AND status:ended", { id: "a", live: false, status: "ended" }, false],
+  ])("%s → %s", (_label, session, expected) => {
+    expect(isLiveSession(session)).toBe(expected);
+  });
+});
+
 describe("checkBudget — residual-session budget (E5)", () => {
   const sessionsOf = (n) =>
     Array.from({ length: n }, (_, i) => ({ id: `s${i}`, cwd: `/w/${i}` }));
@@ -202,5 +221,17 @@ describe("checkBudget — residual-session budget (E5)", () => {
 
   it("passes cleanly at zero live sessions", () => {
     expect(checkBudget([], 8).ok).toBe(true);
+  });
+
+  it("does not count ended/closed records once they are filtered out", () => {
+    // The fixture filters with isLiveSession before calling checkBudget; this
+    // pins the combination the acceptance run got wrong.
+    const mixed = [
+      ...sessionsOf(2),
+      { id: "dead1", cwd: "/w/d1", live: false },
+      { id: "dead2", cwd: "/w/d2", status: "ended" },
+    ];
+    expect(checkBudget(mixed, 3).ok).toBe(false); // unfiltered → 4 > 3
+    expect(checkBudget(mixed.filter(isLiveSession), 3).ok).toBe(true); // filtered → 2
   });
 });
