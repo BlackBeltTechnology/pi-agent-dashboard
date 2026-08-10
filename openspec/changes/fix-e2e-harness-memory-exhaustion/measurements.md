@@ -40,7 +40,16 @@ the 114-test mark; the numbers below are that sample, not a completed chunk.
   attributes to each process in full. `memory.current` is the authoritative
   figure; the sum is for per-process attribution only.
 
-## Group 2 — post-fix (task 6.1)
+## Group 2 — post-fix (task 6.1) — **RETRACTED, DO NOT CITE**
+
+> **This measurement is invalid.** In the run below, 112 of the 120 tests died at
+> `browserType.launch` because `TMPDIR` pointed at a sandbox directory that had
+> been reaped. Those tests never spawned a session, so the low memory and the
+> single resident `pi` reflect *work not happening*, not the reap working. It is
+> kept only as a record of the mistake.
+>
+> The honest post-fix picture is in **Group 3**, and it does NOT show a flat
+> curve: see `SHIP_IT_BLOCKED.md`.
 
 Same chunk, same container image, container restarted first so both runs start
 from an equivalent clean state. Specs at the fixed tree (importing from
@@ -52,22 +61,53 @@ from an equivalent clean state. Specs at the fixed tree (importing from
 | during (t≈45 s) | 1167.9 MiB (28.5 %) | 43 | **1** |
 | after ~120 tests | **722.5 MiB (17.6 % of cap)** | **45** | **1** |
 
-**Verdict: flat.** Resident `pi` never exceeded 1 — the reap releases each
-spec's sessions before the next spec starts.
+~~**Verdict: flat.**~~ Retracted — with 112/120 tests failing before they could
+spawn anything, this shows only that tests which do not run consume no memory.
 
-### Side-by-side
+## Group 3 — post-fix, valid run (the one that counts)
 
-| metric | pre-fix | post-fix | change |
+Full 90-spec suite, merged tree, clean container, `PW_CHANNEL=chrome`,
+`TMPDIR` fixed so browsers actually launch. Sampled every 60 s
+(`measurements/acceptance-timeseries.jsonl`).
+
+| sample | `memory.current` | `pids.current` | resident `pi` |
 |---|---|---|---|
-| `memory.current` | 2638.2 MiB | 722.5 MiB | **−73 %** |
-| `pids.current` | 243 | 45 | **−81 %** |
-| resident `pi` | 19 | 1 | **−95 %** |
-| `memory.events max` | 0 | 0 | no cgroup reclaim event in either sample |
+| t0 | 783.7 MiB (18.2 %) | 17 | 0 |
+| t≈7 min (31 tests) | 1349.7 MiB (33.0 %) | 118 | 7 |
+| t≈42 min (143 tests) | 2274.9 MiB (55.5 %) | 232 | 17 |
+| t≈45 min | 2550.2 MiB (62.2 %) | 258 | 21 |
 
-`memory.events max=0` in both runs means neither sample reached the hard cap —
-the pre-fix run was stopped at 64 % on its way up, so the cascade itself is
-inferred from the trend plus `design.md`'s live 99.95 % observation, not
-re-reproduced to death here.
+**Verdict: still climbs.** Budget breaches: 0. `HARNESS DOWN`: 0. The reap is
+working perfectly at the record level and memory rises anyway.
+
+The reason, captured at one instant (`measurements/tmux-leak-evidence.txt`):
+
+```
+tmux panes:      21
+resident pi:     21
+server records:  0
+```
+
+One pane per orphaned process, and the dashboard has forgotten all of them. The
+harness runs `PI_SPAWN_STRATEGY=tmux`, and `handleShutdown`'s only kill paths
+are headless-only — so the bus reap ends the session RECORD while the PROCESS
+survives. Full analysis and the decision required: **`SHIP_IT_BLOCKED.md`**.
+
+### Side-by-side (pre-fix vs the VALID post-fix run)
+
+| metric | pre-fix @114 tests | post-fix @143 tests |
+|---|---|---|
+| `memory.current` | 2638.2 MiB | 2274.9 MiB |
+| `pids.current` | 243 | 232 |
+| resident `pi` | 19 | 17 |
+
+Comparable, not fixed. What the change DOES deliver — per-test reaping of
+session records, the import guard, the `tests/` typecheck gate — is real and
+green; the memory guarantee is blocked on the tmux shutdown gap.
+
+`memory.events max=0` throughout means no sample reached the hard cap: both runs
+were stopped on the way up, so the cascade itself is inferred from the trend
+plus `design.md`'s live 99.95 % observation, not re-reproduced to death here.
 
 ## Task 3.2 — teardown-hook audit
 
