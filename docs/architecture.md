@@ -133,6 +133,48 @@ TypeScript type definitions shared across all components:
 - **Folder status capsule** (change: unify-folder-status-capsule). `FolderStatusCapsule` = folder header's ONLY liveness surface. Renders in BOTH collapse states. Replaces `FolderNeedsYouPill` + collapsed-only `FolderStatusRollup` + raw `(N)` count — all DELETED, incl. `countStatusRollup`. Segments by `countStatusCapsule(sessions, flags)` (`packages/client/src/lib/session/session-status-visuals.ts`). Fixed severity order `CAPSULE_SEGMENT_ORDER` = needs-you > error > working > idle; magnitude never reorders. Zero-count segments absent; no countable sessions → no capsule at all (all-ended folder shows none; its `N ended` disclosure row still reports size). Excludes `ended` + `hidden` before shape derivation. `flags.widgetBar` tri-state `(id) => boolean | undefined`; `true` or `undefined` excludes that ask_user session from EVERY bucket. Still per-session `WidgetBarProbe` + `useHasWidgetBarPrompt`, now capsule-owned. needs-you uses explicit predicate, not `deriveStatusShape`; re-adds `!hasError` guard — errored ask_user counts once, as error. `notice` shape folds into `idle` bucket; retrying counts as `working`. Counts cap at `999+`. Non-idle segments = `<button>`s → first session of that state via `firstIds[bucket]`; idle = inert `<span>` + aria-label. Activation `stopPropagation()` → SessionList reveal path (`onSeekToCard` / `revealRequest`): inherits guarded expand, layout-settled scroll, hidden/filtered degrade toasts. Colors from `--status-*` family only, never `--severity-*`; no new CSS custom property. Capsule `flex-none` + `whitespace-nowrap`; sheds nothing; folder name absorbs width pressure. Test ids: `folder-status-capsule-<cwd>`, `folder-capsule-seg-{needs-you,error,working,idle}-<cwd>`.
 - **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle = folder actions menu item `urgency-sort` (`mdiSortVariant`), `aria-pressed` bound to `urgencySort.isOn(cwd)`. Per-folder persisted preference unchanged.
 
+### EventBus Forwarding Mechanism (subscription-based, change: fix-automation-run-lifecycle)
+
+**Host topology.**
+
+- `EventBus` = `node:events` wrapper. `pi-coding-agent/dist/core/event-bus.js`. Methods: `emit` / `on` / `clear`. NO wildcard channel.
+- One bus per pi process. Shared by all extensions.
+- `pi.events` = PER-EXTENSION facade over that bus. `createExtensionAPI` -> `events: { emit, on }`. `pi-coding-agent/dist/core/extensions/loader.js`.
+
+**Why NOT an emit intercept.**
+
+- Patching `pi.events.emit` mutates only the patching extension's facade.
+- Foreign emissions bypass the patch. Emitters affected: pi-flows, pi-subagents.
+- Old bridge patched `emit`. Consequence: zero live `flow_*` / `subagent_*` `event_forward` ever left the bridge.
+- Flow cards rebuilt from persisted `custom/flow-event` JSONL. `packages/shared/src/state-replay.ts`.
+- Automation runs with a `flows.run` action stayed `status: "running"`.
+- Stale-run reaper finalized them `error: "run exceeded max age"` ~30 min later.
+- Measured: 101 runs, 0 reached `done`.
+- Proof: bridge `pi.events.on("flow:complete")` fired; patched `emit` never entered for that channel.
+
+**Current mechanism.**
+
+- `registerEventBusForwarding`. `packages/extension/src/flow-event-wiring.ts`.
+- ONE `pi.events.on(channel, ...)` subscription per declared channel.
+- `on()` observes every emitter.
+- Declared set = keys of `FLOW_EVENT_MAP` + `SUBAGENT_EVENT_MAP` + optional `extraMaps` (currently none passed).
+- Channel list IS the contract. Undeclared channel -> never forwarded.
+- New channel -> new map entry. Identity entry when no rename wanted.
+- Retired: wildcard forwarding of any unknown channel. Unimplementable without an emit intercept.
+
+**Forward gates.** `forwardBusEvent`, same file.
+
+- Subagent channel -> forward only when `sessionReady && isActive() && connection.isConnected`.
+- Else buffer latest-wins per agent in `SubagentFrameBuffer`. Flushed on re-register / reconnect.
+- Other declared channel -> forward when `sessionReady && isActive()`.
+- Forwarding failure never propagates to the emitter.
+- Forwarding failure drops that live frame. Nothing re-sends it. Subagent frames are the exception (buffered).
+
+**Teardown.** dispose returned by `registerEventBusForwarding`.
+
+- Removes only the bridge's own subscriptions.
+- Restores nothing. Bridge never replaces a host function.
+
 ### Retry Lifecycle (change: retry-forever-with-stop-control)
 
 Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts fire sequentially; each produces ONE complete `agent_start` … `agent_end` event cycle. Final attempt produces ONE `agent_settled` event terminal marker.

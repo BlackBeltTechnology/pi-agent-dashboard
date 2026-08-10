@@ -313,8 +313,13 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
         const buffered = (runText.get(sessionId) ?? []).join("\n\n").trim();
         runText.delete(sessionId);
         runCompletion.delete(sessionId);
+        // Name the finalize path taken. A systematic delivery outage otherwise
+        // looks like many independent max-age timeouts (it hid a 101-run,
+        // 0-success failure). See change: fix-automation-run-lifecycle.
+        logger.info(`[finalize] path=completion-event (${completion.eventType}) session=${sessionId}`);
         engine.onSessionEnded(sessionId, buffered || (completion.summarize?.(event?.data) ?? ""));
       } else if (event?.eventType === "agent_end") {
+        logger.info(`[finalize] path=agent_end session=${sessionId}`);
         const result = (runText.get(sessionId) ?? []).join("\n\n").trim();
         runText.delete(sessionId);
         runPrompt.delete(sessionId);
@@ -343,6 +348,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
   // (idempotent vs a late flow_complete/agent_end/Stop).
   // See change: finalize-automation-run-on-session-death.
   ctx.onSessionEnded((sessionId) => {
+    if (runText.has(sessionId)) logger.info(`[finalize] path=session-death session=${sessionId}`);
     const buffered = (runText.get(sessionId) ?? []).join("\n\n").trim();
     runText.delete(sessionId);
     runPrompt.delete(sessionId);

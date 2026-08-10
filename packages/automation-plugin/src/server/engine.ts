@@ -368,7 +368,9 @@ export function createEngine(deps: EngineDeps): Engine {
             retention: cfg.retention,
           });
         }
-        warn(`[engine] reaped stale run ${rec.runId} (running > ${maxAgeMs}ms)`);
+        // `path=reaper` on a run whose work completed is a delivery defect, not
+        // a normal terminal state. See change: fix-automation-run-lifecycle.
+        warn(`[finalize] path=reaper run ${rec.runId} (running > ${maxAgeMs}ms)`);
       }
     }
   }
