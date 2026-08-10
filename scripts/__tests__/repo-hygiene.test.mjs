@@ -7,6 +7,7 @@
  * See change: wire-local-review-gate.
  */
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -112,7 +113,6 @@ describe("#X10 i18n enforcers are repaired, not merely wired", () => {
 });
 
 describe("#X11 #X12 the change touched nothing it promised not to", () => {
-  const base = "origin/develop";
 
   it("#X11 does not wire the new enforcers into quality:changed (D11)", () => {
     // The requirement is a property of the script, not of git history: the ship
@@ -128,8 +128,21 @@ describe("#X11 #X12 the change touched nothing it promised not to", () => {
   });
 
   it("#X12 leaves split-large-agents.mjs unmodified", () => {
-    const diff = git(["diff", `${base}...HEAD`, "--", "scripts/split-large-agents.mjs"], repoRoot);
-    expect(diff.trim()).toBe("");
+    // Frozen content baseline, NOT a diff against origin/develop: CI checks out
+    // at depth 1 (`actions/checkout@v4`, no `fetch-depth`), so that ref does not
+    // exist there and a diff-scoped guard either throws or resolves an EMPTY
+    // diff and passes vacuously. Same reasoning as
+    // `scripts/__tests__/async-semantics-guards.test.mjs`. This hash is the file
+    // as it stands on origin/develop; any edit to the splitter fails here.
+    const FROZEN_SHA256 =
+      "16ff1ef6b190fd7267d92339ab7b2f3cc3adb02efad6b4730fe00ba8fa10fbac";
+    const actual = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(path.join(repoRoot, "scripts/split-large-agents.mjs")))
+      .digest("hex");
+    expect(actual, "split-large-agents.mjs must not be modified by this change").toBe(
+      FROZEN_SHA256,
+    );
   });
 
   it("#X12 defines no second per-file byte threshold", () => {
@@ -144,11 +157,31 @@ describe("#X11 #X12 the change touched nothing it promised not to", () => {
 });
 
 describe("#X13 the gate is green on the change's own tree", () => {
-  it("check-conventions passes", () => {
-    expect(run("node", ["scripts/check-conventions.mjs", "--base", "origin/develop"])).toBe(0);
+  // Both guards run tree-scoped rather than through the ship-gate invocation.
+  // `--base origin/develop` and `npx kb dox lint` both need a developer/worktree
+  // environment that CI's depth-1 checkout does not have; asserting them here
+  // made a green CI depend on the ref existing. The touched-set half of
+  // check-conventions has dedicated fixture coverage in
+  // `check-conventions.test.mjs` (#E10-#E15), and `byteArmIssues` has it in
+  // `dox-byte-gate.test.mjs` (#E16-#E18), so nothing loses its oracle.
+
+  it("check-conventions passes on the tree", () => {
+    // No --base: the three tree-scoped rules still gate fully; only the
+    // Discipline-Skills rule drops to reporting (its gating path is #E10-#E15).
+    expect(run("node", ["scripts/check-conventions.mjs"])).toBe(0);
   });
 
-  it("the dox byte-arm gate passes", () => {
-    expect(run("node", ["scripts/dox-byte-gate.mjs"])).toBe(0);
+  it("no AGENTS.md exceeds the byte cap", async () => {
+    // Asserts the same property `dox-byte-gate.mjs` gates on, without shelling
+    // out to `npx kb` (absent in CI, where the gate correctly fails closed).
+    // The cap is IMPORTED from its owner, never restated — see #X12's sibling.
+    const { AGENTS_BYTE_CAP } = await import("../../packages/kb/src/dox.ts");
+    const tracked = git(["ls-files", "-z", "*AGENTS.md"], repoRoot).split("\0").filter(Boolean);
+    expect(tracked.length).toBeGreaterThan(0);
+
+    const over = tracked.filter(
+      (f) => fs.statSync(path.join(repoRoot, f)).size > AGENTS_BYTE_CAP,
+    );
+    expect(over, `over the ${AGENTS_BYTE_CAP}-byte cap`).toEqual([]);
   });
 });
