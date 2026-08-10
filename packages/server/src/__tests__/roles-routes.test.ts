@@ -20,7 +20,7 @@ function writeProviders(obj: unknown): void {
   writeFileSync(p, JSON.stringify(obj, null, 2));
 }
 
-async function makeApp(guard = passGuard) {
+async function makeApp(guard: (req?: unknown, reply?: unknown) => Promise<void> = passGuard) {
   const app = Fastify();
   registerRolesRoutes(app, { networkGuard: guard as any });
   await app.ready();

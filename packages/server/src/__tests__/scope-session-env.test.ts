@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KeeperManager, KeeperSpawnResult } from "../rpc-keeper/keeper-manager.js";
-import { setKeeperManager, setResolver, resetResolver, spawnPiSession } from "../process-manager.js";
+import { setKeeperManager, setResolver, resetResolver, spawnPiSession } from "../spawn-process/process-manager.js";
 import { registerGuardedDir, unregisterGuardedDir } from "../session-guard.js";
 import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 
@@ -54,6 +54,7 @@ function makeFakeKeeperManager(): {
     writeRpcToSockPath: async () => true,
     killKeeper: () => true,
     discoverExistingKeepers: async () => [],
+    isKeeperAlive: () => false,
   };
   return { km, calls };
 }

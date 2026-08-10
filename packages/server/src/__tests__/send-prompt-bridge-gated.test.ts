@@ -9,13 +9,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../process-manager.js", () => ({ spawnPiSession: vi.fn() }));
+vi.mock("../spawn-process/process-manager.js", () => ({ spawnPiSession: vi.fn() }));
 vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", () => ({
   loadConfig: () => ({ spawnStrategy: "headless" as const }),
 }));
 
 import { handleSendPrompt } from "../browser-handlers/session-action-handler.js";
-import { spawnPiSession } from "../process-manager.js";
+import { spawnPiSession } from "../spawn-process/process-manager.js";
 
 function makeCtx(opts: {
   session?: Record<string, unknown>;

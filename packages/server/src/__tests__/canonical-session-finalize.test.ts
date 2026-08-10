@@ -15,8 +15,8 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { WebSocket } from "ws";
-import { createPiGateway } from "../pi-gateway.js";
-import { createMemorySessionManager } from "../memory-session-manager.js";
+import { createPiGateway } from "../pi/pi-gateway.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

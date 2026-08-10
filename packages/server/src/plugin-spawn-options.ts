@@ -6,7 +6,7 @@
  * See change: scope-session-toolset-by-profile.
  */
 import type { PluginSpawnOptions } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import type { SessionOptions } from "./process-manager.js";
+import type { SessionOptions } from "./spawn-process/process-manager.js";
 
 export function pluginSpawnToSessionOptions(
   opts: PluginSpawnOptions,

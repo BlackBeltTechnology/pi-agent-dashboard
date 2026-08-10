@@ -129,6 +129,7 @@ const BUNDLED_PLUGINS = [
   "kb-plugin",
   "hermes-memory-plugin",
   "apple-tools",
+  "invoicebot-plugin",
 ];
 const BUNDLED_PLUGINS_DIR = path.join(SERVER_BUNDLE, "resources", "plugins");
 mkdirSync(BUNDLED_PLUGINS_DIR, { recursive: true });

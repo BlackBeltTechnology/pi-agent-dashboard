@@ -16,7 +16,7 @@ import {
   pathWithinRoots,
   DEFAULT_GUARD_POLICY,
 } from "../session-guard.js";
-import { buildHeadlessArgs } from "../process-manager.js";
+import { buildHeadlessArgs } from "../spawn-process/process-manager.js";
 
 const CWD = path.resolve("/tmp/ib-workspace");
 const OTHER = path.resolve("/tmp/other");

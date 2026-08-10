@@ -96,7 +96,7 @@ describe("event-wiring: app-level ib_* domain-event rebroadcast", () => {
       autoShutdown: false,
       shutdownIdleSeconds: 999,
       tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
+
     });
     await server.start();
     browserPort = server.httpPort()!;
