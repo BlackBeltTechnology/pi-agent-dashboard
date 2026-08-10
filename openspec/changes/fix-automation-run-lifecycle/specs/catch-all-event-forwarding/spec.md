@@ -1,3 +1,11 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: EventBus catch-all via emit intercept`
+- TO: `### Requirement: EventBus forwarding via per-channel subscription`
+
+- FROM: `### Requirement: EventBus intercept installed once at extension init`
+- TO: `### Requirement: EventBus subscriptions established once at extension init`
+
 ## ADDED Requirements
 
 ### Requirement: Foreign-extension EventBus events are forwarded live
@@ -47,7 +55,7 @@ The set of EventBus channels the bridge forwards SHALL be an explicit declared l
 
 ## MODIFIED Requirements
 
-### Requirement: EventBus catch-all via emit intercept
+### Requirement: EventBus forwarding via per-channel subscription
 
 The bridge extension SHALL forward EventBus traffic by SUBSCRIBING to each declared channel through the host's event-subscription API, one subscription per channel, and sending an `event_forward` message from the subscription handler. The bridge SHALL NOT wrap, replace, or otherwise mutate the host's event-emit function: the host gives each extension its own event surface, so an emit-level mutation only ever observes the bridge's own emissions and never those of another extension.
 
@@ -67,7 +75,7 @@ Forwarding SHALL apply a rename mapping for known channels:
 - `subagents:completed` → `subagent_completed`
 - `subagents:failed` → `subagent_failed`
 
-A subscribed channel that has no mapping entry SHALL be forwarded using the channel name directly as the `eventType`. Emissions made by the bridge itself SHALL be forwarded exactly once, on the same subscription path as any other emitter's — no separate self-emit path.
+A subscribed channel that has no mapping entry SHALL be forwarded using the channel name directly as the `eventType`. The former blanket rule — that ANY unknown channel emitted by ANY extension is forwarded under its own name — SHALL NOT apply: the host's event bus offers no wildcard subscription, so only declared channels are observable. That blanket rule was in any case never satisfied for a channel emitted by another extension, so no working behavior is withdrawn. A plugin needing its own channel forwarded SHALL declare it in the channel mapping (identity entry when no rename is wanted). Emissions made by the bridge itself SHALL be forwarded exactly once, on the same subscription path as any other emitter's — no separate self-emit path.
 
 #### Scenario: Known flow event forwarded with mapped name
 
@@ -99,7 +107,7 @@ A subscribed channel that has no mapping entry SHALL be forwarded using the chan
 - **WHEN** the bridge itself emits a declared channel
 - **THEN** exactly one `event_forward` SHALL be sent for it
 
-### Requirement: EventBus intercept installed once at extension init
+### Requirement: EventBus subscriptions established once at extension init
 
 EventBus forwarding subscriptions SHALL be established once per bridge instance and SHALL survive until that bridge instance is superseded or torn down. The not-ready guard SHALL prevent premature forwarding, so subscriptions MAY be established before the session is ready.
 
@@ -115,11 +123,3 @@ On teardown or reload the bridge SHALL release its own subscriptions, and SHALL 
 - **WHEN** the bridge extension reloads or shuts down
 - **THEN** its EventBus subscriptions SHALL be released
 - **AND** no host emit function SHALL be reassigned as part of cleanup
-
-## REMOVED Requirements
-
-### Requirement: Unknown-channel wildcard forwarding
-
-**Reason**: The host's event bus offers no wildcard/catch-all subscription, so forwarding "every channel any extension might emit" is not implementable once emit interception is abandoned. Emit interception was the only way to observe undeclared channels, and it provably never observed foreign-extension emissions at all — the wildcard was therefore already dead for every emitter except the bridge itself.
-
-**Migration**: A plugin that needs its own custom channel forwarded SHALL add that channel to the bridge's declared channel/rename mapping; it is then forwarded by the mapped name (or the channel name when no rename is declared). Existing behavior is preserved for all flow and subagent channels, which are all declared.
