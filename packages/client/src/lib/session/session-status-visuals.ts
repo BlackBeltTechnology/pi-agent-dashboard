@@ -182,25 +182,119 @@ export function countNeedsYou(
   return n;
 }
 
+/** Capsule buckets, in fixed severity order. See change: unify-folder-status-capsule. */
+export type CapsuleBucket = "needsYou" | "error" | "working" | "idle";
+
 /**
- * Collapsed-folder status rollup: count the folder's non-ended sessions by the
- * two ambient states (`working`, `idle`). The `needs-you` state is deliberately
- * excluded — it is surfaced separately by the clickable `FolderNeedsYouPill`
- * (which owns the widget-bar probe). `ended` sessions are excluded too. Pure so
- * the rollup is unit-testable without rendering.
- * See change: condense-collapsed-folder-header.
+ * Fixed segment order for the folder status capsule: a human actively waiting
+ * outranks a crash (the crash is already over, the wait is not). Declared as a
+ * constant rather than derived, so "needs-you before error" is a directly
+ * assertable invariant and magnitude can never reorder segments.
+ * See change: unify-folder-status-capsule.
  */
-export function countStatusRollup(
+export const CAPSULE_SEGMENT_ORDER = ["needsYou", "error", "working", "idle"] as const;
+
+export interface CapsuleCounts extends Record<CapsuleBucket, number> {
+  /** First session id per bucket, in the same order the counts were taken. */
+  firstIds: Partial<Record<CapsuleBucket, string>>;
+}
+
+export interface CapsuleFlags {
+  errorSessionIds?: Set<string>;
+  retrySessionIds?: Set<string>;
+  noticeSessionIds?: Set<string>;
+  /**
+   * TRI-STATE widget-bar classification. `false` = classified as NOT
+   * widget-bar (countable as needs-you), `true` = widget-bar-placed,
+   * `undefined` = not yet classified. A `(id) => boolean` predicate cannot
+   * express the third case, and collapsing it re-introduces the needs-you
+   * over-count flash on mount. Defaults to "nothing classified yet".
+   */
+  widgetBar?: (sessionId: string) => boolean | undefined;
+}
+
+/**
+ * Folder status capsule counting pass. Replaces the former `countStatusRollup`
+ * with a flags-aware version that can reach the `error` and `notice` shapes the
+ * flagless rollup never could.
+ *
+ * Counting and navigation targeting share ONE pass over the SAME list, so the
+ * segment's count and its target can never disagree.
+ *
+ * Exclusions are applied BEFORE shape derivation, deliberately:
+ *   - `ended` — `deriveStatusShape` checks the notice flag ahead of the status
+ *     check, so an ended-but-noticed session would otherwise land in a live
+ *     bucket;
+ *   - `hidden` — not rendered, so counting one advertises an unreachable
+ *     navigation target;
+ *   - widget-bar-placed AND not-yet-classified `ask_user` — excluded from
+ *     EVERY bucket, not merely from needs-you: letting one fall through to
+ *     `idle` would report a session awaiting the user's input as all-clear.
+ *
+ * `needsYou` is computed by an explicit predicate rather than delegated to
+ * `deriveStatusShape`, which forwards to `isChatRoutedAskUser(s, false)` and so
+ * coerces an unresolved classification into "needs you". The `!hasError` clause
+ * is load-bearing: `isChatRoutedAskUser` does not check the error flag because
+ * `deriveStatusShape` checks it first, so reproducing the predicate without that
+ * guard double-counts an errored `ask_user` session.
+ *
+ * `notice` folds into `idle` — the capsule has no notice segment, and dropping
+ * it would silently lower the idle count below what the flagless rollup reports
+ * today.
+ *
+ * See change: unify-folder-status-capsule.
+ */
+export function countStatusCapsule(
   sessions: DashboardSession[],
-): { working: number; idle: number } {
-  let working = 0;
-  let idle = 0;
+  flags: CapsuleFlags = {},
+): CapsuleCounts {
+  const counts: CapsuleCounts = {
+    needsYou: 0,
+    error: 0,
+    working: 0,
+    idle: 0,
+    firstIds: {},
+  };
+
   for (const s of sessions) {
-    const shape = deriveStatusShape(s);
-    if (shape === "working") working++;
-    else if (shape === "idle") idle++;
+    const bucket = capsuleBucketFor(s, flags);
+    if (bucket === null) continue;
+    counts[bucket]++;
+    if (counts.firstIds[bucket] === undefined) counts.firstIds[bucket] = s.id;
   }
-  return { working, idle };
+
+  return counts;
+}
+
+/**
+ * Bucket a single session, or `null` when it is excluded from every segment.
+ * Split out of `countStatusCapsule` so the counting loop stays a plain tally.
+ * See change: unify-folder-status-capsule.
+ */
+function capsuleBucketFor(s: DashboardSession, flags: CapsuleFlags): CapsuleBucket | null {
+  // Pre-filter before any derivation — see `countStatusCapsule`'s doc comment.
+  if (s.status === "ended" || s.hidden === true) return null;
+
+  const hasError = flags.errorSessionIds?.has(s.id) === true;
+
+  // Explicit needs-you predicate. An `ask_user` session that is NOT errored is
+  // either needs-you (classification resolved to not-widget-bar) or excluded
+  // outright — it never falls through to another bucket.
+  if (s.currentTool === "ask_user" && !hasError) {
+    return flags.widgetBar?.(s.id) === false ? "needsYou" : null;
+  }
+
+  const shape = deriveStatusShape(s, {
+    hasError,
+    isRetrying: flags.retrySessionIds?.has(s.id) === true,
+    hasNotice: flags.noticeSessionIds?.has(s.id) === true,
+  });
+
+  if (shape === "error") return "error";
+  if (shape === "working") return "working";
+  // `notice` folds into `idle`; the capsule has no notice segment.
+  if (shape === "idle" || shape === "notice") return "idle";
+  return null;
 }
 
 /**

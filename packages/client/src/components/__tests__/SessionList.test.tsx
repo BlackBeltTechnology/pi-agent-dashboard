@@ -1236,3 +1236,66 @@ describe("SessionList folder header keyboard accessibility", () => {
     expect(name.querySelector(`[data-testid="folder-actions-menu-${CWD}"]`)).toBeNull();
   });
 });
+
+// See change: unify-folder-status-capsule.
+describe("SessionList folder header liveness surface", () => {
+  const CWD = "/home/user/project";
+
+  function renderList(sessions: DashboardSession[]) {
+    const { hook } = memoryLocation({ path: "/", static: true });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <SessionList sessions={sessions} onSelect={() => {}} />
+        </ThemeProvider>
+      </Router>,
+    );
+  }
+
+  it("the capsule is the folder header's only liveness surface (test-plan #E15)", () => {
+    renderList([
+      makeSession({ id: "s1", cwd: CWD, status: "idle" }),
+      makeSession({ id: "s2", cwd: CWD, status: "streaming" }),
+      makeSession({ id: "s3", cwd: CWD, status: "idle" }),
+    ]);
+
+    // The capsule renders — unconditional on collapse state.
+    expect(screen.getByTestId(`folder-status-capsule-${CWD}`)).toBeTruthy();
+
+    // The three surfaces it replaced are gone.
+    expect(screen.queryByTestId("folder-needs-you-pill")).toBeNull();
+    expect(screen.queryByTestId("folder-status-rollup")).toBeNull();
+    // No raw `(N)` session count anywhere in the header.
+    const header = screen.getByTestId(`folder-header-name-${CWD}`).parentElement;
+    expect(header?.textContent).not.toMatch(/\(\d+\)/);
+  });
+
+  it("renders no capsule for an all-ended folder, which still discloses its count (test-plan #E5)", () => {
+    // The folder must actually RENDER for the capsule's absence to be
+    // attributable to the capsule: asserting it on a folder SessionList has
+    // filtered away entirely proves nothing. A live session in the same folder
+    // keeps the group on screen while every ENDED session stays uncounted.
+    renderList([
+      makeSession({ id: "live", cwd: CWD, status: "idle" }),
+      makeSession({ id: "e1", cwd: CWD, status: "ended" }),
+      makeSession({ id: "e2", cwd: CWD, status: "ended" }),
+    ]);
+
+    // The folder rendered.
+    expect(screen.getByTestId(`folder-header-name-${CWD}`)).toBeTruthy();
+
+    // Ended sessions are excluded from every segment: the capsule counts only
+    // the one live session, never 3.
+    const capsule = screen.getByTestId(`folder-status-capsule-${CWD}`);
+    const segments = Array.from(capsule.querySelectorAll("[data-capsule-segment]"));
+    expect(segments).toHaveLength(1);
+    expect(segments[0].getAttribute("data-capsule-segment")).toBe("idle");
+    expect(segments[0].textContent).toContain("1");
+
+    // Second observable of #E5: the folder still discloses the ended ones, so
+    // removing the raw (N) count did not lose "how much history is here".
+    expect(
+      screen.getByTestId(`folder-ended-toggle-${CWD}`).getAttribute("aria-label"),
+    ).toMatch(/2 ended/i);
+  });
+});
