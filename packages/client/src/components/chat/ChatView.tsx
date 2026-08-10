@@ -8,7 +8,7 @@ import {
 import { mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
-import React, { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useActiveChatSelection } from "../../hooks/useActiveChatSelection.js";
 import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
@@ -26,6 +26,7 @@ import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupD
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
 import { formatMessageTime } from "../../lib/util/format.js";
 import { buildTurnSummaries, type TurnSummary } from "../../lib/util/lineDelta.js";
 import { isOutOfCwd, normalizeUnderCwd } from "../../lib/util/normalize-path.js";
@@ -83,6 +84,14 @@ interface Props {
    * session. See change: show-chat-history-loading-indicator.
    */
   loadingHistory?: boolean;
+  /**
+   * Selected session's "replay in flight" flag. Unlike `loadingHistory` it
+   * stays true until the TERMINAL replay batch lands, so it covers the window
+   * where partial history is already painted but the transcript is still
+   * filling in. Renders an indeterminate pill after `REPLAY_PILL_DELAY_MS`.
+   * See change: show-replay-in-flight-indicator.
+   */
+  replayInFlight?: boolean;
   /**
    * Client-only signal: the user manually collapsed the LIVE streaming
    * reasoning block. Sets `streamingThinkingCollapsed` on the session state so
@@ -313,7 +322,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, onCollapseStreamingThinking }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -323,6 +332,45 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // an inline merge would hand it a fresh `context` reference on every render
   // and defeat the memo. See change: cleanup-import-cycles (D4b).
   const toolContext = useMemo(() => withDefaultFileLink(suppliedToolContext), [suppliedToolContext]);
+  // Show-delay for the replay-in-flight pill: paint only once the flag has
+  // been true for REPLAY_PILL_DELAY_MS, so a fast replay never flashes an
+  // indicator. Deliberately NOT conditioned on replay-cache state.
+  // See change: show-replay-in-flight-indicator.
+  const [showReplayPill, setShowReplayPill] = useState(false);
+  const replayPillTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // `<ChatView>` is rendered without a `key` and is React.memo'd, so the
+  // instance is REUSED across session switches — the visible bit must be reset
+  // on a session change or a pill armed for session A leaks into session B.
+  // Tracked with a ref rather than a second effect: a separate reset effect
+  // would also run on MOUNT, tearing down the timer this one just armed.
+  const replayPillSessionRef = useRef(sessionId);
+  useEffect(() => {
+    if (replayPillSessionRef.current !== sessionId) {
+      replayPillSessionRef.current = sessionId;
+      setShowReplayPill(false);
+    }
+    if (!replayInFlight) {
+      // Cancel a pending timer AND reset the visible bit: a replay that
+      // resolves at 250ms must not leave a timer that paints the pill after.
+      if (replayPillTimerRef.current) {
+        clearTimeout(replayPillTimerRef.current);
+        replayPillTimerRef.current = null;
+      }
+      setShowReplayPill(false);
+      return;
+    }
+    replayPillTimerRef.current = setTimeout(() => {
+      replayPillTimerRef.current = null;
+      setShowReplayPill(true);
+    }, REPLAY_PILL_DELAY_MS);
+    return () => {
+      if (replayPillTimerRef.current) {
+        clearTimeout(replayPillTimerRef.current);
+        replayPillTimerRef.current = null;
+      }
+    };
+  }, [replayInFlight, sessionId]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   // True when the user wants the chat to chase new content. Flips to false on
   // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on
@@ -1374,6 +1422,27 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         )
       )}
     </div>
+    {/*
+      Replay-in-flight pill. OVERLAYS the list (absolutely positioned sibling,
+      like the scroll buttons) rather than inserting a row, so it cannot perturb
+      scroll anchoring. Indeterminate by design — no count, total, or percentage.
+      Mutually exclusive with the loading skeleton, which only renders while the
+      message list is empty. See change: show-replay-in-flight-indicator.
+    */}
+    {showReplayPill && state.messages.length > 0 && (
+      <div
+        data-testid="replay-in-flight-pill"
+        role="status"
+        aria-busy="true"
+        aria-label={i18nT("status.loadingHistoryInFlight", undefined, "Loading earlier messages…")}
+        className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] px-3 py-1 shadow-lg"
+      >
+        <Icon path={mdiLoading} size={0.6} className="animate-spin text-[var(--text-secondary)]" />
+        <span className="text-[11px] text-[var(--text-secondary)]">
+          {i18nT("status.loadingHistoryInFlight", undefined, "Loading earlier messages…")}
+        </span>
+      </div>
+    )}
     {showScrollTopButton && (
       <button
         data-testid="scroll-to-top"

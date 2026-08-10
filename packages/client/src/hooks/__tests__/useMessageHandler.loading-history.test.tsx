@@ -53,6 +53,10 @@ function setup() {
     setSpawnErrors: vi.fn(),
     setResumeErrors: vi.fn(),
     setLoadingHistory,
+    // Second replay flag, unasserted here — supplied so the handler's
+    // `replayInFlight` edges have a setter to call.
+    // See change: show-replay-in-flight-indicator.
+    setReplayInFlight: vi.fn(),
   };
 
   const deps: any = {
@@ -67,6 +71,7 @@ function setup() {
     selectedSessionIdRef: { current: undefined },
     pendingSpawnsRef: { current: new Map() },
     loadingHistoryTimersRef: timersRef,
+    replayInFlightTimersRef: { current: new Map<string, ReturnType<typeof setTimeout>>() },
   };
 
   const { result } = renderHook(() => useMessageHandler(setters, deps));
