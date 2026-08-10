@@ -43,10 +43,14 @@ const CHAIN_KEYS = new Set<string>([
 
 type Chains = Record<string, ModelRef[]>;
 
-interface Draft {
+export interface Draft {
   values: Record<string, unknown>;
   chains: Chains;
   baseModel: ModelRef | null;
+  /** Keys the FILE set (GET reported `isDefault: false`) at load time. */
+  userSet: ReadonlySet<string>;
+  /** The values observed at load, so an untouched key can be left alone. */
+  loaded: Record<string, unknown>;
 }
 
 function errMsg(e: unknown): string {
@@ -54,9 +58,14 @@ function errMsg(e: unknown): string {
 }
 
 /** Build the editable draft from a GET result. */
-function toDraft(cfg: ConfigOk): Draft {
+export function toDraft(cfg: ConfigOk): Draft {
   const values: Record<string, unknown> = {};
-  for (const key of KNOWN_KEYS) values[key] = cfg.fields[key]?.value;
+  const userSet = new Set<string>();
+  for (const key of KNOWN_KEYS) {
+    const view = cfg.fields[key];
+    values[key] = view?.value;
+    if (view && !view.isDefault) userSet.add(key);
+  }
   const chains: Chains = {};
   for (const w of WORKER_META) chains[w.worker] = readChain(values, w.primaryKey, w.fallbackKey);
   const base = values.model;
@@ -64,16 +73,42 @@ function toDraft(cfg: ConfigOk): Draft {
     values,
     chains,
     baseModel: base && typeof base === "object" && !Array.isArray(base) ? (base as ModelRef) : null,
+    userSet,
+    loaded: { ...values },
   };
 }
 
+/** Structural equality, treating `null` and `undefined` as the same absence. */
+function same(a: unknown, b: unknown): boolean {
+  if (a === undefined || a === null) return b === undefined || b === null;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 /**
- * Build the PUT body: every managed scalar's effective value, plus each chain
- * split back into its `<worker>Model` / `<worker>FallbackModels` pair. `null`
+ * Should this key appear in the PUT body at all?
+ *
+ * Only when the FILE already set it, or the user changed it here. A key the file
+ * omitted and the user never touched is left ABSENT: writing its default would
+ * silently pin the value, so a later change to blackhole's own default would
+ * stop reaching this user. "Populated with defaults" is a display affordance,
+ * not an instruction to materialise them.
+ */
+function shouldEmit(draft: Draft, key: string, current: unknown): boolean {
+  return draft.userSet.has(key) || !same(current, draft.loaded[key]);
+}
+
+/**
+ * Build the PUT body: the managed scalars worth writing, plus each chain split
+ * back into its `<worker>Model` / `<worker>FallbackModels` pair. `null`
  * explicitly unsets a model key — `undefined` would be dropped by
  * `JSON.stringify` and the key would silently survive on disk.
  */
 export function buildPayload(draft: Draft): Record<string, unknown> {
+  return { ...scalarPayload(draft), ...modelPayload(draft) };
+}
+
+/** The managed non-chain keys worth writing. */
+function scalarPayload(draft: Draft): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of KNOWN_KEYS) {
     if (CHAIN_KEYS.has(key)) continue;
@@ -83,13 +118,24 @@ export function buildPayload(draft: Draft): Record<string, unknown> {
     // Both mean "say nothing about this key", so the on-disk value stands.
     if (value === undefined) continue;
     if (typeof value === "number" && Number.isNaN(value)) continue;
+    if (!shouldEmit(draft, key, value)) continue;
     out[key] = value;
   }
-  out.model = draft.baseModel ? normalizeModel(draft.baseModel as unknown as Record<string, unknown>) : null;
+  return out;
+}
+
+/** The base model plus each worker chain, split back into its key pair. */
+function modelPayload(draft: Draft): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (shouldEmit(draft, "model", draft.baseModel)) {
+    out.model = draft.baseModel
+      ? normalizeModel(draft.baseModel as unknown as Record<string, unknown>)
+      : null;
+  }
   for (const w of WORKER_META) {
     const { primary, fallbacks } = writeChain(draft.chains[w.worker] ?? []);
-    out[w.primaryKey] = primary ?? null;
-    out[w.fallbackKey] = fallbacks ?? null;
+    if (shouldEmit(draft, w.primaryKey, primary ?? null)) out[w.primaryKey] = primary ?? null;
+    if (shouldEmit(draft, w.fallbackKey, fallbacks ?? null)) out[w.fallbackKey] = fallbacks ?? null;
   }
   return out;
 }

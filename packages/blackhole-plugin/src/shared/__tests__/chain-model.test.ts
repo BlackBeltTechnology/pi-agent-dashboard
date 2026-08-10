@@ -40,6 +40,20 @@ describe("chain order maps to array order (E18)", () => {
     expect(writeChain([])).toEqual({ primary: undefined, fallbacks: undefined });
   });
 
+  it("preserves RESOLUTION ORDER when the primary key is absent", () => {
+    // blackhole's own `parseModel(raw.observerModel)` yields undefined for an
+    // absent primary, so resolution starts at the fallback list. Reading that
+    // shape into one ranked list and writing it back re-keys the entries but
+    // leaves the ORDER models are tried in identical — which is the behaviour
+    // the config expresses. The file text changes; resolution does not.
+    const before = { observerFallbackModels: [A, B, C] };
+    const chain = readChain(before, "observerModel", "observerFallbackModels");
+    expect(chain).toEqual([A, B, C]);
+
+    const { primary, fallbacks } = writeChain(chain);
+    expect([primary, ...(fallbacks ?? [])]).toEqual([A, B, C]);
+  });
+
   it("tolerates an absent primary or a non-array fallback field", () => {
     expect(readChain({}, "observerModel", "observerFallbackModels")).toEqual([]);
     expect(

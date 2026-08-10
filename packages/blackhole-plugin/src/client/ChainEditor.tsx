@@ -80,10 +80,12 @@ export function ChainEditor({
       <ol className="list-none m-0 p-0">
         {entries.map((entry, index) => (
           <li
-            // Chain entries are reorderable and their fields are editable, so
-            // neither the id nor the index alone is a stable identity. The pair
-            // is: it survives an edit to one entry and survives a reorder.
-            key={`${index}:${entry.provider}/${entry.id}`}
+            // Key by INDEX. A content-derived key would change on every
+            // keystroke in Provider / Model ID, remounting the <li> — which
+            // closes the open <details> and drops focus after one character.
+            // The chain is index-addressed everywhere else in this component
+            // (test ids, move and remove handlers), so this is consistent.
+            key={index}
             className="border border-[var(--border-secondary)] rounded-lg mb-1.5 bg-[var(--bg-secondary)]"
             data-testid={`blackhole-chain-${worker}-entry-${index}`}
           >

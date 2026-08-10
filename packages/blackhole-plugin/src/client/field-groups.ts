@@ -130,7 +130,9 @@ export const FIELD_GROUPS: FieldGroup[] = [
         key: "dropperPressureThreshold",
         label: "Dropper pressure threshold",
         help: "Pressure-relief valve — fraction of the reflector input cap at which the dropper fires even with no new data.",
-        unit: "0–1",
+        // The accepted interval is OPEN at 0 — the validator rejects 0, so a
+        // "0–1" label would invite a request that 400s.
+        unit: "> 0 and ≤ 1",
       },
     ],
   },

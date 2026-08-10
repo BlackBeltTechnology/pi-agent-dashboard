@@ -8,7 +8,7 @@
  */
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ModelRef } from "../../shared/blackhole-config.js";
+import { type ModelRef, validateBlackholeConfig } from "../../shared/blackhole-config.js";
 import { ChainEditor } from "../ChainEditor.js";
 
 afterEach(cleanup);
@@ -140,6 +140,37 @@ describe("per-model fields (E20)", () => {
     fireEvent.change(getByLabelText(`Context window for ${A.id}`), { target: { value: "" } });
     const next = onChange.mock.calls[0][0] as ModelRef[];
     expect(Object.hasOwn(next[0], "contextWindow")).toBe(false);
+  });
+
+  it("writes a typed NUMBER for a non-empty context window, not the raw input string", () => {
+    const { getByLabelText, onChange } = renderChain([A, B]);
+    fireEvent.change(getByLabelText(`Context window for ${A.id}`), { target: { value: "128000" } });
+    const next = onChange.mock.calls[0][0] as ModelRef[];
+    expect(next[0].contextWindow).toBe(128_000);
+    expect(typeof next[0].contextWindow).toBe("number");
+  });
+
+  it("writes a typed NUMBER for a non-empty cooldown", () => {
+    const { getByLabelText, onChange } = renderChain([A, B]);
+    fireEvent.change(getByLabelText(`Cooldown hours for ${A.id}`), { target: { value: "12" } });
+    const next = onChange.mock.calls[0][0] as ModelRef[];
+    expect(next[0].cooldownHours).toBe(12);
+  });
+
+  it("omits thinking entirely when the (inherit) option is selected", () => {
+    const { getByLabelText, onChange } = renderChain([{ ...A, thinking: "high" }, B]);
+    fireEvent.change(getByLabelText(`Thinking level for ${A.id}`), { target: { value: "" } });
+    const next = onChange.mock.calls[0][0] as ModelRef[];
+    expect(Object.hasOwn(next[0], "thinking")).toBe(false);
+  });
+
+  it("emits an entry the server validator accepts after a numeric edit", () => {
+    const { getByLabelText, onChange } = renderChain([A, B]);
+    fireEvent.change(getByLabelText(`Context window for ${A.id}`), { target: { value: "128000" } });
+    const next = onChange.mock.calls[0][0] as ModelRef[];
+    // The real boundary, not a shape guess: round-trip the edited chain through
+    // the same validator the PUT route runs.
+    expect(validateBlackholeConfig({ observerFallbackModels: next }).errors).toEqual([]);
   });
 
   it("exposes provider, id, thinking, cooldownHours and contextWindow", () => {

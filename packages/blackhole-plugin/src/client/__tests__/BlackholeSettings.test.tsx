@@ -10,8 +10,8 @@
  */
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULTS, KNOWN_KEYS } from "../../shared/blackhole-config.js";
-import { BlackholeSettings } from "../BlackholeSettings.js";
+import { DEFAULTS, KNOWN_KEYS, validateBlackholeConfig } from "../../shared/blackhole-config.js";
+import { BlackholeSettings, buildPayload, toDraft } from "../BlackholeSettings.js";
 
 afterEach(() => {
   cleanup();
@@ -128,6 +128,53 @@ describe("apply semantics (F7)", () => {
     expect(page).not.toMatch(/restart/i);
     const note = getByTestId("blackhole-apply-note").textContent ?? "";
     expect(note).toMatch(/pi-blackhole re-reads this file/i);
+  });
+});
+
+describe("the save payload does not materialise untouched defaults", () => {
+  /**
+   * Writing every default into the user's file would PIN values the file had
+   * deliberately left absent, so a later change to blackhole's own default
+   * would stop reaching this user. Only file-set or user-edited keys go out.
+   */
+  it("emits NOTHING for a file that set nothing and a user who edited nothing", () => {
+    expect(buildPayload(toDraft(allDefaultConfig() as never))).toEqual({});
+  });
+
+  it("emits only the keys the FILE set", () => {
+    const payload = buildPayload(toDraft(allDefaultConfig({ compaction: "manual" }) as never));
+    expect(payload).toEqual({ compaction: "manual" });
+  });
+
+  it("emits only the EDITED key when the file set nothing", () => {
+    const draft = toDraft(allDefaultConfig() as never);
+    const edited = { ...draft, values: { ...draft.values, compactAfterTokens: 90_000 } };
+    expect(buildPayload(edited)).toEqual({ compactAfterTokens: 90_000 });
+  });
+
+  it("never emits a default the user did not touch alongside an edit", () => {
+    const draft = toDraft(allDefaultConfig() as never);
+    const edited = { ...draft, values: { ...draft.values, compactAfterTokens: 90_000 } };
+    const payload = buildPayload(edited);
+    expect(Object.hasOwn(payload, "observeAfterTokens")).toBe(false);
+    expect(Object.hasOwn(payload, "memory")).toBe(false);
+    expect(Object.hasOwn(payload, "observerModel")).toBe(false);
+  });
+
+  it("round-trips a file-set chain unchanged and emits it on save", () => {
+    const cfg = allDefaultConfig({
+      observerModel: { provider: "openrouter", id: "A" },
+      observerFallbackModels: [{ provider: "ollama", id: "B" }],
+    });
+    const payload = buildPayload(toDraft(cfg as never));
+    expect(payload.observerModel).toEqual({ provider: "openrouter", id: "A" });
+    expect(payload.observerFallbackModels).toEqual([{ provider: "ollama", id: "B" }]);
+  });
+
+  it("produces a payload the server validator accepts", () => {
+    const draft = toDraft(allDefaultConfig({ compaction: "manual" }) as never);
+    const edited = { ...draft, values: { ...draft.values, compactAfterTokens: 90_000 } };
+    expect(validateBlackholeConfig(buildPayload(edited)).errors).toEqual([]);
   });
 });
 

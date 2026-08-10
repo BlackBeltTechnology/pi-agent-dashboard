@@ -88,7 +88,15 @@ export function registerBlackholeRoutes(
     logger.info(
       `blackhole config wrote path=${filePath} keys=${keyCount} preservedUnmanaged=${saved.preservedUnmanagedKeys.length} externalWriteDetected=${saved.externalWriteDetected}`,
     );
+    // The write succeeded. If the file has ALREADY been corrupted again by
+    // another process, the echo read comes back as a parse-error — do not spread
+    // that into a 200 body, which would carry `status: "parse-error"` with no
+    // fields and look like a failed save. Report the save on its own terms.
     const after = readConfig(filePath);
+    if (after.status === "parse-error") {
+      logger.warn(`blackhole config unparseable immediately after write path=${filePath}`);
+      return { status: "ok" as const, filePath, staleEcho: true, ...saved };
+    }
     return { ...after, ...saved };
   });
 }
