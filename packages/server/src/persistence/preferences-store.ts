@@ -229,6 +229,12 @@ function backfillDisplayPrefs(prefs: DisplayPrefs | undefined): DisplayPrefs | u
   if (typeof out.showOutOfCwdSessionDiffs !== "boolean") {
     out = { ...out, showOutOfCwdSessionDiffs: false };
   }
+  // Legacy prefs predating the notify gate default it to "all" — today's
+  // behavior, so an upgrade hides nothing the user had not asked to hide.
+  // See change: gate-notify-rows-by-level.
+  if (typeof out.notifyMinLevel !== "string") {
+    out = { ...out, notifyMinLevel: "all" };
+  }
   return out;
 }
 
@@ -575,6 +581,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         changeSummaryTable: false,
         reserveProcessLineAtIdle: false,
         showOutOfCwdSessionDiffs: false,
+        notifyMinLevel: "all",
       };
       const merged: DisplayPrefs = {
         tokenStatsBar: partial.tokenStatsBar ?? base.tokenStatsBar,
@@ -594,6 +601,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
           partial.reserveProcessLineAtIdle ?? base.reserveProcessLineAtIdle,
         showOutOfCwdSessionDiffs:
           partial.showOutOfCwdSessionDiffs ?? base.showOutOfCwdSessionDiffs,
+        notifyMinLevel: partial.notifyMinLevel ?? base.notifyMinLevel,
       };
       displayPrefs = merged;
       scheduleSave();

@@ -1,7 +1,10 @@
 import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skeleton";
-import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import {
+  isNotifyRowVisible,
+  toolCallPrefKey,
+} from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
@@ -492,7 +495,19 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           const cmp = (args?.params as Record<string, unknown> | undefined)?._promptBusComponent as
             | { type?: string }
             | undefined;
-          return !(cmp?.type && isWidgetBarPrompt(cmp.type));
+          if (cmp?.type && isWidgetBarPrompt(cmp.type)) return false;
+          // Notify rows are gated by level; blocking asks never are. The shared
+          // predicate fails open on anything it cannot positively identify as a
+          // notify. Mirrored in the render branch below (D3).
+          // See change: gate-notify-rows-by-level.
+          return isNotifyRowVisible(
+            {
+              content: msg.content,
+              method: args?.method,
+              level: (args?.params as Record<string, unknown> | undefined)?.level,
+            },
+            prefs.notifyMinLevel,
+          );
         }
         case "rawEvent":
           return showDebugTools;
@@ -1162,6 +1177,22 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             | { type?: string }
             | undefined;
           if (cmp?.type && isWidgetBarPrompt(cmp.type)) {
+            return null;
+          }
+          // Second gate site, mirroring the `rawEvent` precedent below: the
+          // filter above already drops sub-floor notifies, so this is the
+          // defensive half of the D3 pair — it must never disagree with it.
+          // See change: gate-notify-rows-by-level.
+          if (
+            !isNotifyRowVisible(
+              {
+                content: msg.content,
+                method: args?.method,
+                level: (args?.params as Record<string, unknown> | undefined)?.level,
+              },
+              prefs.notifyMinLevel,
+            )
+          ) {
             return null;
           }
           const request: InteractiveUiRequest = {
