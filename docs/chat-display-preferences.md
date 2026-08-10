@@ -40,18 +40,30 @@ Global + per-session `DisplayPrefs` gate chat-view chrome (thinking blocks, tool
 
 `notifyMinLevel` gates interactive notify rows by severity floor.
 
-- `NotifyMinLevel = "all" | "success" | "warnings" | "errors"`. `NOTIFY_MIN_LEVELS` exports the four stops in ladder order (settings controls iterate it).
-- Ladder: `info < success < warning < error`. `success` deliberately outranks `info`.
-- No `"off"` value. `errors` is the strictest floor; `error` notify rows ALWAYS render.
-- Default `"all"` in all three presets (`simple` / `standard` / `everything`). Zero visibility change on upgrade.
+- `NotifyMinLevel = "all" | "success" | "warnings" | "errors"`.
+- `NOTIFY_MIN_LEVELS` exports the four stops in ladder order.
+- Settings controls iterate `NOTIFY_MIN_LEVELS`.
+- Ladder: `info < success < warning < error`.
+- `success` deliberately outranks `info`.
+- No `"off"` value.
+- `errors` is the strictest floor.
+- `error` notify rows ALWAYS render.
+- Default `"all"` in all three presets (`simple` / `standard` / `everything`).
+- Zero visibility change on upgrade.
 - Server `backfillDisplayPrefs` defaults legacy files to `"all"`.
-- Single shared predicate `isNotifyRowVisible(row, minLevel)` in `packages/shared/src/display-prefs.ts`. Applied at BOTH `ChatView` gate sites: `isRowVisible` filter + `interactiveUi` render branch.
+- Single shared predicate `isNotifyRowVisible(row, minLevel)` in `packages/shared/src/display-prefs.ts`.
+- Applied at BOTH `ChatView` gate sites: `isRowVisible` filter + `interactiveUi` render branch.
 - Fails open on BOTH inputs:
-  - Row not positively identified as notify renders. Discriminator requires BOTH `content === "notify"` AND `args.method === "notify"`.
-  - Unrecognized floor degrades to `"all"`. Prevents NaN comparison hiding `error`.
+  - Row not positively identified as notify renders.
+  - Discriminator requires BOTH `content === "notify"` AND `args.method === "notify"`.
+  - Unrecognized floor degrades to `"all"`.
+  - `Object.hasOwn(FLOOR_RANK, value)` guards floor recognition.
+  - Degrade prevents NaN comparison hiding `error`.
 - Control: Settings ▸ General ▸ Chat display (`SelectField`).
 - Control: per-session ⚙ View popover (`ChatViewMenu`, first non-boolean row).
-- `NotifyRenderer` renders through the shared `InlineMessage` primitive. Colour from `--severity-*` tokens; four `text-{blue,green,yellow,red}-400` literals gone.
+- `NotifyRenderer` renders through the shared `InlineMessage` primitive.
+- Colour from `--severity-*` tokens.
+- Four `text-{blue,green,yellow,red}-400` literals gone.
 - Level survives without colour: accent bar + per-level icon + level word.
 - `InlineMessage.Severity` gained `"success"`.
 

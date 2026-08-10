@@ -20,7 +20,10 @@ established `rawEvent` precedent in the same file.
 Because of that asymmetry, the row-count invariant SHALL NOT be treated as
 coverage of both sites: it is satisfied when either site alone is gated. The
 render-branch site SHALL be pinned by a direct assertion that a sub-floor notify
-contributes no rendered element and no measured height.
+contributes no rendered element. Absence of measured height SHALL be required
+only of the combined behaviour, where `isRowVisible` also filters the row: once
+`isRowVisible` admits a row the virtualizer has already counted it, so returning
+`null` from the render branch cannot reclaim that estimated slot.
 
 The gate SHALL be display-only. A hidden notify SHALL remain in session state so
 that lowering the floor re-reveals it without a reload or refetch.

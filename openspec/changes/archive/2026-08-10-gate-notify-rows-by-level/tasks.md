@@ -9,7 +9,7 @@
 - [x] 1.5 Confirm `NotifyMessage` (`shared/src/protocol.ts:446`) carries NO emitter identity — this is what puts per-extension muting out of scope (D6). Record the finding; do not add the field in this change.
 - [x] 1.6 Read `rawEvent` as the reference implementation of a two-site gate: `ChatView.tsx` ~497 (`isRowVisible`) and ~1183 (render branch). Both, or the virtualizer desyncs (D3).
 - [x] 1.7 Confirm the renderer gap: `NotifyRenderer.tsx` `levelColors` hardcodes `text-blue-400` / `green-400` / `yellow-400` / `red-400`, and `message-severity-tokens`' "No raw severity color literals" requirement enumerates `Toast.tsx`, `SpawnErrorToastHost.tsx`, `SpawnErrorBanner.tsx`, `extension-ui/ToastSlot.tsx` — NOT this file. It was missed, not exempted.
-- [x] 1.8 Confirm `--severity-success-*` exists in `index.css` and `rg` shows **zero** current consumers — notify is the first (D8).
+- [x] 1.8 Confirm `--severity-success-*` exists in `index.css` and inventory its consumers — `Toast.tsx:47-48` and `extension-ui/ToastSlot.tsx:55` already consume it, so `NotifyRenderer` is a NEW consumer of an existing triple, not its first (D8; cross-checked by task 2.25).
 - [x] 1.9 Read `message-severity-tokens`' contrast requirement before writing any contrast test: the gate is a **relative 3:1 floor + majority-AA across 18 theme·mode combos**, NOT absolute AA. Do not assert 4.5:1-everywhere; the spec explains why that is unsatisfiable.
 
 ## 2. Tests first (red) — folded from `test-plan.md`
