@@ -1,0 +1,20 @@
+{
+  // Typecheck the browser-E2E suite. The root tsconfig only includes
+  // `packages/*/src`, so before this file NOTHING under tests/ was ever seen by
+  // `tsc`. That mattered once `tests/e2e/fixtures.ts` became the single import
+  // surface for all 87 specs: a missing `export type` there breaks every spec
+  // at once while the import guard still passes — a compile-time cliff the
+  // guard structurally cannot see.
+  //
+  // Run: npm run lint:e2e
+  // See change: fix-e2e-harness-memory-exhaustion (design D2).
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true
+  },
+  "include": ["e2e/**/*.ts"]
+}

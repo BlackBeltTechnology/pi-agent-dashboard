@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 
 /**
  * pi 0.84.1 runtime verification against the docker harness.

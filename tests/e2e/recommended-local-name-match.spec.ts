@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { byTestId, gotoDashboard } from "./helpers/index.js";
 
 // F3 (test-plan #F3) — decoration-mismatched local install reports Active.

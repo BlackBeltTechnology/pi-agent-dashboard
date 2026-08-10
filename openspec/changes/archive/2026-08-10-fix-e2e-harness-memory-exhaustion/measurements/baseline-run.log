@@ -1,0 +1,269 @@
+
+Running 130 tests using 1 worker
+
+(node:3429) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓    1 [chrome] › tests/e2e/anthropic-bridge-activation.spec.ts:41:3 › anthropic bridge activation (L3) › both peers present → bridge loaded from packages[] (10.5s)
+  -    2 [chrome] › tests/e2e/anthropic-bridge-activation.spec.ts:71:3 › anthropic bridge activation (L3) › no-am variant → waiting_peers naming the missing anthropic peer
+  -    3 [chrome] › tests/e2e/anthropic-bridge-activation.spec.ts:89:3 › anthropic bridge activation (L3) › bad-registration variant → bridge NOT loaded from packages[]
+  ✓    4 [chrome] › tests/e2e/apple-tools-activation.spec.ts:33:3 › apple-tools — missing-requirement surfacing › #F1: an unsatisfied paths requirement renders a warning pill naming it (1.2s)
+  ✓    5 [chrome] › tests/e2e/apple-tools-activation.spec.ts:48:3 › apple-tools — missing-requirement surfacing › #F2: a paths requirement offers NO inline [Install] button (1.1s)
+  ✓    6 [chrome] › tests/e2e/apple-tools-activation.spec.ts:59:3 › apple-tools — missing-requirement surfacing › #F3: the pi-mcp-adapter requirement links to the Packages tab, not inline Install (1.1s)
+  ✓    7 [chrome] › tests/e2e/apple-tools-activation.spec.ts:75:3 › apple-tools — settings panel › #F4: the settings section renders on the plugin's OWN settings page (1.4s)
+  ✓    8 [chrome] › tests/e2e/apple-tools-activation.spec.ts:103:3 › apple-tools — settings panel › #F8: on a non-macOS host the panel is inert — no [Run installer] (1.1s)
+  ✓    9 [chrome] › tests/e2e/apple-tools-activation.spec.ts:131:3 › apple-tools — settings panel › #F5: toggling the plugin off raises the restart-required banner (1.2s)
+  ✘   10 [chrome] › tests/e2e/bus-client-goal-plugin-action.spec.ts:64:3 › bus-client goal plugin_action (L3) › plugin('goal', …) reaches the goal handler; unknown ids are rejected (5.6s)
+(node:30571) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   11 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:24:3 › auto-canvas — desktop side-by-side (S23) › a written deliverable opens the canvas side-by-side, chat stays usable (36.2s)
+(node:51051) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   12 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:40:3 › auto-canvas — mobile chip, no yank (S25) › a written deliverable surfaces a tap-to-open chip; chat stays active (37.3s)
+(node:73731) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   13 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:59:3 › auto-canvas — eager-open immediate (S26) › the canvas opens on the first mid-turn write (no turn-end wait) (42.4s)
+(node:12073) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   14 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:73:3 › auto-canvas — server confirm chip, no pre-tap fetch (S29) › a {kind:server} declare surfaces a chip without probing before tap (43.2s)
+(node:45582) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   15 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:109:3 › auto-canvas — chip expires at turn boundary (S32) › the chip becomes non-actionable after the turn ends (42.2s)
+(node:69482) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   16 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:123:3 › auto-canvas — server chip refused → not running (S30) › tapping a chip for a dead port shows 'not running', no iframe (42.3s)
+(node:94389) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   17 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:144:3 › auto-canvas — server chip unresponsive → not responding (S31) › tapping a chip for a hung port shows 'not responding', no iframe (42.2s)
+(node:19270) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   18 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:179:3 › auto-canvas — per-session restore (S27) › A's canvas is restored after switching away and back (43.2s)
+(node:46575) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   19 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:198:3 › auto-canvas — URL deep-link coexists (S28) › the /session/:id/editor deep-link still opens the editor pane (5.5s)
+  ✘   20 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:235:3 › non-disruptive-file-open — agent opens are non-disruptive › F12: an agent write while a tab is active keeps it active; report.md arrives unread (35.1s)
+(node:48941) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   21 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:251:3 › non-disruptive-file-open — agent opens are non-disruptive › F13: agent canvas from closed reveals split with report.md active (37.3s)
+(node:70306) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   22 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:264:3 › non-disruptive-file-open — agent opens are non-disruptive › F14: mobile agent canvas surfaces the chip naming report.md, no yank (36.4s)
+(node:90525) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   23 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:276:3 › non-disruptive-file-open — agent opens are non-disruptive › F15: mobile chip tap opens report.md as the active tab (foreground, not unread) (36.4s)
+(node:17633) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   24 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:292:3 › non-disruptive-file-open — agent opens are non-disruptive › F19: reduced-motion shows the unread dot but runs no pulse (37.7s)
+(node:44214) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   25 [chrome] › tests/e2e/canvas-declare-tool.spec.ts:311:3 › auto-canvas — tablet replaces chat (S24) › canvas replaces chat on tablet, no side-by-side, no chip (36.5s)
+(node:69275) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   26 [chrome] › tests/e2e/change-summary-table.spec.ts:20:3 › change summary table › changed-files chip opens the split Changes section and a diff tab (25.4s)
+(node:87635) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   27 [chrome] › tests/e2e/chat-attachment-two-phase.spec.ts:134:3 › chat attachments — two-phase render › F1/F2: row renders with a placeholder, then the fitted image swaps in (1.3m)
+(node:39455) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   28 [chrome] › tests/e2e/chat-attachment-two-phase.spec.ts:225:3 › chat attachments — two-phase render › F7: the image still renders after a reload (replay path is fitted too) (1.2m)
+(node:91595) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   29 [chrome] › tests/e2e/chat-attachment-two-phase.spec.ts:249:3 › chat attachments — two-phase render › F3: undecodable bytes resolve to an explicit failed state, not a stuck placeholder (1.2m)
+(node:34897) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   30 [chrome] › tests/e2e/chat-attachment-two-phase.spec.ts:292:3 › chat attachments — two-phase render › F5: clicking the fitted image opens the full-resolution original (18.6s)
+  ✓   31 [chrome] › tests/e2e/chat-attachment-two-phase.spec.ts:330:3 › chat attachments — two-phase render › F6: a failing original degrades only the zoom, never the transcript (16.4s)
+  ✓   32 [chrome] › tests/e2e/chat-attachment-two-phase.spec.ts:373:3 › chat attachments — two-phase render › F4: reloading mid-fit still yields a resolved attachment, never a stuck placeholder (25.0s)
+  ✓   33 [chrome] › tests/e2e/chat-attachment-two-phase.spec.ts:409:3 › chat attachments — two-phase render › F8: an image row keeps its height when scrolled out of the window and back (27.6s)
+  ✓   34 [chrome] › tests/e2e/chat-attachment-two-phase.spec.ts:469:3 › chat attachments — two-phase render › P5: an image-heavy session replays without dropping a gateway frame (12.9s)
+  ✓   35 [chrome] › tests/e2e/chat-render-fx.spec.ts:53:3 › chat render — Phase 1 FX + auto-follow (umbrella gate) › reduced-motion strips streaming glow-pulse + sweep animations (7.2s)
+  ✓   36 [chrome] › tests/e2e/chat-render-fx.spec.ts:74:3 › chat render — Phase 1 FX + auto-follow (umbrella gate) › auto-follow: pinned at bottom, viewport tracks streamed content (12.1s)
+  -   37 [chrome] › tests/e2e/chat-render-perf.spec.ts:35:3 › chat render — idle layout budget (advisory, PW_PERF only) › idle long-session layouts/s stays below the regression ceiling
+  -   38 [chrome] › tests/e2e/chat-render-perf.spec.ts:97:3 › settings surface interaction latency (advisory, PW_PERF only) › navigating the touched settings surfaces stays within the latency ceiling
+  ✓   39 [chrome] › tests/e2e/chat-transcript-virtualization.spec.ts:75:3 › chat transcript — scroll-lock + virtualization (Step B gate) › 50px lock: scrolling up during streaming stops auto-follow (10.7s)
+  ✓   40 [chrome] › tests/e2e/chat-transcript-virtualization.spec.ts:90:3 › chat transcript — scroll-lock + virtualization (Step B gate) › scroll-to-bottom button: appears when up, hides at bottom, click resumes (9.3s)
+  ✓   41 [chrome] › tests/e2e/chat-transcript-virtualization.spec.ts:107:3 › chat transcript — scroll-lock + virtualization (Step B gate) › resume within 50px: manually scrolling back near bottom re-arms follow (9.5s)
+  ✓   42 [chrome] › tests/e2e/chat-transcript-virtualization.spec.ts:127:3 › chat transcript — scroll-lock + virtualization (Step B gate) › reload lands at latest message after multi-batch event_replay (1.2m)
+  ✓   43 [chrome] › tests/e2e/chat-transcript-virtualization.spec.ts:145:3 › chat transcript — scroll-lock + virtualization (Step B gate) › user scroll-up mid-replay wins over programmatic follow (1.3m)
+  ✓   44 [chrome] › tests/e2e/chat-transcript-virtualization.spec.ts:172:3 › chat transcript — scroll-lock + virtualization (Step B gate) › scrollToTurn reaches an unmounted (off-screen) turn (27.9s)
+  ✓   45 [chrome] › tests/e2e/chat-transcript-virtualization.spec.ts:194:3 › chat transcript — scroll-lock + virtualization (Step B gate) › streaming tail stays mounted while scrolled up in history (11.7s)
+  ✓   46 [chrome] › tests/e2e/chat-transcript-virtualization.spec.ts:211:3 › chat transcript — scroll-lock + virtualization (Step B gate) › streaming growth keeps the bottom pinned while following (15.3s)
+PERF domNodes(120-turn): 168
+  ✓   47 [chrome] › tests/e2e/chat-transcript-virtualization.spec.ts:228:3 › chat transcript — scroll-lock + virtualization (Step B gate) › mounted rows AND DOM nodes are bounded by the viewport, not session length (1.2m)
+  ✘   48 [chrome] › tests/e2e/chat-transcript-virtualization.spec.ts:252:3 › chat transcript — scroll-lock + virtualization (Step B gate) › toggling an above-viewport tool group does not yank the viewport (1.0m)
+(node:16238) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   49 [chrome] › tests/e2e/chat-transcript-virtualization.spec.ts:300:3 › chat transcript — scroll-lock + virtualization (Step B gate) › switching away mid-scroll and back restores the anchored row, not bottom (558ms)
+(node:18262) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   50 [chrome] › tests/e2e/csp.spec.ts:9:3 › baseline CSP › emits a CSP header on the dashboard document (1.2s)
+(node:19250) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   51 [chrome] › tests/e2e/csp.spec.ts:20:3 › baseline CSP › shell renders with no CSP violations (604ms)
+(node:20821) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   52 [chrome] › tests/e2e/csp.spec.ts:46:3 › auto-canvas — document CSP › an auto-opened .html cannot beacon an external subresource (S34) (515ms)
+(node:21693) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   53 [chrome] › tests/e2e/csp.spec.ts:64:3 › auto-canvas — document CSP › a canvas() url declare renders normally with no document CSP (S35) (568ms)
+(node:22509) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   54 [chrome] › tests/e2e/ctx-running-render.spec.ts:55:3 › ctx running-state render › a running ctx_batch_execute shows an args-derived chip + command preview (843ms)
+(node:23963) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   55 [chrome] › tests/e2e/dashboard-slash.spec.ts:23:3 › dashboard slash commands (executable: bash) › /dashboard:server-health runs locally, renders output + footer, no LLM (547ms)
+(node:25201) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   56 [chrome] › tests/e2e/dashboard-slash.spec.ts:35:3 › dashboard slash commands (executable: bash) › ! bang command renders a bash card without the slash-exec footer (596ms)
+(node:26348) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   57 [chrome] › tests/e2e/directory-home.spec.ts:26:3 › directory home page › open affordance → type → send → converges on a new /session/:id (535ms)
+(node:26884) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   58 [chrome] › tests/e2e/directory-home.spec.ts:60:3 › directory home page (mobile) › mobile back from the home page returns to the card list (748ms)
+(node:27905) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   59 [chrome] › tests/e2e/directory-home.spec.ts:110:3 › folder actions menu › F1: opening the menu keeps the route and the expanded state (1.2s)
+(node:29444) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   60 [chrome] › tests/e2e/directory-home.spec.ts:125:3 › folder actions menu › F2: clicking the header row outside the trigger opens the home page (855ms)
+(node:30635) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   61 [chrome] › tests/e2e/directory-home.spec.ts:133:3 › folder actions menu › F3: header-row navigation leaves the folder expanded (639ms)
+(node:32261) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   62 [chrome] › tests/e2e/directory-home.spec.ts:143:3 › folder actions menu › F4: no folder-open-home node renders on a pinned folder (505ms)
+(node:33156) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   63 [chrome] › tests/e2e/directory-home.spec.ts:156:5 › folder actions menu › F5: 375x900 narrow presents a sheet (830ms)
+(node:34681) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   64 [chrome] › tests/e2e/directory-home.spec.ts:156:5 › folder actions menu › F6: 1200x560 short-but-wide presents a sheet (621ms)
+(node:35569) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   65 [chrome] › tests/e2e/directory-home.spec.ts:156:5 › folder actions menu › F7: 1200x900 desktop presents a popover (517ms)
+(node:36240) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   66 [chrome] › tests/e2e/editor-pane.spec.ts:24:3 › internal Monaco editor pane › OpenFileButton opens the pane; markdown + monaco viewers render real fixture files (1.3s)
+(node:38011) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   67 [chrome] › tests/e2e/editor-pane.spec.ts:122:3 › editor layout modes › F1/F10: switch present when closed; Split mounts chat+divider+editor (471ms)
+(node:38583) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   68 [chrome] › tests/e2e/editor-pane.spec.ts:136:3 › editor layout modes › E5: the divider carries no collapse control in any mode (chevrons removed) (553ms)
+(node:39880) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   69 [chrome] › tests/e2e/editor-pane.spec.ts:151:3 › editor layout modes › F2/F3: full via switch keeps chat mounted; composer draft survives split→full→split (577ms)
+(node:40728) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   70 [chrome] › tests/e2e/editor-pane.spec.ts:167:3 › editor layout modes › F7/F8: edge peeks reopen split from closed and from full (494ms)
+(node:41388) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   71 [chrome] › tests/e2e/editor-pane.spec.ts:183:3 › editor layout modes › F13: full persists across reload (555ms)
+(node:42464) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   72 [chrome] › tests/e2e/editor-pane.spec.ts:196:3 › editor layout modes › F14: layout mode is per-session (557ms)
+(node:43308) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   73 [chrome] › tests/e2e/editor-pane.spec.ts:220:3 › non-disruptive-file-open — deep-link mode stickiness › F11: param-less /editor deep-link from full stays full (605ms)
+(node:44573) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   74 [chrome] › tests/e2e/editor-pane.spec.ts:239:3 › split layout controls redesign › F1: seam grips are always visible at rest, not hover-only (1.9s)
+(node:45970) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   75 [chrome] › tests/e2e/editor-pane.spec.ts:256:3 › split layout controls redesign › F3: pane captions are present and folded into the pane header, not a second bar (1.1s)
+(node:48165) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   76 [chrome] › tests/e2e/editor-pane.spec.ts:279:3 › split layout controls redesign › F2: collapsed EDITOR restore tab never overlaps a narrow chat pane (632ms)
+(node:49801) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   77 [chrome] › tests/e2e/editor-pane.spec.ts:305:3 › split layout controls redesign › F6: EDITOR restore tab is keyboard accessible (487ms)
+(node:51125) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   78 [chrome] › tests/e2e/editor-pane.spec.ts:316:3 › split layout controls redesign › F7: rail collapse shows a centered SESSIONS tab that restores the rail (518ms)
+(node:51897) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   79 [chrome] › tests/e2e/editor-pane.spec.ts:334:3 › split layout controls redesign › F9: below the mobile breakpoint the rail seam + SESSIONS tab do not render (543ms)
+  ✘   80 [chrome] › tests/e2e/eml-preview.spec.ts:48:3 › EML preview in the editor pane › no inline card; body isolation, escaped headers, remote-block, cid, lazy attachments (X4) (331ms)
+(node:53490) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   81 [chrome] › tests/e2e/eml-preview.spec.ts:150:3 › EML preview in the editor pane › F3: preview loads and its async parse/render paths leak no unhandled rejection (546ms)
+(node:54371) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   82 [chrome] › tests/e2e/enhance-tool-call-grouping.spec.ts:48:3 › faux round-trip — enhanced tool-call grouping › a single tool call forms a framed group with its own summary (1.0m)
+(node:85343) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   83 [chrome] › tests/e2e/enhance-tool-call-grouping.spec.ts:68:3 › faux round-trip — enhanced tool-call grouping › a multi-member run shows the 'N tool calls' header + breakdown (37.5s)
+(node:4875) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   84 [chrome] › tests/e2e/enhance-tool-call-grouping.spec.ts:81:3 › faux round-trip — enhanced tool-call grouping › trailing reasoning folds inside the group as a ThinkingBlock (37.4s)
+(node:30158) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   85 [chrome] › tests/e2e/error-lifecycle.spec.ts:35:3 › error-lifecycle surface › terminal error shows ONE settled card: message + clear-only ✕, no retry/Stop (38.4s)
+(node:54607) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   86 [chrome] › tests/e2e/error-lifecycle.spec.ts:57:3 › error-lifecycle surface › ✕ on a settled error clears the card AND keeps the session alive (no abort) (36.2s)
+(node:74444) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   87 [chrome] › tests/e2e/error-lifecycle.spec.ts:78:3 › error-lifecycle surface › error anchor persists across a new turn that has no confirmed-good response yet (35.1s)
+(node:94338) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   88 [chrome] › tests/e2e/error-lifecycle.spec.ts:104:3 › error-lifecycle surface › error anchor clears after a confirmed-good response (35.0s)
+(node:14636) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   89 [chrome] › tests/e2e/faux-ask.spec.ts:15:3 › faux round-trip — interactive ask_user › select widget mounts for a faux ask_user tool call (36.1s)
+(node:43795) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  -   90 [chrome] › tests/e2e/faux-ask.spec.ts:63:3 › prompt-derived tool state — rendered card › #F6 the card converges back to 'Needs you' after a dashboard server restart
+  ✘   91 [chrome] › tests/e2e/faux-ask.spec.ts:132:3 › prompt-derived tool state — rendered card › #F8 answering the prompt clears the needs-you state (37.1s)
+(node:76959) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   92 [chrome] › tests/e2e/faux-text.spec.ts:17:3 › faux round-trip — plain text › scripted assistant text renders in the message DOM (38.0s)
+(node:8068) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   93 [chrome] › tests/e2e/faux-tool.spec.ts:16:3 › faux round-trip — tool call › read tool renderer mounts for a faux tool call (37.7s)
+(node:30227) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   94 [chrome] › tests/e2e/file-mention-resolve.spec.ts:18:3 › faux round-trip — tilde-home file mention resolves on click › clicking a ~/.pi mention opens the resolved home file, not a /-rooted 404 (37.6s)
+(node:52171) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   95 [chrome] › tests/e2e/file-preview-survives-churn.spec.ts:26:3 › file preview survives message churn › open preview, then stream a new message → overlay stays open with content (33.7s)
+(node:81524) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   96 [chrome] › tests/e2e/flow-roundtrip.spec.ts:24:3 › flow roundtrip (L3: real pi-flows engine + faux agents) › launch synthetic flow → agents render → flow completes (15.4s)
+(node:90312) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   97 [chrome] › tests/e2e/folder-membership-drag.spec.ts:248:3 › folder membership drag › spring-expands a collapsed workspace after the dwell (5.4s)
+  ✘   98 [chrome] › tests/e2e/folder-membership-drag.spec.ts:274:3 › folder membership drag › drops positionally into a spring-expanded workspace body (13.5s)
+(node:80069) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   99 [chrome] › tests/e2e/folder-membership-drag.spec.ts:298:3 › folder membership drag › renders an empty-tier eject zone with real height and a hover indicator (3.1s)
+  ✓  100 [chrome] › tests/e2e/folder-membership-drag.spec.ts:344:3 › folder membership drag › jitter between a header and its own folder does not reset the dwell (2.8s)
+  ✘  101 [chrome] › tests/e2e/folder-membership-drag.spec.ts:365:3 › folder membership drag › a second client converges on the move without reloading (2.9s)
+(node:85898) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  102 [chrome] › tests/e2e/folder-membership-drag.spec.ts:433:3 › folder actions menu — anchor stability and glyph uniqueness › F9: the folder trigger's glyph is not the worktree menu's glyph (1.2s)
+  ✓  103 [chrome] › tests/e2e/folder-membership-drag.spec.ts:445:3 › folder actions menu — anchor stability and glyph uniqueness › F10: no session card carries an add-to-workspace control (1.4s)
+  ✓  104 [chrome] › tests/e2e/folder-membership-drag.spec.ts:456:3 › folder actions menu — anchor stability and glyph uniqueness › X5: collapsing the folder while its menu is open leaves no orphaned popover (1.0s)
+  ✓  105 [chrome] › tests/e2e/folder-membership-drag.spec.ts:475:3 › folder actions menu — anchor stability and glyph uniqueness › X6: drag-reordering the folder while its menu is open leaves no orphaned popover (1.4s)
+  ✓  106 [chrome] › tests/e2e/gateway-qr-selector.spec.ts:85:3 › Gateway QR network selector › one selectable QR: tunnel default, decodes, and swaps to a link (1.5s)
+  ✓  107 [chrome] › tests/e2e/gateway-qr-selector.spec.ts:116:3 › Gateway QR network selector › radio group is keyboard navigable (arrow keys move selection) (1.3s)
+  ✓  108 [chrome] › tests/e2e/gateway-url-action.spec.ts:65:3 › gateway URL action › F5: adding an https gateway writes every recorded key in one action (1.4s)
+  ✓  109 [chrome] › tests/e2e/gateway-url-action.spec.ts:88:3 › gateway URL action › F8: a deleted cors entry shows Incomplete, and Fix restores just that (1.0s)
+  ✓  110 [chrome] › tests/e2e/gateway-url-action.spec.ts:111:3 › gateway URL action › F9: the new origin is allowed immediately, with no restart (9ms)
+  ✓  111 [chrome] › tests/e2e/gateway-url-action.spec.ts:123:3 › gateway URL action › F7: removing the gateway reverts every recorded field (1.0s)
+  ✓  112 [chrome] › tests/e2e/gateway-url-action.spec.ts:143:3 › gateway URL action › F6: an http:// URL disables OAuth + QR with a reason and demands a trusted network (1.0s)
+  ✓  113 [chrome] › tests/e2e/gateway-url-action.spec.ts:164:3 › gateway URL action › F11: dialog text clears the legibility floor in dark and light (1.9s)
+  ✓  114 [chrome] › tests/e2e/gateway-url-action.spec.ts:199:3 › gateway URL action › F12: the Gateway page shows the shared manager exactly once (867ms)
+  ✓  115 [chrome] › tests/e2e/git-panel.spec.ts:14:3 › git VCS panel › session in git fixture shows the branch indicator (784ms)
+  ✘  116 [chrome] › tests/e2e/inline-screenshot.spec.ts:20:3 › faux round-trip — inline agent screenshot › bash screenshot result renders inline, auto-expanded, with no path-link (37.0s)
+(node:19076) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  117 [chrome] › tests/e2e/inline-terminal-transcript.spec.ts:119:3 › inline terminal transcript preservation › F1: run ls then exit, close → frozen read-only card with pre-exit scrollback (59.2s)
+(node:54723) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  118 [chrome] › tests/e2e/inline-terminal-transcript.spec.ts:143:3 › inline terminal transcript preservation › F2: open then close untouched → no card, no placeholder (59.2s)
+(node:90944) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  119 [chrome] › tests/e2e/inline-terminal-transcript.spec.ts:150:3 › inline terminal transcript preservation › F3: untouched card with a MULTI-LINE prompt is still removed (line count irrelevant) (59.2s)
+(node:27424) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)

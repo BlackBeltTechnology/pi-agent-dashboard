@@ -1,4 +1,4 @@
-import { type APIRequestContext, expect, test } from "@playwright/test";
+import { type APIRequestContext, expect, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
 
 /**

@@ -2,9 +2,11 @@
 
 ### Requirement: A spec SHALL release every session it spawns
 
-The E2E suite SHALL reap dashboard sessions per test, so that live-session memory is bounded by the largest single test rather than by the whole run. After each test body completes — pass or fail — the suite SHALL shut down every session that appeared during that test.
+The E2E suite SHALL reap dashboard sessions per test, so that the live-session set is bounded by the largest single test rather than by the whole run. After each test body completes — pass or fail — the suite SHALL shut down every session that appeared during that test.
 
-The reap SHALL use the shutdown path that records the session as manually closed (`closedReason:"manual"`) as well as terminating its process. It SHALL NOT use a path that terminates the process while leaving the session's liveness marker set, because such a session remains a cold-start recovery candidate and reappears in the session list, corrupting the very snapshot this requirement depends on.
+This requirement governs **release of the session record**. Whether the session's operating-system process actually terminates is a property of the server's shutdown path, not of the suite, and is specified separately — see the `tmux` session-shutdown change. Under `PI_SPAWN_STRATEGY=tmux` the server releases the record without terminating the process, so a suite-level requirement asserting process death would be unsatisfiable no matter how correct the reap is.
+
+The reap SHALL use the shutdown path that records the session as manually closed (`closedReason:"manual"`). It SHALL NOT use a path that leaves the session's liveness marker set, because such a session remains a cold-start recovery candidate and reappears in the session list, corrupting the very snapshot this requirement depends on.
 
 Reaping SHALL be delta-based: the set of session ids present before the test body is snapshotted, and only ids absent from that snapshot are shut down. The post-body read SHALL settle adaptively before the delta is computed — polling until the session count has been stable for 1 second, capped at 5 seconds — so that a session still registering when the body ended is classified as spawned-during-test rather than becoming permanently invisible to every later snapshot. Sessions the harness created before the run — notably the `PI_E2E_INDEPENDENT_SESSION` pi that `docker/test-entrypoint.sh` launches for the reconnect scenario — SHALL therefore survive untouched.
 
@@ -12,14 +14,15 @@ Reaping SHALL be a default, not an opt-in: it SHALL run automatically for every 
 
 Shutting down a session that is already gone SHALL be treated as success, not as a teardown failure — including a session a spec deliberately ended itself as part of its assertions.
 
-The reap SHALL wait for each shutdown's completion signal, which the server emits only after the session's process has been terminated. A reap that returns before termination would leave dying sessions visible to the next test's snapshot, where they would be misclassified as pre-existing and never reaped.
+The reap SHALL wait for each shutdown's completion signal (`session_removed`) before returning, so that a dying session is not still visible to the next test's snapshot, where it would be misclassified as pre-existing and never reaped. That signal attests that the server has released the record; it does NOT attest that the process exited, because the server broadcasts it unconditionally.
+
+Liveness SHALL be judged by the session's own liveness fields, not by mere presence in the session list. The session list retains a record until the server removes it, so a shut-down session lingers with `live:false`/`status:"ended"`; counting such records as live would make the residual budget fire continuously while the container is healthy, and would make the reap send a redundant shutdown and then block on an acknowledgement that has already been delivered.
 
 #### Scenario: Sessions spawned by a test do not outlive it
 
 - **WHEN** a spec spawns one or more sessions and the test body finishes
 - **THEN** each spawned session SHALL be shut down before the next test starts
 - **AND** the session list SHALL no longer report those session ids
-- **AND** the corresponding headless pi processes SHALL no longer be resident in the container
 
 #### Scenario: A reaped session is not a recovery candidate
 
@@ -44,6 +47,12 @@ The reap SHALL wait for each shutdown's completion signal, which the server emit
 - **WHEN** a test's session has already exited by the time reaping runs
 - **THEN** the not-found outcome SHALL be treated as success
 - **AND** the test result SHALL be unchanged
+
+#### Scenario: A closed-but-listed session is not treated as live
+
+- **WHEN** a session has been shut down but its record is still present in the session list with its liveness fields marking it closed
+- **THEN** the reap SHALL NOT count it toward the residual budget
+- **AND** the reap SHALL NOT issue a second shutdown for it, nor wait for an acknowledgement it has already received
 
 #### Scenario: A spec cannot opt out of reaping by accident
 

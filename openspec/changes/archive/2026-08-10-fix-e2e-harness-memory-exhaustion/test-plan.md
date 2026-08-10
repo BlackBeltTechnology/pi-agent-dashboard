@@ -19,7 +19,7 @@ L3 = `tests/e2e/*.spec.ts` (Playwright vs the docker harness, port read from
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
 | E1 | Release every session it spawns | decision-table | L1 | automated | stubbed session lists: id in pre-snapshot only / in post only / in both / in neither | compute delta | only post-only ids are returned for reap; pre-existing and absent ids are not |
-| E2 | Release every session it spawns | state-transition | L3 | automated | a spec that spawns 2 sessions in the git fixture | test body ends | both ids absent from `read.sessions()` before the next test starts, and the container's resident `pi` count drops by 2 |
+| E2 | Release every session it spawns | state-transition | L3 | automated | a spec that spawns 2 sessions in the git fixture | test body ends | both ids absent from `read.sessions()` before the next test starts (record release; process death is the tmux change's row T2) |
 | E3 | Pre-existing harness session survives | state-transition | L3 | automated | harness booted `PI_E2E_INDEPENDENT_SESSION=1`; one spec spawns + ends | reap runs | the independent session (`source:"tui"`) is still live after the spec |
 | E4 | Delta is not corrupted by late registration | state-convergence | L1 | automated | session list that gains an id 800 ms after the body ends | delta computed with the adaptive settle (stable for 1 s, cap 5 s) | the late id is classified as spawned-during-test, not pre-existing |
 | E5 | Residual budget | BVA | L1 | automated | post-reap live counts 7 / 8 / 9 against budget 8 | budget assertion | 7 and 8 pass; 9 fails naming the offending ids + cwds |
@@ -31,10 +31,10 @@ L3 = `tests/e2e/*.spec.ts` (Playwright vs the docker harness, port read from
 
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
-| P1 | Harness survives a full run / memory does not climb | soak + threshold | L2 | automated | one ~30-spec chunk, then a later ~30-spec chunk, same container | `memory.current` after the late chunk ≤ early-chunk sample + 10 % | whole chunk pair |
+| ~~P1~~ | ~~Harness survives a full run / memory does not climb~~ | soak + threshold | L2 | **MOVED → fix-tmux-session-shutdown-leak** | — | unsatisfiable while shutdown leaves the process alive; re-homed with the fix | — |
 | P2 | Reap stays inside the per-test budget | tail-latency | L1 | automated | teardown reaping 1 and 3 sessions, timed | p95 teardown < 5 s irrespective of session count (concurrent reap flattens it) | 20 iterations |
-| P3 | Resident process count tracks session count | soak | L2 | automated | full acceptance run, sampled at chunk boundaries | resident `pi` count minus reported live-session count stays constant; any persistent divergence recorded | full run |
-| P4 | Full-run survival (acceptance) | soak | L2 | automated | all 87 specs, one container, `globalTimeout` overridden | run reaches final spec; container still `healthy`; no unexplained `daemon restarted` line | full run |
+| ~~P3~~ | ~~Resident process count tracks session count~~ | soak | L2 | **MOVED → fix-tmux-session-shutdown-leak** | — | divergence was measured and recorded here (21 processes vs 0 records); the *constant-divergence* guarantee belongs with the fix | — |
+| ~~P4~~ | ~~Full-run survival (acceptance)~~ | soak | L2 | **MOVED → fix-tmux-session-shutdown-leak** | — | container cannot survive a full run while every shutdown orphans a ~127 MB process | — |
 
 ### Frontend-quirk
 
