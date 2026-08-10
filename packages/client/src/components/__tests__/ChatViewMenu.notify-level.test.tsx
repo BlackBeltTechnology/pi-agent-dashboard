@@ -59,6 +59,28 @@ describe("ChatViewMenu — notifyMinLevel row", () => {
     expect(notifySelect().value).toBe("warnings");
   });
 
+  // The server deliberately round-trips arbitrary floors (validation lives in
+  // the predicate, not the store), so the control must display the EFFECTIVE
+  // floor rather than a value matching no <option>.
+  //
+  // CAVEAT, deliberately recorded: jsdom resolves a controlled <select> whose
+  // value matches no option to the FIRST option, which here IS "all" — so this
+  // assertion cannot fail while "all" leads NOTIFY_MIN_LEVELS, and it must not
+  // be read as proof of normalization. The teeth live in the direct
+  // `normalizeNotifyMinLevel` unit tests in packages/shared. What this DOES
+  // pin is the honest invariant: the rendered selection is always a real
+  // option. See CodeRabbit, PR #453.
+  it.each([["critical"], ["oops"], [""], ["toString"], ["warning"]])(
+    "renders a real option (never a blank selection) for stored floor %p",
+    (stored) => {
+      openMenu({ notifyMinLevel: stored });
+      const select = notifySelect();
+      expect(Array.from(select.options).map((o) => o.value)).toContain(select.value);
+      expect(select.selectedIndex).toBeGreaterThanOrEqual(0);
+      expect(select.value).toBe("all");
+    },
+  );
+
   // 2.28 / #F6 — selecting a value emits an explicit override through the
   // SAME patch path the boolean rows use.
   it("emits setSessionDisplayPrefs through the shared patch path", () => {

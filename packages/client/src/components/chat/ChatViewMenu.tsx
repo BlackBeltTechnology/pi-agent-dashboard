@@ -11,7 +11,10 @@ import type {
   NotifyMinLevel,
   PartialDisplayPrefs,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { NOTIFY_MIN_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import {
+  NOTIFY_MIN_LEVELS,
+  normalizeNotifyMinLevel,
+} from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { mdiCircleSmall, mdiCog } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
@@ -148,7 +151,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
           <Row label={i18nT("common.debugEvents", undefined, "Debug events")} value={prefs.debugTools} marked={isOverridden("debugTools")} onChange={(v) => patch({ debugTools: v })} />
           <SelectRow
             label={i18nT("common.notifications", undefined, "Notifications")}
-            value={prefs.notifyMinLevel}
+            value={normalizeNotifyMinLevel(prefs.notifyMinLevel)}
             marked={isOverridden("notifyMinLevel")}
             onChange={(v) => patch({ notifyMinLevel: v })}
           />

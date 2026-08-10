@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   DISPLAY_PRESETS,
   type DisplayPrefs,
+  NOTIFY_MIN_LEVELS,
   isNotifyRowVisible,
   mergeDisplayPrefs,
+  normalizeNotifyMinLevel,
   toolCallPrefKey,
 } from "../display-prefs.js";
 
@@ -364,4 +366,39 @@ describe("isNotifyRowVisible — prototype-chain floors never hide an error", ()
       expect(isNotifyRowVisible(notifyRow("error"), floor)).toBe(true);
     },
   );
+});
+
+describe("normalizeNotifyMinLevel — what the SELECT controls render", () => {
+  // Fails closed: unlike the jsdom select assertion (which cannot fail while
+  // "all" is the first option), these compare against every stop directly.
+  it.each([["all"], ["success"], ["warnings"], ["errors"]])(
+    "passes the real stop %p through untouched",
+    (stop) => {
+      expect(normalizeNotifyMinLevel(stop)).toBe(stop);
+    },
+  );
+
+  it.each([
+    ["critical"],
+    ["oops"],
+    [""],
+    ["warning"],
+    ["error"],
+    ["ALL"],
+    [undefined],
+    [null],
+    [42],
+    [{}],
+    ["toString"],
+    ["constructor"],
+    ["__proto__"],
+  ])("maps the unusable floor %p to 'all'", (bad) => {
+    expect(normalizeNotifyMinLevel(bad)).toBe("all");
+  });
+
+  it("only ever returns a value the controls actually offer", () => {
+    for (const v of ["critical", "toString", "", "errors", null, 7]) {
+      expect(NOTIFY_MIN_LEVELS).toContain(normalizeNotifyMinLevel(v));
+    }
+  });
 });

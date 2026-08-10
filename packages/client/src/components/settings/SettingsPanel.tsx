@@ -1,7 +1,11 @@
 import { type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
-import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import {
+  DISPLAY_PRESETS,
+  type DisplayPrefs,
+  normalizeNotifyMinLevel,
+} from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -1905,7 +1909,7 @@ function DisplayPrefsSection() {
           extension can always report. See change: gate-notify-rows-by-level. */}
       <SelectField
         label={t("settings.notifyMinLevel", undefined, "Extension notifications")}
-        value={prefs.notifyMinLevel}
+        value={normalizeNotifyMinLevel(prefs.notifyMinLevel)}
         options={[
           { value: "all", label: t("settings.notifyMinLevel.all", undefined, "All") },
           { value: "success", label: t("settings.notifyMinLevel.success", undefined, "Outcomes and problems") },
