@@ -1,5 +1,6 @@
-import { expect, type Page, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { NOTIFY_LEVEL_MESSAGES } from "../../qa/fixtures/faux-scenarios.js";
+import { expect, test } from "./fixtures.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
