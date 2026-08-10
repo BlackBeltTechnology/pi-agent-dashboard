@@ -5,16 +5,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { verifyLocalToken } from "./local-token.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
-
-const LOOPBACK_ADDRESSES = new Set([
-  "127.0.0.1",
-  "::1",
-  "::ffff:127.0.0.1",
-]);
-
-export function isLoopback(ip: string): boolean {
-  return LOOPBACK_ADDRESSES.has(ip);
-}
+import { isLoopback } from "./loopback.js";
 
 /**
  * Request headers a reverse proxy / tunnel injects. Their presence on a
@@ -101,9 +92,16 @@ export function ipToNum(ip: string): number | null {
  * Fastify lifecycle guarantees onRequest (auth) runs before preHandler (this guard).
  */
 export function createNetworkGuard(
-  trustedNetworks: string[],
+  /**
+   * A fixed list, or a thunk read on EVERY request. The server passes a thunk
+   * over the mtime-gated config snapshot so a trusted network added at runtime
+   * applies without a restart — for an `http://` gateway that list is the only
+   * way in (D15). See change: config-override-oauth-redirect-base.
+   */
+  trustedNetworks: string[] | (() => string[]),
   opts?: { localToken?: string },
 ) {
+  const readTrusted = typeof trustedNetworks === "function" ? trustedNetworks : () => trustedNetworks;
   return async function networkGuard(
     request: FastifyRequest,
     reply: FastifyReply,
@@ -113,7 +111,8 @@ export function createNetworkGuard(
     // forwarding header and is NOT exempted here (D10, narrowed).
     if (isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>)) return;
     if (opts?.localToken && verifyLocalToken(request.headers as Record<string, unknown>, opts.localToken)) return;
-    if (trustedNetworks.length > 0 && isBypassedHost(request.ip, trustedNetworks)) return;
+    const trusted = readTrusted();
+    if (trusted.length > 0 && isBypassedHost(request.ip, trusted)) return;
     if ((request as any).isAuthenticated) return;
     // Record the denial into the bounded, anti-poisoning block-event buffer so
     // the UI can offer "Trust this network?". The recorded IP is the SOCKET

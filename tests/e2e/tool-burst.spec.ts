@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
 
 // Faux round-trip — temporal tool-call BURST grouping.

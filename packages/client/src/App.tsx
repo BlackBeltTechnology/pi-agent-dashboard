@@ -123,6 +123,7 @@ import { FirstLaunchDisplayModal } from "./components/settings/FirstLaunchDispla
 import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
 import { SearchableSelectDialog, type SelectOption } from "./components/primitives/SearchableSelectDialog.js";
 import type { ToolContext } from "./components/tool-renderers/index.js";
+import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
 import { openArtifactForViewport } from "./lib/util/artifact-view-gate.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
@@ -158,6 +159,7 @@ import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-sha
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
 import { registerPluginRouteDescriptors } from "./lib/nav/back-target.js";
+import { logRejection } from "./lib/report-error.js";
 
 // Populate the slot registry from the build-time generated plugin manifest.
 // PLUGIN_REGISTRY is `[]` on a fresh checkout (committed stub) — slot consumers
@@ -596,7 +598,7 @@ export default function App() {
   // are NOT migrated by this change (see proposal §6).
 
   const {
-    handleOpenPiResources,
+    handleOpenDirectorySettings,
     handleViewPiResourceFile,
   } = useContentViews({ navigate });
 
@@ -611,7 +613,10 @@ export default function App() {
     inFlightSwitchKeyRef.current = key;
     setInFlightSwitchKey(key);
     const wsProto = wsProtocol === "wss:" ? "wss:" : "ws:";
-    performServerSwitch(
+    // Discarded with a stated handler — the switch reports its own failures via
+    // `notifyError`, but an unexpected rejection must still be observable.
+    // See change: cleanup-client-plugin-promises.
+    void performServerSwitch(
       { host, port, wsProtocol: wsProto },
       {
         openStagingSocket,
@@ -641,10 +646,12 @@ export default function App() {
         },
         notifyError: (msg) => showToast(msg, "error"),
       },
-    ).finally(() => {
-      inFlightSwitchKeyRef.current = null;
-      setInFlightSwitchKey(null);
-    });
+    )
+      .catch(logRejection("App.performServerSwitch"))
+      .finally(() => {
+        inFlightSwitchKeyRef.current = null;
+        setInFlightSwitchKey(null);
+      });
   }, []);
 
   // Parse current server host/port from wsUrl
@@ -773,7 +780,8 @@ export default function App() {
   // Modal opens. See change: configurable-chat-display.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const r = await fetch(`${apiBase}/api/preferences/display`, { credentials: "include" });
         if (!r.ok) return;
@@ -800,7 +808,7 @@ export default function App() {
           localStorage.removeItem("show-debug-tools");
         }
       } catch { /* ignore */ }
-    })();
+    })().catch(logRejection("App.loadDisplayPrefs"));
     return () => { cancelled = true; };
   }, [apiBase]);
 
@@ -1123,7 +1131,10 @@ export default function App() {
     ?? piResourcesCwd ?? folderSettingsCwd ?? null;
   useDocumentTitle(selectedSession, folderTitleCwd ?? undefined);
   const selectedCwd = selectedSession?.cwd;
-  const toolContext: ToolContext = useMemo(() => ({
+  // Built via `makeToolContext` so the `fileLink` renderer is attached — a
+  // hand-built literal here silently loses file-mention linkification with no
+  // type error. See change: cleanup-import-cycles (D4b).
+  const toolContext: ToolContext = useMemo(() => makeToolContext({
     cwd: selectedCwd,
     sessionId: selectedId,
     session: selectedId ? sessionStates.get(selectedId) : undefined,
@@ -1389,7 +1400,7 @@ export default function App() {
       onOpenSpecRefresh={handleOpenSpecRefresh}
       onBulkArchive={handleBulkArchive}
       onReadArtifact={openArtifact}
-      onOpenPiResources={handleOpenPiResources}
+      onOpenDirectorySettings={handleOpenDirectorySettings}
       onOpenSpecs={(cwd) => navigate(buildOpenSpecSpecsUrl(cwd))}
       onOpenArchive={(cwd) => navigate(buildOpenSpecArchiveUrl(cwd))}
       onOpenBoard={(cwd) => navigate(buildOpenSpecBoardUrl(cwd))}

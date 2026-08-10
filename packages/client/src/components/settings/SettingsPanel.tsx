@@ -1,7 +1,11 @@
 import { type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
-import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import {
+  DISPLAY_PRESETS,
+  type DisplayPrefs,
+  normalizeNotifyMinLevel,
+} from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -47,6 +51,7 @@ import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.j
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -69,6 +74,11 @@ interface AuthConfig {
   allowedUsers?: string[];
   bypassUrls?: string[];
   bypassHosts?: string[];
+  /**
+   * Public origin OAuth providers call back to, overriding the tunnel /
+   * localhost base. See change: config-override-oauth-redirect-base.
+   */
+  redirectBaseUrl?: string;
 }
 
 interface MemoryLimitsConfig {
@@ -1385,6 +1395,40 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       }}
                     />
                   </div>
+                  {/* OAuth redirect base — the operator's disambiguator when the
+                      dashboard answers on several addresses. `publicBaseUrls` is a
+                      list; an OAuth redirect_uri must be ONE pre-registered origin,
+                      so it is stated here rather than inferred (D7).
+                      See change: config-override-oauth-redirect-base. */}
+                  <div className="mt-3">
+                    <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                      {t("settings.redirectBaseUrl", undefined, "OAuth Redirect Base URL")}{" "}
+                      <span className="text-[var(--text-tertiary)]">
+                        ({t(
+                          "settings.redirectBaseUrlHint",
+                          undefined,
+                          "public origin the provider calls back to, e.g. https://pi.example.com — register the same URL with the provider too",
+                        )})
+                      </span>
+                    </label>
+                    <input
+                      type="url"
+                      inputMode="url"
+                      data-testid="redirect-base-url-input"
+                      className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] font-mono"
+                      placeholder="https://pi.example.com"
+                      value={config.auth?.redirectBaseUrl ?? ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        update((c) => {
+                          if (!c.auth) c.auth = { secret: "", providers: {} };
+                          // Empty string clears it (`||` semantics, D1) — omitting
+                          // the key would PRESERVE the old value instead.
+                          c.auth.redirectBaseUrl = value;
+                        });
+                      }}
+                    />
+                  </div>
                   <div className="mt-3">
                     <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                       {t("settings.bypassUrls", undefined, "Bypass URL Prefixes")} <span className="text-[var(--text-tertiary)]">({t("settings.bypassUrlsHint", undefined, "one per line — requests to these paths skip auth")})</span>
@@ -1861,6 +1905,20 @@ function DisplayPrefsSection() {
       <ToggleField label={t("settings.turnMetadata", undefined, "Turn metadata separators")} value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} hint={i18nT("settings.hint.turnMetadataSeparators", undefined, "Thin rule between turns carrying model, duration, and timestamp.")} />
       <ToggleField label={t("settings.changeSummaryTable", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} onChange={(v) => patch({ changeSummaryTable: v })} hint={i18nT("settings.hint.perTurnChangeSummary", undefined, "Table of files added/changed/deleted by each turn.")} />
       <ToggleField label={t("settings.reserveProcessLineAtIdle", undefined, "Reserve process line at idle")} value={prefs.reserveProcessLineAtIdle} onChange={(v) => patch({ reserveProcessLineAtIdle: v })} hint={i18nT("settings.hint.reserveProcessLine", undefined, "Keep the status line's height reserved while idle so the composer does not jump when a turn starts.")} />
+      {/* A floor, not a switch: `errors` is the strictest stop, so a failing
+          extension can always report. See change: gate-notify-rows-by-level. */}
+      <SelectField
+        label={t("settings.notifyMinLevel", undefined, "Extension notifications")}
+        value={normalizeNotifyMinLevel(prefs.notifyMinLevel)}
+        options={[
+          { value: "all", label: t("settings.notifyMinLevel.all", undefined, "All") },
+          { value: "success", label: t("settings.notifyMinLevel.success", undefined, "Outcomes and problems") },
+          { value: "warnings", label: t("settings.notifyMinLevel.warnings", undefined, "Problems only") },
+          { value: "errors", label: t("settings.notifyMinLevel.errors", undefined, "Failures only") },
+        ]}
+        onChange={(v) => patch({ notifyMinLevel: v as DisplayPrefs["notifyMinLevel"] })}
+        hint={i18nT("settings.hint.notifyMinLevel", undefined, "Minimum level of extension notification shown in chat. Errors are never hidden, and questions that need an answer always appear.")}
+      />
       <h3 className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{t("settings.chatDisplayReasoning", undefined, "Reasoning")}</h3>
       <ToggleField label={t("settings.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} hint={i18nT("settings.hint.reasoningBlocks", undefined, "Show the model's thinking. Off hides it entirely and disables the two settings below.")} />
       <GatedGroup>
@@ -2165,7 +2223,7 @@ function ServersTab() {
     } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => { reload(); }, [reload, loadCount]);
+  useEffect(() => { void reload().catch(logRejection("SettingsPanel.knownServers.reload")); }, [reload, loadCount]);
 
   return (
     <>

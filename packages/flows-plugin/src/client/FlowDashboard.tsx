@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { FlowAgentCard } from "./FlowAgentCard.js";
 import { FlowGraph, flowStateToGraphSteps } from "./FlowGraph.js";
 import { FlowQuestionCard } from "./FlowQuestionCard.js";
+import { makeSafeSend } from "./send-safe.js";
 import { FlowQuestionTranscriptPill } from "./FlowQuestionTranscriptPill.js";
 import { FlowSummary } from "./FlowSummary.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
@@ -337,6 +338,9 @@ function FlowQuestionsSection({
 }) {
   const requests = useSessionInteractiveRequests(sessionId);
   const send = usePluginSend();
+  // Card callbacks cannot own the send promise — discard it explicitly.
+  // See change: cleanup-client-plugin-promises.
+  const dispatch = useMemo(() => makeSafeSend(send), [send]);
 
   const queue = useMemo<InteractiveUiRequestSnapshot[]>(() => {
     const out: InteractiveUiRequestSnapshot[] = [];
@@ -363,7 +367,7 @@ function FlowQuestionsSection({
         const question = typeof props.question === "string" ? props.question : "";
         if (req.status === "pending") {
           const submit = (answer: string) => {
-            send({
+            dispatch({
               type: "prompt_response",
               sessionId,
               promptId: req.requestId,
@@ -372,7 +376,7 @@ function FlowQuestionsSection({
             });
           };
           const dismiss = () => {
-            send({ type: "prompt_cancel", sessionId, promptId: req.requestId });
+            dispatch({ type: "prompt_cancel", sessionId, promptId: req.requestId });
           };
           return (
             <FlowQuestionCard

@@ -54,8 +54,11 @@ function makeCtx(
     },
     piGateway: {
       sendToSession: vi.fn().mockReturnValue(true),
-      // These cases model a LIVE session being forwarded to its bridge; the
-      // bridge-gated send path (§5) resumes only when NO live bridge exists.
+      // A live bridge. `handleSendPrompt` / `handleResumeSession` probe this via
+      // `isSessionProcessGone` to tell a genuinely-running session from a
+      // crash-orphaned zombie (change: resume-zombie-active-session). These
+      // tests all assert the FORWARD-to-bridge path, which is exactly the
+      // "process is live" branch, so it must report connected.
       isSessionConnected: vi.fn().mockReturnValue(true),
     },
     headlessPidRegistry: {

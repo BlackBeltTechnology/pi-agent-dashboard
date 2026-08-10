@@ -128,6 +128,7 @@ const BUNDLED_PLUGINS = [
   "subagents-plugin",
   "kb-plugin",
   "hermes-memory-plugin",
+  "blackhole-plugin",
   "apple-tools",
   "invoicebot-plugin",
 ];

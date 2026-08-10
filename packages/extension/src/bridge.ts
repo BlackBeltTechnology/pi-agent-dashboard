@@ -40,7 +40,13 @@ import { provisionOpenspecCli } from "./openspec-cli-shim.js";
 import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { mapEventToProtocol } from "./event-forwarder.js";
-import { FLOW_EVENT_MAP, IB_EVENT_MAP, registerFlowEventListeners, SUBAGENT_EVENT_MAP } from "./flow-event-wiring.js";
+import {
+  FLOW_EVENT_MAP,
+  IB_EVENT_MAP,
+  registerEventBusForwarding,
+  registerFlowEventListeners,
+  SUBAGENT_EVENT_MAP,
+} from "./flow-event-wiring.js";
 import { runGitPollTick } from "./git-poll.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
@@ -52,6 +58,7 @@ import { getOwnPgid, scanChildProcesses } from "./process-scanner.js";
 import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
+import { reportRefresh } from "./model-refresh.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
@@ -67,6 +74,7 @@ import { inlineToolResultImages } from "./tool-result-image-inliner.js";
 import { createTuiPromptAdapter } from "./tui-prompt-adapter.js";
 import { classifyTurnActionability } from "./turn-actionability.js";
 import { handleUiManagement, refreshUiModules, subscribeUiInvalidate, type UiModulesBridgeCtx } from "./ui-modules.js";
+import { runUiSafely } from "./ui-stale-guard.js";
 import { detectIsGitRepo } from "./vcs-info.js";
 import { buildVisibilityRegisterFields } from "./visibility-intent.js";
 
@@ -424,7 +432,10 @@ function initBridge(pi: ExtensionAPI) {
    * `executor` returns, pi's `finishRun()` flips `isStreaming = false` and
    * `activeRun = undefined`. After that point, anything queued into pi's
    * internal followUpQueue NEVER drains — pi has stopped reading it.
-   * (Verified at pi-coding-agent pi-agent-core/agent.js:307-330.)
+   * (Verified at pi-coding-agent pi-agent-core/agent.js: `finishRun()` clears
+   * `isStreaming` + `activeRun`, and `getFollowUpMessages` is only supplied to
+   * the loop while a run is active. Re-verified against pi 0.84.1 — behaviour
+   * unchanged, line numbers moved. See change: update-pi-core-0-84-adopt-apis.)
    *
    * Two retry loops handle the transition window correctly:
    *  - retryCount tracks how many setTimeout retries we've done
@@ -767,7 +778,21 @@ function initBridge(pi: ExtensionAPI) {
             );
           }
           cachedModelRegistry?.authStorage?.reload?.();
-          cachedModelRegistry?.refresh?.();
+          // pi 0.84.0: refresh() takes ModelsRefreshOptions and returns
+          // { aborted, errors }. Await + inspect it so getAvailable() below
+          // sees the refreshed catalogue and a per-provider failure is
+          // reported rather than silently dropped. Scope the refresh to the
+          // providers this reload actually touched -- an unrelated provider's
+          // catalogue has no reason to be re-fetched because one credential
+          // changed. Empty scope (removals only) => refresh nothing.
+          // See change: update-pi-core-0-84-adopt-apis.
+          const touched = [...new Set([...diff.added, ...diff.changed])];
+          if (touched.length > 0) {
+            await reportRefresh(
+              cachedModelRegistry?.refresh?.({ providers: touched }),
+              `credentials reload refresh (${touched.join(", ")})`,
+            );
+          }
         } catch (err) { console.error("[dashboard] credentials reload failed:", err); }
         // Push updated models list to dashboard client
         if (cachedModelRegistry && sessionReady) {
@@ -1486,8 +1511,8 @@ function initBridge(pi: ExtensionAPI) {
   // - session change (new/fork/resume): handled inside session_start via event.reason
   // - `session_shutdown`: dedicated handler → disconnect/cleanup
 
-  // Unified EventBus rename map for the emit intercept (flow + subagent + ib domain events)
-  const EVENT_BUS_MAP: Record<string, string> = { ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP, ...IB_EVENT_MAP };
+  // Unified EventBus rename map for the emit intercept (flow + subagent events)
+  const EVENT_BUS_MAP: Record<string, string> = { ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP };
 
   for (const eventType of enrichedEventTypes) {
     pi.on(eventType as any, safe(async (event: any, ctx: any) => {
@@ -1984,41 +2009,32 @@ function initBridge(pi: ExtensionAPI) {
     );
   }
 
-  // EventBus catch-all: intercept pi.events.emit to forward all EventBus
-  // traffic (flow events, subagent events, custom extension events).
-  // Known channels get renamed via EVENT_BUS_MAP; unknown channels use the
-  // channel name directly as the eventType.
-  let origEventsEmit: ((channel: string, data: unknown) => void) | undefined;
-  if (pi.events) {
-    origEventsEmit = pi.events.emit.bind(pi.events);
-    pi.events.emit = (channel: string, data: unknown) => {
-      try {
-        const eventData = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
-        if (SubagentFrameBuffer.isSubagentChannel(channel)) {
-          // Subagent frames are reconcilable state, not fire-and-forget. Forward
-          // live only when the session is ready AND the transport is actually
-          // open; otherwise buffer the latest frame per agent (latest-wins,
-          // bounded) instead of letting it fall into the shared FIFO ring.
-          // `sessionReady` stays true across a transient WS drop, so gating on
-          // `connection.isConnected` routes reconnect-window frames into the
-          // per-agent buffer (flushed on session_start AND onReconnect) rather
-          // than risking eviction from the shared ring.
-          // See change: fix-subagent-live-detail-reliability (D1/D2).
-          if (sessionReady && isActive() && connection.isConnected) {
-            sendEventForward(channel, eventData);
-            subagentFrameBuffer.markForwarded(channel, eventData);
-          } else if (!subagentFrameBuffer.buffer(channel, eventData)) {
-            console.warn(
-              `[dashboard] subagent frame dropped (no agentId) channel=${channel} while not ready`,
-            );
-          }
-        } else if (sessionReady && isActive()) {
-          sendEventForward(channel, eventData);
-        }
-      } catch { /* forwarding failure must never break the original emit */ }
-      origEventsEmit!(channel, data);
-    };
-  }
+  // EventBus forwarding: ONE `pi.events.on` subscription per declared channel
+  // (every key of EVENT_BUS_MAP). NOT an `emit` intercept — pi hands each
+  // extension its own `events` facade, so patching OUR `emit` never observed
+  // pi-flows' or pi-subagents' emissions, and every live flow_*/subagent_*
+  // event was silently dropped (automation runs then hung until the max-age
+  // reaper). The gating + subagent-buffer semantics live in `forwardBusEvent`.
+  // See change: fix-automation-run-lifecycle.
+  const disposeEventBusForwarding = registerEventBusForwarding(
+    pi.events,
+    {
+      sendEventForward,
+      isSessionReady: () => sessionReady,
+      isActive,
+      isConnected: () => connection.isConnected,
+      subagent: {
+        isSubagentChannel: (channel) => SubagentFrameBuffer.isSubagentChannel(channel),
+        markForwarded: (channel, data) => subagentFrameBuffer.markForwarded(channel, data),
+        buffer: (channel, data) => subagentFrameBuffer.buffer(channel, data),
+      },
+    },
+    // InvoiceBot domain channels are declared, not wildcarded: forwarding
+    // subscribes per channel, so `ib:*` must be an explicit extra map or the
+    // engine's domain events never reach the browser.
+    // See change: surface-invoice-domain-events-bridge.
+    [IB_EVENT_MAP],
+  );
 
   pi.on("session_start", safe(async (_event: any, ctx: any) => {
 
@@ -2527,31 +2543,31 @@ function initBridge(pi: ExtensionAPI) {
     let spinnerStart = 0;
     let activeLoader: Loader | null = null;
     const stopSpinner = () => {
+      // Release the interval BEFORE the guarded ctx.ui call, so a stale ctx
+      // still stops the 1s label refresh instead of leaking it.
       if (spinnerTimer) {
         clearInterval(spinnerTimer);
         spinnerTimer = null;
       }
       activeLoader = null;
-      // Tolerate a stale ctx: autoStartServer() can resolve after the session
-      // was replaced (headless flow runs), where touching ctx.ui throws.
-      try {
-        ctx.ui.setWidget("pi-dashboard-launch", undefined);
-      } catch {
-        /* stale ctx after session replacement — widget died with the old session */
-      }
+      // This runs from `onLaunchEnd` AND from the terminal .then()/.catch()
+      // below, either of which can land after a session replacement/reload has
+      // invalidated `ctx`. See ui-stale-guard.ts.
+      runUiSafely(() => ctx.ui.setWidget("pi-dashboard-launch", undefined));
     };
     autoStartServer(config, {
       discoverDashboard,
       isDashboardRunning,
       launchServer,
-      notify: (msg, level) => ctx.ui.notify(msg, level),
+      notify: (msg, level) => runUiSafely(() => ctx.ui.notify(msg, level)),
       onLaunchStart: () => {
         spinnerStart = Date.now();
         const buildMessage = () => {
           const elapsed = Math.floor((Date.now() - spinnerStart) / 1000);
           return `starting dashboard server … (${elapsed}s)`;
         };
-        ctx.ui.setWidget(
+        runUiSafely(() =>
+          ctx.ui.setWidget(
           "pi-dashboard-launch",
           (tui: unknown, theme: { fg: (role: string, s: string) => string }) => {
             const loader = new Loader(
@@ -2567,6 +2583,7 @@ function initBridge(pi: ExtensionAPI) {
             return loader;
           },
           { placement: "aboveEditor" },
+          ),
         );
         // Refresh the elapsed-seconds label every second. Frame animation is
         // driven by the Loader's own 80ms interval.
@@ -2801,10 +2818,9 @@ function initBridge(pi: ExtensionAPI) {
       runDevBuild({ packageRoot, serverPort: config.port });
     }
 
-    // Restore original pi.events.emit (EventBus catch-all cleanup)
-    if (origEventsEmit && pi.events) {
-      pi.events.emit = origEventsEmit;
-    }
+    // Release our EventBus subscriptions. Nothing to "restore": the bridge no
+    // longer replaces any host function. See change: fix-automation-run-lifecycle.
+    disposeEventBusForwarding();
     connection.disconnect();
   };
 

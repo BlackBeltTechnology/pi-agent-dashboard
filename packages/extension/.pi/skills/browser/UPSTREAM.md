@@ -5,6 +5,11 @@ snapshots of upstream `agent-browser` skill content. The Pi Dashboard
 addenda appended to `web.md` and the "Worked example: Pi Dashboard"
 section in `electron.md` are project-specific and not from upstream.
 
+**Not vendored — do not overwrite on refresh:**
+`references/own-browser.md` and `scripts/check-panerelay.sh` are authored
+for this repo (the Panerelay / own-logged-in-browser recipe). They have no
+upstream counterpart.
+
 | Field                  | Value                                                              |
 |------------------------|--------------------------------------------------------------------|
 | Upstream repo          | https://github.com/vercel-labs/agent-browser                       |
@@ -38,7 +43,11 @@ diff <(awk 'BEGIN{n=0} /^---$/{n++; next} n>=2{print}' /tmp/electron.md) referen
 #    Preserve the Pi Dashboard addenda (after the first `---` separator
 #    in web.md, and the "Worked example: Pi Dashboard" section in
 #    electron.md). Update the LICENSE file if the upstream license text
-#    has changed.
+#    has changed. Leave own-browser.md and check-panerelay.sh untouched.
+
+# 5. Re-verify the authored recipe against the new CLI, then bump
+#    `verifiedAgainstCli` in SKILL.md frontmatter:
+#    bash scripts/check-panerelay.sh
 ```
 
 The CLI version is the source of truth for the content; the upstream tag

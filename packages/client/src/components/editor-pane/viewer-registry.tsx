@@ -1,6 +1,16 @@
 /**
- * Viewer registry — maps a `ViewerKind` to its tab component. Adding a viewer
- * is a registry insertion, not an `if` chain mutation.
+ * Viewer registry — half (a) of the D3 registry split: maps every
+ * `OpenPathViewer` (a kind `fileKind()` can return for a real file) to its tab
+ * component. Adding a viewer is a registry insertion, not an `if` chain
+ * mutation.
+ *
+ * The four explicitly-opened pseudo-tab kinds (`diff`, `terminal`, `url`,
+ * `live-server`) live in `pseudo-tab-registry.tsx`. Keeping `DiffViewer` out of
+ * this half is what breaks the cycle `CappedViewer -> viewer-registry ->
+ * DiffViewer -> DiffPanel -> DiffFilePreview -> CappedViewer` — do NOT import a
+ * pseudo-tab viewer here.
+ *
+ * See change: cleanup-import-cycles (D3).
  *
  * The rich viewer kinds delegate to the shared `preview/*` renderers (one
  * renderer per kind, no editor-pane duplicate): pdf → `PdfPreview` (pdfjs
@@ -14,7 +24,7 @@
  * See change: improve-content-editor (adopt preview/* renderers §4.3).
  */
 
-import { fileKind, type ViewerKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { type ComponentType, lazy, Suspense } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { AsciiDocPreview } from "../preview/AsciiDocPreview.js";
@@ -27,13 +37,11 @@ import { PptxPreview } from "../preview/PptxPreview.js";
 import { SpreadsheetPreview } from "../preview/SpreadsheetPreview.js";
 import { VideoPreview } from "../preview/VideoPreview.js";
 import BinaryWarn from "./BinaryWarn.js";
-import DiffViewer from "./DiffViewer.js";
 import EditableSpreadsheetTab from "./EditableSpreadsheetTab.js";
-import LiveServerViewer from "./LiveServerViewer.js";
 import MarkdownViewer from "./MarkdownViewer.js";
 import MermaidViewer from "./MermaidViewer.js";
 import type { ViewerProps } from "./types.js";
-import UrlViewer from "./UrlViewer.js";
+import type { OpenPathViewer } from "./viewer-kinds.js";
 
 const MonacoBuffer = lazy(() => import("./MonacoBuffer.js"));
 // Lazy like the four preview components that dynamically import PdfPreview — a
@@ -45,13 +53,6 @@ const asTarget = ({ cwd, path }: ViewerProps) => ({ kind: "file" as const, cwd, 
 
 /** Absolute path for `fileKind` (which throws on a relative path). */
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
-
-/**
- * `terminal` viewer placeholder. A `term:<id>` tab's real xterm mount lives in
- * the keep-alive `TerminalPaneLayer` (single mount per id — see change:
- * terminals-in-tabbed-panes), so the registry entry renders nothing.
- */
-const TerminalPlaceholder = (_p: ViewerProps) => null;
 
 const PdfViewer = (p: ViewerProps) => (
   <Suspense
@@ -84,7 +85,7 @@ const SpreadsheetViewer = (p: ViewerProps) =>
 const AsciiDocViewer = (p: ViewerProps) => <AsciiDocPreview target={asTarget(p)} />;
 const EmlViewer = (p: ViewerProps) => <EmlPreview target={asTarget(p)} />;
 
-export const viewerRegistry: Record<ViewerKind, ComponentType<ViewerProps>> = {
+export const viewerRegistry: Record<OpenPathViewer, ComponentType<ViewerProps>> = {
   monaco: MonacoBuffer,
   image: ImageTab,
   pdf: PdfViewer,
@@ -98,12 +99,5 @@ export const viewerRegistry: Record<ViewerKind, ComponentType<ViewerProps>> = {
   spreadsheet: SpreadsheetViewer,
   asciidoc: AsciiDocViewer,
   email: EmlViewer,
-  "live-server": LiveServerViewer,
-  // Opened explicitly under a virtual `url:<url>` path (never from `fileKind()`),
-  // for `canvas()` url/youtube declares. See change: auto-canvas (S35).
-  url: UrlViewer,
-  diff: DiffViewer,
-  // See TerminalPlaceholder above — real mount is the keep-alive layer.
-  terminal: TerminalPlaceholder,
   "binary-warn": BinaryWarn,
 };

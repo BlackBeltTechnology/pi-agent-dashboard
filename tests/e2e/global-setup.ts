@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "@playwright/test";
 import {
+  DASHBOARD_PORT,
   HEALTH_URL,
   MARKER_PATH,
   resolvePortsFromStateFile,
@@ -81,6 +82,47 @@ async function bootHealthyPorts(
   );
 }
 
+/**
+ * Wait for harness-OWNED sessions to be registered before the first test runs.
+ *
+ * The `PI_E2E_INDEPENDENT_SESSION` pi is launched at container boot
+ * (`test-entrypoint.sh`) but registers ASYNCHRONOUSLY. If it registers *during*
+ * the first test rather than before it, the reap fixture's delta classifies it
+ * as spawned-during-test and kills it — breaking `faux-ask.spec.ts`'s
+ * reconnect-after-restart scenario much later, with no obvious link back.
+ *
+ * Waiting here guarantees such sessions are inside the FIRST pre-snapshot, so
+ * they are pre-existing for every delta and can never be reaped.
+ *
+ * See change: fix-e2e-harness-memory-exhaustion (design D3).
+ */
+async function waitForHarnessOwnedSessions(port: number, timeoutMs = 60_000): Promise<void> {
+  if (process.env.PI_E2E_INDEPENDENT_SESSION !== "1") return;
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://localhost:${port}/api/sessions`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (res.ok) {
+        const body = (await res.json()) as { data?: { sessions?: { source?: string }[] } };
+        const sessions = body.data?.sessions ?? [];
+        // The independent pi attaches as a `tui` session (NOT dashboard-spawned).
+        if (sessions.some((s) => s.source === "tui")) return;
+      }
+    } catch {
+      // server still settling — keep waiting
+    }
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+  throw new Error(
+    `[${CHANGE}] PI_E2E_INDEPENDENT_SESSION=1 but no source:"tui" session registered ` +
+      `within ${timeoutMs / 1_000}s. The reap fixture would misclassify it as ` +
+      `spawned-during-test and kill faux-ask.spec.ts's subject.`,
+  );
+}
+
 export default async function globalSetup(): Promise<void> {
   // Preflight FIRST: never pay the container boot only to die at browser launch.
   assertBrowserInstalled();
@@ -98,6 +140,7 @@ export default async function globalSetup(): Promise<void> {
     }
     // Not managed by us — ensure no stale marker triggers a teardown.
     if (fs.existsSync(MARKER_PATH)) fs.rmSync(MARKER_PATH);
+    await waitForHarnessOwnedSessions(DASHBOARD_PORT);
     return;
   }
 
@@ -114,7 +157,11 @@ export default async function globalSetup(): Promise<void> {
   // Ports are NOT pre-pinned: test-up.sh hash-derives them in-window from the
   // unique workspace path (change fix-parallel-e2e-docker-collisions D1); we
   // read the chosen pair back from the state file below.
-  const env = {
+  // Annotated (rather than inferred) so the `delete env.DASHBOARD_PORT` strips
+  // below typecheck: an inferred object literal has no such optional keys.
+  // Surfaced by `npm run lint:e2e` — tests/ was never typechecked before
+  // change fix-e2e-harness-memory-exhaustion.
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     PI_E2E_SEED: "1",
     // Independent (NOT dashboard-spawned) pi session — required by the reconnect
@@ -135,6 +182,15 @@ export default async function globalSetup(): Promise<void> {
     // Variant containers (no-am/legacy/bad-registration) are booted separately
     // via docker/test-up.sh with PI_TEST_PEERS set (opt-in / manual).
     PI_TEST_PEERS: process.env.PI_TEST_PEERS ?? "both",
+    // PI_E2E_OAUTH=1 seeds a resolvable `github` provider + `bypassUrls:["/"]`
+    // BEFORE the server boots, so `/auth/*` routes exist for
+    // oauth-redirect-base.spec.ts. The bypass matches every URL, so the gate
+    // denies nothing and the other specs are unaffected — which they must not
+    // be, since this is the SHARED harness. A spec cannot seed this itself:
+    // pi-state is a RAM-backed tmpfs, so every container start discards config
+    // written through `PUT /api/config`.
+    // See change: config-override-oauth-redirect-base.
+    PI_E2E_OAUTH: process.env.PI_E2E_OAUTH ?? "1",
     ANTHROPIC_API_KEY: "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",
@@ -173,4 +229,6 @@ export default async function globalSetup(): Promise<void> {
   // the container port → baseURL in sync.
   process.env.PW_E2E_PORT = String(ports.dashboardPort);
   process.env.PW_GATEWAY_PORT = String(ports.gatewayPort);
+
+  await waitForHarnessOwnedSessions(ports.dashboardPort);
 }

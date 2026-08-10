@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { BusClient, NoPluginHandlerError } from "@blackbelt-technology/pi-dashboard-bus-client";
 import type { SpawnResultBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";

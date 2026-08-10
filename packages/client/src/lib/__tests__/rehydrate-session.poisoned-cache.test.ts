@@ -15,7 +15,7 @@
 
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { IDBFactory } from "fake-indexeddb";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { rehydrateSession } from "../replay/rehydrate-session.js";
 import { type CachedEvent, createReplayCache } from "../replay/replay-cache.js";
 
@@ -52,9 +52,14 @@ describe("rehydrateSession — poisoned cache entry", () => {
     factory = new IDBFactory();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("falls back to a cache miss (null) instead of throwing when a cached event re-reduces to a throw", async () => {
     const cache = createReplayCache({ factory });
     await cache.put("s1", { maxSeq: 9, payload: [userMsg(5, "hi"), poisonedEvent(9)] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     // Must not throw; a re-reduce failure degrades to a cache miss (null) so
     // the caller performs a full replay (lastSeq: 0).
@@ -62,6 +67,9 @@ describe("rehydrateSession — poisoned cache entry", () => {
     expect(result).toBeNull();
     // The poisoned entry is discarded so it cannot re-poison a later load.
     expect(await cache.get("s1")).toBeNull();
+    // Exactly one operator-facing signal for the exceptional path (test-plan #X3).
+    const rehydrateWarns = warn.mock.calls.filter((c) => String(c[0]).includes("[rehydrate]"));
+    expect(rehydrateWarns).toHaveLength(1);
   });
 
   it("still delta-rehydrates a healthy cache entry", async () => {

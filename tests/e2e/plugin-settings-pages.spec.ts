@@ -1,4 +1,4 @@
-import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
+import { type APIRequestContext, expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
 
 /**

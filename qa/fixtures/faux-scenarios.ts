@@ -236,6 +236,20 @@ export const LONG_TRANSCRIPT_TAIL = "long-transcript complete";
 export const NOTIFY_PROBE_MESSAGE = "e2e notify probe";
 
 /**
+ * Per-level notification texts the `notify-levels` scenario emits, one per
+ * `NotifyLevel`. Distinguishable on purpose: the notifyMinLevel e2e asserts
+ * which SUBSET of them survives a given floor, so each must be independently
+ * greppable in the rendered transcript.
+ * See change: gate-notify-rows-by-level.
+ */
+export const NOTIFY_LEVEL_MESSAGES = {
+  info: "e2e notify level info",
+  success: "e2e notify level success",
+  warning: "e2e notify level warning",
+  error: "e2e notify level error",
+} as const;
+
+/**
  * Build a deliberately LONG, heterogeneous transcript (Step B e2e fixture).
  *
  * Each turn streams a thinking block + an assistant text reply + one DISTINCT
@@ -271,6 +285,20 @@ function buildLongTranscript(turns = 120): FauxResponseStep[] {
  * settled at the bottom before climbing.
  */
 export const SCROLL_TOP_HEAVY_TAIL = "scroll-top-heavy complete";
+
+/**
+ * Prose the selection-anchor e2e drag-selects inside. Long enough that a drag
+ * stays WITHIN this one message (the reported bug is a single-message drag) and
+ * distinctive enough that any retargeting onto neighbouring rows is obvious in
+ * the asserted string. See change: anchor-chat-selection-against-row-growth.
+ */
+export const ANCHOR_PROSE =
+  "ANCHORSTART the selected sentence must not change while a tool card above it " +
+  "completes and renders its output body, because the pointer never travelled " +
+  "backwards across this text ANCHOREND";
+
+/** Tail marker for the `anchor-row-growth` scenario. */
+export const ANCHOR_ROW_GROWTH_TAIL = "anchor-row-growth complete";
 
 /**
  * Top-heavy transcript fixture (change: fix-chat-scroll-to-top-estimate-drift,
@@ -723,6 +751,36 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: SCROLL_TOP_HEAVY_TAIL },
   },
 
+  // Selection-anchor fixture (change: anchor-chat-selection-against-row-growth).
+  // Reproduces the reported geometry EXACTLY: a bash tool call whose result is
+  // ~600 lines (so rendering its output body grows that row by thousands of px)
+  // followed by the prose the user drag-selects. The e2e HOLDS the tool's
+  // `tool_execution_end` WS frame so the card is still "running" when the drag
+  // starts, then RELEASES it mid-drag — the card completes, its body renders,
+  // and every row below it (including the drag's anchor row) shifts down.
+  //
+  // Deliberately a hold-and-release rather than the drop used by
+  // ctx-running-render / reconcile-heal: the growth is the whole point here, so
+  // the frame must eventually arrive.
+  //
+  // Step shape matters: a text-ONLY message ends the turn, so the prose is
+  // emitted alongside a tool call (the `poll-narrated` pattern) and padding
+  // calls follow, which keeps the prose a committed VIRTUAL row with rows below
+  // it rather than the streaming tail. The prose is separated from the big `seq`
+  // call by a non-empty reply, a hard burst boundary, so the growing card stays
+  // a top-level row above the prose instead of being folded into a burst group.
+  "anchor-row-growth": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "seq 1 600" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(ANCHOR_PROSE), fauxToolCall("bash", { command: "echo anchor-pad-1" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo anchor-pad-2" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(ANCHOR_ROW_GROWTH_TAIL)]),
+    ],
+    expect: { text: ANCHOR_ROW_GROWTH_TAIL },
+  },
+
   // Navigable variant for the scroll-to-TURN e2e. A faux scenario has ONE user
   // turn, so only turn 0 is ever assigned a turnIndex; its per-turn stat must
   // stay inside the client's MAX_TURN_STATS=50 window or the TokenStatsBar
@@ -980,6 +1038,53 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText("notify sent")]),
+    ],
+    expect: { toolName: "e2e_notify" },
+  },
+  /**
+   * Four notifies, one per level, through the REAL `ctx.ui.notify` path (the
+   * `e2e_notify` fixture tool already accepts `{message, level}`). Drives the
+   * notifyMinLevel ladder end to end. See change: gate-notify-rows-by-level.
+   */
+  "notify-levels": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.info,
+            level: "info",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.success,
+            level: "success",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.warning,
+            level: "warning",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.error,
+            level: "error",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("all notify levels sent")]),
     ],
     expect: { toolName: "e2e_notify" },
   },

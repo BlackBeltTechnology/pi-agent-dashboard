@@ -49,7 +49,10 @@ function registerHandlersOnce(): void {
   handlersRegistered = true;
 
   ipcMain.handle("doctor:run", async () => {
-    if (inFlightRun) {
+    // Explicit nullish check: a `Promise` is always truthy, so the bare guard
+    // was correct only by accident. Narrowing preserves the dedupe exactly.
+    // See change: cleanup-async-semantics-server-extension (design D4).
+    if (inFlightRun !== null) {
       // Concurrent invocation — await the same report.
       return inFlightRun;
     }

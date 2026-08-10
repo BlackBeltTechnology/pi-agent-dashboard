@@ -113,7 +113,7 @@ RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cu
 # 1.4 Global pi coding agent + openspec (spawned/probed by the dashboard).
 # Install must be fatal; the version probes stay non-fatal (grouped so a
 # non-zero `--version` can't mask an `npm install -g` failure).
-RUN npm install -g @earendil-works/pi-coding-agent@0.83.0 openspec \
+RUN npm install -g @earendil-works/pi-coding-agent@0.84.1 openspec \
  && { pi --version || true; } \
  && { openspec --version || true; }
 

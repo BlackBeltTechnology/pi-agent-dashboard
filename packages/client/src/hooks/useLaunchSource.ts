@@ -19,6 +19,7 @@
  * See change: eliminate-electron-runtime-install (task 3.3).
  */
 import { useEffect, useState } from "react";
+import { logRejection } from "../lib/report-error.js";
 
 export type LaunchSource = "electron" | "standalone" | "bridge";
 
@@ -26,7 +27,9 @@ let cached: LaunchSource | null = null;
 let inflight: Promise<LaunchSource | null> | null = null;
 
 function probe(): Promise<LaunchSource | null> {
-  if (inflight) return inflight;
+  // Explicit nullish check — a `Promise` is always truthy, so the bare guard was
+  // correct only by accident. See change: cleanup-client-plugin-promises (D6).
+  if (inflight !== null) return inflight;
   inflight = (async () => {
     try {
       const res = await fetch("/api/health");
@@ -52,9 +55,13 @@ export function useLaunchSource(): LaunchSource | null {
       return;
     }
     let cancelled = false;
-    probe().then((v) => {
-      if (!cancelled) setValue(v);
-    });
+    // Effect callbacks must return void/cleanup, so the promise is discarded
+    // with a stated handler. See change: cleanup-client-plugin-promises.
+    void probe()
+      .then((v) => {
+        if (!cancelled) setValue(v);
+      })
+      .catch(logRejection("useLaunchSource.probe"));
     return () => {
       cancelled = true;
     };

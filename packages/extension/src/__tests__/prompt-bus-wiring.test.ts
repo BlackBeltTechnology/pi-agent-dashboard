@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createNotifyProxy } from "../notify-proxy.js";
 import { PromptBus, type PromptAdapter, type PromptRequest, type PromptResponse, type PromptClaim, type PromptComponent } from "../prompt-bus.js";
+import { settlePrompts } from "./helpers/settle-prompts.js";
 
 // ── Mock infrastructure (tasks 9.1) ────────────────────────────────
 
@@ -130,7 +131,14 @@ function createTuiPromptAdapter(mockUi: ReturnType<typeof createMockTuiUi>, bus:
           activeAbortControllers.delete(prompt.id);
         }
       };
-      present();
+      // `onRequest` must return a claim synchronously, so `present()` cannot be
+      // awaited. Its body already try/catch/finally-wraps everything, so it
+      // cannot reject; the handler below is a guard that surfaces anything that
+      // somehow escapes rather than a suppression. Bare `void` is banned.
+      // See change: cleanup-async-semantics-server-extension (design D1).
+      void present().catch((err: unknown) => {
+        console.error("mock TUI adapter present() escaped its own catch:", err);
+      });
 
       return {}; // Claim without component (TUI-only)
     },
@@ -274,10 +282,10 @@ describe("PromptBus wiring integration", () => {
   // ── 9.3–9.5: Dual wiring verification ──
 
   describe("dual wiring — prompts reach both TUI and dashboard", () => {
-    it("9.3: select prompt wires to both TUI and dashboard simultaneously", () => {
+    it("9.3: select prompt wires to both TUI and dashboard simultaneously", async () => {
       const stack = setupPromptBusStack({ hasUI: true });
 
-      stack.bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A", "B"] });
+      const inflight = stack.bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A", "B"] });
 
       // TUI should have been called
       expect(stack.tuiUi.select).toHaveBeenCalledWith(
@@ -291,12 +299,13 @@ describe("PromptBus wiring integration", () => {
       expect(requests).toHaveLength(1);
       expect(requests[0].component).toEqual(expect.objectContaining({ type: "generic-dialog" }));
       expect(requests[0].prompt.question).toBe("Pick:");
+      await settlePrompts(stack.bus, inflight);
     });
 
-    it("9.4: input prompt wires to both TUI and dashboard simultaneously", () => {
+    it("9.4: input prompt wires to both TUI and dashboard simultaneously", async () => {
       const stack = setupPromptBusStack({ hasUI: true });
 
-      stack.bus.request({ pipeline: "command", type: "input", question: "Name:" });
+      const inflight = stack.bus.request({ pipeline: "command", type: "input", question: "Name:" });
 
       expect(stack.tuiUi.input).toHaveBeenCalledWith(
         "Name:",
@@ -307,12 +316,13 @@ describe("PromptBus wiring integration", () => {
       const requests = stack.connection._messagesOfType("prompt_request");
       expect(requests).toHaveLength(1);
       expect(requests[0].prompt.type).toBe("input");
+      await settlePrompts(stack.bus, inflight);
     });
 
-    it("9.5: confirm prompt wires to both TUI and dashboard simultaneously", () => {
+    it("9.5: confirm prompt wires to both TUI and dashboard simultaneously", async () => {
       const stack = setupPromptBusStack({ hasUI: true });
 
-      stack.bus.request({ pipeline: "command", type: "confirm", question: "Sure?" });
+      const inflight = stack.bus.request({ pipeline: "command", type: "confirm", question: "Sure?" });
 
       expect(stack.tuiUi.confirm).toHaveBeenCalledWith(
         "Sure?",
@@ -323,6 +333,7 @@ describe("PromptBus wiring integration", () => {
       const requests = stack.connection._messagesOfType("prompt_request");
       expect(requests).toHaveLength(1);
       expect(requests[0].prompt.type).toBe("confirm");
+      await settlePrompts(stack.bus, inflight);
     });
   });
 
@@ -374,10 +385,10 @@ describe("PromptBus wiring integration", () => {
   // ── 9.8–9.11: Architect custom UI wiring ──
 
   describe("architect prompts — custom widget bar, not generic dialog", () => {
-    it("9.8: architect select wires to TUI + widget bar, NOT generic dialog", () => {
+    it("9.8: architect select wires to TUI + widget bar, NOT generic dialog", async () => {
       const stack = setupPromptBusStack({ hasUI: true, hasArchitect: true });
 
-      stack.bus.request({
+      const inflight = stack.bus.request({
         pipeline: "architect-edit",
         type: "select",
         question: "What would you like to do?",
@@ -398,12 +409,13 @@ describe("PromptBus wiring integration", () => {
       expect(requests[0].placement).toBe("widget-bar");
       // Should NOT have a generic-dialog
       expect(requests.filter((r: any) => r.component.type === "generic-dialog")).toHaveLength(0);
+      await settlePrompts(stack.bus, inflight);
     });
 
-    it("9.9: architect input ('Additional guidance') wires to TUI + widget bar, not generic dialog", () => {
+    it("9.9: architect input ('Additional guidance') wires to TUI + widget bar, not generic dialog", async () => {
       const stack = setupPromptBusStack({ hasUI: true, hasArchitect: true });
 
-      stack.bus.request({
+      const inflight = stack.bus.request({
         pipeline: "architect-new",
         type: "input",
         question: "Additional guidance for the architect:",
@@ -415,6 +427,7 @@ describe("PromptBus wiring integration", () => {
       expect(requests).toHaveLength(1);
       expect(requests[0].component.type).toBe("architect-prompt");
       expect(requests[0].placement).toBe("widget-bar");
+      await settlePrompts(stack.bus, inflight);
     });
 
     it("9.10: TUI answers architect prompt → widget bar dismissed", async () => {
@@ -468,11 +481,11 @@ describe("PromptBus wiring integration", () => {
   // ── 9.12–9.14: Mock agent messages ──
 
   describe("mock agent messages trigger prompts on both UIs", () => {
-    it("9.12: mock agent ctx.ui.select reaches both TUI and dashboard", () => {
+    it("9.12: mock agent ctx.ui.select reaches both TUI and dashboard", async () => {
       const stack = setupPromptBusStack({ hasUI: true });
 
       // Simulate what the bus-wrapped ctx.ui.select would do:
-      stack.bus.request({
+      const inflight = stack.bus.request({
         pipeline: "command",
         type: "select",
         question: "Agent question",
@@ -488,13 +501,14 @@ describe("PromptBus wiring integration", () => {
       const requests = stack.connection._messagesOfType("prompt_request");
       expect(requests).toHaveLength(1);
       expect(requests[0].prompt.question).toBe("Agent question");
+      await settlePrompts(stack.bus, inflight);
     });
 
-    it("9.13: mock architect failure → guidance input reaches TUI + widget bar, no generic dialog", () => {
+    it("9.13: mock architect failure → guidance input reaches TUI + widget bar, no generic dialog", async () => {
       const stack = setupPromptBusStack({ hasUI: true, hasArchitect: true });
 
       // Simulate what emitPromptAndAwait does after architect failure:
-      stack.bus.request({
+      const inflight = stack.bus.request({
         pipeline: "architect-new",
         type: "input",
         question: "Additional guidance for the architect:",
@@ -512,6 +526,7 @@ describe("PromptBus wiring integration", () => {
       expect(requests).toHaveLength(1);
       expect(requests[0].component.type).toBe("architect-prompt");
       expect(requests[0].placement).toBe("widget-bar");
+      await settlePrompts(stack.bus, inflight);
     });
 
     it("9.14: mock architect preview → save/replan/cancel on both UIs, TUI answers Save, widget bar dismissed", async () => {
@@ -625,25 +640,26 @@ describe("PromptBus wiring integration", () => {
       expect(result.answer).toBe("A");
     });
 
-    it("9.19: no pi-flows adapters — only default generic-dialog", () => {
+    it("9.19: no pi-flows adapters — only default generic-dialog", async () => {
       const stack = setupPromptBusStack({ hasUI: false, hasArchitect: false });
 
-      stack.bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A", "B"] });
+      const inflight = stack.bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A", "B"] });
 
       const requests = stack.connection._messagesOfType("prompt_request");
       expect(requests).toHaveLength(1);
       expect(requests[0].component.type).toBe("generic-dialog");
+      await settlePrompts(stack.bus, inflight);
     });
   });
 
   // ── 9.20–9.21: Concurrent prompts ──
 
   describe("concurrent prompts from different pipelines", () => {
-    it("9.20: command + architect prompts wire independently to correct UIs", () => {
+    it("9.20: command + architect prompts wire independently to correct UIs", async () => {
       const stack = setupPromptBusStack({ hasUI: true, hasArchitect: true });
 
-      stack.bus.request({ pipeline: "command", type: "select", question: "Command Q", options: ["A"] });
-      stack.bus.request({ pipeline: "architect-edit", type: "select", question: "Architect Q", options: ["Save", "Cancel"] });
+      const commandInflight = stack.bus.request({ pipeline: "command", type: "select", question: "Command Q", options: ["A"] });
+      const architectInflight = stack.bus.request({ pipeline: "architect-edit", type: "select", question: "Architect Q", options: ["Save", "Cancel"] });
 
       const requests = stack.connection._messagesOfType("prompt_request");
       expect(requests).toHaveLength(2);
@@ -656,6 +672,7 @@ describe("PromptBus wiring integration", () => {
       const archReq = requests.find((r: any) => r.prompt.question === "Architect Q");
       expect(archReq.component.type).toBe("architect-prompt");
       expect(archReq.placement).toBe("widget-bar");
+      await settlePrompts(stack.bus, commandInflight, architectInflight);
     });
 
     it("9.21: answering one concurrent prompt does NOT dismiss the other", async () => {
@@ -690,10 +707,10 @@ describe("PromptBus wiring integration", () => {
   // ── Reconnect replay ──
 
   describe("reconnect replay — getPendingRequests for bridge onReconnect", () => {
-    it("reconnect with pending prompt returns it for re-send", () => {
+    it("reconnect with pending prompt returns it for re-send", async () => {
       const stack = setupPromptBusStack({ hasUI: true });
 
-      stack.bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A", "B"] });
+      const inflight = stack.bus.request({ pipeline: "command", type: "select", question: "Pick:", options: ["A", "B"] });
 
       // Simulate reconnect: bridge reads pending and re-sends
       const pending = stack.bus.getPendingRequests();
@@ -717,6 +734,7 @@ describe("PromptBus wiring integration", () => {
       // Should have sent exactly one re-send
       const afterCount = stack.connection.send.mock.calls.length;
       expect(afterCount - beforeCount).toBe(1);
+      await settlePrompts(stack.bus, inflight);
     });
 
     it("reconnect with no pending prompts sends nothing", () => {
@@ -741,10 +759,10 @@ describe("PromptBus wiring integration", () => {
       expect(stack.bus.getPendingRequests()).toEqual([]);
     });
 
-    it("reconnect re-send uses stored component even if adapter was unregistered", () => {
+    it("reconnect re-send uses stored component even if adapter was unregistered", async () => {
       const stack = setupPromptBusStack({ hasUI: true, hasArchitect: true });
 
-      stack.bus.request({
+      const inflight = stack.bus.request({
         pipeline: "architect-edit",
         type: "select",
         question: "Save?",
@@ -761,13 +779,14 @@ describe("PromptBus wiring integration", () => {
       expect(pending).toHaveLength(1);
       expect(pending[0].component.type).toBe("architect-prompt");
       expect(pending[0].placement).toBe("widget-bar");
+      await settlePrompts(stack.bus, inflight);
     });
   });
 
   // ── 9.22: Extension reload ──
 
   describe("extension reload", () => {
-    it("9.22: adapter re-registration replaces old adapter", () => {
+    it("9.22: adapter re-registration replaces old adapter", async () => {
       const stack = setupPromptBusStack({ hasUI: true });
 
       // Register a new TUI adapter (simulating reload)
@@ -776,7 +795,7 @@ describe("PromptBus wiring integration", () => {
       stack.bus.registerAdapter(newTuiAdapter);
 
       // New prompt should use new adapter
-      stack.bus.request({ pipeline: "command", type: "select", question: "After reload", options: ["X"] });
+      const inflight = stack.bus.request({ pipeline: "command", type: "select", question: "After reload", options: ["X"] });
 
       // Old TUI should NOT have been called
       expect(stack.tuiUi.select).not.toHaveBeenCalledWith("After reload", expect.anything(), expect.anything());
@@ -787,6 +806,7 @@ describe("PromptBus wiring integration", () => {
         ["X"],
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
+      await settlePrompts(stack.bus, inflight);
     });
   });
 });

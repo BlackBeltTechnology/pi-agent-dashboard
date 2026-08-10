@@ -2,28 +2,31 @@
  * Fastify plugin that registers OAuth auth routes and the onRequest hook.
  * Only registered when auth is configured.
  */
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import cookie from "@fastify/cookie";
+
 import crypto from "node:crypto";
-import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import cookie from "@fastify/cookie";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { PUBLIC_PAIRING_PREFIXES } from "../routes/pairing-routes.js";
 import {
-  type ResolvedProvider,
-  type TokenPayload,
-  buildProviderRegistry,
-  ensureAuthSecret,
-  signToken,
-  verifyToken,
-  parseAuthCookie,
-  isUserAllowed,
-  buildRedirectUri,
   buildAuthorizeUrl,
+  buildProviderRegistry,
+  buildRedirectUri,
+  COOKIE_NAME,
+  ensureAuthSecret,
   exchangeCode,
   fetchUserInfo,
-  COOKIE_NAME,
+  isUserAllowed,
+  parseAuthCookie,
+  type ResolvedProvider,
+  resolveRedirectBase,
+  signToken,
+  type TokenPayload,
+  verifyToken,
+  warnOnInvalidRedirectBase,
 } from "./auth.js";
-import { isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
 import { verifyLocalToken } from "./local-token.js";
-import { PUBLIC_PAIRING_PREFIXES } from "../routes/pairing-routes.js";
+import { isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
 import type { WsRouteScope } from "./ws-ticket.js";
 
 /**
@@ -108,6 +111,18 @@ h1{margin:0 0 16px;font-size:24px;color:#ef4444;}</style>
 <a href="/auth/login" style="color:#60a5fa;">Try a different account</a></div></body></html>`;
 }
 
+/**
+ * Mirror the RESOLVED redirect base + winning tier to the server log at every
+ * register/reload (D10). A remote operator whose OAuth is broken cannot obtain
+ * a JWT to reach the diagnostics endpoint, so `~/.pi/dashboard/server.log` has
+ * to answer "which value actually won" with no HTTP at all.
+ * See change: config-override-oauth-redirect-base.
+ */
+function logResolvedRedirectBase(port: number, override?: string): void {
+  const { base, source } = resolveRedirectBase(port, override);
+  console.log(`🔐 OAuth redirect base: ${base} (source: ${source})`);
+}
+
 export async function registerAuthPlugin(
   fastify: FastifyInstance,
   options: AuthPluginOptions,
@@ -121,7 +136,11 @@ export async function registerAuthPlugin(
     allowedUsers: authConfig.allowedUsers,
     bypassUrls: authConfig.bypassUrls ?? [],
     bypassHosts: resolvedTrustedNetworks ?? authConfig.bypassHosts ?? [],
+    redirectBaseUrl: authConfig.redirectBaseUrl,
   };
+
+  warnOnInvalidRedirectBase(authState.redirectBaseUrl);
+  logResolvedRedirectBase(port, authState.redirectBaseUrl);
 
   if (authState.providerRegistry.size === 0) {
     console.warn("Auth configured but no providers resolved — auth disabled");
@@ -129,12 +148,21 @@ export async function registerAuthPlugin(
   }
 
   // Expose reload function on the fastify instance for runtime config updates
-  (fastify as any)._reloadAuth = async (newConfig: AuthConfig) => {
+  // `fullConfig` carries the reloaded `resolvedTrustedNetworks` (top-level
+  // `trustedNetworks` merged with `auth.bypassHosts`) so the reload applies the
+  // SAME merge boot does. Without it every auth-carrying `PUT /api/config`
+  // silently dropped top-level trusted networks from the gate until restart — a
+  // pre-existing defect (D15). Omitting it keeps the old auth-only behaviour
+  // for callers that have no full config to hand.
+  (fastify as any)._reloadAuth = async (newConfig: AuthConfig, fullConfig?: DashboardConfig) => {
     authState.secret = ensureAuthSecret(newConfig);
     authState.providerRegistry = await buildProviderRegistry(newConfig.providers);
     authState.allowedUsers = newConfig.allowedUsers;
     authState.bypassUrls = newConfig.bypassUrls ?? [];
-    authState.bypassHosts = newConfig.bypassHosts ?? [];
+    authState.bypassHosts = fullConfig?.resolvedTrustedNetworks ?? newConfig.bypassHosts ?? [];
+    authState.redirectBaseUrl = newConfig.redirectBaseUrl;
+    warnOnInvalidRedirectBase(authState.redirectBaseUrl);
+    logResolvedRedirectBase(port, authState.redirectBaseUrl);
     const names = Array.from(authState.providerRegistry.values()).map((p) => p.name);
     console.log(`🔐 Auth reloaded with providers: ${names.join(", ")}`);
   };
@@ -158,7 +186,7 @@ export async function registerAuthPlugin(
     if (providers.length === 1 && !error) {
       // Auto-redirect to single provider
       const p = providers[0];
-      const redirectUri = buildRedirectUri(p.key, port);
+      const redirectUri = buildRedirectUri(p.key, port, authState.redirectBaseUrl);
       const returnUrl = (request.query as any)?.return || "/";
       const state = encodeState(returnUrl);
       const url = buildAuthorizeUrl(p, redirectUri, state);
@@ -175,7 +203,7 @@ export async function registerAuthPlugin(
     if (!provider) {
       return reply.code(404).send({ error: "Unknown provider" });
     }
-    const redirectUri = buildRedirectUri(providerKey, port);
+    const redirectUri = buildRedirectUri(providerKey, port, authState.redirectBaseUrl);
     const returnUrl = (request.query as any)?.return || "/";
     const state = encodeState(returnUrl);
     const url = buildAuthorizeUrl(provider, redirectUri, state);
@@ -198,7 +226,7 @@ export async function registerAuthPlugin(
       return reply.redirect("/auth/login?error=Missing+authorization+code");
     }
 
-    const redirectUri = buildRedirectUri(providerKey, port);
+    const redirectUri = buildRedirectUri(providerKey, port, authState.redirectBaseUrl);
     const accessToken = await exchangeCode(provider, code, redirectUri);
     if (!accessToken) {
       return reply.redirect("/auth/login?error=Token+exchange+failed");
@@ -220,10 +248,18 @@ export async function registerAuthPlugin(
 
     const { returnUrl } = decodeState(stateParam);
 
+    // `request.protocol` is ALWAYS "http" behind a reverse proxy, because
+    // Fastify is deliberately not configured with `trustProxy` — enabling it
+    // would let `X-Forwarded-For` drive `request.ip`, which both authorization
+    // bypasses read (see forwarded-ip-trust.test.ts). So derive the flag from
+    // the resolved public origin, which is operator-stated config that no
+    // request header can influence.
+    // See change: config-override-oauth-redirect-base (design D14).
+    const { base: publicBase } = resolveRedirectBase(port, authState.redirectBaseUrl);
     reply.setCookie(COOKIE_NAME, token, {
       path: "/",
       httpOnly: true,
-      secure: request.protocol === "https",
+      secure: publicBase.startsWith("https:"),
       sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
     });

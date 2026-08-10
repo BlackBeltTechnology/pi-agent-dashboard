@@ -65,6 +65,9 @@ describe("router over real modules", () => {
 			"env-node",
 			"install-topology",
 			"model-resolution",
+			// Which OAuth redirect base won + its tier.
+			// See change: config-override-oauth-redirect-base.
+			"oauth-redirect-base",
 			"peers",
 			"pi-resolution",
 			"plugins-bridges",

@@ -14,6 +14,7 @@ Web dashboard to monitor + control pi agent sessions remotely. Three components:
 | chase imports / callers across files | `kb_neighbors <path\|heading>` |
 | read one doc section in full | `kb_get <path> <section>` |
 | build / run / install / setup / release / "how do I X" | `grep -i <kw> docs/faq.md README.md docs/` — then quote |
+| derive a fact from a large file / big command output | `ctx_execute_file` / `ctx_execute` **when present** (context-mode is optional); else `Read` w/ `offset`+`limit`, or `rg`/`awk` via Bash |
 
 `kb_search` indexes repo markdown (`docs/ openspec/ packages/ .pi/`). `ctx_search`/`memory_search` index session memory, NOT repo docs — different corpus.
 

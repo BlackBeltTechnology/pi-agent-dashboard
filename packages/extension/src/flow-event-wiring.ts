@@ -2,10 +2,10 @@
  * Flow event wiring: registers listeners for pi-flows events
  * and forwards them as protocol messages to the dashboard server.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { filterHiddenCommands } from "./bridge-context.js";
-import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 /** Map of pi-flows event names to dashboard protocol event types */
 export const FLOW_EVENT_MAP: Record<string, string> = {
@@ -30,6 +30,60 @@ export const FLOW_EVENT_MAP: Record<string, string> = {
   // See change: rework-flows-plugin-for-new-pi-flows (consumes pi-flows surface-node-kind).
 };
 
+/**
+ * Deps the EventBus forwarding wiring needs from the bridge. The bridge owns
+ * the transport (`sendEventForward`), the readiness gates, and the subagent
+ * frame buffer; this module owns WHICH channels are forwarded and HOW they are
+ * observed. See change: fix-automation-run-lifecycle.
+ */
+export interface EventBusForwardingDeps {
+  /** Send one frame as an `event_forward` (applies the channel rename map). */
+  sendEventForward: (channel: string, data: Record<string, unknown>) => void;
+  /** True once `session_start` established the session id. */
+  isSessionReady: () => boolean;
+  /** False once a newer bridge instance took over. */
+  isActive: () => boolean;
+  /** True while the WebSocket transport is actually open. */
+  isConnected: () => boolean;
+  /** Subagent-channel predicate + latest-wins buffer (reconcilable state). */
+  subagent: {
+    isSubagentChannel: (channel: string) => boolean;
+    markForwarded: (channel: string, data: Record<string, unknown>) => void;
+    buffer: (channel: string, data: Record<string, unknown>) => boolean;
+  };
+}
+
+/**
+ * Forward one EventBus frame, applying the gates the bridge has always applied:
+ * subagent frames forward live only when ready AND the transport is open (else
+ * they are buffered latest-wins per agent); every other channel forwards when
+ * ready. Forwarding failure MUST never propagate to the emitter.
+ * See change: fix-automation-run-lifecycle.
+ */
+export function forwardBusEvent(
+  deps: EventBusForwardingDeps,
+  channel: string,
+  data: unknown,
+): void {
+  try {
+    const eventData = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+    if (deps.subagent.isSubagentChannel(channel)) {
+      if (deps.isSessionReady() && deps.isActive() && deps.isConnected()) {
+        deps.sendEventForward(channel, eventData);
+        deps.subagent.markForwarded(channel, eventData);
+      } else if (!deps.subagent.buffer(channel, eventData)) {
+        console.warn(
+          `[dashboard] subagent frame dropped (no agentId) channel=${channel} while not ready`,
+        );
+      }
+    } else if (deps.isSessionReady() && deps.isActive()) {
+      deps.sendEventForward(channel, eventData);
+    }
+  } catch {
+    /* forwarding failure must never break event delivery */
+  }
+}
+
 /** Map of pi-subagents event names to dashboard protocol event types */
 export const SUBAGENT_EVENT_MAP: Record<string, string> = {
   "subagents:created": "subagent_created",
@@ -39,14 +93,19 @@ export const SUBAGENT_EVENT_MAP: Record<string, string> = {
 };
 
 /** Map of InvoiceBot domain (`ib:*`) event names to dashboard protocol event
- *  types. The bridge's EventBus catch-all already forwards every `pi.events`
- *  channel to the browser (unknown channels pass through as-is); this map gives
- *  the consumed domain events a stable, renamed protocol type — mirroring
- *  FLOW_EVENT_MAP — so a client can subscribe to a fixed name rather than the
- *  raw channel. Covers the full lifecycle set (invoice-state, approval,
- *  connector, intake, automation, source); payloads ride inside `data` and
- *  forward verbatim via the catch-all, so no per-field remapping is needed.
- *  See change: surface-invoice-domain-events-bridge. */
+ *  types, giving each consumed domain event a stable renamed protocol type —
+ *  mirroring FLOW_EVENT_MAP — so a client subscribes to a fixed name rather
+ *  than the raw channel. Covers the full lifecycle set (invoice-state,
+ *  approval, connector, intake, automation, source); payloads ride inside
+ *  `data` and forward verbatim, so no per-field remapping is needed.
+ *
+ *  This map is a DECLARATION, not documentation: forwarding subscribes only to
+ *  declared channels, so an `ib:*` channel absent here is NOT forwarded. It is
+ *  passed to `registerEventBusForwarding` as an extra map by the bridge. (The
+ *  former blanket "unknown channels pass through as-is" catch-all is gone — it
+ *  relied on intercepting `emit`, which never observed foreign extensions at
+ *  all, so these engine-emitted events were in fact never forwarded before.)
+ *  See changes: surface-invoice-domain-events-bridge, fix-automation-run-lifecycle. */
 export const IB_EVENT_MAP: Record<string, string> = {
   "ib:invoice-state-changed": "ib_invoice_state_changed",
   "ib:invoice-cost-updated": "ib_invoice_cost_updated",
@@ -65,6 +124,64 @@ export const IB_EVENT_MAP: Record<string, string> = {
   "ib:source-item-skipped": "ib_source_item_skipped",
   "ib:source-error": "ib_source_error",
 };
+
+/** Minimal shape of the host event surface this module uses. */
+interface PiEventsLike {
+  emit: (channel: string, data: unknown) => void;
+  on: (channel: string, handler: (data: unknown) => void) => (() => void) | void;
+}
+
+/**
+ * Every EventBus channel the bridge forwards. Derived from the rename maps so a
+ * mapped channel can never be silently unforwarded.
+ * See change: fix-automation-run-lifecycle.
+ */
+export const EVENT_BUS_MAP_FOR_TEST: Record<string, string> = {
+  ...FLOW_EVENT_MAP,
+  ...SUBAGENT_EVENT_MAP,
+};
+
+export function forwardedBusChannels(extraMaps: Array<Record<string, string>> = []): string[] {
+  const keys = new Set<string>();
+  for (const map of [FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP, ...extraMaps]) {
+    for (const channel of Object.keys(map)) keys.add(channel);
+  }
+  return [...keys];
+}
+
+/**
+ * Wire EventBus forwarding: ONE subscription per declared channel.
+ *
+ * MUST NOT wrap/replace `events.emit`. pi gives every extension its own
+ * `events` facade (`createExtensionAPI` → `events: { emit, on }`) over a shared
+ * bus, so mutating OUR `emit` only ever observes OUR OWN emissions — pi-flows'
+ * `flow:complete` (and every other foreign emission) bypasses it entirely,
+ * which left automation runs unfinalized until the max-age reaper.
+ * `on()` observes every emitter. Returns a dispose releasing our subscriptions.
+ * See change: fix-automation-run-lifecycle.
+ */
+export function registerEventBusForwarding(
+  events: PiEventsLike | undefined,
+  deps: EventBusForwardingDeps,
+  extraMaps: Array<Record<string, string>> = [],
+): () => void {
+  if (!events) return () => {};
+  const unsubscribers: Array<() => void> = [];
+  for (const channel of forwardedBusChannels(extraMaps)) {
+    const off = events.on(channel, (data: unknown) => forwardBusEvent(deps, channel, data));
+    if (typeof off === "function") unsubscribers.push(off);
+  }
+  return () => {
+    for (const off of unsubscribers) {
+      try {
+        off();
+      } catch {
+        /* keep releasing */
+      }
+    }
+    unsubscribers.length = 0;
+  };
+}
 
 /**
  * Register flow event listeners on pi.events.
@@ -94,7 +211,8 @@ export function registerFlowEventListeners(
   pi.events.on("flow:complete", resendCommandsAndFlows);
 
   // Note: event_forward sending for flow and subagent events is handled by
-  // the EventBus emit intercept in bridge.ts (catch-all forwarding).
+  // subscription-based forwarding (`registerEventBusForwarding` above, wired
+  // from bridge.ts) — NOT by an emit intercept.
 
   // Legacy architect prompt forwarding REMOVED.
   // Previously forwarded flow:prompt-request events with architect-* pipelines

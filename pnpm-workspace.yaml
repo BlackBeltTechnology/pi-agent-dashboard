@@ -32,6 +32,19 @@ confirmModulesPurge: false
 # packages/shared/src/mdns-discovery.ts. See change: adopt-pnpm-for-dev-ci.
 overrides:
   bonjour-service: 1.4.2
+  # ONE pi version in the tree. Several workspaces declare a deliberately broad
+  # `>=0.80.10` peer/dev range while `packages/server` pins the governed
+  # `^0.84.1`; under `nodeLinker: hoisted` that resolves TWO copies (0.84.1
+  # nested for the server, an older one hoisted to the root). `/api/health`'s
+  # version probe then reports the HOISTED copy, so the dashboard claimed to be
+  # running a pi it was not and raised a spurious `upgradeRecommended`.
+  # Pre-0.84 both copies happened to agree, which masked it.
+  #
+  # This pins RESOLUTION only — no manifest floor is raised, so
+  # `piCompatibility.minimum` and the broad peer ranges are untouched (design D2).
+  # Caught by the docker harness, not by any unit test.
+  # See change: update-pi-core-0-84-adopt-apis.
+  "@earendil-works/pi-coding-agent": 0.84.1
 
 # pnpm 11 treats un-approved dependency build scripts as a FATAL error
 # (ERR_PNPM_IGNORED_BUILDS, non-zero exit) — which would red every CI
@@ -74,8 +87,11 @@ allowBuilds:
   sharp: true
 
 minimumReleaseAgeExclude:
-  - '@earendil-works/pi-agent-core@0.83.0'
-  - '@earendil-works/pi-ai@0.83.0'
-  - '@earendil-works/pi-coding-agent@0.83.0'
-  - '@earendil-works/pi-tui@0.83.0'
+  - '@earendil-works/pi-agent-core@0.83.0 || 0.84.1'
+  - '@earendil-works/pi-ai@0.83.0 || 0.84.1'
+  - '@earendil-works/pi-coding-agent@0.83.0 || 0.84.1'
+  - '@earendil-works/pi-tui@0.83.0 || 0.84.1'
   - pi-mcp-adapter@2.19.0
+  - '@earendil-works/pi-client@0.84.1'
+  - '@earendil-works/pi-protocol@0.84.1'
+  - '@earendil-works/pi-telemetry@0.84.1'

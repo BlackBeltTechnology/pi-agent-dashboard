@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { byTestId, ensureGitSession, gotoDashboard, pinDirectory } from "./helpers/index.js";
 
 // Level-1 E2E for the friendly worktree-init feedback (change: friendlier-worktree-init).

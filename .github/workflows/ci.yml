@@ -54,6 +54,14 @@ jobs:
       - name: CI-level publish scenarios (dry-run set, repo-root probe, budget)
         run: pnpm run test:ci-scenarios
       - run: pnpm run lint
+      # Typechecks tests/e2e + guards the reap-fixture import. The root tsconfig
+      # only includes `packages/*/src`, so before change
+      # fix-e2e-harness-memory-exhaustion NOTHING under tests/ was ever seen by
+      # tsc. That matters now that `tests/e2e/fixtures.ts` is the single import
+      # surface for all 87 specs: a missing `export type` there breaks every
+      # spec at once while the import guard still passes.
+      - name: Typecheck + guard the browser-E2E suite
+        run: pnpm run lint:e2e
       # Hard-gates Tier A (error-severity) regressions; Tier B/C (warn) only annotate.
       - name: Biome static analysis (Tier A gate, warn-tier annotate)
         run: pnpm exec biome lint . --reporter=github

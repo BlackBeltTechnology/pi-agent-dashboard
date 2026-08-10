@@ -21,6 +21,7 @@ import { fileIcon } from "../../lib/preview/file-icon.js";
 import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
 import { CountBadges } from "../session/CountBadges.js";
 import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface EditorFileTreeProps {
   cwd: string;
@@ -252,7 +253,9 @@ function TreeNode({
 
   useEffect(() => {
     let active = true;
-    listDir(cwd, relDir).then((e) => active && setEntries(e));
+    void listDir(cwd, relDir)
+      .then((e) => active && setEntries(e))
+      .catch(logRejection("EditorFileTree.listDir"));
     return () => {
       active = false;
     };

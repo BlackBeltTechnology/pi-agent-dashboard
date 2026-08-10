@@ -1,6 +1,6 @@
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleSubscribe, replaySessionAssets } from "../browser-handlers/subscription-handler.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
@@ -371,6 +371,100 @@ describe("handleSubscribe — cold-hydration heartbeat", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// See change: cleanup-async-semantics-server-extension (test-plan #X1, #X2, #X3)
+//
+// Each of the three `sendEventBatches(...).then(...).catch(onReplayFailed)`
+// replay sites must OWN a rejection: `onReplayFailed` clears the replaying
+// flag with lastReplayedSeq 0 (so the socket is not left permanently muted by
+// `markReplaying`), logs the failure, and no unhandled rejection escapes.
+describe("handleSubscribe — replay rejection is owned (onReplayFailed)", () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let unhandled: unknown[];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    unhandled = [];
+    process.on("unhandledRejection", onUnhandled);
+  });
+  afterEach(() => {
+    process.off("unhandledRejection", onUnhandled);
+    errorSpy.mockRestore();
+  });
+
+  async function flush() {
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  }
+
+  function loggedReplayFailure(): boolean {
+    return errorSpy.mock.calls.some(
+      (c: unknown[]) => typeof c[0] === "string" && c[0].includes("[replay] event replay failed"),
+    );
+  }
+
+  it("X1 stale-lastSeq full replay: a rejected send clears replaying (seq 0) and is logged, no unhandled rejection", async () => {
+    const markReplaying = vi.fn();
+    const clearReplaying = vi.fn();
+    // Make the batch send throw so `sendEventBatches` rejects at the site.
+    const sendTo = vi.fn((_ws: unknown, msg: ServerToBrowserMessage) => {
+      if (msg.type === "event_replay") throw new Error("send failed");
+    });
+    const ctx = createMockContext({ markReplaying, clearReplaying, sendTo });
+    for (let i = 0; i < 3; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 100 }, new Set(), ctx);
+    await flush();
+
+    expect(markReplaying).toHaveBeenCalledWith(ctx.ws, "s1");
+    // onReplayFailed clears the flag with lastReplayedSeq 0 (no catch-up claimable).
+    expect(clearReplaying).toHaveBeenCalledTimes(1);
+    expect(clearReplaying).toHaveBeenCalledWith(ctx.ws, "s1", 0);
+    expect(loggedReplayFailure()).toBe(true);
+    expect(unhandled).toEqual([]);
+  });
+
+  it("X2 warm delta replay: a rejected send clears replaying (seq 0) and is logged, no unhandled rejection", async () => {
+    const markReplaying = vi.fn();
+    const clearReplaying = vi.fn();
+    const sendTo = vi.fn((_ws: unknown, msg: ServerToBrowserMessage) => {
+      if (msg.type === "event_replay") throw new Error("send failed");
+    });
+    const ctx = createMockContext({ markReplaying, clearReplaying, sendTo });
+    for (let i = 0; i < 5; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+
+    // lastSeq 3 within range → delta (events 4,5) → the `events.length > 0` branch.
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 3 }, new Set(), ctx);
+    await flush();
+
+    expect(markReplaying).toHaveBeenCalledWith(ctx.ws, "s1");
+    expect(clearReplaying).toHaveBeenCalledTimes(1);
+    expect(clearReplaying).toHaveBeenCalledWith(ctx.ws, "s1", 0);
+    expect(loggedReplayFailure()).toBe(true);
+    expect(unhandled).toEqual([]);
+  });
+
+  it("X3 empty-delta replay: a rejected post-replay step is owned and logged, no unhandled rejection", async () => {
+    const clearReplaying = vi.fn();
+    // Empty delta → `sendEventBatches([])` resolves; the reject is injected in
+    // the chained `.then` step so the empty-branch `.catch(onReplayFailed)` runs.
+    const replayPendingUiRequests = vi.fn(() => {
+      throw new Error("post-replay step failed");
+    });
+    const ctx = createMockContext({ clearReplaying, replayPendingUiRequests });
+    for (let i = 0; i < 5; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+
+    // lastSeq 5 === maxSeq → delta getEvents(6) is empty → the empty branch.
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 5 }, new Set(), ctx);
+    await flush();
+
+    // The empty branch does not markReplaying, but onReplayFailed still clears
+    // defensively with seq 0.
+    expect(clearReplaying).toHaveBeenCalledWith(ctx.ws, "s1", 0);
+    expect(loggedReplayFailure()).toBe(true);
+    expect(unhandled).toEqual([]);
   });
 });
 

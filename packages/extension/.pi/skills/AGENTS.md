@@ -6,6 +6,10 @@ pi-dashboard bridge extension; ship inside the published package. Rows relocated
 
 | File | Purpose |
 |------|---------|
+| `browser/SKILL.md` | Router for the bundled `browser` skill. Step 0a preflight (`command -v agent-browser`, never auto-install);… → see `browser/SKILL.md.AGENTS.md` |
+| `browser/references/own-browser.md` | AUTHORED. Drive the user's own logged-in browser via Panerelay… → see `browser/references/own-browser.md.AGENTS.md` |
+| `browser/scripts/check-panerelay.sh` | AUTHORED. Panerelay diagnostic; key=value + `NEXT=`… → see `browser/scripts/check-panerelay.sh.AGENTS.md` |
+| `browser/UPSTREAM.md` | Vendoring provenance + refresh procedure. Records upstream tag/SHA/CLI version; marks `own-browser.md` + `check-panerelay.sh` authored, exempt from refresh. |
 | `pi-dashboard/commands/` | `/dashboard:*` slash-command templates (33 `dashboard-*.md`). → see `pi-dashboard/commands/.AGENTS.md` |
 | `pi-dashboard/commands/dashboard-flow-abort.md` | LLM-bound command. Resolves `<id-prefix>` via GET /api/sessions, POST /api/session/<full-id>/flow-control body {"action":"abort"}. Reports result. Usage `/dashboard:flow-abort <id-prefix>`. |
 | `pi-dashboard/commands/dashboard-flow-auto.md` | LLM-bound command. POST /api/session/<full-id>/flow-control body {"action":"toggle_autonomous"}. Reports new autonomous state. Usage `/dashboard:flow-auto <id-prefix>`. |

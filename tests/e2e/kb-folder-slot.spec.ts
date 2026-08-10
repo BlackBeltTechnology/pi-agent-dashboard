@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard, pinDirectory } from "./helpers/index.js";
 
 // KB folder slot — browser E2E against the disposable Docker harness.
@@ -23,7 +23,7 @@ const KB_WORKTREE = "/fixtures/kb-parent/worktrees/kb-wt";
 /** The folder-kb-section under the nearest folder-card of a cwd's header anchor. */
 function kbRowFor(page: Page, cwd: string) {
   return page.locator(
-    `xpath=//*[@data-testid="folder-urgency-sort-${cwd}"]/ancestor::div[.//*[@data-testid="folder-kb-section"]][1]//*[@data-testid="folder-kb-section"]`,
+    `xpath=//*[@data-testid="folder-actions-menu-${cwd}"]/ancestor::div[.//*[@data-testid="folder-kb-section"]][1]//*[@data-testid="folder-kb-section"]`,
   );
 }
 
@@ -59,10 +59,10 @@ test.describe("KB folder slot", () => {
 
     // Idempotent: pin the fixture only if it is not already in the sidebar.
     // Anchor scoping uses the unconditional per-folder header testid
-    // `folder-urgency-sort-<cwd>` (the folder group div carries no testid, and
+    // `folder-actions-menu-<cwd>` (the folder group div carries no testid, and
     // the sidebar hosts the seeded sample-git folder too — a bare
     // folder-kb-section would be ambiguous). No app testids added for E2E.
-    const cwdAnchor = `folder-urgency-sort-${KB_FIXTURE}`;
+    const cwdAnchor = `folder-actions-menu-${KB_FIXTURE}`;
     if ((await page.getByTestId(cwdAnchor).count()) === 0) await pinFixture(page, KB_FIXTURE);
 
     // The KB row for THIS folder = the folder-kb-section under the nearest
@@ -102,8 +102,8 @@ test.describe("KB folder slot", () => {
 
     // Pin the parent (must be a KNOWN folder for Copy-from-parent's GET
     // /api/kb/config?cwd=parent to pass the cwd guard) AND the worktree.
-    if ((await page.getByTestId(`folder-urgency-sort-${KB_PARENT}`).count()) === 0) await pinFixture(page, KB_PARENT);
-    if ((await page.getByTestId(`folder-urgency-sort-${KB_WORKTREE}`).count()) === 0) await pinFixture(page, KB_WORKTREE);
+    if ((await page.getByTestId(`folder-actions-menu-${KB_PARENT}`).count()) === 0) await pinFixture(page, KB_PARENT);
+    if ((await page.getByTestId(`folder-actions-menu-${KB_WORKTREE}`).count()) === 0) await pinFixture(page, KB_WORKTREE);
 
     // The worktree ships no config → not-indexed (empty resolved sources).
     const wtRow = kbRowFor(page, KB_WORKTREE);
@@ -141,5 +141,59 @@ test.describe("KB folder slot", () => {
     const wtRowReloaded = kbRowFor(page, KB_WORKTREE);
     await expect(wtRowReloaded).toHaveAttribute("data-state", "populated", { timeout: 30_000 });
     await expect(wtRowReloaded.getByTestId("folder-kb-count")).toContainText(/chunks/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// add-folder-actions-menu — F8: the collapsed header cluster must stay pinned
+// top-right at ANY sidebar width. This spec already pins a deliberately long
+// fixture path (`/fixtures/kb-parent/worktrees/kb-wt`), which is exactly the
+// squeeze case, so the scenario lands here rather than in a new file.
+//
+// Sidebar width is seeded through its persisted key rather than dragged: the
+// resize seam's geometry is not the subject, the layout under 220px is.
+// ─────────────────────────────────────────────────────────────────────────────
+test.describe("folder header cluster at a narrow sidebar (F8)", () => {
+  test("the trigger stays on one line top-right and the parent path yields first", async ({ page }) => {
+    await prepareShell(page);
+    if ((await page.getByTestId(`folder-actions-menu-${KB_WORKTREE}`).count()) === 0) {
+      await pinFixture(page, KB_WORKTREE);
+    }
+
+    await page.evaluate(() => localStorage.setItem("dashboard:sidebar-width", "220"));
+    await page.reload();
+    const skip = page.getByRole("button", { name: /^skip$/i });
+    if (await skip.isVisible().catch(() => false)) await skip.click();
+
+    const cluster = page.getByTestId(`folder-header-cluster-${KB_WORKTREE}`).first();
+    const trigger = page.getByTestId(`folder-actions-menu-${KB_WORKTREE}`).first();
+    const name = page.getByTestId(`folder-header-name-${KB_WORKTREE}`).first();
+    const parent = page.getByTestId(`folder-header-parent-${KB_WORKTREE}`).first();
+    const leaf = page.getByTestId(`folder-header-leaf-${KB_WORKTREE}`).first();
+    await expect(trigger).toBeVisible({ timeout: 20_000 });
+
+    const [clusterBox, nameBox, triggerBox] = await Promise.all([
+      cluster.boundingBox(),
+      name.boundingBox(),
+      trigger.boundingBox(),
+    ]);
+    if (!clusterBox || !nameBox || !triggerBox) throw new Error("header boxes not measurable");
+
+    // One line: the cluster shares the name row's vertical band, and holds a
+    // single control so it has nothing to wrap.
+    expect(clusterBox.height).toBeLessThanOrEqual(nameBox.height + 8);
+    expect(Math.abs(clusterBox.y - nameBox.y)).toBeLessThan(nameBox.height);
+    expect(await cluster.locator("> *").count()).toBe(1);
+
+    // Top-right: the cluster ends to the right of the name region.
+    expect(clusterBox.x).toBeGreaterThanOrEqual(nameBox.x + nameBox.width - 2);
+
+    // Truncation priority: the parent path is clipped, the leaf keeps its floor.
+    const [parentClipped, leafWidth] = await Promise.all([
+      parent.evaluate((n) => n.scrollWidth > n.clientWidth + 1),
+      leaf.evaluate((n) => n.getBoundingClientRect().width),
+    ]);
+    expect(parentClipped).toBe(true);
+    expect(leafWidth).toBeGreaterThan(0);
   });
 });

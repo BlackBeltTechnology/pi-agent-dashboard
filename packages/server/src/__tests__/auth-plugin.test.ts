@@ -115,3 +115,67 @@ describe("escapeHtml", () => {
     expect(escapeHtml("hello world")).toBe("hello world");
   });
 });
+
+// G25 — `_reloadAuth` must apply the SAME trusted-network merge boot does.
+// Boot merges top-level `trustedNetworks` into `auth.bypassHosts`
+// (`resolvedTrustedNetworks`); the reload used to read `newConfig.bypassHosts`
+// alone, so every auth-carrying `PUT /api/config` silently dropped top-level
+// entries from the gate until restart. Pre-existing defect, fixed in D15.
+// See change: config-override-oauth-redirect-base.
+describe("G25: top-level trustedNetworks survive an auth reload", () => {
+  async function bootedApp() {
+    const { default: Fastify } = await import("fastify");
+    const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
+    const app = Fastify();
+    const authConfig = {
+      secret: "test-secret-32-chars-long-abcdef",
+      providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+    };
+    await registerAuthPlugin(app, {
+      authConfig,
+      port: 8000,
+      // What boot passes: top-level trustedNetworks ∪ auth.bypassHosts.
+      resolvedTrustedNetworks: ["10.0.0.0/8"],
+    });
+    app.get("/api/sessions", async () => ({ success: true }));
+    await app.ready();
+    return { app, authConfig };
+  }
+
+  it("keeps bypassing a top-level CIDR after a reload carrying the full config", async () => {
+    const { app, authConfig } = await bootedApp();
+    const bypassed = await app.inject({
+      method: "GET",
+      url: "/api/sessions",
+      remoteAddress: "10.1.2.3",
+    });
+    expect(bypassed.statusCode).toBe(200);
+
+    // A settings write that carries an `auth` block but no bypassHosts. The
+    // full config still resolves the top-level network, so the gate must hold.
+    await (app as any)._reloadAuth(authConfig, {
+      trustedNetworks: ["10.0.0.0/8"],
+      resolvedTrustedNetworks: ["10.0.0.0/8"],
+    });
+
+    const after = await app.inject({
+      method: "GET",
+      url: "/api/sessions",
+      remoteAddress: "10.1.2.3",
+    });
+    expect(after.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("still refuses an address outside the trusted range", async () => {
+    const { app, authConfig } = await bootedApp();
+    await (app as any)._reloadAuth(authConfig, { resolvedTrustedNetworks: ["10.0.0.0/8"] });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/sessions",
+      remoteAddress: "203.0.113.7",
+    });
+    expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+});

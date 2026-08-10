@@ -115,9 +115,14 @@ describe("visitor session registry acquire", () => {
       await assertion;
       // Entry cleared → a fresh acquire spawns again (does not coalesce onto the
       // dead promise).
-      reg.acquire(REQ);
+      const retry = reg.acquire(REQ);
       await vi.advanceTimersByTimeAsync(0); // flush the admit→fire microtask
       expect(spawn).toHaveBeenCalledTimes(2);
+      // The retry has no registrar either, so it times out the same way. Await
+      // that rejection rather than leaving the promise floating past the test.
+      const retryAssertion = expect(retry).rejects.toThrow(/register timeout/);
+      await vi.advanceTimersByTimeAsync(1000);
+      await retryAssertion;
     } finally {
       vi.useRealTimers();
     }

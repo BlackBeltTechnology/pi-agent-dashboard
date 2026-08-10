@@ -251,7 +251,20 @@ export function createSessionLoadWorkerPool(
     if (disposed || workersDisabled) {
       // In-process path. Defer to a microtask so a synchronous cancel() can
       // still drop the job before its events are computed.
-      Promise.resolve().then(() => fallbackSettle(p));
+      // The rejection handler is load-bearing, not decoration: this pool runs
+      // on worker threads that plausibly do not reach the `cli.ts` crash-safety
+      // net, and `fallbackSettle` throwing would leave `result` pending
+      // forever. Settle the job as cancelled so waiters are released.
+      // See change: cleanup-async-semantics-server-extension (design D1).
+      Promise.resolve()
+        .then(() => fallbackSettle(p))
+        .catch((err: unknown) => {
+          console.warn(`[session-load-worker-pool] in-process settle failed for job ${id}:`, err);
+          freeSlot(p);
+          jobs.delete(id);
+          finish(p, cancelledResult(id));
+          drainQueue();
+        });
       return { jobId: id, result };
     }
     const idx = pickFreeSlot();

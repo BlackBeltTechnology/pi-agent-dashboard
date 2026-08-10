@@ -116,14 +116,28 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
     }
   }, [label, onPaired]);
 
+  // Discard with a stated handler — `run` surfaces its own step failures, but an
+  // unexpected throw must reach the same error UI instead of vanishing.
+  // See change: cleanup-client-plugin-promises.
+  const startRun = useCallback(
+    (payload: PairingPayload) => {
+      void run(payload).catch((err: unknown) => {
+        console.error("[shell] pairing run failed:", err);
+        setPhase("error");
+        setError(err instanceof Error ? err.message : String(err));
+      });
+    },
+    [run],
+  );
+
   const submitPaste = useCallback(() => {
     try {
-      run(decodePayloadString(raw));
+      startRun(decodePayloadString(raw));
     } catch (err) {
       setPhase("error");
       setError(err instanceof Error ? err.message : "Invalid pairing string");
     }
-  }, [raw, run]);
+  }, [raw, startRun]);
 
   const scanQr = useCallback(async () => {
     if (!("BarcodeDetector" in window)) {
@@ -151,14 +165,22 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
         return;
       }
       setRaw(found);
-      run(decodePayloadString(found));
+      // A malformed QR payload is a PAIRING error, not a camera/scan error —
+      // decode separately so the message matches the paste path's wording
+      // instead of being mislabelled by the outer catch.
+      try {
+        startRun(decodePayloadString(found));
+      } catch (err) {
+        setPhase("error");
+        setError(err instanceof Error ? err.message : "Invalid pairing string");
+      }
     } catch (err) {
       setError(`Camera/scan error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       // Always release the camera, even if detect() throws mid-loop.
       if (stream) for (const track of stream.getTracks()) track.stop();
     }
-  }, [run]);
+  }, [startRun]);
 
   const busy = phase === "verifying" || phase === "confirm" || phase === "polling";
 

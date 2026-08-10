@@ -1,0 +1,12 @@
+schema: spec-driven
+
+# E2E fixture OpenSpec project DEDICATED to the board's drop-targeting specs.
+# Separate from `sample-git` on purpose: those specs need many cards (a column
+# that overflows its visible height, and a 64-card column for the frame-budget
+# assertion), and piling them into the shared fixture would change what every
+# other openspec spec sees from `openspec list --json`.
+#
+# The change dirs themselves are GENERATED at container start by
+# docker/test-entrypoint.sh (`board-card-01 … board-card-64`), so 64 change
+# directories do not have to live in the repo.
+# See change: fix-openspec-board-drop-targeting.

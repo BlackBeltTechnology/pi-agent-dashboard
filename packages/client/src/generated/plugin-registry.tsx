@@ -2,6 +2,7 @@
 
 import { AppleToolsSettings } from "@blackbelt-technology/pi-dashboard-apple-tools";
 import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, AutomationBadge, isAutomationRun, AutomationSettings, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
+import { BlackholeSettings, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
 import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
@@ -97,6 +98,33 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "automation", priority: 100, slot: "settings-section", tab: "general", Component: AutomationSettings },
     ],
     catalog: automation_catalog,
+  },
+  {
+    manifest: {
+        "id": "blackhole",
+        "displayName": "Blackhole",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "BlackholeSettings",
+                "tab": "general"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./src/configSchema.json",
+        "i18nCatalog": "catalog",
+        "requires": {
+            "piExtensions": [
+                "pi-blackhole"
+            ]
+        }
+    },
+    claims: [
+      { pluginId: "blackhole", priority: 100, slot: "settings-section", tab: "general", Component: BlackholeSettings },
+    ],
+    catalog: blackhole_catalog,
   },
   {
     manifest: {
@@ -351,4 +379,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "6bce454f96279fcd96a15528854883ccd5bedb10610015bd186e73badd940bd9";
+export const PLUGIN_REGISTRY_HASH = "cc167a4e37911198c8827653b6d4e213494f7e43fe6c66f166a679a7f5a7fbc0";

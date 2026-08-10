@@ -1,4 +1,4 @@
-import { expect, type WebSocket as PWWebSocket, test } from "@playwright/test";
+import { expect, type Page, type WebSocket as PWWebSocket, test } from "./fixtures.js";
 import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 const PLAIN_TEXT_MARKER = "The quick brown faux jumps over the lazy dog.";
@@ -72,4 +72,117 @@ test.describe("Strategy A — delta replay on reload", () => {
     // Chat still painted after reload (rehydrated provisional state).
     await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({ timeout: 30_000 });
   });
+
+  // --- change: fix-replay-cache-partial-payload-cursor ---
+
+  test("a broadcast-only session recovers its full history after reload (test-plan #F1)", async ({ page }) => {
+    // Session B: spawned, then driven WITHOUT ever being opened in this tab.
+    const cardB = await spawnFreshGitSession(page);
+    const sessionB = await cardB.getAttribute("data-session-id");
+    expect(sessionB).toBeTruthy();
+
+    // Session A is the one this tab actually opens and subscribes to.
+    const cardA = await spawnFreshGitSession(page);
+    await cardA.click();
+
+    // Drive B over REST so its events reach this tab ONLY via broadcast
+    // fan-out (browser-gateway broadcasts to every socket, subscribed or not).
+    await promptViaRest(page, sessionB as string, "[[faux:plain-text]] go");
+
+    // Wait past the 1 s persist debounce so any (poisoned) cursor is written.
+    await page.waitForTimeout(3_000);
+
+    await page.reload();
+    await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
+
+    // Opening B must converge on its FULL transcript. Pre-fix, the broadcast-
+    // only buffer had persisted `{maxSeq: <high>, payload: [1 stray row]}`, so
+    // the delta subscribe skipped every earlier event and B rendered one row.
+    await openSession(page, sessionB as string);
+    await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({ timeout: 30_000 });
+  });
+
+  test("a poisoned pre-change entry self-heals on upgrade (test-plan #F2)", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
+    expect(sessionId).toBeTruthy();
+
+    await card.click();
+    await sendPrompt(page, "[[faux:plain-text]] go");
+    await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({ timeout: 30_000 });
+
+    // Plant the exact field-poisoned shape a pre-change client would have
+    // written: schemaVersion 1, a high cursor, a single stray row.
+    await seedPoisonedV1Entry(page, sessionId as string);
+
+    await page.reload();
+    await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
+    await openSession(page, sessionId as string);
+
+    // The schema bump purges the v1 entry on first read → full replay, no user
+    // storage clearing.
+    await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({ timeout: 30_000 });
+  });
 });
+
+/** Click a session card by id, navigating to the dashboard first if needed. */
+async function openSession(page: Page, sessionId: string): Promise<void> {
+  const card = page.locator(`[data-testid="session-card-desktop"][data-session-id="${sessionId}"]`);
+  await card.waitFor({ state: "visible", timeout: 30_000 });
+  await card.click();
+}
+
+/**
+ * Send a prompt to a session through the dashboard's OWN same-origin REST, so
+ * the tab never subscribes to it. Same page-context `fetch` pattern the git
+ * helpers use (localhost-gated, no auth header).
+ */
+async function promptViaRest(page: Page, sessionId: string, prompt: string): Promise<void> {
+  const res = await page.evaluate(
+    async ([id, text]) => {
+      const r = await fetch(`/api/session/${id}/prompt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      return { status: r.status };
+    },
+    [sessionId, prompt] as const,
+  );
+  expect(res.status).toBeLessThan(400);
+}
+
+/** Write a pre-change (schemaVersion 1) partial-payload entry into IndexedDB. */
+async function seedPoisonedV1Entry(page: Page, sessionId: string): Promise<void> {
+  await page.evaluate(async (id) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open("pi-dashboard-replay-cache", 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains("sessions")) {
+          req.result.createObjectStore("sessions", { keyPath: "sessionId" });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("sessions", "readwrite");
+      tx.objectStore("sessions").put({
+        sessionId: id,
+        schemaVersion: 1,
+        maxSeq: 9_999,
+        payload: [
+          {
+            seq: 9_999,
+            event: { sessionId: id, eventType: "message_end", timestamp: Date.now(), data: {} },
+          },
+        ],
+        lastAccess: Date.now(),
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+    db.close();
+  }, sessionId);
+}

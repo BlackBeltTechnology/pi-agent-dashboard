@@ -17,4 +17,5 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `message-queue.ts` | Offline outgoing message queue. Exports `MessageQueue` class — `setSendFunction`, `enqueue` (caps at 10,… → see `message-queue.ts.AGENTS.md` |
 | `prompt-answer-encoder.ts` | Pure helper encoding interactive renderer `result` → `answer` string for PromptBus `prompt_response`. → see `prompt-answer-encoder.ts.AGENTS.md` |
 | `prompt-component-registry.ts` | Compatibility shim re-exporting prompt component registry from… → see `prompt-component-registry.ts.AGENTS.md` |
+| `selection-anchor.ts` | Pure, stateless anchor arithmetic for the selection-anchoring compensator. Exports `ANCHOR_EPSILON`, `AnchorCorrectionInput`, `computeAnchorCorrection(...)`. → see `selection-anchor.ts.AGENTS.md` |
 | `tool-summary.ts` | One-line tool-call summaries (`$ <cmd>`, `Read <path>`, `Grep …`, `git …`, `kb_search …`, `ctx_* …`). → see `tool-summary.ts.AGENTS.md` |

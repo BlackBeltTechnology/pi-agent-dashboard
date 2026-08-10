@@ -22,7 +22,8 @@ import type {
 import { cleanup, render } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { FlowAgentCard, formatCost } from "../client/FlowAgentCard.js";
+import { FlowAgentCard } from "../client/FlowAgentCard.js";
+import { formatCost } from "../client/format-cost.js";
 import { FlowAgentDetail } from "../client/FlowAgentDetail.js";
 import { reduceFlowEvent } from "../reducer.js";
 
@@ -71,6 +72,19 @@ describe("formatCost helper (task 1.3)", () => {
   it("uses four decimals below $1", () => {
     expect(formatCost(0.0142)).toBe("$0.0142");
     expect(formatCost(0.5)).toBe("$0.5000");
+  });
+
+  // test-plan #E4 — the extraction into client/format-cost.ts must preserve the
+  // HYBRID precision rule, not collapse to an always-2-decimal formatter (that
+  // would silently regress every sub-dollar cost to "$0.00").
+  // See change: cleanup-import-cycles (D2).
+  it("preserves hybrid precision across the $1 boundary after extraction", () => {
+    expect(formatCost(0)).toBe("$0.0000");
+    expect(formatCost(0.005)).toBe("$0.0050");
+    expect(formatCost(0.999)).toBe("$0.9990");
+    expect(formatCost(1)).toBe("$1.00");
+    expect(formatCost(1.5)).toBe("$1.50");
+    expect(formatCost(1234.567)).toBe("$1234.57");
   });
 });
 
@@ -156,5 +170,24 @@ describe("FlowAgentDetail cost in header (task 1.5)", () => {
   it("omits cost when absent", () => {
     const { container } = renderDetail(makeAgent({ cost: undefined }));
     expect(container.textContent).not.toContain("$");
+  });
+});
+
+// test-plan #F7 — both flow agent surfaces still mount after the D2 extraction
+// and render the SAME value from the shared formatter, at both precisions.
+// A circular-import regression here shows up as an `undefined` component.
+// See change: cleanup-import-cycles (D2).
+describe("D2: both surfaces render identical cost after extraction", () => {
+  afterEach(cleanup);
+
+  it.each([
+    { cost: 2.5, expected: "$2.50" },
+    { cost: 0.0142, expected: "$0.0142" },
+  ])("renders $expected on card and detail", ({ cost, expected }) => {
+    const card = renderCard(makeAgent({ cost }));
+    expect(card.getByTestId("stats").textContent).toContain(expected);
+    cleanup();
+    const detail = renderDetail(makeAgent({ cost }));
+    expect(detail.container.textContent).toContain(expected);
   });
 });

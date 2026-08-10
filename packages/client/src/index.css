@@ -779,6 +779,103 @@ mark.markdown-search-highlight-active {
   .board-column { flex: 1 1 100%; }
 }
 
+/* ── OpenSpec board drop targeting ───────────────────────────
+   See change: fix-openspec-board-drop-targeting. Theme tokens only.
+
+   The insertion marker paints into the EXISTING `gap-2` space via a
+   pseudo-element on the card following the resolved slot — it is never an
+   inserted flex child, which would add its height plus a second 8px gap and
+   shift every card each time the marker moved (and at a midpoint boundary
+   that shift can flip the resolved slot, oscillating the marker). Slot 0
+   paints into the body's `p-2` top padding, which is the same 8px. */
+.board-drop-marker::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -6px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent-primary);
+  /* A 1px ring in the surface colour keeps the 3:1 non-text contrast floor
+     (WCAG 2.1 SC 1.4.11) on themes whose column surface sits close to the
+     static `--accent-primary`. */
+  box-shadow: 0 0 0 1px var(--bg-secondary), 0 0 6px var(--accent-primary);
+  /* Own band, above `.card-stripes-fx` (z-index -1) and card content. */
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* Append rail — sticky to the body's VISIBLE bottom edge, so the last slot is
+   reachable without scrolling first. Drag-only, ≥44px (WCAG 2.5.8). */
+.board-append-rail {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border: 1px dashed var(--border-secondary);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+}
+.board-append-rail-active {
+  border-style: solid;
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 22%, var(--bg-secondary));
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 2px var(--accent-primary);
+}
+
+/* Target column reads as the destination; the rest recede. */
+.board-column-target {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary);
+}
+.board-column-receded { opacity: 0.55; }
+.board-column-body-over { background: color-mix(in srgb, var(--accent-primary) 6%, transparent); }
+
+/* Edge-glow zones: indicate (they cannot drive) dnd-kit's auto-scroll. Zero
+   height plus a negative margin cancels the flex gap they would otherwise
+   introduce, so adding them mid-drag shifts no card. */
+.board-edge-glow {
+  position: sticky;
+  flex: 0 0 0;
+  height: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.board-edge-glow-top { top: 0; margin-bottom: -8px; }
+.board-edge-glow-bottom { bottom: 0; margin-top: -8px; }
+.board-edge-glow::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  height: 72px;
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+.board-edge-glow-top::before {
+  top: -8px;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--accent-primary) 40%, transparent), transparent);
+}
+.board-edge-glow-bottom::before {
+  bottom: -8px;
+  background: linear-gradient(to top, color-mix(in srgb, var(--accent-primary) 40%, transparent), transparent);
+}
+.board-edge-glow[data-active="true"]::before { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .board-edge-glow::before { transition: none; }
+}
+
 /* ── Worktree-init progress bar (indeterminate slide) ─────────
    See change: friendlier-worktree-init. Drives the slim bar in
    WorktreeInitChip's running state. */

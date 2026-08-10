@@ -18,10 +18,26 @@ import type { SelectionRowSpan } from "../lib/chat/chat-virtual-rows.js";
  *     spacer parent (DOM §live-range-pre-remove-steps is synchronous +
  *     irreversible). A reactive read-the-Range-after-churn path loses the race.
  *
+ *   - `isSelectingRef`: the same boolean, published **synchronously** inside the
+ *     listener (change: anchor-chat-selection-against-row-growth, D6). Consumers
+ *     that run OUTSIDE React's render cycle — notably the virtualizer
+ *     `onChange` bottom-pin — must read this, not a render-time mirror of the
+ *     debounced state: that mirror lands only after a `queueMicrotask` AND a
+ *     render, and a chunk arriving inside that window still executes
+ *     `el.scrollTop = el.scrollHeight`. One invariant, one clock.
+ *   - `selectionAnchorRef`: the transcript row element the drag STARTED in
+ *     (D4), captured on the collapsed→non-collapsed transition and held until
+ *     collapse. Held as an `Element`, never a `data-index` — an insertion above
+ *     renumbers indices, which is the same silent-retarget bug being fixed.
+ *     `null` for a cross-boundary drag whose anchor is outside the container.
+ *
  * The boolean flip is microtask-coalesced (a ref + a single `useState`) so a
  * drag-select firing `selectionchange` many times per frame does not thrash
  * React; the span ref updates synchronously so the extractor always sees the
- * latest span.
+ * latest span. The debounced `isSelecting` **state** is retained unchanged —
+ * render-driven effects (the tail freeze, the sticky-bottom layout effect) need
+ * the re-render and the →false edge. Ref for out-of-render guards, state for
+ * render-driven effects.
  *
  * `mapRange` MUST be referentially stable (wrap in `useCallback`); it is a
  * listener dependency.
@@ -34,12 +50,48 @@ function selectionIntersects(container: HTMLElement, sel: Selection): boolean {
   return anchorIn || focusIn;
 }
 
+/**
+ * The `[data-index]` virtual row owning a selection endpoint, or `null` when the
+ * node is outside the transcript container. Walks up from a text node via
+ * `parentElement`, since `closest` is an `Element` method.
+ */
+function rowElementFor(container: HTMLElement, node: Node | null): HTMLElement | null {
+  if (!node || !container.contains(node)) return null;
+  const start = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+  const row = start?.closest("[data-index]") ?? null;
+  return row && container.contains(row) ? (row as HTMLElement) : null;
+}
+
+/**
+ * D4 anchor bookkeeping: the drag-origin row is captured ONCE, on the
+ * collapsed→non-collapsed transition, and released on collapse. Re-capturing on
+ * later events would let the anchor follow the pointer, which is circular — the
+ * whole point is that it does not move.
+ */
+function nextAnchor(
+  current: HTMLElement | null,
+  active: boolean,
+  container: HTMLElement | null,
+  sel: Selection | null,
+): HTMLElement | null {
+  if (!active) return null;
+  if (current) return current;
+  return container && sel ? rowElementFor(container, sel.anchorNode) : null;
+}
+
 export function useActiveChatSelection(
   containerRef: RefObject<HTMLElement | null>,
   mapRange: (range: Range) => SelectionRowSpan | null,
-): { isSelecting: boolean; selectionSpanRef: RefObject<SelectionRowSpan | null> } {
+): {
+  isSelecting: boolean;
+  isSelectingRef: RefObject<boolean>;
+  selectionSpanRef: RefObject<SelectionRowSpan | null>;
+  selectionAnchorRef: RefObject<HTMLElement | null>;
+} {
   const [isSelecting, setIsSelecting] = useState(false);
   const selectionSpanRef = useRef<SelectionRowSpan | null>(null);
+  const isSelectingRef = useRef(false);
+  const selectionAnchorRef = useRef<HTMLElement | null>(null);
   const latestActiveRef = useRef(false);
   const flushPendingRef = useRef(false);
 
@@ -54,6 +106,13 @@ export function useActiveChatSelection(
       // false on the next tick.
       selectionSpanRef.current = active ? mapRange((sel as Selection).getRangeAt(0)) : null;
 
+      // D6: publish the boolean on the SAME clock as the span, for guards that
+      // run outside render. Must not wait on the microtask debounce below.
+      isSelectingRef.current = active;
+
+      // D4: pin the drag-origin row (see `nextAnchor`).
+      selectionAnchorRef.current = nextAnchor(selectionAnchorRef.current, active, container, sel);
+
       latestActiveRef.current = active;
       if (flushPendingRef.current) return;
       flushPendingRef.current = true;
@@ -67,5 +126,5 @@ export function useActiveChatSelection(
     return () => document.removeEventListener("selectionchange", onSelectionChange);
   }, [containerRef, mapRange]);
 
-  return { isSelecting, selectionSpanRef };
+  return { isSelecting, isSelectingRef, selectionSpanRef, selectionAnchorRef };
 }

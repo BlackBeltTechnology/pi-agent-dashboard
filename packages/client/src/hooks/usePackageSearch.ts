@@ -2,6 +2,7 @@ import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
 import { t } from "../lib/i18n/i18n.js";
+import { logRejection } from "../lib/report-error.js";
 
 const DEBOUNCE_MS = 400;
 
@@ -50,7 +51,7 @@ export function usePackageSearch() {
   useEffect(() => {
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      fetchPackages(query, typeFilter);
+      void fetchPackages(query, typeFilter).catch(logRejection("usePackageSearch.debounced"));
     }, query ? DEBOUNCE_MS : 0); // no debounce on initial/filter-only
 
     return () => {
@@ -60,7 +61,7 @@ export function usePackageSearch() {
   }, [query, typeFilter, fetchPackages]);
 
   const refresh = useCallback(() => {
-    fetchPackages(query, typeFilter);
+    void fetchPackages(query, typeFilter).catch(logRejection("usePackageSearch.refresh"));
   }, [query, typeFilter, fetchPackages]);
 
   return {

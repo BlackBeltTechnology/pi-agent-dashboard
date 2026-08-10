@@ -1,0 +1,3 @@
+# node-version.ts — index
+
+Single source of truth for Node-version predicates. `isAffectedNode(version)` flags nodejs/node#58515 Fastify-affected ranges (v22.0–v22.18, v24.1–v24.2). `isOutOfEnginesRange(version)` true when `<22.19.0` OR `>=27`, mirrors package.json#engines.node. `isUsableNodeVersion(version)` = `!isOutOfEnginesRange && !isAffectedNode`, rejects unparseable strings. Accept: 22.19+, 24.0, 24.3+, 25.x, 26.x. Reject: 21.x, 22.0–22.18, 24.1–24.2, 27+. Cap raised `<26`→`<27`; the third cap site (the `Required:` literal in server `auth/node-guard.ts`) is repo-lint-guarded. Consumed by server `auth/node-guard.ts` (re-export) + electron `dependency-detector.ts`. See change: fix-pi-install-node26-and-omit-dev-build.

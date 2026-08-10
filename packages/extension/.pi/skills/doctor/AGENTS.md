@@ -24,4 +24,5 @@ See change: add-modular-doctor-skill.
 | `modules/build-reload.md` | Three-component rebuild/reload gaps (client build / server restart / bridge reload). depends-on: install-topology. |
 | `modules/install-topology.md` | Detect npm-global / Electron (immutable) / Docker / dev; topology-specific fix routing. depends-on: env-node. |
 | `modules/model-resolution.md` | `model:resolve` handler, roles/preset, `@role` resolvability, pi-flows model-resolve-aware. depends-on: pi-resolution, plugins-bridges. |
-| `modules/*.knowledge.hash` | Per-module stored knowledge-hash sidecar (7). Regenerate via `_lib/regenerate.ts --write`. |
+| `modules/oauth-redirect-base.md` | Which OAuth redirect base actually won + which tier produced it (`auth.redirectBaseUrl` → tunnel → localhost); reads `GET /api/auth/diagnostics` over loopback, falls back to the `server.log` resolved-base line. Covers the register-with-the-provider trap + the zero-provider-boot `authActive:false` state. depends-on: install-topology. See change: config-override-oauth-redirect-base. |
+| `modules/*.knowledge.hash` | Per-module stored knowledge-hash sidecar (8). Regenerate via `_lib/regenerate.ts --write`. |

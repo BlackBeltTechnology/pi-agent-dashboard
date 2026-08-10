@@ -225,7 +225,14 @@ export function BuiltInRolesSettings() {
   // See change: roles-standalone-defaults-and-local-install-detection.
   const hasAnyAssigned = Object.keys(rolesMap).some((role) => isAssigned(role));
 
-  const dispatch = (msg: unknown) => send(msg);
+  // Discard with a stated handler at the single dispatch seam — a dropped role
+  // message silently leaves the UI showing a change the server never applied.
+  // See change: cleanup-client-plugin-promises.
+  const dispatch = (msg: unknown): void => {
+    void Promise.resolve(send(msg)).catch((err: unknown) => {
+      console.error("[roles-plugin] role dispatch failed:", err);
+    });
+  };
 
   /**
    * Stage a role assignment in local `pending` state. No WS dispatch.

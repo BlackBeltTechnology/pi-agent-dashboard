@@ -11,6 +11,7 @@
  */
 import { useEffect, useState } from "react";
 import type { SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { logRejection } from "../lib/report-error.js";
 
 export interface PluginEnabledSetState {
   /** ISO timestamp of the server's process start (from /api/health.startedAt). */
@@ -63,7 +64,9 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
       }
     }
 
-    refresh();
+    // Effect callbacks must return void/cleanup, so the promise is discarded
+    // with a stated handler. See change: cleanup-client-plugin-promises.
+    void refresh().catch(logRejection("usePluginEnabledSet.refresh"));
 
     // useMessageHandler re-emits plugin_config_update as a DOM event so this
     // hook can stay independent of the WS plumbing.
