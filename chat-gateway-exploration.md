@@ -108,13 +108,22 @@ abstraction.
 `@gamalan/pi-gateway` is a **parallel hub** that reimplements what the dashboard already
 is. So it is neither "wrap" nor "fork":
 
-```
-gamalan index.ts (2323 lines)              pi-agent-dashboard (already ships)
-  spawns its OWN pi --mode rpc      ═╗
-  runs OWN HTTP+WS daemon            ║  ⟶  Bridge in every session + Dashboard Server
-  OWN SQLite session store           ║  ⟶  dual WebSocket + session registry
-  OWN cron/config-watch             ═╝  ⟶  REST prompt/abort/spawn/branch
-        ↑ ALL REDUNDANT                        ↑ you already run this
+```mermaid
+flowchart LR
+  subgraph G["gamalan index.ts (2323 lines) — ALL REDUNDANT"]
+    G1["spawns its OWN pi --mode rpc"]
+    G2["runs OWN HTTP+WS daemon"]
+    G3["OWN SQLite session store"]
+    G4["OWN cron/config-watch"]
+  end
+  subgraph D["pi-agent-dashboard (you already run this)"]
+    D1["Bridge in every session + Dashboard Server"]
+    D2["dual WebSocket + session registry"]
+    D3["REST prompt/abort/spawn/branch"]
+  end
+  G2 --> D1
+  G3 --> D2
+  G4 --> D3
 ```
 
 | Option | Verdict |
@@ -137,36 +146,29 @@ accepts responses from any. So a chat adapter is just a second subscriber — a 
 that speaks Telegram/Slack/Discord instead of React. **No bridge or server protocol
 changes required.**
 
-```
- Telegram/Slack/Discord ─▶ [gamalan adapters, vendored MIT] ─┐ send_prompt
-                                                             ▼
-   ┌──────────── CHAT GATEWAY (headless browser-protocol client) ─────────────┐
-   │  channel/thread ⇄ sessionId routing · cwd-binding resolver · auth/policy  │
-   └──────────────────────────────┬───────────────────────────────────────────┘
-      subscribe / send_prompt /    │  event / prompt_request / prompt_dismiss
-      prompt_response / abort       ▼
-                       Dashboard Server (UNCHANGED)
-                        • sendToSubscribers fan-out   • PromptBus relay
-                        • session registry + spawn     • pending-prompt replay
-                                      ▲
-                       event / prompt_request │ prompt_response
-                                      ▼
-                       Bridge + PromptBus (in each pi session, UNCHANGED)
+```mermaid
+flowchart TD
+  CH["Telegram/Slack/Discord"] --> AD["gamalan adapters, vendored MIT"]
+  AD -->|send_prompt| GW["CHAT GATEWAY (headless browser-protocol client)<br/>channel/thread ⇄ sessionId routing · cwd-binding resolver · auth/policy"]
+  GW -->|"subscribe / send_prompt / prompt_response / abort"| DS
+  DS -->|"event / prompt_request / prompt_dismiss"| GW
+  DS["Dashboard Server (UNCHANGED)<br/>sendToSubscribers fan-out · PromptBus relay<br/>session registry + spawn · pending-prompt replay"]
+  DS -->|"event / prompt_request"| BR
+  BR -->|prompt_response| DS
+  BR["Bridge + PromptBus (in each pi session, UNCHANGED)"]
 ```
 
 Exact browser-protocol vocabulary the gateway speaks:
 
-```
-INBOUND (chat→agent)                    OUTBOUND (agent→chat)
-subscribe {sessionId, lastSeq?}    ◀──  event / event_replay
-send_prompt {sessionId, text,             → text_delta,tool_*,message_end
-  images?, delivery:steer|followUp}       → adapter.sendMessage / editMessage
-abort {sessionId}                  ◀──  prompt_request {promptId, prompt{question,
-prompt_response {sessionId,               type,options,metadata}}
-  promptId, answer?, cancelled?,          → adapter.sendInteractive (inline keyboard)
-  source, images?}                 ◀──  prompt_dismiss / prompt_cancel {promptId}
-                                          → adapter.cleanupInteractive
-```
+| Direction | Message | Maps to |
+|---|---|---|
+| INBOUND (chat→agent) | `subscribe {sessionId, lastSeq?}` | — |
+| INBOUND | `send_prompt {sessionId, text, images?, delivery:steer\|followUp}` | — |
+| INBOUND | `abort {sessionId}` | — |
+| INBOUND | `prompt_response {sessionId, promptId, answer?, cancelled?, source, images?}` | — |
+| OUTBOUND (agent→chat) | `event` / `event_replay` → `text_delta`, `tool_*`, `message_end` | `adapter.sendMessage` / `editMessage` |
+| OUTBOUND | `prompt_request {promptId, prompt{question, type, options, metadata}}` | `adapter.sendInteractive` (inline keyboard) |
+| OUTBOUND | `prompt_dismiss` / `prompt_cancel {promptId}` | `adapter.cleanupInteractive` |
 
 ## 6. Interactive (ask_user) — the "hard 20%" is essentially free
 
@@ -183,11 +185,11 @@ editor`; `multiselect`/`batch` need a thin composition shim in the adapter layer
 
 ## 7. Session routing — bridges two identity spaces
 
-```
-CHAT IDENTITY                          DASHBOARD IDENTITY
-(platform, channelId, userId,  ─map─▶  sessionId (server-assigned) + cwd (a PROJECT)
- threadId)                             ← the coding-agent-specific crux
-```
+| Chat identity | Dashboard identity |
+|---|---|
+| (platform, channelId, userId, threadId) | sessionId (server-assigned) + cwd (a PROJECT) |
+
+The cwd binding is the coding-agent-specific crux.
 
 Gateway owns a routing table: `(platform, channelId, threadId?) → {sessionId, cwd,
 boundBy, policy}`. State machine: lookup → spawn / attach / resume(continue) / handle
