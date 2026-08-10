@@ -69,6 +69,21 @@ function spawnDetachedDummy(): number {
 }
 
 /**
+ * A process that deliberately IGNORES SIGTERM, so only the SIGKILL rung of the
+ * ladder can end it. This is the fault injection behind test-plan #T4.
+ */
+function spawnSigtermIgnoringDummy(): number {
+  const p = spawn(
+    process.execPath,
+    ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"],
+    { detached: true, stdio: "ignore" },
+  );
+  p.unref();
+  spawnedPids.push(p.pid!);
+  return p.pid!;
+}
+
+/**
  * Register a session over the bridge socket exactly as a tmux-spawned pi does:
  * carrying its `pid`, and WITHOUT any `headlessPidRegistry` entry.
  */
@@ -167,6 +182,67 @@ describe("shutdown terminates the session process for any spawn strategy (#452)"
     expect(browser.readyState).toBe(WebSocket.OPEN);
     browser.close();
   }, 20_000);
+
+  it("T4 — escalates to SIGKILL against a process that ignores SIGTERM", async () => {
+    const pid = spawnSigtermIgnoringDummy();
+    // Give node time to install the SIGTERM handler before anything signals it.
+    await delay(500);
+    expect(isAlive(pid)).toBe(true);
+
+    const bridge = await registerSession("sigterm-ignorer", "/test/sigterm", pid);
+    bridge.close();
+    await delay(200);
+
+    const browser = await browserSocket();
+    const startedAt = Date.now();
+    browser.send(JSON.stringify({ type: "shutdown", sessionId: "sigterm-ignorer" }));
+
+    const died = await waitForDeath(pid, 12_000);
+    const elapsed = Date.now() - startedAt;
+    browser.close();
+
+    expect(
+      died,
+      "a process that ignores SIGTERM survived shutdown — the ladder never reached SIGKILL",
+    ).toBe(true);
+    // Task 4.3 / design D3 risk: the confirmation wait is bounded by the
+    // EXISTING ladder (1.5 s grace + 2 s SIGTERM window), not a second
+    // independent timeout, so the worst case a stuck session can cost a suite
+    // is ~3.5 s. Pinned generously to stay stable on a loaded CI box while
+    // still failing loudly if an unbounded wait is ever introduced.
+    expect(elapsed, "shutdown took longer than the ladder's own bound").toBeLessThan(8000);
+  }, 30_000);
+
+  it("C1 — session_removed is broadcast after termination, exactly once", async () => {
+    const pid = spawnDetachedDummy();
+    const bridge = await registerSession("confirm-first", "/test/confirm", pid);
+    bridge.close();
+    await delay(200);
+
+    const browser = await browserSocket();
+    let removedCount = 0;
+    let aliveAtRemoval: boolean | undefined;
+    browser.on("message", (raw) => {
+      const m = JSON.parse(String(raw));
+      if (m.type === "session_removed" && m.sessionId === "confirm-first") {
+        // Sampled at the instant the broadcast lands: the claim "removed" must
+        // not precede the process actually being gone (#452 reported success
+        // while a ~127 MB pi kept running).
+        if (removedCount === 0) aliveAtRemoval = isAlive(pid);
+        removedCount += 1;
+      }
+    });
+
+    browser.send(JSON.stringify({ type: "shutdown", sessionId: "confirm-first" }));
+    expect(await waitForDeath(pid)).toBe(true);
+    await delay(1000);
+    browser.close();
+
+    expect(aliveAtRemoval, "session_removed was broadcast while the process was still alive").toBe(
+      false,
+    );
+    expect(removedCount, "session_removed was not broadcast exactly once").toBe(1);
+  }, 30_000);
 
   it("C2 — a session with no known PID is still removed, without claiming a kill", async () => {
     const bridge = await registerSession("no-pid-session", "/test/no-pid");

@@ -52,8 +52,10 @@ flag, no window registry, no tmux CLI, no new correlation mechanism.
       a bounded grace window for the graceful `sendToSession({type:"shutdown"})`
       to work. Shutdown stays polite; the ladder is the backstop, not the opening
       move (design D6).
-- [ ] 3.3 L1: the ladder escalates to SIGKILL against a process that ignores
-      SIGTERM (test-plan #T4).
+- [x] 3.3 L1: the ladder escalates to SIGKILL against a process that ignores
+      SIGTERM (test-plan #T4). `shutdown-terminates-any-strategy.test.ts` spawns a
+      REAL node process with a no-op `SIGTERM` handler; only the SIGKILL rung can
+      end it, so the test is vacuous unless the escalation exists.
 - [x] 3.4 L1: double shutdown / shutdown-after-natural-exit is success, not error
       (test-plan #T5).
 - [x] 3.5 L1 **fails-on-revert** — VERIFIED by construction: all three scenarios
@@ -73,22 +75,36 @@ flag, no window registry, no tmux CLI, no new correlation mechanism.
       today's behaviour and is REPORTED, never claimed as terminated. Mirror
       `handleForceKill`'s existing no-PID branch rather than inventing a second
       policy.
-- [ ] 3.8 Decide whether the idle-reaper (`embed-lifecycle/idle-reaper.ts`)
-      should route through the same escalation: it reclaims via
-      `killBySessionId`, so tmux sessions are never idle-reclaimed either (same
-      root cause, wider blast radius). If out of scope, file it.
+- [x] 3.8 Decide whether the idle-reaper (`embed-lifecycle/idle-reaper.ts`)
+      should route through the same escalation. **Decision: OUT OF SCOPE, filed
+      as #459.** Confirmed real: the reaper's `killBySessionId` dep is wired to
+      `headlessPidRegistry.killBySessionId` (`server.ts:1386`), and the caps
+      reclaim path to the same (`server.ts:1355`) — so gears 1/3 and caps eviction
+      all miss tmux sessions. It is the same root cause with a WIDER blast radius
+      (reaping is unattended), and it needs its own gear-level + caps tests. Folding
+      it in would mix two independently testable behaviours in one change.
 
 ## 4. Stop reporting unverified success
 
-- [ ] 4.1 L1: `session_removed` is broadcast only after termination is confirmed,
-      exactly once (test-plan #C1).
+- [x] 4.1 L1: `session_removed` is broadcast only after termination is confirmed,
+      exactly once (test-plan #C1). The test samples `isAlive(pid)` at the instant
+      the broadcast lands — asserting the ordering, not merely the count.
 - [x] 4.2 L1 **fails-on-revert**: a process surviving the full ladder produces a
       diagnostic naming the session id and the surviving process, and the
       shutdown is NOT reported clean (test-plan #C2).
-- [ ] 4.3 Confirm the wait is bounded by the existing ladder grace and that a
-      stuck session cannot stall a suite (design.md D3 risk).
-- [ ] 4.4 L1: orphan comparison — resident processes with no live session are
-      reportable (test-plan #C3).
+- [x] 4.3 Confirm the wait is bounded by the existing ladder grace and that a
+      stuck session cannot stall a suite (design.md D3 risk). **Confirmed:** the
+      only waits are `SHUTDOWN_GRACE_MS` (1.5 s) and `killProcess`'s existing
+      `timeoutMs: 2000` — no second independent timeout was added, so the worst
+      case is ~3.5 s and the failure path is non-blocking (diagnose, unregister,
+      broadcast). Pinned mechanically: the #T4 test asserts the whole
+      SIGTERM-ignoring shutdown completes inside that bound.
+- [x] 4.4 L1: orphan comparison — resident processes with no live session are
+      reportable (test-plan #C3). `compareResidentToSessions` in
+      `scripts/probe-harness-memory.mjs` makes the divergence a first-class query
+      (design D4); `sample()` now also returns `residentPiPids` so the comparison
+      has real input. Unit-tested over the disjoint / equal / overlapping cases in
+      `scripts/__tests__/probe-orphan-comparison.test.mjs`.
 
 ## 5. Prove it against the harness
 
