@@ -1,0 +1,3 @@
+# session-meta.ts — index
+
+Per-session sidecar `.meta.json` schema + IO. Exports `SessionMeta`, `metaPath`, `readSessionMeta`, `writeSessionMeta`, `mergeSessionMeta`. Holds dashboard-owned state (source, name, hidden), cached identity/stats from `.jsonl`, worktree grouping, `displayPrefsOverride`, automation-run mirror, `goalId`, `isGitRepo?` tri-state (restored by sessionFromMeta → +Worktree gate survives restart). Atomic write (tmp + rename). See change: gate-session-worktree-button-on-git. `SessionMeta.notifyLog?` mirrors `DashboardSession.notifyLog` so notifications survive `/api/restart`. See change: split-notify-from-prompt-request.
