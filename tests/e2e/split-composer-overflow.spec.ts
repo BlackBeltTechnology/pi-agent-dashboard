@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — composer toolbar must not overflow the split chat pane

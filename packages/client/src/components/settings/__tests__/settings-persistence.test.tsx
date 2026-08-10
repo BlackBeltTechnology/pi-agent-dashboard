@@ -113,6 +113,63 @@ describe("settings persistence after the reorganisation", () => {
     expect(prefsPatches()[0].body.debugTools).toBe(true);
   });
 
+  // ── gate-notify-rows-by-level ──────────────────────────────────────────
+  // 2.30 / test-plan #F8 — exactly one control, on General.
+  it("renders exactly one notifyMinLevel control, on the General page", async () => {
+    await openPanel();
+    const selects = await waitFor(() => {
+      const found = Array.from(
+        document.querySelectorAll<HTMLSelectElement>("select"),
+      ).filter((el) =>
+        Array.from(el.options).map((o) => o.value).join(",") ===
+        "all,success,warnings,errors"
+      );
+      if (found.length === 0) throw new Error("notifyMinLevel select not rendered");
+      return found;
+    });
+    expect(selects).toHaveLength(1);
+
+    // It is not duplicated onto any other page.
+    for (const page of ["Server", "Sessions"]) {
+      gotoPage(page);
+      const onOther = Array.from(
+        document.querySelectorAll<HTMLSelectElement>("select"),
+      ).filter((el) =>
+        Array.from(el.options).map((o) => o.value).join(",") ===
+        "all,success,warnings,errors"
+      );
+      expect(onOther, `duplicated on ${page}`).toHaveLength(0);
+    }
+  });
+
+  // 2.31 / test-plan #F9 — buffered through the display-prefs draft source.
+  it("buffers a notify-level change and persists it only on Save", async () => {
+    await openPanel();
+    const select = await waitFor(() => {
+      const found = Array.from(
+        document.querySelectorAll<HTMLSelectElement>("select"),
+      ).find((el) =>
+        Array.from(el.options).map((o) => o.value).join(",") ===
+        "all,success,warnings,errors"
+      );
+      if (!found) throw new Error("notifyMinLevel select not rendered");
+      return found;
+    });
+
+    fireEvent.change(select, { target: { value: "warnings" } });
+
+    // Buffered — nothing written yet.
+    expect(prefsPatches()).toHaveLength(0);
+
+    // …and it dirties General, like its ToggleField neighbours.
+    const saveBar = await waitFor(() => screen.getByTestId("settings-save-bar"));
+    expect(within(saveBar).getByRole("button", { name: "General" })).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("save-btn"));
+    await waitFor(() => expect(prefsPatches()).toHaveLength(1));
+    expect(prefsPatches()[0].body.notifyMinLevel).toBe("warnings");
+  });
+
   // test-plan #F18 — partial.tunnel is one top-level key, attributed to Server.
   it("attributes a watchdog edit to the Server chip", async () => {
     await openPanel();

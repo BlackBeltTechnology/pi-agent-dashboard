@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { ensureGitSession, FIXTURE_GIT } from "./helpers/index.js";
 
 // change: openspec-artifact-dialog-desktop — on non-mobile, clicking an

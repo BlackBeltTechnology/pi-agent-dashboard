@@ -43,6 +43,9 @@ importers:
       '@biomejs/biome':
         specifier: 2.5.1
         version: 2.5.1
+      '@blackbelt-technology/pi-dashboard-bus-client':
+        specifier: ^0.7.0
+        version: link:packages/bus-client
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.7.0
         version: link:packages/shared

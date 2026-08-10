@@ -1,0 +1,3 @@
+# models-json-reader.ts — index
+
+ONE shared pure reader for user-authored `~/.pi/agent/models.json`, consumed by BOTH registry paths (extension `provider-register.ts` + server `registry-singleton.readModels`) so flatten/precedence cannot diverge. `flattenModelsJson(parsed)` → stamped `NativeModelEntry[]`: native nested `providers.<name>.models[]` (parent key wins over in-entry `provider`) + legacy top-level array + `{models:[]}`; deduped by `provider/id`, nested wins on collision. Per-provider defensive (non-array `models` → skip block, no throw); pure (callers own file I/O + parse `console.warn`). Exports `NativeModelEntry` (carries `thinkingLevelMap?`/`compat?`). See change: honor-native-models-json-metadata.

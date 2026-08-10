@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures.js";
 import jsQR from "jsqr";
 import { byTestId, gotoDashboard } from "./helpers/index.js";
 

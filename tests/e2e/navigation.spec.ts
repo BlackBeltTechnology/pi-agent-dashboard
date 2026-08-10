@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { byTestId, gotoDashboard } from "./helpers/index.js";
 
 // Scenario 5.6 — top-level routes mount without crashing.

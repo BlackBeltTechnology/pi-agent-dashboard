@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures.js";
 import { spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — terminals as tabs inside the editor pane
