@@ -31,7 +31,6 @@ beforeEach(() => {
 function renderBar(overrides: Partial<React.ComponentProps<typeof FolderActionBar>> = {}) {
   const props: React.ComponentProps<typeof FolderActionBar> = {
     cwd: "/repo",
-    onOpenPiResources: () => {},
     ...overrides,
   };
   return render(<FolderActionBar {...props} />);
@@ -96,5 +95,35 @@ describe("FolderActionBar — init controls per state (single shared probe)", ()
     renderBar({ onInitializeProject: vi.fn() });
     await waitFor(() => expect(fetchWorktreeInitStatus).toHaveBeenCalled());
     expect(fetchWorktreeInitStatus).toHaveBeenCalledTimes(1);
+  });
+});
+
+// add-folder-actions-menu — the Directory Settings cog moves into the folder
+// actions menu, so a configured folder with no pending init and no broken
+// sessions leaves the bar with nothing to show. Scenarios E8, E9.
+describe("FolderActionBar — empty bar does not render", () => {
+  const setStatus = (s: WorktreeInitStatus) => fetchWorktreeInitStatus.mockResolvedValue(s);
+
+  it("E8: state ③ with 0 broken sessions renders nothing at all", async () => {
+    setStatus({ hasHook: false, configured: true });
+    const { container } = renderBar({ onInitializeProject: vi.fn(), brokenSessionCount: 0 });
+    await waitFor(() => expect(fetchWorktreeInitStatus).toHaveBeenCalled());
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("E8: the Directory Settings cog is gone from the bar", async () => {
+    setStatus({ hasHook: true, needsInit: true, trusted: true });
+    renderBar({ onInitializeProject: vi.fn() });
+    await waitFor(() => screen.getByTestId("worktree-init-btn"));
+    expect(screen.queryByLabelText(/directory settings/i)).toBeNull();
+  });
+
+  it("E9: a folder with 2 broken sessions still renders its own cleanup control", async () => {
+    setStatus({ hasHook: false, configured: true });
+    const { container } = renderBar({ brokenSessionCount: 2, onCleanUpBroken: vi.fn() });
+    await waitFor(() => expect(fetchWorktreeInitStatus).toHaveBeenCalled());
+    expect(container.firstChild).not.toBeNull();
+    expect(screen.getByTestId("folder-cleanup-broken-btn").textContent).toContain("2");
+    expect(screen.queryByLabelText(/directory settings/i)).toBeNull();
   });
 });

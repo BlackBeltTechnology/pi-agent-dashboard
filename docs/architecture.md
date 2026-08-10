@@ -39,7 +39,7 @@ Global pi extension running in every pi session. It:
 - **Attached-proposal artifact summary** in the content-window header (`SessionHeader.tsx`, both desktop branch and `MobileHeader`): when `session.attachedProposal` matches an entry in the polled `openspecChanges` list, the header renders the `ArtifactLettersButton` (P/D/T/S letters colored by per-artifact status, single button → opens the proposal artifact) plus a `(completedTasks/totalTasks)` counter. Surface is gated on the explicit user attach only — auto-detected `openspecChange` does not trigger it. Wired via the new `onReadArtifact` prop, threaded from `App.tsx` (`handleReadArtifact` from `useContentViews`). See change: add-attached-proposal-header-summary.
 - **Duplicate bridge prevention**: Uses `process`-level shared state (not `globalThis`) with a monotonic generation counter. When the extension is loaded multiple times (e.g., local + global npm package), only the latest instance's event handlers are active — stale listeners bail out immediately. All previous connections and timers are tracked and cleaned up on re-init.
 - **Subagent re-entry guard**: When pi-subagents launches an Agent tool, the subagent creates its own `AgentSession` which loads extensions (including the bridge) in the same process. Without protection, this would overwrite the parent bridge's global state, disconnect its WebSocket, and prevent `tool_execution_end`/`agent_end` from being forwarded — leaving the parent session stuck at "streaming" forever. The bridge stores a reference to its owning `pi` instance and skips initialization when called from a different instance (subagent).
-- Routes `ctx.ui` dialog methods (confirm, select, input, editor, multiselect, notify) through `PromptBus` (`prompt-bus.ts`)
+- Routes `ctx.ui` dialog methods (confirm, select, input, editor, multiselect) through `PromptBus` (`prompt-bus.ts`). `notify` split out — direct `notify` frame via `notify-proxy.ts`, never PromptBus. See Notify Flow.
   - Adapters register to handle prompts: `DashboardDefaultAdapter` renders generic dialogs inline; extensions (e.g. pi-flows) can register custom adapters via `prompt:register-adapter` event
   - First-response-wins: multiple adapters (TUI, dashboard, custom) can claim a prompt; the first to respond resolves it, others are dismissed
   - Bridge's TUI adapter is registered inline (captures original `ctx.ui` methods before patching) and presents `select`/`input`/`confirm`/`editor` prompts in the terminal with AbortController-based cancellation. Multiselect bypasses the TUI adapter entirely and uses the bus-routed `ctx.ui.multiselect` patch → `DashboardDefaultAdapter` → client `MultiselectRenderer` exclusively (pi 0.70 RPC's `ctx.ui.custom` is a no-op, so a TUI arm would auto-cancel the dashboard render in <1s). See changes: fix-multiselect-auto-cancel-on-dashboard, fix-multiselect-tui-arm-self-cancel.
@@ -136,8 +136,8 @@ TypeScript type definitions shared across all components:
 - **Needs-you precedence.** `error > ask_user(chat-routed) > resuming/retry > working(streaming) > active/idle > ended`. Applied uniformly across left-gutter dot (`deriveDotColorWithFlags`), rail (`deriveRailBgColor`), icon tint (`deriveIconStatusColor`, converts `bg-[var(...)]`→`text-[var(...)]`). All in `session-status-visuals.ts`. `flags.hasWidgetBarPrompt` excludes widget-bar ask_user from needs-you so only chat-routed prompts escalate (`isChatRoutedAskUser`).
 - **Non-hue shape channel.** `deriveStatusShape` + `statusShapeIcon` map status to filled/half/ring/cross marker. `SessionCard.tsx::StatusShapeBadge` overlays marker on session-status-icon (`data-status-shape`). Color-blind-safe redundant encoding.
 - **Label split.** `ActivityIndicator`: ask_user → "Needs you" (`--status-needs-you`); idle/active → "Idle" (muted). "Waiting for input" retired.
-- **Folder needs-you rollup.** `FolderNeedsYouPill` counts chat-routed ask_user child sessions per folder (`countNeedsYou` / `needsYouSessionIds`), excludes widget-bar via per-session `WidgetBarProbe` + `useHasWidgetBarPrompt`. Hidden at 0. Click → scroll+select first blocked. Mobile ≤375px hides label.
-- **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle `mdiSortVariant` in folder header.
+- **Folder status capsule** (change: unify-folder-status-capsule). `FolderStatusCapsule` = folder header's ONLY liveness surface. Renders in BOTH collapse states. Replaces `FolderNeedsYouPill` + collapsed-only `FolderStatusRollup` + raw `(N)` count — all DELETED, incl. `countStatusRollup`. Segments by `countStatusCapsule(sessions, flags)` (`packages/client/src/lib/session/session-status-visuals.ts`). Fixed severity order `CAPSULE_SEGMENT_ORDER` = needs-you > error > working > idle; magnitude never reorders. Zero-count segments absent; no countable sessions → no capsule at all (all-ended folder shows none; its `N ended` disclosure row still reports size). Excludes `ended` + `hidden` before shape derivation. `flags.widgetBar` tri-state `(id) => boolean | undefined`; `true` or `undefined` excludes that ask_user session from EVERY bucket. Still per-session `WidgetBarProbe` + `useHasWidgetBarPrompt`, now capsule-owned. needs-you uses explicit predicate, not `deriveStatusShape`; re-adds `!hasError` guard — errored ask_user counts once, as error. `notice` shape folds into `idle` bucket; retrying counts as `working`. Counts cap at `999+`. Non-idle segments = `<button>`s → first session of that state via `firstIds[bucket]`; idle = inert `<span>` + aria-label. Activation `stopPropagation()` → SessionList reveal path (`onSeekToCard` / `revealRequest`): inherits guarded expand, layout-settled scroll, hidden/filtered degrade toasts. Colors from `--status-*` family only, never `--severity-*`; no new CSS custom property. Capsule `flex-none` + `whitespace-nowrap`; sheds nothing; folder name absorbs width pressure. Test ids: `folder-status-capsule-<cwd>`, `folder-capsule-seg-{needs-you,error,working,idle}-<cwd>`.
+- **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle = folder actions menu item `urgency-sort` (`mdiSortVariant`), `aria-pressed` bound to `urgencySort.isOn(cwd)`. Per-folder persisted preference unchanged.
 
 ### Retry Lifecycle (change: retry-forever-with-stop-control)
 
@@ -228,6 +228,31 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - **Page refresh**: Server replays pending `prompt_request` messages when a browser subscribes. Client deduplicates by `requestId` or pending title match.
 - **Bridge reconnect**: Bridge replays pending PromptBus requests on WebSocket reconnect so dashboard dialogs survive server restarts.
 
+### Notify Flow (`ctx.ui.notify` → browser, split from prompt_request)
+
+Change: `split-notify-from-prompt-request`. `ctx.ui.notify` used to ship over `prompt_request`. Every consumer treated it as an unanswered ask → `trackPromptRequest` → `currentTool="ask_user"` re-armed on every quiescent moment → permanent "Needs you", false unread, `questionFirst` reorder, and a session the embed-lifecycle reaper could never reclaim. Now a dedicated `notify` message type end to end.
+
+**Protocol:**
+- `NotifyMessage` in `packages/shared/src/protocol.ts` (`ExtensionToServerMessage`): `{ type: "notify", sessionId, notifyId, message, level? }`. No `promptId`, no `component`, no `placement`.
+- `BrowserNotifyMessage` in `packages/shared/src/browser-protocol.ts` (`ServerToBrowserMessage`), same shape.
+- `NotifyLevel` = `"info" | "success" | "warning" | "error"` in `packages/shared/src/types.ts`. Normalized by `normalizeNotifyLevel` (`packages/shared/src/notify.ts`): unrecognized → `"info"`; omitted when caller passes none.
+
+**Bridge** (`packages/extension/src/notify-proxy.ts`): `createNotifyProxy` builds the `ctx.ui.notify` replacement `bridge.ts` installs. Calls pi's original notify, then sends the `notify` frame. Never PromptBus.
+
+**Server routing** (`packages/server/src/event-wiring.ts`): `msg.type === "notify"` branch = owner/`ended` guard → append to notify log → `sendToSubscribers`. No `trackPromptRequest`, no `currentTool` write, no unread stamp, no `questionFirst` reorder, no `session_updated` broadcast.
+
+**Permanent version-skew guard:** pre-split bridge publishes to npm independently of the server. The `prompt_request` branch early-outs on `prompt.type === "notify"` AFTER the owner/`ended` guard and BEFORE `trackPromptRequest`, via `fromLegacyPromptRequest(msg)` (`packages/server/src/pairing/notify-log.ts`). Reads `component.props.message`/`level`, falls back to `prompt.question`, normalizes level. Server owns the normalization, so a browser never receives the raw legacy frame and the client needs no legacy branch.
+
+**Notify log** (`packages/server/src/pairing/notify-log.ts`, wired in `packages/server/src/pairing/browser-gateway.ts`): bounded per-session, `NOTIFY_LOG_CAP = 50`, oldest-first eviction. Strictly separate from `pendingPromptRequests`: never feeds `hasPendingPromptRequests`, the reaper's `hasPendingAsk` union, or the `currentTool` fold. NOT cleared in `clearPendingRequestsForSession` — an ended session keeps its rows; reapability protected by exclusion, not deletion.
+
+**Durability:** a notify is not a `DashboardEvent`, so `event_replay` cannot restore it. `appendNotify` mirrors the log onto `DashboardSession.notifyLog`; `sessionToMeta` enumerates it (full-overwrite `.meta.json` save); `sessionFromMeta` restores it on cold start; `memory-session-manager.register()` carries it across a bridge reattach. `replayNotifyLog(ws, sessionId)` re-sends on browser subscribe, called at ALL FOUR sites in `packages/server/src/browser-handlers/subscription-handler.ts` right after `replayPendingUiRequests` (stale-lastSeq full replay, delta with events, delta without events, cold on-disk hydration). Deliberately a sibling function, not folded into `replayPendingUiRequests`. `hydrateNotifyLog(sessionId)` (`packages/server/src/pairing/browser-gateway.ts`) seeds the in-memory log from restored `DashboardSession.notifyLog`; called at the top of BOTH `replayNotifyLog` AND `appendNotify`. Reason: append onto an empty in-memory list mirrors back a one-row array via `sessionManager.update` — wipes persisted history before any browser saw it (restart + bridge-reattach path).
+
+**Client:** `addNotify` in `packages/client/src/lib/chat/event-reducer.ts` appends ONLY an `interactiveUi` row (`ui-<notifyId>`, content `notify`) to `messages`, never an `interactiveRequests` entry — transcript position is insertion order in `messages`. Dedup by `notifyId`, not message text, so a warm reconnect replay is idempotent. Handled in BOTH reducers: `packages/client/src/hooks/useMessageHandler.ts` (main app) and `packages/client/src/hooks/useSessionState.ts` (embed). `NotifyRenderer` still reached via the interactive-renderer registry (`["notify", NotifyRenderer]`).
+
+**Accepted skew:** old client + new server resolves on reload (client ships with the server). Old server + new bridge drops the notification for the skew window — no catch-all forward, no version handshake; accepted, bounded.
+
+See change: `split-notify-from-prompt-request`.
+
 ### Command Flow (browser → pi)
 1. User types prompt or command in browser
 2. Browser sends `send_prompt` via WebSocket
@@ -312,7 +337,7 @@ Key properties:
 | extension → server → browser | `ui_data_list { sessionId, event, items }` | Row data for `table`/`grid` views. |
 | browser → server → extension | `ui_management { sessionId, action, event, params }` | Data fetch (`action: "list"`) or user action. |
 
-**Replay on reconnect:** Server caches `Session.uiModules` and `Session.uiDataMap` (per-event item cap = 1000, last-write-wins on overflow). The replay site is `replayUiState(ws, sessionId, ctx)` in `packages/server/src/browser-handlers/subscription-handler.ts`, called immediately after every existing `replayPendingUiRequests(ws, sessionId)` site (4 sites: stale-lastSeq full replay, delta replay, no-events path, lazy load from disk). Replay ordering: events → pending UI requests → UI module state.
+**Replay on reconnect:** Server caches `Session.uiModules` and `Session.uiDataMap` (per-event item cap = 1000, last-write-wins on overflow). The replay site is `replayUiState(ws, sessionId, ctx)` in `packages/server/src/browser-handlers/subscription-handler.ts`, called immediately after every `replayNotifyLog` site (4 sites: stale-lastSeq full replay, delta replay, no-events path, lazy load from disk). Replay ordering: events → pending UI requests → notify log → UI module state.
 
 **Phase-2 surface (shipped):**
 
@@ -436,10 +461,11 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 
 #### Health endpoint observability
 
-`/api/health` exposes three additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
+`/api/health` exposes four additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
 - `eventLoopDelay: { meanMs, p99Ms, maxMs }` — `perf_hooks.monitorEventLoopDelay` histogram, ns→ms. Resets window each read.
 - `hydration: HydrationSample[]` — ring buffer, ≤20 newest-first samples. Process-local, no persistence. Sample `{ sessionId, wallMs, fileBytes, entryCount, eventCount, at }` recorded by `loadSessionEvents`.
 - `eventLoopSpikes: { at, ms, turn }[]` — ring buffer, ≤50 newest-first, process-local, additive. Retains worst-case event-loop stalls. Two feeds: dedicated `monitorEventLoopDelay` sampler (own instance, never the boot histogram `/api/health` resets → no reset race; records `turn: null` for stalls no poll turn owns) + per-turn self-records from the openspec poll path (`turn: "tickOpen" \| "dirPollPre" \| "dirPollPost"`). Sub-threshold ~700 ms stall retained even when nobody polls `/api/health`. See change: attribute-openspec-poll-eventloop-stalls.
+- `notifyLog: { evictedEntries, bySession }` — from `browserGateway.getNotifyLogStats()` (`packages/server/src/pairing/notify-log.ts` `getStats()`). `evictedEntries` = total cap-50 evictions; `bySession` = per-session counts. Cap-50 eviction = silent transcript loss → counted beside `droppedFrames` / `storeTrim`. See change: split-notify-from-prompt-request.
 
 **Bundled-by-default plugins:** The plugin loader treats all plugins identically (same manifest, same discovery, same `enabled` flag, same failure isolation). What distinguishes "bundled-by-default" plugins (initial set: `git-plugin`) is purely operational — the build pipeline always includes them in `packages/`. Their absence is a deliberate user opt-out, not a normal state. OpenSpec, Flows, and Subagents plugins are bundled in standard builds but their absence is a normal use case (e.g. a workspace without OpenSpec).
 
@@ -1096,7 +1122,7 @@ See change: add-worktree-lifecycle-actions.
 
 **Pin now implicit visibility primitive.** Adding folder always pins (`pin_directory`). `AddToWorkspaceMenu` + add dialog offer NO "Pin to dashboard". Safe: `visibleTopPinned`/`visibleTopUnpinned` already filter workspace-owned cwd out of top tier (renders once); redundant pin = fallback so removing from workspace leaves folder visible at root.
 
-**Add-to-workspace affordance.** LABELLED PILL: `mdiViewGridPlus` glyph + visible text label "Workspace" in folder-header cluster, order: `sort · add-to · home · pin`. Same button on session-card header (`session-card-add-to-workspace-<id>`, targets `session.cwd`). `aria-haspopup="menu"` + `aria-expanded` + `aria-label`/`title` "Add to workspace…". Popover state keyed by SCOPE (`folder:<cwd>` vs `session:<id>`) so card + same-cwd folder row never co-open. Old `+ws` text token removed. `renderAddToWorkspaceButton(cwd,label,scopeKey,testId,wrapperClass)` builds pill, passes as `headerAction?: React.ReactNode` to `renderGroup` (5th param); when `headerAction` present, cluster `ml-auto` moves to it.
+**Add-to-workspace affordance.** LABELLED PILL: `mdiViewGridPlus` glyph + visible text label "Workspace", lives inside folder actions menu WORKSPACE group. Session-card copy removed. `aria-haspopup="menu"` + `aria-expanded` + `aria-label`/`title` "Add to workspace…". Popover state keyed by SCOPE (`folder:<cwd>`). Old `+ws` text token removed. `renderAddToWorkspaceButton(cwd,label,scopeKey,testId,wrapperClass)` builds pill, passes as `headerAction?: React.ReactNode` to `renderGroup` (5th param); `renderGroup` routes it into the menu instead of the cluster. See change: add-folder-actions-menu.
 
 **Folder-header cluster never wraps.** `folder-header-cluster-<cwd>` = `flex-none whitespace-nowrap`; name region `folder-header-name-<cwd>` = `min-w-0` absorbs squeeze; parent path `folder-header-parent-<cwd>` = `flex-[0_1_auto] min-w-0` collapses first; leaf `folder-header-leaf-<cwd>` = `min-w-[6ch]` floor.
 
@@ -1105,6 +1131,40 @@ See change: add-worktree-lifecycle-actions.
 **AddFoldersDialog** (`packages/client/src/components/workspace/AddFoldersDialog.tsx`): multi-select picker + removable-pill basket (persists across navigation) + single-select workspace destination (radio, default None, empty state "None — no workspaces yet", eager `+ New workspace…` that becomes selected once `workspaces_updated` echo lands) + count-bearing commit (`add-folders-commit`). Commit sends `pin_directory` for every path FIRST, then `add_folder_to_workspace` per path when destination set (pins first → folder never momentarily invisible). Reuses existing per-path messages, no new protocol. Wired to both entry points: App sidebar `+ Add Folder` → dest None; `SessionList` workspace-scoped `+ Add Folder` → that workspace preselected. `PinDirectoryDialog` retained ONLY for packages move-to-local single-select picker (`UnifiedPackagesSection`).
 
 See change: redesign-folder-workspace-add-flow.
+
+### Folder actions menu (add-folder-actions-menu)
+
+**Cluster = one control.** `folder-header-cluster-<cwd>` holds EXACTLY ONE control: `FolderActionsMenu` trigger. Component `packages/client/src/components/folder/FolderActionsMenu.tsx`. Exports `FolderActionsMenu`, `FolderMenuItem`, `FOLDER_MENU_GROUPS`, `FolderMenuGroup`.
+
+**Trigger.** Glyph `mdiFolderCogOutline`. `mdiDotsHorizontal` REJECTED — `WorktreeActionsMenu` renders it on worktree session cards inside the folder body; two identical triggers, different scopes, one card. Testid `folder-actions-menu-<cwd>`. Carries `aria-haspopup="menu"` + `aria-expanded`. `onClick` calls `stopPropagation` — header row navigates to the directory home page, so opening must not navigate nor toggle collapse.
+
+**Panel.** Testid `folder-actions-menu-panel-<cwd>`, `role="menu"`, `data-menu-form="sheet"|"popover"`. Items carry `role="menuitem"`, testid `folder-menu-item-<id>`. Keyboard: ArrowDown/ArrowUp rove focus over `[role=menuitem]`; Escape closes + returns focus to trigger. Outside `mousedown`/`touchstart` closes.
+
+**Groups.** Host-owned fixed taxonomy, stable order: `workspace` then `directory` (`FOLDER_MENU_GROUPS`). Group heading testid `folder-menu-group-<group>`. Group renders only when it holds >=1 item. Item ids: `add-to-workspace`, `remove-from-workspace`, `pin`, `urgency-sort`, `directory-settings`. Directory-group order: pin, urgency-sort, directory-settings.
+
+**Open state.** `SessionList` owns `folderMenuFor`, keyed by SCOPE `folder:<cwd>` — mirrors `addToWsMenuFor`; a cwd key would co-open a folder row and a same-cwd card.
+
+**Form factor.** Mobile: `useMobile()` (compound `<768w OR <600h`, reused verbatim) → full-width sheet via `DialogPortal`, `data-menu-form="sheet"`. Desktop → `usePopoverFlip` popover, `data-menu-form="popover"`.
+
+**Node escape hatch.** `FolderMenuItem.node`: item that carries its own popover + testid renders its own node. Only user today = add-to-workspace, so `renderAddToWorkspaceButton(cwd,label,scopeKey,testId,wrapperClass,asMenuItem)` keeps `add-to-workspace-btn-<cwd>` + `AddToWorkspaceMenu` popover verbatim; `asMenuItem` adds `role="menuitem"`.
+
+**Placement gating preserved, not widened.** add-to-workspace only on top-level rows gated `onCreateWorkspace || workspaces.length`; remove-from-workspace only on workspace-owned rows; pin only outside a workspace container.
+
+**Pinned indicator.** Inert indicator, testid `folder-pinned-indicator-<cwd>`, `aria-hidden="true"`, `mdiPin`, NOT a button, no tabindex. Lives in name region, not cluster — keeps cluster at exactly one control. Pin/unpin action lives in the menu.
+
+**Open-home button deleted.** `mdiOpenInNew` GONE. Testid `folder-open-home-<cwd>` GONE. Header row `folder-home-row-<cwd>` = only open affordance; leaf `folder-header-leaf-<cwd>` gains `group-hover:underline`, row gains `group`.
+
+**SessionCard prop removed.** `renderAddToWorkspace` REMOVED. Testid `session-card-add-to-workspace-<id>` GONE. Workspace membership is directory-scoped; per-session rendering produced N identical buttons with one effect.
+
+**FolderActionBar Directory Settings.** `mdiCog` REMOVED (moved to menu item `directory-settings`). `FolderActionBar` returns `null` when it holds nothing — predicate composed from exported `shouldShowProjectInit(status,onInitializeProject)` (`ProjectInitButton.tsx`) + `shouldShowWorktreeInitButton(status)` (`WorktreeInitButton.tsx`) + `useInitRun(cwd)` + cleanup gate, so it cannot drift from what the buttons render.
+
+**Prop rename.** `onOpenPiResources` → `onOpenDirectorySettings` on `SessionList`; `useContentViews` `handleOpenPiResources` → `handleOpenDirectorySettings`. Route unchanged: `buildFolderSettingsUrl(cwd)` (page segment omitted → route handler defaults `packages`). Only the name lagged; label + `aria-label` already read "Directory Settings".
+
+**Accepted echoes (recorded, not fixed).** Trigger cog vs item `mdiCog`; `mdiPin` indicator vs `mdiPin` action.
+
+**Known dead path, PRE-EXISTING, NOT fixed.** `AddToWorkspaceMenu` remove entry unreachable on folder rows — renders only when `currentWorkspaceId !== null`, but `visibleTopPinned`/`visibleTopUnpinned` filter workspace-owned folders out of the top tiers, the only rows carrying the affordance.
+
+See change: add-folder-actions-menu.
 
 ### OpenSpec Polling (Server-Side)
 
@@ -1157,6 +1217,32 @@ Observability: `DEBUG=pi-dashboard:openspec-poll` (or any `DEBUG=...pi-dashboard
 Board route `/folder/:encodedCwd/openspec` (`OpenSpecBoardView`) replaces inline `FolderOpenSpecSection` accordion. `FolderOpenSpecSection` now slim nav entry `OpenSpec (N) →` to board route.
 
 Groups = columns. Always-present Ungrouped column. Proposal cards draggable (@dnd-kit): reassign group + reorder within group.
+
+**Drop-target resolution.** Collision detection = `pointerWithin`, single `DndContext` prop; applies to card AND column drags. No `closestCorners` fallback: `closestCorners` empty only when zero droppables exist; fallback makes `over` non-null in the board gutter, turns intended cancel into commit into a neighbouring column. Null `over` = real cancel.
+
+Drop slot resolved by ONE midpoint rule, direction- and scope-independent: `index` = count of cards in target column (excluding moved card) whose rect midpoint Y is at/above pointer Y; exact midpoint resolves after. Result = index into the without-moved list — `computeReorder`'s existing contract, so no caller `+1`.
+
+Pure resolver `resolveDropSlot` in `packages/client/src/lib/openspec/openspec-board-order.ts`; `computeReorder` unchanged.
+
+Resolution runs on `onDragMove`, not `onDragOver` (`onDragOver` deps are `[overId]` — does not fire on a midpoint crossing inside one droppable).
+
+Resolution lives in `DropSlotProbe`, headless child of `<DndContext>`: `droppableRects` reachable only through `useDndContext()`; the parent of `<DndContext>` measures 0 rects. `pointerY = activatorEvent.clientY + delta.y`. Rects read via scroll-live `rect.top`/`rect.bottom` getters, not the frozen `rect.rect` snapshot.
+
+`handleDragEnd` only commits. Re-resolves slot from end event itself, via `resolveMoveSlot` — no trust in last `onDragMove`. Rect map reaches it through `dropRectsRef`, ref `DropSlotProbe` keeps current; parent still never calls `useDndContext()` (would measure 0 rects). `dropSlot` state drives INDICATOR only, not the commit.
+
+colKey-only guard insufficient: one-frame flick off append rail onto card in SAME column agrees on column, disagrees on index → colKey-only guard commits stale "last" slot. Found by CodeRabbit on PR #438.
+
+Commit bails when `over` null (gutter / page margin) and when re-resolved slot's column ≠ end event's target.
+
+Whole column accepts drops: body keeps its `useDroppable` (dnd-kit auto-scroll walks the OVER NODE's ancestors → scroller must stay on the drop path) plus a second `col-root:<groupKey>` droppable on the column root for header + outer padding.
+
+Drag-only append rail `rail:<groupKey>`: sticky to the body's visible bottom edge, ≥44px, present in empty columns; resolves to last position. `resolveDropTarget` normalises `rail:<k>`/`col-root:<k>` back to the bare group key in ONE place — a namespaced droppable id never persists as a group key.
+
+Indication: insertion marker painted into the existing flex gap via a pseudo-element on the card following the slot (no inserted flex child). Final slot has no following card → the rail's active state indicates it — driven by the resolved slot being last, not pointer-over-rail. Vertical `SortableContext` strategy neutralised with an explicit no-op (`strategy={undefined}` falls back to `rectSortingStrategy` and still displaces → decouples visual position from data order, invalidates the midpoint count).
+
+Production test hooks: `data-drop-target` (column root), `data-drop-slot="<index>"` (column body), `data-rail-active` (rail).
+
+No persistence/protocol change: `changeOrder[]` keeps its shape. See change: fix-openspec-board-drop-targeting.
 
 Per-change order persisted in groups.json `changeOrder` keyed by groupId (`__ungrouped__` sentinel = `OPENSPEC_UNGROUPED_KEY`). Mutated via PUT `/api/openspec/groups/change-order` → `store.setChangeOrder`. Broadcast via `openspec_groups_update`. Ordering applied client-side by `orderChangesForGroup` (`openspec-board-order.ts`): persisted names first, unordered appended by `defaultChangeSort`, stale entries ignored.
 
@@ -1462,6 +1548,60 @@ Optional OAuth2 authentication protects the dashboard when accessed remotely.
 8. WebSocket upgrade requests are also validated — external connections without valid cookie or trusted network get 401
 9. Supported providers: GitHub (hardcoded endpoints), Google/Keycloak/OIDC (via OIDC discovery)
 
+#### `auth.redirectBaseUrl` — reverse-proxy OAuth base
+
+Optional string field in `~/.pi/dashboard/config.json`.
+No default.
+Absent = previous behaviour unchanged.
+Change: `config-override-oauth-redirect-base`.
+
+**Purpose.** Dashboard behind reverse proxy on stable custom domain: `https://pi.example.com` → nginx → `:8000`.
+No dashboard-managed tunnel.
+Without field `buildRedirectUri()` emits `http://localhost:8000/auth/callback/github`.
+Provider rejects with `redirect_uri_mismatch`.
+
+**Base precedence** (`buildRedirectUri(provider, port, baseOverride?)`, `packages/server/src/auth/auth.ts`):
+1. `auth.redirectBaseUrl` — highest
+2. `getTunnelUrl()` — active tunnel
+3. `http://localhost:<port>` — fallback
+
+Trailing slashes stripped from winning base.
+Empty string treated as absent — falls through.
+
+**Path prefix supported.** `https://pi.example.com/pi` → `https://pi.example.com/pi/auth/callback/github`.
+
+**Call sites** (`packages/server/src/auth/auth-plugin.ts`):
+- `/auth/login` — single-provider auto-redirect
+- `/auth/start/:provider` — authorize redirect
+- `/auth/callback/:provider` — token exchange
+
+OAuth2 requires token-endpoint `redirect_uri` byte-identical to authorize-endpoint one.
+
+**Operator MUST register same callback URL with provider too** (GitHub/Google/Keycloak app settings).
+Config field alone not enough.
+
+**Hot reload.** `PUT /api/config` → `writeConfigPartial` → `loadConfig()` → `fastify._reloadAuth(newConfig)` → `authState.redirectBaseUrl` reassigned.
+No restart needed.
+
+**Trap — boot-time empty provider registry.** `registerAuthPlugin` returns early on zero resolvable providers ("Auth configured but no providers resolved — auth disabled") BEFORE registering `/auth/*` routes and BEFORE installing `_reloadAuth`.
+Server booted with zero resolvable OAuth providers → any `auth.*` change via `PUT /api/config` inert until restart.
+
+**Validation** (`warnOnInvalidRedirectBase()`, `packages/server/src/auth/auth.ts`).
+Warns at plugin registration + every auth reload when value not absolute `http`/`https` origin, or carries query string / fragment.
+Value still USED, never discarded.
+Typo = visible provider rejection + log line, not silent no-op.
+
+**Scope — OAuth redirect URIs only.** Pairing QR codes, `GET /api/tunnel/endpoints`, "Accessible at" surfaces still derive from `getTunnelUrl()`.
+Dashboard with `redirectBaseUrl` set advertises tunnel host in those places.
+Known + accepted.
+Top-level `publicBaseUrls` stays separate — not an OAuth tier (D7).
+
+**Settings UI field.** Settings ▸ Security carries the input — `packages/client/src/components/settings/SettingsPanel.tsx`, testid `redirect-base-url-input`.
+Writes `auth.redirectBaseUrl` through existing `PUT /api/config` path.
+Empty input sends `""` — clears override. Omitting key PRESERVES old value instead.
+Help text states provider-side registration requirement.
+Gateway action writes same key when oauth mode selected (see Gateway URL Management).
+
 ### Server-Keypair Device Pairing
 
 Second auth path beside OAuth. Pairs a device to a server via QR/copy-string. Mints long-lived bearer token. Change: `add-server-keypair-pairing`.
@@ -1476,7 +1616,7 @@ Server ensures persistent Ed25519 keypair at `~/.pi/dashboard/identity.key` (060
 
 #### QR / copy-string pairing
 
-Two QR kinds (D1). **Pairing QR** = secure payload `{v,id,code,urls[]}` = protocol version, fingerprint, one-time ~60s code, TLS-only reachable URLs. `urls[]` holds https/wss only (D14) — never self-signed LAN; includes MagicDNS with provisioned `tailscale cert`; Gateway provider endpoints plus operator-configured `pairing.publicBaseUrls`. Rendered as QR plus copyable base64url string. **Link QR** = per no-TLS http mesh/LAN endpoint. Encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer. Link-QR arrival governed by `config.trustedNetworks`. Module `packages/server/src/pairing.ts`.
+Two QR kinds (D1). **Pairing QR** = secure payload `{v,id,code,urls[]}` = protocol version, fingerprint, one-time ~60s code, TLS-only reachable URLs. `urls[]` holds https/wss only (D14) — never self-signed LAN; includes MagicDNS with provisioned `tailscale cert`; Gateway provider endpoints plus operator-configured `publicBaseUrls` (legacy `pairing.publicBaseUrls` fallback). Rendered as QR plus copyable base64url string. **Link QR** = per no-TLS http mesh/LAN endpoint. Encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer. Link-QR arrival governed by `config.trustedNetworks`. Module `packages/server/src/pairing.ts`.
 
 #### Compare-code approval — D12
 
@@ -1527,6 +1667,142 @@ Approval: operator types numeric confirm code shown on device → `POST /api/pai
 `no_reachable_endpoint` → empty state. Pairing needs secure context. Empty state offers Start tunnel (`/tunnel-setup`) plus `http://localhost` same-machine note. Never implies plain-http LAN pairs in a browser.
 
 Gate: `reachableUrls()` (`packages/server/src/pairing.ts`) read-time filter (D4/D14) advertises only secure `wss`/`https` endpoints. Keeps `urls[]` secure. `createPayload()` returns null when no reachable url → route returns `{success:false,error:"no_reachable_endpoint"}` (HTTP 200).
+
+### Gateway URL Management
+
+Change: `config-override-oauth-redirect-base`.
+Operator declares reachable gateway URLs + auth posture in one statement.
+Server reads at runtime via mtime-gated config snapshot.
+
+#### `publicBaseUrls` — promoted to top level
+
+`pairing.publicBaseUrls` promoted to top-level `publicBaseUrls?: string[]`.
+Source: `packages/shared/src/config.ts`.
+Read through `resolvePublicBaseUrls(config)`.
+Top-level first.
+Legacy `pairing.publicBaseUrls` fallback.
+Else `[]`.
+NOT in `DEFAULTS`.
+Never seeded by `ensureConfig()`.
+Absence selects the legacy fallback.
+`[]` default would orphan existing entries.
+
+Consumers:
+- `server.ts` `getReachableUrls`
+- `system-routes.ts` `GET /api/tunnel/endpoints`
+- client `gateway-config-ops.ts`
+
+OAuth-isolation rule (D7): `publicBaseUrls` NOT an OAuth redirect-base tier, at any arity.
+Reason: list vs scalar arity.
+OAuth `redirect_uri` = one pre-registered origin.
+Operator states it in `auth.redirectBaseUrl`.
+
+TLS gate unmoved (D8).
+Stays read-time in `PairingManager.reachableUrls()`.
+Non-loopback `http://` entry in promoted list never reaches a pairing QR.
+
+Client writer `appendPublicBaseUrl(config, url, {allowInsecure})` = single writer.
+Seeds top-level from legacy on first write.
+
+#### Gateway action — one statement, one write
+
+One operator statement → ONE `PUT /api/config`.
+Writes:
+- `publicBaseUrls`
+- `cors.allowedOrigins`
+- `auth.redirectBaseUrl` (iff oauth mode)
+- `trustedNetworks` (iff trusted-network mode)
+- `gateways[]` provenance record
+
+Code: pure algebra `packages/client/src/lib/gateway/gateway-action.ts`.
+Exports:
+- `validateGatewayDraft`
+- `buildGatewayAddPatch`
+- `buildGatewayRemovePatch`
+- `computeGatewayStatus`
+- `buildGatewayFixPatch`
+
+UI: `packages/client/src/components/Gateway/GatewayUrlManager.tsx`.
+Rendered by BOTH `GatewayPage.tsx` and `GatewaySetupGuide.tsx`.
+One shared component — cannot drift.
+
+Scheme rules:
+- `http://` → trusted network REQUIRED
+- `http://` → QR pairing ineligible
+- `http://` → OAuth ineligible
+- `https://` → trusted network optional
+- `https://` → both eligible
+- At least one auth mode mandatory either way
+
+CIDR prefill reuses `suggestTrustEntries`.
+Exact `/32`.
+Never a subnet.
+
+Provenance `wrote{}` = exact values.
+Remove deletes only recorded values STILL EQUAL in live config.
+Limit: identical-value authorship indistinguishable.
+Removing clears an operator's hand-set `auth.redirectBaseUrl`.
+Both dialogs say so.
+
+Status computed on read, never persisted.
+States: OK / Incomplete / Conflicting / Ineligible.
+Fix = reconcile-to-record delta write.
+Never re-run add.
+
+Status checks trusted networks against the EFFECTIVE merge.
+Merge = top-level `trustedNetworks` ∪ `auth.bypassHosts`.
+Settings writes the second key.
+
+**D15 — persisting is not applying.** CORS `origin` callback + `networkGuard` read mtime-gated snapshot (`packages/server/src/config-snapshot.ts`).
+Exports: `getConfigSnapshot`, `liveCorsAllowedOrigins`, `liveTrustedNetworks`.
+Boot closure replaced.
+`statSync` ~1.9 µs steady state.
+Full read+parse ~24.5 µs.
+Cache MUST stay mtime-gated.
+Boot snapshot silently reinstates the bug.
+Hand-edited `config.json` never passes through the writer.
+
+`_reloadAuth(newAuth, fullConfig)` now merges top-level `trustedNetworks` exactly as boot does.
+Fixes PRE-EXISTING bug.
+Any auth-carrying `PUT /api/config` dropped them until restart.
+
+New route `DELETE /api/config/auth/providers/:id`.
+`deleteAuthProvider` in `config-api.ts`.
+Idempotent.
+Refuses last provider without `?force=true`.
+Lockout, not disable.
+
+New route `GET /api/auth/diagnostics`.
+Returns `{redirectBase, source, authActive, providerCount}`.
+Guarded.
+Loopback-reachable.
+Same line mirrored to `server.log` at register/reload.
+
+#### `trustProxy` stays off — D14
+
+Fastify constructed WITHOUT `trustProxy`.
+Deliberate.
+`trustProxy` rewrites `request.ip` from `X-Forwarded-For`.
+`request.ip` = what BOTH authorization bypasses read:
+- `auth-plugin.ts` auth-gate bypass
+- `localhost-guard.ts` `networkGuard` bypass
+
+Enabling makes both gates header-forgeable.
+Includes the gate on `PUT /api/config`.
+Also splits REST from the WS upgrade path.
+WS upgrade authorizes on `socket.remoteAddress`.
+
+Instead: session cookie `Secure` derives from RESOLVED redirect base scheme.
+`resolveRedirectBase` in `auth/auth.ts`.
+Operator-stated config.
+No request header can influence.
+
+Prerequisite if anyone ever wants `trustProxy`:
+Move BOTH bypass points to `request.socket.remoteAddress` FIRST.
+Only safe together.
+Only the first change looks harmless.
+
+Regression test: `packages/server/src/__tests__/forwarded-ip-trust.test.ts`.
 
 ### Settings Panel
 The web client includes a Settings panel (gear icon in sidebar header → `/settings` route) that lets users view and edit all dashboard configuration. The panel:
@@ -1610,6 +1886,7 @@ Change: `restore-ask-user-tool-state-on-reconnect`. `ask_user` `tool_execution_s
 - Both live in `packages/server/src/pairing/browser-gateway.ts`. Accessors return ids / booleans, never prompt payloads.
 - `onUnregister` clears BOTH via `clearPendingRequestsForSession(sessionId)`.
 - Leak ⇒ permanent `hasPendingAsk: true` ⇒ session never reapable.
+- Notify log separate (change: `split-notify-from-prompt-request`): `ctx.ui.notify` moved off PromptBus onto dedicated `notify` message. Never writes `pendingPromptRequests`, never feeds `hasPendingAsk` union or `currentTool` fold. NOT cleared by `clearPendingRequestsForSession` — ended session keeps rows; reapability by exclusion, not deletion. See Notify Flow.
 
 #### `currentTool` derived-field contract
 - `DashboardSession.currentTool` derived from live pi events by `extractSessionUpdates()` in `packages/server/src/session/event-status-extraction.ts`.
@@ -1681,6 +1958,7 @@ The per-message ⤘ Fork button needs each chat bubble to carry the entry id of 
 | Events | In-memory Map | LRU eviction, max 100 sessions. Pinned if active bridge or browser subscribers. |
 | Sessions | In-memory Map + `.meta.json` | In-memory registry. Each session's state cached in per-session `.meta.json` sidecar next to `.jsonl`. On startup, `session-scanner.ts` scans `~/.pi/agent/sessions/*/` to restore all sessions from cached meta. |
 | Session meta | `~/.pi/agent/sessions/…/<id>.meta.json` | Per-session sidecar: dashboard-owned state (name, attachedProposal, hidden, source) + cached stats (tokens, cost, model, status). Debounced per-session writes (max 1/sec). Stale cache detected via `cachedAt` vs `.jsonl` mtime. |
+| Notify log | `~/.pi/agent/sessions/…/<id>.meta.json` (`SessionMeta.notifyLog`) | Bounded per-session notify history (cap 50, oldest-first). Not a `DashboardEvent` — `event_replay` cannot restore. Mirrored by `sessionToMeta` (full-overwrite save), restored by `sessionFromMeta` cold start, carried across bridge reattach by `memory-session-manager.register()`. See Notify Flow. |
 | Pinned directories | `~/.pi/dashboard/preferences.json` | Ordered array of cwd paths. Pinned dirs always visible in sidebar. |
 | Session order | `~/.pi/dashboard/preferences.json` | Per-cwd ordering managed by `session-order-manager.ts`. |
 | Server PID | `~/.pi/dashboard/server.pid` | Tracks running server process for daemon management. |
@@ -1708,6 +1986,8 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `tunnel.tailscale` | — | `{authKey}`. tailscale sub-config |
 | `tunnel.zerotier` | — | `{networkId}`. zerotier sub-config |
 | `tunnel.reservedToken` | _(auto)_ | Legacy bare zrok token. Read-time shim resolves to `{provider:"zrok", mode:"public", zrok:{reservedToken}}` in loadConfig. No disk rewrite until next save. Explicit `provider` wins on conflict |
+| `auth.redirectBaseUrl` | — | Optional OAuth redirect base for reverse-proxy deployments (`https://host[/prefix]`). Overrides tunnel/localhost base in `buildRedirectUri`. No default; absent = previous behaviour |
+| `publicBaseUrls` | — | Top-level reachable base URLs. Pairing QR + `GET /api/tunnel/endpoints` surfaces. `resolvePublicBaseUrls` reads top-level first, legacy `pairing.publicBaseUrls` fallback, else `[]`. No default; absent = legacy. Not an OAuth tier (D7) |
 
 ### Tunnel Lifecycle
 
@@ -1740,9 +2020,9 @@ Idempotent control commands against long-lived daemon (`tailscaled` / `zerotier-
 
 #### Endpoints
 
-`GET /api/tunnel/endpoints` returns tagged `{kind, url, tls}`, kind ∈ `public`|`mesh`|`magicdns`|`lan`|`local`. Multi-sourced: active provider endpoints + manual `pairing.publicBaseUrls` + LAN/local. "Accessible at" UI surface.
+`GET /api/tunnel/endpoints` returns tagged `{kind, url, tls}`, kind ∈ `public`|`mesh`|`magicdns`|`lan`|`local`. Multi-sourced: active provider endpoints + top-level `publicBaseUrls` (legacy `pairing.publicBaseUrls` fallback) + LAN/local. "Accessible at" UI surface.
 
-Manual HTTPS entry: UI "Add HTTPS URL" appends to `pairing.publicBaseUrls` via auth-gated `PUT /api/config` (no new route; `pairing` shallow-overwritten, client PUTs full pairing object). https/wss gate authoritative server-side at read time in `reachableUrls()`; plain-http dropped before advertisement.
+Manual HTTPS entry: UI "Add HTTPS URL" appends to top-level `publicBaseUrls` via `appendPublicBaseUrl` (auth-gated `PUT /api/config`; no new route). Legacy `pairing.publicBaseUrls` seeded into top-level on first write. https/wss gate authoritative server-side at read time in `reachableUrls()`; plain-http dropped before advertisement.
 
 #### Trusted-network block events
 

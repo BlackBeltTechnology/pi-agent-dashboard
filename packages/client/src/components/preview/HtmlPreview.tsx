@@ -10,6 +10,7 @@ import React, { useEffect, useState } from "react";
 import { withRestrictiveCsp } from "../../lib/canvas/canvas-doc-csp.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { rawUrl } from "./raw-url.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -30,7 +31,8 @@ export function HtmlPreview({ target, restrictCsp = false }: Props) {
     let cancelled = false;
     setHtml(null);
     setError(null);
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const res = await fetch(rawUrl(target));
         if (!res.ok) {
@@ -42,7 +44,7 @@ export function HtmlPreview({ target, restrictCsp = false }: Props) {
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to load");
       }
-    })();
+    })().catch(logRejection("HtmlPreview.render"));
     return () => {
       cancelled = true;
     };

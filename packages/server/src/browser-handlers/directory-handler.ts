@@ -223,9 +223,18 @@ export function handleOpenSpecRefresh(
   ctx: BrowserHandlerContext,
 ): void {
   if (ctx.directoryService) {
-    ctx.directoryService.refreshOpenSpec(msg.cwd).then((data) => {
-      ctx.broadcast({ type: "openspec_update", cwd: msg.cwd, data });
-    });
+    ctx.directoryService
+      .refreshOpenSpec(msg.cwd)
+      .then((data) => {
+        ctx.broadcast({ type: "openspec_update", cwd: msg.cwd, data });
+      })
+      // Fire-and-forget from a sync dispatch handler: a rejected refresh must
+      // not float. The gateway stays responsive; the client simply gets no
+      // openspec_update for this cwd.
+      // See change: cleanup-async-semantics-server-extension (design D1).
+      .catch((err: unknown) => {
+        console.warn(`[openspec] refresh failed for ${msg.cwd}:`, err);
+      });
   }
 }
 
@@ -248,6 +257,13 @@ export function handleOpenSpecBulkArchive(
       .then(() => ctx.directoryService!.pollDirectoryGated(msg.cwd))
       .then((data) => {
         if (data) ctx.broadcast({ type: "openspec_update", cwd: msg.cwd, data });
+      })
+      // The archive above already happened; a failed post-archive poll only
+      // costs the client its refresh, so log and stay responsive rather than
+      // floating the rejection.
+      // See change: cleanup-async-semantics-server-extension (design D1).
+      .catch((err: unknown) => {
+        console.warn(`[openspec] post-archive poll failed for ${msg.cwd}:`, err);
       });
   }
 }

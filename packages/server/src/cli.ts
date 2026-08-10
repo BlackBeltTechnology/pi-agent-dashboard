@@ -108,13 +108,53 @@ export function parseArgs(args: string[]): ParsedArgs {
   return { subcommand, flags };
 }
 
+/** Production default HTTP port. A temp/faux HOME must never bind it. */
+export const PRODUCTION_DEFAULT_PORT = 8000;
+
+/**
+ * A dashboard started with a temp/faux HOME (a test or isolated run — HOME
+ * under `os.tmpdir()`) must NEVER bind the production default port 8000. On
+ * macOS a `127.0.0.1:8000` bind is MORE SPECIFIC than the real server's
+ * `*:8000`, so it silently SHADOWS the live dashboard for every localhost
+ * request — the real dashboard appears to "lose" all its sessions while it is
+ * in fact still running. Remap to an ephemeral port (0) and warn. Fires even on
+ * an explicit `--port 8000`, because a temp-HOME instance has no business on
+ * the production port (the live incident was launched with an explicit
+ * `--port 8000` from a worktree + faux HOME). Non-8000 ports (test servers use
+ * random ones) pass through untouched. See change: guard-temp-home-production-port.
+ */
+// Generic over the input so a non-null `port` stays non-null for the caller:
+// every return path yields either the input itself or the ephemeral `0`, so
+// `T | 0` is exact. A flat `number | null` return widened `buildConfig`'s
+// already-resolved port and broke `ServerConfig.port: number`.
+// See change: cleanup-client-plugin-promises (unblocking a develop type error).
+export function guardTempHomePort<T extends number | null>(
+  port: T,
+  homeDir: string,
+  tmpDir: string,
+  warn: (msg: string) => void = console.warn,
+): T | 0 {
+  if (port !== PRODUCTION_DEFAULT_PORT) return port;
+  const home = path.resolve(homeDir);
+  const tmp = path.resolve(tmpDir);
+  if (home !== tmp && !home.startsWith(tmp + path.sep)) return port;
+  warn(
+    `[isolation] HOME (${home}) is under the temp dir (${tmp}); refusing to bind ` +
+      `production port ${PRODUCTION_DEFAULT_PORT} (a 127.0.0.1 bind would shadow a real ` +
+      `dashboard on localhost). Using an ephemeral port instead.`,
+  );
+  return 0;
+}
+
 /**
  * Build the full server config from CLI flags, env vars, and config file.
  */
 export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
   const fileConfig = loadConfig();
+  const resolvedPort =
+    flags.port ?? (parseInt(process.env.PI_DASHBOARD_PORT ?? "") || null) ?? fileConfig.port;
   return {
-    port: flags.port ?? (parseInt(process.env.PI_DASHBOARD_PORT ?? "") || null) ?? fileConfig.port,
+    port: guardTempHomePort(resolvedPort, os.homedir(), os.tmpdir()),
     piPort: flags.piPort ?? (parseInt(process.env.PI_DASHBOARD_PI_PORT ?? "") || null) ?? fileConfig.piPort,
     host: flags.host ?? (process.env.PI_DASHBOARD_HOST || null) ?? fileConfig.bindHost,
     dev: flags.dev ?? false,

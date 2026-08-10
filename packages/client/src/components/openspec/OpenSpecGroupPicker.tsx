@@ -9,6 +9,7 @@ import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/ty
 import React, { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { GROUP_PALETTE, resolveGroupColor } from "../../lib/openspec/openspec-group-palette.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface Props {
   groups: OpenSpecGroup[];
@@ -141,7 +142,7 @@ export function OpenSpecGroupPicker({
                     onChange={(e) => setNewName(e.target.value)}
                     onKeyDown={(e) => {
                       e.stopPropagation();
-                      if (e.key === "Enter") handleCreate();
+                      if (e.key === "Enter") void handleCreate().catch(logRejection("OpenSpecGroupPicker.handleCreate"));
                       if (e.key === "Escape") {
                         setCreating(false);
                         setNewName("");

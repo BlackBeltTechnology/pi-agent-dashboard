@@ -10,6 +10,7 @@ import type { PiCoreStatus } from "@blackbelt-technology/pi-dashboard-shared/res
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
 import { t } from "../lib/i18n/i18n.js";
+import { logRejection } from "../lib/report-error.js";
 
 const POLL_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -50,8 +51,12 @@ export function usePiCoreVersions(): UsePiCoreVersionsResult {
 	// Initial fetch + periodic polling.
 	useEffect(() => {
 		mountedRef.current = true;
-		fetchStatus();
-		const timer = setInterval(() => fetchStatus(), POLL_INTERVAL_MS);
+		// Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+		void fetchStatus().catch(logRejection("usePiCoreVersions.mount"));
+		const timer = setInterval(
+			() => void fetchStatus().catch(logRejection("usePiCoreVersions.poll")),
+			POLL_INTERVAL_MS,
+		);
 		return () => {
 			mountedRef.current = false;
 			clearInterval(timer);
@@ -64,7 +69,7 @@ export function usePiCoreVersions(): UsePiCoreVersionsResult {
 			const msg = (e as CustomEvent).detail;
 			if (msg?.type === "pi_core_update_complete") {
 				// Force refresh to bypass server-side cache.
-				fetchStatus(true);
+				void fetchStatus(true).catch(logRejection("usePiCoreVersions.updateEvent"));
 			}
 		};
 		window.addEventListener("pi-core-event", handler);

@@ -9,6 +9,11 @@
 | agent searched again (`refine`) | 36.5% |
 | agent gave up and ran `rg`/`grep` (`fall-through`) | **41.3%** |
 
+The 41.3% is an **upper bound** on kb failure, not a measure of it: in a warm
+multi-turn session, grepping a path the agent already knows is often correct.
+See `ab-context-calibration.md`. The index-side findings below do not depend on
+it.
+
 The AGENTS.md READ discipline mandates kb-before-grep and pi injects ~3,200
 tokens of it every turn. Field data says the gate wins the *first* move
 (36–45% of investigating sessions call `kb_search`) and loses everything after:
@@ -137,10 +142,15 @@ and do nothing for the push budget the sidecar split actually exists to manage.
 - **Not in scope**: the code plane (`add-codegraph-code-plane`) — 74% of files
   opened after a fall-through are `.ts`/`.tsx`, which no markdown-side fix
   reaches. This change is the cheap complement, not a substitute.
-- **Unmeasured**: whether the 41.3% fall-through rate actually drops. That is a
-  live behavioural question for `scripts/ab-context`, whose current tasks are
-  cued (it scores 80–100% kb-first where the field scores 23–31%) and should be
-  repointed at the mined real queries.
+- **Unmeasured, and not measurable with today's tooling**: whether the 41.3%
+  fall-through rate actually drops. A 30-run calibration of `scripts/ab-context`
+  (2026-08-06, $20.47 — see `ab-context-calibration.md`) **refuted** the
+  hypothesis that its battery is cued: field-framed prompts score identically to
+  archetype-framed ones (100% vs 100%, p=1.0). The real gap is environmental —
+  `pi -p` runs a cold single-turn session where the agent has no prior context,
+  so it scores 100% kb-first and **0%** grep fall-through against the field's
+  41.3%. The harness cannot reproduce the condition under which the doctrine
+  fails and therefore cannot gate this change.
 
 ## Discipline Skills
 

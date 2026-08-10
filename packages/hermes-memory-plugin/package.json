@@ -27,7 +27,10 @@
     }
   },
   "files": [
-    "src/"
+    "src/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "pi-dashboard-plugin": {
     "id": "hermes-memory",
@@ -51,6 +54,7 @@
     }
   },
   "peerDependencies": {
+    "fastify": "^5.0.0",
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0",
     "wouter": ">=3.0.0"

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { isLoopback, isBypassedHost, matchCidr, ipToNum, createNetworkGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
+import { isBypassedHost, matchCidr, ipToNum, createNetworkGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
+import { isLoopback } from "../auth/loopback.js";
 
 describe("isLoopback", () => {
   it("should match loopback addresses", () => {
@@ -11,6 +12,19 @@ describe("isLoopback", () => {
   it("should reject non-loopback", () => {
     expect(isLoopback("192.168.1.1")).toBe(false);
     expect(isLoopback("10.0.0.1")).toBe(false);
+  });
+
+  // test-plan #E2 — semantics preserved by the extraction into auth/loopback.ts.
+  // See change: cleanup-import-cycles (D1).
+  it("matches every member of the loopback set from the extracted leaf module", () => {
+    for (const ip of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) {
+      expect(isLoopback(ip), ip).toBe(true);
+    }
+  });
+
+  it("rejects a documentation-range address and a non-string-ish input", () => {
+    expect(isLoopback("203.0.113.1")).toBe(false);
+    expect(isLoopback(undefined as unknown as string)).toBe(false);
   });
 });
 

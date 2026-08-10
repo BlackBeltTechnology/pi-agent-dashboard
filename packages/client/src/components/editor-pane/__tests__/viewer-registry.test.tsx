@@ -15,6 +15,8 @@ vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 import { MAX_PREVIEW_BYTES } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
 import { CappedViewer } from "../CappedViewer.js";
+import { pseudoTabRegistry } from "../pseudo-tab-registry.js";
+import { OPEN_PATH_VIEWERS, PSEUDO_TAB_VIEWERS, isPseudoTabViewer } from "../viewer-kinds.js";
 import { viewerRegistry } from "../viewer-registry.js";
 
 const originalFetch = globalThis.fetch;
@@ -51,13 +53,52 @@ function renderKind(kind: keyof typeof viewerRegistry) {
 }
 
 describe("viewerRegistry — preview/* delegation", () => {
-  it("exposes all viewer kinds incl. live-server, url, diff, terminal and the rich office/email kinds", () => {
-    expect(Object.keys(viewerRegistry).sort()).toEqual(
-      [
-        "audio", "binary-warn", "diff", "html", "image", "live-server", "markdown", "mermaid", "monaco", "pdf", "terminal", "url", "video",
-        "docx", "pptx", "spreadsheet", "asciidoc", "email",
-      ].sort(),
-    );
+  // test-plan #E5 — the D3 split must be TOTAL and DISJOINT across the two
+  // halves. Expected keys are derived from the const arrays in `viewer-kinds`
+  // (never a hand-typed literal, which would false-pass while a kind is
+  // unregistered); the `_AssertNever` checks in that module are what prove the
+  // arrays themselves still match the `ViewerKind` union.
+  // See change: cleanup-import-cycles (D3).
+  it("half (a) registers exactly the fileKind()-returnable viewers", () => {
+    expect(Object.keys(viewerRegistry).sort()).toEqual([...OPEN_PATH_VIEWERS].sort());
+  });
+
+  it("half (b) registers exactly the pseudo-tab viewers", () => {
+    expect(Object.keys(pseudoTabRegistry).sort()).toEqual([...PSEUDO_TAB_VIEWERS].sort());
+  });
+
+  it("the two halves are disjoint and together cover all 18 viewer kinds", () => {
+    const a = Object.keys(viewerRegistry);
+    const b = Object.keys(pseudoTabRegistry);
+    expect(a.filter((k) => b.includes(k))).toEqual([]);
+    expect(new Set([...a, ...b]).size).toBe(18);
+    expect(a).toHaveLength(14);
+    expect(b).toHaveLength(4);
+  });
+
+  // test-plan #E6 — correct-half assignment. The compile-time checks prove the
+  // union is partitioned but NOT that a kind sits in the right half (a swap
+  // still partitions), so this is the only oracle for mis-routing.
+  it("routes every kind to the correct half", () => {
+    // `monaco` and `pdf` are `React.lazy` OBJECTS, not functions — assert the
+    // entry is a renderable component type rather than over-specifying it.
+    const isRenderable = (c: unknown) => c != null && ["function", "object"].includes(typeof c);
+    for (const kind of OPEN_PATH_VIEWERS) {
+      expect(isPseudoTabViewer(kind), kind).toBe(false);
+      expect(isRenderable(viewerRegistry[kind]), kind).toBe(true);
+      expect(Object.keys(pseudoTabRegistry), kind).not.toContain(kind);
+    }
+    for (const kind of PSEUDO_TAB_VIEWERS) {
+      expect(isPseudoTabViewer(kind), kind).toBe(true);
+      expect(isRenderable(pseudoTabRegistry[kind]), kind).toBe(true);
+      expect(Object.keys(viewerRegistry), kind).not.toContain(kind);
+    }
+  });
+
+  // `binary-warn` and `monaco` are fileKind()-returnable and were the two most
+  // likely to be dropped when the partition was mis-counted as 12 + 4.
+  it("keeps binary-warn and monaco in the fileKind()-returnable half", () => {
+    expect(Object.keys(viewerRegistry)).toEqual(expect.arrayContaining(["binary-warn", "monaco"]));
   });
 
   it("registers a component for each rich office/document/email kind", () => {
@@ -145,3 +186,70 @@ describe("CappedViewer — large-file byte cap (D7 / P1)", () => {
     expect(container.querySelector("canvas")).toBeNull();
   });
 });
+
+/**
+ * test-plan #X2 — an unregistered kind must be a COMPILE error, not a runtime
+ * `<undefined/>`. The guard lives in `viewer-kinds.ts` as `_AssertNever`-based
+ * type checks; this test proves those checks actually fail closed rather than
+ * trusting them, because the obvious `const _x: T[] = []` spelling is vacuous
+ * (an empty array literal is assignable to every array type, including
+ * `never[]`) and would silently prove nothing.
+ *
+ * See change: cleanup-import-cycles (D3).
+ */
+describe("D3 partition guard fails closed (test-plan #X2)", () => {
+  // Resolve through node, NOT process.cwd() — vitest runs this project with cwd
+  // at packages/client, where the hoisted typescript is NOT a direct child. A
+  // bad path makes execFileSync throw, which the negative cases would happily
+  // read as "rejected", false-passing three of the four assertions.
+  const tsc = require.resolve("typescript/lib/tsc.js");
+
+  function compile(openPathMembers: string) {
+    const fs = require("node:fs");
+    const os = require("node:os");
+    const path = require("node:path");
+    const { execFileSync } = require("node:child_process");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "viewer-kinds-guard-"));
+    const file = path.join(dir, "probe.ts");
+    fs.writeFileSync(
+      file,
+      `type ViewerKind = "monaco" | "image" | "diff" | "terminal" | "url" | "live-server";
+const PSEUDO_TAB_VIEWERS = ["diff","terminal","url","live-server"] as const;
+const OPEN_PATH_VIEWERS = [${openPathMembers}] as const;
+type _AssertNever<T extends never> = T;
+type _Uncovered = _AssertNever<Exclude<ViewerKind,(typeof OPEN_PATH_VIEWERS)[number]|(typeof PSEUDO_TAB_VIEWERS)[number]>>;
+type _NoExtraOpen = _AssertNever<Exclude<(typeof OPEN_PATH_VIEWERS)[number], ViewerKind>>;
+type _NoOverlap = _AssertNever<Extract<(typeof OPEN_PATH_VIEWERS)[number],(typeof PSEUDO_TAB_VIEWERS)[number]>>;
+`,
+    );
+    try {
+      // --skipLibCheck isolates the probe: without it tsc pulls ambient
+      // @types/* from node_modules, one of which (@types/diff) has a
+      // pre-existing Intl.Segmenter error that would mask the real result.
+      execFileSync(process.execPath, [tsc, "--noEmit", "--strict", "--skipLibCheck", file], {
+        stdio: "pipe",
+      });
+      return 0;
+    } catch (e: unknown) {
+      return (e as { status?: number }).status ?? 1;
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("accepts an exact, disjoint partition", () => {
+    expect(compile('"monaco","image"')).toBe(0);
+  });
+
+  it("REJECTS a ViewerKind member registered in neither half", () => {
+    expect(compile('"image"')).not.toBe(0); // monaco uncovered
+  });
+
+  it("REJECTS a member that is not a ViewerKind at all", () => {
+    expect(compile('"monaco","image","bogus"')).not.toBe(0);
+  });
+
+  it("REJECTS a member present in BOTH halves", () => {
+    expect(compile('"monaco","image","diff"')).not.toBe(0);
+  });
+}, 120_000);

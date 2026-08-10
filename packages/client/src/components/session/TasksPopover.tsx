@@ -19,6 +19,7 @@ import {
   type TasksPayload,
 } from "../../lib/openspec/openspec-tasks-api.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface Props {
   cwd: string;
@@ -49,7 +50,7 @@ export function TasksPopover({ cwd, change, onClose }: Props) {
 
   useEffect(() => {
     const ac = new AbortController();
-    load(ac.signal);
+    void load(ac.signal).catch(logRejection("TasksPopover.load"));
     return () => ac.abort();
   }, [load]);
 

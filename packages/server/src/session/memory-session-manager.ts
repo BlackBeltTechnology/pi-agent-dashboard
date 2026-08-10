@@ -101,6 +101,11 @@ export function createMemorySessionManager(): SessionManager {
           // dashboard UI). Without this the reattach onChange save wipes them from
           // disk. See change: fix-tags-lost-on-bridge-reattach.
           tags: existing.tags,
+          // Preserve retained notifications across a bridge reattach — the
+          // reattach onChange save is a full .meta.json overwrite, so dropping
+          // them here would wipe them from disk too.
+          // See change: split-notify-from-prompt-request.
+          notifyLog: existing.notifyLog,
           // Preserve context usage until bridge sends fresh data
           contextTokens: existing.contextTokens,
           contextWindow: existing.contextWindow,

@@ -15,12 +15,13 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiPencil, mdiPlay } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FlowActivityBadge } from "./FlowActivityBadge.js";
 import { FlowAuthorPromptDialog } from "./FlowAuthorPromptDialog.js";
 import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
 import type { FlowsPluginConfig } from "./FlowsSettings.js";
+import { makeSafeSend } from "./send-safe.js";
 
 export function SessionFlowActions({
   flows,
@@ -231,6 +232,10 @@ export function SessionFlowActionsClaim({ session }: { session: DashboardSession
   const commands = useSessionData<CommandInfo[]>(session.id, "commandsList") ?? [];
   const { flowState } = useFlowsSessionState(session.id);
   const send = usePluginSend();
+  // The edit-mode reconcile effect and the author-prompt handler cannot own the
+  // send promise — discard it explicitly.
+  // See change: cleanup-client-plugin-promises.
+  const dispatch = useMemo(() => makeSafeSend(send), [send]);
   const config = usePluginConfig<FlowsPluginConfig>();
   const editMode = config.editFlow ?? false;
 
@@ -245,8 +250,8 @@ export function SessionFlowActionsClaim({ session }: { session: DashboardSession
     if (flows.length === 0) return; // wait until flows-plugin is available
     if (reconciledRef.current === editMode) return;
     reconciledRef.current = editMode;
-    send({ type: "flow_management", sessionId: session.id, action: "set-edit-mode", enabled: editMode });
-  }, [flows.length, editMode, session.id, send]);
+    dispatch({ type: "flow_management", sessionId: session.id, action: "set-edit-mode", enabled: editMode });
+  }, [flows.length, editMode, session.id, dispatch]);
 
   // Render when there's a flow active OR action buttons are available.
   if (flows.length === 0 && !editMode && !flowState) return null;
@@ -267,7 +272,7 @@ export function SessionFlowActionsClaim({ session }: { session: DashboardSession
             ? `/skill:manage-flows ${flowName}\n\n${intent}`
             : `/skill:manage-flows ${flowName}`
           : `/skill:manage-flows ${intent}`;
-        send({ type: "send_prompt", sessionId: session.id, text });
+        dispatch({ type: "send_prompt", sessionId: session.id, text });
       }}
       onFlowAction={(action, opts) =>
         send({

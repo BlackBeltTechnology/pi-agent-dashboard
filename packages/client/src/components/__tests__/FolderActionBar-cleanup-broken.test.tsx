@@ -14,7 +14,6 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 function renderBar(over: Partial<React.ComponentProps<typeof FolderActionBar>> = {}) {
   const props: React.ComponentProps<typeof FolderActionBar> = {
     cwd: "/repo",
-    onOpenPiResources: () => {},
     ...over,
   };
   return render(<FolderActionBar {...props} />);

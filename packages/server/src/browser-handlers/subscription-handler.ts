@@ -194,7 +194,7 @@ export function handleSubscribe(
   subs: Set<string>,
   ctx: BrowserHandlerContext,
 ): void {
-  const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, markReplaying, clearReplaying } = ctx;
+  const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, replayNotifyLog, markReplaying, clearReplaying } = ctx;
   subs.add(msg.sessionId);
 
   // Request metadata from the extension so commands/flows/models/roles arrive
@@ -204,6 +204,19 @@ export function handleSubscribe(
   // See change: replace-hardcoded-provider-lists.
   piGateway.sendToSession(msg.sessionId, { type: "request_providers", sessionId: msg.sessionId });
   piGateway.sendToSession(msg.sessionId, { type: "request_roles", sessionId: msg.sessionId });
+
+  /**
+   * Replay is fire-and-forget from this sync handler, so a rejection had no
+   * owner. Handling it here is not just logging: `markReplaying` suppresses
+   * live events for this socket, so a replay that dies mid-flight would leave
+   * the session permanently muted. Clear the flag with `lastReplayedSeq = 0` —
+   * no catch-up is claimable when we cannot know how far the replay got.
+   * See change: cleanup-async-semantics-server-extension (design D1).
+   */
+  const onReplayFailed = (err: unknown): void => {
+    clearReplaying(ws, msg.sessionId, 0);
+    console.error(`[replay] event replay failed for ${msg.sessionId}:`, err);
+  };
 
   if (eventStore.hasEvents(msg.sessionId)) {
     const lastSeq = msg.lastSeq ?? 0;
@@ -222,11 +235,14 @@ export function handleSubscribe(
       // See change: chat-markdown-local-images-and-math.
       replaySessionAssets(ws, msg.sessionId, ctx);
       markReplaying(ws, msg.sessionId);
-      sendEventBatches(ws, msg.sessionId, events, sendTo).then((lastSent) => {
-        clearReplaying(ws, msg.sessionId, lastSent);
-        replayPendingUiRequests(ws, msg.sessionId);
-        replayUiState(ws, msg.sessionId, ctx);
-      });
+      sendEventBatches(ws, msg.sessionId, events, sendTo)
+        .then((lastSent) => {
+          clearReplaying(ws, msg.sessionId, lastSent);
+          replayPendingUiRequests(ws, msg.sessionId);
+          replayNotifyLog(ws, msg.sessionId);
+          replayUiState(ws, msg.sessionId, ctx);
+        })
+        .catch(onReplayFailed);
     } else {
       let events = eventStore.getEvents(msg.sessionId, lastSeq + 1);
       if (MAX_REPLAY_EVENTS > 0 && events.length > MAX_REPLAY_EVENTS) {
@@ -245,16 +261,22 @@ export function handleSubscribe(
       // See change: fix-cold-subscribe-replay-interleave.
       if (events.length > 0) {
         markReplaying(ws, msg.sessionId);
-        sendEventBatches(ws, msg.sessionId, events, sendTo).then((lastSent) => {
-          clearReplaying(ws, msg.sessionId, lastSent);
-          replayPendingUiRequests(ws, msg.sessionId);
-          replayUiState(ws, msg.sessionId, ctx);
-        });
+        sendEventBatches(ws, msg.sessionId, events, sendTo)
+          .then((lastSent) => {
+            clearReplaying(ws, msg.sessionId, lastSent);
+            replayPendingUiRequests(ws, msg.sessionId);
+            replayNotifyLog(ws, msg.sessionId);
+            replayUiState(ws, msg.sessionId, ctx);
+          })
+          .catch(onReplayFailed);
       } else {
-        sendEventBatches(ws, msg.sessionId, events, sendTo).then(() => {
-          replayPendingUiRequests(ws, msg.sessionId);
-          replayUiState(ws, msg.sessionId, ctx);
-        });
+        sendEventBatches(ws, msg.sessionId, events, sendTo)
+          .then(() => {
+            replayPendingUiRequests(ws, msg.sessionId);
+            replayNotifyLog(ws, msg.sessionId);
+            replayUiState(ws, msg.sessionId, ctx);
+          })
+          .catch(onReplayFailed);
       }
     }
   } else if (directoryService) {
@@ -318,6 +340,7 @@ export function handleSubscribe(
             replaySessionAssets(sub, msg.sessionId, ctx);
             await sendEventBatches(sub, msg.sessionId, stored, sendTo);
             replayPendingUiRequests(sub, msg.sessionId);
+            replayNotifyLog(sub, msg.sessionId);
             replayUiState(sub, msg.sessionId, ctx);
           }
           // Fit AFTER the batches are on the wire: the rows (with their

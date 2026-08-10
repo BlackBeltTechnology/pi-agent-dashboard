@@ -138,7 +138,16 @@ function startServer(retried) {
         if (!isWindows) unlinkQuiet(sockPath);
         // small backoff before retry
         setTimeout(() => {
-          startServer(true).then(resolve);
+          // The retry is the last chance to bind, and this backoff runs outside
+          // the outer promise's executor: an unhandled rejection here would
+          // leave `startServer` pending forever instead of failing. Settle with
+          // null, matching the fatal path below.
+          // See change: cleanup-async-semantics-server-extension (design D1).
+          startServer(true).then(resolve, (retryErr) => {
+            log(`FATAL: retry bind threw: ${retryErr && retryErr.message}`);
+            shutdown(2, "bind-failed");
+            resolve(null);
+          });
         }, 50);
         return;
       }

@@ -80,6 +80,8 @@ export interface AuthConfig {
   allowedUsers?: string[];
   bypassUrls?: string[];
   bypassHosts?: string[];
+  /** Base URL for OAuth redirect URIs — overrides the tunnel URL when set. */
+  redirectBaseUrl?: string;
   /** Admin email override — can list/revoke every user's proxy API keys. */
   admin?: string;
 }
@@ -367,6 +369,29 @@ export interface DashboardConfig {
   cors: CorsConfig;
   /** Device-pairing configuration (server keypair identity + QR pairing). */
   pairing: PairingConfig;
+  /**
+   * Every public base URL this dashboard answers on (reverse proxy, gateway,
+   * operator-designated host). Top-level promotion of the legacy
+   * `pairing.publicBaseUrls`; read through {@link resolvePublicBaseUrls}, which
+   * falls back to the legacy key when this one is absent.
+   *
+   * Optional on purpose and NOT in `DEFAULTS`: absence is what selects the
+   * legacy fallback, so an empty-array default would silently orphan existing
+   * `pairing.publicBaseUrls` entries.
+   *
+   * Feeds the pairing / endpoint surfaces only — never OAuth redirect
+   * resolution, which needs a scalar the operator states explicitly in
+   * `auth.redirectBaseUrl` (D7).
+   * See change: config-override-oauth-redirect-base.
+   */
+  publicBaseUrls?: string[];
+  /**
+   * Operator-declared gateway URLs plus the provenance of what the "add gateway
+   * URL" action wrote for each, so removal reverses exactly that (D12).
+   * Absent until the action runs once; never defaulted.
+   * See change: config-override-oauth-redirect-base.
+   */
+  gateways?: GatewayRecord[];
   /** Last-used server address (host:port) for reconnection */
   lastServer?: string;
   /**
@@ -451,6 +476,75 @@ export interface DashboardConfig {
 export interface CorsConfig {
   /** Additional origins allowed for cross-origin requests */
   allowedOrigins: string[];
+}
+
+/** How a gateway URL is allowed to be reached. At least one is mandatory. */
+export type GatewayAuthMode = "oauth" | "pairing" | "trusted-network";
+
+/**
+ * Exactly what the "add gateway URL" action wrote, so removal reverses that and
+ * nothing else. Removal cannot be DERIVED: three of the four keys look
+ * re-derivable from the URL but deriving would delete an entry the operator
+ * authored before ever running the action, and `trustedNetworks` (a CIDR list)
+ * is not on the URL at all. See design D12.
+ */
+export interface GatewayWroteRecord {
+  publicBaseUrls?: string[];
+  corsAllowedOrigins?: string[];
+  /** Present iff the `oauth` mode was selected. */
+  authRedirectBaseUrl?: string;
+  /** Present iff the `trusted-network` mode was selected. */
+  trustedNetworks?: string[];
+}
+
+/** One operator-declared gateway URL plus the provenance of its config writes. */
+export interface GatewayRecord {
+  url: string;
+  authModes: GatewayAuthMode[];
+  wrote: GatewayWroteRecord;
+}
+
+const GATEWAY_AUTH_MODES: GatewayAuthMode[] = ["oauth", "pairing", "trusted-network"];
+
+function parseGateways(raw: any): GatewayRecord[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const strings = (v: unknown): string[] | undefined =>
+    Array.isArray(v) ? v.filter((e: unknown): e is string => typeof e === "string") : undefined;
+  return raw
+    .filter((e: any) => e && typeof e === "object" && typeof e.url === "string")
+    .map((e: any) => {
+      const wrote: GatewayWroteRecord = {};
+      const pbu = strings(e.wrote?.publicBaseUrls);
+      if (pbu) wrote.publicBaseUrls = pbu;
+      const cors = strings(e.wrote?.corsAllowedOrigins);
+      if (cors) wrote.corsAllowedOrigins = cors;
+      if (typeof e.wrote?.authRedirectBaseUrl === "string") {
+        wrote.authRedirectBaseUrl = e.wrote.authRedirectBaseUrl;
+      }
+      const tn = strings(e.wrote?.trustedNetworks);
+      if (tn) wrote.trustedNetworks = tn;
+      return {
+        url: e.url,
+        authModes: Array.isArray(e.authModes)
+          ? e.authModes.filter((m: unknown): m is GatewayAuthMode =>
+              GATEWAY_AUTH_MODES.includes(m as GatewayAuthMode),
+            )
+          : [],
+        wrote,
+      };
+    });
+}
+
+/**
+ * Public base URLs for the pairing / endpoint surfaces: the top-level
+ * `publicBaseUrls` when present, else the legacy `pairing.publicBaseUrls`.
+ * Deliberately not an OAuth source — see `DashboardConfig.publicBaseUrls`.
+ * See change: config-override-oauth-redirect-base.
+ */
+export function resolvePublicBaseUrls(
+  config: Pick<DashboardConfig, "publicBaseUrls"> & { pairing?: Partial<PairingConfig> },
+): string[] {
+  return config.publicBaseUrls ?? config.pairing?.publicBaseUrls ?? [];
 }
 
 /** Device-pairing configuration (server keypair identity + QR pairing). */
@@ -580,6 +674,9 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
     ...(Array.isArray(raw.allowedUsers) ? { allowedUsers: raw.allowedUsers } : Array.isArray(raw.allowedEmails) ? { allowedUsers: raw.allowedEmails } : {}),
     bypassUrls: Array.isArray(raw.bypassUrls) ? raw.bypassUrls.filter((u: unknown) => typeof u === "string") : [],
     bypassHosts: Array.isArray(raw.bypassHosts) ? raw.bypassHosts.filter((u: unknown) => typeof u === "string") : [],
+    ...(typeof raw.redirectBaseUrl === "string" && raw.redirectBaseUrl.trim()
+      ? { redirectBaseUrl: raw.redirectBaseUrl.trim() }
+      : {}),
     ...(typeof raw.admin === "string" && raw.admin ? { admin: raw.admin } : {}),
   };
 }
@@ -933,6 +1030,13 @@ export function loadConfig(): DashboardConfig {
           ? parsed.pairing.publicBaseUrls.filter((o: unknown) => typeof o === "string")
           : defaults.pairing.publicBaseUrls,
       },
+      // Top-level promotion of `pairing.publicBaseUrls` (D7). Absent stays
+      // absent — a `[]` default would make "unset" and "set but empty"
+      // indistinguishable and kill the legacy fallback.
+      ...(Array.isArray(parsed.publicBaseUrls)
+        ? { publicBaseUrls: parsed.publicBaseUrls.filter((o: unknown) => typeof o === "string") }
+        : {}),
+      ...(parseGateways(parsed.gateways) ? { gateways: parseGateways(parsed.gateways) } : {}),
       ...(typeof parsed.lastServer === "string" ? { lastServer: parsed.lastServer } : {}),
       ...(typeof parsed.dashboardName === "string" && parsed.dashboardName.trim()
         ? { dashboardName: parsed.dashboardName }

@@ -296,6 +296,60 @@ describe("scavengeOrphanZrokProcesses", () => {
   });
 });
 
+// See change: cleanup-async-semantics-server-extension (test-plan #X8)
+//
+// `createTunnel` routes `createInner`'s rejection through
+// `void promise.then(clearPending, onErr)`. On rejection the shared
+// `pendingCreate` MUST be cleared so a SUBSEQUENT `createTunnel` starts a
+// fresh attempt instead of handing back the dead (rejected) promise; the
+// rejection is observed by `onErr`, not floated.
+describe("ChildTunnelRuntime.createTunnel — rejection clears pendingCreate", () => {
+  it("X8 a rejected createInner is observed and a later createTunnel starts fresh", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const unhandled: unknown[] = [];
+    const onUnhandled = (r: unknown) => unhandled.push(r);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const { ChildTunnelRuntime } = await import("../tunnel/tunnel-core.js");
+      // First `detectBinary()` throws → createInner rejects; second returns
+      // false → a FRESH attempt resolves null. If pendingCreate were not
+      // cleared, the second call would return the same rejected promise.
+      let detectCalls = 0;
+      const spec = {
+        id: "zrok" as const,
+        pidFileName: "test.pid",
+        getBinary: () => "zrok",
+        detectBinary: () => {
+          detectCalls += 1;
+          if (detectCalls === 1) throw new Error("detect boom");
+          return false;
+        },
+        isEnrolled: () => true,
+        buildArgs: () => [],
+        urlRegex: /never-matches/,
+        processMarker: "zrok",
+        endpointMarker: () => "",
+        toEndpoints: () => [],
+      };
+      const rt = new ChildTunnelRuntime(spec as any);
+
+      const p1 = rt.createTunnel(8000);
+      await expect(p1).rejects.toThrow("detect boom"); // rejection observed by the caller
+
+      const p2 = rt.createTunnel(8000);
+      await expect(p2).resolves.toBeNull(); // fresh attempt, not the dead promise
+
+      expect(detectCalls).toBe(2); // proves createInner ran a second time
+      // onErr owns the rejection.
+      expect(warnSpy.mock.calls.some((c) => String(c[0]).includes("tunnel creation failed"))).toBe(true);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      warnSpy.mockRestore();
+    }
+  });
+});
+
 describe("getTunnelStatus", () => {
   it("should return unavailable when binary not available", () => {
     _setBinaryAvailable(false);

@@ -24,7 +24,15 @@ import type { KbStore } from "./types.js";
 // whole tree blinded the orphan check there. Only the non-source `.pi` subdirs
 // (caches, kb index, npm/git mirrors, flow run state) are skipped.
 const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|\.github|dist|build|out|\.next|coverage|\.kb|\.worktrees|\.reverse-spec-scratch|openspec|doc-example|bundled-extensions|mockups|research|site|Prompt stories)(\/|$)|(^|\/)\.pi\/(dashboard|npm|git|flows)(\/|$)|(^|\/)electron\/resources\/server(\/|$)|(^|\/)(CHANGELOG|CLAUDE)\.md$|^README\.md$/;
-const AGENTS_FILES = ["AGENTS.md"];
+/**
+ * `AGENTS.override.md` (pi 0.84.0) REPLACES a directory's context rather than
+ * adding to it, so it is listed first and shadows the other candidates in the
+ * SAME directory. Mirrors pi's own first-match-wins candidate list in
+ * `dist/core/resource-loader.js`. Ancestor inheritance is unaffected.
+ * See change: update-pi-core-0-84-adopt-apis.
+ */
+const AGENTS_OVERRIDE_FILE = "AGENTS.override.md";
+const AGENTS_FILES = [AGENTS_OVERRIDE_FILE, "AGENTS.md"];
 // delta ①: dox init now maps SOURCE, not docs. Source globs, minus type decls and tests.
 const SOURCE_EXT = /\.(ts|tsx|js|jsx)$/;
 const MD_EXT = /\.(md|mdx)$/i;
@@ -81,7 +89,15 @@ export function agentsChain(cwd: string, targetPath: string, opts: AgentsChainOp
   const ordered = dirs.reverse();
   const chain: AgentsEntry[] = [];
   ordered.forEach((dir, depth) => {
+    // An override replaces this directory's context: take it alone and skip the
+    // siblings, otherwise the same logical scope is injected twice.
+    const override = join(dir, AGENTS_OVERRIDE_FILE);
+    if (existsSync(override)) {
+      chain.push({ path: override, rel: relative(cwd, override) || AGENTS_OVERRIDE_FILE, depth });
+      return;
+    }
     for (const name of names) {
+      if (name === AGENTS_OVERRIDE_FILE) continue;
       const p = join(dir, name);
       if (existsSync(p)) chain.push({ path: p, rel: relative(cwd, p) || name, depth });
     }

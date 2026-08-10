@@ -18,8 +18,16 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js", () =
 
 const { RESOLVE_TIMEOUT_MS, resolveActivation } = await import("../pi/pi-resource-activation.js");
 
-/** Make the registry hand back a pi core whose `resolve()` behaves as `impl`. */
-function withPiResolve(impl: () => Promise<unknown>) {
+/**
+ * Make the registry hand back a pi core whose `resolve()` behaves as `impl`.
+ *
+ * The `: void` annotation is load-bearing. Without it the inferred return type
+ * makes `noFloatingPromises` report every call site as a floating promise, and
+ * the rule's usual fix would await `undefined` here, documenting a defect that
+ * does not exist. This helper only configures a mock; it returns nothing.
+ * See change: cleanup-async-semantics-server-extension (design D7).
+ */
+function withPiResolve(impl: () => Promise<unknown>): void {
   resolveModuleMock.mockResolvedValue({
     module: {
       SettingsManager: { create: () => ({}) },

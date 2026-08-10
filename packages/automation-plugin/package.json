@@ -27,7 +27,10 @@
     }
   },
   "files": [
-    "src/"
+    "src/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "pi-dashboard-plugin": {
     "id": "automation",
@@ -70,19 +73,24 @@
     ]
   },
   "peerDependencies": {
+    "fastify": "^5.0.0",
     "react": ">=18.0.0",
-    "react-dom": ">=18.0.0"
+    "react-dom": ">=18.0.0",
+    "wouter": "^3.9.0"
   },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-client-utils": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@mdi/js": "^7.4.47",
+    "@mdi/react": "^1.6.1",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "wouter": "^3.9.0"
   }
 }

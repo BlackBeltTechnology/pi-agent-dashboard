@@ -27,6 +27,7 @@
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-apple-tools": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-automation-plugin": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-blackhole-plugin": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-client-utils": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-flows-plugin": "^0.7.0",
@@ -87,6 +88,7 @@
     "@types/react-dom": "^19.0.0",
     "@types/react-syntax-highlighter": "^15.5.13",
     "fake-indexeddb": "^6.2.5",
-    "jsdom": "^25.0.1"
+    "jsdom": "^25.0.1",
+    "vitest": "^4.0.0"
   }
 }

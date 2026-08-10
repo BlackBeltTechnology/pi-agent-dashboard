@@ -73,6 +73,9 @@ function sessionFromMeta(
     // ephemeral session as durable (absent ⇒ durable) and lets it escape
     // reaping forever. See change: add-embed-session-lifecycle.
     lifecyclePolicy: meta.lifecyclePolicy,
+    // Restore retained notifications so the transcript keeps its notification
+    // rows across a restart. See change: split-notify-from-prompt-request.
+    notifyLog: meta.notifyLog,
     status: (meta.status as DashboardSession["status"]) ?? "ended",
     model: meta.model,
     thinkingLevel: meta.thinkingLevel,

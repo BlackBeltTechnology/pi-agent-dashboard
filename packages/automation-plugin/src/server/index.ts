@@ -17,6 +17,14 @@
  * automations ~1 s after boot is operationally negligible.
  */
 const ENGINE_INIT_DELAY_MS = 1000;
+/**
+ * Debounce for the activity-driven "folder set may have changed" rescan +
+ * watcher reconcile. Longer than the old 2s tick: the reconcile is now
+ * incremental (near-zero cost in steady state), so the only real work here is
+ * the scope re-scan — a new folder's automations arming within this window is
+ * fine, and it keeps CPU churn off the hot event path.
+ */
+const RESCAN_DEBOUNCE_MS = 15_000;
 
 import os from "node:os";
 import path from "node:path";
@@ -160,7 +168,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
 
 async function initEngine(ctx: ServerPluginContext): Promise<void> {
   const { createEngine } = await import("./engine.js");
-  const { createAutomationWatcher } = await import("./automation-watcher.js");
+  const { createAutomationWatcher, reconcileWatchers } = await import("./automation-watcher.js");
   const { logger } = ctx;
   const homeDir = os.homedir();
 
@@ -217,8 +225,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     logger: (m) => logger.warn(m),
   });
   function attachWatchers(): void {
-    watcher.detachAll();
-    for (const s of listScopes()) watcher.attach(s.base);
+    reconcileWatchers(watcher, listScopes().map((s) => s.base));
   }
 
   engine.start();
@@ -322,7 +329,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
         rescanTimer = null;
         engine.refresh();
         attachWatchers();
-      }, 2000);
+      }, RESCAN_DEBOUNCE_MS);
       if (typeof rescanTimer.unref === "function") rescanTimer.unref();
     }
   });

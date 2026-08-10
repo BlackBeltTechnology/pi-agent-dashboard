@@ -1,20 +1,21 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  signToken,
-  verifyToken,
-  parseAuthCookie,
-  isUserAllowed,
-  ensureAuthSecret,
+  type AuthUser,
   buildAuthorizeUrl,
   buildProviderRegistry,
+  buildRedirectUri,
   COOKIE_NAME,
-  type AuthUser,
+  ensureAuthSecret,
+  isUserAllowed,
+  parseAuthCookie,
   type ResolvedProvider,
+  signToken,
+  verifyToken,
 } from "../auth/auth.js";
-import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 
 // ─── JWT Token Tests ────────────────────────────────────────────────────────
 
@@ -196,6 +197,40 @@ describe("buildProviderRegistry", () => {
     // keycloak should be skipped (no issuerUrl), github should resolve
     expect(registry.size).toBe(1);
     expect(registry.has("github")).toBe(true);
+  });
+});
+
+// ─── Redirect URI Builder Tests ─────────────────────────────────────────────
+
+describe("buildRedirectUri", () => {
+  // No tunnel runtime exists in tests, so getTunnelUrl() returns null and the
+  // localhost fallback is exercised.
+
+  it("falls back to localhost when no tunnel and no override", () => {
+    expect(buildRedirectUri("github", 8000)).toBe(
+      "http://localhost:8000/auth/callback/github",
+    );
+  });
+
+  it("uses the config-file override when provided (highest precedence)", () => {
+    expect(buildRedirectUri("github", 8000, "https://pi.example.com")).toBe(
+      "https://pi.example.com/auth/callback/github",
+    );
+  });
+
+  it("normalizes a trailing slash on the override base", () => {
+    expect(buildRedirectUri("google", 9000, "https://pi.example.com/")).toBe(
+      "https://pi.example.com/auth/callback/google",
+    );
+    expect(buildRedirectUri("google", 9000, "https://pi.example.com///")).toBe(
+      "https://pi.example.com/auth/callback/google",
+    );
+  });
+
+  it("treats an empty override like an absent one (falls back to localhost)", () => {
+    expect(buildRedirectUri("github", 8000, "")).toBe(
+      "http://localhost:8000/auth/callback/github",
+    );
   });
 });
 

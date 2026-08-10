@@ -34,7 +34,27 @@ export interface AutomationWatcher {
   attach(scopeBase: string): boolean;
   detach(scopeBase: string): void;
   detachAll(): void;
+  /** Scope bases currently attached (for incremental reconcile). */
+  attachedBases(): string[];
   size(): number;
+}
+
+/**
+ * Incrementally reconcile the attached watcher set to `wantBases`: detach
+ * bases no longer wanted, attach newly-wanted ones. Steady state (want ==
+ * attached) is a no-op — no watcher teardown/rebuild. Replaces the prior
+ * detach-all + re-attach-all cycle that thrashed every recursive FSEvents
+ * handle on each rescan tick, leaking native memory.
+ */
+export function reconcileWatchers(
+  watcher: Pick<AutomationWatcher, "attach" | "detach" | "attachedBases">,
+  wantBases: Iterable<string>,
+): void {
+  const want = new Set(wantBases);
+  for (const base of watcher.attachedBases()) {
+    if (!want.has(base)) watcher.detach(base);
+  }
+  for (const base of want) watcher.attach(base);
 }
 
 export interface AutomationWatcherDeps {
@@ -121,9 +141,13 @@ export function createAutomationWatcher(deps: AutomationWatcherDeps): Automation
     for (const scopeBase of Array.from(attached.keys())) detach(scopeBase);
   }
 
+  function attachedBases(): string[] {
+    return [...attached.keys()];
+  }
+
   function size(): number {
     return attached.size;
   }
 
-  return { attach, detach, detachAll, size };
+  return { attach, detach, detachAll, attachedBases, size };
 }

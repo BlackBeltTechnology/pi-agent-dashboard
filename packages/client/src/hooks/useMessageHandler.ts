@@ -16,7 +16,7 @@ import type { DiscoveredServerInfo } from "../components/connectivity/ServerSele
 import type { ToastVariant } from "../components/primitives/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
-import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
+import { addInteractiveRequest, addNotify, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
 import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 import { t } from "../lib/i18n/i18n.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
@@ -391,7 +391,9 @@ export function useMessageHandler(
           maxSeqMapRef.current.set(msg.sessionId, msg.seq);
         }
         // Strategy A: accumulate the live event into the durable replay buffer.
-        replayPersister?.record(msg.sessionId, [{ seq: msg.seq, event: msg.event }]);
+        // Origin `live`: broadcast fan-out reaches sessions this tab never
+        // subscribed to, so it establishes no provenance on its own.
+        replayPersister?.record(msg.sessionId, [{ seq: msg.seq, event: msg.event }], "live");
         // Publish to the plugin-runtime per-session event store so
         // plugin slot consumers calling `useSessionEvents(sessionId)`
         // re-render with the extended event list. The shell's reducer
@@ -672,7 +674,10 @@ export function useMessageHandler(
         // See change: reduce-session-replay-traffic.
         if (msg.events.length > 0) {
           if (shouldReset) replayPersister?.seed(msg.sessionId, msg.events);
-          else replayPersister?.record(msg.sessionId, msg.events);
+          // Origin `replay`: this envelope answers THIS tab's subscribe, so it
+          // establishes provenance even when a compacted/capped cold replay
+          // starts past seq 1 (i.e. does not reset).
+          else replayPersister?.record(msg.sessionId, msg.events, "replay");
         }
         // Exit LOADING: first content (clear immediately so partial history
         // paints) OR terminal marker for a genuinely-empty session
@@ -902,6 +907,20 @@ export function useMessageHandler(
           const current = next.get(msg.sessionId);
           if (!current) return prev;
           const updated = dismissInteractiveRequest(current, msg.requestId);
+          if (updated === current) return prev;
+          next.set(msg.sessionId, updated);
+          return next;
+        });
+        break;
+
+      // Notify: a render-only chat row. NEVER `addInteractiveRequest` — that
+      // would recreate the phantom "user is blocked" state.
+      // See change: split-notify-from-prompt-request.
+      case "notify":
+        setSessionStates((prev) => {
+          const next = new Map(prev);
+          const current = next.get(msg.sessionId) ?? createInitialState();
+          const updated = addNotify(current, msg.notifyId, msg.message, msg.level);
           if (updated === current) return prev;
           next.set(msg.sessionId, updated);
           return next;

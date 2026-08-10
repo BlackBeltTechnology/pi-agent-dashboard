@@ -7,8 +7,8 @@ import { ensureLocalToken, LOCAL_TOKEN_HEADER, verifyLocalToken } from "../auth/
 import {
   hasProxyForwardingHeaders,
   isGenuinelyLocal,
-  isLoopback,
 } from "../auth/localhost-guard.js";
+import { isLoopback } from "../auth/loopback.js";
 
 const SECRET = "test-secret";
 

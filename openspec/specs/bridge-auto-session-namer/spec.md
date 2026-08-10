@@ -3,9 +3,7 @@
 ## Purpose
 
 After each terminal agent turn, the bridge asks the `@fast` model for a short topic title for the session and applies it once via `pi.setSessionName`. The first successful name ends the loop permanently for that session; an external rename locks naming out permanently. All model work runs in-process and tolerates failure without crashing or looping.
-
 ## Requirements
-
 ### Requirement: Terminal-turn naming trigger
 
 The bridge SHALL attempt to auto-name the session on each terminal agent turn while the global auto-name toggle is enabled, until the first successful name or a permanent lockout.
@@ -42,7 +40,7 @@ The bridge SHALL attempt naming only for an eligible, un-named session, and SHAL
 
 ### Requirement: In-process `@fast` title generation
 
-The bridge SHALL generate the title by calling the `@fast` model in-process using pi-ai's `streamSimple` and the model registry's credential resolution, with a bounded transcript window and a short output cap.
+The bridge SHALL generate the title by calling the `@fast` model in-process using pi-ai's `streamSimple` and the model registry's credential resolution, with a bounded transcript window and a short output cap. Credential resolution SHALL treat `ModelRegistry.getApiKeyAndHeaders()` as returning `ProviderHeaders` whose values are `string | null`, where a `null` value is a header-DELETION marker rather than an absent header. The bridge SHALL forward those markers to pi-ai unchanged and SHALL NOT coerce them to strings, drop them, or stringify them as `"null"`.
 
 #### Scenario: Resolve the fast model role
 
@@ -59,6 +57,18 @@ The bridge SHALL generate the title by calling the `@fast` model in-process usin
 - **WHEN** credentials resolve for the `@fast` model reference
 - **THEN** the bridge calls `streamSimple` with the summarizer system prompt, the transcript as a single user message, and a max output of 16 tokens
 - **AND** it accumulates the raw title from streamed `text_delta` events
+
+#### Scenario: Null header markers are forwarded unchanged
+
+- **WHEN** `getApiKeyAndHeaders()` returns a headers map containing an entry whose value is `null`
+- **THEN** the bridge SHALL pass that entry through to the pi-ai request unchanged
+- **AND** it SHALL NOT emit the literal string `"null"` as a header value
+
+#### Scenario: A null-only header map counts as empty
+
+- **WHEN** `getApiKeyAndHeaders()` returns a headers map whose every value is `null`
+- **THEN** the bridge's non-empty-headers check SHALL treat that map as carrying no usable headers
+- **AND** it SHALL NOT be satisfied merely because the map has a non-zero key count
 
 #### Scenario: Done-event text fallback
 
@@ -127,3 +137,4 @@ The bridge SHALL never crash or tight-loop on naming failures: hard errors stop 
 
 - **WHEN** a valid title is applied
 - **THEN** the session is marked auto-named (`hasAutoName`, source `auto`) before `applyName` runs, so if `applyName` throws the error propagates out of `maybeName` and the one-shot guard still holds — no further attempt re-applies a name (only the `inFlight` flag resets in `finally`)
+

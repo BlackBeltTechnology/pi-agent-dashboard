@@ -10,6 +10,7 @@ import type { EnrichedRecommendedExtension } from "@blackbelt-technology/pi-dash
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
 import { t } from "../lib/i18n/i18n.js";
+import { logRejection } from "../lib/report-error.js";
 
 export interface UseRecommendedExtensionsResult {
   recommended: EnrichedRecommendedExtension[];
@@ -46,7 +47,9 @@ export function useRecommendedExtensions(): UseRecommendedExtensionsResult {
 
   useEffect(() => {
     mountedRef.current = true;
-    fetchRecommended();
+    // Effect callbacks must return void/cleanup, so the promise is discarded
+    // with a stated handler. See change: cleanup-client-plugin-promises.
+    void fetchRecommended().catch(logRejection("useRecommendedExtensions.mount"));
     return () => {
       mountedRef.current = false;
     };
@@ -56,7 +59,7 @@ export function useRecommendedExtensions(): UseRecommendedExtensionsResult {
     const handler = (e: Event) => {
       const msg = (e as CustomEvent).detail;
       if (msg?.type === "package_operation_complete" && msg.success) {
-        fetchRecommended();
+        void fetchRecommended().catch(logRejection("useRecommendedExtensions.refresh"));
       }
     };
     window.addEventListener("pi-package-event", handler);

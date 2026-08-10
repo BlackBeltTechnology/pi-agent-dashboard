@@ -129,6 +129,7 @@ const BUNDLED_PLUGINS = [
   "kb-plugin",
   "hermes-memory-plugin",
   "grammar-plugin",
+  "blackhole-plugin",
   "apple-tools",
 ];
 const BUNDLED_PLUGINS_DIR = path.join(SERVER_BUNDLE, "resources", "plugins");

@@ -19,24 +19,44 @@ describe("isSecureBaseUrl", () => {
 });
 
 describe("appendPublicBaseUrl", () => {
-  it("appends a trimmed https url to a fresh pairing object", () => {
+  it("appends a trimmed https url to a fresh config", () => {
     const next = appendPublicBaseUrl(undefined, "  https://a.example  ");
     expect(next.publicBaseUrls).toEqual(["https://a.example"]);
   });
 
-  it("preserves sibling pairing fields (shallow-overwrite hazard)", () => {
-    const next = appendPublicBaseUrl(
-      { publicBaseUrls: ["https://a.example"], enabled: true } as Record<string, unknown>,
-      "wss://b.example",
-    );
+  it("appends to the existing top-level list", () => {
+    const next = appendPublicBaseUrl({ publicBaseUrls: ["https://a.example"] }, "wss://b.example");
     expect(next.publicBaseUrls).toEqual(["https://a.example", "wss://b.example"]);
-    expect((next as Record<string, unknown>).enabled).toBe(true);
+  });
+
+  // #G15 (client half): the first top-level write seeds from the legacy key,
+  // else the operator's existing entries vanish from the QR.
+  it("seeds the top-level list from the legacy pairing key on first write", () => {
+    const next = appendPublicBaseUrl(
+      { pairing: { publicBaseUrls: ["https://legacy.example"], enabled: true } },
+      "https://new.example",
+    );
+    expect(next.publicBaseUrls).toEqual(["https://legacy.example", "https://new.example"]);
+  });
+
+  it("prefers the top-level list when both keys exist", () => {
+    const next = appendPublicBaseUrl(
+      { publicBaseUrls: ["https://top.example"], pairing: { publicBaseUrls: ["https://legacy.example"] } },
+      "https://new.example",
+    );
+    expect(next.publicBaseUrls).toEqual(["https://top.example", "https://new.example"]);
   });
 
   it("dedupes and rejects non-secure entries", () => {
     expect(appendPublicBaseUrl({ publicBaseUrls: ["https://a.example"] }, "https://a.example").publicBaseUrls)
       .toEqual(["https://a.example"]);
     expect(() => appendPublicBaseUrl(undefined, "http://a.example")).toThrow(/https|wss/i);
+  });
+
+  // D12 task 10.7: the gateway action is the second writer and needs http://.
+  it("admits an http gateway when the caller opts out of the UX gate", () => {
+    expect(appendPublicBaseUrl(undefined, "http://10.4.0.9:8000", { allowInsecure: true }).publicBaseUrls)
+      .toEqual(["http://10.4.0.9:8000"]);
   });
 });
 

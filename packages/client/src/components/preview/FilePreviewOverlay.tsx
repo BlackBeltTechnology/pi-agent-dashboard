@@ -16,6 +16,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { PptxPreview } from "./PptxPreview.js";
 import { dirname } from "./resolve-local-image-src.js";
 import { SpreadsheetPreview } from "./SpreadsheetPreview.js";
+import { logRejection } from "../../lib/report-error.js";
 
 /** DOM id of the scroll target line inside the highlighted code view. */
 const TARGET_LINE_ID = "file-preview-target-line";
@@ -110,7 +111,8 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
   useEffect(() => {
     if (isImage || isRich) return; // image / rich renderers fetch their own bytes
     let cancelled = false;
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const url = `${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
         const res = await fetch(url);
@@ -128,7 +130,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
       } catch (err: any) {
         if (!cancelled) setError(err?.message ?? "Network error");
       }
-    })();
+    })().catch(logRejection("FilePreviewOverlay.loadFile"));
     return () => {
       cancelled = true;
     };

@@ -17,7 +17,7 @@
  *
  * See change: add-tunnel-providers.
  */
-import { isLoopback } from "../auth/localhost-guard.js";
+import { isLoopback } from "../auth/loopback.js";
 
 /** A coalesced denial the UI can offer to trust (or not). */
 export interface BlockEvent {

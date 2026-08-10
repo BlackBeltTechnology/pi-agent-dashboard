@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gateway URL — add / remove / fix</title>
+<style>
+  /* ---- theme layer: mirrors packages/client/src/index.css ---- */
+  :root[data-theme="dark"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --bg-overlay:rgba(0,0,0,.6);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#8a8a8a;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444;
+    /* tint alpha .06 (was .12): at .12 red-on-tint is 4.36:1 and fails WCAG 1.4.3 */
+    --tint-green:rgba(34,197,94,.06); --tint-yellow:rgba(234,179,8,.06);
+    --tint-red:rgba(239,68,68,.06); --tint-blue:rgba(59,130,246,.06);
+    --bg-code:#1a1a1a;
+    /* green used as TEXT on any surface (7.3:1 worst case in dark) */
+    --accent-green-text:#22c55e;
+    /* label on an --accent-blue fill: #fff is only 3.68:1, --bg-primary is 5.38:1 */
+    --on-accent:var(--bg-primary);
+  }
+  :root[data-theme="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04); --bg-overlay:rgba(0,0,0,.3);
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#666; --text-muted:#767676;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+    --accent-blue:#1d4ed8; --accent-green:#15803d; --accent-yellow:#854d0e; --accent-red:#b91c1c;
+    /* tint alpha .04 (was .10): at .10 green-on-tint is 4.22:1 and fails WCAG 1.4.3 */
+    --tint-green:rgba(21,128,61,.04); --tint-yellow:rgba(133,77,14,.04);
+    --tint-red:rgba(185,28,28,.04); --tint-blue:rgba(29,78,216,.04);
+    --bg-code:#f5f5f5;
+    /* --accent-green (#15803d) is only 4.40:1 on --bg-tertiary. A green used as
+       TEXT must clear 4.5:1 on EVERY surface, not just the one it happens to sit
+       on today, so status text gets its own darker token. */
+    --accent-green-text:#166534;
+    --on-accent:#ffffff; /* 6.7:1 on --accent-blue in light */
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+    font:14px/1.5 ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial;}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  a{color:var(--accent-blue)}
+  .wrap{max-width:960px;margin:0 auto;padding:24px 16px 64px}
+  header.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:24px}
+  h1{font-size:20px;margin:0}
+  h2{font-size:15px;margin:32px 0 8px}
+  .sub{color:var(--text-secondary);margin:4px 0 0;font-size:13px}
+  .panel{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:10px;padding:16px}
+  /* controls */
+  /* WCAG 2.5.8 floor is 24px; 44px on coarse pointers per NN/g touch-target guidance */
+  button,.btn{font:inherit;min-height:32px;padding:6px 12px;border-radius:6px;cursor:pointer;
+    border:1px solid var(--border-secondary);background:var(--bg-tertiary);color:var(--text-primary);
+    display:inline-flex;align-items:center;gap:6px}
+  button:hover:not(:disabled){background:var(--bg-hover)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:var(--accent-blue);border-color:var(--accent-blue);color:var(--on-accent);font-weight:600}
+  button.danger{border-color:var(--accent-red);color:var(--accent-red)}
+  :focus-visible{outline:2px solid var(--accent-blue);outline-offset:2px}
+  input[type=url],input[type=text]{width:100%;min-height:36px;padding:7px 10px;border-radius:6px;
+    border:1px solid var(--border-secondary);background:var(--bg-tertiary);color:var(--text-primary);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  label{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px}
+  .hint{font-size:12px;color:var(--text-tertiary);margin-top:6px}
+  /* gateway rows */
+  .row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between;
+    padding:14px 0;border-bottom:1px solid var(--border-subtle)}
+  .row:last-child{border-bottom:0}
+  .row .url{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;word-break:break-all}
+  .modes{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
+  .tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border-secondary);
+    color:var(--text-secondary);background:var(--bg-tertiary)}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 9px;border-radius:999px;
+    border:1px solid currentColor;font-weight:600}
+  .b-ok{color:var(--accent-green);background:var(--tint-green)}
+  .b-warn{color:var(--accent-yellow);background:var(--tint-yellow)}
+  .b-err{color:var(--accent-red);background:var(--tint-red)}
+  .b-info{color:var(--accent-blue);background:var(--tint-blue)}
+  .why{margin-top:8px;font-size:12px;color:var(--text-secondary);
+    border-left:2px solid var(--border-secondary);padding-left:10px}
+  .actions{display:flex;gap:8px;flex-shrink:0}
+  /* dialog */
+  .dlg{border:1px solid var(--border-secondary);border-radius:10px;background:var(--bg-secondary);overflow:hidden}
+  .dlg-h{padding:14px 16px;border-bottom:1px solid var(--border-primary)}
+  .dlg-b{padding:16px}
+  .dlg-f{padding:12px 16px;border-top:1px solid var(--border-primary);display:flex;gap:8px;justify-content:flex-end;
+    background:var(--bg-tertiary)}
+  .rules{margin:14px 0;border:1px solid var(--border-primary);border-radius:8px;overflow:hidden}
+  .rules-h{padding:8px 12px;background:var(--bg-tertiary);font-size:12px;color:var(--text-secondary);
+    border-bottom:1px solid var(--border-primary)}
+  .rule{display:flex;gap:10px;padding:9px 12px;font-size:12.5px;border-bottom:1px solid var(--border-subtle)}
+  .rule:last-child{border-bottom:0}
+  .rule .k{flex-shrink:0;width:20px;text-align:center;font-weight:700}
+  .ok-k{color:var(--accent-green)} .no-k{color:var(--accent-red)} .opt-k{color:var(--text-tertiary)}
+  .choice{display:flex;gap:10px;padding:10px 12px;border:1px solid var(--border-primary);border-radius:8px;
+    margin-bottom:8px;background:var(--bg-tertiary)}
+  /* Do NOT dim the whole card: the "why it is unavailable" reason is the actionable
+     part and must stay at full contrast. Only the inert control+label are dimmed,
+     and disabled controls are exempt from WCAG 1.4.3 anyway. */
+  .choice.off .t{color:var(--text-tertiary)}
+  .choice.off input{opacity:.5}
+  .choice input{margin-top:3px;width:18px;height:18px;flex-shrink:0}
+  .choice .t{font-size:13px}
+  /* --text-tertiary on --bg-tertiary is 4.22:1 in dark; --text-secondary is 7.69:1 */
+  .choice .d{font-size:12px;color:var(--text-secondary);margin-top:2px}
+  .summary{border:1px dashed var(--border-secondary);border-radius:8px;padding:12px;background:var(--bg-tertiary)}
+  .summary ul{margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--text-secondary)}
+  .summary .note,.dlg-b .summary+.hint{color:var(--text-secondary)}
+  .summary li{margin:3px 0}
+  .errsum{border:2px solid var(--accent-red);border-radius:8px;padding:12px;margin-bottom:14px;background:var(--tint-red)}
+  .errsum h3{margin:0 0 6px;font-size:13px;color:var(--accent-red)}
+  .errsum ul{margin:0;padding-left:18px;font-size:12.5px}
+  .errsum a{color:var(--accent-red)}
+  .note{font-size:12px;color:var(--text-tertiary);margin:6px 0 0}
+  .cols{display:grid;gap:16px}
+  @media(min-width:860px){.cols{grid-template-columns:1fr 1fr}}
+  .caption{font-size:12px;color:var(--text-tertiary);margin:0 0 8px;text-transform:none}
+  /* destructive-consequence block: same tint math as .errsum (verified ≥4.5:1) */
+  .dangerbox{border:2px solid var(--accent-red);border-radius:8px;padding:12px;background:var(--tint-red);margin-bottom:14px}
+  .dangerbox h3{margin:0 0 6px;font-size:13px;color:var(--accent-red)}
+  .dangerbox p{margin:0 0 8px;font-size:12.5px;color:var(--text-primary)}
+  .ack{display:flex;gap:10px;align-items:flex-start;font-size:12.5px;color:var(--text-primary)}
+  .ack input{width:18px;height:18px;margin-top:2px;flex-shrink:0}
+  .kv{display:flex;gap:10px;padding:9px 12px;font-size:12.5px;border-bottom:1px solid var(--border-subtle);align-items:baseline}
+  .kv:last-child{border-bottom:0}
+  .kv .k2{flex:0 0 132px;color:var(--text-secondary)}
+  .kv .v2{flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-all}
+  .won{color:var(--accent-green-text);font-weight:600}
+  .lost{color:var(--text-tertiary);text-decoration:line-through}
+  pre.term{margin:0;padding:12px;border-radius:8px;background:var(--bg-code);
+    border:1px solid var(--border-primary);overflow-x:auto;font-size:12px;line-height:1.55;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text-primary)}
+  nav.jump{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+  nav.jump a{font-size:12px;padding:4px 9px;border:1px solid var(--border-secondary);border-radius:999px;
+    text-decoration:none;color:var(--text-secondary);min-height:24px;display:inline-flex;align-items:center}
+  nav.jump a:hover{background:var(--bg-hover);color:var(--text-primary)}
+  @media (pointer:coarse){
+    button,.btn{min-height:44px;padding:10px 14px}
+    .choice input{width:24px;height:24px}
+    input[type=url],input[type=text]{min-height:44px}
+  }
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Gateway URL — add · remove · fix</h1>
+      <p class="sub">Mockup for design D9, D10, D12, D13 — every operator-facing surface this change adds.</p>
+    </div>
+    <button id="themeBtn" aria-pressed="false">Switch to light theme</button>
+  </header>
+
+  <nav class="jump" aria-label="Jump to section">
+    <a href="#s1">1 List</a><a href="#s2">2 Add</a><a href="#s3">3 Remove</a><a href="#s4">4 Fix</a>
+    <a href="#s5">5 Ineligible</a><a href="#s6">6 Settings</a><a href="#s7">7 Delete provider</a>
+    <a href="#s8">8 Diagnostics</a><a href="#s9">9 First run</a>
+  </nav>
+
+  <!-- ============ 1. LIST ============ -->
+  <h2 id="s1">1 · Gateway list — every row states its status</h2>
+  <p class="caption">Visibility of system status (NN/g heuristic 1). Status is icon + text, never colour alone (WCAG 1.4.1).</p>
+  <section class="panel" aria-label="Configured gateways">
+
+    <div class="row">
+      <div>
+        <div class="url">https://pi.example.com</div>
+        <div class="modes">
+          <span class="tag">OAuth</span><span class="tag">QR pairing</span>
+        </div>
+      </div>
+      <div class="actions">
+        <span class="badge b-ok">✓ OK</span>
+        <button>Remove</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <div class="url">https://ops.example.com</div>
+        <div class="modes"><span class="tag">OAuth</span><span class="tag">Trusted network</span></div>
+        <p class="why"><strong>Incomplete.</strong> This gateway recorded
+          <code>cors.allowedOrigins</code> = <code>https://ops.example.com</code>, but that value is no
+          longer in the config — the browser will be blocked by CORS.</p>
+      </div>
+      <div class="actions">
+        <span class="badge b-warn">▲ Incomplete</span>
+        <button class="primary">Fix</button>
+        <button>Remove</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <div class="url">https://staging.example.com</div>
+        <div class="modes"><span class="tag">OAuth</span></div>
+        <p class="why"><strong>Conflicting.</strong> This gateway expects to own the OAuth callback base,
+          but <code>auth.redirectBaseUrl</code> currently points at
+          <code>https://pi.example.com</code>. Only one gateway can own it.</p>
+      </div>
+      <div class="actions">
+        <span class="badge b-err">✕ Conflicting</span>
+        <button class="primary">Fix</button>
+        <button>Remove</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <div class="url">http://10.4.0.9:8000</div>
+        <div class="modes"><span class="tag">OAuth</span><span class="tag">Trusted network</span></div>
+        <p class="why"><strong>Ineligible.</strong> This gateway was changed to <code>http://</code>,
+          and OAuth providers reject a non-TLS callback. Fix needs you to choose again — it will not
+          silently drop a mode you selected.</p>
+      </div>
+      <div class="actions">
+        <span class="badge b-err">✕ Ineligible</span>
+        <button class="primary">Fix…</button>
+        <button>Remove</button>
+      </div>
+    </div>
+
+    <div class="row" style="border-top:1px solid var(--border-primary);margin-top:6px">
+      <button class="primary">+ Add gateway URL</button>
+      <p class="note" style="flex:1;min-width:220px">A gateway is an address your dashboard is reached on
+        that this machine does not create itself — a reverse proxy, a funnel, a custom domain.</p>
+    </div>
+  </section>
+
+  <!-- ============ 2. DIALOGS ============ -->
+  <h2 id="s2">2 · Add gateway — the URL's scheme decides what is possible</h2>
+  <p class="caption">Error prevention (heuristic 5): ineligible options are disabled <em>with the reason shown</em>, not rejected after save.</p>
+
+  <div class="cols">
+
+    <!-- HTTPS -->
+    <section class="dlg" aria-label="Add gateway, https example">
+      <div class="dlg-h">
+        <strong>Add gateway URL</strong>
+        <p class="note">Writes every setting this address needs, in one step.</p>
+      </div>
+      <div class="dlg-b">
+        <label for="u1">Gateway URL</label>
+        <input id="u1" type="url" value="https://pi.example.com" />
+
+        <div class="rules">
+          <div class="rules-h">Because this URL is <strong>https</strong>:</div>
+          <div class="rule"><span class="k ok-k">✓</span><span>Can ride the <strong>pairing QR</strong> — the QR carries publicly-trusted TLS addresses.</span></div>
+          <div class="rule"><span class="k ok-k">✓</span><span>Can be the <strong>OAuth</strong> callback base.</span></div>
+          <div class="rule"><span class="k opt-k">○</span><span><strong>Trusted network</strong> is optional here.</span></div>
+          <div class="rule"><span class="k ok-k">✓</span><span><strong>CORS</strong> is always added — the browser will now load the dashboard from this origin.</span></div>
+        </div>
+
+        <fieldset style="border:0;padding:0;margin:0 0 4px">
+          <legend style="font-size:12px;color:var(--text-secondary);padding:0 0 6px">How is this gateway protected? Choose at least one.</legend>
+          <div class="choice"><input type="checkbox" id="c1" checked /><div><label class="t" for="c1" style="margin:0;color:var(--text-primary)">OAuth login</label><div class="d">Sets <code>auth.redirectBaseUrl</code> to this URL.</div></div></div>
+          <div class="choice"><input type="checkbox" id="c2" checked /><div><label class="t" for="c2" style="margin:0;color:var(--text-primary)">QR device pairing</label><div class="d">Advertises this URL in the pairing payload.</div></div></div>
+          <div class="choice"><input type="checkbox" id="c3" /><div><label class="t" for="c3" style="margin:0;color:var(--text-primary)">Trusted network</label><div class="d">Adds a CIDR that bypasses the login gate.</div></div></div>
+        </fieldset>
+
+        <div class="summary">
+          <strong style="font-size:12.5px">This will write</strong>
+          <ul>
+            <li><code>publicBaseUrls</code> += <code>https://pi.example.com</code></li>
+            <li><code>cors.allowedOrigins</code> += <code>https://pi.example.com</code></li>
+            <li><code>auth.redirectBaseUrl</code> = <code>https://pi.example.com</code></li>
+          </ul>
+          <p class="note">Remembered, so removing this gateway reverts exactly these.</p>
+        </div>
+      </div>
+      <div class="dlg-f"><button>Cancel</button><button class="primary">Add gateway</button></div>
+    </section>
+
+    <!-- HTTP -->
+    <section class="dlg" aria-label="Add gateway, http example with errors">
+      <div class="dlg-h">
+        <strong>Add gateway URL</strong>
+        <p class="note">Writes every setting this address needs, in one step.</p>
+      </div>
+      <div class="dlg-b">
+        <div class="errsum" role="alert">
+          <h3>Cannot save yet — 1 thing to resolve</h3>
+          <ul><li><a href="#c6">Turn on <strong>Trusted network</strong> — it is the only protection an http gateway can use</a></li></ul>
+        </div>
+
+        <label for="u2">Gateway URL</label>
+        <input id="u2" type="url" value="http://10.4.0.9:8000" />
+
+        <div class="rules">
+          <div class="rules-h">Because this URL is <strong>http</strong> (not encrypted):</div>
+          <div class="rule"><span class="k no-k">✕</span><span><strong>Pairing QR</strong> cannot carry it — the QR only advertises publicly-trusted TLS addresses.</span></div>
+          <div class="rule"><span class="k no-k">✕</span><span><strong>OAuth</strong> cannot use it — providers reject a non-TLS callback URL.</span></div>
+          <div class="rule"><span class="k no-k">!</span><span><strong>Trusted network is required</strong> — it is the only way in for this gateway.</span></div>
+          <div class="rule"><span class="k ok-k">✓</span><span><strong>CORS</strong> is always added.</span></div>
+        </div>
+
+        <fieldset style="border:0;padding:0;margin:0 0 4px">
+          <legend style="font-size:12px;color:var(--text-secondary);padding:0 0 6px">How is this gateway protected? Choose at least one.</legend>
+          <div class="choice off"><input type="checkbox" id="c4" disabled /><div><label class="t" for="c4" style="margin:0">OAuth login</label><div class="d"><strong>Unavailable</strong> — providers reject a non-TLS callback.</div></div></div>
+          <div class="choice off"><input type="checkbox" id="c5" disabled /><div><label class="t" for="c5" style="margin:0">QR device pairing</label><div class="d"><strong>Unavailable</strong> — the QR carries TLS addresses only.</div></div></div>
+          <div class="choice"><input type="checkbox" id="c6" /><div style="flex:1"><label class="t" for="c6" style="margin:0;color:var(--text-primary)">Trusted network <span style="color:var(--accent-red)">(required)</span></label>
+            <div class="d" style="margin-bottom:6px">Requests from this range skip the login gate.</div>
+            <input type="text" value="10.4.0.9/32" aria-label="Trusted network CIDR" />
+            <div class="d">Pre-filled as this one address only. Widening it to a subnet lets every host in
+              that range skip the login gate.</div></div></div>
+        </fieldset>
+
+        <div class="summary">
+          <strong style="font-size:12.5px">This will write</strong>
+          <ul>
+            <li><code>publicBaseUrls</code> += <code>http://10.4.0.9:8000</code></li>
+            <li><code>cors.allowedOrigins</code> += <code>http://10.4.0.9:8000</code></li>
+            <li><code>trustedNetworks</code> += <code>10.4.0.9/32</code></li>
+          </ul>
+        </div>
+      </div>
+      <div class="dlg-f"><button>Cancel</button><button class="primary" disabled>Add gateway</button></div>
+    </section>
+  </div>
+
+  <!-- ============ 3. REMOVE ============ -->
+  <h2 id="s3">3 · Remove — reverses exactly what add wrote</h2>
+  <p class="caption">User control and freedom (heuristic 3) + recognition rather than recall (heuristic 6): the reversal is listed, not implied.</p>
+  <section class="dlg" aria-label="Remove gateway confirmation" style="max-width:560px">
+    <div class="dlg-h"><strong>Remove <span class="mono">https://pi.example.com</span>?</strong></div>
+    <div class="dlg-b">
+      <div class="summary">
+        <strong style="font-size:12.5px">This will revert</strong>
+        <ul>
+          <li><code>publicBaseUrls</code> − <code>https://pi.example.com</code></li>
+          <li><code>cors.allowedOrigins</code> − <code>https://pi.example.com</code></li>
+          <li><code>auth.redirectBaseUrl</code> → cleared (OAuth falls back to the tunnel address)</li>
+        </ul>
+      </div>
+      <p class="hint">Only values this gateway added are removed. Anything you set yourself is left alone.</p>
+      <div class="rules" style="margin-bottom:0">
+        <div class="rules-h">Left untouched</div>
+        <div class="rule"><span class="k opt-k">–</span><span><code>trustedNetworks</code> — this gateway never added an entry.</span></div>
+      </div>
+    </div>
+    <div class="dlg-f"><button>Cancel</button><button class="danger">Remove gateway</button></div>
+  </section>
+
+  <!-- ============ 4. FIX ============ -->
+  <h2 id="s4">4 · Fix — restores the delta, and says what it restores</h2>
+  <p class="caption">Help users recognise, diagnose, and recover (heuristic 9). Fix reconciles to the record; it never re-runs "add".</p>
+  <section class="dlg" aria-label="Fix gateway confirmation" style="max-width:560px">
+    <div class="dlg-h"><strong>Fix <span class="mono">https://ops.example.com</span></strong>
+      <p class="note">Someone changed these settings after this gateway was added.</p></div>
+    <div class="dlg-b">
+      <div class="summary">
+        <strong style="font-size:12.5px">This will restore</strong>
+        <ul><li><code>cors.allowedOrigins</code> += <code>https://ops.example.com</code></li></ul>
+      </div>
+      <p class="hint">Nothing else changes. If you removed this on purpose, remove the gateway instead.</p>
+    </div>
+    <div class="dlg-f"><button>Cancel</button><button class="primary">Restore 1 setting</button></div>
+  </section>
+
+  <!-- ============ 5. INELIGIBLE ============ -->
+  <h2 id="s5">5 · Ineligible — Fix cannot be silent, it must ask again</h2>
+  <p class="caption">Nielsen #5 error prevention + #3 user control: when the recorded choice is no longer legal, the system must not
+    quietly pick a replacement on the operator's behalf.</p>
+  <section class="dlg" aria-label="Fix ineligible gateway" style="max-width:560px">
+    <div class="dlg-h"><strong>Fix <span class="mono">http://10.4.0.9:8000</span></strong>
+      <p class="note">This gateway's URL is no longer https, so two of its settings can't apply.</p></div>
+    <div class="dlg-b">
+      <div class="rules" style="margin-top:0">
+        <div class="rules-h">What changed</div>
+        <div class="rule"><span class="k no-k">✕</span><span><strong>OAuth</strong> was selected, but providers reject a non-TLS callback.</span></div>
+        <div class="rule"><span class="k ok-k">✓</span><span><strong>Trusted network</strong> was selected and still applies.</span></div>
+      </div>
+      <fieldset style="border:0;padding:0;margin:14px 0 0">
+        <legend style="font-size:12px;color:var(--text-secondary);padding:0 0 6px">Choose how this gateway is protected now.</legend>
+        <div class="choice off"><input type="checkbox" id="f1" disabled /><div><label class="t" for="f1" style="margin:0">OAuth login</label><div class="d"><strong>Unavailable</strong> — requires an https URL.</div></div></div>
+        <div class="choice"><input type="checkbox" id="f2" checked /><div><label class="t" for="f2" style="margin:0;color:var(--text-primary)">Trusted network</label><div class="d">Keeps <code>10.4.0.9/32</code> as recorded.</div></div></div>
+      </fieldset>
+      <div class="summary" style="margin-top:14px">
+        <strong style="font-size:12.5px">This will change</strong>
+        <ul>
+          <li><code>auth.redirectBaseUrl</code> → cleared (this gateway can no longer own it)</li>
+          <li>recorded modes → <code>["trusted-network"]</code></li>
+        </ul>
+      </div>
+      <p class="hint">Prefer the old behaviour? Change the URL back to <code>https://</code> and run Fix again.</p>
+    </div>
+    <div class="dlg-f"><button>Cancel</button><button class="primary">Apply changes</button></div>
+  </section>
+
+  <!-- ============ 6. SETTINGS ============ -->
+  <h2 id="s6">6 · Settings ▸ Security — the config-file escape hatch</h2>
+  <p class="caption">Nielsen #6 recognition rather than recall: the field states which value is actually in force, so it is never a
+    write-only box. Cross-links to the gateway action rather than duplicating it (single source of truth).</p>
+  <section class="panel" aria-label="Settings Security redirect base" style="max-width:620px">
+    <label for="rb">OAuth callback base URL</label>
+    <input id="rb" type="url" placeholder="https://pi.example.com" value="https://pi.example.com" />
+    <p class="hint">Overrides where OAuth providers send users back after login. Leave empty to use the tunnel address.</p>
+    <div class="rules" style="margin-top:12px">
+      <div class="rules-h">Currently in force</div>
+      <div class="kv"><span class="k2">Resolved base</span><span class="v2 won">https://pi.example.com</span></div>
+      <div class="kv"><span class="k2">Because</span><span class="v2">this setting is present</span></div>
+      <div class="kv"><span class="k2">Session cookie</span><span class="v2">Secure — the resolved base is https</span></div>
+    </div>
+    <p class="hint">Set up by the <a href="#s2">Add gateway</a> action, which also configures pairing and CORS.
+      Editing here changes OAuth only.</p>
+  </section>
+
+  <!-- ============ 7. DELETE PROVIDER ============ -->
+  <h2 id="s7">7 · Remove the last OAuth provider — a lockout, not a disable</h2>
+  <p class="caption">Nielsen #5 error prevention. The consequence is irreversible without server access, so the dialog states it in
+    plain language and requires an explicit acknowledgement — not a second “Are you sure?”, which people click through.</p>
+
+  <div class="cols">
+    <section class="dlg" aria-label="Remove one of several providers">
+      <div class="dlg-h"><strong>Remove <span class="mono">google</span>?</strong>
+        <p class="note">1 of 2 sign-in methods.</p></div>
+      <div class="dlg-b">
+        <p style="margin:0;font-size:13px;color:var(--text-secondary)">
+          <strong style="color:var(--text-primary)">github</strong> stays configured, so you can still sign in.</p>
+      </div>
+      <div class="dlg-f"><button>Cancel</button><button class="danger">Remove provider</button></div>
+    </section>
+
+    <section class="dlg" aria-label="Remove the last provider, with lockout warning">
+      <div class="dlg-h"><strong>Remove <span class="mono">github</span>?</strong>
+        <p class="note">This is your last sign-in method.</p></div>
+      <div class="dlg-b">
+        <div class="dangerbox" role="alert">
+          <h3>You may lock yourself out</h3>
+          <p>Removing the last provider does <strong>not</strong> turn authentication off — the login gate keeps running with
+            no way to sign in. Anyone connecting remotely, including you, is refused until the server is restarted.</p>
+          <p style="margin-bottom:0">You can still get back in from this machine, or from a trusted network.</p>
+        </div>
+        <label class="ack" for="ack1">
+          <input type="checkbox" id="ack1" />
+          <span>I understand remote sign-in will be impossible until the server is restarted.</span>
+        </label>
+      </div>
+      <div class="dlg-f"><button>Cancel</button><button class="danger" disabled>Remove anyway</button></div>
+    </section>
+  </div>
+
+  <!-- ============ 8. DIAGNOSTICS ============ -->
+  <h2 id="s8">8 · Diagnostics — which setting actually won</h2>
+  <p class="caption">Nielsen #1 visibility of system status. The chain has four tiers, so “is my value valid” is the wrong question —
+    the operator needs to know which tier <em>won</em>. Reachable over loopback precisely because a broken OAuth login
+    means a remote operator cannot authenticate to ask.</p>
+
+  <section class="panel" aria-label="Resolved redirect base" style="max-width:620px">
+    <div class="rules" style="margin-top:0">
+      <div class="rules-h">Redirect base resolution</div>
+      <div class="kv"><span class="k2">In force</span><span class="v2 won">https://pi.example.com</span></div>
+      <div class="kv"><span class="k2">Won by</span><span class="v2">auth.redirectBaseUrl</span></div>
+      <div class="kv"><span class="k2">Tunnel</span><span class="v2 lost">https://abc.share.zrok.io</span></div>
+      <div class="kv"><span class="k2">Fallback</span><span class="v2 lost">http://localhost:8000</span></div>
+      <div class="kv"><span class="k2">Auth active</span><span class="v2">yes — 1 provider</span></div>
+    </div>
+    <p class="hint">Register <code>https://pi.example.com/auth/callback/github</code> with your provider, exactly as shown.</p>
+  </section>
+
+  <p class="caption" style="margin-top:18px">Same facts from the terminal, for an operator who cannot open a browser at all:</p>
+  <pre class="term" aria-label="doctor output">$ pi doctor auth-redirect
+
+  redirect base   https://pi.example.com
+  won by          auth.redirectBaseUrl
+  tunnel          https://abc.share.zrok.io   (not used)
+  fallback        http://localhost:8000       (not used)
+  auth active     yes (1 provider: github)
+  cookie          Secure (resolved base is https)
+
+  register with your provider:
+    https://pi.example.com/auth/callback/github</pre>
+
+  <!-- ============ 9. FIRST RUN ============ -->
+  <h2 id="s9">9 · First run — the same component, not a copy</h2>
+  <p class="caption">Jakob's Law (lawsofux.com/jakobs-law): the setup step must behave exactly like the control the operator will meet
+    again later. Same component, different framing only — which is what test F12 asserts.</p>
+  <section class="panel" aria-label="First run setup step" style="max-width:620px">
+    <p style="margin:0 0 4px;font-size:12px;color:var(--text-tertiary)">Step 3 of 4</p>
+    <h3 style="margin:0 0 4px;font-size:15px">How will people reach this dashboard?</h3>
+    <p class="sub" style="margin-bottom:12px">If you run it behind your own domain or reverse proxy, add that address now.
+      You can skip this and add it later.</p>
+    <div style="border:1px dashed var(--border-secondary);border-radius:8px;padding:12px">
+      <p class="note" style="margin:0 0 8px">↓ identical <code>GatewayDialog</code> to section 2 — embedded, not re-implemented</p>
+      <label for="u3">Gateway URL</label>
+      <input id="u3" type="url" placeholder="https://pi.example.com" />
+      <p class="hint">Scheme rules and protection options appear once you enter a URL.</p>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button>Skip for now</button><button class="primary">Continue</button>
+    </div>
+  </section>
+</div>
+
+<script>
+  var btn = document.getElementById('themeBtn'), root = document.documentElement;
+  btn.addEventListener('click', function () {
+    var light = root.getAttribute('data-theme') === 'light';
+    root.setAttribute('data-theme', light ? 'dark' : 'light');
+    btn.setAttribute('aria-pressed', String(!light));
+    btn.textContent = light ? 'Switch to light theme' : 'Switch to dark theme';
+  });
+</script>
+</body>
+</html>

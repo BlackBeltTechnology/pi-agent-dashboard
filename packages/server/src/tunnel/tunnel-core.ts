@@ -153,18 +153,36 @@ export class ChildTunnelRuntime {
 
   // ── Tunnel creation ───────────────────────────────────────────────
   createTunnel(port: number, reservedToken?: string, retriesLeft = 1): Promise<string | null> {
-    if (this.pendingCreate) return this.pendingCreate;
+    // Explicit nullish check: a `Promise` is always truthy, so the bare guard
+    // was correct only by accident. Narrowing preserves the dedupe exactly.
+    // See change: cleanup-client-plugin-promises (design D6).
+    if (this.pendingCreate !== null) return this.pendingCreate;
     if (this.activeTunnelUrl) return Promise.resolve(this.activeTunnelUrl);
     const promise = this.createInner(port, reservedToken, retriesLeft);
     this.pendingCreate = promise;
-    promise.finally(() => {
+    // `createInner` can now reject (it previously hung instead), so the dedupe
+    // cleanup must settle on BOTH paths. A bare `.finally()` would derive a
+    // second, unobserved promise that rejects — a real unhandled rejection.
+    // Callers still observe the original rejection through `promise`.
+    // See change: cleanup-client-plugin-promises (same-function coupling with
+    // cleanup-async-semantics-server-extension, which owns this line's floating fix).
+    const clearPending = () => {
       if (this.pendingCreate === promise) this.pendingCreate = null;
+    };
+    void promise.then(clearPending, (err: unknown) => {
+      clearPending();
+      console.warn(`${this.spec.id} tunnel creation failed:`, err);
     });
     return promise;
   }
 
   private createInner(port: number, reservedToken?: string, retriesLeft = 1): Promise<string | null> {
-    return new Promise(async (resolve) => {
+    // The async work runs in an inner function whose rejection is routed to
+    // `reject`. With `new Promise(async (resolve) => …)` a throw inside the
+    // executor was swallowed: the outer promise never settled and every caller
+    // hung forever. See change: cleanup-client-plugin-promises (design D6).
+    return new Promise((resolve, reject) => {
+      void (async () => {
       if (!this.spec.detectBinary()) {
         resolve(null);
         return;
@@ -264,6 +282,7 @@ export class ChildTunnelRuntime {
           this.removePid();
         }
       });
+      })().catch(reject);
     });
   }
 

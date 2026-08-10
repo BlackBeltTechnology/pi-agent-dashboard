@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -183,6 +183,155 @@ describe("config-api", () => {
       const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
       expect(written.reattachPlacement).toBe("preserve");
       expect(written.port).toBe(8000); // existing fields preserved
+    });
+  });
+  // ── Provider deletion (D9) ───────────────────────────────────────────────
+  // `writeConfigPartial`'s providers merge is spread-only and cannot express a
+  // removal, and `readConfigRedacted()` would persist "***" over every
+  // surviving secret. Deletion therefore gets its own raw read/write helper.
+  // See change: config-override-oauth-redirect-base.
+  describe("deleteAuthProvider", () => {
+    const twoProviders = {
+      port: 8000,
+      auth: {
+        secret: "real-secret",
+        providers: {
+          github: { clientId: "gh", clientSecret: "gh-real-secret" },
+          google: { clientId: "goo", clientSecret: "goo-real-secret" },
+        },
+      },
+    };
+
+    // #G8
+    it("removes exactly the named provider", () => {
+      fs.writeFileSync(configFile, JSON.stringify(twoProviders));
+      const result = deleteAuthProvider("github");
+      expect(result).toMatchObject({ success: true, deleted: true, remaining: 1 });
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(Object.keys(written.auth.providers)).toEqual(["google"]);
+    });
+
+    // #G9 — the whole reason this is not built on readConfigRedacted().
+    it("leaves the surviving provider's REAL clientSecret on disk", () => {
+      fs.writeFileSync(configFile, JSON.stringify(twoProviders));
+      deleteAuthProvider("github");
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(written.auth.providers.google.clientSecret).toBe("goo-real-secret");
+      expect(written.auth.secret).toBe("real-secret");
+    });
+
+    // #G10 — idempotent: absent provider is a success with no side effect.
+    it("is a no-op success for an absent provider", () => {
+      fs.writeFileSync(configFile, JSON.stringify(twoProviders));
+      const before = fs.readFileSync(configFile, "utf-8");
+      const result = deleteAuthProvider("keycloak");
+      expect(result).toMatchObject({ success: true, deleted: false, remaining: 2 });
+      expect(fs.readFileSync(configFile, "utf-8")).toBe(before);
+    });
+
+    // #G11 — deleting the last provider is a LOCKOUT (auth stays enforced with
+    // no login path), not a disable. Refused without an explicit force.
+    it("refuses to delete the last provider without force", () => {
+      fs.writeFileSync(configFile, JSON.stringify({
+        auth: { providers: { github: { clientId: "gh", clientSecret: "s" } } },
+      }));
+      const result = deleteAuthProvider("github");
+      expect(result.success).toBe(false);
+      expect(result.reason).toBe("last-provider");
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(Object.keys(written.auth.providers)).toEqual(["github"]);
+    });
+
+    it("deletes the last provider when forced", () => {
+      fs.writeFileSync(configFile, JSON.stringify({
+        auth: { providers: { github: { clientId: "gh", clientSecret: "s" } } },
+      }));
+      const result = deleteAuthProvider("github", { force: true });
+      expect(result).toMatchObject({ success: true, deleted: true, remaining: 0 });
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(written.auth.providers).toEqual({});
+    });
+
+    it("preserves unrelated top-level config", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ ...twoProviders, defaultModel: "gpt-4" }));
+      deleteAuthProvider("github");
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(written.defaultModel).toBe("gpt-4");
+      expect(written.port).toBe(8000);
+    });
+
+    it("is a success no-op when no auth block exists at all", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+      expect(deleteAuthProvider("github")).toMatchObject({ success: true, deleted: false, remaining: 0 });
+    });
+  });
+
+  // ── Gateway action persistence (D12) ─────────────────────────────────────
+  // The action is ONE `PUT /api/config` carrying every key plus the provenance
+  // record, so a half-configured gateway is not representable. These pin the
+  // write side of that contract. Rows: G14, G15, S8.
+  // See change: config-override-oauth-redirect-base.
+  describe("gateway action writes", () => {
+    const GATEWAY = "https://pi.example.com";
+    const addPatch = {
+      publicBaseUrls: [GATEWAY],
+      cors: { allowedOrigins: [GATEWAY] },
+      auth: { redirectBaseUrl: GATEWAY },
+      trustedNetworks: ["10.4.0.9/32"],
+      gateways: [
+        {
+          url: GATEWAY,
+          authModes: ["oauth", "trusted-network"],
+          wrote: {
+            publicBaseUrls: [GATEWAY],
+            corsAllowedOrigins: [GATEWAY],
+            authRedirectBaseUrl: GATEWAY,
+            trustedNetworks: ["10.4.0.9/32"],
+          },
+        },
+      ],
+    };
+
+    // #G14
+    it("persists every recorded key in a single write", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+      expect(writeConfigPartial({ ...addPatch }).success).toBe(true);
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(written.publicBaseUrls).toEqual([GATEWAY]);
+      expect(written.cors.allowedOrigins).toEqual([GATEWAY]);
+      expect(written.auth.redirectBaseUrl).toBe(GATEWAY);
+      expect(written.trustedNetworks).toEqual(["10.4.0.9/32"]);
+      expect(written.gateways).toHaveLength(1);
+      expect(written.gateways[0].wrote.authRedirectBaseUrl).toBe(GATEWAY);
+    });
+
+    // #G15 — the legacy nested key is left in place; the seeded top-level list
+    // is what every surface reads from now on.
+    it("keeps the legacy pairing entries reachable through the seeded list", () => {
+      fs.writeFileSync(
+        configFile,
+        JSON.stringify({ pairing: { publicBaseUrls: ["https://old.example"] } }),
+      );
+      writeConfigPartial({ publicBaseUrls: ["https://old.example", GATEWAY] });
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(written.publicBaseUrls).toEqual(["https://old.example", GATEWAY]);
+      expect(written.pairing.publicBaseUrls).toEqual(["https://old.example"]);
+    });
+
+    // #S8 — a failed write leaves NO provenance record. The record rides the
+    // same object as the values, so there is no ordering in which one lands
+    // without the other.
+    it("records no gateway when the write throws", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+      const before = fs.readFileSync(configFile, "utf-8");
+      const spy = vi.spyOn(fs, "writeFileSync").mockImplementation(() => {
+        throw new Error("disk full");
+      });
+      const result = writeConfigPartial({ ...addPatch });
+      spy.mockRestore();
+      expect(result.success).toBe(false);
+      expect(fs.readFileSync(configFile, "utf-8")).toBe(before);
+      expect(JSON.parse(fs.readFileSync(configFile, "utf-8")).gateways).toBeUndefined();
     });
   });
 });

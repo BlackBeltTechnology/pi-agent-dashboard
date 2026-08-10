@@ -1,6 +1,7 @@
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t } from "../lib/i18n/i18n.js";
+import { logRejection } from "../lib/report-error.js";
 
 const POLL_INTERVAL = 30_000;
 
@@ -49,16 +50,24 @@ export function usePiResources(cwd: string | null, opts?: { globalOnly?: boolean
     }
 
     setIsLoading(true);
-    fetchResources(target).finally(() => setIsLoading(false));
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void fetchResources(target)
+      .catch(logRejection("usePiResources.poll"))
+      .finally(() => setIsLoading(false));
 
-    const timer = setInterval(() => fetchResources(target), POLL_INTERVAL);
+    const timer = setInterval(
+      () => void fetchResources(target).catch(logRejection("usePiResources.pollTick")),
+      POLL_INTERVAL,
+    );
     return () => clearInterval(timer);
   }, [target, fetchResources]);
 
   const refresh = useCallback(() => {
     if (target) {
       setIsLoading(true);
-      fetchResources(target, true).finally(() => setIsLoading(false));
+      void fetchResources(target, true)
+        .catch(logRejection("usePiResources.refresh"))
+        .finally(() => setIsLoading(false));
     }
   }, [target, fetchResources]);
 

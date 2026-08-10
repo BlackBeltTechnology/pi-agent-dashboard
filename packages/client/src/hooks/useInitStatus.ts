@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { fetchWorktreeInitStatus, type WorktreeInitStatus } from "../lib/git/git-api.js";
+import { logRejection } from "../lib/report-error.js";
 
 export function useInitStatus(cwd: string): { status: WorktreeInitStatus | null; refetch: () => void } {
   const [status, setStatus] = useState<WorktreeInitStatus | null>(null);
@@ -21,7 +22,11 @@ export function useInitStatus(cwd: string): { status: WorktreeInitStatus | null;
 
   useEffect(() => {
     let alive = true;
-    fetchWorktreeInitStatus(cwd).then((s) => { if (alive) setStatus(s); });
+    // Effect callbacks must return void/cleanup, so the promise is discarded
+    // with a stated handler. See change: cleanup-client-plugin-promises.
+    void fetchWorktreeInitStatus(cwd)
+      .then((s) => { if (alive) setStatus(s); })
+      .catch(logRejection("useInitStatus.fetch"));
     return () => { alive = false; };
   }, [cwd]);
 

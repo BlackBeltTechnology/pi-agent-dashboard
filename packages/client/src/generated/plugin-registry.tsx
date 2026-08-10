@@ -2,6 +2,7 @@
 
 import { AppleToolsSettings } from "@blackbelt-technology/pi-dashboard-apple-tools";
 import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, AutomationBadge, isAutomationRun, AutomationSettings, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
+import { BlackholeSettings, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
 import { GrammarSettings, GrammarComposerPanel, catalog as grammar_catalog } from "@blackbelt-technology/pi-dashboard-grammar-plugin";
@@ -10,6 +11,7 @@ import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackb
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
+import { DemoSettings, DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -98,6 +100,33 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "automation", priority: 100, slot: "settings-section", tab: "general", Component: AutomationSettings },
     ],
     catalog: automation_catalog,
+  },
+  {
+    manifest: {
+        "id": "blackhole",
+        "displayName": "Blackhole",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "BlackholeSettings",
+                "tab": "general"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./src/configSchema.json",
+        "i18nCatalog": "catalog",
+        "requires": {
+            "piExtensions": [
+                "pi-blackhole"
+            ]
+        }
+    },
+    claims: [
+      { pluginId: "blackhole", priority: 100, slot: "settings-section", tab: "general", Component: BlackholeSettings },
+    ],
+    catalog: blackhole_catalog,
   },
   {
     manifest: {
@@ -377,6 +406,31 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     ],
     catalog: flows_anthropic_bridge_catalog,
   },
+  {
+    manifest: {
+        "id": "demo",
+        "displayName": "Demo Plugin (fixture)",
+        "priority": 1000,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "DemoSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "tool-renderer",
+                "component": "DemoToolRenderer",
+                "toolName": "DashboardDemo"
+            }
+        ],
+        "client": "./src/client.tsx",
+        "fixture": true
+    },
+    claims: [
+      { pluginId: "demo", priority: 1000, slot: "settings-section", tab: "general", Component: DemoSettings },
+      { pluginId: "demo", priority: 1000, slot: "tool-renderer", toolName: "DashboardDemo", Component: DemoToolRenderer },
+    ],
+  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "df48f16cfc341baf74a935a4c4f63c9fc66be9e948e0224b6de2f4ea56555193";
+export const PLUGIN_REGISTRY_HASH = "f4665eb068cb115d5576b0b131598e54602afd414b2dbcb6915c805b972d19e8";

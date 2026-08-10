@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { renderUrl } from "./raw-url.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -20,7 +21,8 @@ export function AsciiDocPreview({ target }: Props) {
     let cancelled = false;
     setHtml(null);
     setError(null);
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const res = await fetch(renderUrl(target));
         const body = await res.json();
@@ -33,7 +35,7 @@ export function AsciiDocPreview({ target }: Props) {
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to render");
       }
-    })();
+    })().catch(logRejection("AsciiDocPreview.render"));
     return () => {
       cancelled = true;
     };

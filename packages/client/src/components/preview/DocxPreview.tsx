@@ -12,6 +12,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { FallbackPreview } from "./FallbackPreview.js";
 import { rawUrl, renderedPdfUrl, renderUrl } from "./raw-url.js";
 import { TruncationBanner } from "./TruncationBanner.js";
+import { logRejection } from "../../lib/report-error.js";
 
 const PdfPreview = lazy(() => import("./PdfPreview.js"));
 
@@ -33,7 +34,8 @@ export function DocxPreview({ target }: Props) {
     setData(null);
     setError(null);
     setFailed(false);
-    (async () => {
+    // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
+    void (async () => {
       try {
         const res = await fetch(renderUrl(target));
         const body = await res.json();
@@ -47,7 +49,7 @@ export function DocxPreview({ target }: Props) {
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to render");
       }
-    })();
+    })().catch(logRejection("DocxPreview.render"));
     return () => {
       cancelled = true;
     };

@@ -16,8 +16,11 @@
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-/** Bump on any persisted-shape change → all entries invalidate (full replay). */
-export const REPLAY_CACHE_SCHEMA_VERSION = 1;
+/** Bump on any persisted-shape change → all entries invalidate (full replay).
+ *  v2 (fix-replay-cache-partial-payload-cursor): v1 entries may carry a cursor
+ *  with no provenance (a high `maxSeq` over one stray broadcast row) and are
+ *  indistinguishable from healthy ones — the bump purges them once. */
+export const REPLAY_CACHE_SCHEMA_VERSION = 2;
 
 const DB_NAME = "pi-dashboard-replay-cache";
 const STORE = "sessions";

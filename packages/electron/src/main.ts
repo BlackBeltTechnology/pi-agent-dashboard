@@ -52,6 +52,22 @@ function log(msg: string): void {
     appendFileSync(_LOG_PATH, line);
   } catch { /* ignore */ }
 }
+// Global unhandled-rejection reporter for the main process — the regression
+// guard for the promise-handling cleanup. Installed before any application
+// work so an escaped rejection reaches `log()` instead of being silent.
+//
+// It reports every reason in full and never replaces it with a placeholder.
+// Note the one real semantic effect of REGISTERING a listener at all: Node's
+// default `--unhandled-rejections=throw` no longer terminates the main
+// process. That is deliberate for a desktop shell — a stray rejection should
+// leave a log line, not kill the user's app mid-session — and it mirrors
+// `packages/server/src/cli.ts`, which already does this for the server process.
+// See change: cleanup-client-plugin-promises (design D2).
+process.on("unhandledRejection", (reason) => {
+  const detail = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+  log(`[unhandledRejection] ${detail}`);
+});
+
 log("=== Electron starting ===");
 log(`platform=${process.platform} arch=${process.arch} pid=${process.pid}`);
 log(`resourcesPath=${(process as any).resourcesPath || "(none)"}`);
@@ -476,6 +492,25 @@ async function quit(): Promise<void> {
   app.quit();
 }
 
+/**
+ * Sync entrypoint for `quit`, for the callers that cannot await it: `createTray`
+ * declares `onQuit: () => void` and Electron's `app.on(...)` listeners are sync.
+ * Defined once and passed at every site rather than hand-rolled per call.
+ *
+ * `quit` cannot be made sync (it awaits `stopServerIfNeeded`), and bare
+ * `void quit()` is banned, so the rejection gets a named owner here. The
+ * fallback `app.quit()` is load-bearing: a rejecting `stopServerIfNeeded` skips
+ * the `destroyTray()`/`app.quit()` tail of `quit`, which would strand the app
+ * running with no way to exit.
+ * See change: cleanup-async-semantics-server-extension (design D1, D4).
+ */
+function requestQuit(): void {
+  void quit().catch((err: unknown) => {
+    log(`quit failed: ${err instanceof Error ? err.message : String(err)}`);
+    app.quit();
+  });
+}
+
 async function main(): Promise<void> {
   // Single-instance lock
   if (!app.requestSingleInstanceLock()) {
@@ -528,7 +563,7 @@ async function main(): Promise<void> {
       const win = createMainWindow(remoteUrl);
       closeSplash();
       showLoadingPage(win, remoteUrl);
-      createTray(() => mainWindow, quit, {
+      createTray(() => mainWindow, requestQuit, {
         getServerOwnership,
         onLaunch: (force) => { void requestServerLaunch({ force }); },
       });
@@ -554,7 +589,7 @@ async function main(): Promise<void> {
       const win = createMainWindow(source.url);
       closeSplash();
       showLoadingPage(win, source.url);
-      createTray(() => mainWindow, quit, {
+      createTray(() => mainWindow, requestQuit, {
         getServerOwnership,
         onLaunch: (force) => { void requestServerLaunch({ force }); },
       });
@@ -604,7 +639,7 @@ async function main(): Promise<void> {
     const win = createMainWindow(serverUrl);
     closeSplash();
     showLoadingPage(win, serverUrl);
-    createTray(() => mainWindow, quit, {
+    createTray(() => mainWindow, requestQuit, {
       getServerOwnership,
       onLaunch: (force) => { void requestServerLaunch({ force }); },
     });
@@ -651,7 +686,7 @@ async function main(): Promise<void> {
     const win = createMainWindow(serverUrl);
     closeSplash();
     showLoadingPage(win, serverUrl);
-    createTray(() => mainWindow, quit, {
+    createTray(() => mainWindow, requestQuit, {
       getServerOwnership,
       onLaunch: (force) => { void requestServerLaunch({ force }); },
     });
@@ -672,7 +707,7 @@ app.on("activate", () => {
 // macOS: keep running (hide to tray)
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin" && mainWindow === null && !isStartingUp) {
-    quit();
+    requestQuit();
   }
 });
 

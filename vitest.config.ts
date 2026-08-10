@@ -33,6 +33,7 @@ export default defineConfig({
       "packages/subagents-plugin",
       "packages/goal-plugin",
       "packages/grammar-plugin",
+      "packages/blackhole-plugin",
       "scripts",
       // NOTE: packages/electron is intentionally NOT included here — it has
       // pre-existing orphaned tests that depend on ambient PATH/mocks never

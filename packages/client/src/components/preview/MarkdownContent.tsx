@@ -16,8 +16,8 @@ import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
 import { useLoopbackLinkOpen } from "../../lib/use-loopback-link-open.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
+import { isExternalHref } from "./is-external-href.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
-import { FileLink } from "../tool-renderers/FileLink.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 import { UrlLink } from "../tool-renderers/UrlLink.js";
 import { extractFrontmatter, FrontmatterProperties } from "./FrontmatterProperties.js";
@@ -76,10 +76,21 @@ function renderInlineString(text: string, context: ToolContext, keyPrefix: strin
     const key = `${keyPrefix}-${i}`;
     if (tok.kind === "text") return <React.Fragment key={key}>{tok.text}</React.Fragment>;
     if (tok.kind === "url") return <UrlLink key={key} href={tok.text}>{tok.text}</UrlLink>;
+    // Injected rather than imported — see `FileLinkRenderer` (D4b). Callers only
+    // reach here when `context.fileLink` is present (the linkification gate).
+    const renderFileLink = context.fileLink;
+    if (!renderFileLink) return <React.Fragment key={key}>{tok.text}</React.Fragment>;
     return (
-      <FileLink key={key} path={tok.path} line={tok.line} col={tok.col} absolute={tok.absolute} context={context}>
-        {tok.text}
-      </FileLink>
+      <React.Fragment key={key}>
+        {renderFileLink({
+          path: tok.path,
+          line: tok.line,
+          col: tok.col,
+          absolute: tok.absolute,
+          context,
+          children: tok.text,
+        })}
+      </React.Fragment>
     );
   });
 }
@@ -122,26 +133,6 @@ function visitHast(node: HastNode, visitor: (node: HastNode) => void) {
   }
 }
 
-/**
- * Returns true when `href` resolves to an origin different from the current
- * page (i.e. the link is external and clicking it would strand the user if it
- * replaced the dashboard view). Fragment-only refs (`#foo`), relative paths,
- * and absolute URLs matching `window.location.origin` are all considered
- * internal. Unparseable hrefs are treated as external so the anchor gets
- * `target="_blank"` — safer than silently navigating away.
- * See issue #13.
- */
-export function isExternalHref(href: string | undefined): boolean {
-  if (!href) return false; // bare <a> without href → leave alone
-  if (href.startsWith("#")) return false; // fragment-only, same-document
-  try {
-    const base = typeof window !== "undefined" ? window.location.origin : "http://localhost";
-    const resolved = new URL(href, base);
-    return resolved.origin !== new URL(base).origin;
-  } catch {
-    return true;
-  }
-}
 
 /** Convert a <table> DOM element to markdown */
 export function tableToMarkdown(table: HTMLTableElement): string {
@@ -537,7 +528,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
                   className="bg-[var(--bg-surface)] px-1.5 py-0.5 rounded text-sm font-mono"
                   {...props}
                 >
-                  {context ? renderInlineString(codeString, context, "code") : children}
+                  {context?.fileLink ? renderInlineString(codeString, context, "code") : children}
                 </code>
               );
             }
@@ -550,11 +541,12 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
               </CodeBlockWrapper>
             );
           },
-          // Linkify inline prose. Only enabled when a `context` is supplied
-          // (chat surfaces); fenced/multi-line code blocks render via the
-          // `code` override above and are never linkified.
-          // See change: unify-file-link-openability.
-          ...(context
+          // Linkify inline prose. Gated on `context.fileLink` PRESENCE (not
+          // merely on `context`) since D4b injects the renderer instead of
+          // importing it; fenced/multi-line code blocks render via the `code`
+          // override above and are never linkified.
+          // See change: unify-file-link-openability, cleanup-import-cycles (D4b).
+          ...(context?.fileLink
             ? {
                 p({ node: _node, children }: any) {
                   return <p>{linkifyChildren(children, context)}</p>;

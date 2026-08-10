@@ -56,6 +56,30 @@ if [ -d /fixtures-src ] && [ -d /fixtures ]; then
         && echo "[test-entrypoint] git fixture ready: /fixtures/${fx}"
     fi
   done
+
+  # The board drop-targeting specs need a column deep enough to overflow its
+  # visible height (≥14 cards) and a 64-card column for the frame-budget
+  # assertion. Generated here so 64 change directories stay out of the repo.
+  # See change: fix-openspec-board-drop-targeting.
+  # Sentinel is the LAST card written, not the first: a boot interrupted
+  # mid-generation would otherwise look complete and leave a short fixture.
+  BOARD_FX=/fixtures/openspec-board/openspec/changes
+  if [ -d "/fixtures/openspec-board/openspec" ] && ! [ -d "${BOARD_FX}/board-card-64" ]; then
+    for n in $(seq 1 64); do
+      # Two-digit, zero-padded — `card()` in tests/e2e/helpers/openspec-board.ts
+      # pads to the same width, so the names must match exactly. printf keeps
+      # that contract explicit instead of resting on GNU `seq -w`.
+      i=$(printf '%02d' "${n}")
+      mkdir -p "${BOARD_FX}/board-card-${i}"
+      printf '# Proposal - board card %s\n\n## Why\n\nBoard drop-target fixture card.\n' "${i}" \
+        > "${BOARD_FX}/board-card-${i}/proposal.md"
+      # One unchecked task each, so every card derives the same in-progress
+      # state and the cards render at a uniform height.
+      printf '# Tasks - board card %s\n\n## 1. Fixture\n\n- [ ] 1.1 Fixture card.\n' "${i}" \
+        > "${BOARD_FX}/board-card-${i}/tasks.md"
+    done
+    echo "[test-entrypoint] board fixture ready: 64 changes in ${BOARD_FX}"
+  fi
 fi
 
 # --- 1c. E2E credential + network seed (gated; BEFORE base entrypoint) ------
@@ -135,6 +159,47 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (${PI_E2E_TRUSTED_NETWORKS:-0.0.0.0/0}) + defaultModel + modelProxy apiKey → config.json"
   fi
 
+  # --- OAuth provider seed (PI_E2E_OAUTH=1) ---------------------------------
+  # `oauth-redirect-base.spec.ts` asserts on `/auth/*` routes, which only exist
+  # when the server booted with at least one RESOLVABLE provider: the auth
+  # plugin returns early on an empty registry, registering no route and no
+  # reload hook (design D6 of config-override-oauth-redirect-base).
+  #
+  # The provider therefore has to be on disk BEFORE the server starts. A spec
+  # cannot arrange that itself: `pi-state` is a RAM-backed tmpfs (compose.test
+  # .yml), so every container start hands the server a fresh, empty `~/.pi` and
+  # discards anything a previous process wrote through `PUT /api/config`. That
+  # is the harness's isolation model, not a bug — so the seed goes here.
+  #
+  # `github` is the one built-in provider that resolves with NO network I/O
+  # (static endpoints, no OIDC discovery), so this works in an offline CI box.
+  #
+  # `bypassUrls:["/"]` is MANDATORY and load-bearing: requests from the
+  # Playwright host arrive as NON-loopback, so an armed auth gate with no bypass
+  # would lock every other spec out of the shared harness. The prefix matches
+  # every URL, so the gate denies nothing while still registering the routes
+  # this spec needs.
+  #
+  # Opt-in only: unset (the default) leaves the harness exactly as it was.
+  # See change: config-override-oauth-redirect-base.
+  if [ "${PI_E2E_OAUTH:-}" = "1" ]; then
+    node -e '
+      const fs = require("node:fs");
+      const [out, base] = process.argv.slice(1);
+      let cfg = {};
+      try { cfg = JSON.parse(fs.readFileSync(out, "utf8")); } catch {}
+      cfg.auth = {
+        ...(cfg.auth ?? {}),
+        secret: "e2e-auth-secret-32-chars-longxxxx",
+        providers: { github: { clientId: "e2e-client-id", clientSecret: "e2e-client-secret" } },
+        bypassUrls: ["/"],
+        redirectBaseUrl: base,
+      };
+      fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
+    ' "${PI_DIR}/dashboard/config.json" "${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com}"
+    echo "[test-entrypoint] PI_E2E_OAUTH: seeded github provider + bypassUrls:[/] + redirectBaseUrl=${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com} → config.json"
+  fi
+
   # --- Faux model: stage the fixture as a global auto-discovered extension ---
   # pi auto-discovers ~/.pi/agent/extensions/*/index.ts (no -e, no trust gate).
   # Subdir form is required because the extension imports ./faux-scenarios.js.
@@ -150,6 +215,18 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     # lives) into the extension dir so node/jiti resolves pi-ai from here.
     ln -sfn /app/node_modules "${FAUX_EXT_DIR}/node_modules"
     echo "[test-entrypoint] PI_E2E_SEED: staged faux extension → ${FAUX_EXT_DIR}"
+  fi
+
+  # --- ctx.ui.notify driver: the only L3 lever on the notify path ---
+  # The faux model can emit tool calls but cannot call `ctx.ui.notify`, so the
+  # `notify-probe` scenario calls this fixture's `e2e_notify` tool instead.
+  # See change: split-notify-from-prompt-request.
+  NOTIFY_EXT_DIR="${PI_DIR}/agent/extensions/e2e-notify"
+  if [ -f "${FAUX_SRC}/e2e-notify.ext.ts" ] && [ ! -f "${NOTIFY_EXT_DIR}/index.ts" ]; then
+    mkdir -p "${NOTIFY_EXT_DIR}"
+    cp "${FAUX_SRC}/e2e-notify.ext.ts" "${NOTIFY_EXT_DIR}/index.ts"
+    ln -sfn /app/node_modules "${NOTIFY_EXT_DIR}/node_modules"
+    echo "[test-entrypoint] PI_E2E_SEED: staged notify driver → ${NOTIFY_EXT_DIR}"
   fi
 
   # Also seed pi's own settings.json defaultModel (read at pi startup) so the
@@ -346,17 +423,25 @@ JSON
 
     register_flows() {
       ln -sfn "${PF_GLOBAL}" "${NM}/pi-flows"
+      # Tool-name precedence is FIRST-registration-wins across packages[]
+      # (pi `ExtensionRunner.getAllRegisteredTools`). pi-flows registers its own
+      # `ask_user` ({question,type}) at LOAD time, so if it precedes the
+      # dashboard bridge every faux `ask_user` scenario fails schema validation
+      # and no interactive widget ever mounts. Pin the bridge FIRST so the
+      # dashboard's `ask_user` ({method,title}) is the one the agent calls.
+      # See change: split-notify-from-prompt-request.
       node -e '
         const fs = require("node:fs");
         const path = require("node:path");
-        const [p, dir] = process.argv.slice(1);
+        const [p, dir, bridge] = process.argv.slice(1);
         let s = {};
         try { s = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
         if (!Array.isArray(s.packages)) s.packages = [];
         if (!s.packages.includes(dir)) s.packages.push(dir);
+        s.packages = [bridge, ...s.packages.filter((e) => e !== bridge)];
         fs.mkdirSync(path.dirname(p), { recursive: true });
         fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
-      ' "${SETTINGS}" "${PF_GLOBAL}"
+      ' "${SETTINGS}" "${PF_GLOBAL}" "/app/packages/extension"
     }
 
     case "${PI_TEST_PEERS}" in
@@ -467,7 +552,12 @@ echo "[test-entrypoint] SMOKE PASSED → dashboard ready on http://localhost:${P
 # `--mode rpc` speaks JSON-RPC over stdio; with stdin closed it reads EOF and
 # exits immediately, so `tail -f /dev/null` holds the pipe open. `setsid` detaches
 # it from PID 1's process group so a restart cannot cascade into it.
-INDEPENDENT_LOG="${PI_DIR}/dashboard/independent-session.log"
+# PI_DIR is only assigned inside the PI_E2E_SEED block above, but this line is
+# evaluated unconditionally — so under `set -u` a plain (unseeded) test-up.sh
+# died here immediately after its own smoke reported "dashboard ready",
+# exiting 1 and failing every e2e health check. Default it the same way the
+# seed block does.
+INDEPENDENT_LOG="${PI_DIR:-${HOME:-/home/pi}/.pi}/dashboard/independent-session.log"
 # DEFAULT OFF. Enabled explicitly by tests/e2e/global-setup.ts (and by hand for
 # manual QA) because it adds a session card every spec would otherwise see.
 # The session registers as `source:"tui"`, survives `/api/restart`, and

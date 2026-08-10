@@ -27,6 +27,7 @@ CHECKS · FIX ROUTING · DERIVES-FROM** (+ a `<id>.knowledge.hash` sidecar).
 | `install-topology` | npm-global / Electron / Docker / dev + topology fixes |
 | `model-resolution` | model:resolve handler, roles/preset, @role resolvability |
 | `apple-tools` | iMCP (Apple PIM) provisioning state for the apple-tools plugin |
+| `oauth-redirect-base` | which OAuth redirect base won + its tier (reverse-proxy `redirect_uri_mismatch`) |
 
 ## How to route
 

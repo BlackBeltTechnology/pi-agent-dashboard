@@ -916,6 +916,47 @@ export function truncateOutputForDisplay(
  *
  * See change: fix-interactive-ui-reorder.
  */
+/**
+ * Append a notification as a chat row — and ONLY a chat row.
+ *
+ * A notify is not an unanswered ask, so it deliberately does NOT go through
+ * `addInteractiveRequest`: that helper also pushes an `interactiveRequests`
+ * entry, which is where the "user is blocked" semantics live. Chat position is
+ * preserved because it IS insertion order in `messages`.
+ *
+ * Dedup is by `notifyId`, never by message text: `replayNotifyLog` fires at
+ * both delta-subscribe sites, so a warm reconnect must not duplicate a row,
+ * while two distinct notifications with identical text must both render.
+ * See change: split-notify-from-prompt-request.
+ */
+export function addNotify(
+  state: SessionState,
+  notifyId: string,
+  message: string,
+  level?: string,
+): SessionState {
+  const id = `ui-${notifyId}`;
+  if (state.messages.some((m) => m.id === id)) return state;
+  return {
+    ...state,
+    messages: [
+      ...state.messages,
+      {
+        id,
+        role: "interactiveUi",
+        content: "notify",
+        timestamp: Date.now(),
+        args: {
+          requestId: notifyId,
+          method: "notify",
+          params: { message, ...(level === undefined ? {} : { level }) },
+          status: "pending",
+        } as any,
+      },
+    ],
+  };
+}
+
 export function addInteractiveRequest(
   state: SessionState,
   requestId: string,

@@ -78,4 +78,4 @@
 - [ ] 10.2 Both fixtures beat the 1.6 baseline on Recall@K, MRR, and duplicate-slot share; record the final table in the change folder
 - [ ] 10.3 Manual: run three real queries from the fixtures through the live tool and read the rendered pages — confirm no page is dominated by one source
 - [ ] 10.4 Restart the dashboard (`curl -X POST http://localhost:8000/api/restart`) and confirm `kb_search` behaves as specified in a live session
-- [ ] 10.5 Open a follow-up note on the deferred items: query-refinement hints, repointing `scripts/ab-context` at the mined real queries, and the un-measured fall-through rate
+- [ ] 10.5 Open a follow-up note on the deferred items: query-refinement hints, and the un-measured fall-through rate. Do NOT repoint `scripts/ab-context` at mined real queries — tested 2026-08-06, no effect (p=1.0); the gap is cold-single-turn vs warm-multi-turn, so the harness needs multi-turn warm-context fixtures or must be accepted as unable to gate this change (see ab-context-calibration.md)

@@ -4,6 +4,7 @@ import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
+import { logRejection } from "../../lib/report-error.js";
 
 /** Re-export for backward compat — consumers that imported this type */
 export interface DiscoveredServerInfo {
@@ -124,8 +125,8 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
     }
   }, []);
 
-  useEffect(() => { loadKnown(); }, [loadKnown]);
-  useEffect(() => { if (open) loadKnown(); }, [open, loadKnown]);
+  useEffect(() => { void loadKnown().catch(logRejection("ServerSelector.loadKnown")); }, [loadKnown]);
+  useEffect(() => { if (open) void loadKnown().catch(logRejection("ServerSelector.loadKnown")); }, [open, loadKnown]);
 
   // Build the display list. The `localhost` "Local" seed is gated on a
   // loopback page origin so remote clients never see a phantom localhost row.

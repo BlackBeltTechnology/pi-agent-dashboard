@@ -21,6 +21,7 @@ import { GatewayEndpoints } from "./GatewayEndpoints.js";
 import { GatewayPairQR } from "./GatewayPairQR.js";
 import { GatewayProviderSection } from "./GatewayProviderSection.js";
 import { GatewaySetupGuide } from "./GatewaySetupGuide.js";
+import { GatewayUrlManager } from "./GatewayUrlManager.js";
 
 export function GatewayPage() {
   const { t } = useI18n();
@@ -84,10 +85,15 @@ export function GatewayPage() {
       <GatewayPairQR />
 
       <Divider />
+      <GatewayUrlManager />
+
+      <Divider />
       <GatewayEndpoints />
 
       <Divider />
-      <GatewaySetupGuide provider={provider} />
+      {/* The page mounts GatewayUrlManager itself above, so the guide must not
+          render a second copy. See change: config-override-oauth-redirect-base. */}
+      <GatewaySetupGuide provider={provider} showGatewayUrls={false} />
 
       <Divider />
       <div>

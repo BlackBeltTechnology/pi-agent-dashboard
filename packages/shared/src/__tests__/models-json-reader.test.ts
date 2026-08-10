@@ -98,3 +98,38 @@ describe("flattenModelsJson — per-provider defensiveness (X1)", () => {
     expect(flattenModelsJson(42)).toEqual([]);
   });
 });
+
+/**
+ * pi 0.84.0 added advanced custom-model sampling: arbitrary OpenAI-compatible
+ * `samplingParams` (and opt-in vLLM `thinking_token_budget`) on a model config.
+ * `NativeModelEntry` is the dashboard's `models.json` shape, so the field must
+ * survive the read or a user's sampling config is silently dropped before it
+ * ever reaches pi.
+ *
+ * See change: update-pi-core-0-84-adopt-apis (task 8.3).
+ */
+describe("flattenModelsJson — samplingParams passthrough (pi 0.84.x)", () => {
+  it("carries samplingParams through the flattened entry", () => {
+    const out = flattenModelsJson({
+      providers: {
+        "my-vllm": {
+          models: [
+            {
+              id: "qwen",
+              contextWindow: 32768,
+              samplingParams: { top_k: 40, thinking_token_budget: 2048 },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(out).toHaveLength(1);
+    expect(out[0].samplingParams).toEqual({ top_k: 40, thinking_token_budget: 2048 });
+  });
+
+  it("leaves samplingParams undefined when the entry omits it", () => {
+    const out = flattenModelsJson({ providers: { p: { models: [{ id: "m" }] } } });
+    expect(out[0].samplingParams).toBeUndefined();
+  });
+});

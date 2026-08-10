@@ -31,7 +31,12 @@
         "noDuplicateCase": "error",
         "noFallthroughSwitchClause": "error",
         "noSelfCompare": "error",
-        "noExplicitAny": "warn"
+        "noExplicitAny": "warn",
+        "noImportCycles": "error"
+      },
+      "nursery": {
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error"
       },
       "correctness": {
         "noUnreachable": "error",
@@ -42,7 +47,8 @@
         "useValidTypeof": "error",
         "useExhaustiveDependencies": "warn",
         "noUnusedVariables": "warn",
-        "noUnusedImports": "warn"
+        "noUnusedImports": "warn",
+        "noUndeclaredDependencies": "error"
       },
       "security": {
         "noDangerouslySetInnerHtmlWithChildren": "error"
@@ -80,6 +86,42 @@
         "rules": {
           "suspicious": {
             "noExplicitAny": "off"
+          },
+          "correctness": {
+            "noUndeclaredDependencies": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/vitest.config.ts",
+        "**/vite.config.ts",
+        "**/vite.*.config.ts",
+        "**/forge.config.ts",
+        "packages/*/scripts/**"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUndeclaredDependencies": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "examples/**",
+        "openspec/changes/**/spike/**",
+        ".pi/flows/**",
+        "tests/e2e/**",
+        "qa/scripts/**",
+        ".pi/skills/**/scripts/**"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUndeclaredDependencies": "off"
           }
         }
       }

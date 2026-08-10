@@ -36,6 +36,16 @@ import {
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { initStore, useInitRun } from "../../lib/git/worktree-init-store.js";
 import { WorktreeInitChip } from "./WorktreeInitChip.js";
+import { logRejection } from "../../lib/report-error.js";
+
+/**
+ * Whether the hook-runner button itself renders (ignoring live-run feedback).
+ * Exported so `FolderActionBar` can decide it has nothing to show without
+ * duplicating the predicate. See change: add-folder-actions-menu (3.8).
+ */
+export function shouldShowWorktreeInitButton(status: WorktreeInitStatus | null): boolean {
+  return !!status && status.hasHook === true && (status.trusted === false || status.needsInit === true);
+}
 
 function describeRun(hook: WorktreeInitHook): string {
   return hook.run.type === "script"
@@ -73,7 +83,9 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
   useEffect(() => {
     if (rowOwnsProbe) return;
     let alive = true;
-    fetchWorktreeInitStatus(cwd).then((s) => { if (alive) setInternalStatus(s); });
+    void fetchWorktreeInitStatus(cwd)
+      .then((s) => { if (alive) setInternalStatus(s); })
+      .catch(logRejection("WorktreeInitButton.fetchStatus"));
     return () => { alive = false; };
   }, [cwd, rowOwnsProbe]);
 
@@ -105,7 +117,7 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
   }, [cwd, refetch]);
 
   // Show when init is needed, OR when a hook exists but isn't trusted yet.
-  const showButton = !!status && status.hasHook === true && (status.trusted === false || status.needsInit === true);
+  const showButton = shouldShowWorktreeInitButton(status);
   // Re-trust label: hook edited (trusted:false) but gate already satisfied.
   const reTrust = !!status && status.hasHook === true && status.trusted === false && status.needsInit === false;
   const label = reTrust ? "Review & trust changes" : "Initialize";

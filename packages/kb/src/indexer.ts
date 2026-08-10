@@ -68,12 +68,12 @@ function walk(dir: string, base: string, out: string[] = []): string[] {
   return out;
 }
 
-function docTypeOf(rel: string, includeSourceMarkdown: boolean): DocType {
+export function docTypeOf(rel: string, includeSourceMarkdown: boolean): DocType {
   const base = rel.split("/").pop() ?? "";
   // `<File>.AGENTS.md` = per-file index sidecar (large-row promotion). Classified
   // `agents` so it is searchable, but its name != "AGENTS.md" so pi's native
   // up-walk never auto-injects it (pull-only via kb search).
-  if (base === "AGENTS.md" || base === "CLAUDE.md" || base.endsWith(".AGENTS.md")) return "agents";
+  if (base === "AGENTS.override.md" || base === "AGENTS.md" || base === "CLAUDE.md" || base.endsWith(".AGENTS.md")) return "agents";
   if (includeSourceMarkdown && /(^|\/)(src|lib|app|packages)\//.test(rel)) return "source-md";
   return "doc";
 }

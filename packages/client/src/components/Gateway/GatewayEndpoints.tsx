@@ -4,14 +4,14 @@
  * **Add HTTPS URL** control (task 6.4).
  *
  * Add-HTTPS write path (D4, no bespoke route): re-read the current config,
- * append the entered URL to `pairing.publicBaseUrls` preserving siblings, and
- * PUT the FULL `pairing` object through the auth-gated `PUT /api/config`
- * (`writeConfigPartial` shallow-overwrites `pairing`). On success, re-fetch the
- * endpoint list so the new URL appears in "Accessible at" and — when TLS — the
- * pairing QR. The `https`/`wss` gate is UX-only here; the server drops plain
- * http at read time regardless.
+ * append the entered URL to the top-level `publicBaseUrls` (seeded from the
+ * legacy `pairing.publicBaseUrls` on the first such write), and PUT that list
+ * through the auth-gated `PUT /api/config`. On success, re-fetch the endpoint
+ * list so the new URL appears in "Accessible at" and — when TLS — the pairing
+ * QR. The `https`/`wss` gate is UX-only here; the server drops plain http at
+ * read time regardless.
  *
- * See change: add-tunnel-providers.
+ * See changes: add-tunnel-providers, config-override-oauth-redirect-base.
  */
 
 import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
@@ -19,7 +19,11 @@ import { mdiCheck, mdiContentCopy, mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useState } from "react";
 import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
-import { appendPublicBaseUrl, isSecureBaseUrl, type PairingConfigShape } from "../../lib/gateway/gateway-config-ops.js";
+import {
+  appendPublicBaseUrl,
+  isSecureBaseUrl,
+  type PublicBaseUrlsConfigShape,
+} from "../../lib/gateway/gateway-config-ops.js";
 import { getGatewayEndpoints } from "../../lib/gateway/gateway-endpoints.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 
@@ -117,11 +121,9 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
     }
     setSaving(true);
     try {
-      // Re-read immediately before PUT to shrink the shallow-overwrite window.
-      const cfg = await getConfig();
-      const pairing = (cfg.pairing as PairingConfigShape | undefined) ?? {};
-      const nextPairing = appendPublicBaseUrl(pairing, url);
-      await putConfig({ pairing: nextPairing });
+      // Re-read immediately before PUT to shrink the lost-update window.
+      const cfg = (await getConfig()) as PublicBaseUrlsConfigShape;
+      await putConfig(appendPublicBaseUrl(cfg, url));
       setDraft("");
       await refresh();
     } catch (e) {

@@ -46,11 +46,13 @@ import { flipHasUI } from "./hasui-flip.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, defaultReadPiVersion } from "./model-tracker.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
+import { createNotifyProxy } from "./notify-proxy.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
 import { getOwnPgid, scanChildProcesses } from "./process-scanner.js";
 import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
+import { reportRefresh } from "./model-refresh.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
@@ -66,6 +68,7 @@ import { inlineToolResultImages } from "./tool-result-image-inliner.js";
 import { createTuiPromptAdapter } from "./tui-prompt-adapter.js";
 import { classifyTurnActionability } from "./turn-actionability.js";
 import { handleUiManagement, refreshUiModules, subscribeUiInvalidate, type UiModulesBridgeCtx } from "./ui-modules.js";
+import { runUiSafely } from "./ui-stale-guard.js";
 import { detectIsGitRepo } from "./vcs-info.js";
 import { buildVisibilityRegisterFields } from "./visibility-intent.js";
 
@@ -423,7 +426,10 @@ function initBridge(pi: ExtensionAPI) {
    * `executor` returns, pi's `finishRun()` flips `isStreaming = false` and
    * `activeRun = undefined`. After that point, anything queued into pi's
    * internal followUpQueue NEVER drains — pi has stopped reading it.
-   * (Verified at pi-coding-agent pi-agent-core/agent.js:307-330.)
+   * (Verified at pi-coding-agent pi-agent-core/agent.js: `finishRun()` clears
+   * `isStreaming` + `activeRun`, and `getFollowUpMessages` is only supplied to
+   * the loop while a run is active. Re-verified against pi 0.84.1 — behaviour
+   * unchanged, line numbers moved. See change: update-pi-core-0-84-adopt-apis.)
    *
    * Two retry loops handle the transition window correctly:
    *  - retryCount tracks how many setTimeout retries we've done
@@ -766,7 +772,21 @@ function initBridge(pi: ExtensionAPI) {
             );
           }
           cachedModelRegistry?.authStorage?.reload?.();
-          cachedModelRegistry?.refresh?.();
+          // pi 0.84.0: refresh() takes ModelsRefreshOptions and returns
+          // { aborted, errors }. Await + inspect it so getAvailable() below
+          // sees the refreshed catalogue and a per-provider failure is
+          // reported rather than silently dropped. Scope the refresh to the
+          // providers this reload actually touched -- an unrelated provider's
+          // catalogue has no reason to be re-fetched because one credential
+          // changed. Empty scope (removals only) => refresh nothing.
+          // See change: update-pi-core-0-84-adopt-apis.
+          const touched = [...new Set([...diff.added, ...diff.changed])];
+          if (touched.length > 0) {
+            await reportRefresh(
+              cachedModelRegistry?.refresh?.({ providers: touched }),
+              `credentials reload refresh (${touched.join(", ")})`,
+            );
+          }
         } catch (err) { console.error("[dashboard] credentials reload failed:", err); }
         // Push updated models list to dashboard client
         if (cachedModelRegistry && sessionReady) {
@@ -2313,18 +2333,13 @@ function initBridge(pi: ExtensionAPI) {
           }
         });
 
-      // Notify is fire-and-forget: call original + forward to dashboard
-      (ctx.ui as any).notify = (message: string, level?: string) => {
-        originalNotify?.(message, level);
-        connection.send({
-          type: "prompt_request" as any,
-          sessionId,
-          promptId: crypto.randomUUID(),
-          prompt: { question: message, type: "notify" },
-          component: { type: "notify", props: { message, level } },
-          placement: "inline",
-        });
-      };
+      // Notify is fire-and-forget: call original + forward to dashboard on the
+      // dedicated `notify` channel. See change: split-notify-from-prompt-request.
+      (ctx.ui as any).notify = createNotifyProxy({
+        sessionId,
+        send: (msg) => connection.send(msg),
+        originalNotify,
+      });
     }
 
     // Flip ctx.hasUI=true now that ctx.ui.* has been patched to route
@@ -2531,25 +2546,31 @@ function initBridge(pi: ExtensionAPI) {
     let spinnerStart = 0;
     let activeLoader: Loader | null = null;
     const stopSpinner = () => {
+      // Release the interval BEFORE the guarded ctx.ui call, so a stale ctx
+      // still stops the 1s label refresh instead of leaking it.
       if (spinnerTimer) {
         clearInterval(spinnerTimer);
         spinnerTimer = null;
       }
       activeLoader = null;
-      ctx.ui.setWidget("pi-dashboard-launch", undefined);
+      // This runs from `onLaunchEnd` AND from the terminal .then()/.catch()
+      // below, either of which can land after a session replacement/reload has
+      // invalidated `ctx`. See ui-stale-guard.ts.
+      runUiSafely(() => ctx.ui.setWidget("pi-dashboard-launch", undefined));
     };
     autoStartServer(config, {
       discoverDashboard,
       isDashboardRunning,
       launchServer,
-      notify: (msg, level) => ctx.ui.notify(msg, level),
+      notify: (msg, level) => runUiSafely(() => ctx.ui.notify(msg, level)),
       onLaunchStart: () => {
         spinnerStart = Date.now();
         const buildMessage = () => {
           const elapsed = Math.floor((Date.now() - spinnerStart) / 1000);
           return `starting dashboard server … (${elapsed}s)`;
         };
-        ctx.ui.setWidget(
+        runUiSafely(() =>
+          ctx.ui.setWidget(
           "pi-dashboard-launch",
           (tui: unknown, theme: { fg: (role: string, s: string) => string }) => {
             const loader = new Loader(
@@ -2565,6 +2586,7 @@ function initBridge(pi: ExtensionAPI) {
             return loader;
           },
           { placement: "aboveEditor" },
+          ),
         );
         // Refresh the elapsed-seconds label every second. Frame animation is
         // driven by the Loader's own 80ms interval.

@@ -4,9 +4,9 @@
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
-import jwt from "jsonwebtoken";
 import type { AuthConfig, AuthProviderConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import jwt from "jsonwebtoken";
 import { getTunnelUrl } from "../tunnel/tunnel.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -212,9 +212,133 @@ export function isUserAllowed(email: string, username: string, allowedUsers?: st
 
 // ─── Redirect URI Builder ───────────────────────────────────────────────────
 
-export function buildRedirectUri(provider: string, port: number): string {
-  const base = getTunnelUrl() ?? `http://localhost:${port}`;
-  return `${base}/auth/callback/${provider}`;
+/**
+ * Build the OAuth redirect URI for a provider.
+ *
+ * Base precedence (highest first): explicit `baseOverride` (from config file
+ * `auth.redirectBaseUrl`) → active tunnel URL → `http://localhost:<port>`.
+ */
+/**
+ * Report a `auth.redirectBaseUrl` that is not an absolute `http(s)` origin.
+ *
+ * The value is deliberately still USED by `buildRedirectUri` — dropping it
+ * would turn a typo into a silent no-op ("my setting does nothing"), which is
+ * harder to diagnose than a redirect the provider visibly rejects. Warning and
+ * proceeding keeps the operator in control while making the misconfiguration
+ * observable in the server log. See change: config-override-oauth-redirect-base
+ * (design D4).
+ *
+ * Returns true when the base is valid (or absent), false when it warned.
+ */
+/**
+ * Strip anything secret-bearing from a configured URL before it is logged.
+ *
+ * A misconfigured base is echoed back so the operator can spot their typo, but
+ * the raw string can carry a password (`user:pw@host`) or a token in the query
+ * (`?token=...`) / fragment. Redaction MUST live here rather than in any single
+ * validation branch: a value with both userinfo and a query trips whichever
+ * check runs first, so a per-branch guard would simply not run.
+ *
+ * Operates on the RAW string rather than rebuilding from a parsed `URL`, for two
+ * reasons: the values that most need diagnosing are the ones that do NOT parse
+ * (`pi.example.com`, `//evil.example.com`), and rebuilding mangles exotic-but-
+ * informative values (`javascript:alert(1)`). Only the secret-bearing parts are
+ * replaced — scheme, host, path, and query KEYS survive, so the warning still
+ * shows the operator which value is at fault.
+ */
+function redactUrlForLog(raw: string): string {
+  return (
+    raw
+      // password in userinfo → keep the username, mask the secret
+      .replace(/\/\/([^/@\s:]*):([^/@\s]*)@/, "//$1:***@")
+      // query VALUES → keys are diagnostic, values can be tokens
+      .replace(/([?&][^=&#\s]+)=[^&#\s]*/g, "$1=<redacted>")
+      // fragment payload → can carry an implicit-flow access_token
+      .replace(/#(.+)$/, "#<redacted>")
+  );
+}
+
+export function warnOnInvalidRedirectBase(base: string | null | undefined): boolean {
+  if (!base) return true;
+
+  const complain = (reason: string) =>
+    console.warn(
+      `⚠️  auth.redirectBaseUrl ${reason}: "${redactUrlForLog(base)}" — OAuth redirect URIs built from it will be rejected by the provider`,
+    );
+
+  let parsed: URL;
+  try {
+    parsed = new URL(base);
+  } catch {
+    complain("is not an absolute URL (missing scheme?)");
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    complain(`must use http or https, got "${parsed.protocol}"`);
+    return false;
+  }
+  // Test the RAW string, not the parsed fields: `new URL("https://h?").search`
+  // is the empty string, so a `parsed.search || parsed.hash` check passes a bare
+  // delimiter — and the delimiter still survives into the built URI, yielding
+  // `https://h?/auth/callback/github`. Reported by CodeRabbit on PR #409.
+  if (parsed.search || parsed.hash || /[?#]/.test(base)) {
+    complain("must not carry a query string or fragment");
+    return false;
+  }
+  // Userinfo passes every check above (right protocol, no query, no fragment) yet
+  // travels in the authorize URL's `redirect_uri` parameter — landing the
+  // credentials in the provider's request logs and the user's browser history.
+  // The warning names the leak rather than saying "invalid URL", because the
+  // hazard is not obvious from the value alone.
+  // See change: config-override-oauth-redirect-base (design D4 amendment).
+  if (parsed.username || parsed.password) {
+    console.warn(
+      `⚠️  auth.redirectBaseUrl embeds credentials ("${redactUrlForLog(base)}") — ` +
+        "they would leak into the authorize URL, the provider's logs and the browser history; " +
+        "remove the user:password@ prefix",
+    );
+    return false;
+  }
+  return true;
+}
+
+/** Which tier of the precedence chain produced the redirect base. */
+export type RedirectBaseSource = "auth.redirectBaseUrl" | "tunnel" | "localhost";
+
+/**
+ * Resolve the redirect base AND report which tier won.
+ *
+ * `buildRedirectUri` only returns the finished URI, which is not enough for two
+ * callers: the session cookie needs to know whether the public origin is https
+ * (design D14), and the diagnostics surface needs to tell an operator which
+ * setting actually took effect (design D10). Both derive from this one function
+ * so they can never disagree with the URI the provider is sent.
+ *
+ * See change: config-override-oauth-redirect-base.
+ */
+export function resolveRedirectBase(
+  port: number,
+  baseOverride?: string | null,
+): { base: string; source: RedirectBaseSource } {
+  // `||` not `??` — an empty string means "absent" here exactly as it does in
+  // buildRedirectUri (design D1); the two MUST agree or the cookie flag and the
+  // minted URI could describe different origins.
+  const tunnel = getTunnelUrl();
+  const raw = baseOverride || tunnel || `http://localhost:${port}`;
+  const source: RedirectBaseSource = baseOverride
+    ? "auth.redirectBaseUrl"
+    : tunnel
+      ? "tunnel"
+      : "localhost";
+  return { base: raw.replace(/\/+$/, ""), source };
+}
+
+export function buildRedirectUri(
+  provider: string,
+  port: number,
+  baseOverride?: string | null,
+): string {
+  return `${resolveRedirectBase(port, baseOverride).base}/auth/callback/${provider}`;
 }
 
 // ─── OAuth Flow Helpers ─────────────────────────────────────────────────────

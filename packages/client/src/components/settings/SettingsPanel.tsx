@@ -5,10 +5,9 @@ import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-das
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
-import { useDebugToolsVisible } from "../../hooks/useDebugToolsVisible.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
@@ -48,6 +47,7 @@ import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.j
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
+import { logRejection } from "../../lib/report-error.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -70,6 +70,11 @@ interface AuthConfig {
   allowedUsers?: string[];
   bypassUrls?: string[];
   bypassHosts?: string[];
+  /**
+   * Public origin OAuth providers call back to, overriding the tunnel /
+   * localhost base. See change: config-override-oauth-redirect-base.
+   */
+  redirectBaseUrl?: string;
 }
 
 interface MemoryLimitsConfig {
@@ -163,7 +168,7 @@ const CONFIG_FIELD_PAGE: Record<string, string> = {
   tunnel: "server", memoryLimits: "server",
   spawnStrategy: "sessions", reattachPlacement: "sessions", reopenSessionsAfterShutdown: "sessions", completedFirst: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions",
-  gitWorktreeEnabled: "sessions", dashboardName: "sessions", defaultModel: "sessions",
+  gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
   trustedNetworks: "security", auth: "security",
   modelProxy: "providers",
@@ -1028,11 +1033,32 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     {t("settings.interfaceDescription", undefined, "Choose the dashboard interface language. The selection is saved in this browser.")}
                   </p>
                   <SelectField
+                    hint={i18nT("settings.hint.uiLanguage", undefined, "UI language for the dashboard. Session content is never translated.")}
                     label={t("settings.language", undefined, "Language")}
                     value={language}
                     options={LANGUAGE_OPTIONS}
                     onChange={(v) => setLanguage(v as Language)}
                   />
+                  {/* Moved here from Sessions: it names the installed PWA, which
+                      is an interface concern, not a session one. Its
+                      CONFIG_FIELD_PAGE entry moved to "general" in the same
+                      change so the Save Bar chip follows it.
+                      See change: reorganize-settings-pages-and-descriptions. */}
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("landing.pwaDisplayName", undefined, "PWA Display Name")}</label>
+                      <input
+                        type="text"
+                        className="w-56 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
+                        placeholder={i18nT("common.autoFromHostname", undefined, "(auto from hostname)")}
+                        value={config.dashboardName ?? ""}
+                        onChange={(e) => update((c) => { c.dashboardName = e.target.value; })}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("landing.shownOnTheHomeScreenApp", undefined, "Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request")} <code>{i18nT("common.host", undefined, "Host")}</code> {i18nT("common.headerOrTheServerHostnameDistinguishe", undefined, "header (or the server hostname). Distinguishes installs from multiple machines or tunnels.")}
+                    </p>
+                  </div>
                 </Section>
                 <DisplayPrefsSection />
               </>
@@ -1040,26 +1066,31 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
             {activeTab === "server" && (
               <>
-                <Section title={i18nT("common.server", undefined, "Server")}>
-                  <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} />
-                  <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} />
+                <Section title={t("settings.ports", undefined, "Ports")}>
+                  <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} hint={i18nT("settings.hint.httpPort", undefined, "Port the dashboard web UI and REST API listen on. Changing it needs a restart and breaks bookmarked URLs. Default 8000.")} />
+                  <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} hint={i18nT("settings.hint.piGatewayPort", undefined, "Port pi sessions connect their bridge WebSocket to. Must be free and reachable from every machine running pi. Default 8001.")} />
                   <ListenInterfaceField
                     bindHost={config.bindHost ?? "127.0.0.1"}
                     hasGuardConfig={hasGuardConfig(config)}
                     onChange={(v) => update((c) => { c.bindHost = v; })}
                   />
-                  <ToggleField label={t("settings.autoShutdown", undefined, "Auto Shutdown")} value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} />
+                </Section>
+                <Section title={t("settings.idleShutdown", undefined, "Idle shutdown")}>
+                  <ToggleField label={t("settings.autoShutdown", undefined, "Auto Shutdown")} value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} hint={i18nT("settings.hint.autoShutdown", undefined, "Stop the server once no session has been active for the window below. Off keeps it running forever.")} />
                   {config.autoShutdown && (
-                    <NumberField label={i18nT("status.idleSecondsBeforeShutdown", undefined, "Idle Seconds Before Shutdown")} value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} />
+                    <GatedGroup>
+                      <NumberField label={i18nT("status.idleSecondsBeforeShutdown", undefined, "Idle before shutdown")} unit="s" value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} hint={i18nT("settings.hint.idleBeforeShutdown", undefined, "Idle time before shutting down. Counts from the last session event, not the last page view.")} />
+                    </GatedGroup>
                   )}
                 </Section>
                 <Section title={t("settings.tunnel", undefined, "Gateway")}>
-                  <ToggleField label={t("settings.enableZrokTunnel", undefined, "Enable Gateway")} value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} />
+                  <ToggleField label={t("settings.enableZrokTunnel", undefined, "Enable Gateway")} value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} hint={i18nT("settings.hint.enableGateway", undefined, "Expose the dashboard through a public tunnel.")} />
                   <div className="mt-3 pt-3 border-t border-[var(--border-secondary)] space-y-2">
                     <p className="text-xs text-[var(--text-tertiary)]">
                       {i18nT("tunnel.watchdogProbesThePublicTunnelUrl", undefined, "Watchdog probes the public Gateway URL periodically and recycles it after consecutive failures (e.g. a zrok edge returning 502).")}
                     </p>
                     <ToggleField
+                      hint={i18nT("settings.hint.enableWatchdog", undefined, "Probe the tunnel on a timer and restart it when it stops answering. Off leaves a dead tunnel dead until you notice.")}
                       label={t("settings.enableWatchdog", undefined, "Enable Watchdog")}
                       value={config.tunnel.watchdog?.enabled ?? true}
                       onChange={(v) => update((c) => {
@@ -1072,7 +1103,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       })}
                     />
                     <NumberField
-                      label={t("settings.probeInterval", undefined, "Probe Interval (seconds)")}
+                      hint={i18nT("settings.hint.probeInterval", undefined, "Time between tunnel health probes. Lower detects a dead tunnel sooner and costs more requests.")}
+                      label={t("settings.probeInterval", undefined, "Probe interval")}
+                      unit="s"
                       value={Math.round((config.tunnel.watchdog?.intervalMs ?? 60000) / 1000)}
                       onChange={(v) => update((c) => {
                         c.tunnel.watchdog = {
@@ -1084,6 +1117,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       })}
                     />
                     <NumberField
+                      hint={i18nT("settings.hint.failureThreshold", undefined, "Consecutive failed probes before the watchdog restarts the tunnel. Raise it on a flaky network to avoid needless restarts.")}
                       label={i18nT("settings.failureThreshold", undefined, "Failure Threshold")}
                       value={config.tunnel.watchdog?.failureThreshold ?? 2}
                       onChange={(v) => update((c) => {
@@ -1096,7 +1130,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       })}
                     />
                     <NumberField
-                      label={t("settings.probeTimeout", undefined, "Probe Timeout (seconds)")}
+                      hint={i18nT("settings.hint.probeTimeout", undefined, "How long a single probe waits for an answer before counting as a failure.")}
+                      label={t("settings.probeTimeout", undefined, "Probe timeout")}
+                      unit="s"
                       value={Math.round((config.tunnel.watchdog?.probeTimeoutMs ?? 10000) / 1000)}
                       onChange={(v) => update((c) => {
                         c.tunnel.watchdog = {
@@ -1114,6 +1150,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     {t("settings.memoryLimitsDescription", undefined, "Controls for bounding server memory usage. Set to 0 to disable a limit. Requires server restart.")}
                   </p>
                   <NumberField
+                    hint={i18nT("settings.hint.maxEventsPerSession", undefined, "Ring-buffer size per session. Older events are trimmed from the middle so the chat head survives. 0 = unlimited (grows without bound).")}
                     label={i18nT("session.maxEventsPerSession", undefined, "Max Events Per Session")}
                     value={config.memoryLimits?.maxEventsPerSession ?? 200}
                     onChange={(v) => update((c) => {
@@ -1122,7 +1159,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     })}
                   />
                   <NumberField
-                    label={i18nT("settings.maxStringTruncationChars", undefined, "Max String Truncation (chars)")}
+                    hint={i18nT("settings.hint.maxStringTruncation", undefined, "Cut long strings inside stored events to this length. 0 = never truncate. Relieve memory pressure here before lowering the event cap.")}
+                    label={i18nT("settings.maxStringTruncationChars", undefined, "Max string truncation")}
+                    unit="chars"
                     value={config.memoryLimits?.maxStringFieldSize ?? 4000}
                     onChange={(v) => update((c) => {
                       if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
@@ -1130,7 +1169,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     })}
                   />
                   <NumberField
-                    label={i18nT("settings.maxWebsocketBufferBytes", undefined, "Max WebSocket Buffer (bytes)")}
+                    hint={i18nT("settings.hint.maxWsBuffer", undefined, "Once a browser's outgoing buffer exceeds this, messages are dropped rather than queued — protects the server from one slow client. 0 = no limit.")}
+                    label={i18nT("settings.maxWebsocketBufferBytes", undefined, "Max WebSocket buffer")}
+                    unit="bytes"
                     value={config.memoryLimits?.maxWsBufferBytes ?? 4194304}
                     onChange={(v) => update((c) => {
                       if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
@@ -1143,76 +1184,91 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
             {activeTab === "sessions" && (
               <>
-                <Section title={t("settings.sessions", undefined, "Sessions")}>
+                <Section title={t("settings.newSessionDefaults", undefined, "New session defaults")}>
+                  {/* defaultModel is the setting that decides what every new session IS,
+                      so it leads the page in an info callout instead of sitting near the
+                      bottom. The caveat is the one the bridge already enforces.
+                      See change: reorganize-settings-pages-and-descriptions. */}
+                  <div className="rounded border px-3 py-2.5 bg-[var(--severity-info-bg)] border-[var(--severity-info-border)]">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-[var(--severity-info-fg)]">{t("settings.defaultModel", undefined, "Default model")}</label>
+                      <ModelSelector
+                        current={config.defaultModel || undefined}
+                        models={availableModels}
+                        onSelect={(v) => update((c) => { c.defaultModel = v; })}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("settings.hint.defaultModel", undefined, "Applied only to brand-new sessions. A resumed session keeps the model it was started with. Leave empty to use pi's own default.")}
+                    </p>
+                  </div>
                   <SelectField
+                    hint={i18nT("settings.hint.sessionStrategy", undefined, "How +Session launches pi. Tmux keeps an attachable terminal you can join from a shell; headless runs detached and is lighter.")}
                     label={t("settings.spawnStrategy", undefined, "+Session Strategy")}
                     value={config.spawnStrategy}
                     options={[{ value: "headless", label: "Headless" }, { value: "tmux", label: "Tmux" }]}
                     onChange={(v) => update((c) => { c.spawnStrategy = v; })}
                   />
-                  <div>
-                    <SelectField
-                      label={i18nT("common.reattachPlacement", undefined, "Reattach Placement")}
-                      value={config.reattachPlacement ?? "always"}
-                      options={[
-                        { value: "always", label: "Always move to top (default)" },
-                        { value: "streaming-only", label: "Only when streaming" },
-                        { value: "preserve", label: "Preserve drag order" },
-                      ]}
-                      onChange={(v) => update((c) => { c.reattachPlacement = v as "preserve" | "streaming-only" | "always"; })}
-                    />
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("common.whenTheDashboardRestartsAndA", undefined, "When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.")}
-                    </p>
-                  </div>
-                  <div>
-                    <SelectField
-                      label={i18nT("session.reopenSessionsAfterShutdown", undefined, "Reopen sessions after shutdown")}
-                      value={config.reopenSessionsAfterShutdown ?? "ask"}
-                      options={[
-                        { value: "ask", label: "Ask (default)" },
-                        { value: "auto", label: "Reopen automatically" },
-                        { value: "off", label: "Never" },
-                      ]}
-                      onChange={(v) => update((c) => { c.reopenSessionsAfterShutdown = v as "off" | "ask" | "auto"; })}
-                    />
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("session.whenSessionsWereRunningAtShutdown", undefined, "When sessions were running when the machine shut down or crashed, offer to reopen them on next launch. Ask shows a prompt; Auto reopens them silently; Never ignores them.")}
-                    </p>
-                  </div>
-                  <div>
-                    <ToggleField
-                      label={i18nT("session.putCompletedSessionFirst", undefined, "Put completed session first")}
-                      value={config.completedFirst ?? false}
-                      onChange={(v) => update((c) => { c.completedFirst = v; })}
-                    />
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("session.whenASessionFinishesATurn", undefined, "When a session finishes a turn or ends, move its card to the top of its tier (active, resp. ended). Off keeps the card in place.")}
-                    </p>
-                  </div>
-                  <div>
-                    <ToggleField
-                      label={i18nT("session.putQuestionSessionFirst", undefined, "Put question session first")}
-                      value={config.questionFirst ?? false}
-                      onChange={(v) => update((c) => { c.questionFirst = v; })}
-                    />
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("session.whenASessionAsksAQuestion", undefined, "When a session asks a question (ask_user), move its card to the top of the active tier. Off keeps the card in place.")}
-                    </p>
-                  </div>
-                  <div>
-                    <NumberField
-                      label={i18nT("session.askUserPromptTimeoutSeconds", undefined, "ask_user Prompt Timeout (seconds)")}
-                      value={config.askUserPromptTimeoutSeconds ?? 300}
-                      onChange={(v) => update((c) => { c.askUserPromptTimeoutSeconds = v; })}
-                    />
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("session.howLongAnInteractiveAskUser", undefined, "How long an interactive ask_user prompt waits for an answer before auto-cancelling. Use")} <code>-1</code> (or <code>0</code>{i18nT("common.toWaitForeverDefault3005", undefined, ") to wait forever. Default: 300 (5 min).")}
-                    </p>
-                  </div>
+                  <AutoNameSessionsToggle
+                    hint={<>
+                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic using the fast model.")}
+                    </>}
+                  />
+                </Section>
+                <Section title={t("settings.sessionList", undefined, "Session list")}>
+                  <SelectField
+                    label={i18nT("common.reattachPlacement", undefined, "Reattach Placement")}
+                    value={config.reattachPlacement ?? "always"}
+                    options={[
+                      { value: "always", label: "Always move to top (default)" },
+                      { value: "streaming-only", label: "Only when streaming" },
+                      { value: "preserve", label: "Preserve drag order" },
+                    ]}
+                    onChange={(v) => update((c) => { c.reattachPlacement = v as "preserve" | "streaming-only" | "always"; })}
+                    hint={i18nT("common.whenTheDashboardRestartsAndA", undefined, "When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.")}
+                  />
+                  <ToggleField
+                    label={i18nT("session.putCompletedSessionFirst", undefined, "Put completed session first")}
+                    value={config.completedFirst ?? false}
+                    onChange={(v) => update((c) => { c.completedFirst = v; })}
+                    hint={i18nT("session.whenASessionFinishesATurn", undefined, "When a session finishes a turn or ends, move its card to the top of its tier (active, resp. ended). Off keeps the card in place.")}
+                  />
+                  <ToggleField
+                    label={i18nT("session.putQuestionSessionFirst", undefined, "Put question session first")}
+                    value={config.questionFirst ?? false}
+                    onChange={(v) => update((c) => { c.questionFirst = v; })}
+                    hint={i18nT("session.whenASessionAsksAQuestion", undefined, "When a session asks a question (ask_user), move its card to the top of the active tier. Off keeps the card in place.")}
+                  />
+                </Section>
+                <Section title={t("settings.lifecycleRecovery", undefined, "Lifecycle & recovery")}>
+                  <SelectField
+                    label={i18nT("session.reopenSessionsAfterShutdown", undefined, "Reopen sessions after shutdown")}
+                    value={config.reopenSessionsAfterShutdown ?? "ask"}
+                    options={[
+                      { value: "ask", label: "Ask (default)" },
+                      { value: "auto", label: "Reopen automatically" },
+                      { value: "off", label: "Never" },
+                    ]}
+                    onChange={(v) => update((c) => { c.reopenSessionsAfterShutdown = v as "off" | "ask" | "auto"; })}
+                    hint={i18nT("session.whenSessionsWereRunningAtShutdown", undefined, "When sessions were running when the machine shut down or crashed, offer to reopen them on next launch. Ask shows a prompt; Auto reopens them silently; Never ignores them.")}
+                  />
+                  <NumberField
+                    label={i18nT("session.askUserPromptTimeoutSeconds", undefined, "ask_user prompt timeout")}
+                    unit="s"
+                    value={config.askUserPromptTimeoutSeconds ?? 300}
+                    onChange={(v) => update((c) => { c.askUserPromptTimeoutSeconds = v; })}
+                    hint={<>{i18nT("session.howLongAnInteractiveAskUser", undefined, "How long an interactive ask_user prompt waits for an answer before auto-cancelling. Use")} <code>-1</code> (or <code>0</code>{i18nT("common.toWaitForeverDefault3005", undefined, ") to wait forever. Default: 300 (5 min).")}</>}
+                  />
                   <div>
                     <div className="flex items-center justify-between">
-                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("session.sessionRegisterTimeoutMs", undefined, "+Session register timeout (ms)")}</label>
+                      {/* Bespoke control: label/unit cleanup only, never a swap
+                          for the shared NumberField (D3). The unit chip mirrors
+                          FieldShell's so it reads the same, and the "+Session"
+                          prefix stays because it names the spawn button (D10). */}
+                      <label className="text-sm text-[var(--text-secondary)]">
+                        {i18nT("session.sessionRegisterTimeoutMs", undefined, "+Session register timeout")}
+                        <span className="ml-1.5 px-1 py-0.5 rounded text-[10px] align-middle bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">ms</span>
+                      </label>
                       <input
                         type="number"
                         className={`w-28 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right ${
@@ -1236,75 +1292,45 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
                     </p>
                   </div>
-                  <div>
-                    <ToggleField
-                      label={i18nT("worktree.showWorktreeSpawnButtonsInFolders", undefined, "Show worktree spawn buttons in folders and OpenSpec rows")}
-                      value={config.gitWorktreeEnabled ?? true}
-                      onChange={(v) => update((c) => { c.gitWorktreeEnabled = v; })}
-                    />
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                </Section>
+                <Section title={t("settings.worktrees", undefined, "Worktrees")}>
+                  <ToggleField
+                    label={i18nT("worktree.showWorktreeSpawnButtonsInFolders", undefined, "Show worktree spawn buttons in folders and OpenSpec rows")}
+                    value={config.gitWorktreeEnabled ?? true}
+                    onChange={(v) => update((c) => { c.gitWorktreeEnabled = v; })}
+
+                    hint={<>
                       {i18nT("folders.uiPreferenceOnlyHidesTheFolder", undefined, "UI preference only. Hides the folder")} <code>+Worktree</code> {i18nT("common.buttonAndThePerChange", undefined, "button and the per-change")} <code>⥂2+</code> {i18nT("openspec.buttonOnOpenspecRowsThe", undefined, "button on OpenSpec rows. The")} <code>/api/git/worktree*</code> {i18nT("common.restEndpointsStayReachableForTooling", undefined, "REST endpoints stay reachable for tooling. Default on.")}
-                    </p>
-                  </div>
-                  <div>
-                    <AutoNameSessionsToggle />
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic using the fast model.")}
-                    </p>
-                  </div>
-                  <div>
-                    <WorktreeAutoInitToggle />
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                    </>}
+                  />
+                  <WorktreeAutoInitToggle
+                    hint={<>
                       {i18nT("worktree.afterSpawningAWorktreeAutoRun", undefined, "After spawning a worktree, automatically run its declared")} <code>worktreeInit</code> {i18nT("common.hookOnlyWhenAlreadyTrusted", undefined, "hook — only when the hook is already trusted. Untrusted hooks still require a manual Initialize click to grant trust. Default off.")}
-                    </p>
-                  </div>
+                    </>}
+                  />
                   {/* Windows-only: bundled-vs-host git & bash. Hidden on
                       macOS/Linux (gitSourceReadout null). See change:
                       embed-git-bash-on-windows. */}
                   {gitSourceReadout && (
-                    <div>
-                      <SelectField
-                        label={i18nT("git.gitBashSource", undefined, "Git & Bash source (Windows)")}
-                        value={config.windowsGitSource ?? "auto"}
-                        options={[
-                          { value: "auto", label: "Auto — host when installed, else bundled (default)" },
-                          { value: "host", label: "Host only — use the installed Git for Windows" },
-                          { value: "bundled", label: "Bundled only — always use the shipped git" },
-                        ]}
-                        onChange={(v) => update((c) => { c.windowsGitSource = v as "auto" | "host" | "bundled"; })}
-                      />
-                      <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                    <SelectField
+                      label={i18nT("git.gitBashSource", undefined, "Git & Bash source (Windows)")}
+                      value={config.windowsGitSource ?? "auto"}
+                      options={[
+                        { value: "auto", label: "Auto — host when installed, else bundled (default)" },
+                        { value: "host", label: "Host only — use the installed Git for Windows" },
+                        { value: "bundled", label: "Bundled only — always use the shipped git" },
+                      ]}
+                      onChange={(v) => update((c) => { c.windowsGitSource = v as "auto" | "host" | "bundled"; })}
+
+                      hint={<>
                         {i18nT("common.currentlyActive", undefined, "Currently active:")}{" "}
                         <strong>{gitSourceReadout.source}</strong>
                         {gitSourceReadout.gitPath ? <> — <code>{gitSourceReadout.gitPath}</code></> : null}
                         {gitSourceReadout.gitVersion ? <> ({gitSourceReadout.gitVersion})</> : null}
                         . {i18nT("git.gitSourceTakesEffect", undefined, "Takes effect for newly spawned sessions. macOS/Linux ignore this setting.")}
-                      </p>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                      <label className="text-sm text-[var(--text-secondary)]">{t("settings.defaultModel", undefined, "Default Model")}</label>
-                    <ModelSelector
-                      current={config.defaultModel || undefined}
-                      models={availableModels}
-                      onSelect={(v) => update((c) => { c.defaultModel = v; })}
+                      </>}
                     />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("landing.pwaDisplayName", undefined, "PWA Display Name")}</label>
-                      <input
-                        type="text"
-                        className="w-56 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-                        placeholder={i18nT("common.autoFromHostname", undefined, "(auto from hostname)")}
-                        value={config.dashboardName ?? ""}
-                        onChange={(e) => update((c) => { c.dashboardName = e.target.value; })}
-                      />
-                    </div>
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("landing.shownOnTheHomeScreenApp", undefined, "Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request")} <code>{i18nT("common.host", undefined, "Host")}</code> {i18nT("common.headerOrTheServerHostnameDistinguishe", undefined, "header (or the server hostname). Distinguishes installs from multiple machines or tunnels.")}
-                    </p>
-                  </div>
+                  )}
                 </Section>
                 {/* "Retry", not "Provider Retry": three of the six fields
                     (`enabled`, `maxRetries`, `baseDelayMs`) are turn-level, not
@@ -1361,6 +1387,40 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                         update((c) => {
                           if (!c.auth) c.auth = { secret: "", providers: {}, allowedUsers: [] };
                           c.auth.allowedUsers = users;
+                        });
+                      }}
+                    />
+                  </div>
+                  {/* OAuth redirect base — the operator's disambiguator when the
+                      dashboard answers on several addresses. `publicBaseUrls` is a
+                      list; an OAuth redirect_uri must be ONE pre-registered origin,
+                      so it is stated here rather than inferred (D7).
+                      See change: config-override-oauth-redirect-base. */}
+                  <div className="mt-3">
+                    <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                      {t("settings.redirectBaseUrl", undefined, "OAuth Redirect Base URL")}{" "}
+                      <span className="text-[var(--text-tertiary)]">
+                        ({t(
+                          "settings.redirectBaseUrlHint",
+                          undefined,
+                          "public origin the provider calls back to, e.g. https://pi.example.com — register the same URL with the provider too",
+                        )})
+                      </span>
+                    </label>
+                    <input
+                      type="url"
+                      inputMode="url"
+                      data-testid="redirect-base-url-input"
+                      className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] font-mono"
+                      placeholder="https://pi.example.com"
+                      value={config.auth?.redirectBaseUrl ?? ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        update((c) => {
+                          if (!c.auth) c.auth = { secret: "", providers: {} };
+                          // Empty string clears it (`||` semantics, D1) — omitting
+                          // the key would PRESERVE the old value instead.
+                          c.auth.redirectBaseUrl = value;
                         });
                       }}
                     />
@@ -1478,6 +1538,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     {i18nT("settings.controlsHowAggressivelyTheServerPolls", undefined, "Controls how aggressively the server polls")} <code>{i18nT("openspec.openspecList", undefined, "openspec list")}</code> and <code>{i18nT("openspec.openspecStatus", undefined, "openspec status")}</code> {i18nT("folders.forEachKnownDirectoryLongerInterval", undefined, "for each known directory. Longer interval → less CPU, slightly staler UI. Lower concurrency → smoother curve. Change detection")} <code>mtime</code> {i18nT("openspec.skipsRePollingUnchangedProposalsRecom", undefined, "skips re-polling unchanged proposals (recommended).")}
                   </p>
                   <ToggleField
+                    hint={i18nT("settings.hint.enableOpenspecPolling", undefined, "Watch registered folders for OpenSpec changes and spawn sessions for them. Off disables every setting below.")}
                     label={t("settings.enableOpenSpec", undefined, "Enable OpenSpec")}
                     value={config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled}
                     onChange={(v) => update((c) => {
@@ -1491,9 +1552,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   {(() => {
                     const openspecOff = (config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled) === false;
                     return (
-                      <>
+                      <GatedGroup>
                         <NumberField
-                          label={i18nT("settings.pollIntervalSeconds53600", undefined, "Poll Interval (seconds, 5–3600)")}
+                          hint={i18nT("settings.hint.pollInterval", undefined, "Time between scans of every watched folder. Lower reacts faster and costs more filesystem I/O. Range 5–3600.")}
+                          label={i18nT("settings.pollIntervalSeconds53600", undefined, "Poll interval")}
+                          unit="s"
                           disabled={openspecOff}
                           value={config.openspec?.pollIntervalSeconds ?? DEFAULT_OPENSPEC_UI.pollIntervalSeconds}
                           onChange={(v) => update((c) => {
@@ -1502,7 +1565,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                           })}
                         />
                         <NumberField
-                          label={i18nT("session.maxConcurrentSessions116", undefined, "Max Concurrent +Sessions (1–16)")}
+                          hint={i18nT("settings.hint.maxConcurrentSpawns", undefined, "Upper bound on sessions polling spawns at once. Each one is a full pi process — raise only if your machine has the RAM. Range 1–16.")}
+                          label={i18nT("session.maxConcurrentSessions116", undefined, "Max concurrent +Sessions")}
                           disabled={openspecOff}
                           value={config.openspec?.maxConcurrentSpawns ?? DEFAULT_OPENSPEC_UI.maxConcurrentSpawns}
                           onChange={(v) => update((c) => {
@@ -1511,6 +1575,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                           })}
                         />
                         <SelectField
+                          hint={i18nT("settings.hint.changeDetection", undefined, "mtime re-reads a proposal only when its file timestamp moved — cheap, but misses same-second edits. always re-reads every tick.")}
                           label={i18nT("common.changeDetection", undefined, "Change Detection")}
                           disabled={openspecOff}
                           value={config.openspec?.changeDetection ?? DEFAULT_OPENSPEC_UI.changeDetection}
@@ -1524,7 +1589,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                           })}
                         />
                         <NumberField
-                          label={i18nT("settings.jitterSeconds060", undefined, "Jitter (seconds, 0–60)")}
+                          hint={i18nT("settings.hint.jitter", undefined, "Random offset added to each interval so many folders don't all scan on the same tick. 0 disables. Range 0–60.")}
+                          label={i18nT("settings.jitterSeconds060", undefined, "Jitter")}
+                          unit="s"
                           disabled={openspecOff}
                           value={config.openspec?.jitterSeconds ?? DEFAULT_OPENSPEC_UI.jitterSeconds}
                           onChange={(v) => update((c) => {
@@ -1532,7 +1599,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                             c.openspec.jitterSeconds = v;
                           })}
                         />
-                      </>
+                      </GatedGroup>
                     );
                   })()}
                 </Section>
@@ -1543,23 +1610,21 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
             {activeTab === "developer" && (
               <>
-                <Section title={t("settings.chatDisplay", undefined, "Chat Display")}>
-                  <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                    {t("settings.chatDisplayAdvancedDescription", undefined, "Controls what is shown in the chat message stream.")}
-                  </p>
-                  <DebugToolsToggle />
-                </Section>
-                {/* Configurable chat display (configurable-chat-display). */}
+                {/* The Developer "Chat Display" section is gone: its only control
+                    was a second toggle for displayPrefs.debugTools, which
+                    DisplayPrefsSection already owns through the buffered
+                    display-prefs draft source. The two desynced until reload
+                    because this one PATCHed immediately. Chat-display
+                    preferences now live only on General.
+                    See change: reorganize-settings-pages-and-descriptions (D7). */}
                 <Section title={t("settings.developer", undefined, "Developer")}>
-                  <ToggleField label={t("settings.devBuildOnReload", undefined, "Dev Build on Reload")} value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} />
+                  <ToggleField label={t("settings.devBuildOnReload", undefined, "Dev Build on Reload")} value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} hint={i18nT("settings.hint.devBuildOnReload", undefined, "Rebuild the web client each time you reload sessions. Slower reloads, but you see client edits without a manual build.")} />
                   <ToggleField
                     label={t("settings.capturePiOutput", undefined, "Capture pi session output (debug)")}
                     value={config.keeperLog?.capturePiOutput ?? false}
                     onChange={(v) => update((c) => { c.keeperLog = { ...c.keeperLog, capturePiOutput: v }; })}
+                    hint={t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to newly spawned sessions.")}
                   />
-                  <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                    {t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to newly spawned sessions.")}
-                  </p>
                 </Section>
                 <DiagnosticsSection />
                 <ToolsSection />
@@ -1717,22 +1782,10 @@ function UnsavedChangesDialog({ saving, onSave, onDiscard, onCancel }: {
   );
 }
 
-function DebugToolsToggle() {
-  const { t } = useI18n();
-  const [visible, setVisible] = useDebugToolsVisible();
-  return (
-    <ToggleField
-      label={t("settings.showDebugEvents", undefined, "Show debug events (raw events, flow:list-flows, resources_discover)")}
-      value={visible}
-      onChange={setVisible}
-    />
-  );
-}
-
 // ── Worktree auto-init toggle (auto-init-worktree-on-spawn) ───────────────
 // Self-contained: reads the preference on mount, PATCHes immediately on
 // toggle (decoupled from the config Save button). Fail-safe to OFF.
-function WorktreeAutoInitToggle() {
+function WorktreeAutoInitToggle({ hint }: { hint: React.ReactNode }) {
   // Buffered source: the toggle edits a local draft; the preference persists
   // only on the unified Save. See change: unify-settings-save-contract.
   const [baseline, setBaseline] = useState<boolean | null>(null);
@@ -1754,6 +1807,7 @@ function WorktreeAutoInitToggle() {
   useSettingsDraftSource({ id: "worktree-auto-init", page: "sessions", isDirty, commit, reset });
   return (
     <ToggleField
+      hint={hint}
       label={i18nT("worktree.initializeOnWorktree", undefined, "Initialize on worktree")}
       value={draft}
       onChange={setDraft}
@@ -1764,7 +1818,7 @@ function WorktreeAutoInitToggle() {
 // ── Auto-name sessions toggle (add-auto-session-naming) ───────────────────
 // Self-contained, mirrors WorktreeAutoInitToggle: reads the preference on
 // mount, persists on the unified Save. Fail-safe to ON (the default).
-function AutoNameSessionsToggle() {
+function AutoNameSessionsToggle({ hint }: { hint: React.ReactNode }) {
   const [baseline, setBaseline] = useState<boolean | null>(null);
   const [draft, setDraft] = useState(true);
   useEffect(() => {
@@ -1784,6 +1838,7 @@ function AutoNameSessionsToggle() {
   useSettingsDraftSource({ id: "auto-name-sessions", page: "sessions", isDirty, commit, reset });
   return (
     <ToggleField
+      hint={hint}
       label={i18nT("settings.autoNameSessions", undefined, "Auto-name sessions")}
       value={draft}
       onChange={setDraft}
@@ -1838,38 +1893,49 @@ function DisplayPrefsSection() {
       <p className="text-xs text-[var(--text-tertiary)] mb-2">
         {t("settings.chatDisplayDescription", undefined, "Hide chat elements you don't need. Per-session overrides live in the chat view's View popover.")}
       </p>
-      <ToggleField label={t("settings.tokenStatsBar", undefined, "Token stats bar")} value={prefs.tokenStatsBar} onChange={(v) => patch({ tokenStatsBar: v })} />
-      <ToggleField label={t("settings.contextUsageBar", undefined, "Context usage bar")} value={prefs.contextUsageBar} onChange={(v) => patch({ contextUsageBar: v })} />
-      <ToggleField label={t("settings.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} />
-      <NumberField
-        label={t("settings.reasoningAutoCollapse", undefined, "Reasoning auto-collapse (seconds, 0 = never)")}
-        value={Math.round(prefs.reasoningAutoCollapseMs / 1000)}
-        onChange={(v) => patch({ reasoningAutoCollapseMs: Math.max(0, v) * 1000 })}
-        disabled={!prefs.reasoning}
-      />
+      {/* Three visual sub-sections, ONE draft source. Registering three would
+          triple the dirty-chip noise for a single preference blob (D8). */}
+      <h3 className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{t("settings.chatDisplayMessageElements", undefined, "Message elements")}</h3>
+      <ToggleField label={t("settings.tokenStatsBar", undefined, "Token stats bar")} value={prefs.tokenStatsBar} onChange={(v) => patch({ tokenStatsBar: v })} hint={i18nT("settings.hint.tokenStatsBar", undefined, "Per-turn token counts and cost under each assistant message.")} />
+      <ToggleField label={t("settings.contextUsageBar", undefined, "Context usage bar")} value={prefs.contextUsageBar} onChange={(v) => patch({ contextUsageBar: v })} hint={i18nT("settings.hint.contextUsageBar", undefined, "Bar showing how full the model's context window is. Hide it if you never hit the limit.")} />
+      <ToggleField label={t("settings.turnMetadata", undefined, "Turn metadata separators")} value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} hint={i18nT("settings.hint.turnMetadataSeparators", undefined, "Thin rule between turns carrying model, duration, and timestamp.")} />
+      <ToggleField label={t("settings.changeSummaryTable", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} onChange={(v) => patch({ changeSummaryTable: v })} hint={i18nT("settings.hint.perTurnChangeSummary", undefined, "Table of files added/changed/deleted by each turn.")} />
+      <ToggleField label={t("settings.reserveProcessLineAtIdle", undefined, "Reserve process line at idle")} value={prefs.reserveProcessLineAtIdle} onChange={(v) => patch({ reserveProcessLineAtIdle: v })} hint={i18nT("settings.hint.reserveProcessLine", undefined, "Keep the status line's height reserved while idle so the composer does not jump when a turn starts.")} />
+      <h3 className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{t("settings.chatDisplayReasoning", undefined, "Reasoning")}</h3>
+      <ToggleField label={t("settings.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} hint={i18nT("settings.hint.reasoningBlocks", undefined, "Show the model's thinking. Off hides it entirely and disables the two settings below.")} />
+      <GatedGroup>
+        <NumberField
+          hint={i18nT("settings.hint.reasoningAutoCollapse", undefined, "Collapse a finished reasoning block after this many seconds. 0 = never collapse.")}
+          label={t("settings.reasoningAutoCollapse", undefined, "Reasoning auto-collapse")}
+          unit="s"
+          value={Math.round(prefs.reasoningAutoCollapseMs / 1000)}
+          onChange={(v) => patch({ reasoningAutoCollapseMs: Math.max(0, v) * 1000 })}
+          disabled={!prefs.reasoning}
+        />
+        <ToggleField
+          hint={i18nT("settings.hint.keepReasoningOpen", undefined, "Ignore auto-collapse while the turn is still running.")}
+          label={t("settings.keepReasoningOpenUntilTurnEnds", undefined, "Keep reasoning open until turn ends")}
+          value={prefs.keepReasoningOpenUntilTurnEnds}
+          onChange={(v) => patch({ keepReasoningOpenUntilTurnEnds: v })}
+          disabled={!prefs.reasoning}
+        />
+      </GatedGroup>
+      <h3 className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{t("settings.chatDisplayToolCalls", undefined, "Tool calls")}</h3>
       <ToggleField
-        label={t("settings.keepReasoningOpenUntilTurnEnds", undefined, "Keep reasoning open until turn ends")}
-        value={prefs.keepReasoningOpenUntilTurnEnds}
-        onChange={(v) => patch({ keepReasoningOpenUntilTurnEnds: v })}
-        disabled={!prefs.reasoning}
-      />
-      <ToggleField
+        hint={i18nT("settings.hint.toolGroupsCollapsed", undefined, "Consecutive tool calls open collapsed; click to expand.")}
         label={t("settings.toolGroupDefaultCollapsed", undefined, "Keep tool groups collapsed by default")}
         value={prefs.toolGroupDefaultCollapsed}
         onChange={(v) => patch({ toolGroupDefaultCollapsed: v })}
       />
-      <ToggleField label={t("settings.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} onChange={(v) => patch({ toolResults: v })} />
-      <ToggleField label={t("settings.turnMetadata", undefined, "Turn metadata separators")} value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} />
-      <ToggleField label={t("settings.changeSummaryTable", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} onChange={(v) => patch({ changeSummaryTable: v })} />
-      <ToggleField label={t("settings.reserveProcessLineAtIdle", undefined, "Reserve process line at idle")} value={prefs.reserveProcessLineAtIdle} onChange={(v) => patch({ reserveProcessLineAtIdle: v })} />
-      <ToggleField label={t("settings.debugEvents", undefined, "Debug events")} value={prefs.debugTools} onChange={(v) => patch({ debugTools: v })} />
+      <ToggleField label={t("settings.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} onChange={(v) => patch({ toolResults: v })} hint={i18nT("settings.hint.toolResultBodies", undefined, "Show what a tool returned, not just that it ran.")} />
+      <ToggleField label={t("settings.debugEvents", undefined, "Debug events")} value={prefs.debugTools} onChange={(v) => patch({ debugTools: v })} hint={i18nT("settings.hint.debugEvents", undefined, "Raw protocol traffic (flow:list-flows, resources_discover, …). Noisy — for diagnosing the bridge.")} />
       <div className="pt-2">
         <h3 className="text-xs font-semibold text-[var(--text-primary)] mb-2">{t("settings.toolCallsHeader", undefined, "Tool calls - show these types")}</h3>
-        <ToggleField label={t("settings.toolRead", undefined, "Read")} value={prefs.toolCalls.read} onChange={(v) => patch({ toolCalls: { read: v } })} />
-        <ToggleField label={t("settings.toolBash", undefined, "Bash")} value={prefs.toolCalls.bash} onChange={(v) => patch({ toolCalls: { bash: v } })} />
-        <ToggleField label={t("settings.toolEdit", undefined, "Edit / Write")} value={prefs.toolCalls.edit} onChange={(v) => patch({ toolCalls: { edit: v } })} />
-        <ToggleField label={t("settings.toolAgent", undefined, "Agent")} value={prefs.toolCalls.agent} onChange={(v) => patch({ toolCalls: { agent: v } })} />
-        <ToggleField label={t("settings.toolOther", undefined, "Other")} value={prefs.toolCalls.generic} onChange={(v) => patch({ toolCalls: { generic: v } })} />
+        <ToggleField label={t("settings.toolRead", undefined, "Read")} value={prefs.toolCalls.read} onChange={(v) => patch({ toolCalls: { read: v } })} hint={i18nT("settings.hint.toolRead", undefined, "File reads.")} />
+        <ToggleField label={t("settings.toolBash", undefined, "Bash")} value={prefs.toolCalls.bash} onChange={(v) => patch({ toolCalls: { bash: v } })} hint={i18nT("settings.hint.toolBash", undefined, "Shell commands.")} />
+        <ToggleField label={t("settings.toolEdit", undefined, "Edit / Write")} value={prefs.toolCalls.edit} onChange={(v) => patch({ toolCalls: { edit: v } })} hint={i18nT("settings.hint.toolEditWrite", undefined, "File mutations.")} />
+        <ToggleField label={t("settings.toolAgent", undefined, "Agent")} value={prefs.toolCalls.agent} onChange={(v) => patch({ toolCalls: { agent: v } })} hint={i18nT("settings.hint.toolAgent", undefined, "Subagent spawns.")} />
+        <ToggleField label={t("settings.toolOther", undefined, "Other")} value={prefs.toolCalls.generic} onChange={(v) => patch({ toolCalls: { generic: v } })} hint={i18nT("settings.hint.toolOther", undefined, "Every remaining tool, incl. MCP tools.")} />
       </div>
       <div className="pt-2">
         <button
@@ -2139,7 +2205,7 @@ function ServersTab() {
     } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => { reload(); }, [reload, loadCount]);
+  useEffect(() => { void reload().catch(logRejection("SettingsPanel.knownServers.reload")); }, [reload, loadCount]);
 
   return (
     <>
@@ -2269,41 +2335,121 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function NumberField({ label, value, onChange, disabled }: { label: string; value: number; onChange: (v: number) => void; disabled?: boolean }) {
+// ─── Shared settings field contract ──────────────────────────────────────────
+//
+// The four field components below all owe their control an accessible NAME (a
+// label associated via htmlFor/id) and an accessible DESCRIPTION (the `hint`,
+// referenced via aria-describedby). `hint` is REQUIRED so that adding a field
+// without deciding about its description is a type error rather than a silent
+// omission — the compiler is the gate, so there is no allowlist to drift.
+// `hint={null}` is the explicit, greppable "nothing useful to add here".
+// `unit` renders inside the <label> so it forms part of the accessible name.
+// See change: reorganize-settings-pages-and-descriptions (design D1/D4/D5).
+
+type FieldContract = {
+  /** Accessible description. Required: pass `null` to state there is none. */
+  hint: React.ReactNode;
+  /** Short unit rendered as a chip inside the label (e.g. "ms", "s"). */
+  unit?: string;
+};
+
+/** True when a hint should render and be referenced by aria-describedby. */
+function hasHint(hint: React.ReactNode): boolean {
+  return hint !== null && hint !== undefined;
+}
+
+/**
+ * Indents controls beneath the control that gates them, so the dependency is
+ * visible instead of being implied by a `disabled` prop or a conditional
+ * render. Presentational only — it changes no gating logic (design D9).
+ */
+function GatedGroup({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`flex items-center justify-between ${disabled ? "opacity-50" : ""}`}>
-      <label className="text-sm text-[var(--text-secondary)]">{label}</label>
+    <div data-testid="gated-group" className="ml-3 pl-3 border-l border-[var(--border-secondary)] space-y-2">
+      {children}
+    </div>
+  );
+}
+
+function FieldShell({ label, unit, hint, controlId, hintId, disabled, stacked, children }: FieldContract & {
+  label: string;
+  controlId: string;
+  hintId: string;
+  disabled?: boolean;
+  /** Label above the control (TextField) instead of on the same row. */
+  stacked?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={disabled ? "opacity-50" : ""}>
+      <div className={stacked ? "" : "flex items-center justify-between"}>
+        <label
+          htmlFor={controlId}
+          className={stacked ? "block text-xs text-[var(--text-tertiary)] mb-0.5" : "text-sm text-[var(--text-secondary)]"}
+        >
+          {label}
+          {unit ? (
+            <span className="ml-1.5 px-1 py-0.5 rounded text-[10px] align-middle bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">{unit}</span>
+          ) : null}
+        </label>
+        {children}
+      </div>
+      {hasHint(hint) ? <p id={hintId} className="mt-1 text-xs text-[var(--text-tertiary)]">{hint}</p> : null}
+    </div>
+  );
+}
+
+export function NumberField({ label, value, onChange, disabled, hint, unit }: FieldContract & { label: string; value: number; onChange: (v: number) => void; disabled?: boolean }) {
+  const controlId = useId();
+  const hintId = `${controlId}-hint`;
+  return (
+    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} disabled={disabled}>
       <input
+        id={controlId}
+        aria-describedby={hasHint(hint) ? hintId : undefined}
         type="number"
         disabled={disabled}
         className="w-24 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right disabled:cursor-not-allowed"
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
       />
-    </div>
+    </FieldShell>
   );
 }
 
-function ToggleField({ label, value, onChange, disabled }: { label: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+export function ToggleField({ label, value, onChange, disabled, hint, unit }: FieldContract & { label: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  const controlId = useId();
+  const hintId = `${controlId}-hint`;
   return (
-    <div className={`flex items-center justify-between ${disabled ? "opacity-50" : ""}`}>
-      <label className="text-sm text-[var(--text-secondary)]">{label}</label>
+    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} disabled={disabled}>
+      {/* role="switch" + aria-checked expose the ON/OFF STATE. Without them a
+          screen-reader user hears the name and description this change added
+          but cannot tell whether the setting is on — half an a11y fix.
+          type="button" keeps it from submitting an enclosing form. */}
       <button
+        id={controlId}
+        type="button"
+        role="switch"
+        aria-checked={value}
+        aria-describedby={hasHint(hint) ? hintId : undefined}
         disabled={disabled}
         onClick={() => onChange(!value)}
         className={`relative w-10 h-5 rounded-full transition-colors disabled:cursor-not-allowed ${value ? "bg-blue-600" : "bg-[var(--bg-tertiary)]"}`}
       >
         <span className={`absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${value ? "translate-x-5" : "translate-x-0"}`} />
       </button>
-    </div>
+    </FieldShell>
   );
 }
 
-function SelectField({ label, value, options, onChange, disabled }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; disabled?: boolean }) {
+export function SelectField({ label, value, options, onChange, disabled, hint, unit }: FieldContract & { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; disabled?: boolean }) {
+  const controlId = useId();
+  const hintId = `${controlId}-hint`;
   return (
-    <div className={`flex items-center justify-between ${disabled ? "opacity-50" : ""}`}>
-      <label className="text-sm text-[var(--text-secondary)]">{label}</label>
+    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} disabled={disabled}>
       <select
+        id={controlId}
+        aria-describedby={hasHint(hint) ? hintId : undefined}
         disabled={disabled}
         className="bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)] disabled:cursor-not-allowed"
         value={value}
@@ -2311,7 +2457,7 @@ function SelectField({ label, value, options, onChange, disabled }: { label: str
       >
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
-    </div>
+    </FieldShell>
   );
 }
 
@@ -2345,11 +2491,13 @@ function ProviderSection({ providerKey, provider, onChange }: {
       {enabled && (
         <div className="space-y-2">
           <TextField
+            hint={null}
             label={i18nT("gateway.clientId", undefined, "Client ID")}
             value={provider!.clientId}
             onChange={(v) => onChange({ ...provider!, clientId: v })}
           />
           <TextField
+            hint={null}
             label={i18nT("gateway.clientSecret", undefined, "Client Secret")}
             value={provider!.clientSecret}
             onChange={(v) => onChange({ ...provider!, clientSecret: v })}
@@ -2357,6 +2505,7 @@ function ProviderSection({ providerKey, provider, onChange }: {
           />
           {needsIssuer && (
             <TextField
+              hint={null}
               label={i18nT("gateway.issuerUrl", undefined, "Issuer URL")}
               value={provider!.issuerUrl || ""}
               onChange={(v) => onChange({ ...provider!, issuerUrl: v })}
@@ -2369,20 +2518,23 @@ function ProviderSection({ providerKey, provider, onChange }: {
   );
 }
 
-function TextField({ label, value, onChange, type = "text", placeholder }: {
+export function TextField({ label, value, onChange, type = "text", placeholder, hint, unit }: FieldContract & {
   label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string;
 }) {
+  const controlId = useId();
+  const hintId = `${controlId}-hint`;
   return (
-    <div>
-      <label className="block text-xs text-[var(--text-tertiary)] mb-0.5">{label}</label>
+    <FieldShell label={label} unit={unit} hint={hint} controlId={controlId} hintId={hintId} stacked>
       <input
+        id={controlId}
+        aria-describedby={hasHint(hint) ? hintId : undefined}
         type={type}
         className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
       />
-    </div>
+    </FieldShell>
   );
 }
 
@@ -2555,12 +2707,14 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
       </div>
       <div className="space-y-2">
         <TextField
+          hint={null}
           label={i18nT("providers.baseUrl", undefined, "Base URL")}
           value={provider.baseUrl}
           onChange={(v) => handleChange({ ...provider, baseUrl: v })}
           placeholder="https://api.example.com/v1"
         />
         <TextField
+          hint={null}
           label={i18nT("gateway.apiKey", undefined, "API Key")}
           value={provider.apiKey}
           onChange={(v) => handleChange({ ...provider, apiKey: v })}

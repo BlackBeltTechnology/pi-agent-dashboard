@@ -4,18 +4,22 @@
  * for use by skills, scripts, and external tooling.
  */
 import { existsSync } from "node:fs";
-import type { FastifyInstance } from "fastify";
-import type { SessionManager } from "./memory-session-manager.js";
-import type { PiGateway } from "../pi/pi-gateway.js";
-import type { BrowserGateway } from "../pairing/browser-gateway.js";
-import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { spawnPiSession } from "../spawn-process/process-manager.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FastifyInstance } from "fastify";
+import {
+  FORK_DEGRADED_TO_NEW_CODE,
+  FORK_DEGRADED_TO_NEW_MESSAGE,
+  isSessionProcessGone,
+} from "../browser-handlers/session-action-handler.js";
+import { attachRenameTarget, detachShouldClearName } from "../openspec/proposal-attach-naming.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { PendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
-import { attachRenameTarget, detachShouldClearName } from "../openspec/proposal-attach-naming.js";
-import { FORK_DEGRADED_TO_NEW_MESSAGE, FORK_DEGRADED_TO_NEW_CODE } from "../browser-handlers/session-action-handler.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
+import { spawnPiSession } from "../spawn-process/process-manager.js";
+import type { SessionManager } from "./memory-session-manager.js";
 
 export interface SessionApiDeps {
   sessionManager: SessionManager;
@@ -232,7 +236,14 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         reply.code(400);
         return { success: false, error: "session file is unknown" } satisfies ApiResponse;
       }
-      if (mode === "continue" && session.status !== "ended") {
+      // Reject "already active" ONLY when the process is genuinely live. A
+      // zombie (stale "active" status, dead bridge + keeper) must be allowed to
+      // reopen. See change: resume-zombie-active-session.
+      if (
+        mode === "continue" &&
+        session.status !== "ended" &&
+        !isSessionProcessGone(id, (sid) => piGateway.isSessionConnected(sid))
+      ) {
         reply.code(409);
         return { success: false, error: "session is already active" } satisfies ApiResponse;
       }

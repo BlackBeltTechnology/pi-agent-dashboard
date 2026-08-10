@@ -59,9 +59,10 @@ const RULES = [
       "eliminate-electron-runtime-install task 1.1.a — pi lifted from " +
       "optional peer to regular dep so `npm install` resolves it for the " +
       "standalone + Electron arms. Floor tracks the deliberate pi bump to " +
-      "0.83.0 (0.82 bash session env + streaming; 0.83 ctx.scopedModels, " +
-      "'pending' stop reason, TypeBox 1.3.7). See change: update-pi-core-0-83-adopt-apis.",
-    minVersion: "0.83.0",
+      "0.84.1 (0.84.0 null-bearing provider headers, ModelsRefreshOptions/Result, " +
+      "OAuth refresh abort signal, v4 lane-based session model; 0.84.1 adds no " +
+      "breaking change). See change: update-pi-core-0-84-adopt-apis.",
+    minVersion: "0.84.1",
   },
   {
     pkgPath: "packages/server/package.json",
