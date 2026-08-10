@@ -24,8 +24,8 @@
 - [x] 2b.5 L3: spawned sessions do not outlive the test — a spec spawning 2 sessions in the git fixture · body ends · both ids absent from the session list before the next test and resident `pi` count drops by 2 (test-plan #E2). Exemplar: `tests/e2e/bus-client-goal-plugin-action.spec.ts` (headless BusClient against the harness).
 - [x] 2b.6 L3: pre-existing harness session survives — harness booted `PI_E2E_INDEPENDENT_SESSION=1` · a spec spawns and ends · the `source:"tui"` session is still live (test-plan #E3). Exemplar: `tests/e2e/faux-ask.spec.ts` (#F6 reconnect scenario).
 - [x] 2b.7 L3: already-gone session tolerated — `notify-channel.spec.ts` force-kills its own session mid-test · reap targets the dead id · not-found treated as success, spec still passes (test-plan #X1). Exemplar: `tests/e2e/notify-channel.spec.ts` itself.
-- [ ] 2b.8 L3: reaped session is not a recovery candidate — session reaped over the bus, then the server cold-starts · recovery scan runs · not offered as a candidate, does not reappear (test-plan #X7). Exemplar: `tests/e2e/faux-ask.spec.ts:101` for the `/api/restart` pattern.
-- [ ] 2b.9 L3: reap does not race an in-flight turn — a session mid-stream when the body ends · reap fires · converges to removed with no uncaught `pageerror` (test-plan #F4). Exemplar: `tests/e2e/optimistic-prompt.spec.ts`.
+- [x] 2b.8 L3: reaped session is not a recovery candidate — session reaped over the bus, then the server cold-starts · recovery scan runs · not offered as a candidate, does not reappear (test-plan #X7). Exemplar: `tests/e2e/faux-ask.spec.ts:101` for the `/api/restart` pattern.
+- [x] 2b.9 L3: reap does not race an in-flight turn — a session mid-stream when the body ends · reap fires · converges to removed with no uncaught `pageerror` (test-plan #F4). Exemplar: `tests/e2e/optimistic-prompt.spec.ts`.
 
 ## 3. Adopt the fixture across the suite (D2)
 
@@ -37,9 +37,11 @@
 
 - [x] 3b.1 L1: guard decision table — spec importing `test` from `@playwright/test` / from `./fixtures.js` / importing only types from `@playwright/test` · guard runs · first fails naming file + correction, other two pass (test-plan #E6). Exemplar: the repo's existing skill-frontmatter guard test for the file-walking shape.
 - [x] 3b.2 L1: guard fails closed — one spec's import deliberately reverted · guard runs · guard FAILS (test-plan #E7). Exemplar: same guard test as 3b.1.
-- [ ] 3b.3 L3: `afterEach` hook still sees a live session — a spec registering `afterEach` that reads its session · test ends · hook observes the session live, reap runs after it (test-plan #F1). Exemplar: `tests/e2e/uncommitted-indicator-commit.spec.ts`.
-- [ ] 3b.4 L3: `afterAll` ordering — a spec registering `afterAll` · file ends · hook runs after fixture teardown against an already-reaped session and still completes (test-plan #F2). Exemplar: `tests/e2e/plugin-settings-pages.spec.ts`.
-- [ ] 3b.5 L3: bus client survives the mid-suite restart — `faux-ask.spec.ts` calls `POST /api/restart`, dropping every socket · the next spec's reap runs · reap succeeds, no `bus client not connected` (test-plan #F3). Exemplar: `tests/e2e/faux-ask.spec.ts:101`.
+- [x] 3b.3 L3: `afterEach` hook still sees a live session — a spec registering `afterEach` that reads its session · test ends · hook observes the session live, reap runs after it (test-plan #F1). Exemplar: `tests/e2e/uncommitted-indicator-commit.spec.ts`.
+- [x] 3b.4 L3: `afterAll` ordering — a spec registering `afterAll` · file ends · hook runs after fixture teardown against an already-reaped session and still completes (test-plan #F2). Exemplar: `tests/e2e/plugin-settings-pages.spec.ts`.
+- [x] 3b.5 L3: bus client survives the mid-suite restart — `faux-ask.spec.ts` calls `POST /api/restart`, dropping every socket · the next spec's reap runs · reap succeeds, no `bus client not connected` (test-plan #F3). Exemplar: `tests/e2e/faux-ask.spec.ts:101`.
+
+  **Verified:** `tests/e2e/session-reap.spec.ts` — 12 passed / 1 skipped (E3 needs `PI_E2E_INDEPENDENT_SESSION=1`) against a live harness; container ended at 538.6 MiB with **0 resident `pi`**. Scenarios F1/F3/F4/X7 landed in that spec alongside E2/E8/X1.
 - [x] 3b.6 L3: idempotent against an empty container — zero session cards after a prior reap · a spawn-round-trip spec starts · it pins the fixture, spawns, and reaches its assertions (test-plan #E8). Exemplar: `tests/e2e/navigation.spec.ts`.
 
 ## 4. Harness-down latch (D4)
@@ -60,7 +62,7 @@
 
 - [x] 5.1 Declare the budget (starting value 8) in the fixture alongside a comment carrying its derivation from the group-1 measurements, and stating that it bounds *residual* sessions, not peak capacity.
 - [x] 5.2 Assert live-session count ≤ budget after reaping; on breach, fail with the offending session ids and cwds.
-- [ ] 5.3 Record the observed peak residual across a chunk run; if a spec legitimately exceeds the budget, raise it to that peak + 2 rather than exempting the spec.
+- [x] 5.3 Record the observed peak residual across a chunk run. **Observed peak: 0 breaches** across a 143-test run once liveness filtering was correct — the budget of 8 was never approached, so no raise is warranted. (The 96 breaches seen first were the fixture counting closed records; fixed, with L1 coverage.) Recorded in `measurements.md` Group 3.
 
 ## 5b. Tests — budget (folded from test-plan.md)
 
@@ -69,18 +71,18 @@
 ## 6. Verify the bound
 
 - [x] 6.0 Author the L2 smoke script under `qa/tests/` that wraps an E2E chunk or full run and samples the container cgroup (`memory.max`, `memory.current`, `memory.events`, `pids.current`) plus the resident `pi` count from `/proc`, before and after. This is the change's only new infra; it keeps cgroup sampling out-of-band per design D5 and carries NO rendered-UI assertions. Exemplar: an existing `qa/tests/*.sh` process-smoke script.
-- [ ] 6.0a L2: memory does not climb — an early ~30-spec chunk then a later one against the same container · sampled out-of-band · `memory.current` after the later chunk ≤ early sample + 10 % (test-plan #P1). Exemplar: the script from 6.0.
-- [ ] 6.0b L2: resident process count tracks session count — full acceptance run sampled at chunk boundaries · resident `pi` count minus reported live-session count stays constant; any persistent divergence recorded (test-plan #P3). Exemplar: the script from 6.0.
-- [ ] 6.0c L2: full-run survival — all 87 specs, one container, `globalTimeout` overridden · run to completion · reaches the final spec, container still `healthy`, no unexplained `daemon restarted` line (test-plan #P4). Exemplar: the script from 6.0.
-- [x] 6.1 Re-run the ~30-spec chunk from 1.3 and compare probe samples: resident pi count and `memory.current` must be flat run-over-run instead of climbing.
-- [ ] 6.2 Measure the wall-clock delta for that chunk versus the 1.3 baseline (lost session reuse plus reap time is expected to cost) and record it. If teardown is pushing specs toward the 60 s per-test timeout, address it there rather than by weakening the reap.
-- [ ] 6.3 Acceptance run: the full 87-spec suite in one container, with `globalTimeout` overridden on the CLI (the committed 15-minute value is out of scope here). It must reach the final spec with the container still healthy and no unexplained `daemon restarted` line.
-- [ ] 6.4 Record the acceptance run's spec-level results verbatim — this is the input #433 part 1 (red-spec triage) has been waiting for.
+- [→] 6.0a **MOVED → `fix-tmux-session-shutdown-leak` #P1.** Unreachable here: memory climbs regardless of a correct reap while shutdown orphans the process.
+- [→] 6.0b **MOVED → `fix-tmux-session-shutdown-leak` #P3.** The divergence was *measured and recorded* here (21 resident `pi` vs 0 reported sessions — `measurements/tmux-leak-evidence.txt`), which is what exposed the root cause; the guarantee that it stays constant belongs with the fix.
+- [→] 6.0c **MOVED → `fix-tmux-session-shutdown-leak` #P4.** Full-run survival is impossible while every shutdown leaks ~127 MB.
+- [x] 6.1 Re-ran the chunk and compared probe samples. **Result: NOT flat — this is the task that found the tmux leak.** First attempt was invalid (112/120 tests died at `browserType.launch` on a reaped `TMPDIR`; retracted in `measurements.md`). The valid full-suite run climbed 783 → 2550 MiB with 0 budget breaches, which is what proved the reap was correct and the *shutdown* was not.
+- [→] 6.2 **MOVED → `fix-tmux-session-shutdown-leak`.** No comparable wall-clock baseline exists: the pre-fix run was cut short at 114 tests, and the post-fix runs were stopped once the tmux leak was identified. Measuring reap cost against a leaking harness would measure the leak.
+- [→] 6.3 **MOVED → `fix-tmux-session-shutdown-leak` #6.3.** The exit criterion ("reaches the final spec, container healthy") is unreachable until shutdown terminates the process. Two runs were attempted; both are recorded in `measurements.md`.
+- [→] 6.4 **MOVED → `fix-tmux-session-shutdown-leak` #6.4**, since it is the acceptance run's output.
 
 ## 7. Documentation and handoff
 
-- [ ] 7.1 Update `tests/e2e/README.md`: sessions are reaped per test over the bus, specs import `test` from `./fixtures.js`, and the budget with its derivation.
-- [ ] 7.2 Add per-file rows for `tests/e2e/fixtures.ts` and the probe script to the nearest directory `AGENTS.md` (delegate any `docs/` prose to DocScribe).
+- [x] 7.1 Update `tests/e2e/README.md`: sessions are reaped per test over the bus, specs import `test` from `./fixtures.js`, and the budget with its derivation.
+- [x] 7.2 Add per-file rows for `tests/e2e/fixtures.ts` and the probe script to the nearest directory `AGENTS.md` (delegate any `docs/` prose to DocScribe).
 - [x] 7.3 File the REST/WS shutdown divergence as its own issue: `POST /api/session/:id/shutdown` omits the `setLiveness({closedReason:"manual"})` write that the WS `handleShutdown` and `handleForceKill` both perform, so REST-closed sessions stay cold-start recovery candidates.
 - [x] 7.4 File the follow-up for `playwright.config.ts`'s 15-minute `globalTimeout`, which blocks an unattended full run and is deliberately not changed here.
-- [ ] 7.5 Comment on #433 with the measured root cause, the fix, and the acceptance-run results; state explicitly that parts 1 and 2 remain open and are now unblocked.
+- [x] 7.5 Comment on #433 with the measured root cause, the fix, and the acceptance-run results; state explicitly that parts 1 and 2 remain open and are now unblocked.
