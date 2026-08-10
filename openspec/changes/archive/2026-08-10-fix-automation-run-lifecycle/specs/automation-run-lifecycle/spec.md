@@ -22,9 +22,10 @@ Observability: the finalize path taken SHALL be distinguishable after the fact, 
 
 #### Scenario: Backstop still covers a genuinely lost signal
 
-- **GIVEN** a run whose completion event never arrives because its session died without a terminal signal
+- **GIVEN** a run whose declared completion event never reaches the server while its session stays alive and its death is never observed (so neither the completion-event nor the session-death seam fires)
 - **WHEN** the configured maximum age elapses
-- **THEN** the reaper SHALL still finalize the run `error` and free the concurrency slot.
+- **THEN** the reaper SHALL still finalize the run `error` and free the concurrency slot
+- **AND** a run whose session DIES without a terminal event SHALL be finalized immediately by the session-death seam (see "Headless automation runs finalize on session death"), NOT left for the reaper.
 
 ## MODIFIED Requirements
 

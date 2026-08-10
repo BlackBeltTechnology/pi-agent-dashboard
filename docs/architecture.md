@@ -141,13 +141,45 @@ TypeScript type definitions shared across all components:
 
 ### EventBus Forwarding Mechanism (subscription-based, change: fix-automation-run-lifecycle)
 
-**Why subscription-based.** Pi's `EventBus` (`node:events`-backed, in `pi-coding-agent/dist/core/event-bus.js`) is SHARED across all extensions in a process. `pi.events` is PER-EXTENSION, delegating to that one host EventBus. Mutating `pi.events.emit` (old approach) only intercepted the mutating extension's emissions. Foreign-extension emissions (pi-flows, pi-subagents) bypassed the bridge entirely. Result: live `flow_*` and `subagent_*` events never reached the server. Flow cards rebuilt from persisted `custom/flow-event` JSONL records (`packages/shared/src/state-replay.ts`). Automation runs with a `flows.run` action stayed `status: "running"`; stale-run reaper finalized them `error: "run exceeded max age"` ~30 min later; measured 101 runs, 0 reached `done`.
+**Host topology.**
 
-**Current mechanism** (`registerEventBusForwarding` in `packages/extension/src/flow-event-wiring.ts`). ONE subscription PER DECLARED CHANNEL via `pi.events.on(channel, ...)`. The `on()` listener observes every emitter. Bridge owns a channel list: `FLOW_EVENT_MAP` + `SUBAGENT_EVENT_MAP`, plus an optional `extraMaps` argument (currently none passed). Channel list IS the contract — pi's `EventBus` has NO wildcard subscription. Undeclared channel ⇒ never forwarded. New channel = new map entry (identity entry when no rename wanted).
+- `EventBus` = `node:events` wrapper. `pi-coding-agent/dist/core/event-bus.js`. Methods: `emit` / `on` / `clear`. NO wildcard channel.
+- One bus per pi process. Shared by all extensions.
+- `pi.events` = PER-EXTENSION facade over that bus. `createExtensionAPI` -> `events: { emit, on }`. `pi-coding-agent/dist/core/extensions/loader.js`.
 
-**Forward gates** (`forwardBusEvent`, `packages/extension/src/flow-event-wiring.ts`). Subagent channels forward only when `sessionReady && isActive() && connection.isConnected`, else buffered latest-wins per agent in `SubagentFrameBuffer`. Other declared channels forward when `sessionReady && isActive()`. Forwarding failure (WS send error, closed connection) never propagates to the original emitter — fire-and-forget. Forwarding failure drops that live frame. Nothing re-sends it. Subagent frames are the exception: buffered latest-wins per agent in `SubagentFrameBuffer`, flushed on re-register / reconnect.
+**Why NOT an emit intercept.**
 
-**Teardown** (`dispose()` return value from `registerEventBusForwarding`). Removes all subscriptions from the host EventBus. Nothing to restore — bridge never replaces any host function. Dispose removes only its own subscriptions. Next `registerEventBusForwarding` call (e.g. on re-init from duplicate-bridge detection) creates fresh subscriptions.
+- Patching `pi.events.emit` mutates only the patching extension's facade.
+- Foreign emissions bypass the patch. Emitters affected: pi-flows, pi-subagents.
+- Old bridge patched `emit`. Consequence: zero live `flow_*` / `subagent_*` `event_forward` ever left the bridge.
+- Flow cards rebuilt from persisted `custom/flow-event` JSONL. `packages/shared/src/state-replay.ts`.
+- Automation runs with a `flows.run` action stayed `status: "running"`.
+- Stale-run reaper finalized them `error: "run exceeded max age"` ~30 min later.
+- Measured: 101 runs, 0 reached `done`.
+- Proof: bridge `pi.events.on("flow:complete")` fired; patched `emit` never entered for that channel.
+
+**Current mechanism.**
+
+- `registerEventBusForwarding`. `packages/extension/src/flow-event-wiring.ts`.
+- ONE `pi.events.on(channel, ...)` subscription per declared channel.
+- `on()` observes every emitter.
+- Declared set = keys of `FLOW_EVENT_MAP` + `SUBAGENT_EVENT_MAP` + optional `extraMaps` (currently none passed).
+- Channel list IS the contract. Undeclared channel -> never forwarded.
+- New channel -> new map entry. Identity entry when no rename wanted.
+- Retired: wildcard forwarding of any unknown channel. Unimplementable without an emit intercept.
+
+**Forward gates.** `forwardBusEvent`, same file.
+
+- Subagent channel -> forward only when `sessionReady && isActive() && connection.isConnected`.
+- Else buffer latest-wins per agent in `SubagentFrameBuffer`. Flushed on re-register / reconnect.
+- Other declared channel -> forward when `sessionReady && isActive()`.
+- Forwarding failure never propagates to the emitter.
+- Forwarding failure drops that live frame. Nothing re-sends it. Subagent frames are the exception (buffered).
+
+**Teardown.** dispose returned by `registerEventBusForwarding`.
+
+- Removes only the bridge's own subscriptions.
+- Restores nothing. Bridge never replaces a host function.
 
 ### Retry Lifecycle (change: retry-forever-with-stop-control)
 

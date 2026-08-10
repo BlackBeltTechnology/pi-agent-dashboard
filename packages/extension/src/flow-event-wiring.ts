@@ -178,7 +178,8 @@ export function registerFlowEventListeners(
   pi.events.on("flow:complete", resendCommandsAndFlows);
 
   // Note: event_forward sending for flow and subagent events is handled by
-  // the EventBus emit intercept in bridge.ts (catch-all forwarding).
+  // subscription-based forwarding (`registerEventBusForwarding` above, wired
+  // from bridge.ts) — NOT by an emit intercept.
 
   // Legacy architect prompt forwarding REMOVED.
   // Previously forwarded flow:prompt-request events with architect-* pipelines

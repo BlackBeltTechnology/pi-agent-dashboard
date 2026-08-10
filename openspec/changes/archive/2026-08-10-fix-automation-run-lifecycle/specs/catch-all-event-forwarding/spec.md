@@ -74,7 +74,7 @@ Forwarding SHALL apply a rename mapping for known channels:
 - `subagents:completed` → `subagent_completed`
 - `subagents:failed` → `subagent_failed`
 
-A subscribed channel that has no mapping entry SHALL be forwarded using the channel name directly as the `eventType`. The former blanket rule — that ANY unknown channel emitted by ANY extension is forwarded under its own name — SHALL NOT apply: the host's event bus offers no wildcard subscription, so only declared channels are observable. That blanket rule was in any case never satisfied for a channel emitted by another extension, so no working behavior is withdrawn. A plugin needing its own channel forwarded SHALL declare it in the channel mapping (identity entry when no rename is wanted). Emissions made by the bridge itself SHALL be forwarded exactly once, on the same subscription path as any other emitter's — no separate self-emit path.
+A subscribed channel that has no mapping entry SHALL be forwarded using the channel name directly as the `eventType`. The former blanket rule — that ANY unknown channel emitted by ANY extension is forwarded under its own name — SHALL NOT apply: the host's event bus offers no wildcard subscription, so only declared channels are observable. That blanket rule was in any case never satisfied for a channel emitted by another extension, so no working behavior is withdrawn. A plugin needing its own channel forwarded SHALL declare it in the channel mapping (identity entry when no rename is wanted). An emission made by the bridge ITSELF SHALL be treated exactly like any other emitter's: forwarded exactly once when its channel is declared, and NOT forwarded when it is not. There SHALL be no separate self-emit path. Consequence of retiring the wildcard: bridge-emitted control channels that are absent from the mapping (for example `flow:run`, `flow:list-flows`, `roles:*`, `ui:*`) are no longer forwarded as `event_forward`; any consumer that needs one SHALL declare that channel in the mapping.
 
 NOTE: the scenario titles `Unknown custom extension event forwarded with channel name` and `Original emit always called` are retained verbatim because a MODIFIED requirement cannot retire a scenario name; their bodies below are normative and supersede the titles' wording.
 
@@ -97,8 +97,10 @@ NOTE: the scenario titles `Unknown custom extension event forwarded with channel
 
 #### Scenario: Events not forwarded before session is ready
 
-- **WHEN** an EventBus emission occurs before the session is ready
-- **THEN** the bridge SHALL NOT forward it, and the emission SHALL still reach every other subscriber unaffected
+- **WHEN** a NON-subagent EventBus emission occurs before the session is ready
+- **THEN** the bridge SHALL NOT forward it and SHALL NOT retain it, and the emission SHALL still reach every other subscriber unaffected
+- **AND WHEN** the emission is on a subagent channel
+- **THEN** it SHALL NOT be forwarded live but SHALL be retained latest-wins per agent and flushed once the session is ready (reconcilable state, not a drop)
 
 #### Scenario: Original emit always called
 

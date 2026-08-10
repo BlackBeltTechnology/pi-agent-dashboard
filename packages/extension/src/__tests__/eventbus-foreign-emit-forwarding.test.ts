@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
   EVENT_BUS_MAP_FOR_TEST,
   type EventBusForwardingDeps,
+  forwardBusEvent,
   forwardedBusChannels,
   registerEventBusForwarding,
 } from "../flow-event-wiring.js";
@@ -147,6 +148,10 @@ describe("EventBus forwarding across per-extension facades", () => {
         throw new Error("transport down");
       },
     });
+    // Assert the isolation in `forwardBusEvent` ITSELF: the host wraps `on`
+    // handlers in its own try/catch, so going through the bus would still pass
+    // if forwardBusEvent lost its catch block. See CodeRabbit review, PR #456.
+    expect(() => forwardBusEvent(deps, "flow:complete", { status: "success" })).not.toThrow();
     registerEventBusForwarding(host.bridgeEvents, deps);
 
     const seen: unknown[] = [];
