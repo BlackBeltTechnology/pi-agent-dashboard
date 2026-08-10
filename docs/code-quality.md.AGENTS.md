@@ -1,0 +1,3 @@
+# code-quality.md — index
+
+Biome ratchet. Rules graduate one-way off→warn→error; cleanup lands first, severity flip second. Tier A error (incl. type-aware + structural), Tier B/C warn. Oracle `quality:changed` = `biome check --changed --error-on-warnings --write` + `tsc --noEmit` + `npm test`, single exit code. Graduation oracle = rule `"error"` in biome.json copy + plain `biome lint .`; never `--only` (bypasses overrides). Type-aware rules named individually, no `linter.domains`; counts depend on `pnpm install`; zeros must be probed non-vacuous; `noUndeclaredDependencies` override silences test files. See change: add-code-quality-skill, add-typeaware-lint-gate.
