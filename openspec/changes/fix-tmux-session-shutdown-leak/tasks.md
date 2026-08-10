@@ -6,10 +6,15 @@ rebuilt.
 
 ## 1. Read the spawn paths before changing anything
 
-- [ ] 1.1 Read the tmux spawn path and record **how a session's window/pane is
-      named today**, and whether that name is derivable from the session id or
-      must be recorded at spawn. This decides design.md's open question (D2/registry
-      vs derivation) and everything downstream depends on it.
+- [x] 1.1 Read the tmux spawn path and record **how a session's window/pane is
+      named today**. **Finding:** `buildTmuxCommand`
+      (`packages/server/src/spawn-process/process-manager.ts:242-252`) passes NO
+      `-n` flag, so windows take tmux's default index and nothing links a window
+      to a session. Decisive: the **session id does not exist at spawn time**
+      (pi mints it; the bridge registers it later), so neither registry-by-id nor
+      derive-from-id is possible. The existing `PI_DASHBOARD_SPAWN_TOKEN`
+      correlation channel — already passed into the tmux pane and echoed back in
+      `session_register.spawnToken` — is the join key. See design.md D5.
 - [ ] 1.2 Read `headlessPidRegistry` + `killBySessionId` and record the exact
       escalation ladder (signal, grace, escalation) so the tmux path reuses it
       rather than growing a second one.

@@ -73,11 +73,54 @@ by `fix-e2e-harness-memory-exhaustion`) already compute this out-of-band; test
 P3 becomes meaningful only once divergence is supposed to be zero. This is what
 makes a regression of this fix loud instead of silent.
 
-## Open question for implementation
+## D5 — the join key already exists: the spawn token (resolves the open question)
 
-How the tmux window identity is recorded at spawn is deliberately not fixed here
-— it depends on how the tmux spawn path names windows today, which must be read
-before choosing between (a) a registry keyed by session id, mirroring
-`headlessPidRegistry`, or (b) deriving the window name deterministically from the
-session id. Prefer (a) for symmetry with the existing ladder unless the spawn
-path already guarantees a derivable name.
+Task 1.1 read the spawn path. Both options this section originally offered are
+wrong, for the same reason.
+
+What `buildTmuxCommand` emits today
+(`packages/server/src/spawn-process/process-manager.ts:242-252`):
+
+```sh
+tmux new-window  -t pi-dashboard -c <cwd> "cd <cwd> && pi <flags>"
+tmux new-session -d -s pi-dashboard -c <cwd> "cd <cwd> && pi <flags>"
+```
+
+There is **no `-n` flag**, so every window takes tmux's default auto-generated
+index. Nothing identifies which window belongs to which session.
+
+The decisive constraint: **the session id does not exist at spawn time.** `pi`
+mints it and the bridge registers it afterwards, so option (b) — derive the
+window name from the session id — is impossible, and option (a) — a registry
+keyed by session id, written at spawn — has no key to write.
+
+**A correlation channel for exactly this problem already exists and is already
+plumbed through tmux.** `mintSpawnToken()` → `PI_DASHBOARD_SPAWN_TOKEN` in the
+spawned env (`process-manager.ts:208`, passed explicitly into the tmux pane at
+:427) → the bridge echoes it back in `session_register.spawnToken`
+(`packages/server/src/auth/spawn-token.ts`).
+
+So:
+
+1. Name the window from the token at spawn: `tmux new-window -n pi-<token> …`.
+   The name is then knowable at spawn without knowing the session id.
+2. On `session_register`, the server already receives `spawnToken` alongside the
+   session id — record `sessionId → pi-<token>` there.
+3. At shutdown, resolve the window and kill it, then escalate on the pane
+   process with the shared ladder (D2).
+
+This reuses a mechanism built for precisely this correlation instead of adding a
+parallel one, and it keeps the spawn path's only new surface to a single `-n`
+flag.
+
+**Carry-overs to verify during implementation:**
+
+- `buildTmuxCommand` is string-interpolated into `execSync`, and the repo already
+  has tests pinning `shellEscape` for `cwd` and `sessionFile`. The token is a
+  server-minted UUIDv4, but escape it on the same path rather than trusting the
+  shape.
+- A session with **no** token (resumed, recovered, or spawned before this change)
+  has no window name. That path must degrade to today's behaviour and be
+  reported, not silently treated as terminated — requirement C2 covers it.
+- `wsl-tmux` builds on the same `buildTmuxCommand`, so it inherits the fix; the
+  kill path must be reachable under WSL too.
