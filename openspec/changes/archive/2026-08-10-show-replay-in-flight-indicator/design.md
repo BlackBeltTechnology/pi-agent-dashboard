@@ -167,9 +167,10 @@ The delay is a property of the observed latency, not of the cache, so it
 generalises: anything that resolves quickly paints nothing, regardless of *why*
 it was quick.
 
-```
-   replayInFlight ─┬─ resolves < delay ──▶ nothing ever painted
-                   └─ still open at delay ─▶ pill until isLast:true
+```mermaid
+flowchart LR
+  R["replayInFlight set"] -->|"resolves &lt; delay"| N["nothing ever painted"]
+  R -->|"still open at delay"| P["pill until isLast:true"]
 ```
 
 *Known weakness:* 300ms is a judgement call, not a measurement — the transfer

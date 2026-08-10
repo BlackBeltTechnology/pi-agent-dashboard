@@ -21,15 +21,17 @@ Replay is chunked at `REPLAY_BATCH_SIZE = 200` and pauses on socket backpressure
 `ws.bufferedAmount > BACKPRESSURE_THRESHOLD` the sender polls every 50ms until
 the socket drains. Over a remote link that gap is seconds.
 
-```
-   subscribe                                     isLast:true
-      │                                               │
-   ┌──────┐ ┌───────┐   ⏸ backpressure   ┌───────┐ ┌───────┐
-   │spinner│ │batch 1│ ─────────────────▶ │batch 2│ │batch N│
-   └──────┘ └───────┘                     └───────┘ └───────┘
-      │         │                                       │
-   flag=true  flag=FALSE ───────────────────────────────
-              └─ chat asserts "complete" for the whole gap
+```mermaid
+sequenceDiagram
+  participant C as client
+  participant S as server
+  C->>S: subscribe
+  Note over C: loadingHistory = true (spinner)
+  S-->>C: batch 1
+  Note over C: loadingHistory = FALSE on first content
+  Note over C,S: ⏸ backpressure — seconds<br/>chat asserts "complete" for the whole gap
+  S-->>C: batch 2
+  S-->>C: batch N (isLast:true)
 ```
 
 **The gap is worse than a blank screen.** Replay is ordered oldest → newest, so
@@ -55,10 +57,10 @@ The **disk parse is 8–135ms**. The hydration-heartbeat machinery added by
 periodic empty markers) guards that ~0.1s phase. The phase that costs seconds —
 batch transfer under backpressure — has **no indicator and no instrumentation**.
 
-```
-   subscribe
-      ├── disk parse ......... 8–135ms   ← heartbeats guard THIS
-      └── batch transfer ..... SECONDS    ← the gap; nothing watches it
+```mermaid
+flowchart TD
+  S["subscribe"] --> D["disk parse — 8–135ms<br/>heartbeats guard THIS"]
+  S --> B["batch transfer — SECONDS<br/>the gap; nothing watches it"]
 ```
 
 Caveat: n=3, local instance, and `hydration` records cold loads only. A
