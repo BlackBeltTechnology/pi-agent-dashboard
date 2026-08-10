@@ -1,8 +1,9 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
 import {
+  CAPSULE_SEGMENT_ORDER,
   countNeedsYou,
-  countStatusRollup,
+  countStatusCapsule,
   deriveDotColor,
   deriveDotColorWithFlags,
   deriveIconStatusColor,
@@ -40,21 +41,162 @@ function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSessio
   } as DashboardSession;
 }
 
-describe("countStatusRollup", () => {
-  it("counts working (streaming/resuming) and idle (active/idle), excludes needs-you and ended", () => {
-    const rollup = countStatusRollup([
-      makeSession({ id: "a", status: "streaming" }),
-      makeSession({ id: "b", status: "idle", resuming: true }),
-      makeSession({ id: "c", status: "active" }),
-      makeSession({ id: "d", status: "idle" }),
-      makeSession({ id: "e", status: "idle", currentTool: "ask_user" }),
-      makeSession({ id: "f", status: "ended" }),
-    ]);
-    expect(rollup).toEqual({ working: 2, idle: 2 });
+// ── countStatusCapsule — folder status capsule counting pass ───────────────
+// See change: unify-folder-status-capsule.
+// `widgetBar` is TRI-STATE: `false` = classified not-widget-bar (countable as
+// needs-you), `true` = widget-bar-placed, `undefined` = not yet classified.
+// Both `true` and `undefined` exclude the session from EVERY bucket.
+describe("countStatusCapsule", () => {
+  const notWidgetBar = () => false;
+
+  it("severity order is a fixed constant, not magnitude-driven (test-plan #E1)", () => {
+    // D-D: the order is a module constant so the invariant is directly assertable.
+    expect(CAPSULE_SEGMENT_ORDER).toEqual(["needsYou", "error", "working", "idle"]);
+
+    // 1 needs-you, 9 error, 1 working, 1 idle — magnitude must not reorder.
+    const sessions = [
+      makeSession({ id: "n1", currentTool: "ask_user" }),
+      ...Array.from({ length: 9 }, (_, i) => makeSession({ id: `e${i}` })),
+      makeSession({ id: "w1", status: "streaming" }),
+      makeSession({ id: "i1", status: "idle" }),
+    ];
+    const c = countStatusCapsule(sessions, {
+      errorSessionIds: new Set(Array.from({ length: 9 }, (_, i) => `e${i}`)),
+      widgetBar: notWidgetBar,
+    });
+    expect(c).toMatchObject({ needsYou: 1, error: 9, working: 1, idle: 1 });
   });
 
-  it("returns zeros for an empty folder", () => {
-    expect(countStatusRollup([])).toEqual({ working: 0, idle: 0 });
+  it("order holds with gaps — error precedes idle, no empty slot (test-plan #E2)", () => {
+    const c = countStatusCapsule(
+      [makeSession({ id: "e" }), makeSession({ id: "i", status: "idle" })],
+      { errorSessionIds: new Set(["e"]), widgetBar: notWidgetBar },
+    );
+    const present = CAPSULE_SEGMENT_ORDER.filter((k) => c[k] > 0);
+    expect(present).toEqual(["error", "idle"]);
+  });
+
+  it("excludes an ended session whose notice flag is still set (test-plan #E6)", () => {
+    // Guards the `hasNotice` short-circuit: deriveStatusShape checks notice
+    // BEFORE status, so filtering must happen before derivation.
+    const c = countStatusCapsule([makeSession({ id: "x", status: "ended" })], {
+      noticeSessionIds: new Set(["x"]),
+      widgetBar: notWidgetBar,
+    });
+    expect(c).toMatchObject({ needsYou: 0, error: 0, working: 0, idle: 0 });
+  });
+
+  it("excludes hidden sessions (test-plan #E7)", () => {
+    const sessions = [
+      makeSession({ id: "v1", status: "idle" }),
+      makeSession({ id: "v2", status: "streaming" }),
+      makeSession({ id: "v3", status: "active" }),
+      makeSession({ id: "h1", status: "idle", hidden: true }),
+      makeSession({ id: "h2", status: "streaming", hidden: true }),
+      makeSession({ id: "h3", status: "active", hidden: true }),
+      makeSession({ id: "h4", status: "idle", hidden: true }),
+    ];
+    const c = countStatusCapsule(sessions, { widgetBar: notWidgetBar });
+    expect(c.working + c.idle + c.error + c.needsYou).toBe(3);
+    expect(c).toMatchObject({ working: 1, idle: 2 });
+  });
+
+  it("excludes an unclassified ask_user candidate from EVERY bucket (test-plan #E8)", () => {
+    // `widgetBar` returns undefined = probe has not reported yet.
+    const c = countStatusCapsule([makeSession({ id: "a", currentTool: "ask_user" })], {
+      widgetBar: () => undefined,
+    });
+    expect(c).toMatchObject({ needsYou: 0, error: 0, working: 0, idle: 0 });
+  });
+
+  it("excludes a widget-bar-placed prompt from every bucket, notably idle (test-plan #E9)", () => {
+    const c = countStatusCapsule([makeSession({ id: "a", currentTool: "ask_user" })], {
+      widgetBar: () => true,
+    });
+    expect(c.idle).toBe(0);
+    expect(c).toMatchObject({ needsYou: 0, error: 0, working: 0, idle: 0 });
+  });
+
+  it("counts an errored ask_user session once, as error (test-plan #E10)", () => {
+    const c = countStatusCapsule([makeSession({ id: "a", currentTool: "ask_user" })], {
+      errorSessionIds: new Set(["a"]),
+      widgetBar: notWidgetBar,
+    });
+    expect(c).toMatchObject({ needsYou: 0, error: 1, working: 0, idle: 0 });
+    expect(c.firstIds.error).toBe("a");
+    expect(c.firstIds.needsYou).toBeUndefined();
+  });
+
+  it("counts a retrying session as working, not error (test-plan #E11)", () => {
+    const c = countStatusCapsule([makeSession({ id: "r", status: "idle" })], {
+      retrySessionIds: new Set(["r"]),
+      widgetBar: notWidgetBar,
+    });
+    expect(c).toMatchObject({ working: 1, error: 0 });
+  });
+
+  it("folds a noticed session into idle rather than dropping it (test-plan #E12)", () => {
+    const c = countStatusCapsule([makeSession({ id: "n", status: "idle" })], {
+      noticeSessionIds: new Set(["n"]),
+      widgetBar: notWidgetBar,
+    });
+    expect(c.idle).toBe(1);
+  });
+
+  it("does not throw when the flag sets are undefined (test-plan #X3)", () => {
+    const sessions = [
+      makeSession({ id: "a", status: "streaming" }),
+      makeSession({ id: "b", status: "idle" }),
+    ];
+    expect(() => countStatusCapsule(sessions)).not.toThrow();
+    expect(countStatusCapsule(sessions)).toMatchObject({ working: 1, idle: 1, error: 0 });
+    expect(countStatusCapsule([])).toMatchObject({ needsYou: 0, error: 0, working: 0, idle: 0 });
+  });
+
+  it("reports the first session id per bucket from the counted list order", () => {
+    const c = countStatusCapsule(
+      [
+        makeSession({ id: "i1", status: "idle" }),
+        makeSession({ id: "e1" }),
+        makeSession({ id: "e2" }),
+        makeSession({ id: "i2", status: "idle" }),
+      ],
+      { errorSessionIds: new Set(["e1", "e2"]), widgetBar: notWidgetBar },
+    );
+    expect(c.firstIds.error).toBe("e1");
+    expect(c.firstIds.idle).toBe("i1");
+  });
+
+  it("counts 1000 sessions within the 5 ms budget (test-plan #P1)", () => {
+    // Guard against an accidental quadratic pass (e.g. scanning the widget-bar
+    // map per session), not a tuned perf target.
+    const statuses = ["idle", "active", "streaming", "ended"] as const;
+    const sessions = Array.from({ length: 1000 }, (_, i) =>
+      makeSession({
+        id: `s${i}`,
+        status: statuses[i % statuses.length],
+        ...(i % 2 === 0 ? { currentTool: "ask_user" } : {}),
+      }),
+    );
+    const widgetBarMap = new Map<string, boolean>(
+      sessions.filter((_, i) => i % 2 === 0).map((s, i) => [s.id, i % 3 === 0]),
+    );
+    const flags = {
+      errorSessionIds: new Set(["s3", "s7"]),
+      retrySessionIds: new Set(["s5"]),
+      noticeSessionIds: new Set(["s9"]),
+      widgetBar: (id: string) => widgetBarMap.get(id),
+    };
+
+    countStatusCapsule(sessions, flags); // warm up
+    const timings: number[] = [];
+    for (let run = 0; run < 5; run++) {
+      const t0 = performance.now();
+      countStatusCapsule(sessions, flags);
+      timings.push(performance.now() - t0);
+    }
+    timings.sort((a, b) => a - b);
+    expect(timings[2]).toBeLessThan(5);
   });
 });
 
