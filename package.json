@@ -104,6 +104,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.1",
+    "@blackbelt-technology/pi-dashboard-bus-client": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
     "@earendil-works/pi-ai": "^0.75.5",
     "@playwright/test": "1.61.1",

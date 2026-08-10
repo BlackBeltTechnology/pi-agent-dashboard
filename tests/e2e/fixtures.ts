@@ -126,7 +126,9 @@ async function shutdownSession(client: BusClient, sessionId: string): Promise<vo
 
 export const test = base.extend<{ reapSessions: void }>({
   reapSessions: [
-    async ({}, use, testInfo) => {
+    // No destructuring: this fixture depends on no other fixture, and an empty
+    // `{}` pattern trips biome's `noEmptyPattern` (a CI Tier A error).
+    async (_fixtures, use, testInfo) => {
       // ---- BEFORE BODY: probe, then consult the latch --------------------
       // Probe FIRST so a CI retry (`retries: 1`) of a harness-down test
       // re-probes and fails again rather than reporting as a misleading skip.
