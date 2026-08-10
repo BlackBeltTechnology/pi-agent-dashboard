@@ -22,6 +22,7 @@ import {
   checkBudget,
   computeDelta,
   createLatch,
+  decideGate,
   isLiveSession,
   settleSessionIds,
 } from "../../tests/e2e/reap-core.ts";
@@ -191,6 +192,60 @@ describe("isLiveSession — only process-backed sessions count", () => {
     ["live:false AND status:ended", { id: "a", live: false, status: "ended" }, false],
   ])("%s → %s", (_label, session, expected) => {
     expect(isLiveSession(session)).toBe(expected);
+  });
+});
+
+describe("decideGate — how the fixture must wire the latch (X4, X5, X6)", () => {
+  const armedLatch = () => {
+    const l = createLatch();
+    l.record(false);
+    l.record(false);
+    return l; // one more failure arms it
+  };
+
+  it("X4 — the probe that ARMS the latch fails loudly, it does not skip", () => {
+    // Regression: the fixture consulted shouldSkip() first, so the declaring
+    // test was skipped and the harness death was never announced.
+    const gate = decideGate(armedLatch(), false);
+    expect(gate.action).toBe("fail");
+    expect(gate.message).toContain("HARNESS DOWN");
+  });
+
+  it("X5 — a later probe that also fails is skipped, not re-announced", () => {
+    const latch = armedLatch();
+    decideGate(latch, false); // arms + announces
+    const gate = decideGate(latch, false);
+    expect(gate.action).toBe("skip");
+  });
+
+  it("X6 — an armed latch whose fresh probe SUCCEEDS runs the test", () => {
+    // The pinned intent of X6: a retry that re-probes healthy must RUN.
+    // Regression: the fixture threw HARNESS DOWN here instead.
+    const latch = armedLatch();
+    decideGate(latch, false); // arm
+    const gate = decideGate(latch, true);
+    expect(gate.action).toBe("run");
+  });
+
+  it("a healthy harness always runs", () => {
+    const latch = createLatch();
+    expect(decideGate(latch, true).action).toBe("run");
+    expect(decideGate(latch, true).action).toBe("run");
+  });
+
+  it("failures below the threshold still run — a slow harness is not condemned", () => {
+    const latch = createLatch();
+    expect(decideGate(latch, false).action).toBe("run");
+    expect(decideGate(latch, false).action).toBe("run");
+  });
+});
+
+describe("computeDelta — a lost pre-snapshot must never mean 'reap everything'", () => {
+  it("an empty pre-snapshot would classify EVERY session as spawned-during-test", () => {
+    // This is why the fixture must not reap when its pre-snapshot failed: the
+    // delta cannot distinguish the harness's own session from the spec's.
+    const post = ["harness-owned", "spec-spawned"];
+    expect(computeDelta([], post)).toEqual(["harness-owned", "spec-spawned"]);
   });
 });
 

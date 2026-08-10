@@ -5,7 +5,7 @@
  * branch here is unit-tested at L1 from `scripts/__tests__/e2e-reap-core.test.mjs`
  * with an injected clock. `fixtures.ts` supplies the real bus/HTTP effects.
  *
- * Background: the harness is ONE 4 GiB container shared by all 87 specs, and
+ * Background: the harness is ONE 4 GiB container shared by all 90 specs, and
  * specs spawn from 138 call sites while exactly one ever ends a session. The
  * container therefore crosses its memory ceiling mid-run, thrashes, and the
  * daemon dies — surfacing as a wall of phantom spec failures (#433).
@@ -212,6 +212,50 @@ export function createLatch(threshold: number = LATCH_FAILURE_THRESHOLD): Latch 
       return armed && !state.probeOk;
     },
   };
+}
+
+export type GateAction = "run" | "skip" | "fail";
+
+export interface GateDecision {
+  action: GateAction;
+  message: string;
+}
+
+/**
+ * D4 — how the fixture must act on one probe result.
+ *
+ * NOTE: this RECORDS the probe into the latch as well as deciding — one call
+ * per test, and the decision depends on the arm transition, so splitting record
+ * from decide would let a caller consult a stale state and reintroduce exactly
+ * the ordering bug below. Deterministic and I/O-free, so the ordering is pinned
+ * by L1 tests instead of living untested inside the Playwright fixture.
+ *
+ * The ordering is the whole point, and it is easy to get backwards (it was):
+ *
+ *   - The probe that ARMS the latch must **fail** — that is the one loud
+ *     announcement of the harness's death. Consulting "should I skip?" first
+ *     silently swallows it, and the run then looks like a wall of skips with no
+ *     stated cause.
+ *   - A later probe that also fails must **skip** — the death is already
+ *     reported; re-announcing it per test recreates the noise this exists to
+ *     remove.
+ *   - An armed latch whose FRESH probe succeeds must **run**. A CI retry
+ *     re-probes, and if the harness answers, the test carries real information.
+ *     Failing it with HARNESS DOWN would be a lie about a harness that just
+ *     responded.
+ */
+export function decideGate(latch: Latch, probeOk: boolean): GateDecision {
+  const wasArmed = latch.armed;
+  const verdict = latch.record(probeOk);
+
+  if (!wasArmed && verdict.armed) return { action: "fail", message: verdict.message };
+  if (latch.shouldSkip({ probeOk })) {
+    return {
+      action: "skip",
+      message: `${HARNESS_DOWN_MESSAGE} — skipping (see the first failure above).`,
+    };
+  }
+  return { action: "run", message: "" };
 }
 
 export interface BudgetResult {
