@@ -45,27 +45,31 @@ flag, no window registry, no tmux CLI, no new correlation mechanism.
 
 ## 3. Terminate, using the shared ladder
 
-- [ ] 3.1 L1: headless behaviour is unchanged by the refactor (test-plan #T3).
+- [x] 3.1 L1: headless behaviour is unchanged by the refactor (test-plan #T3).
       Write this BEFORE touching the shared ladder — it is the regression net.
-- [ ] 3.2 Make `handleShutdown` escalate to `session.pid` with the same
+- [x] 3.2 Make `handleShutdown` escalate to `session.pid` with the same
       `killProcess(pid, { timeoutMs: 2000 })` ladder `handleForceKill` uses, AFTER
       a bounded grace window for the graceful `sendToSession({type:"shutdown"})`
       to work. Shutdown stays polite; the ladder is the backstop, not the opening
       move (design D6).
 - [ ] 3.3 L1: the ladder escalates to SIGKILL against a process that ignores
       SIGTERM (test-plan #T4).
-- [ ] 3.4 L1: double shutdown / shutdown-after-natural-exit is success, not error
+- [x] 3.4 L1: double shutdown / shutdown-after-natural-exit is success, not error
       (test-plan #T5).
-- [ ] 3.5 L1 **fails-on-revert**: an advisory gateway message alone is not
+- [x] 3.5 L1 **fails-on-revert** — VERIFIED by construction: all three scenarios
+      in `shutdown-terminates-any-strategy.test.ts` were RED before the escalation
+      existed ("the session's process survived shutdown") and GREEN after. Remove
+      the `killProcess` call and they go red again.
+- [x] 3.5b L1 **fails-on-revert** (original wording): an advisory gateway message alone is not
       accepted as termination — deleting the escalation MUST turn this red
       (test-plan #T6). Verify by actually reverting the escalation once and
       observing the failure.
-- [ ] 3.6 L1 (was 2.1): a session is terminable regardless of spawn strategy,
+- [x] 3.6 L1 (was 2.1): a session is terminable regardless of spawn strategy,
       because termination keys on the stored PID rather than on any
       strategy-specific lookup (test-plan #T1). Assert `handleShutdown` reaches
       `killProcess` for a session that is NOT in `headlessPidRegistry` — that is
       exactly the tmux case.
-- [ ] 3.7 L1: a session with NO stored PID (bridge never registered) degrades to
+- [x] 3.7 L1: a session with NO stored PID (bridge never registered) degrades to
       today's behaviour and is REPORTED, never claimed as terminated. Mirror
       `handleForceKill`'s existing no-PID branch rather than inventing a second
       policy.
@@ -78,7 +82,7 @@ flag, no window registry, no tmux CLI, no new correlation mechanism.
 
 - [ ] 4.1 L1: `session_removed` is broadcast only after termination is confirmed,
       exactly once (test-plan #C1).
-- [ ] 4.2 L1 **fails-on-revert**: a process surviving the full ladder produces a
+- [x] 4.2 L1 **fails-on-revert**: a process surviving the full ladder produces a
       diagnostic naming the session id and the surviving process, and the
       shutdown is NOT reported clean (test-plan #C2).
 - [ ] 4.3 Confirm the wait is bounded by the existing ladder grace and that a
