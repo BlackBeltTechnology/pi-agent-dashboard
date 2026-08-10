@@ -49,7 +49,7 @@ comment set out to avoid:
 - Journal every mutation to disk **before** the source file is written, and
   reconcile leftovers on the next run. A journal survives `SIGKILL`; a `finally`
   does not. The journal is a **directory of per-entry files** written
-  temp-then-rename, so a torn write can never destroy the recovery data of a
+  temp-then-`linkSync`, so a torn write can never destroy the recovery data of a
   file that is already mutated.
 - Restore from the journaled **pre-mutation bytes**, never from git. The file
   may legitimately carry uncommitted work at mutation time, so

@@ -74,6 +74,24 @@ import { fileURLToPath } from "node:url";
 /** Directory holding one journal entry file per in-flight mutation. */
 export const JOURNAL_DIRNAME = ".mutation-journal";
 
+/**
+ * Resolve a repo-relative path, refusing anything that escapes `repoRoot`.
+ *
+ * Used on BOTH the mutation path and the reconciliation path, and it has to be
+ * both: a mutation of `../../outside` would be applied and then be
+ * unrecoverable, because reconciliation refuses that same path on the way back.
+ * Rejecting it before the first write is the only point where the tree is still
+ * consistent.
+ *
+ * @returns {string|null} absolute path, or null when it escapes
+ */
+function resolveInsideRepo(repoRoot, relPath) {
+  const abs = path.resolve(repoRoot, relPath);
+  const rel = path.relative(repoRoot, abs);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  return abs;
+}
+
 /** @param {string} repoRoot */
 export function journalDir(repoRoot) {
   return path.join(repoRoot, JOURNAL_DIRNAME);
@@ -102,7 +120,13 @@ function entryFileName(sourceRel) {
  * round trip is not (a BOM or an invalid sequence would not survive it).
  */
 export function prepareMutation(repoRoot, mutation) {
-  const abs = path.join(repoRoot, mutation.source);
+  const abs = resolveInsideRepo(repoRoot, mutation.source);
+  if (abs === null) {
+    throw new Error(
+      `mutation "${mutation.name}": source ${mutation.source} resolves outside the repository. ` +
+        `The harness refuses — a mutation applied out there could not be reconciled back.`,
+    );
+  }
   const original = fs.readFileSync(abs);
   const text = original.toString("utf8");
   const occurrences = text.split(mutation.find).length - 1;
@@ -319,14 +343,12 @@ function reconcileEntry(repoRoot, entryPath) {
     return conflict(null, `journal entry is unreadable (${err.message})`);
   }
 
-  // Containment BEFORE any write. `path.join(repoRoot, "../../etc/thing")`
-  // escapes the tree, and reconciliation's whole job is to overwrite the file
-  // it resolves — so a corrupted or hand-edited entry could clobber anything the
-  // user can write. Type-checking `entry.path` above says nothing about where
-  // it points.
-  const abs = path.resolve(repoRoot, entry.path);
-  const rel = path.relative(repoRoot, abs);
-  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+  // Containment BEFORE any write. Reconciliation's whole job is to overwrite
+  // the file it resolves, so a corrupted or hand-edited entry could otherwise
+  // clobber anything the user can write. Type-checking `entry.path` above says
+  // nothing about where it points.
+  const abs = resolveInsideRepo(repoRoot, entry.path);
+  if (abs === null) {
     return conflict(entry.path, "journal entry resolves outside the repository — refusing to touch it");
   }
 

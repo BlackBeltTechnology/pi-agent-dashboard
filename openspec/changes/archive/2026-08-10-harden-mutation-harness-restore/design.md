@@ -55,9 +55,10 @@ failure D1 exists to prevent, reintroduced one layer down. Per-entry files scope
 any torn write to an entry whose source file has not been touched yet (the entry
 always precedes its source write).
 
-Each entry is written temp-then-`fs.renameSync` into place, so a reader never
-observes a half-written entry. Entry creation uses exclusive mode, which also
-carries D7.
+Each entry is written to a temp file and published with `fs.linkSync`, so a
+reader never observes a half-written entry. `linkSync` rather than `renameSync`
+is deliberate: rename silently clobbers an existing target, while link fails
+with `EEXIST` — which is what makes the same-file refusal in D7 possible at all.
 
 Entries record `{ path, originalBytes, mutatedBytes }` where `path` is
 **repo-relative** (absolute paths break under `git worktree move`) and both byte
@@ -210,10 +211,19 @@ definition what a process left behind when it *stopped* existing; a live owner's
 mutation is work in progress and belongs to that process.
 
 `process.kill(pid, 0)` is the liveness probe (`EPERM` counts as alive: the pid
-exists, it just belongs to another user). Pid reuse can make a dead owner look
-alive; the entry is then skipped for that run and reconciled on a later one.
-That asymmetry is deliberate — the error this direction avoids is destroying a
-live mutation, which is the worse of the two.
+exists, it just belongs to another user). Pid reuse is the known weakness, and it cuts
+one way that is NOT benign: if a dead owner's pid has been recycled by an
+unrelated process, the entry is skipped, so the run proceeds against a tree that
+still carries the mutation instead of failing closed. It recovers on a later run
+once the pid stops resolving.
+
+Closing that properly needs an owner identity that cannot be recycled — the
+process start time alongside the pid — and Node exposes no portable way to read
+another process's start time. A `pid` + random-token pair does not help either,
+since the token is only as trustworthy as the liveness probe that reads it. The
+alternative, treating every entry as residue, reintroduces exactly the
+self-clobbering this decision exists to stop. So the collision window is
+accepted and recorded here rather than papered over.
 
 Note this narrows D7's collision guard rather than replacing it: a second run
 still *refuses* on an existing entry (it is about to mutate the same file), and

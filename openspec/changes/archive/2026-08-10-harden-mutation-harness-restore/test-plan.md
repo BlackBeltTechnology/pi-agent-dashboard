@@ -72,6 +72,7 @@ journal reads no source file), not by a latency threshold.
 | X12 | R1 / the existing `finally` still restores on a throw | state-transition (legal edge) | L1 | automated | temp repoRoot; the test runner stubbed to throw | `verifyTeeth` is called | the throw propagates AND the source file is restored AND the journal entry is removed — the journal is proven additive, not a replacement |
 | X13 | R6 / a live owner's mutation is untouchable | state-transition (illegal edge) | L1 | automated | a child harness process holding a mutation on disk, still running | `reconcile()` runs in a different process | the entry is skipped — not restored, not conflicted — the file keeps its mutated bytes, the entry remains, and `globalSetup` does not throw |
 | X14 | R7 / reconciliation stays inside the tree | fault-injection (malicious input) | L1 | automated | a journal entry whose `path` resolves outside `repoRoot` (`../..`-style), recording bytes that would overwrite a file there | `reconcile()` runs | the entry is reported as a conflict, the outside file is byte-unchanged, nothing is restored |
+| X15 | R7 / a mutation may not escape the tree | fault-injection (malicious input) | L1 | automated | a manifest mutation whose `source` resolves outside `repoRoot` | `beginMutation()` is called | it throws before any read or write, the outside file is byte-unchanged, and no journal entry exists |
 
 ### Manual-only
 
@@ -87,9 +88,9 @@ journal reads no source file), not by a latency threshold.
 - Requirements covered: 7/7 (R1 recoverable-after-death, R2 non-destructive
   reconciliation, R3 fail-closed, R4 interrupt-restores-and-stops, R5
   concurrent-run-refused, R6 in-flight-mutation-untouched, R7 containment)
-- Scenarios by class: edge 8 · perf 0 · frontend 0 · error 14 · manual 2
-- Scenarios by level: L1 22 · L2 0 · L3 0 · manual-only 2
-- Scenarios by disposition: automated 22 · manual-only 2
+- Scenarios by class: edge 8 · perf 0 · frontend 0 · error 15 · manual 2
+- Scenarios by level: L1 23 · L2 0 · L3 0 · manual-only 2
+- Scenarios by disposition: automated 23 · manual-only 2
 
 > **X13 was added during implementation, not planning.** The harness's own X15
 > teeth checks failed once reconciliation was wired into the root `globalSetup`:

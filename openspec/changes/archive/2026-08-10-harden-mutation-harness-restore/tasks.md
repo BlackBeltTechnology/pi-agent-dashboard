@@ -3,9 +3,11 @@
 ## 1. Reproduce the failure
 
 - [x] 1.1 Write a test that spawns the harness in a child process, waits until a
-      mutation is on disk, then `SIGKILL`s the child — asserting the source file
-      is left mutated. This must FAIL to reproduce today's bug only after the
-      fix; today it documents the defect.
+      mutation is on disk, then `SIGKILL`s the child. Assert the FULL sequence:
+      the source is left mutated immediately after the kill (the `finally` never
+      ran), and a subsequent `reconcile()` restores it. Residue after a kill is
+      expected by design — recovery is the next run's job, not the dead
+      process's.
 - [x] 1.2 Confirm the existing `finally` path still restores on a thrown error,
       so the fix is proven to be additive rather than a replacement.
 
@@ -16,8 +18,8 @@
 - [x] 2.2 Split the journal write out of `applyMutation` as its own callable
       step (design D8), and write the entry BEFORE `fs.writeFileSync` mutates
       the source.
-- [x] 2.3 Write ONE entry file per mutation, temp-then-`fs.renameSync`, created
-      in exclusive mode — never a single shared file rewritten per mutation
+- [x] 2.3 Write ONE entry file per mutation, temp-then-`fs.linkSync` (NOT
+      `renameSync`, which would silently clobber an existing entry) — never a single shared file rewritten per mutation
       (design D1a).
 - [x] 2.4 Store `{ path, originalBytes, mutatedBytes }` with `path`
       repo-relative and both byte fields base64 of the raw `Buffer`, so
@@ -187,6 +189,11 @@ builds a throwaway `repoRoot` under `mkdtempSync` (test-plan "Fixture rule").
       the entry is removed — proving the journal is additive, not a replacement.
       (test-plan #X12) See
       `scripts/__tests__/async-semantics-mutation.test.mjs`.
+- [x] 5.24 A mutation may not escape the tree — input: a manifest mutation whose
+      `source` resolves outside `repoRoot` · trigger: `beginMutation()` ·
+      observable: throws before any read or write, the outside file unchanged,
+      no journal entry. (test-plan #X15) See
+      `scripts/__tests__/mutation-journal.test.mjs`.
 - [x] 5.23 Reconciliation stays inside the tree — input: an entry whose `path`
       resolves outside `repoRoot` · trigger: `reconcile()` · observable: reported
       as a conflict, the outside file byte-unchanged, nothing restored.

@@ -109,7 +109,12 @@ function spawnChildMidMutation(root) {
         resolve(child);
       } else if (child.exitCode !== null || Date.now() > deadline) {
         clearInterval(poll);
-        reject(new Error(`child never reached the mutation (exit ${child.exitCode})`));
+        // Never leave the child alive on a timeout: it is holding a mutation on
+        // disk, and orphaning it is the very failure this suite is about.
+        child.kill("SIGKILL");
+        child.on("exit", () =>
+          reject(new Error(`child never reached the mutation (exit ${child.exitCode})`)),
+        );
       }
     }, 25);
   });
@@ -408,6 +413,31 @@ describe("mutation journal", () => {
     expect(readFileSync(sourcePath(root))).toEqual(Buffer.from(ORIGINAL_TEXT));
     expect(entries(root)).toHaveLength(0);
   }, 30_000);
+
+  // ---- test-plan #X15 -------------------------------------------------------
+  it("refuses to APPLY a mutation whose source escapes the repository", () => {
+    const outside = path.join(os.tmpdir(), `mut-src-outside-${process.pid}.txt`);
+    const sacred = "untouched\n";
+    writeFileSync(outside, sacred);
+
+    try {
+      expect(() =>
+        beginMutation(root, {
+          name: "escaping source",
+          source: path.relative(root, outside),
+          find: "untouched",
+          replace: "clobbered",
+        }),
+      ).toThrow(/outside the repository/);
+
+      // Critical: had this been applied, reconciliation would REFUSE the same
+      // path on the way back, leaving it permanently unrecoverable.
+      expect(readFileSync(outside, "utf8")).toBe(sacred);
+      expect(entries(root)).toHaveLength(0);
+    } finally {
+      rmSync(outside, { force: true });
+    }
+  });
 
   // ---- test-plan #X14 -------------------------------------------------------
   it("refuses a journal entry that resolves outside the repository", () => {

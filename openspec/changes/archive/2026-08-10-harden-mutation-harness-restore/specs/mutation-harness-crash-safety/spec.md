@@ -99,6 +99,10 @@ working tree as being of unknown provenance and SHALL refuse to run any test
 against it. A journal it CAN fully resolve SHALL be restored and reported, and
 the run SHALL continue.
 
+Throughout this requirement, "entry" means an entry whose owning process is no
+longer running. An entry owned by a live process is in-flight work, is exempt
+from every rule here, and is governed solely by the in-flight requirement below.
+
 #### Scenario: A previous run left recoverable residue
 
 - **WHEN** a test run starts and every journal entry resolves to a clean restore
@@ -116,8 +120,10 @@ the run SHALL continue.
 - **WHEN** a test run starts with a non-empty journal
 - **THEN** reconciliation SHALL complete before any test project begins
   executing
-- **AND** no test file SHALL observe the mutated content of a journaled source
-  file
+- **AND** no test file SHALL observe the mutated content of a source file
+  journaled by a process that is no longer running
+- **NOTE** a mutation owned by a LIVE process is deliberately still visible —
+  the harness's own test-runner child must see the mutation its parent applied
 
 #### Scenario: A conflict blocks every project, not only the mutation checks
 
@@ -179,10 +185,15 @@ obeyed, however it came to be there.
 
 ### Requirement: A second concurrent run SHALL be refused
 
-The harness assumes a single writer per working tree. A second run that finds an
-existing journal entry for a file it is about to mutate SHALL refuse rather than
-interleave, because two runs restoring each other's mutations reproduces exactly
-the residue this capability prevents.
+The harness assumes a single writer per working tree; it does not enforce one.
+A second run that finds an existing journal entry for a file it is about to
+mutate SHALL refuse rather than interleave, because two runs restoring each
+other's mutations reproduces exactly the residue this capability prevents.
+
+This guarantee is per FILE, not per worktree. Two concurrent runs touching
+disjoint files are not detected and may each measure a tree the other has
+mutated; preventing that needs a worktree-wide lock, which this capability
+deliberately does not introduce.
 
 #### Scenario: Two harness runs overlap in one worktree
 
