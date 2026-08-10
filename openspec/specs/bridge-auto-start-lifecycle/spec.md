@@ -1,5 +1,13 @@
-## ADDED Requirements
+# bridge-auto-start-lifecycle Specification
 
+## Purpose
+
+Keep the dashboard's asynchronous auto-start flow (`autoStartServer`) safe when
+it settles after the extension context that started it has been invalidated.
+Covers the lifetime boundary between a long-running auto-start attempt and the
+session that owns it: which late accesses must degrade to a no-op, and which
+errors must still propagate.
+## Requirements
 ### Requirement: A late auto-start continuation never crashes the pi process
 
 The dashboard auto-start flow (`autoStartServer`) is asynchronous and MAY settle
@@ -61,10 +69,15 @@ A session that accepts a prompt SHALL deliver the model's answer and remain
 alive afterwards, regardless of whether a dashboard auto-start attempt is in
 flight or has already failed.
 
-#### Scenario: Faux round-trip completes end to end
+This requirement is scoped to the SESSION, not to the browser client. Whether
+the client's optimistic prompt settles and re-enables the composer is governed
+by the `optimistic-prompt` capability and is deliberately NOT asserted here.
 
-- **GIVEN** a session in the browser-E2E harness
-- **WHEN** the user sends a prompt whose scripted answer is known
-- **THEN** the answer SHALL render in the message DOM
-- **AND** the composer SHALL return to an enabled state
+#### Scenario: Round-trip completes with an auto-start failure in flight
+
+- **GIVEN** a session whose dashboard auto-start attempt has already failed
+- **WHEN** the session is sent a prompt whose scripted answer is known
+- **THEN** the session SHALL return the answer
+- **AND** the session SHALL return to `idle`
 - **AND** the session SHALL NOT terminate
+
