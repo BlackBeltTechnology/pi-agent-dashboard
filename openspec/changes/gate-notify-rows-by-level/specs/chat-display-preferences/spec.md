@@ -19,9 +19,18 @@ definition.
 The axis SHALL NOT include an "off" value. `"errors"` is its floor: an
 `error`-level notify SHALL render at every setting.
 
+Neither write path validates the value: `PATCH /api/preferences/display` merges
+the partial as stored, the per-session override is persisted as received, and
+the preferences file is a documented hand-editable surface. The predicate SHALL
+therefore treat an unrecognized `notifyMinLevel` value as `"all"`, so that no
+stored value can suppress an `error` notify.
+
 `shared` SHALL export a single predicate that decides visibility of one row
 against one `notifyMinLevel`. Both chat-view gate sites SHALL consume that one
-predicate rather than re-deriving the comparison.
+predicate rather than re-deriving the comparison. Because `shared` cannot import
+the client row type, the predicate SHALL accept a structural row shape covering
+only the discriminator fields, and each gate site SHALL adapt its local object
+to that shape rather than re-implementing the check against its own field names.
 
 #### Scenario: Field present in every preset
 - **GIVEN** the `DISPLAY_PRESETS` map
@@ -40,6 +49,13 @@ predicate rather than re-deriving the comparison.
 - **WHEN** visibility is evaluated for an `error`-level notify
 - **THEN** it SHALL be visible
 - **AND** no value of `notifyMinLevel` SHALL exist that hides it
+
+#### Scenario: Unrecognized minimum-level value fails open
+- **GIVEN** a persisted or overridden `notifyMinLevel` that is not one of `all`, `success`, `warnings`, `errors`
+- **WHEN** visibility is evaluated for notify rows at every level
+- **THEN** the floor SHALL be treated as `"all"`
+- **AND** every notify row SHALL be visible, including `error`
+- **AND** the comparison SHALL NOT yield `false` for all rows via an undefined rank
 
 #### Scenario: Unrecognized level normalizes to info
 - **GIVEN** a notify row whose `params.level` is absent or is not one of `info`, `success`, `warning`, `error`

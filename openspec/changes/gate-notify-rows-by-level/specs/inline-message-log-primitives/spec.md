@@ -6,9 +6,9 @@
 
 The shared `InlineMessage` primitive's `Severity` union SHALL be
 `"error" | "warning" | "info" | "success"`. The `success` member SHALL resolve
-its background, border, foreground and accent bar from the
-`--severity-success-*` tokens, which already ship in the theme layer and
-currently have no consumer.
+its background, border, foreground and accent bar from the existing
+`--severity-success-*` tokens — the same triple already consumed by `Toast.tsx`
+and `extension-ui/ToastSlot.tsx`. Those consumers SHALL be unaffected.
 
 Adding the member SHALL NOT change the rendering of the three existing members,
 and SHALL NOT introduce a raw colour literal — `success` follows the same

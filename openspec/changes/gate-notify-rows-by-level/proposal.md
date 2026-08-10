@@ -62,12 +62,20 @@ has no lever.
   *"outcomes and problems, no chatter"* — see design D1, where the two rejected
   alternatives (demote to `info`, or split into a second orthogonal pref) are
   recorded.
-- **Zero behavior change on upgrade.** All three presets default to `"all"`,
-  and the server backfills legacy `preferences.json` files to `"all"`. Today's
-  transcript is byte-identical until the user opts in.
+- **Zero *visibility* change on upgrade.** All three presets default to `"all"`,
+  and the server backfills legacy `preferences.json` files to `"all"`. No row
+  that renders today stops rendering until the user opts in. This is a claim
+  about the **gate only** — the folded-in `NotifyRenderer` re-tone below does
+  restyle every existing notify row for every user at upgrade, deliberately
+  (design D8). Same rows, new tone; never fewer rows.
 - **Asks stay non-hidable.** The gate keys on the notify discriminator, never on
   `role === "interactiveUi"`. `select` / `confirm` / `input` / `ask_user` are
   untouched at every level, including `"errors"`.
+- **The floor itself fails open.** An unrecognized `notifyMinLevel` value —
+  reachable via a hand-edited `preferences.json` or a stale client override,
+  neither of which is validated on write — is treated as `"all"`. Without that
+  clause a garbage value makes every rank comparison `NaN`, which would hide
+  even `error` and break the axis' one hard guarantee.
 - **The per-session View popover gains its first non-boolean control.**
   `ChatViewMenu` renders `Row` (a boolean toggle) exclusively today; a 4-stop
   enum row is new UI there. Shape decided by rubric in `mockups/ux-review.md`:
@@ -77,9 +85,10 @@ has no lever.
   bordered box with Tailwind colour literals and renders through the shared
   severity primitive — `--severity-*` tokens, leading accent bar, mandatory
   icon — plus a level word, so level survives in three non-colour channels.
-  `InlineMessage`'s `Severity` union gains `"success"`; the
-  `--severity-success-*` tokens already exist in `index.css` and currently have
-  **no consumer at all**, so this is their first.
+  `InlineMessage`'s `Severity` union gains `"success"`, resolving the existing
+  `--severity-success-*` triple. Those tokens are already consumed by
+  `Toast.tsx` and `extension-ui/ToastSlot.tsx`; `InlineMessage` is a new
+  consumer of them, not the first.
 
 Out of scope — deliberately:
 

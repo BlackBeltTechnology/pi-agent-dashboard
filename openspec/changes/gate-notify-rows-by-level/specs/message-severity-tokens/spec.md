@@ -32,6 +32,7 @@ because a derived tint cannot beat the tokens it derives from.
 - **THEN** its foreground SHALL resolve from `--severity-warning-fg`
 - **AND** SHALL NOT be a yellow Tailwind literal
 
-#### Scenario: Success tier gains its first consumer
+#### Scenario: Success tier resolves from its tokens
 - **WHEN** a notify with `level: "success"` renders
 - **THEN** its background, border and foreground SHALL resolve from `--severity-success-{bg,border,fg}`
+- **AND** the existing `Toast.tsx` / `extension-ui/ToastSlot.tsx` consumers of that triple SHALL be unaffected
