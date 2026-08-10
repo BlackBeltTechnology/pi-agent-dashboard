@@ -321,6 +321,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-kb-extension"
             "@blackbelt-technology/pi-dashboard-kb-plugin"
             "@blackbelt-technology/pi-dashboard-hermes-memory-plugin"
+            "@blackbelt-technology/pi-dashboard-blackhole-plugin"
             "@blackbelt-technology/pi-dashboard-document-converter"
             "@blackbelt-technology/anti-slop-frontend"
             "@blackbelt-technology/pi-dashboard-eng-disciplines"
