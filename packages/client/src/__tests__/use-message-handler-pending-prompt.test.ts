@@ -24,9 +24,10 @@ function makeRefs() {
     selectedSessionIdRef: { current: undefined },
     pendingSpawnsRef: { current: new Map<string, { cwd: string; kind: "spawn" | "resume" }>() },
     loadingHistoryTimersRef: { current: new Map<string, ReturnType<typeof setTimeout>>() },
+    replayInFlightTimersRef: { current: new Map<string, ReturnType<typeof setTimeout>>() },
   } satisfies Pick<
     MessageHandlerDeps,
-    "spawningCwdsRef" | "subscribedRef" | "pendingTerminalCwdRef" | "lastCreatedTerminalIdRef" | "maxSeqMapRef" | "selectedSessionIdRef" | "pendingSpawnsRef" | "loadingHistoryTimersRef"
+    "spawningCwdsRef" | "subscribedRef" | "pendingTerminalCwdRef" | "lastCreatedTerminalIdRef" | "maxSeqMapRef" | "selectedSessionIdRef" | "pendingSpawnsRef" | "loadingHistoryTimersRef" | "replayInFlightTimersRef"
   >;
 }
 
@@ -59,6 +60,7 @@ function makeHarness(initialState: Map<string, SessionState>) {
     setResumeErrors: noop,
     setDisplayPrefs: noop,
     setLoadingHistory: noop,
+    setReplayInFlight: noop,
     setCanvasMap: noop,
   };
 

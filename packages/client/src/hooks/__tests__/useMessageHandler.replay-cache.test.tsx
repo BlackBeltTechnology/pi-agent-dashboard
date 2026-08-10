@@ -45,6 +45,7 @@ describe("useMessageHandler — Strategy A replay-cache invalidation", () => {
         selectedSessionIdRef: useRef(undefined),
         pendingSpawnsRef: useRef(new Map()),
         loadingHistoryTimersRef: useRef(new Map()),
+        replayInFlightTimersRef: useRef(new Map()),
         replayPersister: persister,
       };
       return useMessageHandler(noopSetters(), deps);

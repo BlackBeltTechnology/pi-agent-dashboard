@@ -67,6 +67,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `recommended-requires.spec.ts` | Playwright E2E for recommended-extension `requires` probe (change:… → see `recommended-requires.spec.ts.AGENTS.md` |
 | `reducer-poisoned-cache-heal.spec.ts` | Playwright E2E for `fix-reducer-crash-undefined-toolname` (manual tasks 5.1+5.2). 2 tests, faux model. → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of seen session resubscribes lastSeq>0 (delta replay). → see `replay-delta-on-reload.spec.ts.AGENTS.md` |
+| `replay-in-flight-pill.spec.ts` | Playwright spec. Replay-in-flight pill: visible over a slowed multi-batch cold replay (F9/X6), overlays without reflow (F11), never paints on the warm empty-delta reload (F10). Delays server→client WS frames via `page.routeWebSocket`. See change: show-replay-in-flight-indicator. |
 | `replay-truncate.spec.ts` | Playwright spec. Strategy B: full replay in fresh browser context pre-truncates heavy (>200-line) tool result… → see `replay-truncate.spec.ts.AGENTS.md` |
 | `resource-activation-trust.spec.ts` | L3 spec (change: project-scope-disable-global-resources). → see `resource-activation-trust.spec.ts.AGENTS.md` |
 | `session-context-injection.spec.ts` | Playwright spec. Spawns session, sends `[[faux:echo-system-context]]`, asserts rendered text contains… → see `session-context-injection.spec.ts.AGENTS.md` |
