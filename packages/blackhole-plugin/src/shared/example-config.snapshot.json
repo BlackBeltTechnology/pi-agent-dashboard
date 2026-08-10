@@ -1,0 +1,131 @@
+{
+  "_comment": "blackhole unified configuration v2 — ~/.pi/agent/pi-blackhole/pi-blackhole-config.json",
+  "_all_settings_in_one_file": true,
+  "_new_keys": "compaction, compactionEngine, tailBehavior, sessionFallback — new config surface",
+  "_renamed": "was example-config-v2.json; old example-config.json → example-config-old.json",
+
+  "compaction": "auto",
+  "compactionEngine": "blackhole",
+  "tailBehavior": "minimal",
+  "midRunCompaction": "off",
+
+  "skipForProviders": [],
+  "_comment_skipForProviders": "EXPERIMENTAL compatibility shim (pi-codex-compaction coexistence): providers for which blackhole steps aside entirely — no compaction, no observational-memory consolidation. Entries: bare provider or 'provider:api'. Env override PI_BLACKHOLE_SKIP_PROVIDERS (comma-separated). Default [] = disabled. Deliberately unsurfaced in README/CONFIG.md; do not rely on it.",
+
+  "model": {
+    "_comment": "Base model (last fallback before session model).",
+    "provider": "openrouter",
+    "id": "google/gemma-4-31b-it:free",
+    "thinking": "low",
+    "cooldownHours": 6
+  },
+
+  "observerModel": {
+    "_comment": "Observer primary: Qwen3 Next 80B via OpenRouter free (strong extraction with reasoning).",
+    "provider": "openrouter",
+    "id": "qwen/qwen3-next-80b-a3b-instruct:free",
+    "thinking": "low",
+    "cooldownHours": 12
+  },
+  "observerFallbackModels": [
+    {
+      "_comment": "Observer fallback 1: Gemma 4 31B via Ollama Cloud.",
+      "provider": "ollama",
+      "id": "gemma4:31b-cloud",
+      "thinking": "off",
+      "cooldownHours": 6
+    },
+    {
+      "_comment": "Observer fallback 2: Gemma 4 31B via OpenRouter free tier.",
+      "provider": "openrouter",
+      "id": "google/gemma-4-31b-it:free",
+      "thinking": "off",
+      "cooldownHours": 6
+    }
+  ],
+
+  "reflectorModel": {
+    "_comment": "Reflector primary: GPT OSS 120B via Cerebras (strong reasoning for synthesis).",
+    "provider": "cerebras",
+    "id": "gpt-oss-120b",
+    "thinking": "low",
+    "cooldownHours": 12
+  },
+  "reflectorFallbackModels": [
+    {
+      "_comment": "Reflector fallback 1: GLM-4.7 via z.ai with thinking enabled.",
+      "provider": "zai",
+      "id": "glm-4.7",
+      "thinking": "low",
+      "cooldownHours": 6
+    },
+    {
+      "_comment": "Reflector fallback 2: GPT OSS 120B via OpenRouter free tier.",
+      "provider": "openrouter",
+      "id": "openai/gpt-oss-120b:free",
+      "thinking": "low",
+      "cooldownHours": 6
+    }
+  ],
+
+  "dropperModel": {
+    "_comment": "Dropper primary: GPT OSS 120B via Cerebras (judgment/prioritization).",
+    "provider": "cerebras",
+    "id": "gpt-oss-120b",
+    "thinking": "off",
+    "cooldownHours": 12
+  },
+  "dropperFallbackModels": [
+    {
+      "_comment": "Dropper fallback 1: GLM-4.7 via z.ai.",
+      "provider": "zai",
+      "id": "glm-4.7",
+      "thinking": "low",
+      "cooldownHours": 6
+    },
+    {
+      "_comment": "Dropper fallback 2: GPT OSS 120B via OpenRouter free tier.",
+      "provider": "openrouter",
+      "id": "openai/gpt-oss-120b:free",
+      "thinking": "low",
+      "cooldownHours": 6
+    }
+  ],
+
+  "observeAfterTokens": 15000,
+  "reflectAfterTokens": 25000,
+  "compactAfterTokens": 81000,
+  "observationsPoolMaxTokens": 20000,
+  "observationsPoolTargetTokens": 10000,
+  "reflectorInputMaxTokens": 80000,
+  "dropperInputMaxTokens": 80000,
+  "dropperPressureThreshold": 0.7,
+  "observerChunkMaxTokens": 40000,
+  "observerPreambleMaxTokens": 0,
+  "agentMaxTurns": 16,
+  "providerIdleTimeoutMs": 0,
+
+  "memory": true,
+  "sessionFallback": true,
+  "debug": false,
+  "debugLog": false,
+
+  "_notes": [
+    "v2 config surface:",
+    "  compaction (auto|manual|off) — how compaction triggers",
+    "  compactionEngine (blackhole|pi-default) — who handles it",
+    "  tailBehavior (pi-default|minimal) — how much stays visible",
+    "  midRunCompaction (resume|pause|off) — threshold check during tool loops",
+    "  sessionFallback (true|false) — if false, skip session model as last-resort fallback",
+    "  dropperPressureThreshold (0-1, default 0.70) — pressure relief valve: fraction of reflectorInputMaxTokens where dropper fires even without new data",
+    "  providerIdleTimeoutMs (ms, 0=disabled, unset=inherit pi default) — body-idle timeout for background provider streams",
+    "",
+    "Backward compat: old keys (overrideDefaultCompaction, noAutoCompact, passive)",
+    "are migrated to new keys at load time.",
+    "",
+    "Env overrides:",
+    "  PI_BLACKHOLE_PASSIVE=1  → compaction:off + memory:false",
+    "  PI_BLACKHOLE_COMPACTION  → override compaction setting",
+    "  PI_BLACKHOLE_COMPACTION_ENGINE → override compactionEngine setting"
+  ]
+}
