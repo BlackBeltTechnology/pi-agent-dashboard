@@ -2,7 +2,6 @@
 
 - FROM: `### Requirement: EventBus catch-all via emit intercept`
 - TO: `### Requirement: EventBus forwarding via per-channel subscription`
-
 - FROM: `### Requirement: EventBus intercept installed once at extension init`
 - TO: `### Requirement: EventBus subscriptions established once at extension init`
 
@@ -77,6 +76,8 @@ Forwarding SHALL apply a rename mapping for known channels:
 
 A subscribed channel that has no mapping entry SHALL be forwarded using the channel name directly as the `eventType`. The former blanket rule — that ANY unknown channel emitted by ANY extension is forwarded under its own name — SHALL NOT apply: the host's event bus offers no wildcard subscription, so only declared channels are observable. That blanket rule was in any case never satisfied for a channel emitted by another extension, so no working behavior is withdrawn. A plugin needing its own channel forwarded SHALL declare it in the channel mapping (identity entry when no rename is wanted). Emissions made by the bridge itself SHALL be forwarded exactly once, on the same subscription path as any other emitter's — no separate self-emit path.
 
+NOTE: the scenario titles `Unknown custom extension event forwarded with channel name` and `Original emit always called` are retained verbatim because a MODIFIED requirement cannot retire a scenario name; their bodies below are normative and supersede the titles' wording.
+
 #### Scenario: Known flow event forwarded with mapped name
 
 - **WHEN** any extension emits `flow:flow-started`
@@ -87,20 +88,22 @@ A subscribed channel that has no mapping entry SHALL be forwarded using the chan
 - **WHEN** any extension emits `subagents:created`
 - **THEN** the bridge SHALL forward an `event_forward` with `eventType: "subagent_created"`
 
-#### Scenario: Declared channel without a mapping entry keeps its channel name
+#### Scenario: Unknown custom extension event forwarded with channel name
 
-- **WHEN** a declared channel that has no rename entry is emitted
+- **WHEN** a DECLARED channel that has no rename entry is emitted (e.g. a plugin's own `my-extension:custom-event`)
 - **THEN** the bridge SHALL forward an `event_forward` whose `eventType` is the channel name
+- **AND WHEN** a channel is NOT declared at all
+- **THEN** the bridge SHALL NOT forward it and SHALL NOT error — an undeclared channel is unobservable, because the host bus offers no wildcard subscription
 
 #### Scenario: Events not forwarded before session is ready
 
 - **WHEN** an EventBus emission occurs before the session is ready
 - **THEN** the bridge SHALL NOT forward it, and the emission SHALL still reach every other subscriber unaffected
 
-#### Scenario: Emission delivery is never affected by forwarding
+#### Scenario: Original emit always called
 
-- **WHEN** forwarding an emission fails for any reason
-- **THEN** the emission SHALL still be delivered to all other subscribers of that channel, and the emitting extension SHALL observe no error
+- **WHEN** any extension emits a declared channel, including when forwarding that emission fails
+- **THEN** the host's emit path SHALL be unaffected — the bridge never replaces it — so every other subscriber of that channel SHALL still receive the emission and the emitting extension SHALL observe no error
 
 #### Scenario: The bridge's own emissions are forwarded once
 
@@ -113,13 +116,15 @@ EventBus forwarding subscriptions SHALL be established once per bridge instance 
 
 On teardown or reload the bridge SHALL release its own subscriptions, and SHALL NOT restore or otherwise write back any host emit function — it never replaced one.
 
-#### Scenario: Subscriptions established once
+NOTE: the scenario titles `Intercept installed at init` and `Cleanup restores original emit` are retained verbatim because a MODIFIED requirement cannot retire a scenario name; their bodies below are normative and describe subscriptions, not an intercept.
+
+#### Scenario: Intercept installed at init
 
 - **WHEN** the bridge extension loads
 - **THEN** it SHALL subscribe to each declared channel exactly once, and a second wiring pass SHALL NOT produce duplicate `event_forward` messages for a single emission
 
-#### Scenario: Teardown releases subscriptions without mutating the host
+#### Scenario: Cleanup restores original emit
 
 - **WHEN** the bridge extension reloads or shuts down
 - **THEN** its EventBus subscriptions SHALL be released
-- **AND** no host emit function SHALL be reassigned as part of cleanup
+- **AND** no host emit function SHALL be reassigned as part of cleanup — there is nothing to restore, because nothing was replaced
