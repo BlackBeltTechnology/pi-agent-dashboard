@@ -98,10 +98,16 @@ seeding `@review` from an existing `@propose-review-N` entry.
 the role anywhere, so every existing user's first `ship-it` after this change
 would hard-fail on a role they have never heard of. The change therefore also
 ships an onboarding path: `@review` is documented in setup, and the first
-hard-fail emits a one-time bootstrap prompt offering to assign the role
-interactively (the same `list_models` → `ask_user` → `update_roles` flow
-`doubt-driven-review` uses to bootstrap `@propose-review-N`). In a
-non-interactive run the hard fail stands, with the error naming the command.
+hard-fail emits a bootstrap prompt offering to assign the role interactively (the
+same `list_models` → `ask_user` → `update_roles` flow `doubt-driven-review` uses
+to bootstrap `@propose-review-N`). In a non-interactive run the hard fail stands,
+with the error naming the command.
+
+The prompt fires on **every interactive hard-fail**, with no persisted
+"already-asked" state. Persistence would buy nothing: accepting the prompt
+configures the role, which removes the hard-fail that triggers it, so the prompt
+is self-extinguishing. It recurs only while the user keeps declining — which is
+the correct behaviour, not a nag.
 
 **Invocation is pinned, not implied.** "Invoke `review-code`" alone would mean
 the *current agent* runs the procedure in its own context — self-review again,
@@ -286,14 +292,40 @@ an unbounded backfill wearing this change's name).
 
 ### D12 — The review bound is a pure decision helper, not prose
 
-`ship-it`'s existing pure decision logic lives in `scripts/` and is unit-tested:
-`scripts/manifest.ts` (`parseManifest`, `deferDecision`, `filesystemRealityCheck`)
-and `scripts/no-weakening.ts` (`assertNoWeakening`). The skill consults them; it
-does not re-implement their rules in prose.
+`ship-it`'s existing pure decision logic lives in
+**`.pi/skills/ship-it/scripts/`** — `manifest.ts` (`parseManifest`,
+`deferDecision`, `filesystemRealityCheck`) and `no-weakening.ts`
+(`assertNoWeakening`). The skill consults them; it does not re-implement their
+rules in prose.
 
-The two-round cap SHALL follow that precedent: a pure
-`reviewRoundDecision(state) → review | fix | escape` helper in `scripts/`,
-unit-tested. Scenario design surfaced why this is not optional — the cap is the
+*Two corrections found while implementing, both worth recording because they are
+the change's own pathology:*
+
+1. The path is **skill-relative**, not repo-root `scripts/`. The earlier draft of
+   this decision copied `scripts/manifest.ts` verbatim from `ship-it`'s own
+   preamble, which states it that way — the same stale-path error class as
+   `i18n-parity.mjs`, inherited from a doc rather than from the tree.
+2. Those helpers are **not unit-tested**. `vitest.config.ts` lists only
+   `packages/*` and `scripts/` as projects, so nothing under `.pi/skills/` is
+   ever collected. Zero tests reference `assertNoWeakening`, `parseManifest`,
+   `deferDecision`, or `filesystemRealityCheck` — including the no-weakening
+   guardrail that `ship-it` step 4 relies on every cycle.
+
+So the precedent is real in *placement* but hollow in *coverage*: three decision
+helpers exist that gate nothing verifiable — precisely the pathology this change
+exists to fix, one directory further in.
+
+The two-round cap SHALL therefore be a pure
+`reviewRoundDecision(state) → review | fix | escape` helper in
+**`.pi/skills/ship-it/scripts/`**, beside its siblings, **and
+`.pi/skills/ship-it` SHALL be added to `vitest.config.ts`'s project list** so the
+helper's tests actually execute. That wiring retro-covers `manifest.ts` and
+`no-weakening.ts` as well.
+
+*Alternative:* place the helper in repo-root `scripts/` because that dir is
+already a vitest project (rejected — splits `ship-it`'s decision logic across two
+directories to dodge a one-line config fix, and leaves the existing two helpers
+uncovered). Scenario design surfaced why this is not optional — the cap is the
 headline safety property of this change (it is what makes a model-in-the-loop
 `ship-it` terminate), and expressed only as Markdown it is **unverifiable by any
 test**. A guarantee that cannot fail a test is a guarantee that will silently
@@ -306,7 +338,8 @@ rot, exactly as `i18n-parity.mjs` did.
 
 A bounded number of rounds does not bound *wall-clock* time: one unreachable or
 stalled provider hangs a headless `ship-it` indefinitely. The checkpoint SHALL
-apply a timeout to each reviewer invocation. A timeout is **not** a blocking
+apply a timeout of **300 seconds** to each reviewer invocation — comfortably
+above a real review of a real diff, far below a hung-provider stall. A timeout is **not** a blocking
 finding and **not** a silent pass — it is reported as a checkpoint failure and
 resolved like the unconfigured-role case (D1), so a headless run terminates with
 a legible reason rather than hanging.

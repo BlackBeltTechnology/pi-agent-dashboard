@@ -15,10 +15,12 @@
 - [ ] 3.3 Do NOT migrate any `qa/tests/*.sh` to Playwright — zero real violations; the rule ships as a regression guard only
 - [ ] 3.4 Do NOT clear the other 58 `kb dox lint` issues — explicitly out of scope
 
-## 4. Implementation — the decision helper (D12)
+## 4. Implementation — the review-gate decision module (D12)
 
-- [ ] 4.1 Implement `reviewRoundDecision(state) → review | fix | escape` as a pure helper in `scripts/`, following the `scripts/manifest.ts` / `scripts/no-weakening.ts` precedent
-- [ ] 4.2 Implement a stub reviewer fixture (scripted findings per round) for the adversarial scenarios, beside the helper
+- [ ] 4.1 Create `.pi/skills/ship-it/scripts/review-gate.ts` beside `manifest.ts` / `no-weakening.ts`. It owns the **decisions**; the skill owns the I/O (spawning, timing). Exports: `REVIEW_TIMEOUT_MS = 300_000`, `resolveReviewer`, `classifyFindings`, `reviewRoundDecision`
+- [ ] 4.2 Add `.pi/skills/ship-it/vitest.config.ts` (include `scripts/__tests__/**/*.test.ts`, node env) and register `.pi/skills/ship-it` in `vitest.config.ts`'s `projects` — without this the helper's tests never execute
+- [ ] 4.3 Confirm the wiring retro-covers the existing helpers: `manifest.ts` and `no-weakening.ts` are now collectable by `npm test`
+- [ ] 4.4 Implement a stub reviewer fixture (scripted findings per round) for the adversarial scenarios
 
 ## 5. Implementation — `scripts/check-conventions.mjs`
 
@@ -61,45 +63,55 @@
 
 ## 11. Automated scenarios (folded from test-plan.md)
 
-All rows are L1 — home `scripts/__tests__/*.test.mjs`, harness exemplar
-`scripts/__tests__/lint-ledger.test.mjs` (fixtures: `scripts/__tests__/fixtures`).
+All 36 rows are L1. Exemplar for every file below:
+`scripts/__tests__/lint-ledger.test.mjs` (drives exported fns directly, cites
+`test-plan #<id>`, carries a `See change:` header; fixtures under
+`scripts/__tests__/fixtures`). Homes:
 
-- [ ] 11.1 Round-cap lower bound: counter=0 + blocking findings · evaluate decision · decision = `review` (test-plan #E1, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.2 Round-cap second round: counter=1 + blocking findings · evaluate decision · decision = `review` (test-plan #E2, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.3 Round-cap ceiling: counter=2 + blocking findings still present · evaluate decision · decision = `escape-hatch`, never `review` (test-plan #E3, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.4 Mermaid detector positive: md with box-drawing inside a fence, no tree rows · run check · file+line reported, exit non-zero (test-plan #E4, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.5 Mermaid detector negative: md with fenced `├──`/`└──` dir tree · run check · zero violations; README.md + docs/electron-session.md clean (test-plan #E5, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.6 Root-index positive: root AGENTS.md with a file→purpose row table · run check · violation, exit non-zero (test-plan #E6, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.7 Root-index negative: current root AGENTS.md (pointer-only Key Files) · run check · zero violations (test-plan #E7, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.8 Browser-rule negative: current `qa/tests/` · run check · zero violations (WS/health/display-server are not rendered UI) (test-plan #E8, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.9 Reviewer diff scope: 2 own commits + a 2.5 merge of 3 develop commits · compute reviewed diff · only own-commit changes present (test-plan #E9 — blocked on C2, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.10 Touched-set added: new proposal without the heading + `--base` · run check · reported, exit non-zero (test-plan #E10, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.11 Touched-set untouched: pre-existing non-conforming proposal not in diff · run check with `--base` · not reported (test-plan #E11, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.12 Touched-set pure rename: proposal moved, content byte-identical · run check with `--base` · not reported (test-plan #E12, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.13 Touched-set rename+edit: proposal moved AND edited · run check with `--base` · reported (test-plan #E13, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.14 No-`--base` mode: invoked without `--base` · run check · Discipline-Skills reports without gating, other 3 rules still gate (test-plan #E14, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.15 "None apply" proposal: touched proposal whose heading states none apply · run check with `--base` · zero violations (test-plan #E15, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.16 Dox byte-arm positive: JSON with 1 × `over-threshold`/`arm:"bytes"` · run gate · exit non-zero, names the file (test-plan #E16, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.17 Dox byte-arm negative: JSON with 58 non-byte issues, 0 byte · run gate · exit 0 (test-plan #E17, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.18 Dox row-arm not gated: JSON with `over-threshold`/`arm:"rows"` only · run gate · exit 0 (test-plan #E18, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.19 No triviality escape: ship-it skill text · parse step 4.5 · no diff-size/path/count skip condition present (test-plan #E19, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.20 i18n-lint gating flag: step-4.4 wiring · inspect invocation · `i18n:lint` invoked with `--strict` (test-plan #E20, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.21 Cheap-fail-first: tree with 1 convention violation · run 4.4 · zero reviewer invocations, verdict returned without a model call (test-plan #P1, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.22 Step ordering: ship-it SKILL.md · parse step sequence · 3 → 4.4 → 4.5 → 6, and 4.5 never precedes 4.4 (test-plan #F1, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.23 Composed skills + guardrails: ship-it SKILL.md · parse · names `review-code`; guardrails state the two-round cap + step-5 escape (test-plan #F2, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.24 `@review` required: role unset · resolve reviewer · hard failure naming `update_roles` + seed hint; session default NOT used (test-plan #X1, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.25 Bootstrap non-interactive: role unset, non-interactive · resolve reviewer · hard fail stands, no prompt (test-plan #X2 — blocked on C3, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.26 Reviewer not inline: step 4.5 definition · inspect invocation contract · an `Agent` spawn with `model: "@review"`, never in-context self-review (test-plan #X3, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.27 Reviewer timeout: reviewer stalls past deadline · invoke checkpoint · terminated, timeout reported, no hang (test-plan #X4 — blocked on C1, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.28 Timeout is not a pass: reviewer times out · evaluate verdict · `ship-change` NOT entered (test-plan #X5, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.29 Non-terminating reviewer: stub returning a different blocking finding each round · drive loop · terminates after round 2 via escape hatch, independent of a no-change cycle (test-plan #X6, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.30 Unsatisfiable finding: finding satisfiable only by weakening a test · drive loop · escape hatch; report names finding AND guardrail; guardrail not relaxed (test-plan #X7, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.31 Halt legibility: blocking findings survive round 2 · halt · `SHIP_IT_BLOCKED.md` names findings + attempts, worktree intact, exit non-zero (test-plan #X8, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.32 Non-blocking severities: only suggestion/nit/question/praise · evaluate verdict · proceeds to `ship-change`, findings reported (test-plan #X9, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.33 i18n-parity repair: current tree · run script · exit 0; both `lib/i18n/i18n.tsx` and `lib/i18n/i18n-hu.ts` resolve; `const zhCN` + `huCatalog` anchors found (test-plan #X10, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.34 quality:changed untouched: change diff · inspect package.json · definition byte-identical to pre-change (test-plan #X11, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.35 Splitter untouched: change diff · inspect · `split-large-agents.mjs` unmodified, no new per-file byte threshold anywhere (test-plan #X12, see scripts/__tests__/lint-ledger.test.mjs)
-- [ ] 11.36 Gate green on own tree: this change's tree · run all step-4.4 enforcers · every one exits 0 (test-plan #X13, see scripts/__tests__/lint-ledger.test.mjs)
+| file | rows |
+|---|---|
+| `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts` | E1–E3, X1, X2, X4–X9 |
+| `.pi/skills/ship-it/scripts/__tests__/skill-contract.test.ts` | E19, E20, F1, F2, P1, X3 |
+| `scripts/__tests__/check-conventions.test.mjs` | E4–E8, E10–E15 |
+| `scripts/__tests__/dox-byte-gate.test.mjs` | E16–E18 |
+| `scripts/__tests__/repo-hygiene.test.mjs` | E9, X10–X13 |
+
+- [ ] 11.1 Round-cap lower bound: counter=0 + blocking findings · evaluate decision · decision = `review` (test-plan #E1, author in `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts`)
+- [ ] 11.2 Round-cap second round: counter=1 + blocking findings · evaluate decision · decision = `review` (test-plan #E2, author in `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts`)
+- [ ] 11.3 Round-cap ceiling: counter=2 + blocking findings still present · evaluate decision · decision = `escape-hatch`, never `review` (test-plan #E3, author in `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts`)
+- [ ] 11.4 Mermaid detector positive: md with box-drawing inside a fence, no tree rows · run check · file+line reported, exit non-zero (test-plan #E4, author in `scripts/__tests__/check-conventions.test.mjs`)
+- [ ] 11.5 Mermaid detector negative: md with fenced `├──`/`└──` dir tree · run check · zero violations; README.md + docs/electron-session.md clean (test-plan #E5, author in `scripts/__tests__/check-conventions.test.mjs`)
+- [ ] 11.6 Root-index positive: root AGENTS.md with a file→purpose row table · run check · violation, exit non-zero (test-plan #E6, author in `scripts/__tests__/check-conventions.test.mjs`)
+- [ ] 11.7 Root-index negative: current root AGENTS.md (pointer-only Key Files) · run check · zero violations (test-plan #E7, author in `scripts/__tests__/check-conventions.test.mjs`)
+- [ ] 11.8 Browser-rule negative: current `qa/tests/` · run check · zero violations (WS/health/display-server are not rendered UI) (test-plan #E8, author in `scripts/__tests__/check-conventions.test.mjs`)
+- [ ] 11.9 Reviewer diff scope: 2 own commits + a 2.5 merge of 3 develop commits · compute reviewed diff · only own-commit changes present (test-plan #E9 — blocked on C2, author in `scripts/__tests__/repo-hygiene.test.mjs`)
+- [ ] 11.10 Touched-set added: new proposal without the heading + `--base` · run check · reported, exit non-zero (test-plan #E10, author in `scripts/__tests__/check-conventions.test.mjs`)
+- [ ] 11.11 Touched-set untouched: pre-existing non-conforming proposal not in diff · run check with `--base` · not reported (test-plan #E11, author in `scripts/__tests__/check-conventions.test.mjs`)
+- [ ] 11.12 Touched-set pure rename: proposal moved, content byte-identical · run check with `--base` · not reported (test-plan #E12, author in `scripts/__tests__/check-conventions.test.mjs`)
+- [ ] 11.13 Touched-set rename+edit: proposal moved AND edited · run check with `--base` · reported (test-plan #E13, author in `scripts/__tests__/check-conventions.test.mjs`)
+- [ ] 11.14 No-`--base` mode: invoked without `--base` · run check · Discipline-Skills reports without gating, other 3 rules still gate (test-plan #E14, author in `scripts/__tests__/check-conventions.test.mjs`)
+- [ ] 11.15 "None apply" proposal: touched proposal whose heading states none apply · run check with `--base` · zero violations (test-plan #E15, author in `scripts/__tests__/check-conventions.test.mjs`)
+- [ ] 11.16 Dox byte-arm positive: JSON with 1 × `over-threshold`/`arm:"bytes"` · run gate · exit non-zero, names the file (test-plan #E16, author in `scripts/__tests__/dox-byte-gate.test.mjs`)
+- [ ] 11.17 Dox byte-arm negative: JSON with 58 non-byte issues, 0 byte · run gate · exit 0 (test-plan #E17, author in `scripts/__tests__/dox-byte-gate.test.mjs`)
+- [ ] 11.18 Dox row-arm not gated: JSON with `over-threshold`/`arm:"rows"` only · run gate · exit 0 (test-plan #E18, author in `scripts/__tests__/dox-byte-gate.test.mjs`)
+- [ ] 11.19 No triviality escape: ship-it skill text · parse step 4.5 · no diff-size/path/count skip condition present (test-plan #E19, author in `.pi/skills/ship-it/scripts/__tests__/skill-contract.test.ts`)
+- [ ] 11.20 i18n-lint gating flag: step-4.4 wiring · inspect invocation · `i18n:lint` invoked with `--strict` (test-plan #E20, author in `.pi/skills/ship-it/scripts/__tests__/skill-contract.test.ts`)
+- [ ] 11.21 Cheap-fail-first: tree with 1 convention violation · run 4.4 · zero reviewer invocations, verdict returned without a model call (test-plan #P1, author in `.pi/skills/ship-it/scripts/__tests__/skill-contract.test.ts`)
+- [ ] 11.22 Step ordering: ship-it SKILL.md · parse step sequence · 3 → 4.4 → 4.5 → 6, and 4.5 never precedes 4.4 (test-plan #F1, author in `.pi/skills/ship-it/scripts/__tests__/skill-contract.test.ts`)
+- [ ] 11.23 Composed skills + guardrails: ship-it SKILL.md · parse · names `review-code`; guardrails state the two-round cap + step-5 escape (test-plan #F2, author in `.pi/skills/ship-it/scripts/__tests__/skill-contract.test.ts`)
+- [ ] 11.24 `@review` required: role unset · resolve reviewer · hard failure naming `update_roles` + seed hint; session default NOT used (test-plan #X1, author in `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts`)
+- [ ] 11.25 Bootstrap non-interactive: role unset, non-interactive · resolve reviewer · hard fail stands, no prompt (test-plan #X2 — blocked on C3, author in `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts`)
+- [ ] 11.26 Reviewer not inline: step 4.5 definition · inspect invocation contract · an `Agent` spawn with `model: "@review"`, never in-context self-review (test-plan #X3, author in `.pi/skills/ship-it/scripts/__tests__/skill-contract.test.ts`)
+- [ ] 11.27 Reviewer timeout: reviewer stalls past deadline · invoke checkpoint · terminated, timeout reported, no hang (test-plan #X4 — blocked on C1, author in `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts`)
+- [ ] 11.28 Timeout is not a pass: reviewer times out · evaluate verdict · `ship-change` NOT entered (test-plan #X5, author in `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts`)
+- [ ] 11.29 Non-terminating reviewer: stub returning a different blocking finding each round · drive loop · terminates after round 2 via escape hatch, independent of a no-change cycle (test-plan #X6, author in `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts`)
+- [ ] 11.30 Unsatisfiable finding: finding satisfiable only by weakening a test · drive loop · escape hatch; report names finding AND guardrail; guardrail not relaxed (test-plan #X7, author in `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts`)
+- [ ] 11.31 Halt legibility: blocking findings survive round 2 · halt · `SHIP_IT_BLOCKED.md` names findings + attempts, worktree intact, exit non-zero (test-plan #X8, author in `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts`)
+- [ ] 11.32 Non-blocking severities: only suggestion/nit/question/praise · evaluate verdict · proceeds to `ship-change`, findings reported (test-plan #X9, author in `.pi/skills/ship-it/scripts/__tests__/review-gate.test.ts`)
+- [ ] 11.33 i18n-parity repair: current tree · run script · exit 0; both `lib/i18n/i18n.tsx` and `lib/i18n/i18n-hu.ts` resolve; `const zhCN` + `huCatalog` anchors found (test-plan #X10, author in `scripts/__tests__/repo-hygiene.test.mjs`)
+- [ ] 11.34 quality:changed untouched: change diff · inspect package.json · definition byte-identical to pre-change (test-plan #X11, author in `scripts/__tests__/repo-hygiene.test.mjs`)
+- [ ] 11.35 Splitter untouched: change diff · inspect · `split-large-agents.mjs` unmodified, no new per-file byte threshold anywhere (test-plan #X12, author in `scripts/__tests__/repo-hygiene.test.mjs`)
+- [ ] 11.36 Gate green on own tree: this change's tree · run all step-4.4 enforcers · every one exits 0 (test-plan #X13, author in `scripts/__tests__/repo-hygiene.test.mjs`)
 
 ## 12. Manual verification (deferred post-merge)
 
