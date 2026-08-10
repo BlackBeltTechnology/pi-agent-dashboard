@@ -7,13 +7,13 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { registerSystemRoutes } from "../routes/system-routes.js";
 
 // Mock the spawn-failure-log module.
-vi.mock("../spawn-failure-log.js", () => ({
+vi.mock("../spawn-process/spawn-failure-log.js", () => ({
   readSpawnFailures: vi.fn().mockReturnValue([]),
   appendSpawnFailure: vi.fn(),
   SpawnFailureEntry: undefined,
 }));
 
-import { readSpawnFailures } from "../spawn-failure-log.js";
+import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 
 const mockReadSpawnFailures = vi.mocked(readSpawnFailures);
 

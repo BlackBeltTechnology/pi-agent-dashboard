@@ -1042,35 +1042,68 @@ The client SHALL call `setEnabledSet` from the value of `/api/health.plugins[]` 
 
 ### Requirement: Plugin-contributed `settings-section` claims SHALL render ONLY under the owning plugin's row
 
-Every `settings-section` claim SHALL be rendered inside the Plugins tab of `SettingsPanel`, beneath the contributing plugin's row in the activation list. No other `SettingsPanel` tab SHALL render plugin-contributed `settings-section` content.
+Every `settings-section` claim SHALL be rendered on the owning plugin's dedicated settings page at `/settings/plugins/<pluginId>`. No other `SettingsPanel` page SHALL render plugin-contributed `settings-section` content.
 
-`SettingsPanel.tsx` SHALL NOT import or render `SettingsSectionSlot` from `dashboard-plugin-runtime`. The legacy `<SettingsSectionSlot tab="..." />` invocations previously fired from the General / Servers / Providers / Security tabs SHALL be removed.
+`SettingsPanel.tsx` SHALL NOT import or render `SettingsSectionSlot` from `dashboard-plugin-runtime`. The legacy `<SettingsSectionSlot tab="..." />` invocations previously fired from every settings page SHALL be removed. `SettingsSectionByPluginSlot` SHALL be the only consumer of `settings-section` claims.
 
-The `claim.tab` field SHALL remain accepted by the manifest validator (preserving backwards-compat for existing manifests) but SHALL be inert at runtime — no consumer SHALL read it. The validator SHALL NOT emit any warning when `tab` is present.
+The `claim.tab` field SHALL remain accepted by the manifest validator (preserving backwards-compat for existing manifests) but SHALL be inert at runtime — no consumer SHALL read it, and no value of `tab` SHALL be rejected. The validator SHALL NOT emit any warning when `tab` is present.
 
-A plugin's row in the Plugins tab SHALL display a settings-gear affordance for every plugin. The affordance SHALL be clickable only when at least one `settings-section` claim is registered for that plugin id; otherwise the affordance SHALL be rendered disabled (reduced opacity, `cursor-not-allowed`, tooltip indicating no settings are available). Clicking the affordance toggles inline rendering of the plugin's `settings-section` claim(s), sorted by descending priority then registration order.
+`SettingsSectionByPluginSlot` SHALL render BOTH refs-registry claims AND intent broadcasts for `settings-section`, filtered to the owning plugin id, so intent-driven and JSON-Schema-descriptor contributions continue to render after `SettingsSectionSlot` stops consuming the slot.
 
-The slot-registry enabled-set filter SHALL apply to `getClaims("settings-section")` for this single render path, so disabling a plugin removes its section from the Plugins tab.
+The plugin's settings page SHALL render host-owned chrome above the plugin's own contribution: display name, plugin id, status pill, enable toggle, declared dependencies (`dependsOn`, `dependents`), claimed slot ids, plus any load error and unsatisfied requirements. Chrome SHALL be limited to fields `GET /api/plugins` returns; it SHALL NOT require `version`, `description`, `source`, or `icon`, which the plugin row does not carry. The plugin's `settings-section` contributions SHALL be rendered beneath that chrome, ordered by the slot registry's existing comparator (ascending `priority`, default 1000, tie-broken by `pluginId` lexicographic order). A plugin SHALL NOT be able to suppress, replace, or opt out of the host chrome.
 
-#### Scenario: Plugin settings render under their plugin row only
+A plugin's row in the Plugins activation index SHALL display a settings affordance for every plugin. The affordance SHALL be clickable only when that plugin CONTRIBUTES SETTINGS — i.e. at least one `settings-section` refs claim is registered for its id OR a `settings-section` intent is present for it — and SHALL navigate to `/settings/plugins/<pluginId>`; otherwise the affordance SHALL be rendered disabled (reduced opacity, `cursor-not-allowed`, tooltip indicating no settings are available). The activation index SHALL NOT render plugin settings inline.
+
+The settings page of a plugin that is installed but disabled SHALL still resolve. Because the slot-registry enabled-set filter removes a disabled plugin's claims from every consumer, that page SHALL render the host chrome, a notice that the plugin is disabled, and a re-enable affordance, and SHALL NOT render the plugin's settings body. A disabled plugin's settings component SHALL NOT be mounted.
+
+#### Scenario: Plugin settings render on their plugin page only
 
 - **WHEN** plugin `roles` declares a `settings-section` claim and is enabled
-- **THEN** opening the Plugins tab and clicking the gear affordance on the `roles` row SHALL render the plugin's settings section component beneath the row, and SHALL NOT render it inside the General, Servers, Providers, or Security tab.
+- **THEN** navigating to `/settings/plugins/roles` SHALL render the plugin's settings section component beneath the host chrome, and no other settings page SHALL render it
 
 #### Scenario: `tab` field is inert
 
 - **WHEN** plugin `roles` declares `{ slot: "settings-section", tab: "general", component: "RolesSettings" }` and is enabled
-- **THEN** the validator SHALL accept the manifest without warning, the `RolesSettings` component SHALL render only beneath the `roles` row in the Plugins tab, and the General tab SHALL NOT contain any plugin-contributed `settings-section` content.
+- **THEN** the validator SHALL accept the manifest without warning, the `RolesSettings` component SHALL render only on `/settings/plugins/roles`, and the General page SHALL NOT contain any plugin-contributed `settings-section` content
 
-#### Scenario: Disabled plugin has a non-clickable gear and no settings rendering
+#### Scenario: Unknown `tab` value is accepted and ignored
+
+- **WHEN** plugin `x` declares `{ slot: "settings-section", tab: "nonexistent" }`
+- **THEN** manifest validation SHALL succeed, the plugin SHALL load normally, and its section SHALL render on `/settings/plugins/x`
+
+#### Scenario: Disabled plugin page renders chrome without a body
 
 - **WHEN** plugin `demo` declares `{ slot: "settings-section" }` but is disabled in config
-- **THEN** the `demo` row in the Plugins tab SHALL render a disabled-state gear affordance, the slot-registry filter SHALL exclude `demo`'s claims, and no `settings-section` content SHALL render anywhere in `SettingsPanel`.
+- **THEN** `/settings/plugins/demo` SHALL render the host chrome with a `disabled` status pill, a notice that the plugin is disabled, and a re-enable affordance
+- **AND** the plugin's settings component SHALL NOT be mounted
+
+#### Scenario: Disabling a plugin while its page is open collapses the body
+
+- **WHEN** the user is on `/settings/plugins/flows` and disables the plugin
+- **THEN** the enabled-set update SHALL remove the plugin's claims and the page SHALL replace the settings body with the disabled notice without a reload
+- **AND** the host chrome SHALL remain rendered
+
+#### Scenario: Intent-driven contribution renders on the plugin page
+
+- **WHEN** a plugin broadcasts a `settings-section` intent rather than registering a refs-registry claim
+- **THEN** `/settings/plugins/<pluginId>` SHALL render that contribution beneath the host chrome
+- **AND** no other settings page SHALL render it
+
+#### Scenario: Enabled-but-failed plugin page is reachable
+
+- **WHEN** plugin `automation` is enabled and its status is `{ loaded: false, error: "Bridge path conflict: ..." }`
+- **THEN** `/settings/plugins/automation` SHALL render the host chrome with an `error` status pill and the full error text in a copy-on-click block
 
 #### Scenario: SettingsPanel does not import SettingsSectionSlot
 
-- **WHEN** the repo-lint test reads `packages/client/src/components/SettingsPanel.tsx`
-- **THEN** the file SHALL NOT contain the string `SettingsSectionSlot`.
+- **WHEN** the repo-lint test reads `packages/client/src/components/settings/SettingsPanel.tsx`
+- **THEN** the file SHALL NOT contain the string `SettingsSectionSlot`
+
+#### Scenario: Activation index does not render settings inline
+
+- **WHEN** the user opens `/settings/plugins` and clicks the settings affordance on the `roles` row
+- **THEN** the client SHALL navigate to `/settings/plugins/roles`
+- **AND** no `settings-section` content SHALL be rendered inside the activation list itself
 
 ### Requirement: Plugin manifests SHALL support an optional `requires` field for declarative requirements
 
@@ -1262,6 +1295,145 @@ The loader's existing topological load order (by `manifest.dependsOn`) SHALL gua
 
 - **WHEN** a plugin calls `ctx.consume("absent-service")` and nothing was provided under that name
 - **THEN** `consume` SHALL return `undefined` and SHALL NOT throw.
+
+### Requirement: plugin_action dispatches by pluginId fan-out
+
+The server's browser-gateway SHALL route a `plugin_action` message to the handler
+registered by the plugin whose id matches `message.pluginId`, so multiple plugins
+can service `plugin_action` concurrently without one shadowing another.
+
+#### Scenario: Two plugins register plugin_action, both reachable
+
+- **GIVEN** `flows-plugin` and `goal-plugin` each register a `plugin_action`
+  handler
+- **WHEN** a `plugin_action` with `pluginId:"flows"` arrives, then one with
+  `pluginId:"goal"` arrives
+- **THEN** each SHALL be delivered to its own plugin's handler, regardless of
+  plugin load order
+
+#### Scenario: Unknown pluginId errors, never silent-drops
+
+- **WHEN** a `plugin_action` arrives with a `pluginId` that has no registered
+  handler
+- **THEN** the gateway SHALL surface a structured "no handler for pluginId" error
+  to the sender and SHALL NOT silently discard the message
+
+### Requirement: flows, kb, and automation expose working plugin_action handlers
+
+`flows-plugin`, `kb-plugin`, and `automation-plugin` SHALL each register a
+production `plugin_action` handler that dispatches to its existing server core.
+
+#### Scenario: flows plugin_action runs a flow
+
+- **WHEN** a `plugin_action` with `pluginId:"flows"`, `action:"flow.run"` and a
+  valid payload arrives
+- **THEN** flows-plugin SHALL invoke its flow-run path (not a logging stub) and
+  report the outcome
+
+#### Scenario: kb and automation mutations reach their cores
+
+- **WHEN** a `plugin_action` targets `kb` (e.g. reindex) or `automation` (e.g. run)
+  with a valid payload
+- **THEN** the respective plugin SHALL execute the operation through its existing
+  server core and return a result
+
+### Requirement: `PluginRequirements` SHALL support a filesystem-path category
+
+`PluginRequirements` SHALL accept an optional `paths?: string[]` category alongside `piExtensions`, `binaries`, and `services`. It expresses dependencies that exist at a known absolute location but do not resolve on `PATH` — for example a CLI bundled inside a macOS `.app`, or a platform binary under a fixed install prefix. `PluginRequirementReport` SHALL gain a matching `paths: { name: string; satisfied: boolean }[]` field.
+
+#### Scenario: Declared path that exists is satisfied
+
+- **WHEN** a plugin declares `requires: { paths: ["/Applications/Example.app/Contents/MacOS/example"] }` and that file exists
+- **THEN** the probe report's `paths` array contains that name with `satisfied: true`
+
+#### Scenario: Declared path that is absent is unsatisfied
+
+- **WHEN** a plugin declares a `paths` requirement for a file that does not exist
+- **THEN** the probe report's `paths` array contains that name with `satisfied: false`
+- **AND** the name appears in the plugin's flattened `missingRequirements`
+
+#### Scenario: Path probe does not execute the target
+
+- **WHEN** the runtime probes a `paths` requirement
+- **THEN** it performs an existence check only
+- **AND** it does not execute, spawn, or read the contents of the target file
+
+#### Scenario: Declared path is treated as untrusted manifest input
+
+- **WHEN** a plugin declares a `paths` requirement whose value contains shell metacharacters
+- **THEN** the value is never interpolated into a shell command and no shell is invoked
+- **AND** the probe treats it as an opaque filesystem path
+
+#### Scenario: Legitimate paths containing spaces are not rejected
+
+- **WHEN** a plugin declares a `paths` requirement for an existing file whose absolute path contains spaces
+- **THEN** the probe reports it satisfied
+- **AND** the value is not rejected by any character denylist
+
+#### Scenario: Non-absolute path is unsatisfied
+
+- **WHEN** a plugin declares a `paths` requirement that is not an absolute path
+- **THEN** the probe reports it unsatisfied rather than resolving it relative to any working directory
+
+### Requirement: `paths` entries SHALL support plugin-config interpolation
+
+A `paths` entry MAY contain a single `${<configKey>}` placeholder resolved from the declaring plugin's own validated configuration before probing. This lets one declaration track an operator-configured location, so the requirement pill and the plugin's own status cannot disagree about the same host. Resolution is a configuration read and SHALL NOT invoke a shell.
+
+#### Scenario: Placeholder resolves from plugin config
+
+- **WHEN** a plugin declares `paths: ["${examplePath}"]` and its validated config sets `examplePath` to an existing absolute path
+- **THEN** the probe reports the requirement satisfied
+
+#### Scenario: Default config value behaves as a literal
+
+- **WHEN** the declaring plugin's config leaves the referenced key at its schema default
+- **THEN** the probe resolves the default and behaves exactly as an equivalent literal declaration would
+
+#### Scenario: Unresolvable placeholder is unsatisfied, not an error
+
+- **WHEN** a `paths` entry references a config key absent from the plugin's schema, or resolving to a non-absolute value
+- **THEN** the probe reports the requirement unsatisfied
+- **AND** the loader does not throw and the remaining requirement categories are still probed
+
+### Requirement: The `paths` category SHALL be backward compatible
+
+Existing manifests that declare no `paths` SHALL behave exactly as before the category was introduced. The category is additive and optional.
+
+#### Scenario: Manifest without paths is unaffected
+
+- **WHEN** a plugin declares `requires` with only `piExtensions` and `binaries`
+- **THEN** its probe report's `paths` array is empty
+- **AND** its `missingRequirements` contents and ordering are identical to the pre-existing behaviour
+
+#### Scenario: Plugin with no requires at all is unaffected
+
+- **WHEN** a plugin declares no `requires` field
+- **THEN** the loader reports `missingRequirements` as an empty array as before
+
+### Requirement: Missing `paths` requirements SHALL surface in the activation UI
+
+Unsatisfied `paths` requirements SHALL flow through the same `PluginStatus.requirements` / `missingRequirements` channel as the other categories. The activation UI SHALL render the new category alongside the three existing ones; because the client derives its rendered lists per category rather than from the flattened `missingRequirements`, this requires a corresponding client change and is NOT satisfied by the server-side plumbing alone.
+
+#### Scenario: Unsatisfied path renders a warning pill
+
+- **WHEN** a plugin row has an unsatisfied `paths` requirement
+- **THEN** the Plugins tab renders a warning pill naming that requirement
+- **AND** the missing-requirements block is not rendered empty, which is what would occur if the client derived its rendered lists from only the three pre-existing categories
+
+#### Scenario: Path requirements offer no one-click install
+
+- **WHEN** a plugin row has an unsatisfied `paths` requirement
+- **THEN** no inline `[Install]` button is rendered for it, because a filesystem path has no package source to install from
+- **AND** the existing non-package fallback affordance is rendered instead
+
+### Requirement: Path probe results SHALL respect the existing probe cache
+
+`paths` probes SHALL participate in the same per-plugin time-to-live cache as the other requirement categories.
+
+#### Scenario: Repeated probes within the window reuse the cache
+
+- **WHEN** a plugin's requirements are probed twice inside the cache window
+- **THEN** the second call returns the cached report without re-checking the filesystem
 
 ## Related Capabilities
 

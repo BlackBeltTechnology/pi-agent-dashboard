@@ -1,13 +1,17 @@
 import { describe, it, expect, afterEach } from "vitest";
+import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import {
   parseModuleNotFoundError,
   isModuleNotFoundError,
   detectInstallLayout,
+  detectPackageManager,
   suggestedReinstallCommand,
   buildRecoveryHtml,
   startRecoveryServer,
-} from "../recovery-server.js";
+} from "../lifecycle/recovery-server.js";
 
 describe("parseModuleNotFoundError", () => {
   it("extracts a bare-module name from ERR_MODULE_NOT_FOUND", () => {
@@ -85,6 +89,58 @@ describe("suggestedReinstallCommand", () => {
   });
   it("returns repo-root install for monorepo", () => {
     expect(suggestedReinstallCommand("monorepo")).toMatch(/repo root/);
+  });
+
+  // A pnpm-only repo (nodeLinker: hoisted) MUST NOT be `npm install`ed — npm
+  // drifts the tree (nested wrong-version deps) and breaks pi at startup.
+  // See change: recovery-server-respect-package-manager.
+  it("suggests pnpm for a monorepo whose root declares pnpm", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "rec-pnpm-"));
+    fs.writeFileSync(path.join(root, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n");
+    const cli = path.join(root, "packages", "server", "src", "cli.ts");
+    // NB: "pnpm install" contains "npm install" — assert on the prefix, not absence.
+    expect(suggestedReinstallCommand("monorepo", cli).startsWith("pnpm install")).toBe(true);
+  });
+
+  it("still suggests npm for a monorepo without pnpm markers", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "rec-npm-"));
+    const cli = path.join(root, "packages", "server", "src", "cli.ts");
+    expect(suggestedReinstallCommand("monorepo", cli).startsWith("npm install")).toBe(true);
+  });
+
+  // Column C intent (change: adopt-pnpm-for-dev-ci, X3), asserted behaviourally
+  // here instead of by the source-text guard in pnpm-migration-contract.test.ts:
+  // END-USER layouts run where pnpm does not exist, so they must never be told
+  // to run it. Only the `monorepo` layout may resolve to pnpm, and only behind
+  // the workspace probe above. Passing a pnpm-workspace-rooted scriptPath must
+  // NOT leak pnpm into a non-monorepo layout.
+  it("never suggests pnpm for end-user layouts, even from a pnpm workspace path", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "rec-enduser-"));
+    fs.writeFileSync(path.join(root, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n");
+    const cli = path.join(root, "packages", "server", "src", "cli.ts");
+    for (const layout of ["npm-global", "electron", "unknown"] as const) {
+      expect(suggestedReinstallCommand(layout, cli)).not.toMatch(/\bpnpm\b/);
+    }
+  });
+});
+
+describe("detectPackageManager", () => {
+  it("detects pnpm from pnpm-workspace.yaml", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-ws-"));
+    fs.writeFileSync(path.join(root, "pnpm-workspace.yaml"), "packages: []\n");
+    expect(detectPackageManager(root)).toBe("pnpm");
+  });
+
+  it("detects pnpm from pnpm-lock.yaml", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-lock-"));
+    fs.writeFileSync(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    expect(detectPackageManager(root)).toBe("pnpm");
+  });
+
+  it("falls back to npm when no pnpm markers exist", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pm-none-"));
+    fs.writeFileSync(path.join(root, "package-lock.json"), "{}\n");
+    expect(detectPackageManager(root)).toBe("npm");
   });
 });
 

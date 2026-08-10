@@ -17,7 +17,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { writeCredential, readAuthJson } from "../../provider-auth-storage.js";
+import { writeCredential, readAuthJson } from "../../auth/provider-auth-storage.js";
 
 const AUTH_DIR = path.join(os.homedir(), ".pi", "agent");
 const AUTH_PATH = path.join(AUTH_DIR, "auth.json");

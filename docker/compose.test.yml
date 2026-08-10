@@ -17,6 +17,15 @@
 
 services:
   pi-dashboard:
+    # Loopback-only publish for the TEST overlay (production `compose.yml`
+    # deliberately publishes on the wildcard so a LAN device can reach the
+    # dashboard). The PI_E2E_SEED path seeds a fake credential and, by default,
+    # a trust-any-peer `trustedNetworks` — sound ONLY because the harness is
+    # unreachable off-host. Without this the seeded instance would be exposed to
+    # the local network. See change: compact-warm-replay-stream (harness fix).
+    ports: !override
+      - "127.0.0.1:${DASHBOARD_PORT:-18000}:${DASHBOARD_PORT:-18000}"
+      - "127.0.0.1:${PI_GATEWAY_PORT:-18999}:${PI_GATEWAY_PORT:-18999}"
     # Per-worktree image tag so two worktrees never share/clobber a baked image
     # (the dashboard server+client run from BAKED source, not the overlay). The
     # managed e2e path passes --build; teardown removes the tag. Falls back to
@@ -60,6 +69,18 @@ services:
       # scenario specs clear the onboarding gate and reach guarded endpoints.
       # Default empty → manual test-up.sh QA stays UI-only.
       PI_E2E_SEED: "${PI_E2E_SEED:-}"
+      # PI_E2E_INDEPENDENT_SESSION=1 launches a pi the dashboard did NOT spawn
+      # (so `shutdownHeadlessProcesses()` cannot SIGTERM it) which therefore
+      # survives `/api/restart` and re-registers over the bridge. Required by
+      # the reconnect scenario in tests/e2e/faux-ask.spec.ts (#F6); default OFF
+      # so ordinary runs get no extra session card.
+      # See change: restore-ask-user-tool-state-on-reconnect.
+      PI_E2E_INDEPENDENT_SESSION: "${PI_E2E_INDEPENDENT_SESSION:-}"
+      # Optional comma-separated override for the PI_E2E_SEED trustedNetworks
+      # seed. Empty => trust any peer (the container, not an IP range, is the
+      # trust boundary; a VPN'd host can present a PUBLIC peer address, which
+      # made the old RFC1918-only seed fail nondeterministically).
+      PI_E2E_TRUSTED_NETWORKS: "${PI_E2E_TRUSTED_NETWORKS:-}"
       # Flow-plugin e2e peer selector (change: add-flow-plugin-e2e-tests):
       # both | no-am | legacy | bad-registration. Empty => test-entrypoint skips
       # all flow-peer wiring (non-flow specs unaffected). Requires PI_E2E_SEED=1.

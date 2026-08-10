@@ -3,7 +3,7 @@ import {
   buildGoalPrimerCommands,
   goalSessionTitle,
   primeGoalSession,
-} from "../goal-session-primer.js";
+} from "../goal/goal-session-primer.js";
 
 describe("buildGoalPrimerCommands", () => {
   it("builds the /goal kickoff from the objective", () => {

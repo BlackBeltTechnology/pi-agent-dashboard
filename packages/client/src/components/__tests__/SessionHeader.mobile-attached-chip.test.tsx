@@ -5,8 +5,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
-import { SessionHeader } from "../SessionHeader.js";
-import { createInitialState } from "../../lib/event-reducer.js";
+import { SessionHeader } from "../session/SessionHeader.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 // Force mobile layout for these tests.

@@ -1,0 +1,3 @@
+# tool-collapse-narration.spec.ts — index
+
+Playwright spec for the semantic-first composition flip. `[[faux:poll-narrated]]` → 4 identical `echo checking` calls each preceded by narration prose fold into one `×4` `collapsed-group`; collapsed hides `collapsed-group-narration`, expand reveals `still starting`. `[[faux:burst-split-by-reply]]` → heterogeneous run split by a mid-turn `found the cause` reply forms two `tool-burst-group`s with the reply at top level. `beforeEach` gates on 3 consecutive `/api/health` OKs to guard the managed post-boot server-stabilization race (transient "Server offline" → fresh-spawn mis-detects empty container). See change: collapse-tool-calls-across-narration.

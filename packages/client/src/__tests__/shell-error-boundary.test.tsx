@@ -23,7 +23,7 @@ import React from "react";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 
-import { ErrorBoundary } from "../components/ErrorBoundary.js";
+import { ErrorBoundary } from "../components/primitives/ErrorBoundary.js";
 
 afterEach(() => cleanup());
 

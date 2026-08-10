@@ -1,0 +1,3 @@
+# subagent-detail-dialog.spec.ts — index
+
+Playwright spec (change: fix-subagent-live-detail-reliability D4). Drives `[[faux:subagent-spawn]]`; once the subagent card resolves an `agentId` (durable backfill after completion), activates the Popout affordance (title `Open subagent detail`) and asserts a `role="dialog"` opens containing the SubagentDetailView timeline, NO new browser tab/window is opened (`context.waitForEvent("popup")` stays null + `context.pages().length` unchanged — the retired `window.open` path would fire a popup), and Esc dismisses. Proves prompt→faux→bridge→/ws→renderer→`ui:dialog` round-trip. Needs PI_E2E_SEED=1.

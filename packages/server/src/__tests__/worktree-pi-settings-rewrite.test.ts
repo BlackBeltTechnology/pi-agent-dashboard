@@ -21,7 +21,7 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { addWorktree, rewriteWorktreePiSettings } from "../git-operations.js";
+import { addWorktree, rewriteWorktreePiSettings } from "../git-worktree/git-operations.js";
 
 let workDir: string;
 beforeEach(() => { workDir = realpathSync(mkdtempSync(join(tmpdir(), "wt-pi-settings-"))); });

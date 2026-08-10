@@ -24,11 +24,11 @@ import { mdiChevronDown, mdiChevronUp, mdiOpenInNew } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useState } from "react";
-import { t as i18nT } from "../../lib/i18n";
-import { AgentCardShell } from "../AgentCardShell.js";
-import { formatDuration } from "../agent-card-utils.js";
-import { ElapsedBadge } from "../ElapsedBadge.js";
-import { MarkdownContent } from "../MarkdownContent.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { AgentCardShell } from "../session/AgentCardShell.js";
+import { formatDuration } from "../session/agent-card-utils.js";
+import { ElapsedBadge } from "../session/ElapsedBadge.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import type { ToolRendererProps } from "./types.js";
 
 /** Shape of AgentDetails sent by pi-dashboard-subagents via partialResult.details */
@@ -46,6 +46,12 @@ interface AgentDetails {
   modelName?: string;
   tags?: string[];
   agentId?: string;
+  /**
+   * Runner session id (v7) from the producer (>= 0.2.3). Client mirror of the
+   * producer's AgentDetails field; the reducer dual-indexes on it so a v7
+   * deep-link resolves. See change: resolve-subagent-inspector-by-session-id.
+   */
+  agentSessionId?: string;
   error?: string;
 }
 
@@ -86,7 +92,7 @@ function buildStats(d: AgentDetails): string {
 function PromptBlock({ text }: { text: string }) {
   return (
     <div className="mt-1.5">
-      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{i18nT("auto.prompt", undefined, "Prompt")}</div>
+      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{i18nT("session.prompt", undefined, "Prompt")}</div>
       {/* Renders a 1000-char prefix but exposes the full text to the copy path
           via `data-copy-text` so a selection over this card copies the whole
           prompt, not the DOM-capped prefix. See change:
@@ -102,7 +108,7 @@ function PromptBlock({ text }: { text: string }) {
 function ResultBlock({ text }: { text: string }) {
   return (
     <div className="mt-1.5">
-      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{i18nT("auto.result", undefined, "Result")}</div>
+      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{i18nT("common.result", undefined, "Result")}</div>
       <div className="max-h-80 overflow-auto text-[12px]">
         <MarkdownContent content={text} />
       </div>
@@ -164,7 +170,7 @@ function CardControls({
         title={canPopout ? "Open subagent detail" : "Subagent id not yet available"}
       >
         <Icon path={mdiOpenInNew} size={0.5} />
-        <span>{i18nT("auto.popout", undefined, "Popout")}</span>
+        <span>{i18nT("common.popout", undefined, "Popout")}</span>
       </button>
     </div>
   );
@@ -207,24 +213,43 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
     </Dialog>
   ) : null;
 
-  // Open the detail dialog; if this is a still-running subagent whose timeline
-  // is empty (a gap swallowed its live frames), request a resync so the bridge
-  // replays the latest snapshot. See change: fix-subagent-live-detail-reliability (D2).
+  // Request a resync when the subagent is still running but its inspector
+  // timeline is empty or the map has no entry at all (a gap swallowed its
+  // live frames, or the client subscribed after it started and state-replay
+  // does not re-synthesize subagent_* events for running agents). The bridge
+  // replays the latest snapshot in response.
+  // See change: fix-subagent-live-detail-reliability (D2);
+  // see change: fix-subagent-inline-expand-resync (inline path parity).
+  const requestResyncIfStale = () => {
+    if (!agentId || !sessionId || !context?.send) return;
+    const sub = session?.subagents.get(agentId);
+    const emptyTimeline = !sub?.entries || sub.entries.length === 0;
+    // Card status is authoritative for "still running" even when the map has
+    // no entry yet (sub === undefined) — that is exactly the not-found case.
+    const running = details?.status === "running" || details?.status === "queued" || sub?.status === "running";
+    if (running && emptyTimeline) {
+      context.send({ type: "subagent_resync_request", sessionId, agentId });
+    }
+  };
+
+  // Open the detail dialog, resyncing first if the timeline is stale.
   const openDetail = () => {
     setDetailOpen(true);
-    if (agentId && sessionId && context?.send) {
-      const sub = session?.subagents.get(agentId);
-      const emptyTimeline = !sub?.entries || sub.entries.length === 0;
-      if (sub?.status === "running" && emptyTimeline) {
-        context.send({ type: "subagent_resync_request", sessionId, agentId });
-      }
-    }
+    requestResyncIfStale();
+  };
+
+  // Toggle the inline expanded body; when expanding, resync if stale so the
+  // inline timeline hydrates the same way the popout does (previously the
+  // inline path skipped resync → "Subagent not found in this session.").
+  const toggleExpand = () => {
+    if (!expanded) requestResyncIfStale();
+    setExpanded((v) => !v);
   };
 
   const controls = (
     <CardControls
       expanded={expanded}
-      onToggleExpand={() => setExpanded((v) => !v)}
+      onToggleExpand={toggleExpand}
       onOpenPopout={openDetail}
       canPopout={canPopout}
       elapsed={
@@ -295,7 +320,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
           <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
         )}
         {details.status === "steered" && (
-          <div className="text-[11px] text-orange-400 mt-0.5">{i18nT("auto.wrapped_up_turn_limit", undefined, "Wrapped up (turn limit)")}</div>
+          <div className="text-[11px] text-orange-400 mt-0.5">{i18nT("session.wrappedUpTurnLimit", undefined, "Wrapped up (turn limit)")}</div>
         )}
         {!expanded && promptText && <PromptBlock text={promptText} />}
         {!expanded && result && <ResultBlock text={result} />}
@@ -318,13 +343,13 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
         <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
       )}
       {details.status === "error" && details.error && (
-        <div className="text-[11px] text-red-400 mt-1">{i18nT("auto.error", undefined, "Error:")} {details.error}</div>
+        <div className="text-[11px] text-red-400 mt-1">{i18nT("common.error", undefined, "Error:")} {details.error}</div>
       )}
       {details.status === "aborted" && (
-        <div className="text-[11px] text-orange-400 mt-1">{i18nT("auto.aborted_max_turns_exceeded", undefined, "Aborted (max turns exceeded)")}</div>
+        <div className="text-[11px] text-orange-400 mt-1">{i18nT("session.abortedMaxTurnsExceeded", undefined, "Aborted (max turns exceeded)")}</div>
       )}
       {details.status === "stopped" && (
-        <div className="text-[11px] text-[var(--text-muted)] mt-1">{i18nT("auto.stopped", undefined, "Stopped")}</div>
+        <div className="text-[11px] text-[var(--text-muted)] mt-1">{i18nT("status.stopped", undefined, "Stopped")}</div>
       )}
       {!expanded && promptText && <PromptBlock text={promptText} />}
       {!expanded && result && <ResultBlock text={result} />}

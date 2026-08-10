@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, cleanup, waitFor } from "@testing-library/react";
+import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
-import { FilePreviewOverlay } from "../FilePreviewOverlay.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { FilePreviewOverlay } from "../preview/FilePreviewOverlay.js";
+import { __resetEscapeStack } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 function renderOverlay(ui: React.ReactElement) {
   return render(<ThemeProvider>{ui}</ThemeProvider>);
@@ -34,6 +35,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  __resetEscapeStack();
 });
 
 describe("FilePreviewOverlay — syntax highlighting", () => {
@@ -141,7 +143,70 @@ describe("FilePreviewOverlay — non-blocking inspector", () => {
   });
 });
 
-import { friendlyReadError } from "../FilePreviewOverlay.js";
+import { friendlyReadError } from "../preview/FilePreviewOverlay.js";
+// Rich office / document / email kinds route to their shared `preview/*`
+// renderer and MUST NOT issue the plain `/api/file?` content fetch (which
+// returns no `content` for reclassified extensions → blank overlay regression).
+// See change: open-view-command-in-editor-pane (§3, tasks 3.3 / test-plan X2).
+describe("FilePreviewOverlay — rich office/email kinds", () => {
+  function richFetchSpy(handlers: Record<string, { status: number; body: unknown }> = {}) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation((input: unknown) => {
+      const url = String(input);
+      for (const [needle, res] of Object.entries(handlers)) {
+        if (url.includes(needle)) {
+          return Promise.resolve(
+            new Response(JSON.stringify(res.body), {
+              status: res.status,
+              headers: { "Content-Type": "application/json" },
+            }) as unknown as Response,
+          );
+        }
+      }
+      return Promise.resolve(
+        new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }) as unknown as Response,
+      );
+    });
+  }
+
+  const contentFetches = (spy: ReturnType<typeof richFetchSpy>) =>
+    spy.mock.calls.filter((c) => /\/api\/file\?/.test(String(c[0])));
+
+  it("does NOT issue the /api/file content fetch for a reclassified .docx", async () => {
+    const spy = richFetchSpy();
+    renderOverlay(<FilePreviewOverlay cwd="/repo" path="report.docx" onClose={() => {}} />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="file-preview-overlay"]')).toBeTruthy(),
+    );
+    expect(contentFetches(spy).length).toBe(0);
+    // no spinner-forever, no code view for a rich kind
+    expect(document.querySelector('[data-testid="file-preview-loading"]')).toBeNull();
+    expect(document.querySelector('[data-testid="file-preview-code"]')).toBeNull();
+  });
+
+  it("routes .xlsx / .adoc through a rich renderer with no /api/file content fetch", async () => {
+    for (const path of ["book.xlsx", "doc.adoc"]) {
+      const spy = richFetchSpy();
+      renderOverlay(<FilePreviewOverlay cwd="/repo" path={path} onClose={() => {}} />);
+      await waitFor(() =>
+        expect(document.querySelector('[data-testid="file-preview-overlay"]')).toBeTruthy(),
+      );
+      expect(contentFetches(spy), path).toHaveLength(0);
+      cleanup();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("X2 malformed .eml → EmlPreview inline error (400), no crash, no Monaco raw", async () => {
+    richFetchSpy({ "/api/file/eml": { status: 400, body: { success: false, error: "not RFC822" } } });
+    const { findByText } = renderOverlay(
+      <FilePreviewOverlay cwd="/repo" path="mail.eml" onClose={() => {}} />,
+    );
+    expect(await findByText(/not RFC822/i)).toBeTruthy();
+    expect(document.querySelector('[data-testid="file-preview-code"]')).toBeNull();
+  });
+});
+
+
 
 function mockFileError(error: string, status = 404) {
   return vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -151,6 +216,34 @@ function mockFileError(error: string, status = 404) {
     }) as any,
   );
 }
+
+// F5 z-order + single-layer Escape parity. See change:
+// fix-stacked-escape-closes-layers.
+describe("FilePreviewOverlay — escape-stack migration", () => {
+  it("F5 z-order: outer wrapper sits above the Dialog layer (z >= 60)", async () => {
+    mockFileFetch("x\n");
+    renderOverlay(<FilePreviewOverlay cwd="/repo" path="notes.txt" onClose={() => {}} />);
+    const backdrop = await waitFor(
+      () => document.querySelector('[data-testid="file-preview-backdrop"]') as HTMLElement,
+    );
+    const wrapper = backdrop.parentElement as HTMLElement;
+    // Extract the numeric z-index token (`z-[70]` or `z-50`) from the wrapper.
+    const m = wrapper.className.match(/z-\[(\d+)\]|z-(\d+)/);
+    const z = Number(m?.[1] ?? m?.[2]);
+    expect(z).toBeGreaterThanOrEqual(60);
+  });
+
+  it("single layer: one Escape dismisses the preview (parity)", async () => {
+    mockFileFetch("x\n");
+    const onClose = vi.fn();
+    renderOverlay(<FilePreviewOverlay cwd="/repo" path="notes.txt" onClose={onClose} />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="file-preview-overlay"]')).toBeTruthy(),
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("FilePreviewOverlay — stale link errors", () => {
   it("maps 'not found' to a file-no-longer-exists message", () => {

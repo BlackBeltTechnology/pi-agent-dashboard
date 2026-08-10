@@ -1,0 +1,3 @@
+# ResourceGridPanel.tsx — index
+
+Loading/error/refresh chrome + `ResourceReloadBanner` around `ResourceCardGrid`. Exports `ResourceGridPanel`. Shared by Directory Settings (local+global, filter) + Settings (global-only, `◇ global` pill). Caller owns the `usePiResources` fetch. Folder surface (scopes include `local`) also renders `resource-repo-scope-notice` (the tracked `.pi/settings.json` is shared; each toggle is a whole-file diff), the `resource-toggle-error` banner (`data-kind` server|network), and `ResourceTrustDialog` from `activation.trustPrompt`. See changes: resources-card-tabs, project-scope-disable-global-resources.

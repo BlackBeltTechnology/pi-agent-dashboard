@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, cleanup, waitFor } from "@testing-library/react";
-import { ServerSelector } from "../ServerSelector.js";
-import { listKnownServers } from "../../lib/known-servers-api.js";
+import { ServerSelector } from "../connectivity/ServerSelector.js";
+import { listKnownServers } from "../../lib/api/known-servers-api.js";
 
-vi.mock("../../lib/known-servers-api.js", () => ({
+vi.mock("../../lib/api/known-servers-api.js", () => ({
   listKnownServers: vi.fn(async () => [
     { host: "my-pc", port: 8000, label: "my-pc" },
   ]),

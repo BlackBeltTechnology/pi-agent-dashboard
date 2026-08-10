@@ -59,6 +59,11 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
 
+      # pnpm for the ROOT workspace install below (the neutral shell). The
+      # site/ install stays npm against its own site/package-lock.json
+      # (site is NOT a pnpm workspace member). See change: adopt-pnpm-for-dev-ci (X6).
+      - uses: pnpm/action-setup@v4
+
       - name: Install dependencies
         run: npm ci
 
@@ -84,11 +89,11 @@ jobs:
       # builds with `base:"./"`, so relative assets resolve under any subpath.
       - name: Install workspace deps (for shell)
         working-directory: .
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build neutral shell
         working-directory: packages/shell
-        run: npx vite build
+        run: pnpm exec vite build
 
       - name: Copy shell into site artifact under /app
         working-directory: .

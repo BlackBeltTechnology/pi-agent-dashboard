@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  editorPaneReducer,
+  EDITOR_PANE_KEY_PREFIX,
+  type EditorPaneState,
   EMPTY_PANE_STATE,
+  editorPaneReducer,
   loadEditorPaneState,
   saveEditorPaneState,
   useEditorPaneState,
-  EDITOR_PANE_KEY_PREFIX,
-  type EditorPaneState,
-} from "../editor-pane-state.js";
+} from "../layout/editor-pane-state.js";
 
 const tab = (path: string, addedAt = 1): EditorPaneState["openFiles"][number] => ({
   path,
@@ -93,6 +93,23 @@ describe("editorPaneReducer", () => {
     expect(s.activeIndex).toBe(-1);
   });
 
+  it("closeByPath closes the tab addressed by its full path", () => {
+    const base: EditorPaneState = {
+      openFiles: [tab("a.ts"), { path: "term:t1", viewer: "terminal", addedAt: 2 }, tab("c.ts", 3)],
+      activeIndex: 2,
+      treeOpenRoots: [],
+    };
+    const s = editorPaneReducer(base, { type: "closeByPath", path: "term:t1" });
+    expect(s.openFiles.map((f) => f.path)).toEqual(["a.ts", "c.ts"]);
+    // Active pointer shifts left (a tab before the active one was removed).
+    expect(s.openFiles[s.activeIndex].path).toBe("c.ts");
+  });
+
+  it("closeByPath is a no-op for an absent path", () => {
+    const base: EditorPaneState = { openFiles: [tab("a.ts")], activeIndex: 0, treeOpenRoots: [] };
+    expect(editorPaneReducer(base, { type: "closeByPath", path: "term:gone" })).toBe(base);
+  });
+
   it("setActive clamps to valid range", () => {
     const base: EditorPaneState = { openFiles: [tab("a.ts")], activeIndex: 0, treeOpenRoots: [] };
     expect(editorPaneReducer(base, { type: "setActive", index: 5 })).toBe(base);
@@ -115,6 +132,84 @@ describe("editorPaneReducer", () => {
     const s = editorPaneReducer(base, { type: "reorderTabs", from: 0, to: 2 });
     expect(s.openFiles.map((f) => f.path)).toEqual(["b.ts", "c.ts", "a.ts"]);
     expect(s.openFiles[s.activeIndex].path).toBe("a.ts");
+  });
+});
+
+describe("openFile activate flag + unread (non-disruptive-file-open)", () => {
+  it("E1 activate:false + tab NOT open → pushed, activeIndex unchanged, new tab unread", () => {
+    const base: EditorPaneState = { openFiles: [tab("a.ts")], activeIndex: 0, treeOpenRoots: [] };
+    const s = editorPaneReducer(base, { type: "openFile", path: "b.ts", viewer: "monaco", activate: false });
+    expect(s.openFiles.map((f) => f.path)).toEqual(["a.ts", "b.ts"]);
+    expect(s.activeIndex).toBe(0); // unchanged
+    expect(s.openFiles[1].unread).toBe(true);
+    expect(s.openFiles[0].unread).toBeUndefined();
+  });
+
+  it("E2 activate:false + open INACTIVE tab → activeIndex unchanged, that tab unread (re-signal)", () => {
+    const base: EditorPaneState = {
+      openFiles: [tab("a.ts"), tab("b.ts")],
+      activeIndex: 0,
+      treeOpenRoots: [],
+    };
+    const s = editorPaneReducer(base, { type: "openFile", path: "b.ts", viewer: "monaco", activate: false });
+    expect(s.openFiles).toHaveLength(2);
+    expect(s.activeIndex).toBe(0);
+    expect(s.openFiles[1].unread).toBe(true);
+    // Re-signal produces a NEW tab object so the pulse effect re-runs.
+    expect(s.openFiles[1]).not.toBe(base.openFiles[1]);
+  });
+
+  it("E3 activate:false + open ACTIVE tab → no-op, active stays not unread (invariant)", () => {
+    const base: EditorPaneState = {
+      openFiles: [tab("a.ts"), tab("b.ts")],
+      activeIndex: 1,
+      treeOpenRoots: [],
+    };
+    const s = editorPaneReducer(base, { type: "openFile", path: "b.ts", viewer: "monaco", activate: false });
+    expect(s.activeIndex).toBe(1);
+    expect(s.openFiles[1].unread).toBeUndefined();
+  });
+
+  it("E4 activate omitted → tab activated, unread unset (back-compat)", () => {
+    const base: EditorPaneState = { openFiles: [tab("a.ts")], activeIndex: 0, treeOpenRoots: [] };
+    const s = editorPaneReducer(base, { type: "openFile", path: "b.ts", viewer: "monaco" });
+    expect(s.activeIndex).toBe(1);
+    expect(s.openFiles[1].unread).toBeUndefined();
+  });
+
+  it("foreground open of an existing unread tab clears its unread", () => {
+    const base: EditorPaneState = {
+      openFiles: [tab("a.ts"), { ...tab("b.ts", 2), unread: true }],
+      activeIndex: 0,
+      treeOpenRoots: [],
+    };
+    const s = editorPaneReducer(base, { type: "openFile", path: "b.ts", viewer: "monaco" });
+    expect(s.activeIndex).toBe(1);
+    expect(s.openFiles[1].unread).toBe(false);
+  });
+
+  it("E5 closeTab re-points activeIndex onto an unread adjacent tab → that tab's unread cleared", () => {
+    const base: EditorPaneState = {
+      openFiles: [tab("a.ts"), { ...tab("b.ts", 2), unread: true }],
+      activeIndex: 0,
+      treeOpenRoots: [],
+    };
+    // Close the active tab (a.ts) → activeIndex re-points onto b.ts (unread).
+    const s = editorPaneReducer(base, { type: "closeTab", index: 0 });
+    expect(s.openFiles.map((f) => f.path)).toEqual(["b.ts"]);
+    expect(s.activeIndex).toBe(0);
+    expect(s.openFiles[0].unread).toBe(false); // cleared, not only via setActive
+  });
+
+  it("setActive clears unread on the newly-active tab", () => {
+    const base: EditorPaneState = {
+      openFiles: [tab("a.ts"), { ...tab("b.ts", 2), unread: true }],
+      activeIndex: 0,
+      treeOpenRoots: [],
+    };
+    const s = editorPaneReducer(base, { type: "setActive", index: 1 });
+    expect(s.activeIndex).toBe(1);
+    expect(s.openFiles[1].unread).toBe(false);
   });
 });
 
@@ -146,6 +241,18 @@ describe("persistence", () => {
     spy.mockRestore();
   });
 
+  it("retains a persisted terminal tab across reload (VALID_VIEWERS includes terminal)", () => {
+    // change: terminals-in-tabbed-panes — `term:<id>` tabs must survive reload
+    // (reconcile against live terminals happens after load, not at validation).
+    const state: EditorPaneState = {
+      openFiles: [{ path: "term:abc123", viewer: "terminal", addedAt: 1 }],
+      activeIndex: 0,
+      treeOpenRoots: [],
+    };
+    saveEditorPaneState("termsess", state);
+    expect(loadEditorPaneState("termsess")).toEqual(state);
+  });
+
   it("retains a persisted diff tab across reload (VALID_VIEWERS includes diff)", () => {
     // change: add-change-summary-table — diff tabs must survive reload.
     const state: EditorPaneState = {
@@ -155,6 +262,42 @@ describe("persistence", () => {
     };
     saveEditorPaneState("diffsess", state);
     expect(loadEditorPaneState("diffsess")).toEqual(state);
+  });
+
+  it("E6 persisted blob without `unread` loads valid (back-compat)", () => {
+    // Blob written before non-disruptive-file-open has no `unread` field.
+    const legacy = {
+      openFiles: [{ path: "a.ts", viewer: "monaco", addedAt: 1 }],
+      activeIndex: 0,
+      treeOpenRoots: [],
+    };
+    localStorage.setItem(`${EDITOR_PANE_KEY_PREFIX}legacy`, JSON.stringify(legacy));
+    expect(loadEditorPaneState("legacy")).toEqual(legacy);
+  });
+
+  it("E7 persisted blob with `unread: 42` is rejected as corrupt (type guard)", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const corrupt = {
+      openFiles: [{ path: "a.ts", viewer: "monaco", addedAt: 1, unread: 42 }],
+      activeIndex: 0,
+      treeOpenRoots: [],
+    };
+    localStorage.setItem(`${EDITOR_PANE_KEY_PREFIX}corruptUnread`, JSON.stringify(corrupt));
+    expect(loadEditorPaneState("corruptUnread")).toEqual(EMPTY_PANE_STATE);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("E8 background unread tab survives save→load", () => {
+    const state: EditorPaneState = {
+      openFiles: [tab("a.ts"), { ...tab("b.ts", 2), unread: true }],
+      activeIndex: 0,
+      treeOpenRoots: [],
+    };
+    saveEditorPaneState("unreadsess", state);
+    const loaded = loadEditorPaneState("unreadsess");
+    expect(loaded.openFiles[1].unread).toBe(true);
+    expect(loaded.activeIndex).toBe(0);
   });
 });
 

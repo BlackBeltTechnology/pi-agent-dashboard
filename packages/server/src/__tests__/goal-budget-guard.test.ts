@@ -4,7 +4,7 @@
  * See change: sophisticate-goal-authoring-and-control (task 3.2).
  */
 import { describe, it, expect } from "vitest";
-import { decideBudgetHalt } from "../goal-budget-guard.js";
+import { decideBudgetHalt } from "../goal/goal-budget-guard.js";
 
 describe("decideBudgetHalt", () => {
   it("halts an active loop once turnsUsed reaches the cap", () => {

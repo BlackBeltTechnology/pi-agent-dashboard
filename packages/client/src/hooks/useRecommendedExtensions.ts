@@ -5,9 +5,11 @@
  * install / remove / update operation completes successfully (via the
  * `pi-package-event` window event broadcast by the dashboard server).
  */
-import { useState, useEffect, useCallback, useRef } from "react";
-import { getApiBase } from "../lib/api-context.js";
+
 import type { EnrichedRecommendedExtension } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 export interface UseRecommendedExtensionsResult {
   recommended: EnrichedRecommendedExtension[];
@@ -32,11 +34,11 @@ export function useRecommendedExtensions(): UseRecommendedExtensionsResult {
       if (body.success) {
         setRecommended(body.data?.recommended ?? []);
       } else {
-        setError(body.error ?? "Failed to fetch recommended extensions");
+        setError(body.error ?? t("packages.recommendedFetchFailed", undefined, "Failed to fetch recommended extensions"));
       }
     } catch (err: any) {
       if (!mountedRef.current) return;
-      setError(err.message ?? "Network error");
+      setError(err.message ?? t("common.networkError", undefined, "Network error"));
     } finally {
       if (mountedRef.current) setIsLoading(false);
     }

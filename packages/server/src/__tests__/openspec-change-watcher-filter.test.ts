@@ -5,7 +5,7 @@
  * See change: fix-openspec-taskcheck-delay.
  */
 import { describe, it, expect } from "vitest";
-import { matchesOpenSpecArtifact } from "../openspec-change-watcher.js";
+import { matchesOpenSpecArtifact } from "../openspec/openspec-change-watcher.js";
 
 describe("matchesOpenSpecArtifact", () => {
   const positives = [

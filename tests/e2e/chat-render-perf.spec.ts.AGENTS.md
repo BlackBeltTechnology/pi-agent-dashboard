@@ -1,0 +1,3 @@
+# chat-render-perf.spec.ts — index
+
+ADVISORY opt-in perf probe for `reduce-chat-render-cpu-umbrella` (tasks 2.8/4.4/5.1). `test.skip` unless `PW_PERF=1`; also skips on non-Chromium. Sends `[[faux:long-transcript]]`, settles at tail, opens `page.context().newCDPSession(page)` → `Performance.enable`, samples cumulative `LayoutCount`/`RecalcStyleCount` around a 10s idle window, asserts idle layouts/s < 30 (generous regression ceiling; baseline ~85/s, target <5/s). NOT in default `test:e2e`; run via `npm run test:e2e:perf`. Advisory per design Decision 5 (trace-diff, not fixed budgets). See change: reduce-chat-render-cpu-umbrella.

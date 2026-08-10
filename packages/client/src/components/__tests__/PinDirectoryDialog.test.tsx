@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import React from "react";
-import { PinDirectoryDialog } from "../PinDirectoryDialog.js";
+import { PinDirectoryDialog } from "../workspace/PinDirectoryDialog.js";
 
 // Mock browse-api
 const mockBrowse = vi.fn();
 const mockClassify = vi.fn();
-vi.mock("../../lib/browse-api.js", () => ({
+vi.mock("../../lib/api/browse-api.js", () => ({
   browseDirectory: (...args: unknown[]) => mockBrowse(...args),
   classifyPaths: (...args: unknown[]) => mockClassify(...args),
 }));

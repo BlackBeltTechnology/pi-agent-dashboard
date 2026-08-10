@@ -1,0 +1,3 @@
+# eventloop-sampler.ts — index
+
+Dedicated ELD safety-net sampler. `startEventLoopSampler({floorMs,intervalMs,onSpike,histogram?})` → `{stop()}`. Owns its OWN `monitorEventLoopDelay` instance (never the `/api/health` boot histogram) — snapshots `max` on cadence, `onSpike(maxMs)` when ≥floor, then `reset()`s its own histogram (no reset race). Records `turn:null` for stalls no poll turn owns (GC/hydration/WS-connect). Server boots one at floor 100ms / 1000ms cadence. Fast cadence ≈ 20ms resolution races libuv sample-commit; keep cadence ≫ resolution. See change: attribute-openspec-poll-eventloop-stalls.

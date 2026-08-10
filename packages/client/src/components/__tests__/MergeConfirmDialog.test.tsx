@@ -4,11 +4,11 @@
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MergeConfirmDialog } from "../MergeConfirmDialog.js";
+import { MergeConfirmDialog } from "../worktree/MergeConfirmDialog.js";
 
 const fetchDiffStatMock = vi.fn();
 const mergeWorktreeMock = vi.fn();
-vi.mock("../../lib/git-api.js", () => ({
+vi.mock("../../lib/git/git-api.js", () => ({
   fetchWorktreeDiffStat: (cwd: string) => fetchDiffStatMock(cwd),
   mergeWorktree: (args: any) => mergeWorktreeMock(args),
 }));

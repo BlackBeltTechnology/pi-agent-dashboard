@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import React from "react";
-import { PiUpdateBadge } from "../PiUpdateBadge.js";
+import { PiUpdateBadge } from "../packages/PiUpdateBadge.js";
 
 const navigateMock = vi.fn();
 

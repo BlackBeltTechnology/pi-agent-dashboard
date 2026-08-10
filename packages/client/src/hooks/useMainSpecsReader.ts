@@ -1,19 +1,20 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { getApiBase } from "../lib/api-context.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 async function fetchDir(cwd: string, dirPath: string): Promise<string[]> {
   const res = await fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(dirPath)}`);
   const body = await res.json();
-  if (!body.success) throw new Error(body.error ?? "Failed to fetch directory");
-  if (body.data.type !== "directory") throw new Error("Expected a directory");
+  if (!body.success) throw new Error(body.error ?? t("file.fetchDirFailed", undefined, "Failed to fetch directory"));
+  if (body.data.type !== "directory") throw new Error(t("file.expectedDir", undefined, "Expected a directory"));
   return body.data.entries;
 }
 
 async function fetchFile(cwd: string, filePath: string): Promise<string> {
   const res = await fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(filePath)}`);
   const body = await res.json();
-  if (!body.success) throw new Error(body.error ?? "Failed to fetch file");
-  if (body.data.type !== "file") throw new Error("Expected a file");
+  if (!body.success) throw new Error(body.error ?? t("file.fetchFileFailed", undefined, "Failed to fetch file"));
+  if (body.data.type !== "file") throw new Error(t("file.expectedFile", undefined, "Expected a file"));
   return body.data.content;
 }
 
@@ -69,7 +70,7 @@ export function useMainSpecsReader(cwd: string): MainSpecsReaderState {
       setIsLoading(false);
     } catch (err: any) {
       if (!controller.signal.aborted) {
-        setError(err.message ?? "Failed to load specs");
+        setError(err.message ?? t("openspec.loadSpecsFailed", undefined, "Failed to load specs"));
         setIsLoading(false);
       }
     }

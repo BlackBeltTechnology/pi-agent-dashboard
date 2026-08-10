@@ -1,11 +1,11 @@
 import React from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { useThemeContext } from "../ThemeProvider.js";
-import { getSyntaxTheme } from "../../lib/syntax-theme.js";
-import type { ToolRendererProps } from "./types.js";
-import { OpenFileButton } from "./OpenFileButton.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
+import { useThemeContext } from "../settings/ThemeProvider.js";
 import { detectLanguage } from "./lang-detect.js";
-import { t as i18nT } from "../../lib/i18n";
+import { OpenFileButton } from "./OpenFileButton.js";
+import type { ToolRendererProps } from "./types.js";
 
 export function WriteToolRenderer({ args, status, result, context }: ToolRendererProps) {
   const { resolved: theme, themeName } = useThemeContext();
@@ -22,7 +22,7 @@ export function WriteToolRenderer({ args, status, result, context }: ToolRendere
       </div>
 
       {status === "running" && !content && (
-        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("auto.writing", undefined, "Writing…")}</div>
+        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("common.writing", undefined, "Writing…")}</div>
       )}
 
       {content && (

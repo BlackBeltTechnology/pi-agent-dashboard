@@ -1,7 +1,12 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, ImageContent, ModelInfo, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+import type { CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+
+// Notify level lives in types.ts (the session record retains a notify log);
+// re-exported here so protocol consumers import it from one place.
+// See change: split-notify-from-prompt-request.
+export type { NotifyLevel };
 
 /**
  * Bridge -> server: mirror of pi's native steering + follow-up queues, forwarded
@@ -145,6 +150,14 @@ export interface ProcessMetrics {
    * fix-stuck-tool-card-on-dropped-event.
    */
   droppedBufferedFrames?: number;
+  /**
+   * Cumulative count of INBOUND messages the bridge refused because its
+   * serialized inbound queue was full (server→bridge hop drop). Distinct from
+   * `droppedBufferedFrames`, which counts the outgoing send ring. Surfaced
+   * because the refusal warning is rate-limited to one per 5 s, so the log
+   * alone can hide a burst. See change: serialize-bridge-message-pump.
+   */
+  refusedInboundFrames?: number;
 }
 
 export interface SessionHeartbeatMessage {
@@ -265,6 +278,26 @@ export interface SessionNameUpdateMessage {
   type: "session_name_update";
   sessionId: string;
   name: string;
+  /**
+   * Provenance of this name change, when the bridge can attribute it.
+   * `"auto"` = the bridge's automatic topic-naming applied it; `"user"` =
+   * an in-pi rename the bridge did not originate. Absent = unattributed
+   * (server keeps existing provenance). See change: add-auto-session-naming.
+   */
+  nameSource?: "auto" | "user";
+}
+
+/**
+ * Bridge → server: automatic session naming failed. Carries a human-readable
+ * `reason`; the server forwards it to browser subscribers as a one-shot toast
+ * and logs one line. Emitted once per session for hard-config errors
+ * (`@fast` unconfigured / OAuth-only-unauthable); transient model errors are
+ * silent. See change: add-auto-session-naming.
+ */
+export interface AutoNameErrorMessage {
+  type: "auto_name_error";
+  sessionId: string;
+  reason: string;
 }
 
 /**
@@ -401,6 +434,21 @@ export interface PromptRequestMessage {
     props: Record<string, unknown>;
   };
   placement: string;
+}
+
+/**
+ * Fire-and-forget notification from `ctx.ui.notify`. Deliberately NOT a
+ * `prompt_request`: a notification is not an unanswered ask, so it must never
+ * reach the pending-prompt registry, the `currentTool` fold, the unread stamp
+ * or the `questionFirst` reorder. Carries no `promptId`, no `component` and no
+ * `placement`. See change: split-notify-from-prompt-request.
+ */
+export interface NotifyMessage {
+  type: "notify";
+  sessionId: string;
+  notifyId: string;
+  message: string;
+  level?: NotifyLevel;
 }
 
 export interface PromptDismissMessage {
@@ -568,6 +616,7 @@ export type ExtensionToServerMessage =
   | SessionsListExtensionMessage
   | ExtensionUiDismissMessage
   | PromptRequestMessage
+  | NotifyMessage
   | PromptDismissMessage
   | PromptCancelMessage
   | ReplayCompleteMessage
@@ -585,6 +634,7 @@ export type ExtensionToServerMessage =
   | PluginPiMessage
   | QueueUpdateToServerMessage
   | GitCommitDraftResultMessage
+  | AutoNameErrorMessage
   | PromptReceivedToServerMessage;
 
 // ── Server → Extension ──────────────────────────────────────────────
@@ -881,6 +931,19 @@ export interface PluginEmitEventExtensionMessage {
   data: Record<string, unknown>;
 }
 
+/**
+ * Server → extension: broadcast the current value of bridge-relevant global
+ * preferences. Sent to a bridge on register (initial state) and to all bridges
+ * whenever the value changes (`piGateway.broadcast`). The bridge gates its
+ * automatic session naming on `autoNameSessions`. See change:
+ * add-auto-session-naming.
+ */
+export interface PreferencesUpdateExtensionMessage {
+  type: "preferences_update";
+  /** Global auto-naming toggle; bridge attempts naming only when true. */
+  autoNameSessions: boolean;
+}
+
 export type ServerToExtensionMessage =
   | SendPromptToExtensionMessage
   | AbortToExtensionMessage
@@ -918,6 +981,7 @@ export type ServerToExtensionMessage =
   | PromoteFollowupEntryToExtensionMessage
   | AttachProposalChangedExtensionMessage
   | PluginEmitEventExtensionMessage
+  | PreferencesUpdateExtensionMessage
   | GitCommitDraftMessage
   | SubagentResyncRequestExtensionMessage;
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createPendingLoadManager } from "../pending-load-manager.js";
+import { createPendingLoadManager } from "../pending/pending-load-manager.js";
 
 // Minimal WebSocket mock
 function mockWs(): any {

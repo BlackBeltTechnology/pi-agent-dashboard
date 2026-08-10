@@ -13,7 +13,7 @@ beforeAll(() => {
     })),
   });
 });
-import { ThemeProvider } from "../ThemeProvider.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { ReadToolRenderer } from "../tool-renderers/ReadToolRenderer.js";
 import { WriteToolRenderer } from "../tool-renderers/WriteToolRenderer.js";
 import { BashToolRenderer } from "../tool-renderers/BashToolRenderer.js";
@@ -28,7 +28,7 @@ vi.mock("react-syntax-highlighter", () => ({
   ),
 }));
 
-const ctx: ToolContext = { editors: [] };
+const ctx: ToolContext = {};
 
 function renderWithTheme(ui: React.ReactElement) {
   return render(<ThemeProvider>{ui}</ThemeProvider>);

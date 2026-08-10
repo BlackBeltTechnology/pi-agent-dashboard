@@ -1,11 +1,11 @@
-import React, { useState } from "react";
+import { mdiCheckboxMarkedOutline, mdiCheckCircle } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiCheckCircle, mdiCheckboxMarkedOutline } from "@mdi/js";
-import type { InteractiveRendererProps } from "./types.js";
-import { InlineMarkdown } from "./InlineMarkdown.js";
-import { MarkdownContent } from "../MarkdownContent.js";
+import React, { useState } from "react";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
-import { t as i18nT } from "../../lib/i18n";
+import { InlineMarkdown } from "./InlineMarkdown.js";
+import type { InteractiveRendererProps } from "./types.js";
 
 export function MultiselectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
@@ -56,6 +56,9 @@ export function MultiselectRenderer({ params, status, result, onRespond, onCance
             <Icon path={mdiCheckCircle} size={0.5} /> {picks.length} of {options.length}
           </span>
         </div>
+        {message && (
+          <div className="text-xs text-[var(--text-secondary)] mb-2 ml-6"><MarkdownContent content={message} /></div>
+        )}
         <div className="flex flex-col gap-1 ml-6">
           {options.map((option) => (
             <AnsweredOption key={option} title={option} picked={picks.includes(option)} />
@@ -87,7 +90,7 @@ export function MultiselectRenderer({ params, status, result, onRespond, onCance
                 onChange={toggleAll}
                 className="accent-blue-500"
               />
-              <span>{i18nT("auto.select_all", undefined, "Select all")}</span>
+              <span>{i18nT("common.selectAll", undefined, "Select all")}</span>
             </label>
             <div className="border-t border-[var(--border-subtle)] my-1" />
           </>
@@ -112,13 +115,13 @@ export function MultiselectRenderer({ params, status, result, onRespond, onCance
           onClick={() => onRespond({ values: Array.from(checked) })}
           className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors"
         >
-          {i18nT("auto.submit", undefined, "Submit")}{checked.size > 0 ? ` (${checked.size})` : ""}
+          {i18nT("common.submit", undefined, "Submit")}{checked.size > 0 ? ` (${checked.size})` : ""}
         </button>
         <button
           onClick={onCancel}
           className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
         >
-          {i18nT("auto.cancel", undefined, "Cancel")}
+          {i18nT("common.cancel", undefined, "Cancel")}
         </button>
       </div>
     </div>

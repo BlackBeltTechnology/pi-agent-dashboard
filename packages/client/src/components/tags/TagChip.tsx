@@ -26,7 +26,12 @@ interface TagChipProps {
   selected?: boolean;
   /** For `filter`: toggle handler. */
   onToggle?: () => void;
-  /** For `user`: remove handler (renders a ✕ button). */
+  /**
+   * `user` variant: remove ✕ inside the editable strip.
+   * `filter` variant (user tone only): destructive global-delete ✕ rendered as
+   * a sibling of the toggle button (never nested). See change:
+   * sidebar-tag-collapse-and-delete.
+   */
   onRemove?: () => void;
 }
 
@@ -39,6 +44,31 @@ function userStyle(label: string): React.CSSProperties {
   return { color: c.text, borderColor: c.border, backgroundColor: c.bg };
 }
 
+const NO_RING = { ringClass: "", ringStyle: undefined } as const;
+
+/**
+ * Selection ring for a `filter` chip. ALWAYS hosted on the toggle itself, so the
+ * ring hugs the chip.
+ *
+ * It used to re-home onto the wrapper when a destructive ✕ was present, to keep
+ * the ✕ "inside the selected unit". Measured, that ring came out 67.9×24 around a
+ * 41.9×19.8 chip — +28px wide, +6.2px tall (the ✕'s ≥24px hit area sets the
+ * wrapper height) — a bloated box floating off the chip. The ✕ is a destructive
+ * action, not part of the selection state, so ringing it also mis-signalled.
+ *
+ * Tailwind can't emit a class for a runtime hash color, so a colorized chip
+ * carries the ring color inline from its own palette entry; `exec` chips keep
+ * `outline-current`, which already resolves to their intended muted color.
+ * See change: fix-selected-tag-chip-ring.
+ */
+function selectionRing(on: boolean, colorized: boolean, label: string) {
+  if (!on) return NO_RING;
+  return {
+    ringClass: `outline outline-1 outline-offset-1 ${colorized ? "" : "outline-current"}`,
+    ringStyle: colorized ? ({ outlineColor: tagColor(label).text } as React.CSSProperties) : undefined,
+  };
+}
+
 export function TagChip({ label, variant, tone = "user", selected, onToggle, onRemove }: TagChipProps) {
   const colorized = variant === "user" || (variant === "filter" && tone === "user");
   const display = colorized ? `#${label}` : label;
@@ -47,21 +77,44 @@ export function TagChip({ label, variant, tone = "user", selected, onToggle, onR
   const execClass = colorized
     ? ""
     : "border-dashed border-[var(--border-secondary)] bg-transparent text-[var(--text-tertiary)]";
-  const selRing = variant === "filter" && selected ? "outline outline-2 outline-offset-1 outline-current" : "";
+  const ring = selectionRing(variant === "filter" && !!selected, colorized, label);
 
   if (variant === "filter") {
-    return (
+    const toggleBtn = (
       <button
         type="button"
         onClick={onToggle}
         aria-pressed={!!selected}
         aria-label={`Filter by ${tone === "exec" ? "phase" : "tag"} ${label}`}
-        style={style}
-        className={`${baseClass} ${execClass} ${selRing} cursor-pointer`}
+        style={{ ...style, ...ring.ringStyle }}
+        className={`${baseClass} ${ring.ringClass} ${execClass} cursor-pointer`}
       >
         {display}
       </button>
     );
+    // Destructive global-delete ✕ (user-tone filter chips only). Wrap the
+    // toggle + ✕ in a single inline-flex unit so the ✕ never wraps to its own
+    // line, and re-home the `selected` ring onto the wrapper. The ✕ is a true
+    // sibling <button> — its click does NOT bubble to the toggle (no
+    // stopPropagation needed). See change: sidebar-tag-collapse-and-delete.
+    if (onRemove && tone === "user") {
+      // No ring on this wrapper — it lives on the toggle so it hugs the chip; the
+      // ✕ sits outside it. See change: fix-selected-tag-chip-ring.
+      return (
+        <span className="inline-flex items-center rounded-full">
+          {toggleBtn}
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label={`Remove tag ${label} from all sessions`}
+            className="ml-0.5 flex min-h-[24px] min-w-[24px] cursor-pointer items-center justify-center rounded-full text-current opacity-50 hover:opacity-100 hover:text-[var(--accent-red,#f87171)] focus-ring"
+          >
+            ✕
+          </button>
+        </span>
+      );
+    }
+    return toggleBtn;
   }
 
   if (variant === "exec") {

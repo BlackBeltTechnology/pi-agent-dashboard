@@ -9,11 +9,11 @@
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
-import { ModelProxySection, type ModelProxyConfig } from "../components/ModelProxySection.js";
+import { ModelProxySection, type ModelProxyConfig } from "../components/settings/ModelProxySection.js";
 
 // ── Mock model-proxy-api ──────────────────────────────────────────────────
 
-vi.mock("../lib/model-proxy-api.js", () => ({
+vi.mock("../lib/api/model-proxy-api.js", () => ({
   listApiKeys: vi.fn().mockResolvedValue({ keys: [], revoked: [] }),
   createApiKey: vi.fn(),
   revokeApiKey: vi.fn().mockResolvedValue(undefined),
@@ -21,7 +21,7 @@ vi.mock("../lib/model-proxy-api.js", () => ({
   refreshRegistry: vi.fn().mockResolvedValue(undefined),
 }));
 
-import * as api from "../lib/model-proxy-api.js";
+import * as api from "../lib/api/model-proxy-api.js";
 
 afterEach(() => {
   cleanup();

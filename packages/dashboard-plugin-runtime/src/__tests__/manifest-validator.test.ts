@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { validateManifest, ManifestValidationError } from "../manifest-validator.js";
+import { describe, expect, it, vi } from "vitest";
+import { ManifestValidationError, validateManifest } from "../manifest-validator.js";
 
 const validManifest = {
   id: "demo",
@@ -18,6 +18,14 @@ describe("validateManifest — valid cases", () => {
     expect(m.id).toBe("demo");
     expect(m.claims).toHaveLength(3);
     expect(m.priority).toBe(100);
+  });
+
+  it("passes through i18nCatalog when a string (change: make-all-ui-text-i18n)", () => {
+    const m = validateManifest({ ...validManifest, i18nCatalog: "catalog" });
+    expect(m.i18nCatalog).toBe("catalog");
+    // Omitted when absent or non-string.
+    expect(validateManifest(validManifest).i18nCatalog).toBeUndefined();
+    expect(validateManifest({ ...validManifest, i18nCatalog: 123 }).i18nCatalog).toBeUndefined();
   });
 
   it("defaults priority to 1000 when omitted", () => {
@@ -67,17 +75,27 @@ describe("validateManifest — invalid cases", () => {
     }
   });
 
-  it("throws on unknown tab value for settings-section", () => {
-    try {
+  // `tab` is inert since plugin-settings-pages (design D3), so a value outside
+  // the enumerated set is no longer a load failure. Kept here (in the
+  // invalid-cases block it used to fail in) as the regression sentinel.
+  // (test-plan #E12)
+  it("still rejects a non-string tab", () => {
+    // The VALUE is inert, but `tab` is copied onto the normalized claim, so the
+    // TYPE still has to hold. (plugin-settings-pages)
+    expect(() =>
       validateManifest({
         ...validManifest,
-        claims: [{ slot: "settings-section", tab: "nonexistent" }],
-      });
-      expect.fail("should have thrown");
-    } catch (e) {
-      expect(e).toBeInstanceOf(ManifestValidationError);
-      expect((e as ManifestValidationError).reason).toContain("nonexistent");
-    }
+        claims: [{ slot: "settings-section", tab: 42 }],
+      }),
+    ).toThrow(ManifestValidationError);
+  });
+
+  it("accepts an unknown tab value for settings-section", () => {
+    const manifest = validateManifest({
+      ...validManifest,
+      claims: [{ slot: "settings-section", tab: "nonexistent" }],
+    });
+    expect(manifest.claims[0].tab).toBe("nonexistent");
   });
 
   it("throws on duplicate tool-renderer claims for same toolName", () => {

@@ -17,7 +17,7 @@ import React, { useEffect } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
-import { packageQueue } from "../../lib/package-queue.js";
+import { packageQueue } from "../../lib/package/package-queue.js";
 
 // Tiny consumer that exposes its statusFor to the test via callbacks.
 function Consumer({

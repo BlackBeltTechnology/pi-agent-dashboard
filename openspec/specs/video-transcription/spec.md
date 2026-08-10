@@ -17,7 +17,12 @@ The package SHALL transcribe local video (`.mkv`, `.mp4`) and audio (`.m4a`, `.m
 - **AND** the resulting `.srt` SHALL be derived from the original file's stem
 
 ### Requirement: Idempotent, discovery-based runs
-The tool SHALL accept no argument (scanning `~/Movies`), a single directory (scanning it), or one or more explicit file paths. Discovered files SHALL be processed oldest-first by modification time. A file SHALL be skipped when a sibling `.srt` already exists. A run SHALL print a summary of files found, already transcribed, newly transcribed, and failed.
+
+The tool SHALL accept no argument (scanning `~/Movies`), a single directory (scanning it), or
+one or more explicit file paths. Discovered files SHALL be **dispatched** oldest-first by
+modification time; when concurrency is greater than one, files therefore **start** oldest-first
+but MAY **complete** in any order. A file SHALL be skipped when a sibling `.srt` already exists.
+A run SHALL print a summary of files found, already transcribed, newly transcribed, and failed.
 
 #### Scenario: Already-transcribed file skipped
 - **WHEN** a media file already has a sibling `.srt`
@@ -27,6 +32,11 @@ The tool SHALL accept no argument (scanning `~/Movies`), a single directory (sca
 - **WHEN** one or more file paths are passed
 - **THEN** exactly those files SHALL be transcribed
 - **AND** an unsupported extension or missing path SHALL fail with a clear error
+
+#### Scenario: Oldest-first dispatch under concurrency
+- **WHEN** multiple untranscribed files are discovered and concurrency is greater than one
+- **THEN** files SHALL be claimed for processing in ascending modification-time order
+- **AND** completion order MAY differ from dispatch order without affecting any file's output
 
 ### Requirement: Long-recording chunking with merged absolute timestamps
 Recordings whose duration exceeds the Soniox per-request limit (5 h) SHALL be split into chunks of at most `MAX_CHUNK_HOURS` (default 4.5 h), transcribed independently, and merged into a single SRT whose cue timestamps are shifted by each chunk's absolute offset and whose cue indices are renumbered sequentially. No audio SHALL be dropped or truncated. Duration SHALL be probed via `ffprobe`, since the limit is on duration, not file size.
@@ -41,7 +51,15 @@ Recordings whose duration exceeds the Soniox per-request limit (5 h) SHALL be sp
 - **AND** the merged SRT SHALL have monotonically increasing absolute timestamps and sequentially renumbered cues covering the full duration
 
 ### Requirement: Configuration without committed secrets
-The package SHALL read `SONIOX_API_KEY` from the environment, falling back to an optional gitignored `.env` file. No API key SHALL be committed in the package tarball. The API key SHALL NOT appear in logs, errors, or any output. When the key cannot be resolved, the tool SHALL fail fast with an actionable message. `MAX_CHUNK_HOURS` and `MAX_AUDIO_MB` SHALL be configurable via environment variables.
+
+The package SHALL read `SONIOX_API_KEY` from the environment, falling back to an optional
+gitignored `.env` file. No API key SHALL be committed in the package tarball. The API key SHALL
+NOT appear in logs, errors, or any output. When the key cannot be resolved, the tool SHALL fail
+fast with an actionable message. `MAX_CHUNK_HOURS`, `MAX_AUDIO_MB`, and `TRANSCRIBE_CONCURRENCY`
+SHALL be configurable via environment variables. `TRANSCRIBE_CONCURRENCY` SHALL parse as a
+positive integer defaulting to `8`, clamped to the range `1`–`100`; an absent, non-numeric, or
+out-of-range value SHALL resolve to a valid in-range value (default for invalid, clamped for
+out-of-range).
 
 #### Scenario: Missing API key fails fast
 - **WHEN** neither the environment nor a local `.env` provides `SONIOX_API_KEY`
@@ -51,6 +69,12 @@ The package SHALL read `SONIOX_API_KEY` from the environment, falling back to an
 #### Scenario: No secret in the tarball
 - **WHEN** the package is published
 - **THEN** the `files` whitelist SHALL exclude any `.env`, and no secret material SHALL be present
+
+#### Scenario: Concurrency env var parsed and clamped
+- **WHEN** `TRANSCRIBE_CONCURRENCY` is unset, non-numeric, or less than 1
+- **THEN** the effective concurrency SHALL be the default of `8`
+- **WHEN** `TRANSCRIBE_CONCURRENCY` exceeds `100`
+- **THEN** the effective concurrency SHALL be clamped to `100`
 
 ### Requirement: Dual surface — skill and CLI bin
 The capability SHALL be exposed both as a pi skill (`.pi/skills/video-transcription`) and as a `pi-transcribe` CLI bin, sharing one implementation. The skill SHALL invoke the bin and preserve the existing trigger phrases and argument contract.
@@ -70,4 +94,35 @@ When `ffmpeg`/`ffprobe` are not installed, the tool SHALL skip video inputs with
 - **WHEN** `ffmpeg` is not available on `PATH`
 - **THEN** video files SHALL be skipped with a warning and counted appropriately
 - **AND** audio-only files SHALL still be transcribed
+
+### Requirement: Bounded-concurrency file-level processing
+
+The tool SHALL process discovered files through a bounded-concurrency worker pool at the
+file level, running at most `TRANSCRIBE_CONCURRENCY` files in flight simultaneously (default
+`8`, clamped to the range `1`–`100`). Each file SHALL be processed by the same per-file
+pipeline (audio extraction for video, long-recording chunking, Soniox transcription, sibling
+SRT write) as a serial run; only the scheduling changes. Per-file error isolation SHALL be
+preserved: a failure in one file SHALL be counted and SHALL NOT abort other in-flight or
+pending files. The final summary (found / already transcribed / newly transcribed / failed)
+SHALL report the same totals a serial run would for the same inputs. Chunk-level processing
+within a single recording SHALL remain sequential.
+
+#### Scenario: Multiple files processed concurrently
+- **WHEN** more untranscribed files are discovered than `TRANSCRIBE_CONCURRENCY`
+- **THEN** at most `TRANSCRIBE_CONCURRENCY` files SHALL be in flight at any moment
+- **AND** every discovered untranscribed file SHALL eventually be transcribed with its sibling `.srt` written
+
+#### Scenario: One failing file does not abort the batch
+- **WHEN** one file in a concurrent batch fails to transcribe
+- **THEN** that file SHALL be counted as failed
+- **AND** the other files in the batch SHALL still be processed and counted
+
+#### Scenario: Concurrency of one reproduces serial behavior
+- **WHEN** `TRANSCRIBE_CONCURRENCY` is `1`
+- **THEN** files SHALL be processed one at a time in oldest-first order with deterministic completion order
+- **AND** the resulting summary totals SHALL match the concurrent run for the same inputs
+
+#### Scenario: Summary totals are concurrency-invariant
+- **WHEN** the same set of inputs is run at `TRANSCRIBE_CONCURRENCY=1` and at a higher value
+- **THEN** the found / already-transcribed / newly-transcribed / failed totals SHALL be identical
 

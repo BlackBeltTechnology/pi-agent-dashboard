@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import React from "react";
-import { PackageInstallConfirmDialog } from "../PackageInstallConfirmDialog.js";
+import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDialog.js";
 
 afterEach(() => cleanup());
 

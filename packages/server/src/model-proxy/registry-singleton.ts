@@ -10,12 +10,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { flattenModelsJson } from "@blackbelt-technology/pi-dashboard-shared/models-json-reader.js";
 import { getDefaultRegistry, ModuleResolutionError } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { InternalRegistry, type PiAiModule, type CustomProviderEntry, type CustomModelEntry } from "./internal-registry.js";
-import { InternalAuthStorage, type PiAiOAuthModule } from "./internal-auth-storage.js";
-import { readAuthJson } from "../provider-auth-storage.js";
+import { readAuthJson } from "../auth/provider-auth-storage.js";
+import { readProvidersFromDisk, resolveProbeApiKey } from "../package/provider-probe.js";
 import { discoverAllCustomProviders } from "./custom-provider-discovery.js";
-import { resolveProbeApiKey, readProvidersFromDisk } from "../provider-probe.js";
+import { InternalAuthStorage, type PiAiOAuthModule } from "./internal-auth-storage.js";
+import { type CustomModelEntry, type CustomProviderEntry, InternalRegistry, type PiAiModule } from "./internal-registry.js";
 
 let cachedRegistry: InternalRegistry | null = null;
 let cachedPiAi: PiAiModule | null = null;
@@ -36,16 +37,21 @@ function readProviders(): Record<string, CustomProviderEntry> {
   }
 }
 
-function readModels(): CustomModelEntry[] {
+/** Exported for unit tests. Reads $HOME/.pi/agent/models.json via the shared reader. */
+export function readModels(): CustomModelEntry[] {
   if (!existsSync(MODELS_PATH)) return [];
+  let raw: unknown;
   try {
-    const raw = JSON.parse(readFileSync(MODELS_PATH, "utf-8"));
-    if (Array.isArray(raw)) return raw;
-    if (raw.models && Array.isArray(raw.models)) return raw.models;
-    return [];
-  } catch {
+    raw = JSON.parse(readFileSync(MODELS_PATH, "utf-8"));
+  } catch (err) {
+    // A syntax error is no longer silent — warn so a broken file is diagnosable.
+    console.warn(`[model-proxy] models.json parse failed: ${(err as Error).message}`);
     return [];
   }
+  // Native nested `providers.<p>.models[]` + legacy top-level shapes, via the
+  // single shared reader both registry paths use. See change:
+  // honor-native-models-json-metadata.
+  return flattenModelsJson(raw) as CustomModelEntry[];
 }
 
 /**

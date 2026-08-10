@@ -58,20 +58,20 @@ const ALLOWLIST: readonly string[] = [
   // Unix "sh -c tail -f" wrapper vs Windows direct node.exe spawn.
   // The wrapper is genuinely Unix-only (sh+tail); splitting the headless
   // mechanism into two is tracked as a follow-up.
-  "packages/server/src/process-manager.ts",
+  "packages/server/src/spawn-process/process-manager.ts",
 
   // Boot-parent liveness primitive: genuinely OS-specific — live-ppid read
   // (Linux /proc/self/stat vs macOS `ps` vs Windows process.ppid) + the
   // win32-only koffi Tier-2 handle load. A platform primitive that happens
   // to live in the server package. See change: electron-attach-ownership-fixes.
-  "packages/server/src/boot-parent-liveness.ts",
+  "packages/server/src/lifecycle/boot-parent-liveness.ts",
 
   // Server editor registry: selects per-OS process patterns from a data
   // table. Genuine data-lookup branching, benign.
   "packages/server/src/editor-registry.ts",
 
   // Server tunnel: surfaces process.platform in a response body.
-  "packages/server/src/tunnel.ts",
+  "packages/server/src/tunnel/tunnel.ts",
 
   // ngrok provider: per-OS ngrok.yml config-file location lookup (darwin
   // Application Support / win32 LOCALAPPDATA / XDG). Genuine data-lookup
@@ -84,7 +84,7 @@ const ALLOWLIST: readonly string[] = [
 
   // Client session-grouping: reads process.platform in a comment-only
   // doc reference and uses inferPlatform heuristic; no actual branch.
-  "packages/client/src/lib/session-grouping.ts",
+  "packages/client/src/lib/session/session-grouping.ts",
 
   // ── Follow-up: migrate to electron/src/platform/ per deferred
   // consolidate-platform-handlers (18→13 file refactor).
@@ -99,9 +99,6 @@ const ALLOWLIST: readonly string[] = [
   // electron/src/platform/tray-icon.ts in deferred consolidation.
   "packages/electron/src/lib/tray.ts",
 
-  // Server editor PID registry: per-OS process pattern matching for
-  // orphan detection on boot. Genuine data-table branching.
-  "packages/server/src/editor-pid-registry.ts",
   // Electron dependency installer: Windows npm is npm.cmd (batch wrapper);
   // spawn('npm') without .cmd extension fails ENOENT on Windows. The branch
   // routes around this by preferring bundled node+npm-cli.js on Windows.
@@ -110,10 +107,10 @@ const ALLOWLIST: readonly string[] = [
   // fix-pty-permissions: Windows short-circuit (no chmod needed).
   "packages/server/src/fix-pty-permissions.ts",
   // package-manager-wrapper: comment-only reference; no runtime branch.
-  "packages/server/src/package-manager-wrapper.ts",
+  "packages/server/src/package/package-manager-wrapper.ts",
   // terminal-manager: win32 branch for node-pty spawnOptions; will move
   // to platform/terminal in deferred consolidation.
-  "packages/server/src/terminal-manager.ts",
+  "packages/server/src/terminal/terminal-manager.ts",
 ];
 
 const PLATFORM_BRANCH_RE = /process\.platform\s*(===|!==)\s*["'](win32|linux|darwin)["']/;

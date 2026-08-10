@@ -10,7 +10,7 @@
  * See change: distinguish-initialize-actions.
  */
 import { useCallback, useEffect, useState } from "react";
-import { fetchWorktreeInitStatus, type WorktreeInitStatus } from "../lib/git-api.js";
+import { fetchWorktreeInitStatus, type WorktreeInitStatus } from "../lib/git/git-api.js";
 
 export function useInitStatus(cwd: string): { status: WorktreeInitStatus | null; refetch: () => void } {
   const [status, setStatus] = useState<WorktreeInitStatus | null>(null);

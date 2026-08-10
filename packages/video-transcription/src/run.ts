@@ -35,6 +35,28 @@ export interface RunSummary {
 
 type FileOutcome = "transcribed" | "already" | "failed";
 
+/**
+ * Run `work(i)` for every `i` in `[0, size)` with at most `width` invocations in
+ * flight. Workers claim indices from a shared cursor, so items are dispatched in
+ * ascending order while their awaited work overlaps. Node's single thread makes
+ * `cursor++` non-preemptible; interleaving only happens at `await` points.
+ */
+async function runPool(
+  size: number,
+  width: number,
+  work: (index: number) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = cursor++;
+      if (i >= size) return;
+      await work(i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(width, size) }, () => worker()));
+}
+
 /** Process a single file: extract audio if video, transcribe, save SRT. */
 async function processFile(
   filepath: string,
@@ -114,20 +136,27 @@ export async function run(args: string[], deps: RunDeps = defaultDeps): Promise<
   let succeeded = 0;
   let failed = 0;
 
-  for (let i = 0; i < toProcess.length; i++) {
+  // File-level worker pool: at most `cfg.concurrency` files in flight, dispatched
+  // oldest-first so their Soniox waits overlap. Completion order is unordered.
+  await runPool(toProcess.length, Math.max(cfg.concurrency, 1), async (i) => {
     const filepath = toProcess[i];
-    deps.log(`[${i + 1}/${toProcess.length}] Processing: ${filepath}`);
+    deps.log(`Processing: ${filepath}`);
     try {
       const outcome = await processFile(filepath, service, cfg, ffmpegOk, deps);
-      if (outcome === "transcribed") succeeded += 1;
-      else if (outcome === "already") already += 1;
-      else failed += 1;
+      if (outcome === "transcribed") {
+        succeeded += 1;
+        deps.log(`Done: ${filepath}`);
+      } else if (outcome === "already") {
+        already += 1;
+      } else {
+        failed += 1;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      deps.error(`  Failed: ${msg}`);
+      deps.error(`Failed (${filepath}): ${msg}`);
       failed += 1;
     }
-  }
+  });
 
   deps.log("");
   deps.log("=== Transcription Summary ===");

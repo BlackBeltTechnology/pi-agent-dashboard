@@ -9,8 +9,8 @@
  * See change: spawn-correlation-token.
  */
 import { describe, expect, it, afterEach } from "vitest";
-import { mintSpawnToken, SPAWN_TOKEN_ENV_VAR } from "../spawn-token.js";
-import { buildSpawnEnv, setSpawnDashboardPiPort } from "../process-manager.js";
+import { mintSpawnToken, SPAWN_TOKEN_ENV_VAR } from "../auth/spawn-token.js";
+import { buildSpawnEnv, setSpawnDashboardPiPort } from "../spawn-process/process-manager.js";
 
 describe("mintSpawnToken", () => {
 	it("returns a UUIDv4 string", () => {

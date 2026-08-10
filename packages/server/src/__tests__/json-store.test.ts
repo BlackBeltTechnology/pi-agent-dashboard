@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { readJsonFile, writeJsonFile } from "../json-store.js";
+import { readJsonFile, writeJsonFile } from "../persistence/json-store.js";
 
 describe("json-store", () => {
   let tmpDir: string;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { packageQueue } from "../package-queue.js";
+import { packageQueue } from "../package/package-queue.js";
 
 // Helpers ---------------------------------------------------------------
 

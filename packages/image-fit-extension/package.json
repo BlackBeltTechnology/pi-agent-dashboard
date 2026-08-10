@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-image-fit-extension",
-  "version": "0.5.4",
+  "version": "0.7.0",
   "description": "Pi extension that resizes oversize images at Read-time so they fit model byte and pixel ceilings.",
   "type": "module",
   "repository": {
@@ -32,8 +32,8 @@
     "jimp": "^1.6.1"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@mariozechner/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=0.80.10",
+    "@mariozechner/pi-coding-agent": ">=0.73.1"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
@@ -44,6 +44,6 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=0.80.10"
   }
 }

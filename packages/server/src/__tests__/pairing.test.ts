@@ -2,8 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PairedDeviceRegistry } from "../paired-devices.js";
-import { PAIRING_PROTOCOL_VERSION, PairingManager } from "../pairing.js";
+import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { PAIRING_PROTOCOL_VERSION, PairingManager } from "../pairing/pairing.js";
 
 let tmpDir: string;
 let clock: number;

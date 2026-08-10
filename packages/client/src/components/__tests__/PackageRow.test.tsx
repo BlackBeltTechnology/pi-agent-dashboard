@@ -1,9 +1,60 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import React from "react";
-import { PackageRow } from "../PackageRow.js";
+import { PackageRow } from "../packages/PackageRow.js";
+import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 
 afterEach(() => cleanup());
+
+// F10 (fix-popover-container-clip). PackageRow's `right-0` row menu is a
+// `usePopoverFlip` consumer wired to `PopoverBoundaryContext`. In the running
+// dashboard it renders in the wide settings Packages list (no narrow offset
+// pane → viewport fallback, no clip), so the boundary-aware flip is proven here
+// at the component level with mocked rects rather than in the L3 harness.
+function rect(over: Partial<DOMRect>): DOMRect {
+	return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}), ...over } as DOMRect;
+}
+
+function BoundaryRow({ boundaryRect }: { boundaryRect: DOMRect }) {
+	const ref = React.useRef<HTMLDivElement>(null);
+	React.useLayoutEffect(() => {
+		if (ref.current) ref.current.getBoundingClientRect = () => boundaryRect;
+	});
+	return (
+		<div ref={ref}>
+			<PopoverBoundaryProvider value={ref}>
+				<PackageRow displayName="x" source="npm:x" sourceType="npm" onViewReadme={() => {}} testId="pkg" />
+			</PopoverBoundaryProvider>
+		</div>
+	);
+}
+
+describe("PackageRow — F10 boundary-aware menu (fix-popover-container-clip)", () => {
+	it("flips the row menu to left-0 when the pane's right anchor cannot fit", () => {
+		render(<BoundaryRow boundaryRect={rect({ left: 500, right: 900, bottom: 1000, width: 400, height: 1000, x: 500 })} />);
+		const trigger = screen.getByTestId("pkg-menu");
+		// Trigger hugs the pane's LEFT edge → right-anchor (extend left) has no
+		// room, left-anchor (extend right) does → the hook flips `right-0`→`left-0`.
+		(trigger as HTMLElement).getBoundingClientRect = () =>
+			rect({ left: 510, right: 540, top: 100, bottom: 130, width: 30, height: 30, x: 510, y: 100 });
+		fireEvent.click(trigger);
+		// The dropdown is the direct-child <div> of the trigger's `.relative` wrapper.
+		const dropdown = trigger.parentElement!.querySelector(":scope > div");
+		expect(dropdown?.className).toContain("left-0");
+		expect(dropdown?.className).not.toContain("right-0");
+	});
+
+	it("keeps the row menu right-0 (default) when the pane has ample room to the left", () => {
+		render(<BoundaryRow boundaryRect={rect({ left: 0, right: 900, bottom: 1000, width: 900, height: 1000 })} />);
+		const trigger = screen.getByTestId("pkg-menu");
+		(trigger as HTMLElement).getBoundingClientRect = () =>
+			rect({ left: 840, right: 870, top: 100, bottom: 130, width: 30, height: 30, x: 840, y: 100 });
+		fireEvent.click(trigger);
+		const dropdown = trigger.parentElement!.querySelector(":scope > div");
+		expect(dropdown?.className).toContain("right-0");
+		expect(dropdown?.className).not.toContain("left-0");
+	});
+});
 
 describe("PackageRow", () => {
 	it("renders display name and source caption", () => {

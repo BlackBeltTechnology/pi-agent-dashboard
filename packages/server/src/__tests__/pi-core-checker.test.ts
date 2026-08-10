@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
-import { PiCoreChecker, CORE_PACKAGE_NAMES, _internal } from "../pi-core-checker.js";
+import { PiCoreChecker, CORE_PACKAGE_NAMES, _internal } from "../pi/pi-core-checker.js";
 
 describe("PiCoreChecker._internal.looksLikePiEcosystem", () => {
 	it("matches every known core package", () => {
@@ -255,7 +255,7 @@ describe("PiCoreChecker pi.dev integration", () => {
 
 	beforeEach(async () => {
 		tmpManagedDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-core-pidev-"));
-		const { _resetDynamicPiAliases } = await import("../pi-core-checker.js");
+		const { _resetDynamicPiAliases } = await import("../pi/pi-core-checker.js");
 		_resetDynamicPiAliases();
 	});
 

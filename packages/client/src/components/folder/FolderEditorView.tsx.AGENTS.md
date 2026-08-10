@@ -1,0 +1,3 @@
+# FolderEditorView.tsx — index
+
+Folder-scoped internal Monaco pane. Wraps `SplitWorkspaceProvider` keyed by `folderPaneId(cwd)`, renders `EditorPane` full-width; omits session file-watch (no changed-on-disk banner in folder scope, Non-Goal v1). Replaces removed external `EditorView`. Now the folder-level terminal surface: `autoSurfaceTerminals` + threaded `terminals`/`onCreateTerminal`/`onKillTerminal`/`onRenameTerminal`/`onTerminalTitle` open a `term:<id>` tab per cwd terminal (replaces deleted `TerminalsView`). Exports `FolderEditorView`. See change: remove-external-editor-integration, terminals-in-tabbed-panes.

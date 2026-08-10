@@ -83,8 +83,8 @@ describe("session-scanner readJsonlHeaderSync (firstMessage condensation end-to-
     // that scanners DO call condenseForFirstMessage by file inspection.
     const { readFileSync } = await import("node:fs");
     const path = await import("node:path");
-    const scannerPath = path.join(__dirname, "..", "session-scanner.ts");
-    const discoveryPath = path.join(__dirname, "..", "session-discovery.ts");
+    const scannerPath = path.join(__dirname, "..", "session", "session-scanner.ts");
+    const discoveryPath = path.join(__dirname, "..", "session", "session-discovery.ts");
     const scannerSrc = readFileSync(scannerPath, "utf-8");
     const discoverySrc = readFileSync(discoveryPath, "utf-8");
     expect(scannerSrc).toMatch(/condenseForFirstMessage\(\s*msg\.content\s*,\s*200\s*\)/);

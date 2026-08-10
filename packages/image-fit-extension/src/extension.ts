@@ -13,19 +13,23 @@
  * Design: design.md.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { readConfigFromEnv, type ImageFitConfig } from "./policy.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-  scopeFor,
+  type CacheScope,
+  ContentCache,
   cacheKey,
+  cleanupOrphans,
+  cleanupSession,
   ensureDir,
   hasCached,
-  cleanupSession,
-  cleanupOrphans,
-  type CacheScope,
+  scopeFor,
 } from "./cache.js";
+import { type ImageFitConfig, readConfigFromEnv } from "./policy.js";
+// Namespace import so tests can `vi.spyOn(resize, "resizeBuffer")` on the
+// `context`-seam path (ESM named imports are read-only live bindings).
+import * as resize from "./resize.js";
 import {
   isImagePath,
   needsResize,
@@ -46,6 +50,29 @@ export default function imageFitExtension(pi: ExtensionAPI): void {
   // internally. Fire-and-forget — we do not block extension load on it.
   cleanupOrphans().catch(() => {
     /* already logged by cleanupOrphans */
+  });
+
+  // Second interception seam: fit oversize ImageContent of any origin
+  // (tool_result / user-pasted / historical) before each LLM call. Runs
+  // every turn, so it is reload-safe (rescues already-persisted oversize
+  // sessions) but must stay cheap — the cheap-probe gate + content-hash
+  // cache keep the steady state to a header parse / hash + map lookup.
+  const contentCache = new ContentCache();
+  pi.on("context", async (event) => {
+    try {
+      // event.messages is pi's deep copy (safe to mutate in place); the same
+      // reference is returned when any block changed. The cast bridges pi's
+      // AgentMessage[] and our structural MessageLike[] view.
+      const patched = await fitContextMessages(event.messages as MessageLike[], config, contentCache);
+      return patched ? { messages: patched as unknown as typeof event.messages } : undefined;
+    } catch (err) {
+      // Last-resort catch — per-block failures are already isolated and
+      // logged inside fitContextMessages; reaching here means something
+      // above the block loop threw. Fail open: leave messages unmodified.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[pi-image-fit] WARN context handler error: ${msg}`);
+      return undefined;
+    }
   });
 
   // Session scope is established lazily: the first tool_call we see
@@ -182,6 +209,127 @@ async function maybeResize(
     console.warn(`[pi-image-fit] WARN resize failed for ${srcPath}: ${msg}; passing through original`);
     // event.input.path was not mutated yet — original path stands.
   }
+}
+
+/** Minimal structural view of a message block we care about. */
+interface ImageBlockLike {
+  type: string;
+  data: string;
+  mimeType: string;
+}
+
+/** Minimal structural view of a message carrying content blocks. */
+interface MessageLike {
+  content?: unknown;
+}
+
+/**
+ * Role-agnostic `context`-seam core: walk every message's content blocks,
+ * fit each oversize `image` block in place, and return the (mutated) message
+ * list only when at least one block changed — otherwise `undefined` so pi keeps
+ * the original list. Each block is isolated in its own try/catch (fail-open,
+ * single WARN per failed block) so one bad image never blocks its siblings.
+ *
+ * Exported for unit tests (spy on `resize.*` / `ContentCache.prototype.*`).
+ * Design: D4 (cheap-probe gate), D5 (role-agnostic traversal), D6 (fail-open).
+ */
+export async function fitContextMessages(
+  messages: readonly MessageLike[],
+  config: ImageFitConfig,
+  cache: ContentCache,
+): Promise<MessageLike[] | undefined> {
+  let changed = false;
+  for (const message of messages) {
+    const content = message?.content;
+    // A UserMessage.content may be a plain string (no image) — skip it.
+    if (!Array.isArray(content)) continue;
+    if (await fitContentBlocks(content, config, cache)) changed = true;
+  }
+  return changed ? (messages as MessageLike[]) : undefined;
+}
+
+/**
+ * Fit every oversize image block in one message's content array (in place).
+ * Returns true if any block changed. Each block is isolated in its own
+ * try/catch so one bad image never blocks its siblings (fail-open, D6).
+ */
+async function fitContentBlocks(
+  content: unknown[],
+  config: ImageFitConfig,
+  cache: ContentCache,
+): Promise<boolean> {
+  let changed = false;
+  for (const block of content) {
+    if (!isImageBlock(block)) continue;
+    try {
+      const fitted = await fitImageBlock(block, config, cache);
+      if (fitted) {
+        block.data = fitted.data;
+        block.mimeType = fitted.mimeType;
+        changed = true;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[pi-image-fit] WARN could not fit image block (${block.mimeType}): ${msg}`);
+    }
+  }
+  return changed;
+}
+
+function isImageBlock(block: unknown): block is ImageBlockLike {
+  return (
+    typeof block === "object" &&
+    block !== null &&
+    (block as { type?: unknown }).type === "image" &&
+    typeof (block as { data?: unknown }).data === "string" &&
+    typeof (block as { mimeType?: unknown }).mimeType === "string"
+  );
+}
+
+/**
+ * Fit a single oversize image block. Returns the replacement
+ * `{ data, mimeType }` on resize (or cache hit), or `null` when the block is
+ * already within limits (the steady-state path — no hash, no jimp decode).
+ * Throws only on an undecodable oversize block (caller logs one WARN).
+ */
+async function fitImageBlock(
+  block: ImageBlockLike,
+  config: ImageFitConfig,
+  cache: ContentCache,
+): Promise<{ data: string; mimeType: string } | null> {
+  const buf = Buffer.from(block.data, "base64");
+  const bytes = resize.estimateBytesFromBase64(block.data);
+
+  // Cheap header dims; jimp fallback only if the header can't be parsed.
+  let dims = resize.probeDimsFromHeader(buf);
+  if (!dims) {
+    dims = await resize.probeDimsFromBuffer(buf);
+    if (!dims) {
+      // Undecodable. Only a candidate (oversize by bytes) is worth a WARN;
+      // a within-byte-limit block we cannot size is left as-is, silently.
+      if (bytes > config.maxBytes) throw new Error("undecodable image bytes");
+      return null;
+    }
+  }
+
+  if (!needsResize({ bytes, maxBytes: config.maxBytes, dims, maxEdge: config.maxEdge })) {
+    return null; // within limits — no hash, no cache, no decode
+  }
+
+  // Oversize candidate: hash → cache lookup → resize on miss.
+  const key = cache.keyFor(block.data, block.mimeType, config);
+  const hit = cache.get(key);
+  if (hit) return hit;
+
+  const { format, mime } = resize.outputFormatForMime(block.mimeType);
+  const { data } = await resize.resizeBuffer(
+    buf,
+    { maxEdge: config.maxEdge, quality: config.quality },
+    format,
+  );
+  const entry = { data: data.toString("base64"), mimeType: mime };
+  cache.set(key, entry);
+  return entry;
 }
 
 function readSessionIdFromCtx(ctx: unknown): string {

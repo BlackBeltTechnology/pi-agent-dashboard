@@ -3,8 +3,8 @@
  * When bridge sends eventCount matching server's stored count, skip the event wipe.
  */
 import { describe, it, expect, vi } from "vitest";
-import { createMemoryEventStore } from "../memory-event-store.js";
-import { createMemorySessionManager } from "../memory-session-manager.js";
+import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeEvent(type: string = "test"): DashboardEvent {

@@ -1,0 +1,3 @@
+# ctx-running-render.spec.ts — index
+
+Browser E2E for `fix-ctx-running-render`. Drives `[[faux:ctx-batch-running]]` (single `ctx_batch_execute` carrying `args.commands`), `routeWebSocket` DROPS the `tool_execution_end` frame + 404s the reconcile route so the single-member burst stays RUNNING. PATCHes `generic:true` tool visibility, expands the collapsed member step (title = getSummary `ctx_batch_execute 2 cmds`), asserts the child `CtxToolRenderer` running body renders the args-derived chip `▦ 2 cmds` (not the duplicated tool-name subtitle) + per-command RunningPreview list (`list files`/`count lines`). Needs `PI_E2E_SEED=1`. See change: fix-ctx-running-render.

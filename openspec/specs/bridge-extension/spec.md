@@ -630,13 +630,15 @@ The bridge extension SHALL NOT attempt to install the `agent-browser` or `pi-age
 
 ### Requirement: Bridge SHALL flip `ctx.hasUI` to `true` after wiring the UI proxy
 
-After the bridge has installed PromptBus wrappers on `ctx.ui.confirm`, `ctx.ui.select`, `ctx.ui.input`, `ctx.ui.editor`, `ctx.ui.multiselect`, and `ctx.ui.notify` in the `session_start` handler, the bridge SHALL assign `ctx.hasUI = true` on the live `ctx` object.
+After the bridge has installed PromptBus wrappers on the dialog methods `ctx.ui.confirm`, `ctx.ui.select`, `ctx.ui.input`, `ctx.ui.editor` and `ctx.ui.multiselect`, and has installed the notify proxy on `ctx.ui.notify` (which sends the dedicated `notify` frame and never enters PromptBus), the bridge SHALL assign `ctx.hasUI = true` on the live `ctx` object.
 
 The assignment SHALL happen AFTER the bridge has captured the original `ctx.hasUI` value into its `cachedHasUI` state (used by `source-detector.detectSessionSource`). `cachedHasUI` MUST retain the pi-supplied original value; only the live `ctx.hasUI` is flipped.
 
 The assignment SHALL be guarded with try/catch so that if a future pi release makes `ctx.hasUI` non-writable, the bridge logs a single `[dashboard] failed to flip ctx.hasUI` warning and continues without crashing.
 
 Rationale: extensions branch on `ctx.hasUI` to decide whether to call `ctx.ui.notify`, render dialogs, or short-circuit interactive flows. The bridge already provides a working UI surface via PromptBus over the patched `ctx.ui.*` methods — `ctx.hasUI` MUST reflect that reality so extensions like `context-mode` (`/ctx-stats`, `/ctx-doctor`) and `pi-agent-browser` (binary auto-install prompt) take their UI-present branch and render output in the dashboard.
+
+The transport for a forwarded `ctx.ui.notify` is the `notify` message, NOT `prompt_request`. A notification is fire-and-forget and produces no dismissal, so routing it over the prompt channel makes it an unanswerable pending prompt. See the `notify-message-channel` capability.
 
 #### Scenario: Headless RPC session — flip happens
 - **WHEN** the bridge's `session_start` handler runs in a dashboard-spawned `pi --mode rpc` session where pi initialized `ctx.hasUI = false`
@@ -659,7 +661,8 @@ Rationale: extensions branch on `ctx.hasUI` to decide whether to call `ctx.ui.no
 - **AND** context-mode's handler reads `ctx.hasUI`
 - **THEN** `ctx.hasUI` SHALL evaluate truthy
 - **AND** context-mode SHALL call `ctx.ui.notify(text, "info")`
-- **AND** the bridge's patched `notify` SHALL forward a `prompt_request` to the dashboard server
+- **AND** the bridge's patched `notify` SHALL forward a `notify` message to the dashboard server
+- **AND** it SHALL NOT forward a `prompt_request`
 - **AND** the dashboard SHALL render the notify body as a chat card
 
 #### Scenario: Non-writable `ctx.hasUI` is handled gracefully
@@ -706,7 +709,6 @@ The `turn_end` listener SHALL be wrapped in try/catch — failure SHALL NOT cras
 - **WHEN** `cachedCtx.shutdown` is not a function (e.g. older pi or invalid state)
 - **THEN** the bridge SHALL call `cachedCtx.abort()` instead and log a warning, preserving the clean-termination intent at best-effort
 
-
 ### Requirement: Bridge reports its session's pi version
 
 The bridge SHALL report the pi-coding-agent version of the process it runs inside, per session, via a `{ type: "pi_version_update", sessionId, version }` message to the server. The version SHALL be read from inside the bridge's own process using an `exports`-safe resolution: resolve the package **entry** (`@earendil-works/pi-coding-agent`, the always-exported `"."` specifier) via the ESM resolver `import.meta.resolve` (which honours the `import` condition), then walk up from the resolved file to the nearest `package.json` whose `name` equals `@earendil-works/pi-coding-agent` and read its `version`. The bridge SHALL NOT resolve the `./package.json` subpath directly (a package whose `exports` omits that subpath makes it unresolvable), NOR use the CJS `createRequire().resolve` on the entry (pi's `"."` export defines only `import`/`types`, so the CJS `require` condition finds no target and also throws `ERR_PACKAGE_PATH_NOT_EXPORTED`). This per-session read is the ground-truth pi for that session — distinct from the server-side `readCurrentPiVersion()` read that drives the global `/api/health.compatibility` advisory.
@@ -750,3 +752,103 @@ On receipt of `pi_version_update`, the server SHALL store `version` as `Dashboar
 - **WHEN** the server receives `{ type: "pi_version_update", sessionId, version: "0.80.2" }`
 - **THEN** the session record's `piVersion` SHALL become `"0.80.2"`
 - **AND** a session-updated broadcast carrying `{ piVersion: "0.80.2" }` SHALL be sent to that session's browser subscribers
+
+### Requirement: Bridge normalizes agent_settled to one terminal signal per run
+
+The bridge SHALL subscribe to pi's `agent_settled` event (pi 0.80.4+) and forward it as an `event_forward`, setting `getBridgeState().isAgentStreaming = false`. When the running pi does NOT emit `agent_settled` natively (pi < 0.80.4, determined from the pi version the bridge already reports in `session_register`), the bridge SHALL synthesize an `agent_settled` event synchronously immediately after each forwarded `agent_end`, so the dashboard receives exactly one terminal `agent_settled` per run on every supported pi. The bridge SHALL NOT require or advertise a `session_register` capability flag for this.
+
+#### Scenario: Native agent_settled forwarded, streaming cleared
+- **WHEN** the bridge runs against pi ≥ 0.80.4 and pi emits `agent_settled`
+- **THEN** the bridge SHALL forward one `event_forward{eventType:"agent_settled"}` and set `isAgentStreaming=false`
+- **AND** SHALL NOT synthesize an additional `agent_settled`
+
+#### Scenario: Floor pi gets a synthesized settle after agent_end
+- **WHEN** the bridge runs against pi < 0.80.4 (no native `agent_settled`)
+- **THEN** the bridge SHALL synthesize one `agent_settled` synchronously after each forwarded `agent_end`
+- **AND** SHALL set `isAgentStreaming=false` on that synthesized settle
+
+### Requirement: Bridge pushes external renames from session_info_changed via the auto-namer's self-filter
+
+The bridge SHALL register `pi.on("session_info_changed", ...)` (pi 0.80.3+, try/catch) and SHALL route the new name through the existing `autoNamer.onObservedName(name)`, which classifies self-applied vs external via `classifyNameChange` and reports (locking out auto-naming) ONLY when external. The bridge's own `pi.setSessionName(...)` auto-name echoing back through the event SHALL be classified self and SHALL NOT push or lock out. The recorded self-applied name SHALL be normalized with pi's own name sanitization (`replace(/[\r\n]+/g, " ").trim()`) so a self-applied title containing internal newlines still matches the sanitized name pi carries in the event. The turn-end name poll SHALL remain as a fallback.
+
+#### Scenario: External rename pushes and locks out
+- **WHEN** `session_info_changed` fires with a name the auto-namer classifies external
+- **THEN** the bridge SHALL push exactly one `session_name_update{nameSource:"user"}` and lock out auto-naming
+
+#### Scenario: Bridge's own auto-name echo is ignored, including a newline-bearing title
+- **WHEN** the bridge auto-applies a multi-word title containing a newline and pi emits `session_info_changed` with the sanitized (newline-collapsed) form
+- **THEN** the normalized self-applied comparison SHALL classify it self
+- **AND** the bridge SHALL NOT push a `session_name_update` and SHALL NOT lock out auto-naming
+
+#### Scenario: Absent event falls back to poll
+- **WHEN** pi does not emit `session_info_changed`
+- **THEN** the existing turn-end name poll SHALL still detect an external rename (today's behavior)
+
+### Requirement: Bridge auto-decides project_trust for dashboard-spawned headless sessions in the activation cwd
+
+The bridge SHALL capture `activationCwd = process.cwd()` at bridge **activation** (before any `project_trust` event can fire — the event is emitted during resource-loader reload, ahead of `session_start`). It SHALL register a `project_trust` handler (pi 0.79.0+) that reads `eventCwd` from its own per-event `ctx` argument inside try/catch, and decides "trust" for this run ONLY when all hold: `dashboardSpawned === true`, `isHeadlessRpcSession(...)` is true, AND `eventCwd === activationCwd`. Any other case — including a `ctx.cwd` read that throws — SHALL defer to pi's default. Trust SHALL be per-run (not remembered) in v1. `ctx.isProjectTrusted()` SHALL be logging-only.
+
+#### Scenario: Dashboard-spawned headless session in its activation cwd auto-trusts
+- **WHEN** a dashboard-spawned headless RPC session raises `project_trust` while `eventCwd` equals `activationCwd`
+- **THEN** the handler SHALL decide "trust" for this run
+
+#### Scenario: Interactive/TUI session defers
+- **WHEN** an interactive (non-headless) session raises `project_trust`
+- **THEN** the handler SHALL defer to pi's default
+
+#### Scenario: Cwd differs from the activation cwd defers
+- **WHEN** a headless session raises `project_trust` with `eventCwd` different from `activationCwd`
+- **THEN** the handler SHALL defer to pi's default
+
+#### Scenario: Non-dashboard-spawned session defers
+- **WHEN** a session with `dashboardSpawned === false` raises `project_trust`
+- **THEN** the handler SHALL defer to pi's default
+
+#### Scenario: ctx.cwd read that throws defers
+- **WHEN** reading `eventCwd` from the event `ctx` throws (stale/replaced session)
+- **THEN** the handler SHALL defer to pi's default (no crash)
+
+### Requirement: Bridge WebSocket survives session replacement
+
+When pi replaces the current session in-process — `session_shutdown(reason)`
+immediately followed by `session_start(reason)` with `reason ∈
+{"new","fork","resume"}`, same OS process — the bridge SHALL end that sequence
+with a **live** dashboard WebSocket on which the new session is registered. The
+bridge SHALL NOT require a fresh `pi` process, a browser refresh, or `/reload` to
+recover the connection after an in-TUI resume/switch/fork.
+
+This is an **outcome** contract: it constrains the observable end state (socket
+live, new session registered, dashboard shows the session active), not the
+internal mechanism by which the bridge achieves it.
+
+For a genuine teardown — `reason: "quit"` (process exiting) — the bridge MAY drop
+the socket. For `reason: "reload"`, the connection SHALL be live again after the
+reload re-init completes.
+
+The always-run `session_shutdown` cleanup — sending `session_unregister`,
+stopping the metrics/heartbeat/git-poll timers, resetting the subagent frame
+buffer, and cleaning up per-session ask_user attachments — SHALL run on **every**
+`session_shutdown` regardless of reason.
+
+#### Scenario: Resume ends with a live, re-registered connection
+- **WHEN** an in-TUI resume fires `session_shutdown(reason: "resume")` followed by `session_start(reason: "resume")` in the same process
+- **THEN** within a bounded settle window after the sequence (the socket opens asynchronously via `onopen`, so the assertion SHALL poll `connection.isConnected` rather than read it synchronously at handler return) the bridge's dashboard WebSocket SHALL be connected (`connection.isConnected === true`)
+- **AND** the resumed session SHALL be registered with the server (a `session_register` for the resumed session SHALL have been delivered on the live socket)
+- **AND** no fresh `pi` process, browser refresh, or `/reload` SHALL be required
+
+#### Scenario: New and fork also end connected and registered
+- **WHEN** an in-process `session_start(reason: "new")` or `session_start(reason: "fork")` follows its `session_shutdown`
+- **THEN** the bridge SHALL end the sequence with a live WebSocket and the new session registered
+
+#### Scenario: Quit tears down
+- **WHEN** `session_shutdown` fires with `reason: "quit"`
+- **THEN** the bridge MAY close the WebSocket (the process is exiting)
+
+#### Scenario: Reload ends connected
+- **WHEN** `session_shutdown(reason: "reload")` fires and the reload re-init completes
+- **THEN** the bridge's WebSocket SHALL be live again and the session registered
+
+#### Scenario: Cleanup runs regardless of reason
+- **WHEN** `session_shutdown` fires with any `reason`, including a replacement reason
+- **THEN** the bridge SHALL send `session_unregister`, stop the metrics/heartbeat/git-poll timers, reset the subagent frame buffer, and clean up the session's ask_user attachments
+

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>A′ enclosure — locked design</title>
+<style>
+  [data-theme="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+    --text-primary:#1a1a1a; --text-secondary:#4a4a4a; --text-muted:#aaaaaa;
+    --border-subtle:rgba(0,0,0,0.06); --shadow-card:rgba(0,0,0,0.08); --elevation-rim:rgba(255,255,255,0.9);
+    --accent-blue:#3b82f6; --sidebar:#fafafa;
+  }
+  [data-theme="dark"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-muted:#585858;
+    --border-subtle:rgba(255,255,255,0.06); --shadow-card:rgba(0,0,0,0.4); --elevation-rim:rgba(255,255,255,0.10);
+    --accent-blue:#3b82f6; --sidebar:#141414;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; background:var(--sidebar); color:var(--text-primary); padding:22px 20px 80px; -webkit-font-smoothing:antialiased; }
+  .toolbar { display:flex; gap:12px; align-items:center; max-width:900px; margin:0 auto 6px; }
+  .toolbar h1 { font-size:15px; font-weight:700; margin:0; } .toolbar .sp { flex:1; }
+  .toolbar button { font:inherit; font-size:12px; font-weight:600; padding:6px 12px; border-radius:8px; border:1px solid var(--border-subtle); background:var(--bg-primary); color:var(--text-secondary); cursor:pointer; }
+  .lead { max-width:900px; margin:6px auto 22px; font-size:12px; color:var(--text-muted); line-height:1.5; } .lead b { color:var(--text-secondary); }
+  .rail { display:flex; gap:34px; align-items:flex-start; max-width:900px; margin:0 auto; flex-wrap:wrap; }
+  .col { width:400px; }
+  .col h2 { font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); margin:0 0 14px 2px; }
+
+  .fwrap { position:relative; padding-top:9px; }
+  .nub { position:absolute; top:0; left:14px; width:78px; height:12px; background:var(--bg-primary); border:1px solid var(--border-subtle); border-bottom:none; border-radius:8px 8px 0 0; }
+  .fcard { position:relative; background:var(--bg-primary); border:1px solid var(--border-subtle); border-bottom:none; border-radius:14px 14px 0 0; padding:6px 12px 11px; box-shadow:inset 0 1px 0 var(--elevation-rim),0 2px 4px var(--shadow-card); }
+  .hdr { display:flex; align-items:center; gap:7px; padding-top:3px; } .hdr .name { font-size:15px; font-weight:800; } .hdr .path { color:var(--text-muted); font-size:12px; } .hdr .sp { flex:1; } .hdr .ic { color:var(--text-muted); font-size:14px; }
+  .git { display:flex; align-items:center; gap:8px; font-size:12px; margin-top:7px; }
+  .git .branch,.git .commit { color:var(--accent-blue); font-weight:600; }
+  .git .badge { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:999px; border:1px solid #e0791f; color:#e0791f; } .git .badge .dot{width:6px;height:6px;border-radius:50%;background:#e0791f}
+  .git .init { margin-left:auto; font-size:11px; font-weight:700; color:#c98a12; border:1px solid rgba(201,138,18,.45); border-radius:8px; padding:3px 8px; }
+  .git .gear { width:24px; height:24px; border-radius:7px; border:1px solid var(--border-subtle); color:var(--text-muted); background:var(--bg-tertiary); display:inline-flex; align-items:center; justify-content:center; }
+  .pillgrid { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:10px; }
+  .pill { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:10px; border:1px solid var(--border-subtle); background:var(--bg-tertiary); min-width:0; }
+  .pill .g { width:24px; height:24px; border-radius:7px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:13px; }
+  .pill .m { display:flex; flex-direction:column; min-width:0; line-height:1.15; } .pill .l { font-size:8.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted); } .pill .v { font-size:12px; font-weight:800; } .pill .v .u{font-size:9px;font-weight:600;color:var(--text-muted)}
+  .pill.a .g{color:#3b6ef6;background:rgba(59,110,246,.12)} .pill.go .g{color:#7c74f4;background:rgba(124,116,244,.12)} .pill.k .g{color:#0e9db0;background:rgba(14,157,176,.12)} .pill.s .g{color:#a25df0;background:rgba(162,93,240,.12)}
+
+  /* white pocket + fold-shadow seam (opened flap) */
+  .folderbody { position:relative; background:var(--bg-primary); border:1px solid var(--border-subtle); border-top:none; border-radius:0 0 14px 14px; padding:12px 12px 12px; box-shadow:0 2px 6px var(--shadow-card); }
+  .folderbody::before { content:""; position:absolute; left:-1px; right:-1px; top:0; height:10px; border-radius:0 0 6px 6px; box-shadow:inset 0 6px 6px -6px var(--shadow-card); pointer-events:none; }
+
+  /* shared section separator (CREATE · SESSIONS) */
+  .seplabel { text-align:center; font-size:9px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-muted); margin:0 0 9px; position:relative; }
+  .seplabel.mt { margin-top:13px; }
+  .seplabel::before,.seplabel::after{content:"";position:absolute;top:50%;width:32%;height:1px;background:var(--border-subtle)} .seplabel::before{left:0}.seplabel::after{right:0}
+  .create { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .sbtn { text-align:center; font-size:12.5px; font-weight:700; padding:10px; border-radius:11px; border:1px solid; }
+  .sbtn.g { color:#2fa960; border-color:rgba(47,169,96,.45); background:rgba(47,169,96,.07); } .sbtn.o { color:#e0791f; border-color:rgba(224,121,31,.45); background:rgba(224,121,31,.07); }
+
+  .scard { position:relative; background:var(--bg-tertiary); border:1px solid var(--border-subtle); border-radius:12px; padding:9px 11px 10px 13px; box-shadow:inset 0 1px 0 var(--elevation-rim),0 4px 8px var(--shadow-card); overflow:hidden; }
+  .scard .spine { position:absolute; left:0; top:0; bottom:0; width:4px; }
+  .scard.sel { border-color:rgba(59,130,246,.6); background:rgba(59,130,246,.05); box-shadow:0 0 0 1px rgba(59,130,246,.3),0 4px 8px var(--shadow-card); }
+  .srow1 { display:flex; align-items:center; gap:7px; } .srow1 .nm { font-size:14px; font-weight:800; } .srow1 .sp { flex:1; }
+  .srow1 .chip { font-size:10px; font-weight:700; padding:2px 7px; border-radius:7px; border:1px solid; }
+  .chip.b{color:#3b6ef6;border-color:rgba(59,110,246,.4)} .chip.g{color:#2fa960;border-color:rgba(47,169,96,.4)} .chip.o{color:#e0791f;border-color:rgba(224,121,31,.4)}
+  .smeta { font-size:11.5px; color:var(--text-secondary); margin-top:3px; } .smeta .mut { color:var(--text-muted); }
+  .sstat { display:flex; align-items:center; margin-top:4px; font-size:11.5px; color:var(--text-muted); }
+  .costbar { height:5px; width:120px; border-radius:3px; background:var(--bg-secondary); overflow:hidden; margin-left:auto; margin-right:8px; } .costbar>i{display:block;height:100%}
+  .sstat .cost { font-weight:700; color:var(--text-secondary); }
+  .ospanel { margin-top:9px; border:1px solid var(--border-subtle); border-radius:10px; padding:8px; background:var(--bg-secondary); }
+  .ospanel .oslabel { text-align:center; font-size:8.5px; font-weight:800; letter-spacing:.08em; color:var(--text-muted); margin-bottom:6px; }
+  .osrow { display:flex; gap:6px; flex-wrap:wrap; }
+  .osbtn { font-size:10.5px; font-weight:700; padding:4px 9px; border-radius:8px; border:1px solid var(--border-subtle); color:var(--text-secondary); background:var(--bg-primary); }
+  .osbtn.b{color:#3b6ef6;border-color:rgba(59,110,246,.4)} .osbtn.c{color:#0e9db0;border-color:rgba(14,157,176,.4)}
+  .sessions { display:flex; flex-direction:column; gap:9px; }
+  .endedrow { margin-top:11px; text-align:center; font-size:11px; font-weight:600; color:var(--text-muted); padding:7px; border-radius:9px; border:1px dashed var(--border-subtle); cursor:pointer; }
+</style>
+</head>
+<body data-theme="light">
+<div class="toolbar">
+  <h1>A′ enclosure — locked design</h1><span class="sp"></span>
+  <button onclick="document.body.dataset.theme=document.body.dataset.theme==='dark'?'light':'dark'">◑ Toggle theme</button>
+</div>
+<p class="lead">White folder holds gray cards · fold-shadow seam · <b>CREATE</b> and now <b>SESSIONS</b> separators · ended row inside.</p>
+<div class="rail" id="rail"></div>
+
+<script>
+  const HEADER = `
+    <div class="fwrap"><div class="nub"></div>
+    <div class="fcard">
+      <div class="hdr"><span class="ic">▾</span><span class="path">/Users/robson/Project/</span><span class="name">pi-agent-dashboard</span><span class="sp"></span><span class="ic">⤢</span><span class="ic">×</span></div>
+      <div class="git"><span class="branch">⑂ develop</span><span class="badge"><span class="dot"></span>10</span><span class="commit">Commit</span><span class="init">⚙ Initialize</span><span class="gear">⚙</span></div>
+      <div class="pillgrid">
+        <div class="pill a"><span class="g">⚙</span><span class="m"><span class="l">Automations</span><span class="v">0 <span class="u">flows</span></span></span></div>
+        <div class="pill go"><span class="g">◎</span><span class="m"><span class="l">Goals</span><span class="v">0 <span class="u">active</span></span></span></div>
+        <div class="pill k"><span class="g">▤</span><span class="m"><span class="l">KB</span><span class="v">19.8k <span class="u">chunks</span></span></span></div>
+        <div class="pill s"><span class="g">▦</span><span class="m"><span class="l">OpenSpec</span><span class="v">58 <span class="u">changes</span></span></span></div>
+      </div>
+    </div></div>`;
+  const CREATE = `<div class="seplabel">Create</div><div class="create"><div class="sbtn g">＋ New Session</div><div class="sbtn o">⑂ New Worktree</div></div>`;
+  const SESSIONS_SEP = `<div class="seplabel mt">Sessions</div>`;
+  const SESS = `
+    <div class="scard sel"><div class="spine" style="background:#2fa960"></div>
+      <div class="srow1"><span class="nm">folder-card-tab-nub</span><span class="sp"></span><span class="chip b">⑂ Fork</span><span class="chip g">＋ Session</span><span class="chip o">⑂ Worktree</span></div>
+      <div class="smeta">anthropic/claude-opus-4-8 <span class="mut">(medium)</span></div>
+      <div class="sstat">Idle <span class="costbar"><i style="width:100%;background:#e5484d"></i></span><span class="cost">$14.29</span></div>
+      <div class="ospanel"><div class="oslabel">OPENSPEC · COMPLETE 8/8</div><div class="osrow"><span class="osbtn">⊘ Explore</span><span class="osbtn g">✓ Verify</span><span class="osbtn" style="color:#a25df0;border-color:rgba(162,93,240,.4)">▤ Archive</span></div></div>
+    </div>
+    <div class="scard"><div class="spine" style="background:#2fa960"></div>
+      <div class="srow1"><span class="nm">pi-agent-dashboard</span><span class="sp"></span><span class="chip b">⑂ Fork</span><span class="chip g">＋ Session</span><span class="chip o">⑂ Worktree</span></div>
+      <div class="smeta">anthropic/claude-opus-4-8 <span class="mut">(medium)</span></div>
+      <div class="sstat">Idle <span class="costbar"><i style="width:22%;background:#2fa960"></i></span><span class="cost">$1.42</span></div>
+    </div>`;
+  const ENDED = `<div class="endedrow">› 52 ended</div>`;
+
+  const folder = `<div>${HEADER}<div class="folderbody">${CREATE}${SESSIONS_SEP}<div class="sessions">${SESS}</div>${ENDED}</div></div>`;
+  document.getElementById("rail").innerHTML = `<div class="col"><h2>A′ — locked</h2>${folder}</div>`;
+</script>
+</body>
+</html>

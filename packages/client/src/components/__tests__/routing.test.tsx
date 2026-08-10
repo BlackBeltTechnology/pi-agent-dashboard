@@ -3,11 +3,11 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { LandingPage } from "../LandingPage.js";
-import { SessionHeader } from "../SessionHeader.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { LandingPage } from "../shell/LandingPage.js";
+import { SessionHeader } from "../session/SessionHeader.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { createInitialState } from "../../lib/event-reducer.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
 
 beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -94,9 +94,9 @@ describe("SessionHeader back button", () => {
 });
 
 describe("Pi branding in SessionList", () => {
-  it("shows the app icon image (not π text) and no 'Sessions' label", async () => {
+  it("shows the app icon image (not π text) in the Home button", async () => {
     // Dynamic import to avoid issues — SessionList uses useLocation
-    const { SessionList } = await import("../SessionList.js");
+    const { SessionList } = await import("../session/SessionList.js");
     const { hook, navigate } = memoryLocation({ path: "/", static: true });
 
     render(
@@ -117,13 +117,13 @@ describe("Pi branding in SessionList", () => {
     const svg = piButton.querySelector("svg[aria-label='Pi Dashboard']");
     expect(svg).toBeTruthy();
     expect(piButton.querySelector("img")).toBeNull();
-
-    // "Sessions" text should not appear
-    expect(screen.queryByText("Sessions")).toBeNull();
+    // Note: a per-folder "Sessions" divider is intended UI (SessionList encloses
+    // each folder's sessions under a labelled separator), so this test no longer
+    // asserts the absence of a "Sessions" label — only the Pi-branding invariant.
   });
 
   it("navigates to / when π is clicked", async () => {
-    const { SessionList } = await import("../SessionList.js");
+    const { SessionList } = await import("../session/SessionList.js");
     const { hook, navigate } = memoryLocation({ path: "/session/123" });
 
     render(

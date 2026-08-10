@@ -10,28 +10,24 @@
  *    ride on existing package_progress / package_operation_complete).
  *  - /api/health payload always carries a `startedAt: ISO` field.
  */
-import { describe, it, expect } from "vitest";
+
 import fs from "node:fs";
 import path from "node:path";
-import { VALID_SETTINGS_TABS } from "../dashboard-plugin/slot-types.js";
+import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
 
 describe("add-plugin-activation-ui repo-lint", () => {
-  it("SettingsPanel mounts a per-page SettingsSectionSlot", () => {
-    // Plugin-contributed `settings-section` claims render on the page their
-    // `claim.tab` targets (default general). Each page mounts
-    // <SettingsSectionSlot tab={page} /> so the registry filter matches.
-    // See change: reorganize-settings-into-pages.
+  it("SettingsPanel mounts no SettingsSectionSlot at all", () => {
+    // `settings-section` claims render EXCLUSIVELY on their owning plugin's
+    // page (`/settings/plugins/<id>`) via SettingsSectionByPluginSlot. Two live
+    // render paths was the bug removed here, so the panel must not reintroduce
+    // one. See change: plugin-settings-pages (design D3, task 3.5).
     const panel = fs.readFileSync(
-      path.join(REPO_ROOT, "packages/client/src/components/SettingsPanel.tsx"),
+      path.join(REPO_ROOT, "packages/client/src/components/settings/SettingsPanel.tsx"),
       "utf-8",
     );
-    expect(panel.includes("<SettingsSectionSlot")).toBe(true);
-    // One mount per page id; assert exact set matches VALID_SETTINGS_TABS.
-    const mounts = [...panel.matchAll(/<SettingsSectionSlot tab="([^"]+)"/g)].map((m) => m[1]);
-    expect(mounts.length).toBe(VALID_SETTINGS_TABS.length);
-    expect(new Set(mounts)).toEqual(new Set(VALID_SETTINGS_TABS));
+    expect(panel.includes("SettingsSectionSlot")).toBe(false);
   });
 
   it("browser-protocol introduces no new message types in this change", () => {

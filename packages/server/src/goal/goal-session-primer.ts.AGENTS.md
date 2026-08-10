@@ -1,0 +1,3 @@
+# goal-session-primer.ts — index
+
+Kickoff `/goal` loop for goal-linked sessions. Exports `buildGoalPrimerCommands` (`/goal <objective>` or `[]` when empty), `goalSessionTitle` (single-line objective capped 80), `primeGoalSession` (rename card to objective, dispatch kickoff command(s) via `sendPrompt`/`renameSession` deps), `buildGoalReprime(goal)` (fresh-respawn CONTEXT: objective + criteria + last-8 verdict summary + turns/cap; supervisor sends it alongside the `/goal` kickoff after a poison-fresh spawn). Required because `@ricoyudog/pi-goal-hermes` needs an in-session `/goal` to start pursuit; meta-stamping alone boots idle. See changes: prime-goal-linked-sessions, add-goal-session-supervisor.

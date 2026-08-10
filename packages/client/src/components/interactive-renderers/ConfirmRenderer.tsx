@@ -1,11 +1,11 @@
-import React from "react";
-import { Icon } from "@mdi/react";
 import { mdiShieldAlert } from "@mdi/js";
-import type { InteractiveRendererProps } from "./types.js";
-import { InlineMarkdown } from "./InlineMarkdown.js";
-import { MarkdownContent } from "../MarkdownContent.js";
+import { Icon } from "@mdi/react";
+import React from "react";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
-import { t as i18nT } from "../../lib/i18n";
+import { InlineMarkdown } from "./InlineMarkdown.js";
+import type { InteractiveRendererProps } from "./types.js";
 
 export function ConfirmRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
@@ -31,9 +31,12 @@ export function ConfirmRenderer({ params, status, result, onRespond, onCancel }:
           <Icon path={mdiShieldAlert} size={0.55} className="text-[var(--text-secondary)] shrink-0" />
           <span className="text-[var(--text-primary)] font-medium"><InlineMarkdown content={title} /></span>
         </div>
+        {message && (
+          <div className="text-xs text-[var(--text-secondary)] mb-2 ml-6"><MarkdownContent content={message} /></div>
+        )}
         <div className="flex gap-2 ml-6">
-          <AnsweredOption title={i18nT("auto.yes", undefined, "Yes")} picked={!!confirmed} />
-          <AnsweredOption title={i18nT("auto.no", undefined, "No")} picked={!confirmed} />
+          <AnsweredOption title={i18nT("common.yes", undefined, "Yes")} picked={!!confirmed} />
+          <AnsweredOption title={i18nT("common.no", undefined, "No")} picked={!confirmed} />
         </div>
       </div>
     );
@@ -53,19 +56,19 @@ export function ConfirmRenderer({ params, status, result, onRespond, onCancel }:
           onClick={() => onRespond({ confirmed: true })}
           className="px-3 py-1 text-xs rounded bg-green-600 hover:bg-green-500 text-white transition-colors"
         >
-          {i18nT("auto.yes", undefined, "Yes")}
+          {i18nT("common.yes", undefined, "Yes")}
         </button>
         <button
           onClick={() => onRespond({ confirmed: false })}
           className="px-3 py-1 text-xs rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
         >
-          {i18nT("auto.no", undefined, "No")}
+          {i18nT("common.no", undefined, "No")}
         </button>
         <button
           onClick={onCancel}
           className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
         >
-          {i18nT("auto.cancel", undefined, "Cancel")}
+          {i18nT("common.cancel", undefined, "Cancel")}
         </button>
       </div>
     </div>

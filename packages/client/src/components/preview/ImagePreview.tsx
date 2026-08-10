@@ -8,19 +8,22 @@
  */
 import { useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 import { rawUrl } from "./raw-url.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
   /** `inline` = capped card image (default); `full` = pan/zoom editor tab. */
   variant?: "inline" | "full";
+  /** Override the image URL (e.g. a `blob:` URL for an EML attachment). */
+  srcUrl?: string;
 }
 
-export function ImagePreview({ target, variant = "inline" }: Props) {
-  if (variant === "full") return <FullImage target={target} />;
+export function ImagePreview({ target, variant = "inline", srcUrl }: Props) {
+  if (variant === "full") return <FullImage target={target} srcUrl={srcUrl} />;
   return (
     <img
-      src={rawUrl(target)}
+      src={srcUrl ?? rawUrl(target)}
       alt={target.path}
       className="max-h-[40vh] max-w-full object-contain"
     />
@@ -28,14 +31,15 @@ export function ImagePreview({ target, variant = "inline" }: Props) {
 }
 
 /** Full-tab image with pan/zoom + zoom controls (ex-`ImageViewer`). */
-function FullImage({ target }: Props) {
+function FullImage({ target, srcUrl }: Props) {
+  const { t } = useI18n();
   const { state, handlers, zoomIn, zoomOut, reset } = useZoomPan();
   const [failed, setFailed] = useState(false);
 
   if (failed) {
     return (
       <div className="flex h-full items-center justify-center p-4 text-sm text-[var(--text-secondary)]">
-        Couldn't load image: {target.path}
+        {t("preview.couldntLoadImage", { path: target.path }, "Couldn't load image: {path}")}
       </div>
     );
   }
@@ -48,7 +52,7 @@ function FullImage({ target }: Props) {
         style={{ cursor: "grab", touchAction: "none" }}
       >
         <img
-          src={rawUrl(target)}
+          src={srcUrl ?? rawUrl(target)}
           alt={target.path}
           onError={() => setFailed(true)}
           draggable={false}
@@ -59,13 +63,13 @@ function FullImage({ target }: Props) {
         />
       </div>
       <div className="absolute bottom-2 right-2 flex gap-1 rounded bg-[var(--bg-secondary)] p-1 text-xs">
-        <button type="button" onClick={zoomOut} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label="Zoom out">
+        <button type="button" onClick={zoomOut} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label={t("preview.zoomOut", undefined, "Zoom out")}>
           −
         </button>
-        <button type="button" onClick={reset} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label="Reset zoom">
+        <button type="button" onClick={reset} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label={t("preview.resetZoom", undefined, "Reset zoom")}>
           {Math.round(state.scale * 100)}%
         </button>
-        <button type="button" onClick={zoomIn} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label="Zoom in">
+        <button type="button" onClick={zoomIn} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label={t("preview.zoomIn", undefined, "Zoom in")}>
           +
         </button>
       </div>

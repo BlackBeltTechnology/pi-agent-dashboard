@@ -136,14 +136,14 @@ export default async function activate(ctx: any): Promise<void> {
       if (probe.am.via === "pi-packages" && probe.am.entryPath) {
         mod = await import(probe.am.entryPath);
       } else {
-        // Peer dependency, not a direct dep — TS can't see types here.
         // Resolved at runtime via probeAll() before we reach this line.
         // Try the current scoped name first, fall back to the legacy name.
         try {
-          // @ts-expect-error optional peer; resolved dynamically
+          // Declared as an optional peer, so TS resolves its types directly.
           mod = await import("@blackbelt-technology/pi-anthropic-messages");
         } catch {
           // @ts-expect-error legacy pre-rescope name; resolved dynamically
+          // biome-ignore lint/correctness/noUndeclaredDependencies: @pi/anthropic-messages returns E404 on the registry. It is a legacy pre-rescope name reached only through this dynamic-import fallback; declaring it would write an unresolvable dependency into a published manifest. Mirrored by the publish-correctness checker's reasoned allowlist.
           mod = await import("@pi/anthropic-messages");
         }
       }

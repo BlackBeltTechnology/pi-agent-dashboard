@@ -5,6 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -12,12 +13,33 @@ import type { FastifyInstance } from "fastify";
 import { classifyPaths, createDirectory, listDirectories, parseFlagsQuery } from "../browse.js";
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
+import { EML_SIZE_CAP, loadParsedEml, toParseResult } from "../lib/eml.js";
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
 import { extToContentType } from "../lib/mime-types.js";
+import {
+  createDefaultDocxPdfEngine,
+  type DocxPdfEngine,
+  type DocxRenderMode,
+  OFFICE_CAPS,
+  type OfficeCaps,
+  parseSheet,
+  pdfCachePath,
+  renderDocx,
+  renderPptx,
+  resolveRowLimit,
+} from "../lib/office-preview.js";
 import { isAllowed } from "../lib/path-containment.js";
+import { resolveFileMention } from "../lib/resolve-file-mention.js";
 import { isWritableMdTarget } from "../lib/writable-md-target.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import {
+  buildOpenCommand,
+  buildRevealCommand,
+  type OpenerCommand,
+  runOpener,
+  systemOpenCapability,
+} from "../system-open-capability.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 // Per-target write serialization. The optimistic mtime check + atomic rename
@@ -26,6 +48,15 @@ import type { NetworkGuard } from "./route-deps.js";
 // write instead of returning 409. Keyed by resolved path; the chain swallows
 // errors so one failed write does not poison the next. See change:
 // directory-settings-page-and-scoped-md-editing.
+// Fixed, server-derived `~/.pi` containment anchor shared by the resolve
+// endpoint and the open/preview routes, so a resolved `~/.pi/…` path the
+// resolve endpoint accepts also opens/previews without a 403 (design D7).
+// Read at call time so it tracks the process HOME (fake-HOME safe in tests);
+// never derived from request input. See change: server-side-file-mention-resolution.
+function homePiAnchor(): string {
+  return path.join(os.homedir(), ".pi");
+}
+
 const fileWriteLocks = new Map<string, Promise<unknown>>();
 function serializeWrite<T>(key: string, task: () => Promise<T>): Promise<T> {
   const run = (fileWriteLocks.get(key) ?? Promise.resolve()).then(task, task);
@@ -145,15 +176,86 @@ function getAsciidoctor(): any {
   return asciidoctorInstance;
 }
 
+// Shared anti-traversal gate for the EML routes — the SAME check as
+// `/api/file/raw` (known session + `isAllowed` against the cwd anchor), factored
+// so both new routes CALL it rather than re-implementing the containment logic
+// (design D5). Returns the resolved abs path or a {code,error} reply mapping.
+async function gateFilePath(
+  cwd: string | undefined,
+  relPath: string | undefined,
+  sessionManager: SessionManager,
+): Promise<{ resolved: string } | { code: number; error: string }> {
+  if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
+  if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
+    return { code: 403, error: "unknown session path" };
+  }
+  const resolved = path.resolve(cwd, relPath);
+  if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
+    return { code: 403, error: "path outside working directory" };
+  }
+  return { resolved };
+}
+
 export function registerFileRoutes(
   fastify: FastifyInstance,
   deps: {
     sessionManager: SessionManager;
     preferencesStore: PreferencesStore;
     networkGuard: NetworkGuard;
+    // Office-preview seams (change: render-office-previews). Injectable for
+    // tests; production uses the document-converter-backed default + fixed caps.
+    docxPdfEngine?: DocxPdfEngine;
+    officeCaps?: OfficeCaps;
+    docxRenderMode?: DocxRenderMode;
+    // System-open seam (change: open-view-command-in-editor-pane, D9/D10).
+    // Injectable so tests assert argv without spawning a real opener.
+    systemOpen?: {
+      capable?: () => boolean;
+      run?: (cmd: string, args: string[]) => void;
+      platform?: NodeJS.Platform;
+    };
   },
 ) {
   const { sessionManager, preferencesStore, networkGuard } = deps;
+  const systemOpenCapable = deps.systemOpen?.capable ?? systemOpenCapability;
+  const systemOpenRun = deps.systemOpen?.run ?? runOpener;
+  const systemOpenPlatform = deps.systemOpen?.platform ?? process.platform;
+  const officeCaps = deps.officeCaps ?? OFFICE_CAPS;
+  const docxRenderMode = deps.docxRenderMode ?? "auto";
+  const docxPdfEngine = deps.docxPdfEngine ?? createDefaultDocxPdfEngine();
+
+  // Shared office-file gate (change: render-office-previews). Reuses the
+  // `/api/file/raw` anti-traversal posture (known cwd + containment) and adds
+  // an extension allowlist (else 400) plus a `stat.size` cap (>cap → 413
+  // BEFORE any read). Returns the resolved path + stat, or a {code,error}.
+  async function gateOfficeFile(
+    cwd: string | undefined,
+    relPath: string | undefined,
+    allowedExts: string[],
+    sizeCap: number,
+  ): Promise<
+    | { resolved: string; ext: string; stat: import("node:fs").Stats }
+    | { code: number; error: string }
+  > {
+    if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
+    const ext = path.extname(relPath).toLowerCase();
+    if (!allowedExts.includes(ext)) return { code: 400, error: "renderer not supported for extension" };
+    if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
+      return { code: 403, error: "unknown session path" };
+    }
+    const resolved = path.resolve(cwd, relPath);
+    if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
+      return { code: 403, error: "path outside working directory" };
+    }
+    let stat: import("node:fs").Stats;
+    try {
+      stat = await fs.stat(resolved);
+    } catch {
+      return { code: 404, error: "not found" };
+    }
+    if (stat.size > sizeCap) return { code: 413, error: "file too large to preview" };
+    return { resolved, ext, stat };
+  }
 
   // Directory browse endpoint.
   // `detect=1` opts into eager `.git` / `.pi` classification on every entry
@@ -241,7 +343,9 @@ export function registerFileRoutes(
       }
 
       const resolved = path.resolve(cwd, relPath);
-      if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
+      // Anchors include the fixed `~/.pi` allowlist so a resolved `~/.pi/…`
+      // mention (from `/api/file/resolve-mention`) previews without a 403 (D7).
+      if (!(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] }))) {
         reply.code(403);
         return { success: false, error: "path outside working directory" } satisfies ApiResponse;
       }
@@ -255,9 +359,13 @@ export function registerFileRoutes(
         }
         // Classify by extension + a bounded sniff (first 1024 bytes) so binary
         // files are not slurped whole just to discriminate. Content is returned
-        // only for text-renderable kinds (monaco / markdown viewers); image /
-        // pdf / binary tabs fetch raw bytes via `/api/file/raw`.
-        // See change: add-internal-monaco-editor-pane.
+        // for text-renderable kinds (monaco / markdown viewers) AND any
+        // `editable` kind (currently `.csv`, so Monaco Edit can load the raw
+        // text); image / pdf / binary / office tabs fetch their own bytes.
+        // Binary spreadsheets (`.xlsx`/`.xls`) stay `editable:false` → no
+        // `content` (no binary-bytes-in-JSON leak).
+        // See change: add-internal-monaco-editor-pane,
+        //             open-view-command-in-editor-pane (D4).
         const fh = await fs.open(resolved, "r");
         let kindResult;
         let content: string | undefined;
@@ -266,7 +374,11 @@ export function registerFileRoutes(
           const sniff = Buffer.alloc(sniffLen);
           if (sniffLen > 0) await fh.read(sniff, 0, sniffLen, 0);
           kindResult = fileKind(resolved, sniff);
-          if (kindResult.viewer === "monaco" || kindResult.viewer === "markdown") {
+          if (
+            kindResult.viewer === "monaco" ||
+            kindResult.viewer === "markdown" ||
+            kindResult.editable === true
+          ) {
             content = await fh.readFile("utf-8");
           }
         } finally {
@@ -290,6 +402,63 @@ export function registerFileRoutes(
         return { success: false, error: "not found" } satisfies ApiResponse;
       }
     },
+  );
+
+  // System-open endpoints (change: open-view-command-in-editor-pane, D9/D10).
+  // Spawn the OS opener on the SERVER host for the active tab's file. All of:
+  //   - refuse when `capabilities.systemOpen` is false (headless/container),
+  //   - reject a non-loopback OR absent request Origin (absent = don't-know =
+  //     deny; the legit same-origin client sends Origin on a POST),
+  //   - reuse the `/api/file` containment gate (path must sit under a known
+  //     session cwd),
+  //   - spawn via `execFile` with an argv ARRAY (no shell — a path with a
+  //     comma/space/quote cannot inject).
+  // They never read file content.
+  const isLoopbackOrigin = (origin: string | undefined): boolean => {
+    if (!origin) return false; // absent → treat as non-loopback (deny)
+    try {
+      const host = new URL(origin).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+      return host === "localhost" || host === "127.0.0.1" || host === "::1";
+    } catch {
+      return false;
+    }
+  };
+
+  const handleSystemOpen = async (
+    request: import("fastify").FastifyRequest<{ Body: { cwd?: unknown; path?: unknown } }>,
+    reply: import("fastify").FastifyReply,
+    build: (platform: NodeJS.Platform, resolved: string) => OpenerCommand,
+  ): Promise<ApiResponse> => {
+    if (!systemOpenCapable()) {
+      reply.code(403);
+      return { success: false, error: "system open not available on this host" };
+    }
+    if (!isLoopbackOrigin(request.headers.origin as string | undefined)) {
+      reply.code(403);
+      return { success: false, error: "forbidden origin" };
+    }
+    const cwd = typeof request.body?.cwd === "string" ? request.body.cwd : undefined;
+    const rawPath = typeof request.body?.path === "string" ? request.body.path : undefined;
+    const gate = await gateFilePath(cwd, rawPath, sessionManager);
+    if ("code" in gate) {
+      reply.code(gate.code);
+      return { success: false, error: gate.error };
+    }
+    const { cmd, args } = build(systemOpenPlatform, gate.resolved);
+    systemOpenRun(cmd, args);
+    return { success: true, data: { spawned: true } };
+  };
+
+  fastify.post<{ Body: { cwd?: unknown; path?: unknown } }>(
+    "/api/open-in-system",
+    { preHandler: networkGuard },
+    (request, reply) => handleSystemOpen(request, reply, buildOpenCommand),
+  );
+
+  fastify.post<{ Body: { cwd?: unknown; path?: unknown } }>(
+    "/api/reveal-in-file-manager",
+    { preHandler: networkGuard },
+    (request, reply) => handleSystemOpen(request, reply, buildRevealCommand),
   );
 
   // Tree-listing endpoint — single source of truth for the editor-pane file
@@ -501,6 +670,38 @@ export function registerFileRoutes(
     },
   );
 
+  // Lazy file-mention resolver (change: server-side-file-mention-resolution).
+  //
+  // Body `{ cwd, mention }` → `{ resolved, kind }` or `{ resolved: null }`.
+  // `cwd` is UNTRUSTED request input and is gated against the known-session set
+  // (mirrors `/api/file`, NOT the wider exists-only pinned set — design D2/F6/F7,
+  // so a resolve never succeeds on a path the open route would 403) BEFORE any
+  // resolution. `resolveFileMention` then expands `~/`, runs containment
+  // (cwd + git-root + `~/.pi`) BEFORE `fs.stat`, and returns null for a
+  // non-existent in-scope mention (never an error).
+  fastify.post<{ Body: { cwd?: unknown; mention?: unknown } }>(
+    "/api/file/resolve-mention",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const body = request.body ?? {};
+      const cwd = typeof body.cwd === "string" ? body.cwd : "";
+      const mention = typeof body.mention === "string" ? body.mention : "";
+      if (!cwd || !mention) {
+        reply.code(400);
+        return { success: false, error: "cwd and mention are required" } satisfies ApiResponse;
+      }
+      if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
+        reply.code(403);
+        return { success: false, error: "unknown session path" } satisfies ApiResponse;
+      }
+      const result = await resolveFileMention(mention, { cwd });
+      return {
+        success: true,
+        data: result ? { resolved: result.resolved, kind: result.kind } : { resolved: null },
+      } satisfies ApiResponse;
+    },
+  );
+
   // Pinned directories endpoint
   fastify.get("/api/pinned-dirs", async () => {
     return { success: true, data: preferencesStore.getPinnedDirectories() } satisfies ApiResponse;
@@ -540,7 +741,7 @@ export function registerFileRoutes(
       // screenshots that live outside every cwd and git root.
       // See change: serve-agent-artifact-previews.
       if (
-        !(await isAllowed(resolved, { anchors: [cwd] })) &&
+        !(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] })) &&
         !(await isImageUnderArtifactRoot(resolved))
       ) {
         reply.code(403);
@@ -617,10 +818,15 @@ export function registerFileRoutes(
     },
   );
 
-  // Server-side AsciiDoc rendering (change: render-file-previews).
-  // Runs `asciidoctor` in `safe: "secure"` mode so include directives /
-  // dangerous attributes are neutralized. Rejects non-`.adoc`/`.asciidoc`
-  // extensions with HTTP 400. Same anti-traversal gate as `/api/file/raw`.
+  // Server-side render endpoint (change: render-file-previews;
+  // render-office-previews). `.adoc`/`.asciidoc` → asciidoctor `safe:"secure"`
+  // HTML. `.docx` → two-tier (design D8): a document-converter PDF render when
+  // the engine is available (`{mode:"pdf"}` + companion `/api/file/rendered-pdf`),
+  // else an in-process mammoth HTML baseline with the hyperlink-guard (D2),
+  // DOMPurify sanitize, and bounded-preview image cap (D3). `.pptx` →
+  // engine-only PDF render (`{mode:"pdf"}`; no in-process fallback — engine
+  // absent → {success:false}; change: render-pptx-preview). Non-supported
+  // extensions → 400. Same anti-traversal gate as `/api/file/raw`.
   fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
     "/api/file/render",
     { preHandler: networkGuard },
@@ -633,9 +839,54 @@ export function registerFileRoutes(
       }
 
       const ext = path.extname(relPath).toLowerCase();
-      if (ext !== ".adoc" && ext !== ".asciidoc") {
+      const isAdoc = ext === ".adoc" || ext === ".asciidoc";
+      const isDocx = ext === ".docx";
+      const isPptx = ext === ".pptx";
+      if (!isAdoc && !isDocx && !isPptx) {
         reply.code(400);
         return { success: false, error: "renderer not supported for extension" } satisfies ApiResponse;
+      }
+
+      // pptx: gate (incl. size cap → 413 before convert) then engine-only PDF
+      // render (design P1/P4). No in-process fallback — engine absent →
+      // {success:false} so the client maps to FallbackPreview (download).
+      if (isPptx) {
+        const gate = await gateOfficeFile(cwd, relPath, [".pptx"], officeCaps.pptxSizeCap);
+        if ("code" in gate) {
+          reply.code(gate.code);
+          return { success: false, error: gate.error } satisfies ApiResponse;
+        }
+        const result = await renderPptx(
+          gate.resolved,
+          { mtimeMs: gate.stat.mtimeMs, size: gate.stat.size },
+          { engine: docxPdfEngine },
+        );
+        if (!result.success) {
+          return { success: false, error: result.error } satisfies ApiResponse;
+        }
+        const { success: _s, ...data } = result;
+        return { success: true, data } satisfies ApiResponse;
+      }
+
+      // docx: gate (incl. size cap → 413 before read) then two-tier render.
+      if (isDocx) {
+        const gate = await gateOfficeFile(cwd, relPath, [".docx"], officeCaps.docxSizeCap);
+        if ("code" in gate) {
+          reply.code(gate.code);
+          return { success: false, error: gate.error } satisfies ApiResponse;
+        }
+        const result = await renderDocx(
+          gate.resolved,
+          { mtimeMs: gate.stat.mtimeMs, size: gate.stat.size },
+          { mode: docxRenderMode, engine: docxPdfEngine, caps: officeCaps },
+        );
+        if (!result.success) {
+          // Unrenderable tail (corrupt/password/library bug) → 200 + success:false
+          // so the client maps it to FallbackPreview (design D5).
+          return { success: false, error: result.error } satisfies ApiResponse;
+        }
+        const { success: _s, ...data } = result;
+        return { success: true, data } satisfies ApiResponse;
       }
 
       const allSessions = sessionManager.listAll();
@@ -645,7 +896,7 @@ export function registerFileRoutes(
       }
 
       const resolved = path.resolve(cwd, relPath);
-      if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
+      if (!(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] }))) {
         reply.code(403);
         return { success: false, error: "path outside working directory" } satisfies ApiResponse;
       }
@@ -667,6 +918,203 @@ export function registerFileRoutes(
         reply.code(500);
         return { success: false, error: msg } satisfies ApiResponse;
       }
+    },
+  );
+
+  // Cached docx→PDF byte stream (change: render-office-previews, design D8).
+  // Companion to `/api/file/render` `mode:"pdf"`. Serves the cached PDF
+  // (path+mtime+size key); regenerates via the engine on cache miss/stale.
+  // `.docx` + `.pptx` (change: render-pptx-preview); same gate + per-ext size
+  // cap as the render route.
+  fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
+    "/api/file/rendered-pdf",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      // Widened to `.pptx` (change: render-pptx-preview) — the pptx render path
+      // reuses this same cached PDF stream. Size cap selected by extension.
+      const pdfExt = path.extname(request.query.path ?? "").toLowerCase();
+      const pdfSizeCap = pdfExt === ".pptx" ? officeCaps.pptxSizeCap : officeCaps.docxSizeCap;
+      const gate = await gateOfficeFile(
+        request.query.cwd,
+        request.query.path,
+        [".docx", ".pptx"],
+        pdfSizeCap,
+      );
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return { success: false, error: gate.error } satisfies ApiResponse;
+      }
+      const out = pdfCachePath(gate.resolved, gate.stat.mtimeMs, gate.stat.size);
+      try {
+        await fs.access(out);
+      } catch {
+        try {
+          await fs.mkdir(path.dirname(out), { recursive: true });
+          await docxPdfEngine.toPdf(gate.resolved, out);
+        } catch (err) {
+          reply.code(500);
+          return {
+            success: false,
+            error: err instanceof Error ? err.message : "failed to render pdf",
+          } satisfies ApiResponse;
+        }
+      }
+      reply.header("Content-Type", "application/pdf");
+      reply.header("Content-Disposition", "inline");
+      reply.header("Cache-Control", "private, max-age=60");
+      return reply.send(createReadStream(out));
+    },
+  );
+
+  // Spreadsheet parse endpoint (change: render-office-previews). Parses
+  // `.xlsx`/`.csv` to bounded structured JSON with SheetJS (no Docker). `.csv`
+  // encoding is detected (chardet) + decoded (iconv-lite) so CP1250 renders
+  // correctly (design D6). `.xlsx`/`.csv`-only → 400; size cap → 413 before read;
+  // corrupt/password-protected → 200 + success:false (design D5).
+  fastify.get<{ Querystring: { cwd?: string; path?: string; limit?: string } }>(
+    "/api/file/sheet",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const gate = await gateOfficeFile(
+        request.query.cwd,
+        request.query.path,
+        [".xlsx", ".csv"],
+        officeCaps.sheetSizeCap,
+      );
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return { success: false, error: gate.error } satisfies ApiResponse;
+      }
+      let buffer: Buffer;
+      try {
+        buffer = await fs.readFile(gate.resolved);
+      } catch {
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+      const limit = request.query.limit ? Number(request.query.limit) : undefined;
+      const rowLimit = resolveRowLimit(limit, officeCaps);
+      const result = await parseSheet(buffer, gate.ext, { rowLimit, colCap: officeCaps.colCap });
+      if (!result.success) {
+        return { success: false, error: result.error } satisfies ApiResponse;
+      }
+      const { success: _s, ...data } = result;
+      return { success: true, data } satisfies ApiResponse;
+    },
+  );
+
+  // Server-side EML (message/rfc822) parse (change: add-eml-preview).
+  // Parses with `mailparser`, sanitizes the HTML body with DOMPurify, and
+  // returns metadata-only JSON (headers, sanitized html, text, attachment
+  // metadata) — the raw ~15 MB base64 never reaches the client. Non-`.eml` →
+  // 400; over the size cap → 413 BEFORE read; malformed MIME → 400 (no crash).
+  // `allowRemote=1` preserves remote resource refs (the browser fetches them,
+  // never the server — no SSRF). Shares the `/api/file/raw` anti-traversal gate.
+  fastify.get<{ Querystring: { cwd?: string; path?: string; allowRemote?: string } }>(
+    "/api/file/eml",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager);
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return { success: false, error: gate.error } satisfies ApiResponse;
+      }
+      const ext = path.extname(request.query.path ?? "").toLowerCase();
+      if (ext !== ".eml") {
+        reply.code(400);
+        return { success: false, error: "renderer not supported for extension" } satisfies ApiResponse;
+      }
+      let stat;
+      try {
+        stat = await fs.stat(gate.resolved);
+      } catch {
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+      if (!stat.isFile()) {
+        reply.code(404);
+        return { success: false, error: "not a file" } satisfies ApiResponse;
+      }
+      if (stat.size > EML_SIZE_CAP) {
+        reply.code(413);
+        return { success: false, error: "file too large" } satisfies ApiResponse;
+      }
+      try {
+        const parsed = await loadParsedEml(gate.resolved, stat);
+        const data = await toParseResult(parsed, { allowRemote: request.query.allowRemote === "1" });
+        return { success: true, data } satisfies ApiResponse;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "failed to parse EML";
+        reply.code(400);
+        return { success: false, error: msg } satisfies ApiResponse;
+      }
+    },
+  );
+
+  // EML attachment streaming (change: add-eml-preview).
+  // Streams ONE decoded attachment part by 0-based `index`. ALWAYS sends
+  // `Content-Disposition: attachment` (never inline) + `X-Content-Type-Options:
+  // nosniff`, so an attacker-declared `text/html`/SVG part cannot execute in the
+  // dashboard origin — inline previews consume the bytes as a `blob:` URL, not by
+  // navigating to this route. Non-integer/negative index → 400; out-of-range →
+  // 404. Shares the `/api/file/raw` anti-traversal gate + the parse cache.
+  fastify.get<{ Querystring: { cwd?: string; path?: string; index?: string } }>(
+    "/api/file/eml-attachment",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager);
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return { success: false, error: gate.error } satisfies ApiResponse;
+      }
+      if (path.extname(request.query.path ?? "").toLowerCase() !== ".eml") {
+        reply.code(400);
+        return { success: false, error: "renderer not supported for extension" } satisfies ApiResponse;
+      }
+      const rawIndex = request.query.index ?? "";
+      const index = Number(rawIndex);
+      if (rawIndex === "" || !Number.isInteger(index) || index < 0) {
+        reply.code(400);
+        return { success: false, error: "index must be a non-negative integer" } satisfies ApiResponse;
+      }
+      let stat;
+      try {
+        stat = await fs.stat(gate.resolved);
+      } catch {
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+      if (stat.size > EML_SIZE_CAP) {
+        reply.code(413);
+        return { success: false, error: "file too large" } satisfies ApiResponse;
+      }
+      let parsed;
+      try {
+        parsed = await loadParsedEml(gate.resolved, stat);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "failed to parse EML";
+        reply.code(400);
+        return { success: false, error: msg } satisfies ApiResponse;
+      }
+      const att = parsed.attachments?.[index];
+      if (!att) {
+        reply.code(404);
+        return { success: false, error: "attachment index out of range" } satisfies ApiResponse;
+      }
+      // Header-safe filename: strip CR/LF/quote (anti-injection), fold non-ASCII
+      // to `_` for the legacy `filename=`, and carry the exact name via RFC 5987
+      // `filename*` so UTF-8 names (e.g. Hungarian) survive.
+      const rawName = (att.filename || `attachment-${index}`).replace(/["\r\n]/g, "");
+      const asciiName = rawName.replace(/[^\x20-\x7e]/g, "_");
+      reply.header("Content-Type", att.contentType || "application/octet-stream");
+      reply.header(
+        "Content-Disposition",
+        `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(rawName)}`,
+      );
+      reply.header("X-Content-Type-Options", "nosniff");
+      reply.header("Cache-Control", "private, max-age=60");
+      reply.header("Content-Length", String(att.content.length));
+      return reply.send(att.content);
     },
   );
 }

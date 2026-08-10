@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, act, fireEvent } from "@testing-library/react";
-import { ActionButton } from "../ActionButton.js";
+import { ActionButton } from "../primitives/ActionButton.js";
 
 describe("ActionButton", () => {
   it("renders pending label and disables while the action runs", async () => {

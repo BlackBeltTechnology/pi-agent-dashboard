@@ -5,7 +5,11 @@
 import { mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Chunk, FileState, GraphEdge, GraphNode, KbHit, KbStore, SearchOpts } from "./types.js";
+import type { Chunk, FileState, Filter, GraphEdge, GraphNode, KbHit, KbStore, SearchOpts, StorePropertyRow } from "./types.js";
+
+/** Bump when the frontmatter structural schema/behavior changes so an existing
+ *  DB force-reindexes once on open (design D6). */
+export const SCHEMA_VERSION = 2;
 
 const DDL = `
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
@@ -28,7 +32,48 @@ CREATE TABLE IF NOT EXISTS edges (
 );
 CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src);
 CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst);
+CREATE TABLE IF NOT EXISTS properties (
+  root TEXT, path TEXT, key TEXT,
+  value TEXT, value_num REAL, value_date TEXT, value_raw TEXT
+);
+-- The unique index doubles as the (root,path) lookup for delete-by-path (its
+-- leading columns), so no separate idx_props_path is needed — one fewer index to
+-- maintain on the hot per-file insert path.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_props_uniq ON properties(root, path, key, value);
+CREATE INDEX IF NOT EXISTS idx_props_kv ON properties(key, value);
+CREATE TABLE IF NOT EXISTS kb_meta (k TEXT PRIMARY KEY, v TEXT);
 `;
+
+/** Build correlated EXISTS predicates for facet filters. All values are bound as
+ *  parameters (never interpolated) — SQL-injection guard (design D7). */
+function buildFilterClauses(filters: Filter[] | undefined, outer: string): { clauses: string[]; args: unknown[] } {
+  const clauses: string[] = [];
+  const args: unknown[] = [];
+  const norm = (v: unknown) => String(v).toLowerCase().trim();
+  // Match column for equality by declared type: number→value_num, date→value_date,
+  // else the normalized string value (the parser may pre-coerce numeric scalars,
+  // so eq on a typed key must not compare the lossy string column).
+  const eqCol = (t?: string) => (t === "number" ? "value_num" : t === "date" ? "value_date" : "value");
+  const eqVal = (t: string | undefined, v: unknown) => (t === "number" ? Number(v) : t === "date" ? String(v) : norm(v));
+  for (const f of filters ?? []) {
+    if (f.op === "eq" && f.value != null) {
+      const col = eqCol(f.type);
+      clauses.push(`EXISTS (SELECT 1 FROM properties p WHERE p.root=${outer}.root AND p.path=${outer}.path AND p.key=? AND p.${col}=?)`);
+      args.push(f.key, eqVal(f.type, f.value));
+    } else if (f.op === "in" && f.values?.length) {
+      const col = eqCol(f.type);
+      const ph = f.values.map(() => "?").join(",");
+      clauses.push(`EXISTS (SELECT 1 FROM properties p WHERE p.root=${outer}.root AND p.path=${outer}.path AND p.key=? AND p.${col} IN (${ph}))`);
+      args.push(f.key, ...f.values.map((v) => eqVal(f.type, v)));
+    } else if ((f.op === "gte" || f.op === "lte") && f.value != null) {
+      const col = f.type === "number" ? "value_num" : f.type === "date" ? "value_date" : "value";
+      const cmp = f.op === "gte" ? ">=" : "<=";
+      clauses.push(`EXISTS (SELECT 1 FROM properties p WHERE p.root=${outer}.root AND p.path=${outer}.path AND p.key=? AND p.${col} IS NOT NULL AND p.${col} ${cmp} ?)`);
+      args.push(f.key, f.type === "number" ? Number(f.value) : f.type === "date" ? String(f.value) : norm(f.value));
+    }
+  }
+  return { clauses, args };
+}
 
 // FTS5 query builder: OR the alphanumeric terms (recall + BM25 ranks).
 function toMatch(q: string): string {
@@ -40,6 +85,14 @@ function toMatch(q: string): string {
 export class SqliteFtsStore implements KbStore {
   private db: DatabaseSync;
   readonly dbPath: string;
+  // Prepared-statement cache: re-preparing per row on a hot insert path (chunks
+  // + properties, many per file) is a measurable reindex cost. Cache by SQL.
+  private stmts = new Map<string, ReturnType<DatabaseSync["prepare"]>>();
+  private prep(sql: string) {
+    let s = this.stmts.get(sql);
+    if (!s) { s = this.db.prepare(sql); this.stmts.set(sql, s); }
+    return s;
+  }
   constructor(dbPath: string) {
     this.dbPath = dbPath;
     if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
@@ -107,17 +160,58 @@ export class SqliteFtsStore implements KbStore {
     return (this.db.prepare("SELECT path FROM files WHERE root=?").all(root) as any[]).map((r) => r.path);
   }
   deleteByPath(root: string, path: string) {
+    // chunks includes the file's synthetic `:meta` chunk (same path) — removed here.
     this.db.prepare("DELETE FROM chunks WHERE root=? AND path=?").run(root, path);
     // outbound edges originate from this file's nodes; prune nodes owned by path then dangling edges
     const owned = this.db.prepare("SELECT id FROM nodes WHERE path=?").all(path) as any[];
     for (const n of owned) this.db.prepare("DELETE FROM edges WHERE src=? OR dst=?").run(n.id, n.id);
     this.db.prepare("DELETE FROM nodes WHERE path=?").run(path);
+    this.db.prepare("DELETE FROM properties WHERE root=? AND path=?").run(root, path);
     this.db.prepare("DELETE FROM files WHERE root=? AND path=?").run(root, path);
   }
 
+  deletePropertiesByPath(root: string, path: string) {
+    this.db.prepare("DELETE FROM properties WHERE root=? AND path=?").run(root, path);
+  }
+  insertProperty(r: StorePropertyRow) {
+    // INSERT OR IGNORE + UNIQUE(root,path,key,value) de-dups within-file duplicates.
+    this.prep("INSERT OR IGNORE INTO properties(root,path,key,value,value_num,value_date,value_raw) VALUES(?,?,?,?,?,?,?)").run(r.root, r.path, r.key, r.value, r.valueNum, r.valueDate, r.valueRaw);
+  }
+  facets(keys: string[], opts: { root?: string; filters?: Filter[] } = {}): Record<string, Record<string, number>> {
+    const out: Record<string, Record<string, number>> = {};
+    if (!keys.length) return out;
+    const where: string[] = [`key IN (${keys.map(() => "?").join(",")})`];
+    const args: unknown[] = [...keys];
+    if (opts.root) { where.push("o.root = ?"); args.push(opts.root); }
+    const f = buildFilterClauses(opts.filters, "o");
+    where.push(...f.clauses);
+    args.push(...f.args);
+    // Distinct FILES, not rows: two sources with the same relative path are two
+    // files, so count distinct (root,path) — within-file duplicates already
+    // collapse via the UNIQUE(root,path,key,value) index.
+    const sql = `SELECT key, value, COUNT(DISTINCT root || char(31) || path) n FROM properties o WHERE ${where.join(" AND ")} GROUP BY key, value`;
+    for (const r of this.db.prepare(sql).all(...(args as any[])) as any[]) {
+      (out[r.key] ??= {})[r.value] = r.n as number;
+    }
+    return out;
+  }
+  getUserVersion(): number {
+    return (this.db.prepare("PRAGMA user_version").get() as any).user_version as number;
+  }
+  setUserVersion(v: number) {
+    // PRAGMA does not accept a bound parameter; v is an internal integer constant.
+    this.db.exec(`PRAGMA user_version = ${Math.trunc(v)}`);
+  }
+  getMeta(k: string): string | null {
+    const r = this.db.prepare("SELECT v FROM kb_meta WHERE k=?").get(k) as any;
+    return r ? (r.v as string) : null;
+  }
+  setMeta(k: string, v: string) {
+    this.db.prepare("INSERT INTO kb_meta(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(k, v);
+  }
+
   insertChunk(c: Chunk) {
-    this.db
-      .prepare("INSERT INTO chunks(root,path,chunk_id,doc_type,parent_chunk_id,level,body_hash,heading_path,heading,body) VALUES(?,?,?,?,?,?,?,?,?,?)")
+    this.prep("INSERT INTO chunks(root,path,chunk_id,doc_type,parent_chunk_id,level,body_hash,heading_path,heading,body) VALUES(?,?,?,?,?,?,?,?,?,?)")
       .run(c.root, c.path, c.chunkId, c.docType, c.parentChunkId, c.level, c.bodyHash, c.headingPath, c.heading, c.body);
   }
   addNode(n: GraphNode) {
@@ -153,6 +247,10 @@ export class SqliteFtsStore implements KbStore {
     const args: any[] = [m];
     if (opts.root) { where.push("root = ?"); args.push(opts.root); }
     if (opts.docType) { where.push("doc_type = ?"); args.push(opts.docType); }
+    // structured facet filters (opt-in; absent → no clause → identical query)
+    const ff = buildFilterClauses(opts.filters, "chunks");
+    where.push(...ff.clauses);
+    args.push(...ff.args);
     const sql = `SELECT root, path, chunk_id chunkId, doc_type docType, body_hash bodyHash,
       parent_chunk_id parentChunkId, heading_path headingPath, heading, body,
       bm25(chunks, 0,0,0,0,0,0,0, ${w.headingPath}, ${w.heading}, ${w.body}) score,
@@ -212,7 +310,10 @@ export class SqliteFtsStore implements KbStore {
         if (!pc) continue;
         const parent = this.getChunkById(h.root, pc);
         if (parent && parent.chunkId !== h.chunkId) {
-          h.parent = { root: parent.root, path: parent.path, headingPath: parent.headingPath, chunkId: parent.chunkId, docType: parent.docType, score: 0, snippet: parent.headingPath };
+          // Collapse to headingPath only: root/path/docType dup the child (same
+          // file by construction), score is a constant 0, snippet repeats
+          // headingPath, chunkId is not a tool refetch key. See change: slim-kb-search-output.
+          h.parent = { headingPath: parent.headingPath };
         }
       }
     }

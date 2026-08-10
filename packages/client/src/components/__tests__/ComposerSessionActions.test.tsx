@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { ComposerSessionActions } from "../ComposerSessionActions.js";
+import { ComposerSessionActions } from "../session/ComposerSessionActions.js";
 import type { DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());

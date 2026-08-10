@@ -1,9 +1,9 @@
-import React from "react";
+import { mdiAlertCircle, mdiCheckboxMarkedOutline, mdiCheckCircle, mdiCommentQuestion, mdiFormatListBulleted, mdiFormTextbox, mdiRadioboxMarked, mdiViewListOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiCommentQuestion, mdiCheckCircle, mdiAlertCircle, mdiFormTextbox, mdiCheckboxMarkedOutline, mdiFormatListBulleted, mdiRadioboxMarked, mdiViewListOutline } from "@mdi/js";
+import type React from "react";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import type { ToolRendererProps } from "./types.js";
-import { MarkdownContent } from "../MarkdownContent.js";
-import { t as i18nT } from "../../lib/i18n";
 
 const methodIcons: Record<string, string> = {
   confirm: mdiCheckboxMarkedOutline,
@@ -57,13 +57,13 @@ function batchAnswerNode(answer: unknown): React.ReactNode {
     const text = String(v ?? "");
     return (
       <span>
-        {text === "" ? <span className="text-[var(--text-tertiary)] italic">{i18nT("auto.no_text", undefined, "(no text)")}</span> : text}
+        {text === "" ? <span className="text-[var(--text-tertiary)] italic">{i18nT("common.noText", undefined, "(no text)")}</span> : text}
         {count > 0 && <span className="ml-1.5 text-[10px] text-[var(--text-tertiary)]">+{count} image{count > 1 ? "s" : ""}</span>}
       </span>
     );
   }
   const s = String(answer);
-  return s === "" ? <span className="text-[var(--text-tertiary)] italic">{i18nT("auto.left_blank", undefined, "(left blank)")}</span> : s;
+  return s === "" ? <span className="text-[var(--text-tertiary)] italic">{i18nT("common.leftBlank", undefined, "(left blank)")}</span> : s;
 }
 
 function AskUserBatchRenderer({ args, result, toolDetails }: ToolRendererProps) {
@@ -76,7 +76,7 @@ function AskUserBatchRenderer({ args, result, toolDetails }: ToolRendererProps) 
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
         <Icon path={mdiViewListOutline} size={0.5} className="text-blue-400 shrink-0" />
-        <span className="text-xs font-medium text-blue-400">{i18nT("auto.batch", undefined, "Batch")}</span>
+        <span className="text-xs font-medium text-blue-400">{i18nT("common.batch", undefined, "Batch")}</span>
         {cancelled ? (
           <span className="text-[11px] text-[var(--text-tertiary)]">cancelled</span>
         ) : (
@@ -103,7 +103,7 @@ function AskUserBatchRenderer({ args, result, toolDetails }: ToolRendererProps) 
               <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] truncate">{q.title}</div>
               <div className="text-xs text-[var(--text-primary)] mt-0.5">
                 {cancelled && !results ? (
-                  <span className="text-[var(--text-tertiary)] italic">{i18nT("auto.not_answered", undefined, "(not answered)")}</span>
+                  <span className="text-[var(--text-tertiary)] italic">{i18nT("common.notAnswered", undefined, "(not answered)")}</span>
                 ) : (
                   batchAnswerNode(results?.[i])
                 )}
@@ -209,7 +209,7 @@ export function AskUserToolRenderer(props: ToolRendererProps) {
       {isComplete && userResponse !== undefined && !(options && options.length > 0) && (
         <div className="flex items-center gap-1.5 text-xs">
           <Icon path={mdiCheckCircle} size={0.45} className="text-green-400 shrink-0" />
-          <span className="text-green-400 font-medium">{i18nT("auto.response", undefined, "Response:")}</span>
+          <span className="text-green-400 font-medium">{i18nT("common.response", undefined, "Response:")}</span>
           <span className="text-[var(--text-primary)]">{userResponse}</span>
         </div>
       )}

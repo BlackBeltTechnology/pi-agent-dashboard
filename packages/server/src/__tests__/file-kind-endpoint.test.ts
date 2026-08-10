@@ -81,6 +81,36 @@ describe("GET /api/file — file-kind extension", () => {
     expect(body.data).toMatchObject({ type: "file", kind: "markdown", content: "# Title\n" });
   });
 
+  // Content gate widened to `editable` for `.csv` (Monaco Edit over raw CSV),
+  // while binary spreadsheets / office / email stay content-less.
+  // See change: open-view-command-in-editor-pane (D4, test-plan E10–E12 / X7).
+
+  it("E10 returns content for an editable .csv (spreadsheet)", async () => {
+    await fsp.writeFile(path.join(tmp, "data.csv"), "a,b\n1,2\n");
+    const res = await app.inject({ method: "GET", url: fileUrl(tmp, "data.csv") });
+    const body = res.json();
+    expect(body.data).toMatchObject({ type: "file", kind: "spreadsheet", content: "a,b\n1,2\n" });
+  });
+
+  it("E11 / X7 OMITS content for a binary .xlsx (editable:false, no bytes-in-JSON leak)", async () => {
+    await fsp.writeFile(path.join(tmp, "book.xlsx"), Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x01]));
+    const res = await app.inject({ method: "GET", url: fileUrl(tmp, "book.xlsx") });
+    const body = res.json();
+    expect(body.data).toMatchObject({ type: "file", kind: "spreadsheet" });
+    expect(body.data.content).toBeUndefined();
+  });
+
+  it("E12 OMITS content for reclassified .docx and .eml", async () => {
+    await fsp.writeFile(path.join(tmp, "report.docx"), Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    await fsp.writeFile(path.join(tmp, "mail.eml"), "From: a@b\r\nSubject: hi\r\n\r\nbody\r\n");
+    for (const [rel, kind] of [["report.docx", "docx"], ["mail.eml", "email"]] as const) {
+      const res = await app.inject({ method: "GET", url: fileUrl(tmp, rel) });
+      const body = res.json();
+      expect(body.data, rel).toMatchObject({ type: "file", kind });
+      expect(body.data.content, rel).toBeUndefined();
+    }
+  });
+
   it("still lists directories", async () => {
     await fsp.mkdir(path.join(tmp, "sub"));
     await fsp.writeFile(path.join(tmp, "a.txt"), "x");

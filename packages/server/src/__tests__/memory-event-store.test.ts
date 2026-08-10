@@ -1,9 +1,14 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  capString,
   createMemoryEventStore,
+  DEFAULT_MAX_EVENT_DATA_SIZE,
   exceedsSerializedSize,
-} from "../memory-event-store.js";
+  measureBytes,
+  reduceSubagentEvent,
+  shrinkEntryToBudget,
+} from "../persistence/memory-event-store.js";
 
 function makeEvent(type: string = "test"): DashboardEvent {
   return { eventType: type, timestamp: Date.now(), data: {} };
@@ -185,7 +190,9 @@ describe("memory-event-store", () => {
       const stored = store.getEvent("s1", 1);
       const val = (stored as any).data.payload.data as string;
       expect(val.length).toBeLessThan(500);
-      expect(val).toContain("truncated");
+      // capString is now head+tail: its generic marker names the hidden count.
+      // See change: head-tail-truncate-subagent-event-timeline (D2).
+      expect(val).toContain("hidden");
     });
 
     it("skill invocation envelope survives string truncation with closing tag intact", () => {
@@ -215,15 +222,17 @@ describe("memory-event-store", () => {
       expect(content.length).toBeLessThan(10_000);
     });
 
-    it("user message with a large pasted image survives the per-event size ceiling", () => {
-      // Regression: the per-event total-size ceiling (DEFAULT_MAX_EVENT_DATA_SIZE)
-      // counted preserved base64 image bytes, so ANY user message with a pasted
-      // image (> 20KB base64) was replaced by the {__truncated} placeholder and
-      // vanished from chat. Image blocks are deliberately preserved by the
-      // string pass; the size walk must not count their bytes either.
-      // See change: bound-subagent-event-serialization (regression fix).
+    it("large pasted image over the ceiling is now byte-detected and placeholdered", () => {
+      // Behavior REVERSAL (intended): the size walk used to exempt base64 image
+      // `data` (counted 8 bytes), letting an image-bearing event escape the
+      // ceiling and then OOM the broadcast JSON.stringify. It now counts the
+      // image at its REAL byte size, so an over-ceiling image-bearing event
+      // correctly trips the ceiling and gets the {__truncated} placeholder.
+      // See change: head-tail-truncate-subagent-event-timeline (D8).
       const store = createMemoryEventStore(neverPinned); // production defaults
-      const bigImage = "A".repeat(100_000); // realistic pasted screenshot
+      // Sized off the constant so the case keeps tripping the ceiling when the
+      // ceiling moves. See change: fit-attachments-for-display (task 5.4).
+      const bigImage = "A".repeat(DEFAULT_MAX_EVENT_DATA_SIZE * 2);
       const event: DashboardEvent = {
         eventType: "message_start",
         timestamp: Date.now(),
@@ -239,9 +248,11 @@ describe("memory-event-store", () => {
       };
       store.insertEvent("s1", event);
       const stored = store.getEvent("s1", 1) as any;
-      expect(stored.data.__truncated).toBeUndefined();
-      expect(stored.data.message.role).toBe("user");
-      expect(stored.data.message.content[1].data).toBe(bigImage);
+      expect(stored.data.__truncated).toBe(true);
+      expect(stored.data.eventType).toBe("message_start");
+      expect(Buffer.byteLength(JSON.stringify(stored.data))).toBeLessThanOrEqual(
+        DEFAULT_MAX_EVENT_DATA_SIZE,
+      );
     });
 
     it("truncates other fields alongside preserved image data", () => {
@@ -379,6 +390,28 @@ describe("memory-event-store", () => {
       expect(events[0].event.eventType).toBe("message_start");
       expect(events[1].seq).toBe(2);
       expect(events[1].event.eventType).toBe("message_end");
+    });
+
+    // F12 — inline terminal lifecycle events are essential and survive trim as
+    // a pair, so the reducer replays the card at its original stream position.
+    // See change: preserve-inline-terminal-transcript (D3b).
+    it("F12: an old inline open/close pair survives a flood in original order", () => {
+      const store = createMemoryEventStore(neverPinned, 100, 5);
+      store.insertEvent("s1", makeEvent("inline_terminal_open")); // seq 1
+      store.insertEvent("s1", makeEvent("inline_terminal_close")); // seq 2
+      for (let i = 0; i < 100; i++) {
+        store.insertEvent("s1", makeEvent("tool_execution_start"));
+      }
+      const events = store.getEvents("s1", 1);
+      const types = events.map((e) => e.event.eventType);
+      expect(types).toContain("inline_terminal_open");
+      expect(types).toContain("inline_terminal_close");
+      // Neither dropped, and open precedes close (original position preserved).
+      const openSeq = events.find((e) => e.event.eventType === "inline_terminal_open")!.seq;
+      const closeSeq = events.find((e) => e.event.eventType === "inline_terminal_close")!.seq;
+      expect(openSeq).toBe(1);
+      expect(closeSeq).toBe(2);
+      expect(openSeq).toBeLessThan(closeSeq);
     });
   });
 
@@ -573,6 +606,360 @@ describe("memory-event-store", () => {
       // s5 evicts another.
       store.insertEvent("s5", makeEvent());
       expect(store.getTrimStats().evictedSessions).toBe(2);
+    });
+  });
+
+  // See change: head-tail-truncate-subagent-event-timeline.
+  describe("subagent-timeline head+tail reduction", () => {
+    // Pinned explicitly rather than mirroring DEFAULT_MAX_EVENT_DATA_SIZE: these
+    // tests characterise the REDUCTION mechanism, so the ceiling must be small
+    // enough that the fixtures trip it. Every store below is built with this
+    // exact ceiling. See change: fit-attachments-for-display (task 5.4).
+    const CEIL = 20_000;
+
+    // Build a subagent `tool_execution_update` event: toolName Agent, entries at
+    // partialResult.details.entries, streaming content at partialResult.content.
+    function subagentEvent(opts: {
+      entries: unknown[];
+      prompt?: string;
+      description?: string;
+      contentText?: string;
+      contentImage?: string;
+      agentId?: string;
+    }): DashboardEvent {
+      return {
+        eventType: "tool_execution_update",
+        timestamp: Date.now(),
+        data: {
+          toolCallId: "tc1",
+          toolName: "Agent",
+          args: { prompt: opts.prompt ?? "do the task" },
+          partialResult: {
+            content: [
+              ...(opts.contentText != null ? [{ type: "text", text: opts.contentText }] : []),
+              ...(opts.contentImage != null
+                ? [{ type: "image", data: opts.contentImage, mimeType: "image/png" }]
+                : []),
+            ],
+            details: {
+              agentId: opts.agentId ?? "ag1",
+              description: opts.description ?? "explore",
+              entries: opts.entries,
+            },
+          },
+        },
+      };
+    }
+
+    function toolEntry(i: number, outputSize: number): unknown {
+      return {
+        kind: "tool",
+        toolName: "Read",
+        input: { file_path: `/src/file-${i}.ts` },
+        output: "X".repeat(outputSize),
+        ts: 1000 + i,
+      };
+    }
+
+    const bytesOf = (data: unknown) => Buffer.byteLength(JSON.stringify(data));
+
+    // --- capString (E1, E2, E3) ---
+    it("E1: capString keeps head + tail + a hidden marker", () => {
+      const s = "H".repeat(500) + "M".repeat(600) + "T".repeat(500); // len maxSize+... 
+      const maxSize = 1000;
+      const long = "H".repeat(maxSize + 500);
+      const out = capString(long, maxSize);
+      expect(out).toContain(long.slice(0, 100)); // head present
+      expect(out).toContain(long.slice(long.length - 100)); // tail present
+      expect(out).toMatch(/hidden/);
+      expect(out.length).toBeLessThanOrEqual(maxSize + 40); // ~marker length
+      void s;
+    });
+
+    it("E2: capString is a no-op at or under the cap", () => {
+      const s = "A".repeat(1000);
+      expect(capString(s, 1000)).toBe(s);
+      expect(capString(s, 2000)).toBe(s);
+    });
+
+    it("E3: capString preserves a skill-invocation envelope", () => {
+      const body = "body ".repeat(5000);
+      const env = `<skill name="ci" location="/u/.pi/SKILL.md">\n${body}\n</skill>\n\nargs here`;
+      const out = capString(env, 1000);
+      expect(out).toMatch(/^<skill name="ci" location="[^"]+">\n/);
+      expect(out).toMatch(/\n<\/skill>\n\nargs here$/);
+      expect(out.length).toBeLessThan(env.length);
+    });
+
+    // --- reduction via insertEvent (E4..E9, E12..E15) ---
+    it("E4: keeps first + last entries + a text sentinel, not {__truncated}", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      const entries = Array.from({ length: 30 }, (_, i) => toolEntry(i, 1500));
+      store.insertEvent("s1", subagentEvent({ entries }));
+      const stored = store.getEvent("s1", 1) as any;
+      expect(stored.data.__truncated).toBeUndefined();
+      const kept = stored.data.partialResult.details.entries as any[];
+      expect(kept[0].input.file_path).toBe("/src/file-0.ts"); // head
+      const sentinel = kept.find((e) => e.kind === "text" && /steps hidden/.test(e.text));
+      expect(sentinel).toBeTruthy();
+      const last = kept[kept.length - 1];
+      expect(last.input.file_path).toBe("/src/file-29.ts"); // final entry retained
+      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
+    });
+
+    it("E5: a large prompt does not starve the timeline", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      const entries = Array.from({ length: 10 }, (_, i) => toolEntry(i, 1500));
+      store.insertEvent("s1", subagentEvent({ entries, prompt: "P".repeat(16_000) }));
+      const stored = store.getEvent("s1", 1) as any;
+      expect(stored.data.__truncated).toBeUndefined();
+      expect(stored.data.args.prompt.length).toBeLessThanOrEqual(2_000 + 40);
+      const kept = stored.data.partialResult.details.entries as any[];
+      expect(kept[0].input.file_path).toBe("/src/file-0.ts");
+      expect(kept[kept.length - 1].input.file_path).toBe("/src/file-9.ts");
+      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
+    });
+
+    it("E6: large content text does not starve the timeline", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      const entries = Array.from({ length: 10 }, (_, i) => toolEntry(i, 1500));
+      store.insertEvent("s1", subagentEvent({ entries, contentText: "C".repeat(16_000) }));
+      const stored = store.getEvent("s1", 1) as any;
+      expect(stored.data.__truncated).toBeUndefined();
+      expect(stored.data.partialResult.content[0].text.length).toBeLessThanOrEqual(1_500 + 40);
+      const kept = stored.data.partialResult.details.entries as any[];
+      expect(kept[kept.length - 1].input.file_path).toBe("/src/file-9.ts");
+      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
+    });
+
+    it("E7: byte-accurate bound holds under escape/CJK-heavy entries", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      // "\" and CJK expand under JSON/UTF-8: code-unit count < ceiling, bytes >>.
+      const nasty = '"\\\u4e2d\u6587'.repeat(3_000); // ~12k code units, far more bytes
+      const entries = Array.from({ length: 12 }, (_, i) => ({
+        kind: "tool",
+        toolName: "Read",
+        input: { q: nasty },
+        output: nasty,
+        ts: 1000 + i,
+      }));
+      store.insertEvent("s1", subagentEvent({ entries }));
+      const stored = store.getEvent("s1", 1) as any;
+      expect(Buffer.byteLength(JSON.stringify(stored.data))).toBeLessThanOrEqual(CEIL);
+    });
+
+    it("E8: shape-only match (no toolName/agentId) is NOT reduced", () => {
+      // Production config disables the per-field string pass (maxStringFieldSize
+      // = 0), so the ceiling is the bound. A shape-only array must NOT get the
+      // subagent head+tail reducer — it gets the blunt {__truncated} placeholder.
+      const store = createMemoryEventStore(neverPinned, 100, 20000, 0, 20000);
+      const event: DashboardEvent = {
+        eventType: "some_other_event",
+        timestamp: Date.now(),
+        data: {
+          details: { entries: Array.from({ length: 30 }, (_, i) => toolEntry(i, 1500)) },
+        },
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1) as any;
+      expect(stored.data.__truncated).toBe(true);
+      expect(Array.isArray(stored.data.details)).toBe(false);
+    });
+
+    it("E9: a >20-entry timeline is not clobbered to a string (maxStringFieldSize>0)", () => {
+      // maxStringFieldSize = 4000 (default) so the generic array clobber WOULD
+      // fire for a >20 array on the generic path.
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      const entries = Array.from({ length: 25 }, (_, i) => toolEntry(i, 1500));
+      store.insertEvent("s1", subagentEvent({ entries }));
+      const stored = store.getEvent("s1", 1) as any;
+      expect(Array.isArray(stored.data.partialResult.details.entries)).toBe(true);
+      expect(stored.data.partialResult.details.entries).not.toBe("[array truncated]");
+    });
+
+    it("E10: shrinkEntryToBudget bounds a many-leaf object entry (not leafCount×cap)", () => {
+      // leafCount×cap would be 10×2000 = 20000; the entry-level bound holds it
+      // far under B while the per-leaf floor (256) + markers set the achievable
+      // minimum for 11 leaves at ~2.9 KB, so B=4000 is a real entry-level bound.
+      const B = 4_000;
+      const input: Record<string, string> = {};
+      for (let i = 0; i < 10; i++) input[`leaf${i}`] = "L".repeat(2_000);
+      const entry = {
+        kind: "tool",
+        toolName: "Big",
+        input,
+        output: "O".repeat(5_000),
+        ts: 1,
+      };
+      shrinkEntryToBudget(entry, B);
+      expect(Buffer.byteLength(JSON.stringify(entry))).toBeLessThanOrEqual(B);
+    });
+
+    it("E11: image-bearing NON-subagent event is byte-detected → {__truncated}", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      const event: DashboardEvent = {
+        eventType: "message_start",
+        timestamp: Date.now(),
+        data: {
+          message: {
+            role: "user",
+            content: [{ type: "image", data: "A".repeat(2_000_000), mimeType: "image/png" }],
+          },
+        },
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1) as any;
+      expect(stored.data.__truncated).toBe(true);
+      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
+    });
+
+    it("E12: an under-ceiling subagent event is stored unchanged", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      const entries = Array.from({ length: 3 }, (_, i) => toolEntry(i, 500)); // ~small
+      const event = subagentEvent({ entries });
+      expect(exceedsSerializedSize(event.data, CEIL)).toBe(false);
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1) as any;
+      const kept = stored.data.partialResult.details.entries as any[];
+      expect(kept.length).toBe(3);
+      expect(kept.some((e) => e.kind === "text" && /hidden/.test(e.text))).toBe(false);
+      expect(stored.data.args.prompt).toBe("do the task");
+    });
+
+    it("E13: non-subagent over-ceiling event → {__truncated}", () => {
+      // Production config: string pass off (maxStringFieldSize = 0), so the
+      // 60 KB blob is bounded by the ceiling → placeholder (existing behavior).
+      const store = createMemoryEventStore(neverPinned, 100, 20000, 0, 20000);
+      const event: DashboardEvent = {
+        eventType: "subagent_end",
+        timestamp: Date.now(),
+        data: { blob: "Z".repeat(60_000) },
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1) as any;
+      expect(stored.data.__truncated).toBe(true);
+      expect(stored.data.reason).toBeTruthy();
+      expect(stored.data.eventType).toBe("subagent_end");
+    });
+
+    it("E14: pathological single huge final entry stays bounded", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      // Many entries so the middle elides; final entry alone is 40 KB.
+      const entries = Array.from({ length: 25 }, (_, i) => toolEntry(i, 1000));
+      entries[entries.length - 1] = toolEntry(24, 40_000);
+      store.insertEvent("s1", subagentEvent({ entries }));
+      const stored = store.getEvent("s1", 1) as any;
+      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
+    });
+
+    it("E15: reducer returns a NEW event and does not mutate the input", () => {
+      const entries = Array.from({ length: 30 }, (_, i) => toolEntry(i, 1500));
+      const event = subagentEvent({ entries, prompt: "P".repeat(16_000) });
+      const origPrompt = (event.data as any).args.prompt;
+      const origEntriesRef = (event.data as any).partialResult.details.entries;
+      const origLen = origEntriesRef.length;
+      const reduced = reduceSubagentEvent(event, CEIL);
+      expect(reduced).not.toBe(event);
+      expect((event.data as any).args.prompt).toBe(origPrompt); // unchanged
+      expect((event.data as any).partialResult.details.entries).toBe(origEntriesRef);
+      expect(origEntriesRef.length).toBe(origLen);
+      expect((origEntriesRef[0] as any).output.length).toBe(1500); // leaf untouched
+    });
+
+    // --- performance (P1, P2) ---
+    it("P1: size measurement is bounded and never full-stringifies oversized data", () => {
+      const spy = vi.spyOn(JSON, "stringify");
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      const event: DashboardEvent = {
+        eventType: "message_start",
+        timestamp: Date.now(),
+        data: { huge: "S".repeat(5_000_000) },
+      };
+      const start = performance.now();
+      store.insertEvent("s1", event);
+      const elapsed = performance.now() - start;
+      const stored = store.getEvent("s1", 1) as any;
+      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
+      // No stringify call was made on the 5MB string by the store.
+      for (const call of spy.mock.calls) {
+        const arg = call[0];
+        const asStr = typeof arg === "string" ? arg : "";
+        expect(asStr.length).toBeLessThan(1_000_000);
+      }
+      expect(elapsed).toBeLessThan(50);
+      spy.mockRestore();
+    });
+
+    it("P2: the shrink loop terminates on a pathological entry", () => {
+      const input: Record<string, unknown> = { big: "S".repeat(5_000_000) };
+      for (let i = 0; i < 500; i++) input[`n${i}`] = i;
+      const entries = [
+        toolEntry(0, 500),
+        { kind: "tool", toolName: "Big", input, output: "", ts: 2 },
+      ];
+      const event = subagentEvent({ entries });
+      const reduced = reduceSubagentEvent(event, CEIL);
+      expect(Buffer.byteLength(JSON.stringify(reduced.data))).toBeLessThanOrEqual(CEIL);
+    });
+
+    // --- error-handling (X1, X2) ---
+    it("X1: a 5MB base64 image in a subagent event does not OOM", () => {
+      const spy = vi.spyOn(JSON, "stringify");
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      const entries = Array.from({ length: 6 }, (_, i) => toolEntry(i, 800));
+      store.insertEvent(
+        "s1",
+        subagentEvent({ entries, contentImage: "A".repeat(5_000_000) }),
+      );
+      const stored = store.getEvent("s1", 1) as any;
+      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
+      for (const call of spy.mock.calls) {
+        const arg = call[0];
+        const asStr = typeof arg === "string" ? arg : "";
+        expect(asStr.length).toBeLessThan(1_000_000);
+      }
+      spy.mockRestore();
+    });
+
+    it("X2: an unreducible empty-entries subagent event falls back to {__truncated}", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      // Empty entries + an oversized envelope the caps cannot shrink below ceiling:
+      // a huge prompt beyond PROMPT_CAP still caps, so instead give a huge
+      // non-capped envelope field (extra) that stays over ceiling.
+      const event: DashboardEvent = {
+        eventType: "tool_execution_update",
+        timestamp: Date.now(),
+        data: {
+          toolName: "Agent",
+          extra: "Z".repeat(60_000), // not a capped field → envelope stays huge
+          partialResult: { details: { agentId: "ag1", entries: [] } },
+        },
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1) as any;
+      expect(stored.data.__truncated).toBe(true);
+      expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
+    });
+
+    it("measureBytes never undercounts and stays bounded", () => {
+      // The walk is a SAFE overcount (one trailing-comma byte per element), never
+      // an undercount — the bound can never let an over-ceiling event through.
+      const actual = Buffer.byteLength(JSON.stringify({ a: "hi" }));
+      const m = measureBytes({ a: "hi" }, 1_000);
+      expect(m).toBeGreaterThanOrEqual(actual);
+      expect(m).toBeLessThanOrEqual(actual + 4);
+      // A 5 MB field short-circuits to the cap+1 over-ceiling sentinel.
+      expect(measureBytes({ big: "A".repeat(5_000_000) }, 1_000)).toBe(1_001);
+      // Lone surrogates escape to \uXXXX (6 bytes) — must never be undercounted.
+      for (const s of ["\ud800".repeat(50), "\udc00".repeat(50), `${"\ud800".repeat(50)}x`]) {
+        const m = measureBytes({ s }, 100_000);
+        expect(m).toBeGreaterThanOrEqual(Buffer.byteLength(JSON.stringify({ s })));
+      }
+      // A valid surrogate pair is still one 4-byte sequence, not two escapes.
+      const pair = { s: "\ud800\udc00".repeat(50) };
+      expect(measureBytes(pair, 100_000)).toBeGreaterThanOrEqual(
+        Buffer.byteLength(JSON.stringify(pair)),
+      );
     });
   });
 });

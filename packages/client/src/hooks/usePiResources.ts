@@ -1,5 +1,6 @@
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { t } from "../lib/i18n/i18n.js";
 
 const POLL_INTERVAL = 30_000;
 
@@ -32,11 +33,11 @@ export function usePiResources(cwd: string | null, opts?: { globalOnly?: boolean
         setData(body.data);
         setError(null);
       } else {
-        setError(body.error ?? "Failed to fetch pi resources");
+        setError(body.error ?? t("piResources.fetchFailed", undefined, "Failed to fetch pi resources"));
       }
     } catch (err: any) {
       if (cwdRef.current !== targetCwd) return;
-      setError(err.message ?? "Network error");
+      setError(err.message ?? t("common.networkError", undefined, "Network error"));
     }
   }, []);
 

@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-plugin-skill",
-  "version": "0.5.4",
+  "version": "0.7.0",
   "description": "Pi skill that scaffolds new dashboard plugins or augments existing pi-extension projects with dashboard plugin contributions",
   "type": "module",
   "repository": {
@@ -38,15 +38,19 @@
   },
   "files": [
     "src/",
-    ".pi/skills/"
+    ".pi/skills/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "scripts": {
     "test": "vitest run"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0"
   },
   "devDependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
     "vitest": "^2.1.8"
   }
 }

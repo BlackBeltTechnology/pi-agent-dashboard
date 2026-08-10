@@ -1,8 +1,8 @@
 import React from "react";
-import type { ToolRendererProps } from "./types.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { LinkifiedText } from "./LinkifiedText.js";
 import { ToolResultImages } from "./ToolResultImages.js";
-import { t as i18nT } from "../../lib/i18n";
+import type { ToolRendererProps } from "./types.js";
 
 // Strip ANSI escape sequences (CSI / SGR codes like \x1b[31m) so the
 // linkifier sees clean text. See change: linkify-tool-output. The previous
@@ -30,7 +30,7 @@ export function BashToolRenderer({ args, status, result, images, context }: Tool
       </div>
 
       {status === "running" && !result && !hasImages && (
-        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("auto.running", undefined, "Running…")}</div>
+        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("status.running", undefined, "Running…")}</div>
       )}
 
       {hasImages && <ToolResultImages images={images!} />}

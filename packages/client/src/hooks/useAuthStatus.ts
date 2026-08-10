@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getApiBase } from "../lib/api-context.js";
+import { getApiBase } from "../lib/api/api-context.js";
 
 export interface AuthStatus {
   authenticated: boolean;

@@ -13,9 +13,11 @@
  *
  * See change: route-flow-asks-to-upper-slot.
  */
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
+
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { mdiClose, mdiHelpCircleOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
 
 export interface FlowQuestionCardProps {
   sessionId: string;
@@ -43,6 +45,7 @@ export function FlowQuestionCard({
   onSubmit,
   onDismiss,
 }: FlowQuestionCardProps) {
+  const t = useT();
   return (
     <div
       data-testid="flow-question-card"
@@ -61,7 +64,7 @@ export function FlowQuestionCard({
         <button
           onClick={onDismiss}
           className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] flex-shrink-0"
-          title="Dismiss"
+          title={t("dismiss", undefined, "Dismiss")}
         >
           <Icon path={mdiClose} size={0.6} />
         </button>

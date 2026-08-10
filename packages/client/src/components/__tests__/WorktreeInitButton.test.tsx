@@ -13,18 +13,18 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { WorktreeInitHook } from "../../lib/git-api.js";
-import { initStore } from "../../lib/worktree-init-store.js";
-import { dispatchInitEvent, __resetInitBusForTests } from "../../lib/worktree-init-bus.js";
-import { WorktreeInitButton } from "../WorktreeInitButton.js";
+import type { WorktreeInitHook } from "../../lib/git/git-api.js";
+import { __resetInitBusForTests, dispatchInitEvent } from "../../lib/git/worktree-init-bus.js";
+import { initStore } from "../../lib/git/worktree-init-store.js";
+import { WorktreeInitButton } from "../worktree/WorktreeInitButton.js";
 
 const { fetchWorktreeInitStatus, runWorktreeInit } = vi.hoisted(() => ({
   fetchWorktreeInitStatus: vi.fn(),
   runWorktreeInit: vi.fn(),
 }));
 
-vi.mock("../../lib/git-api.js", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/git-api.js")>("../../lib/git-api.js");
+vi.mock("../../lib/git/git-api.js", async () => {
+  const actual = await vi.importActual<typeof import("../../lib/git/git-api.js")>("../../lib/git/git-api.js");
   return { ...actual, fetchWorktreeInitStatus, runWorktreeInit };
 });
 
@@ -67,7 +67,7 @@ describe("WorktreeInitButton", () => {
     expect(screen.queryByTestId("worktree-init-btn")).toBeNull();
   });
 
-  it("untrusted hook → trust dialog gates the run, then re-runs with confirmHash", async () => {
+  it("untrusted hook → two-action trust dialog; 'Always trust' re-runs with confirmHash + project scope", async () => {
     fetchWorktreeInitStatus.mockResolvedValue({ hasHook: true, needsInit: true, trusted: false });
     runWorktreeInit
       .mockResolvedValueOnce({ ok: false, untrusted: true, hook, hash: "abc123" })
@@ -76,15 +76,33 @@ describe("WorktreeInitButton", () => {
     await waitFor(() => screen.getByTestId("worktree-init-btn"));
 
     fireEvent.click(screen.getByTestId("worktree-init-btn"));
-    // Trust dialog names the gate.
+    // Trust dialog names the gate and offers both affirmative actions.
     await waitFor(() => screen.getByText(/test ! -d node_modules/));
+    expect(screen.getByTestId("worktree-init-trust-session")).toBeTruthy();
+    expect(screen.getByTestId("worktree-init-trust-always")).toBeTruthy();
     expect(runWorktreeInit).toHaveBeenCalledTimes(1);
     expect(runWorktreeInit.mock.calls[0][0].confirmHash).toBeUndefined();
 
-    // Confirm → re-run carries confirmHash.
-    fireEvent.click(screen.getByText("Run"));
+    // "Always trust" → re-run carries confirmHash + scope "project".
+    fireEvent.click(screen.getByTestId("worktree-init-trust-always"));
     await waitFor(() => expect(runWorktreeInit).toHaveBeenCalledTimes(2));
     expect(runWorktreeInit.mock.calls[1][0].confirmHash).toBe("abc123");
+    expect(runWorktreeInit.mock.calls[1][0].scope).toBe("project");
+  });
+
+  it("untrusted hook → 'Trust until dashboard restarts' re-runs with confirmHash + session scope", async () => {
+    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: true, needsInit: true, trusted: false });
+    runWorktreeInit
+      .mockResolvedValueOnce({ ok: false, untrusted: true, hook, hash: "abc123" })
+      .mockResolvedValueOnce({ ok: true, ran: true, durationMs: 10 });
+    render(<WorktreeInitButton cwd="/repo" />);
+    await waitFor(() => screen.getByTestId("worktree-init-btn"));
+    fireEvent.click(screen.getByTestId("worktree-init-btn"));
+    await waitFor(() => screen.getByTestId("worktree-init-trust-session"));
+    fireEvent.click(screen.getByTestId("worktree-init-trust-session"));
+    await waitFor(() => expect(runWorktreeInit).toHaveBeenCalledTimes(2));
+    expect(runWorktreeInit.mock.calls[1][0].confirmHash).toBe("abc123");
+    expect(runWorktreeInit.mock.calls[1][0].scope).toBe("session");
   });
 
   it("renders a failure card when the run fails", async () => {

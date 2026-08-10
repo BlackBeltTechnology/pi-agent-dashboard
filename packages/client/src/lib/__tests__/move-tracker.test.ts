@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { moveTracker } from "../move-tracker.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { moveTracker } from "../nav/move-tracker.js";
 
 function dispatchPackageEvent(detail: any) {
 	window.dispatchEvent(new CustomEvent("pi-package-event", { detail }));
@@ -123,6 +123,70 @@ describe("moveTracker", () => {
 		});
 		moveTracker.clear("m5");
 		expect(moveTracker.get("m5")).toBeUndefined();
+	});
+
+	// ── reset-to-npm reuses the move-tracker (kind: "reset") ────────────────
+	// See change: reset-override-to-npm.
+
+	it("reset register() shows reset-specific running copy", () => {
+		moveTracker.register({
+			moveId: "r1",
+			source: "/home/dev/pi-web-access",
+			fromScope: "global",
+			toScope: "global",
+			kind: "reset",
+		});
+		expect(moveTracker.get("r1")?.message).toBe("Resetting\u2026");
+	});
+
+	it("reset complete success shows reset-specific copy + auto-clears", () => {
+		vi.useFakeTimers();
+		moveTracker.register({
+			moveId: "r2",
+			source: "/home/dev/pi-web-access",
+			fromScope: "global",
+			toScope: "global",
+			kind: "reset",
+		});
+		dispatchPackageEvent({
+			type: "package_operation_complete",
+			operationId: "op1",
+			moveId: "r2",
+			action: "reset",
+			source: "/home/dev/pi-web-access",
+			success: true,
+		});
+		const state = moveTracker.get("r2");
+		expect(state?.phase).toBe("success");
+		expect(state?.message).toBe("Reset complete");
+		vi.advanceTimersByTime(3000);
+		expect(moveTracker.get("r2")).toBeUndefined();
+	});
+
+	it("reset partial-success (install OK, local remove failed) stays sticky", () => {
+		vi.useFakeTimers();
+		moveTracker.register({
+			moveId: "r3",
+			source: "/home/dev/pi-web-access",
+			fromScope: "global",
+			toScope: "global",
+			kind: "reset",
+		});
+		dispatchPackageEvent({
+			type: "package_operation_complete",
+			operationId: "op1",
+			moveId: "r3",
+			action: "reset",
+			source: "/home/dev/pi-web-access",
+			success: true,
+			partialSuccess: { installed: true, removed: false, removeError: "EPERM" },
+		});
+		const state = moveTracker.get("r3");
+		expect(state?.phase).toBe("partial-success");
+		expect(state?.kind).toBe("reset");
+		expect(state?.message).toBe("EPERM");
+		vi.advanceTimersByTime(10_000);
+		expect(moveTracker.get("r3")?.phase).toBe("partial-success");
 	});
 
 	it("subscribe() notifies on every state change", () => {

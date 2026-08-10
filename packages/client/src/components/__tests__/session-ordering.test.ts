@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupSessionsByDirectory } from "../SessionList.js";
+import { groupSessionsByDirectory } from "../session/SessionList.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeSession(id: string, cwd: string, startedAt: number): DashboardSession {

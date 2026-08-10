@@ -16,7 +16,7 @@ import {
   GitCommitError,
   getChangedFiles,
   getGitStatus,
-} from "../git-operations.js";
+} from "../git-worktree/git-operations.js";
 
 function git(cmd: string, cwd: string) {
   execSync(`git ${cmd}`, { cwd, stdio: "pipe" });

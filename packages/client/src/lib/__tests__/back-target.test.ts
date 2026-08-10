@@ -18,7 +18,7 @@ import {
   isModalRoute,
   registerPluginRouteDescriptors,
   routeDepth,
-} from "../back-target.js";
+} from "../nav/back-target.js";
 
 describe("computeBackTarget", () => {
   it("returns null at depth 0 (cards)", () => {

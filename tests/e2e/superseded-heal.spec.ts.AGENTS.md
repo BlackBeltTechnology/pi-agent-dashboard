@@ -1,0 +1,3 @@
+# superseded-heal.spec.ts — index
+
+Playwright spec (task 7.1, change: fix-stuck-tool-card-superseded-heal). Drives `[[faux:stuck-tool-superseded]]` (bash call → later text inference). `routeWebSocket` drops the tool's `tool_execution_end` frame (server→browser drop); `page.route` 404s `**/api/sessions/*/tool-result/*` (store eviction). Asserts the stuck single-member burst (`tool-burst-group` `data-running=true`) flips to `data-running=false` (~45s heal cadence), then re-expands via `tool-burst-header` and asserts the `tool-superseded-badge`. `test.setTimeout(150s)`. Requires the Docker harness.

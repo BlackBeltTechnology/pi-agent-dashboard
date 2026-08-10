@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tokenize, type Token } from "../linkify-tool-output.js";
+import { tokenize, type Token } from "../chat/linkify-tool-output.js";
 
 /**
  * Adversarial-ish corpus of prose strings drawn from common bash/grep/tsc/lint

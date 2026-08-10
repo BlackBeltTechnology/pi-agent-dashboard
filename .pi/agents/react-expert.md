@@ -1,8 +1,7 @@
 ---
 description: React development expert with deep understanding of component architecture, hooks, state management, and performance optimization. Use PROACTIVELY for React refactoring, performance tuning, or complex state handling.
-display_name: React-Expert
-tools: read, bash, grep, find, ls, edit, write
-prompt_mode: replace
+model: "@coding"
+tools: [read, bash, edit, write, kb_search, kb_neighbors, kb_get, memory_search, session_search, memory, skill_manage, ask_user]
 ---
 
 ## Focus Areas

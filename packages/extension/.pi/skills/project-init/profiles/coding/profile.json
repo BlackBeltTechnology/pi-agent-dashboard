@@ -1,5 +1,5 @@
 {
   "description": "Coding repo — TDD, simplicity, surgical changes. OpenSpec enabled; stack-detected worktree-init (npm/pnpm/yarn/bun/cargo/go/pip/poetry/maven/gradle).",
   "stackAware": true,
-  "dox": false
+  "dox": true
 }

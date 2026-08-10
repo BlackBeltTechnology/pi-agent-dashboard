@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CSS_VAR_KEYS, getTheme, THEMES } from "../themes.js";
+import { CSS_VAR_KEYS, getTheme, THEMES } from "../theme/themes.js";
 
 // index.css lives two dirs up from this __tests__ folder (src/lib/__tests__ -> src).
 const css = readFileSync(join(import.meta.dirname, "..", "..", "index.css"), "utf8");
@@ -53,6 +53,13 @@ describe("themes", () => {
     }
   });
 
+  it("every theme defines --table-stripe in both modes", () => {
+    for (const theme of THEMES) {
+      expect(theme.dark["--table-stripe"], `${theme.id} dark`).toBeDefined();
+      expect(theme.light["--table-stripe"], `${theme.id} light`).toBeDefined();
+    }
+  });
+
   it("getTheme returns undefined for unknown id", () => {
     expect(getTheme("nonexistent")).toBeUndefined();
   });
@@ -94,5 +101,19 @@ describe("--elevation-rim panel-bevel token", () => {
 
   it("is theme-independent (not in CSS_VAR_KEYS, so named themes never override it)", () => {
     expect(CSS_VAR_KEYS).not.toContain("--elevation-rim");
+  });
+});
+
+// --table-stripe is a registered theme token (in CSS_VAR_KEYS) AND declared in
+// index.css :root / [data-theme="light"] so the `base` theme (inline vars
+// stripped) still resolves it. See change: markdown-table-styling.
+describe("--table-stripe token", () => {
+  it("is registered in CSS_VAR_KEYS", () => {
+    expect(CSS_VAR_KEYS).toContain("--table-stripe");
+  });
+
+  it("declares the dark value in :root and the light override", () => {
+    expect(css).toContain("--table-stripe: rgba(255, 255, 255, 0.045);");
+    expect(css).toContain("--table-stripe: rgba(0, 0, 0, 0.035);");
   });
 });

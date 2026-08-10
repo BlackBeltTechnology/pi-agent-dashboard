@@ -1,0 +1,3 @@
+# route-builders.ts — index
+
+URL builders for shell overlay routes: `buildOpenSpecPreviewUrl`, `buildOpenSpecArchiveUrl`, `buildOpenSpecSpecsUrl`, `buildPiResourcesUrl`, `buildPiResourceFileUrl`, `buildSessionDiffUrl`, `buildOpenSpecBoardUrl(cwd)` → `/folder/:encodedCwd/openspec`. Use `encodeFolderPath` for cwd, `encodeURIComponent` for other segments. `/pi-resource` uses URLSearchParams. See change: overlay-url-routing. See change: redesign-openspec-board. `buildReadmeUrl` removed. See change: remove-project-readme-button. Adds `buildEditorUrl(sessionId, filePath, line?)` → `/session/:id/editor?file=&line=`. See change: add-internal-monaco-editor-pane. Adds `buildFolderSettingsUrl(cwd,page?)`. See change: directory-settings-page-and-scoped-md-editing.

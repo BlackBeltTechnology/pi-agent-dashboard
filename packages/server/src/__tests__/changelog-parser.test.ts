@@ -14,7 +14,7 @@ import {
   readAndParseChangelog,
   _resetChangelogCache,
   invalidateChangelogCache,
-} from "../changelog-parser.js";
+} from "../changelog/changelog-parser.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = path.join(__dirname, "fixtures", "pi-changelog-slice.md");
@@ -207,7 +207,7 @@ describe("readAndParseChangelog (cache)", () => {
 
   it("PiCoreChecker.invalidate() clears the changelog cache", async () => {
     // Wired via pi-core-checker.ts → invalidateChangelogCache().
-    const { PiCoreChecker } = await import("../pi-core-checker.js");
+    const { PiCoreChecker } = await import("../pi/pi-core-checker.js");
     fs.writeFileSync(tmpFile, "## [0.1.0] - 2026-01-01\n");
     readAndParseChangelog("shared-key", tmpFile);
     const checker = new PiCoreChecker({ npmList: async () => "{}" });

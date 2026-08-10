@@ -1,0 +1,3 @@
+# localhost-guard.ts — index
+
+Network access guard: `createNetworkGuard(trustedNetworks, {localToken?})` (genuine-local/local-token/trusted/authenticated), `isBypassedHost` (CIDR/wildcard/exact), netmask-to-CIDR helpers. `isGenuinelyLocal(ip, headers)` = loopback AND no proxy-forwarding header; `hasProxyForwardingHeaders` (x-forwarded-*, x-real-ip, forwarded) — closes tunnel-as-127.0.0.1 bypass (D10, narrowed). Denial path records into `blockEvents` (socket-peer ip only, proxied flag) for the Trust-this-network banner (change: add-tunnel-providers). See changes: distinguish-offline-from-network-denied (403 body self-describing { success:false, error:"network_not_allowed", reason, hint }), add-server-keypair-pairing.

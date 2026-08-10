@@ -11,7 +11,7 @@ import {
   addTrustedEntry,
   removeTrustedEntry,
   shouldShowLegacyHint,
-} from "../components/SettingsPanel.js";
+} from "../components/settings/SettingsPanel.js";
 
 describe("addTrustedEntry (Trusted Networks section — pure add logic)", () => {
   it("appends a trimmed CIDR entry", () => {
@@ -134,7 +134,7 @@ describe("SettingsPanel source layout (task 3.6)", () => {
     const path = await import("node:path");
     const { fileURLToPath } = await import("node:url");
     const here = path.dirname(fileURLToPath(import.meta.url));
-    const panelPath = path.resolve(here, "../components/SettingsPanel.tsx");
+    const panelPath = path.resolve(here, "../components/settings/SettingsPanel.tsx");
     const source = fs.readFileSync(panelPath, "utf-8");
 
     // Count `<TrustedNetworksSection` JSX usages (not the `function` def or `export`).

@@ -34,13 +34,13 @@ const componentsDir = path.resolve(here, "..", "components");
 
 // Surfaces refactored by this change. The ratchet guards regressions here.
 const COVERED_SURFACES = [
-  "ChatView.tsx",
-  "OpenSpecBoardView.tsx",
-  "ComposerSessionActions.tsx",
-  "SessionList.tsx",
-  "CommandInput.tsx",
-  "FolderActionBar.tsx",
-  "FolderSpawnButtons.tsx",
+  "chat/ChatView.tsx",
+  "openspec/OpenSpecBoardView.tsx",
+  "session/ComposerSessionActions.tsx",
+  "session/SessionList.tsx",
+  "chat/CommandInput.tsx",
+  "folder/FolderActionBar.tsx",
+  "folder/FolderSpawnButtons.tsx",
 ];
 
 function readSurface(name: string): string {
@@ -102,16 +102,16 @@ describe("state-feedback adoption ratchet — covered surfaces", () => {
   });
 
   it("covered empty/loading surfaces adopt the shared primitives", () => {
-    const chat = readSurface("ChatView.tsx");
+    const chat = readSurface("chat/ChatView.tsx");
     expect(chat).toContain("EmptyState");
     expect(chat).toContain("Skeleton");
-    const board = readSurface("OpenSpecBoardView.tsx");
+    const board = readSurface("openspec/OpenSpecBoardView.tsx");
     expect(board).toContain("EmptyState");
     expect(board).toContain("statusPresentation");
   });
 
   it("covered status surface (ArtifactChip) consumes the shared status helper", () => {
-    const composer = readSurface("ComposerSessionActions.tsx");
+    const composer = readSurface("session/ComposerSessionActions.tsx");
     expect(composer).toContain("statusPresentation");
     expect(composer).toContain("statusAriaLabel");
   });
@@ -119,7 +119,7 @@ describe("state-feedback adoption ratchet — covered surfaces", () => {
   it("covered focus surfaces adopt the .focus-ring utility", () => {
     // Every focus-target surface refactored by this change must carry the
     // shared focus-ring class so the ratchet trips if a regression drops it.
-    for (const name of ["CommandInput.tsx", "SessionList.tsx", "FolderActionBar.tsx", "FolderSpawnButtons.tsx"]) {
+    for (const name of ["chat/CommandInput.tsx", "session/SessionList.tsx", "folder/FolderActionBar.tsx", "folder/FolderSpawnButtons.tsx"]) {
       expect(readSurface(name), `${name} missing focus-ring`).toContain("focus-ring");
     }
   });

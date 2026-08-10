@@ -68,7 +68,6 @@ const baseConfig: ServerConfig = {
   autoShutdown: false,
   shutdownIdleSeconds: 999,
   tunnel: false,
-  editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
 };
 
 describe("event-wiring: deferred worktree order-key re-resolution", () => {

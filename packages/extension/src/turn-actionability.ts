@@ -39,6 +39,18 @@ export interface ClassifiableTurn {
 const TRUNCATION_STOP_REASONS: ReadonlySet<string> = new Set(["length", "max_tokens", "maxTokens"]);
 
 /**
+ * Stop reasons that mark an IN-PROGRESS (not terminal-empty) turn. pi ≥ 0.83.0
+ * emits `"pending"` for a partial streaming message (`#7151`). A `"pending"`
+ * turn with no visible text/tool call yet is mid-stream — NOT the clean-but-empty
+ * completion the empty-actionable guard exists to catch — so it classifies as
+ * `normal` and never trips the guard. Genuinely idle (non-`"pending"`) empty
+ * turns still fall through to `empty-actionable`. Reachability at `agent_end`:
+ * treated defensively — if `"pending"` never reaches the terminal message this
+ * branch is simply inert. See change: update-pi-core-0-83-adopt-apis.
+ */
+const IN_PROGRESS_STOP_REASONS: ReadonlySet<string> = new Set(["pending"]);
+
+/**
  * Content-part `type` values that count as a tool call. pi emits `"toolCall"`;
  * the others are accepted defensively so a normalized/adapter variant is never
  * misread as empty.
@@ -109,6 +121,14 @@ export function classifyTurnActionability(turn: ClassifiableTurn | undefined | n
 
   if (typeof turn.stopReason === "string" && TRUNCATION_STOP_REASONS.has(turn.stopReason)) {
     return "truncated";
+  }
+
+  // A mid-stream partial (pi ≥ 0.83.0 `"pending"`) has produced no terminal
+  // output yet but is NOT an empty completion — classify it in-progress so the
+  // empty-actionable guard does not fire on it. Only `"pending"` is exempted;
+  // any other empty non-error turn still falls through to the guard below.
+  if (typeof turn.stopReason === "string" && IN_PROGRESS_STOP_REASONS.has(turn.stopReason)) {
+    return "normal";
   }
 
   // No visible text, no tool call, no error, not a truncation → the clean-but-

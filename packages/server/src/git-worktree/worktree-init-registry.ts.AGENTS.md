@@ -1,0 +1,3 @@
+# worktree-init-registry.ts — index
+
+`createWorktreeInitRegistry({ttlMs?,terminalTtlMs?,sendTo?})`. Two delivery keys: `requestId → WebSocket` (legacy single ws) + `cwd → Set<WebSocket>` fan-out (survives refresh, reaches every tab). `Map<cwd, RunState>` (`RunState`={phase,startedAt,lastLine?,logTail?,code?,expiresAt?}) tracks runs: `startRun`/`progressRun`/`finishRun`/`getActiveRuns` (sweeps expired terminal, terminal TTL 60s). cwd fan-out: `subscribeCwd`/`unsubscribeCwd`/`sendCwd`. Both sub kinds drop on ws close; requestId TTL 15min. See change: generalize-worktree-init-hook, friendlier-worktree-init.

@@ -13,8 +13,9 @@ import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { disconnectTunnel, getConfig, putConfig } from "../../lib/gateway-api.js";
-import type { GatewayProviderId } from "../../lib/gateway-providers.js";
+import { disconnectTunnel, getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
+import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 import { GatewayEndpoints } from "./GatewayEndpoints.js";
 import { GatewayPairQR } from "./GatewayPairQR.js";
 import { GatewayProviderSection } from "./GatewayProviderSection.js";
@@ -23,6 +24,7 @@ import { GatewaySetupGuide } from "./GatewaySetupGuide.js";
 type Tab = "setup" | "access" | "security";
 
 export function GatewayDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const [, navigate] = useLocation();
   const [tab, setTab] = useState<Tab>("access");
   const [provider, setProvider] = useState<GatewayProviderId>("zrok");
@@ -50,7 +52,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
       await putConfig({ tunnel: { provider, mode } });
       setDirty(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "save failed");
+      setError(e instanceof Error ? e.message : t("gateway.err.saveFailed", undefined, "save failed"));
     } finally {
       setSaving(false);
     }
@@ -73,11 +75,11 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
   );
 
   return (
-    <Dialog open onClose={onClose} title="Gateway" size="lg" testId="gateway-dialog">
+    <Dialog open onClose={onClose} title={t("gateway.title", undefined, "Gateway")} size="lg" testId="gateway-dialog">
       <div className="mb-3 flex gap-1 border-b border-[var(--border)]">
-        <TabButton id="setup" label="Setup" />
-        <TabButton id="access" label="Access & QR" />
-        <TabButton id="security" label="Security" />
+        <TabButton id="setup" label={t("gateway.tab.setup", undefined, "Setup")} />
+        <TabButton id="access" label={t("gateway.tab.access", undefined, "Access & QR")} />
+        <TabButton id="security" label={t("gateway.tab.security", undefined, "Security")} />
       </div>
 
       <div className="max-h-[60vh] overflow-y-auto pr-1">
@@ -107,10 +109,19 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
         {tab === "security" && (
           <div className="space-y-3" data-testid="gateway-security-pane">
             <p className="text-sm text-[var(--text-secondary)]">
-              Who may reach the Gateway without signing in is managed on the{" "}
-              <b className="text-[var(--text-primary)]">Security</b> page — trusted networks map to{" "}
-              <code className="font-mono text-xs">config.trustedNetworks</code>, shared with the auth system, so
-              they live once (no duplicate here).
+              {t(
+                "gateway.trustedNetworks.lead",
+                undefined,
+                "Who may reach the Gateway without signing in is managed on the ",
+              )}
+              <b className="text-[var(--text-primary)]">{t("gateway.trustedNetworks.securityWord", undefined, "Security")}</b>
+              {t("gateway.trustedNetworks.mapTo", undefined, " page — trusted networks map to ")}
+              <code className="font-mono text-xs">config.trustedNetworks</code>
+              {t(
+                "gateway.trustedNetworks.tailDialog",
+                undefined,
+                ", shared with the auth system, so they live once (no duplicate here).",
+              )}
             </p>
             <button
               type="button"
@@ -121,7 +132,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
               }}
               className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
             >
-              Open Security →
+              {t("gateway.openSecurity", undefined, "Open Security →")}
             </button>
           </div>
         )}
@@ -139,12 +150,25 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
           data-testid="gateway-disconnect"
           onClick={() =>
             void disconnectTunnel().catch((e) =>
-              setError(e instanceof Error ? e.message : "disconnect failed"),
+              setError(e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed")),
             )
           }
           className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
         >
-          Disconnect
+          {t("gateway.disconnect", undefined, "Disconnect")}
+        </button>
+        {/* v2 (support-zrok-v2): release a reserved name (stable URL) + clear it. */}
+        <button
+          type="button"
+          data-testid="gateway-forget-reserved"
+          onClick={() =>
+            void disconnectTunnel({ forget: true }).catch((e) =>
+              setError(e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed")),
+            )
+          }
+          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
+        >
+          {t("gateway.forgetReserved", undefined, "Forget reserved URL")}
         </button>
         {dirty ? (
           <button
@@ -154,7 +178,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
             onClick={() => void save()}
             className="rounded bg-[var(--accent,#3b82f6)] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("gateway.saving", undefined, "Saving…") : t("gateway.save", undefined, "Save")}
           </button>
         ) : (
           <button
@@ -163,7 +187,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
             onClick={onClose}
             className="rounded bg-[var(--accent,#3b82f6)] px-4 py-1.5 text-sm font-semibold text-white"
           >
-            Done
+            {t("gateway.done", undefined, "Done")}
           </button>
         )}
       </div>

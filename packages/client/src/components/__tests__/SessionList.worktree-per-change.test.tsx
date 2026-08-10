@@ -14,7 +14,7 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 
 // Stub openspec groups + config so the board renders without network.
-vi.mock("../../lib/openspec-groups-api.js", () => ({
+vi.mock("../../lib/openspec/openspec-groups-api.js", () => ({
   fetchGroups: vi.fn(async () => ({ schemaVersion: 1, groups: [], assignments: {}, changeOrder: {} })),
   createGroup: vi.fn(),
   updateGroup: vi.fn(),
@@ -22,11 +22,11 @@ vi.mock("../../lib/openspec-groups-api.js", () => ({
   setAssignment: vi.fn(),
   setChangeOrder: vi.fn(),
 }));
-vi.mock("../../lib/openspec-config-api.js", () => ({
+vi.mock("../../lib/openspec/openspec-config-api.js", () => ({
   useOpenSpecConfig: () => ({ profile: "custom", delivery: "both", workflows: [] }),
 }));
 
-import { OpenSpecBoardView } from "../OpenSpecBoardView.js";
+import { OpenSpecBoardView } from "../openspec/OpenSpecBoardView.js";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });

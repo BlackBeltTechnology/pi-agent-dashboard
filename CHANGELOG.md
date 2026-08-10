@@ -11,6 +11,199 @@ see [`docs/release-process.md`](docs/release-process.md).
 ## [Unreleased]
 
 ### Added
+
+- Skill cards in the Resources view now carry provenance. The server joins pi's
+  resolved skills against what an attached session actually loaded (from the
+  `commands_list` it already sends) on canonicalized real paths, so a card reads
+  `active`, `not loaded`, or `loaded elsewhere` — the last of which finally makes
+  runtime-registered skills (`~/.pi/agent/pi-hermes-memory/skills/`, an ancestor
+  `.agents/skills` chain, `--skill`, `skillPaths`) visible, with the path the
+  session reported. Provenance is a per-card badge plus a grid filter value: no
+  new sections, groups, or nesting. When no single session has reported (none, or
+  more than one), or when pi's resolver was unavailable, the grid says so
+  explicitly instead of implying a loaded set.
+- Themes discovered by pi's resolver now appear on the existing Themes page.
+- `scripts/check-skill-frontmatter.mjs`, a skill frontmatter guard wired into CI.
+  It fails only on what pi treats as fatal (missing, empty, or unparseable
+  `description` — pi drops such a skill), and warns on pi's 1024/64/charset/hyphen
+  limits plus a 400-character repository description budget. Every finding is
+  labelled `pi` or `repository` so a house rule is never mistaken for pi's.
+- **Apple Tools (iMCP) plugin** (`@blackbelt-technology/pi-dashboard-apple-tools`):
+  one-command provisioning of iMCP (Apple Calendar, Contacts, Reminders,
+  Messages, Location, Maps, Weather) for pi via `pi-mcp-adapter`. Ships a
+  `pi-apple-tools-install [--check]` CLI (a pure, macOS-only, nine-state
+  provisioning machine), a dashboard provisioning panel (status readout,
+  run-installer, path override, directTools, server enable/disable), an
+  agent skill, and a `doctor` probe. macOS-only; Apple Mail is out of scope
+  (use `apple-mail-fast-export`).
+- **`paths` plugin-requirement category**: `PluginRequirements.paths` declares
+  absolute filesystem paths (e.g. `.app`-bundled binaries) that must exist,
+  with optional `${configKey}` interpolation from the plugin's validated
+  config. Surfaced as a non-actionable warning pill in the Plugins tab.
+
+### Changed
+
+- The Resources view now sources skills, prompts, and themes from pi's own
+  resolver (`PackageManager.resolve()`) instead of a parallel filesystem walk,
+  and applies pi's load gate on top. Scope and package origin come from the
+  resolver's metadata as per-card attributes. `extensions` and `agents` remain
+  scanner-discovered (pi has no `agents` resource type).
+- Skill descriptions across the repository were trimmed to the new 400-character
+  budget, preserving their trigger phrasing. `ship-change`,
+  `frontend-mockup-loop`, and `anti-slop-frontend` are exempt: an existing
+  requirement locks their wording.
+- Package resources excluded by a package's own manifest patterns are now absent
+  from the Resources view rather than shown as disabled, matching pi, which does
+  not load them either. There is consequently no activation toggle for them.
+
+### Fixed
+
+- `pi install git:github.com/BlackBeltTechnology/pi-agent-dashboard` works again
+  (issue #357). It was failing at two independent points. First, the Node engines cap
+  refused Node 26: pi installs with engine-strict, so the install aborted with
+  `EBADENGINE` before anything ran. The cap is raised one major, `>=22.19.0 <26`
+  → `>=22.19.0 <27`, and Node 26 is now a CI-validated target — the new
+  `_smoke.yml` Node 26 install legs deliberately run *without* the
+  `--config.engine-strict=false` override the other legs carry, so the
+  `EBADENGINE` regression is tested rather than assumed. Node 27+ stays refused
+  until separately validated. Second, the git-clone path runs
+  `npm install --omit=dev`, which drops `devDependencies`; the web client's
+  `prepare` Vite build then died with `Cannot find module 'vite/package.json'`.
+  Its direct build-time requirements — `vite`, `@vitejs/plugin-react`,
+  `@tailwindcss/vite`, `tailwindcss`, and `tsx` — are now runtime
+  `dependencies`, with `tsx` declared explicitly instead of resolving by accident
+  through a hoist of the server's copy. A release gate plus repo-lints keep both
+  fixes from silently regressing. The published npm install path was never
+  affected (it ships a prebuilt client and runs no `prepare`).
+  (change: `fix-pi-install-node26-and-omit-dev-build`)
+- Phantom skills are gone from the Resources view. `UPSTREAM.md`,
+  `dox-doctrine.md`, `AGENTS.md`, and `*.AGENTS.md` were being listed as skills
+  the dashboard's own walk had invented; pi never loaded them. Files beneath
+  `.worktrees/` and inside a built Electron bundle are likewise no longer
+  reported.
+- `resolveActivation()` is now bounded by a 5-second timeout and falls back to
+  the filesystem walk when pi is unavailable, resolution throws, or the resolver
+  returns an empty result the walk contradicts. The payload is flagged as a
+  degraded fallback rather than presented as pi's answer.
+
+## [0.7.0] - 2026-07-24
+
+### Added
+
+- Custom-provider models now honor the native capability metadata authored in
+  `~/.pi/agent/models.json` (the standard Pi nested `providers.<name>.models[]`
+  format). Both registry paths — the bridge extension that feeds pi sessions +
+  the web thinking-level selector, and the dashboard server behind
+  `GET /api/models` + proxy routing — read the native file via one shared reader
+  and merge it with live `/v1/models` discovery: native `contextWindow`,
+  `maxTokens`, `reasoning`, `thinkingLevelMap`, `compat`, `input`, and `cost`
+  win over the api-typed fallback floors; routing stays from discovery. A
+  user-authored model absent from `/v1/models` (or when discovery is down) still
+  surfaces. `GET /api/models` gains the raw `thinkingLevelMap` (additive) and
+  never emits `compat` or credentials. The web selector gains an opt-in,
+  runtime-gated `max` thinking level (shown only when the session's pi advertises
+  `max` AND the model's `thinkingLevelMap.max` is declared).
+
+- **Knowledge-base search can now filter, facet, and sort on frontmatter.** YAML frontmatter in indexed markdown is parsed into a searchable structure, so kb queries can constrain and group results by declared frontmatter fields (with type-aware eq/in/gte/lte filters and distinct-file facet counts) instead of full-text matching alone. (change: `add-kb-frontmatter-structural-indexing`)
+
+- **Settings surface for pi-hermes-memory.** When the pi-hermes-memory extension is installed, a new dashboard settings section lets you view and edit its configuration through a grouped form — per-field defaults with reset, inline validation, and a raw-JSON view — instead of hand-editing the on-disk config file. Changes apply to new sessions. (change: `add-hermes-memory-settings-plugin`)
+
+- **Collapsible sidebar tags with global tag delete.** The sidebar tag/phase area is now a single collapsible section (collapsed by default, remembered across reloads) with a count, active-filter indicator, and a `+N more` / `show less` expander once you have many tags. Each tag also gains a guarded delete that removes it from every session that carries it. (change: `sidebar-tag-collapse-and-delete`)
+
+- **Turns and spend on goal surfaces.** The goal detail and board views now show the real turn count for completed or reloaded goals (falling back to the last persisted value when there's no live status), and display each goal's actual USD spend summed from its linked sessions. (change: `fix-goal-detail-turns-and-spend`)
+
+- **OpenSpec CLI available inside sessions.** The `openspec` command is now shimmed onto the session PATH, so agent sessions can run it directly without a separate install. (change: `provision-openspec-cli-in-sessions`)
+
+- **Reuse and lifecycle management for embedded sessions (off by default).** Ephemeral/embedded sessions can now be reused per visitor, idle-reaped, and bounded by per-visitor and global caps, with lifecycle counters exposed on `/api/health`. All behavior is inert unless explicitly enabled. (change: `add-embed-session-lifecycle`)
+
+### Changed
+
+- **Native `models.json` capability metadata now wins over a top-level duplicate.**
+  Installs that previously set custom-model capabilities via a top-level
+  `models.json` array/`{models:[]}` entry duplicating a discovered `provider/id`
+  will now see the native nested `providers.<name>.models[]` entry take
+  precedence on overlap (nested wins). `models.json` remains read-only; editing
+  it needs a refresh trigger (server) or session restart (extension) to take
+  effect — no live hot-reload. A custom `models.json` entry authored under a
+  built-in provider name does NOT override the built-in model.
+
+- Bumped pinned pi (`@earendil-works/pi-coding-agent`) 0.80.10 → 0.81.1 across the server dependency, Dockerfile global install, and `verify-release-deps` floor. Lifted `piCompatibility.recommended` 0.78.0 → 0.81.1 to track the upstream line (soft upgrade hint); `piCompatibility.minimum` stays 0.78.0 (broad support floor — no blocking error for 0.78.x–0.80.x). 0.81.0 added full provider extensions + Qwen Token Plan providers (auto-surface via the derived provider catalogue — no bridge change); 0.81.1 restored the default stream fallback for extensions on the pre-0.81 agent-core API. No breaking-change entries in the range.
+
+- **Directory cards redesigned as folder-style cards.** Each directory card now reads as a folder that encloses its Create tray and session list under one continuous border, with a small folder-tab nub in place of the old 3D watermark and top-level (non-workspace) folders getting a subtle accent tint so their boundary stays legible across themes. The four folder facets render as single-concern slot pills in a responsive two-column grid. (change: `redesign-directory-card`, `folder-card-enclosure`, `folder-card-tab-nub`)
+
+- **Slot-pill labels no longer truncate.** Slot pill labels (e.g. AUTOMATIONS, Knowledge base) now render as a capsule overhanging the top edge instead of an inline label, so long names display in full; create actions became compact icon-only "+" buttons. (change: `slot-pill`)
+
+- **Folder card actions consolidated.** OpenSpec Archive/Specs actions moved into the slot pill as icon-only buttons, the redundant Terminals and Editor buttons were dropped (the pane is still reachable elsewhere) with Initialize and Directory Settings merged onto the git row, and the automation unit label was renamed from "flows" to "tasks" to avoid confusion with pi-flows. (change: `folder-card`, `compact-folder-header-actions`)
+
+- **Knowledge-base row on session cards matches its neighbours.** The KNOWLEDGE BASE row on worktree session cards now uses the same flat, translucent panel style as the adjacent OpenSpec/Git/Process rows instead of standing out as a raised, opaque pill. (change: `align-session-card-kb-slot-surface`)
+
+- **Continuous-scroll PDF viewer.** PDF previews now scroll continuously with a selectable text layer and Ctrl-F find, replacing the old paged single-canvas viewer with Prev/Next controls. (change: `pdf-preview-continuous-scroll`)
+
+- **Faster initial page load.** The large Material Design icon set (~2.6 MB) was split out of the eager entry bundle into its own cacheable chunk, cutting the gzipped index chunk from ~1388 KB to ~580 KB. (change: `shrink-client-index-chunk`)
+
+- **Faster bulk video transcription.** Multiple files now transcribe in parallel (up to 8 by default, configurable via `TRANSCRIBE_CONCURRENCY`), overlapping the per-file poll wait; set the concurrency to 1 to restore serial behavior. (change: `parallel-transcription-file-pool`)
+
+### Fixed
+
+- Subagent live timeline no longer freezes after ~3 steps. An oversized subagent
+  event (its payload embeds the full running timeline) used to trip the per-event
+  size ceiling and get dropped wholesale, so the client stopped updating the
+  subagent detail. Such events are now reduced head+tail — keeping the opening
+  steps, a "⋯ N steps hidden ⋯" marker, and the final steps/result — instead of
+  being replaced by a truncation placeholder. Server-only (the marker is a plain
+  text entry that renders on any client). Event-size accounting is now
+  byte-accurate (UTF-8 width + JSON escape expansion, real base64-image size),
+  which also fixes a latent image-bearing broadcast OOM where an oversized image
+  message previously escaped the ceiling.
+
+- **Bridge no longer permanently disconnects after an in-TUI resume/switch/fork.** Resuming, switching, or forking a session inside the TUI used to silently drop the dashboard connection for the rest of the session; the connection now survives session replacement. (change: `fix-bridge-resume-disconnect`)
+
+- **Session tags survive a bridge reattach.** Tags applied to a session are no longer wiped when the bridge reattaches (for example after a reboot); they now carry over in memory and stay in the saved session metadata. (change: `fix-tags-lost-on-bridge-reattach`)
+
+- **Cold-start recovery no longer offers to reopen sessions that are still alive.** Recovery now checks whether a session's process is actually running before offering to reopen it, preventing a double-spawn that broke message routing after a plain server restart. (change: `recovery`)
+
+- **Running subagents show their live timeline.** A running subagent's card no longer displays "Subagent not found in this session." for the whole run — its timeline now hydrates from the durable message channel instead of only the lossy ephemeral event stream. (change: `subagents`)
+
+- **Oversized images no longer break sessions on reload.** Large tool-result, pasted, or historical images are now automatically resized before each model call, rescuing already-saved sessions whose oversized images previously caused failures on reload. The on-disk transcript is left untouched. (change: `image-fit-tool-result-images`)
+
+- **Local images now render in on-disk markdown previews.** Relative image references in previewed markdown files (file preview overlay, editor viewer, and markdown preview) now resolve to the actual local files, with a neutral placeholder shown if an image fails to load. (change: `fix-markdown-preview-relative-images`)
+
+- **PDF previews no longer fail to load intermittently.** A load-order race that could throw while opening a PDF (viewer chunk evaluating before the pdfjs library was ready) is fixed by sequencing the loads. (change: `fix-pdf-viewer-load-order`)
+
+- **Popovers stay within view.** Popovers are now positioned against their actual clipping container rather than the full viewport, so they no longer get cut off inside scrollable or clipped panes. (change: `fix-popover-container-clip`)
+
+- **Directory Initialize no longer hangs.** The "Initialize" action's setup hook used to abort when `corepack` was unavailable under the bundled Node, leaving the prompt to re-fire indefinitely; it now falls through to the on-PATH package manager and completes. (change: `harden-worktree-init-corepack`)
+
+- **Build & CI / internal.** Assorted developer-facing fixes: CPU-only Torch install for the document converter (avoids a ~3.4 GB CUDA download), a nightly Verdaccio full-fidelity build, removal of mechanical Vite build warnings, a flaky goal-supervisor test made deterministic, and refreshed knowledge-base index rows. (changes: `document-converter`, `add-nightly-verdaccio-build`, `fix-vite-build-warnings`, `goal-supervisor`, `kb`)
+
+## [0.6.1] - 2026-07-20
+
+Completes the partial `0.6.0` release. `0.6.0` published 31 of 32 npm packages but
+could not publish `@blackbelt-technology/pi-dashboard-eng-disciplines` — its `0.6.0`
+version string was burned by an earlier independent publish + unpublish — which
+blocked the Electron installers and the GitHub Release. `0.6.1` re-cuts every
+workspace at a fresh, unburned version so all packages ship consistently and the
+installers + GitHub Release are produced. No functional changes beyond the
+release-pipeline fixes below; see `[0.6.0]` for the full feature set.
+
+### Fixed
+- **Release pipeline hardening (publish.yml).** Pinned the publish job's npm to
+  `11.12.1`: `npm@latest` now refuses the transitive `@electron/node-gyp` git
+  dependency (`EALLOWGIT`, via `@electron/rebuild` ← `@electron-forge/core`),
+  breaking `npm ci`; `npm@11.5.1` is too old and drops the `lightningcss-linux-x64-gnu`
+  optional native dep (client vite build fails). `11.12.1` resolves both while keeping
+  OIDC trusted publishing. Added a `repository` field to `pi-dashboard-bus-client`
+  and `pi-dashboard-kb` so their OIDC provenance bundles validate (was `E422`).
+  Wrapped the per-package publish loop in `set +e`/`set -e` so a single failure no
+  longer aborts before the Trusted-Publisher gap report enumerates.
+- **Windows introspection smoke.** Dropped an orphaned `defaultGetCmdline` probe
+  left behind when `editor-pid-registry.ts` was removed (kept the still-valid
+  `isVirtualMachine` + no-`wmic`-leak checks).
+
+## [0.6.0] - 2026-07-20
+
+### Added
+- **Stable PROCESS subcard — one summary line, no grid reflow.** The session card's PROCESS subcard folds its two independently-fluctuating surfaces (in-flight `bash` `SessionActivityBar` + background-process `ProcessList` drawer) into ONE fixed-height collapsible summary line, so tool start/stop no longer reflows the card grid (neighbour cards stop jumping). Collapsed shows the newest running command, a stable-width counts pill (`[N running · ⚠M]`), and elapsed; or `⚠ M background process(es)`; or `⏵ idle`. Expanding reveals every abortable activity row (`⏹` → session abort) then the bg-process rows (`✕` → PGID kill); expand state persists per session via the existing `processDrawerCollapsed`. A new global `DisplayPrefs.reserveProcessLineAtIdle` (per-session-overridable, off for `simple`/`standard`, on for `everything`) decides whether the line stays reserved at idle (zero jump ever) or the subcard mounts on the first tool of a run (one jump, then stable). A shared `collapse-summary` helper (`splitOverflow` + `CollapseSummary`) removes the duplicated summary/overflow logic. Client-only + core; no bridge/server/wire change beyond the additive pref field. (change: `stable-process-line`)
 - **Agent-facing role/model tools + server custom-provider registry.** Three decoupled tools registered via `pi.registerTool` in the dashboard bridge: `list_models` (read — assignable model catalogue from the in-process session registry, the exact ModelSelector source `cachedModelRegistry.getAvailable()`, roles-independent, each row a ready-to-assign `ref`; `annotated:true` surfaces uncredentialed models with an `excludedReason`), `list_roles` (read — `{roles(bound-only), presets, activePreset}`, no models slice, tolerant of a malformed role slice), and `update_roles` (write — discriminated `action` schema `set_role`/`remove_role`/`create_preset`/`load_preset`/`delete_preset`, every mutation gated behind an `ask_user` confirmation because it edits the global `~/.pi/agent/providers.json`). The role-name set became user-editable (`roleNames` + `removedRoles` markers; `set_role` on a new name implicitly creates it as an empty slot across every preset; `remove_role` purges it everywhere). All role reads/writes route through a single `lookupRole()` accessor. The dashboard SERVER's `InternalRegistry` custom-provider loop (previously a no-op) now discovers `/v1/models` for each `providers.json#providers` entry and registers them, so `GET /api/models` matches every pi session; the server provider write is now atomic (tmp+rename). NO `models.json` write, no migration. **BREAKING (dashboard-internal events, zero external emitters):** the five `flow:role-*` events were renamed `roles:*` with no alias, and the deprecated `flow:resolve-model` listener was deleted. `role:resolve-model` remains a one-release deprecated alias (delegates to the shared `lookupRole()`); it and `flow:resolve-model`'s replacement `model:resolve` are scheduled for removal at the next major. The dead `pi.modelRegistry` fallback in `getModelRegistry()` was removed (the property never existed on `ExtensionAPI` 0.80; `model:resolve` now sources the registry solely from the `ctx.modelRegistry`-captured ref). (change: `add-agent-role-model-tools`)
 - **Per-agent USD cost in flow cards + detail.** The flows-plugin now surfaces the per-agent spend that pi-flows already emits on `flow:agent-complete` (`result.cost`). `FlowAgentState` gains an optional `cost?: number`; the `flow_agent_complete` reducer stores `result.cost` verbatim (undefined when a connected session predates cost surfacing). `FlowAgentCard`'s complete-state stats line appends a `$` segment between tokens and duration (`↑12k ↓3k · $0.0142 · 4.2s`), and `FlowAgentDetail`'s header shows the same value — both suppressed when cost is `0` or absent, with no dangling separator. A shared `formatCost` helper matches the pi-flows TUI precision (two decimals at ≥ $1, four decimals sub-dollar) so TUI and web read identically. No transport change: the bridge already forwards `result.cost`. (change: `surface-flow-agent-cost`)
 - **Caught up with pi 0.71/0.72/0.73 UX features.** Four additions: (1) the Provider Authentication settings card detects catalogue OAuth rows with no matching server handler (e.g. an extension-registered provider) and renders their login button disabled with an explanatory tooltip instead of producing 400 errors, via a new `GET /api/provider-auth/handlers` endpoint; (2) per-model thinking levels — `ModelInfo` now carries `supportedThinkingLevels` derived from pi 0.72+'s per-model `thinkingLevelMap`, and `ThinkingLevelSelector` renders only the levels the active model supports (falls back to all six pre-0.72); (3) graceful stop-after-turn — a new "Stop after turn" button (next to Abort / Force Kill) lets the agent finish the current turn then shut the session down cleanly, via a new `stop_after_turn` browser→server→bridge message; (4) streaming bash output — large tool results now keep the LAST 200 lines with a `«N earlier lines hidden»` marker (was first 30), plus an on-demand "Show full output" affordance backed by `GET /api/sessions/:sessionId/tool-result/:toolCallId`. (change: `adopt-pi-071-072-073-features`)
@@ -23,8 +216,36 @@ see [`docs/release-process.md`](docs/release-process.md).
 - **Linkified tool output.** Bash, generic-tool, and other plain-text tool result blocks now detect URLs and file references (`path:line[:col]` and bare paths with recognised code/document extensions). URLs open in a new tab with `target="_blank" rel="noopener noreferrer"`. File references open in the detected editor on localhost (reuses existing `/api/open-editor` plumbing) or in a read-only in-dashboard preview overlay on remote / mobile / no-editor-detected. Conservative tier-1 detection avoids false positives on prose like `version 1.0.0` / `and/or` / `math.PI`. Selection and copy are preserved verbatim across link boundaries. Tokenisation is memoised per result string with a 5000-link overflow cap. (change: `linkify-tool-output`)
 - **Adopt `providers.json#roles` ownership from pi-flows.** The dashboard extension now owns the `roles`, `rolePresets`, and `activePreset` sections of `~/.pi/agent/providers.json` and registers the `flow:role-set` / `flow:role-get-all` / `flow:role-preset-*` event handlers that back Settings → Roles. The `model:resolve` event listener (formalized here) handles `@role`, `provider/model[:thinking]`, and bare `model-id` refs with a cooperative early-return idiom shared across the pi extension ecosystem. The legacy `flow:resolve-model` listener remains as a deprecated one-release alias. Requires pi-flows ≥ the version shipping companion change `consume-model-resolve-event` for full standalone behavior; until then both packages register the same listeners safely (atomic tmp+rename writes, last writer wins). (change: `adopt-model-resolve-handler-and-roles-ownership`)
 - **Release-time test + smoke gate.** `publish.yml` gains a `release-gate` aggregate (`ci-checks` + `smoke` fanned out in parallel after `resolve`) that MUST pass before `tag-and-push` writes a commit/tag and before `publish` uploads to npm. On `workflow_dispatch` a failing gate aborts cleanly — no commit, no tag, no artifact. The smoke matrix moved out of `ci.yml` (no longer runs on PRs) into the reusable `_smoke.yml`, with a new `ci-smoke.yml` workflow_dispatch entry for on-demand per-branch validation. Repo-lint `publish-workflow-contract.test.ts` extended with 5-clause gate contract. (change: `gate-publish-on-smoke-and-tests`)
+- **Internal editor workspace with a tri-state Chat / Split / Editor layout.** The dashboard gained a built-in read-only Monaco editor pane and a chat+editor split view with dual-mode search, replacing the old external code-server integration. A single split-layout selector with always-visible seams and captions controls the panes, the Files rail defaults to collapsed, and rows expose a copy-path popup. File opens are non-disruptive (sticky mode, silent background agent opens), the `/view` command routes into the editor pane with rich viewers, system-open, and a four-mode diff, and a model-driven canvas preview surface plus a typed WebSocket bus client (LLM scripting layer) round out the workspace.
+- **Terminals hosted as editor-pane tabs, plus an inline interactive terminal card.** Terminals now live as tabs in the editor pane, an interactive terminal card can be embedded directly in the chat stream, and the editor keeper sidecar keeps editor state alive across a dashboard restart.
+- **Office and document file previews.** On-demand PPTX slide-deck previews, inline DOCX / XLSX / CSV rendering, EML (email) previews, and YAML frontmatter rendered as a Properties panel. Agent-captured screenshots are inlined at capture time and served from an artifact-root anchor.
+- **Pinned directory home page.** A per-directory home page (`/folder/:encodedCwd`) is reachable from workspace folders and by clicking a directory header, giving each project a landing surface. Workspaces and intra-workspace folders can be drag-reordered.
+- **Directory-based markdown knowledge base (KB).** A new FTS5 + graph knowledge base with per-folder KB slots, settings, and server-owned reindex. Indexing is non-blocking with an observable spinner and surfaced errors, is atomic (no leftover "husk" on failure), pre-warms during worktree init, and the Index-now button shows optimistic pending state.
+- **User-owned session tags.** Sessions can be tagged with colorized chips and filtered from the sidebar.
+- **Automatic session topic naming.** New sessions are named automatically from their topic.
+- **Uncommitted-file indicator with commit-from-card.** Session cards surface uncommitted files and let you commit directly from the card.
+- **Redesigned composer and unified dialogs.** The prompt input is unified into a single card with a morphing action button. `ask_user` gained multiline input and image-paste for `method:"input"`, redesigned question cards, and a batch wizard, all built on a shared Dialog/Confirm primitive set.
+- **Universal tool-call grouping in the transcript.** Tool calls are grouped across narration, heterogeneous bursts collapse into a single group, reasoning folds per turn and auto-collapses after a live hold, and `ctx_*` MCP tool calls render through a dedicated renderer with an args-derived chip and running preview.
+- **Virtualized transcript with faithful copy and selection.** The chat transcript is virtualized via TanStack Virtual for lower render CPU, while copy fidelity is preserved through container-level copy interception, and text selection survives message churn and the streaming tail.
+- **Per-turn change summary table and richer diff surfaces.** A deterministic per-turn change table integrates the Changed Files list with mime icons and auto-fold past a file-count threshold. Diffs merge changed files into the workspace tree with a Preview mode, surface tool-created files, and can render out-of-cwd session diffs directly from the payload.
+- **Goals.** Folder-scoped goal records with board and detail pages, session linking, richer goal authoring/control, a shared modal create dialog, a progress-gated supervisor that auto-respawns the goal driver, and durable persistence of live goal status/progress.
+- **Automation and flows.** A redesigned automation editor and board with a two-level trigger taxonomy and full edit/delete/update path, plugin-registered actions with a grouped picker, schedule-triggered background runs, flow inputs with file-trigger support, and run finalization on session death. The flows plugin renders a structure-aware graph with fit-to-window summaries and replays persisted flow runs on cold load.
+- **OpenSpec kanban board.** A full-page kanban board replaces the inline accordion, with session-card-style status stripes, auto-scroll, drag feedback, and a desktop artifact dialog.
+- **Remote access: tunnel providers, device pairing, and zrok v2.** A tunnel-provider abstraction with a Gateway UI (ngrok / tailscale / zerotier), zrok v2 support (dual binary, named shares, api-v2, headless enroll), a single-QR network selector for "Connect a device", camera-scannable HTTPS pairing QR with a browser `/pair` view, an operator-side pairing view with typed-approve, and optional public-key device pairing with bearer auth. The bind host is configurable (`--host` / `PI_DASHBOARD_HOST`, loopback by default) and LAN remote-connect is unblocked on both Electron and web.
+- **First-class "needs you" attention routing.** Sessions that need operator input are elevated into a dedicated attention state for faster routing.
+- **Model selector, custom roles, and agent model introspection.** The model selector gained capability icons, favorites, persistent filters, and a user-initiated refresh; custom roles can be added/removed from the dashboard UI; custom-provider keys register natively with fixed save/auth; and in-session agents can read an ungated `GET /api/models`. The catalogue is filtered by pi's `enabledModels` setting.
+- **Settings reorganized into left-nav pages.** Settings moved to left-nav pages with a unified Save contract and a dirty-gated save bar, added a directory settings page with a folder tree and resizable picker (mobile master/detail), per-type resource card pages, and a per-folder/global pi-resource enable/disable toggle.
+- **Worktree spawning.** Project-declared `worktree-init` hooks (including non-git dirs), spawning a worktree from a pull request, per-change spawn buttons, opt-in trusted auto-init on spawn, session-scoped init trust, and friendlier cwd-keyed init feedback with boot rehydration.
+- **Full UI internationalization with a Hungarian locale.** All UI text is now i18n-covered, shipping an initial Hungarian translation.
+- **Dashboard slash commands and session-context injection.** New `/dashboard:*` slash commands with executable-mode templates, and injection of dashboard session context into the agent.
+- **Adopted pi 0.74–0.80 features.** Picked up the accrued pi 0.74–0.80 bridge, spawn, and UI surface.
+- **Expanded bundled skills and extensions.** New/ported packages include the document-converter (TS facade + Dockerized Python engine), video-transcription, nano-banana image generation and video-production skills, the frontend-mockup-loop with selectable design systems, the eng-disciplines and authoring-toolkit skill packages, a Biome-based code-quality skill, a modular self-updating doctor skill, session-knowledge distillation, and React/TS/Node/Tailwind plus Audit/DocScribe apply-loop subagents. The Recommended Extensions cards now derive and render each package's skills.
+- **Optimistic prompt progress.** Prompts show idle-scoped optimistic progress states immediately on submit.
+- **What's-New surfaced for any installed package.** The What's-New view now covers any installed package, not just the dashboard.
 
 ### Changed
+- **`kb_search` tool output is now condensed text by default (was pretty JSON).** Each hit renders as `<rank>  <path>  ::  <headingPath>` with an optional `(+N dup)` marker, an optional `⤷ <parentHeading>` continuation, and a one-line snippet — positional, no repeated field-name keys, `rank` (1-based ordinal) in place of the raw negative BM25 `score`. Opt back into machine-readable output with the new `format:"json"` parameter (compact JSON that retains `score` and adds `rank`); any unknown/malformed `format` value falls back to condensed and never errors. Empty/whitespace queries return an explicit `(no query)` / `[]` marker. No consumer parses the tool's text output (verified), so the default flip is non-breaking at runtime. **BREAKING (public type):** `KbHit.parent` in `@blackbelt-technology/pi-dashboard-kb` narrows from `KbHit | null` to `{ headingPath: string } | null` — the attached parent now carries `headingPath` only (dropped `root`/`path`/`docType`/`chunkId`/`score`/`snippet`, all same-file duplicates or constants) and is non-recursive (`hit.parent.parent` is now a type error). `parent.headingPath` is display/context only, not a refetch key. (change: `slim-kb-search-output`)
+- **pi bumped to `0.80.10` (latest) across all install targets.** (1) **npm/electron**: `packages/server/package.json` dep `@earendil-works/pi-coding-agent` `^0.80.6` → `^0.80.10`; lockfile refreshed + `npm dedupe` so `pi-coding-agent`/`pi-agent-core`/`pi-ai`/`pi-tui` all resolve to `0.80.10` (top-level hoisted `pi-tui` deduped from a stale `0.80.6`). Electron bundle materializes pi from the same server dep. (2) **docker**: `docker/Dockerfile` global pin `@earendil-works/pi-coding-agent@0.80.6` → `@0.80.10`. Verified no source migration needed: the 0.80.8 SDK breaking changes (`AuthStorage`/`ModelRegistry` → `ModelRuntime`, async `ModelRegistry.refresh()`) touch pi's SDK classes the dashboard never imports — the model-proxy defines its own `InternalAuthStorage`/`InternalRegistry` and only consumes pi-ai `streamSimple` + the path-resolved `dist/oauth.js` subpath (both still present at 0.80.10, runtime-probed). Non-server peer deps stay `*`; `piCompatibility` floor untouched. NOTE: this bump does NOT adopt the pi 0.74→0.80.10 feature surface accrued since the last real adaptation (`adopt-pi-071-072-073-features`) — see gap analysis; candidate adoptions (`agent_settled`, `session_info_changed`, RPC `get_entries`/`get_tree`, `--name` at spawn, compaction `reason`/`willRetry`, `streamingBehavior`) are deferred to their own changes. (change: `align-pi-080.10`)
 - **pi bumped to `0.80.6` across all three install targets.** (1) **npm/electron**: `packages/server/package.json` dep `@earendil-works/pi-coding-agent` `^0.80.2` → `^0.80.6`; lockfile refreshed so `pi-coding-agent`/`pi-agent-core`/`pi-ai`/`pi-tui` all resolve to `0.80.6` (top-level hoisted `pi-tui` deduped from the stale `0.80.2`). The electron bundle materializes pi from this same server dep via `npm install --omit=dev`, so no separate pin. (2) **docker**: `docker/Dockerfile` global install switched scope and pinned — `@mariozechner/pi-coding-agent` (frozen old scope, unpinned `@latest`, never published `0.80.6`) → `@earendil-works/pi-coding-agent@0.80.6`; `pi` bin unchanged so the `pi --version` probe still passes. Non-server peer deps stay `*`; `piCompatibility` untouched. (change: `align-pi-080.6`)
 - **Bridge subscribes to pi 0.71+ `thinking_level_select`** so the dashboard reflects thinking-level changes immediately rather than waiting for the next model change (the level-only change previously piggybacked on `model_select`). (change: `adopt-pi-071-072-073-features`)
 - **pi dependency bumped to `^0.80.2`** (was `^0.78.0`) in `packages/server/package.json` + bundled copy + lockfile. Picks up the pi 0.79.x/0.80.x line; the 0.80.0 pi-ai root→`/compat` entrypoint move is runtime-aliased by pi's extension loader and the dashboard's only pi-ai use is a dynamic `any`-typed import, so no source migration was required. Does NOT touch `piCompatibility` (the floor series owns that). (change: `align-pi-080-and-publish-baseline-packages`)
@@ -33,9 +254,16 @@ see [`docs/release-process.md`](docs/release-process.md).
 - **Pi compatibility floor lifted to 0.78.0 (recommended 0.78.0).** Supersedes the unshipped `bump-pi-compat-to-0-76` proposal. Tracks the latest upstream `pi-coding-agent` release; no Node engines change (floor stays `>=22.19.0`). Inherits SIGTERM/SIGHUP `session_shutdown` cleanup and bounded RPC stdin behavior from pi 0.77. Server `package.json::piCompatibility` and the `@earendil-works/pi-coding-agent` dependency both bumped from `^0.75.x` → `^0.78.0`. `bundled-node-meets-pi-floor.test.ts` lookup table extended with `0.76.0`, `0.77.0`, `0.78.0` rows (all → Node 22.19). Three Electron Docker tests (`test-electron-install.sh`, `test-deb-install.sh`, `test-desktop-launch.sh` + inner scripts) rewritten for the bundle-only flow — pre-R3 managed-dir extract, offline-cacache install, and wizard runtime-install stages removed; each now includes a pi-version-meets-`piCompatibility.minimum` check that fails fast on floor drift. (change: `bump-pi-compat-to-0-78`)
 - **Pi compatibility floor lifted to 0.75.0 (recommended 0.75.5).** Users on pi 0.74.x now see the red "below minimum" bootstrap banner with an upgrade hint at 0.75.5. The dashboard's declared Node engines floor rose to `>=22.19.0` (root + server) to mirror pi 0.75.0's own breaking-change Node bump. `node-guard.ts::isAffectedNode` now refuses to start on Node `v22.18.x` (previously accepted). Bundled-extension peer-deps (`pi-anthropic-messages`, `pi-flows`) bumped to `>=0.75.0` / `^0.75.0` in lockstep — they replace the deleted `offline-packages.json` as the dashboard's pin surface. A new repo-lint `bundled-node-meets-pi-floor.test.ts` asserts the bundled Node version (`BUNDLED_NODE_VERSION` in `_node-version.sh`) meets the Node floor required by `piCompatibility.minimum`. (change: `bump-pi-compat-to-0-75`)
 - **RPC keeper sidecar is now the default and only spawn path for headless RPC sessions.** Slash commands (`/ctx-stats`, `/curator`, `/agents`, `/flows:*`) now work in every dashboard-spawned headless session without configuration — typing them in the chat input dispatches through the per-session keeper UDS / named pipe and the command output renders inline. The legacy `tail -f /dev/null | pi` shell wrapper (Unix) and direct-stdin pipe (Windows) headless spawn paths are removed; the keeper is now the uniform mechanism across both platforms, bringing the "pi survives dashboard server restart" durability invariant to Windows for free. The `useRpcKeeper` config field is removed and silently ignored if present in `~/.pi/dashboard/config.json`. **BREAKING (config only)**: users who explicitly set `useRpcKeeper: false` to opt out of the keeper now get the keeper anyway — there is no opt-out flag, since the legacy spawn paths no longer exist. (change: `enable-rpc-keeper-by-default`)
+- **Default runtime bumped to Node 24 (22 floor retained).** New installs default to Node 24 while the supported floor stays at Node 22.
+- **Panel and card visual system.** A neutral panel bevel/elevation system with heavier session titles, a horizontal sweep gradient for card state, zebra-striped framed GFM tables, theme-accent-tinted default Mermaid nodes, and message severity colors unified behind `--severity-*` tokens.
+- **Windows process enumeration switched from `wmic` to PowerShell `Get-CimInstance`.**
+- **Server hydration and OpenSpec polling offloaded to worker threads.** Session-event hydration and OpenSpec status derivation run on worker-thread pools, the OpenSpec poll is scoped to active cwds with serialize-once broadcast, artifact status is derived locally to kill the per-change CLI spawn storm, and session-replay traffic is reduced via a persisted replay cursor with lazy-expanded heavy tool output.
 
 ### Removed
 - **Dashboard OAuth handlers for `google-gemini-cli` and `google-antigravity`** — pi 0.71 removed both as built-in providers, so their hand-written server handlers (and the Google PKCE/project-discovery helpers they used) are deleted. The handler registry now exposes only `anthropic`, `openai-codex`, and `github-copilot`. (change: `adopt-pi-071-072-073-features`)
+- **External code-server editor integration removed** in favor of the internal Monaco editor pane.
+- **First-run wizard removed; the app auto-launches** on first run instead.
+- **Per-folder "View README.md" button removed** along with its supporting chain.
 
 ### Fixed
 - **Model proxy `/v1/models` no longer advertises OAuth-unreachable models.** When a provider's only credential is an OAuth token (Claude Pro/Max, Codex), the upstream endpoint accepts just the current allowlist — yet the proxy still listed legacy dated snapshots (`claude-3-5-haiku-20241022`, `claude-3-5-sonnet-20241022`, the `claude-3.x` family, …), so callers that auto-picked them hit a confusing upstream `404 not_found_error` mid-stream. `InternalRegistry.getAvailable()`/`find()` now filter by credential kind × model id (`canRouteModel`): an `api_key` routes every model; an `oauth` credential routes a model only when it is not flagged in the hand-maintained `packages/server/src/model-proxy/oauth-compat.ts` override table (`oauthCompatible !== false`). Legacy ids over OAuth are now omitted from the `/v1/models` list; a completion request that names one fails fast with a clean proxy `404` (registry `find()` miss) instead of a confusing upstream error mid-stream. Custom models (`~/.pi/agent/models.json`) may set `"oauthCompatible": false` to opt out. A new JWT-gated `GET /api/model-proxy/diagnostics` returns every model with its `excludedReason` (`null` / `"no-credential"` / `"oauth-incompatible"`). Fully additive: no client/protocol/config changes, no migration. (change: `filter-oauth-incompatible-models`)
@@ -46,10 +274,22 @@ see [`docs/release-process.md`](docs/release-process.md).
 - **Sessions stuck after Stop/Shutdown now reliably terminate.** `headlessPidRegistry.killBySessionId` escalates pi from SIGTERM to SIGKILL within a 2-second grace window via the shared `killProcess` ladder (uniform with `handleForceKill`); the RPC keeper sidecar additionally SIGKILLs its `piChild` on its own `shutdown()` (defence-in-depth) so a hung pi cannot be orphaned by the keeper's exit. The legacy non-keeper branch and `cleanupOrphans` startup hygiene use the same ladder. Previously a hung pi (CPU loop, non-cancellable native call) could survive the entire kill ladder and only a dashboard server restart cleared it. (change: `fix-keeper-kill-escalation`)
 - **OpenSpec task counter and stepper actions refresh within ≤ 1 s of editing `tasks.md`** (was up to ~30 s + jitter). Server now attaches a per-cwd `fs.watch` on `<cwd>/openspec/changes/` (recursive) for every known directory. Watcher fires on `tasks.md`, `proposal.md`, `design.md`, or `specs/**/*.md` events with a 300 ms debounce, then runs the existing mtime-gated poll — no bypass of dedup, concurrency cap, or broadcast suppression. Periodic 30 s poll remains as fallback for missed events (network FS, EMFILE, etc). No new config knobs. (change: `fix-openspec-taskcheck-delay`)
 - **Extension slash commands (`/ctx-stats`, `/ctx-doctor`) now render their output in dashboard-spawned RPC sessions.** Previously these only showed a green "completed" pill — context-mode and similar extensions branch on `ctx.hasUI` to decide whether to call `ctx.ui.notify` or return data, and `pi --mode rpc` initialized `ctx.hasUI = false`, so the return-data branch was taken and the output was silently dropped. The bridge already proxies `ctx.ui.notify` through PromptBus to the dashboard; this change adds `ctx.hasUI = true` immediately after the proxy block in `session_start`. **Behavior change for `pi-web-access` users**: web searches in dashboard RPC sessions now default to the `"summary-review"` curator workflow (curator browser window opens). Pin `"workflow": "none"` in pi-web-access config to restore prior behavior. (change: `fix-bridge-hasui-for-headless-rpc`)
+- **Electron attach-mode ownership hardened.** Tray handling, zombie/orphan cleanup, version-skew detection, and orphan labeling are corrected so an attached Electron instance no longer leaks state or mislabels processes.
+- **Doctor diagnostics corrected.** The API-key check now recognizes OAuth credentials in `auth.json`, pi/openspec split into separate "(library)" and "(CLI on PATH)" rows, the stale Managed-install check was retired into the legacy advisory, and the Server launch probe uses a `file://` URL to avoid a Windows `ERR_UNSUPPORTED_ESM_URL_SCHEME`.
+- **Session diff robustness.** Diffs open on absolute paths with a non-git fallback and first-class preview, git enrichment runs off the event loop, and the aggregate diff tab renders non-empty by preferring a renderable change.
+- **Unified error/retry lifecycle.** The error, retry, and recovery surfaces collapse into a single composed card with observe-based retry and durable, clear-only dismiss that consumes a liveness sentinel to stop.
+- **Model proxy resolution.** First-slash model-id parsing with preferred models and aliases, dead `-latest` aliases pruned (`claude-3-5-haiku-latest` kept OAuth-denied), and custom-provider auth pre-registered before discovery.
+- **Empty-actionable (thinking-only) turns guarded** so a silent Gemini turn no longer breaks the transcript, and stuck/superseded tool cards self-heal on dropped terminal events.
+- **Additional fixes.** Stacked-Escape now peels only the topmost layer; TUI confirm context is preserved; the proposal dialog uses a standard close control; popovers flip to stay within the viewport (including the ChatViewMenu in slim panels); the composer toolbar is container-queried to stop split-pane overflow; button pointer cursors are restored app-wide under Tailwind v4; Mermaid render flicker during streaming is fixed; recovery-offer cards render with defined theme tokens; back-navigation uses a data-driven, depth-aware back-target table with raw `pushState`/`replaceState` tracking; the git poll loop is deduped into a shared tick; the live-server proxy self-registers `@fastify/reply-from`; an undefined `toolName` no longer black-screens the reducer; hidden sessions are excluded from the "Clean up broken" count; the EML sanitizer is lazy-loaded so a broken jsdom can't block boot; and overflow menus render in a body portal to escape card clipping.
 
 ### Build
 - Electron: rebundle dashboard server when sources change; fail loudly when client materialization is missing (fix-stale-bundled-server-cache).
 - Electron darwin: self-heal `macos-alias` native module; fail loudly with actionable message when Xcode CLT is missing (`fix-darwin-dmg-maker-macos-alias`). A `packages/electron` `postinstall` hook (`scripts/ensure-macos-alias.mjs`) auto-rebuilds `build/Release/volume.node` when absent (non-fatal, darwin-only); `build-installer.sh` gates `electron-forge make` on the same module and exits non-zero with an `xcode-select --install` hint when the rebuild fails; a darwin-only Doctor row (`macos-alias native module`) surfaces the state.
+- **Docker packaging and a disposable test harness.** Docker packaging with an Electron remote mode plus a disposable, isolated Docker test harness, with parallel E2E runs isolated by managed ports and a per-worktree image.
+- **Playwright browser-E2E suite** against the Docker test harness, including a faux-backed model round-trip scenario and a CodeRabbit review gate with E2E spawn scenarios.
+- **In-CI macOS Electron launch smoke** validates the built Electron app on macOS.
+- **Content-freshness gate for the bundled server** rebuilds the bundled dashboard server when sources change and fails loudly on a stale cache.
+- **Release/publish hardening.** The pi floor in the `verify-release-deps` gate tracks 0.80.10, and five plugin packages were added to the `publish.yml` allowlist with a contract test.
 
 ## [0.5.4] - 2026-05-26
 

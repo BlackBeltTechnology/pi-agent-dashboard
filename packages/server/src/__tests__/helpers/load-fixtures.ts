@@ -7,12 +7,12 @@
  */
 import { vi } from "vitest";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { createMemorySessionManager } from "../../memory-session-manager.js";
-import { createMemoryEventStore } from "../../memory-event-store.js";
-import { createBrowserGateway } from "../../browser-gateway.js";
-import type { BrowserGateway } from "../../browser-gateway.js";
-import type { SessionManager } from "../../memory-session-manager.js";
-import type { PiGateway } from "../../pi-gateway.js";
+import { createMemorySessionManager } from "../../session/memory-session-manager.js";
+import { createMemoryEventStore } from "../../persistence/memory-event-store.js";
+import { createBrowserGateway } from "../../pairing/browser-gateway.js";
+import type { BrowserGateway } from "../../pairing/browser-gateway.js";
+import type { SessionManager } from "../../session/memory-session-manager.js";
+import type { PiGateway } from "../../pi/pi-gateway.js";
 import { createDrainingWs } from "./draining-ws.js";
 import type { DrainingWs, DrainingWsOpts } from "./draining-ws.js";
 

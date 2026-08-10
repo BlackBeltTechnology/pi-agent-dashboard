@@ -1,0 +1,3 @@
+# model-proxy-oauth-filter.spec.ts — index
+
+Playwright spec (`request` fixture, no page). Model-proxy OAuth-incompatible filtering. Precondition: `PI_E2E_SEED` seeds Anthropic-OAuth-only `auth.json` + `config.json#modelProxy` apiKey (hash=sha256 of fixed `pi-proxy-e2e-oauth-filter-*` key). Test 6.2: `GET /v1/models` excludes `anthropic/claude-3-5-haiku-20241022` + all `claude-3-*`, includes `anthropic/claude-haiku-4-5`. Test 6.3: `POST /v1/chat/completions` legacy id → proxy 404. Diagnostics: `GET /api/model-proxy/diagnostics` → `excludedReason` oauth-incompatible for legacy, null for current. Needs PI_E2E_SEED=1. See change: filter-oauth-incompatible-models.

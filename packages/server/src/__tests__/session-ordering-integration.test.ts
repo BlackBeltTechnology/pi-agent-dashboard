@@ -1,10 +1,10 @@
 /**
  * Integration tests for session ordering flows.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { createSessionOrderManager } from "../session-order-manager.js";
-import { createPendingForkRegistry } from "../pending-fork-registry.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPendingForkRegistry } from "../pending/pending-fork-registry.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import { createSessionOrderManager } from "../session/session-order-manager.js";
 
 function createMockPreferencesStore(): PreferencesStore {
   let order: Record<string, string[]> = {};
@@ -27,12 +27,15 @@ function createMockPreferencesStore(): PreferencesStore {
     setWorkspaceCollapsed: vi.fn(() => false),
     addFolderToWorkspace: vi.fn(() => false),
     removeFolderFromWorkspace: vi.fn(() => false),
+    moveFolderToWorkspace: vi.fn(() => false),
     reorderWorkspaceFolders: vi.fn(() => false),
     reorderWorkspaces: vi.fn(() => false),
     flush: vi.fn(),
     getDisplayPrefs: vi.fn(() => undefined),
     getOpenSpecUpdateSignature: vi.fn(() => undefined),
     getAutoInitWorktreeOnSpawn: vi.fn(() => false),
+    getAutoNameSessions: vi.fn(() => true),
+    setAutoNameSessions: vi.fn(),
     getLiveServers: vi.fn(() => []),
     setLiveServers: vi.fn(),
     setAutoInitWorktreeOnSpawn: vi.fn(),

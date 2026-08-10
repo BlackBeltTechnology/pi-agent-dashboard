@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import {
   createPendingAutomationRunRegistry,
   PENDING_AUTOMATION_RUN_CAP,
-} from "../pending-automation-run-registry.js";
+} from "../pending/pending-automation-run-registry.js";
 
 const ident = (cwd: string) => cwd; // bypass realpath in tests
 

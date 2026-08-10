@@ -12,7 +12,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { registerOpenSpecGroupRoutes } from "../routes/openspec-group-routes.js";
-import { createOpenSpecGroupStore, type OpenSpecGroupStore } from "../openspec-group-store.js";
+import { createOpenSpecGroupStore, type OpenSpecGroupStore } from "../openspec/openspec-group-store.js";
 
 const PASSTHRU_GUARD = async () => {};
 const DENY_GUARD = async (_req: any, reply: any) => {

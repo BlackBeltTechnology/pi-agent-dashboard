@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reconcileSessionOrder, type ReconcileSession } from "../reconcile-session-order.js";
+import { reconcileSessionOrder, type ReconcileSession } from "../session/reconcile-session-order.js";
 
 const key = (s: ReconcileSession) => "/repo"; // single-key default for most cases
 

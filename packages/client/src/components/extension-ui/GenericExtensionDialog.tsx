@@ -18,14 +18,15 @@
  * touches the WebSocket directly. The parent (App.tsx) closes it via
  * `onClose`.
  */
-import React, { useCallback, useEffect, useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiClose } from "@mdi/js";
-import type { ExtensionUiModule, UiAction, UiField, UiSection, UiView } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { DialogPortal } from "../DialogPortal.js";
+
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
-import { resolveMdiIcon } from "../../lib/mdi-icon-lookup.js";
-import { t as i18nT } from "../../lib/i18n";
+import type { ExtensionUiModule, UiAction, UiField, UiSection, UiView } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiClose } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useState } from "react";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { resolveMdiIcon } from "../../lib/preview/mdi-icon-lookup.js";
+import { DialogPortal } from "../primitives/DialogPortal.js";
 
 interface Props {
   module: ExtensionUiModule;
@@ -82,7 +83,7 @@ function ModuleHeader({ module, onClose }: { module: ExtensionUiModule; onClose:
       <button
         onClick={onClose}
         className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-1"
-        aria-label={i18nT("auto.close", undefined, "Close")}
+        aria-label={i18nT("common.close", undefined, "Close")}
         data-testid="extension-ui-close"
       >
         <Icon path={mdiClose} size={0.7} />
@@ -133,7 +134,7 @@ function ActionButton({ action, onDispatch, compact }: { action: UiAction; onDis
       {confirmOpen && action.confirm && (
         <Confirm
           open
-          title={i18nT("auto.confirm", undefined, "Confirm")}
+          title={i18nT("common.confirm", undefined, "Confirm")}
           testId="confirm-dialog"
           message={action.confirm}
           confirmLabel={action.label}
@@ -173,7 +174,7 @@ function TableView({ view, rows, onDispatch }: { view: UiView; rows: unknown[]; 
               {f.label}
             </th>
           ))}
-          {(view.rowActions?.length ?? 0) > 0 && <th className="text-right px-2 py-1.5">{i18nT("auto.actions", undefined, "Actions")}</th>}
+          {(view.rowActions?.length ?? 0) > 0 && <th className="text-right px-2 py-1.5">{i18nT("common.actions", undefined, "Actions")}</th>}
         </tr>
       </thead>
       <tbody>

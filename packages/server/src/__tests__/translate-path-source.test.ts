@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import path from "node:path";
-import { translatePathSource } from "../package-manager-wrapper.js";
+import { translatePathSource } from "../package/package-manager-wrapper.js";
 
 describe("translatePathSource", () => {
 	const fromLocal = "/abs/project/.pi";

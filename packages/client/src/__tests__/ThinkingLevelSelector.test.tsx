@@ -4,9 +4,10 @@
  *
  * See change: adopt-pi-071-072-073-features (B.1).
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, fireEvent, cleanup } from "@testing-library/react";
-import { ThinkingLevelSelector } from "../components/ThinkingLevelSelector.js";
+
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ThinkingLevelSelector } from "../components/settings/ThinkingLevelSelector.js";
 
 afterEach(() => cleanup());
 
@@ -44,5 +45,25 @@ describe("ThinkingLevelSelector — supportedLevels filtering", () => {
     const dropdown = container.querySelector('[data-testid="thinking-level-dropdown"]')!;
     const labels = Array.from(dropdown.querySelectorAll("button")).map((b) => b.textContent);
     expect(labels).toEqual(ALL_LEVELS);
+  });
+
+  // max is opt-in: renders only when supportedLevels explicitly includes it,
+  // never in the undefined/empty fallback. See change: honor-native-models-json-metadata (E12).
+  it("renders max only when supportedLevels includes it", () => {
+    const { container } = render(
+      <ThinkingLevelSelector current="max" onSelect={vi.fn()} supportedLevels={["off", "max"]} />,
+    );
+    openDropdown(container);
+    const dropdown = container.querySelector('[data-testid="thinking-level-dropdown"]')!;
+    const labels = Array.from(dropdown.querySelectorAll("button")).map((b) => b.textContent);
+    expect(labels).toEqual(["off", "max"]);
+  });
+
+  it("never renders max in the undefined fallback set", () => {
+    const { container } = render(<ThinkingLevelSelector current="off" onSelect={vi.fn()} />);
+    openDropdown(container);
+    const dropdown = container.querySelector('[data-testid="thinking-level-dropdown"]')!;
+    const labels = Array.from(dropdown.querySelectorAll("button")).map((b) => b.textContent);
+    expect(labels).not.toContain("max");
   });
 });

@@ -27,7 +27,6 @@ describe("event-wiring: queue_update caches Session.pendingQueues and broadcasts
       autoShutdown: false,
       shutdownIdleSeconds: 999,
       tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
     browserPort = server.httpPort()!;

@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   deriveChangelogRawUrl,
   fetchRemoteChangelog,
-} from "../changelog-remote.js";
+} from "../changelog/changelog-remote.js";
 
 describe("deriveChangelogRawUrl", () => {
   it("derives raw URL from string repository", () => {

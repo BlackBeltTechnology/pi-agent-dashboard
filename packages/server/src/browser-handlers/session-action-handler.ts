@@ -12,12 +12,12 @@ import {
 import {
   findPidByMarker,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
-import { keeperOptsFromSpawnResult } from "../headless-pid-registry.js";
-import { spawnPiSession } from "../process-manager.js";
-import { createBranchedSessionFile } from "../session-file-reader.js";
-import { appendSpawnFailure } from "../spawn-failure-log.js";
-import { preflightSpawn } from "../spawn-preflight.js";
-import { getSpawnRegisterWatchdog } from "../spawn-register-watchdog.js";
+import { createBranchedSessionFile } from "../session/session-file-reader.js";
+import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
+import { getKeeperManager, spawnPiSession } from "../spawn-process/process-manager.js";
+import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
+import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
+import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { shouldInterceptReload } from "./session-action-helpers.js";
 
@@ -277,6 +277,20 @@ export async function handleSendPrompt(
   }
 }
 
+/**
+ * Is a process carrier still holding this session? Keeper sidecar probe
+ * (keeper PID + pi PID). Never throws — an unprobeable carrier reads as dead
+ * so a genuine loss is never blocked from resuming.
+ * See change: fix-recovery-exit-intent (task 6.1).
+ */
+function isSessionCarrierAlive(sessionId: string): boolean {
+  try {
+    return getKeeperManager().isKeeperAlive(sessionId);
+  } catch {
+    return false;
+  }
+}
+
 export async function handleResumeSession(
   msg: Extract<BrowserToServerMessage, { type: "resume_session" }>,
   ctx: BrowserHandlerContext,
@@ -284,7 +298,7 @@ export async function handleResumeSession(
   const { ws, sessionManager, pendingForkRegistry, headlessPidRegistry, pendingDashboardSpawns, pendingResumeIntents, pendingClientCorrelations, sendTo } = ctx;
   const session = sessionManager.get(msg.sessionId);
   if (!session) {
-    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session not found", requestId: msg.requestId });
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session not found", code: "resume.session_not_found", requestId: msg.requestId });
     return;
   }
   // Resolve placement intent. Old browsers omit the field; default to
@@ -293,15 +307,37 @@ export async function handleResumeSession(
   // See change: differentiate-resume-intent-by-trigger.
   const placement: "front" | "keep" = msg.placement ?? "front";
   if (!session.sessionFile) {
-    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session file is unknown (pre-migration session)", requestId: msg.requestId });
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session file is unknown (pre-migration session)", code: "resume.session_file_unknown", requestId: msg.requestId });
     return;
   }
   if (msg.mode === "continue" && session.status !== "ended") {
-    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already active", requestId: msg.requestId });
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already active", code: "resume.already_active", requestId: msg.requestId });
+    return;
+  }
+  // Defense-in-depth against the Class-2 double-spawn race: while a cold-start
+  // recovery candidate's liveness is still unresolved (grace window open), a
+  // surviving bridge may be about to reattach. Reopening now would spawn a
+  // second pi for a sessionId whose process is alive, and the gateway
+  // session→connection map is last-write-wins → message routing breaks. Refuse
+  // until liveness is finalized (the UI shows a "verifying" state meanwhile).
+  // See change: fix-recovery-offer-bridge-liveness-gate.
+  if (msg.mode === "continue" && ctx.isRecoveryLivenessPending?.(msg.sessionId)) {
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Verifying whether this session is still running…", code: "resume.already_resuming", requestId: msg.requestId });
     return;
   }
   if (session.resuming) {
-    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already being resumed", requestId: msg.requestId });
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already being resumed", code: "resume.already_resuming", requestId: msg.requestId });
+    return;
+  }
+  // Last line of defence before we spawn: PROBE the process rather than trust
+  // upstream state. Every guard above reads in-memory status or a timing
+  // window — exactly the assumptions that broke in this bug's lineage and
+  // produced a second pi for one sessionId (gateway session→connection map is
+  // last-write-wins, so message routing dies). A live keeper means the session
+  // never needed reopening. See change: fix-recovery-exit-intent (D7).
+  if (msg.mode === "continue" && isSessionCarrierAlive(msg.sessionId)) {
+    console.info(`[recovery] refused reopen of ${msg.sessionId}: keeper still alive`);
+    sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "This session is still running", code: "resume.already_active", requestId: msg.requestId });
     return;
   }
   // Fork preflight: silent-degrade when the source session has no on-disk
@@ -683,7 +719,7 @@ export async function handleForceKill(
   const { sessionManager, piGateway, headlessPidRegistry, broadcast, sendTo, ws, metaPersistence } = ctx;
   const session = sessionManager.get(msg.sessionId);
   if (!session) {
-    sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: false, message: "Session not found" });
+    sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: false, message: "Session not found", code: "resume.session_not_found" });
     return;
   }
 

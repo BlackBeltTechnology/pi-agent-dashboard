@@ -1,0 +1,3 @@
+# chat-transcript-virtualization.spec.ts — index
+
+Browser E2E gate for `virtualize-chat-transcript-tanstack` (Phase 2 Step B) + preserved `chat-scroll-lock`. 6 tests via `[[faux:long-transcript]]` (~120 heterogeneous turns): 50px scroll-lock during streaming, scroll-to-bottom button appear/hide/resume, multi-batch `event_replay` lands at bottom, off-screen `scrollToTurn` via `turn-bar`, streaming tail (`.chat-stream-live`) stays mounted while scrolled up, mounted `[data-index]` rows bounded (<60). Reads scroll metrics off `chatScrollContainer` testid; windowing proof = `[data-index]` count. See change: virtualize-chat-transcript-tanstack.

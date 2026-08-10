@@ -17,7 +17,7 @@ import {
   type SessionState,
   SUPERSEDE_SENTINEL_BODY,
   synthesizeSupersededEnd,
-} from "../event-reducer.js";
+} from "../chat/event-reducer.js";
 
 function apply(events: DashboardEvent[], from: SessionState = createInitialState()): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), from);

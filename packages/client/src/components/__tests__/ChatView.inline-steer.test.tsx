@@ -10,12 +10,12 @@ import { render, fireEvent, cleanup } from "@testing-library/react";
 
 afterEach(() => cleanup());
 import React from "react";
-import { ChatView } from "../ChatView.js";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { createInitialState } from "../../lib/event-reducer.js";
+import { ChatView } from "../chat/ChatView.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
-const defaultToolContext: ToolContext = { editors: [] };
+const defaultToolContext: ToolContext = {};
 
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};

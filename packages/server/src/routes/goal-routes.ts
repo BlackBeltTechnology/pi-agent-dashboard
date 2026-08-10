@@ -15,11 +15,12 @@
  * extension, associated by `goalId`. See change: add-goals-folder-page (design.md).
  */
 
-import type { ApiResponse, GoalBudget, GoalCriterion, GoalJudge, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ApiResponse, GoalBudget, GoalCriterion, GoalJudge, GoalRecord, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { GoalNotFoundError, type GoalStore } from "../goal-store.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import { decorateGoalsWithSpend } from "../goal/decorate-goals-spend.js";
+import { GoalNotFoundError, type GoalStore } from "../goal/goal-store.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export interface GoalRoutesDeps {
@@ -68,6 +69,10 @@ const VALID_STATUS: ReadonlySet<string> = new Set(["pursuing", "paused", "achiev
 
 export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDeps): void {
   const { sessionManager, preferencesStore, networkGuard, store, applyGoalIdToSession, primeGoalSession, spawnGoalSession, abortGoalSupervision } = deps;
+
+  // Server-derived read-time spend join. Single choke point for every
+  // goal-record response. See change: fix-goal-detail-turns-and-spend.
+  const withSpend = (record: GoalRecord): GoalRecord => decorateGoalsWithSpend([record], sessionManager)[0]!;
 
   function rejectInvalidCwd(reply: FastifyReply, cwd: string | undefined): cwd is undefined {
     if (!cwd) {
@@ -155,7 +160,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       const { cwd } = request.query;
       if (rejectInvalidCwd(reply, cwd)) return;
       try {
-        const data = await store.list(cwd!);
+        const data = decorateGoalsWithSpend(await store.list(cwd!), sessionManager);
         return { success: true, data } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);
@@ -207,7 +212,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
           ...(body.autoRespawn !== undefined ? { autoRespawn: body.autoRespawn } : {}),
         });
         reply.code(201);
-        return { success: true, data: created } satisfies ApiResponse;
+        return { success: true, data: withSpend(created) } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);
       }
@@ -282,16 +287,16 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
           const { status: _omit, ...rest } = update;
           if (Object.keys(rest).length > 0) {
             const updated = await store.update(cwd!, id, rest);
-            return { success: true, data: updated } satisfies ApiResponse;
+            return { success: true, data: withSpend(updated) } satisfies ApiResponse;
           }
           // Re-fetch the finalized record; 404 if it was concurrently deleted
           // (never a 200 with no data via a masked non-null assertion).
           const updated = (await store.list(cwd!)).find((g) => g.id === id);
           if (!updated) throw new GoalNotFoundError(id);
-          return { success: true, data: updated } satisfies ApiResponse;
+          return { success: true, data: withSpend(updated) } satisfies ApiResponse;
         }
         const updated = await store.update(cwd!, id, update);
-        return { success: true, data: updated } satisfies ApiResponse;
+        return { success: true, data: withSpend(updated) } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);
       }
@@ -374,7 +379,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
         const updated = await store.linkSession(cwd!, id, sessionId);
         applyGoalIdToSession(sessionId, id);
         primeGoalSession?.(sessionId, updated);
-        return { success: true, data: updated } satisfies ApiResponse;
+        return { success: true, data: withSpend(updated) } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);
       }
@@ -392,7 +397,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       try {
         const updated = await store.unlinkSession(cwd!, id, sid);
         applyGoalIdToSession(sid, null);
-        return { success: true, data: updated } satisfies ApiResponse;
+        return { success: true, data: withSpend(updated) } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);
       }

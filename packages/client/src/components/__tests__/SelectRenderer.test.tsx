@@ -1,9 +1,22 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 import { SelectRenderer } from "../interactive-renderers/SelectRenderer.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 afterEach(cleanup);
+
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(prefers-color-scheme: dark)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  });
+});
 
 const baseProps = {
   requestId: "req-1",
@@ -113,5 +126,35 @@ describe("SelectRenderer", () => {
       render(<SelectRenderer {...baseProps} status="cancelled" onRespond={vi.fn()} onCancel={vi.fn()} />);
       expect(screen.getByText("Cancelled")).toBeTruthy();
     });
+  });
+});
+
+describe("SelectRenderer — resolved shows message body (change: fix-ask-user-card-duplication)", () => {
+  const MSG = "Pick the primary one.";
+  it("renders params.message in the resolved state", () => {
+    render(
+      <ThemeProvider>
+        <SelectRenderer
+        requestId="r" method="select"
+        params={{ title: "Primary language?", options: ["TypeScript", "Python"], message: MSG }}
+        status="resolved" result={{ value: "TypeScript" }}
+        onRespond={vi.fn()} onCancel={vi.fn()}
+      />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText(MSG)).toBeTruthy();
+  });
+  it("renders no message body when params.message is absent", () => {
+    render(
+      <ThemeProvider>
+        <SelectRenderer
+        requestId="r" method="select"
+        params={{ title: "Primary language?", options: ["TypeScript", "Python"] }}
+        status="resolved" result={{ value: "TypeScript" }}
+        onRespond={vi.fn()} onCancel={vi.fn()}
+      />
+      </ThemeProvider>,
+    );
+    expect(screen.queryByText(MSG)).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { selectViewedSessionId } from "../selectViewedSessionId.js";
+import { selectViewedSessionId } from "../session/selectViewedSessionId.js";
 
 /**
  * See change: session-card-unread-stripes.

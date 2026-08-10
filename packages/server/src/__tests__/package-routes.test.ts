@@ -1,16 +1,18 @@
 /**
  * Tests for package management REST routes.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import Fastify from "fastify";
+
 import type { FastifyInstance } from "fastify";
-import { registerPackageRoutes } from "../routes/package-routes.js";
+import Fastify from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  PackageOperationBusyError,
   AlreadyAtDestinationError,
   InvalidMoveRequestError,
+  InvalidResetRequestError,
+  PackageOperationBusyError,
   UnsupportedSourceForDestinationError,
-} from "../package-manager-wrapper.js";
+} from "../package/package-manager-wrapper.js";
+import { registerPackageRoutes } from "../routes/package-routes.js";
 
 // Mock pi dependency (pulled transitively by package-manager-wrapper)
 vi.mock("@earendil-works/pi-coding-agent", () => ({
@@ -19,20 +21,22 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 }));
 
 // Mock npm-search-proxy
-vi.mock("../npm-search-proxy.js", () => ({
+vi.mock("../package/npm-search-proxy.js", () => ({
   searchPackages: vi.fn().mockResolvedValue({ packages: [{ name: "pi-doom", types: ["extension"] }], total: 1 }),
   fetchReadme: vi.fn().mockResolvedValue({ readme: "# Test", name: "pi-doom", version: "1.0.0" }),
+  fetchPackageMeta: vi.fn().mockResolvedValue({ version: "0.5.0" }),
   PackageNotFoundError: class PackageNotFoundError extends Error {
     constructor(name: string) { super(`Package not found: ${name}`); this.name = "PackageNotFoundError"; }
   },
 }));
 
-import { searchPackages, fetchReadme, PackageNotFoundError } from "../npm-search-proxy.js";
+import { fetchReadme, PackageNotFoundError, searchPackages } from "../package/npm-search-proxy.js";
 
 function createMockWrapper() {
   return {
     run: vi.fn().mockResolvedValue("op-123"),
     move: vi.fn().mockResolvedValue("move-456"),
+    reset: vi.fn().mockResolvedValue("reset-789"),
     listInstalled: vi.fn().mockReturnValue([{ source: "npm:pi-doom", scope: "user", filtered: false }]),
     checkUpdates: vi.fn().mockResolvedValue([]),
     isBusy: vi.fn().mockReturnValue(false),
@@ -209,6 +213,97 @@ describe("package-routes", () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
       expect(body.data[0].source).toBe("npm:pi-doom");
+    });
+  });
+
+  describe("POST /api/packages/reset-to-npm", () => {
+    it("returns 202 with resetId + publishedSource for a recommended override row", async () => {
+      wrapper.listInstalled.mockReturnValueOnce([
+        { source: "/home/dev/pi-web-access", scope: "user", filtered: false },
+      ]);
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/packages/reset-to-npm",
+        payload: { source: "/home/dev/pi-web-access", scope: "global" },
+      });
+      expect(res.statusCode).toBe(202);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(true);
+      expect(body.data.resetId).toBe("reset-789");
+      expect(body.data.publishedSource).toBe("npm:pi-web-access");
+      expect(body.data.phases).toEqual(["install", "remove"]);
+      expect(wrapper.reset).toHaveBeenCalledWith({
+        source: "/home/dev/pi-web-access",
+        publishedSource: "npm:pi-web-access",
+        scope: "global",
+        cwd: undefined,
+      });
+    });
+
+    it("returns 400 without source", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/packages/reset-to-npm",
+        payload: { scope: "global" },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(wrapper.reset).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when source is not installed", async () => {
+      wrapper.listInstalled.mockReturnValueOnce([
+        { source: "npm:pi-doom", scope: "user", filtered: false },
+      ]);
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/packages/reset-to-npm",
+        payload: { source: "/home/dev/not-there", scope: "global" },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).error).toMatch(/not installed/);
+      expect(wrapper.reset).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when the row has no resolvable published variant (plain npm)", async () => {
+      wrapper.listInstalled.mockReturnValueOnce([
+        { source: "npm:pi-doom", scope: "user", filtered: false },
+      ]);
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/packages/reset-to-npm",
+        payload: { source: "npm:pi-doom", scope: "global" },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).error).toMatch(/no published variant/);
+      expect(wrapper.reset).not.toHaveBeenCalled();
+    });
+
+    it("returns 409 operation_in_flight when a package op is already running", async () => {
+      wrapper.listInstalled.mockReturnValueOnce([
+        { source: "/home/dev/pi-web-access", scope: "user", filtered: false },
+      ]);
+      wrapper.reset.mockRejectedValueOnce(new PackageOperationBusyError());
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/packages/reset-to-npm",
+        payload: { source: "/home/dev/pi-web-access", scope: "global" },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(JSON.parse(res.body).code).toBe("operation_in_flight");
+    });
+
+    it("returns 400 invalid_request from InvalidResetRequestError", async () => {
+      wrapper.listInstalled.mockReturnValueOnce([
+        { source: "/home/dev/pi-web-access", scope: "user", filtered: false },
+      ]);
+      wrapper.reset.mockRejectedValueOnce(new InvalidResetRequestError("cwd required"));
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/packages/reset-to-npm",
+        payload: { source: "/home/dev/pi-web-access", scope: "local" },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).code).toBe("invalid_request");
     });
   });
 

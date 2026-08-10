@@ -58,19 +58,32 @@ const RULES = [
     evidence:
       "eliminate-electron-runtime-install task 1.1.a — pi lifted from " +
       "optional peer to regular dep so `npm install` resolves it for the " +
-      "standalone + Electron arms. Floor 0.74.0 taken from the now-vestigial " +
-      "packages/electron/offline-packages.json pin.",
-    minVersion: "0.74.0",
+      "standalone + Electron arms. Floor tracks the deliberate pi bump to " +
+      "0.83.0 (0.82 bash session env + streaming; 0.83 ctx.scopedModels, " +
+      "'pending' stop reason, TypeBox 1.3.7). See change: update-pi-core-0-83-adopt-apis.",
+    minVersion: "0.83.0",
   },
   {
     pkgPath: "packages/server/package.json",
     dep: "@fission-ai/openspec",
     kind: "dependencies",
     evidence:
-      "eliminate-electron-runtime-install task 1.1.a — openspec lifted from " +
-      "optional peer to regular dep. Floor 1.3.0 taken from the now-vestigial " +
-      "packages/electron/offline-packages.json pin.",
-    minVersion: "1.3.0",
+      "provision-openspec-cli-in-sessions task 1.4 — floor raised 1.3.0 → 1.6.0 " +
+      "to match the version that generated the openspec-* skills " +
+      "(generatedBy: 1.6.0). npm hoists the server + extension ^1.6.0 ranges to " +
+      "one installed copy the session shim resolves.",
+    minVersion: "1.6.0",
+  },
+  {
+    pkgPath: "packages/extension/package.json",
+    dep: "@fission-ai/openspec",
+    kind: "dependencies",
+    evidence:
+      "provision-openspec-cli-in-sessions task 1.4 — the bridge shim " +
+      "(openspec-cli-shim.ts) require.resolves this dep, so it must travel with " +
+      "the published extension into generic projects (no dashboard copy hoisted " +
+      "there). Floor tracks the single-source version 1.6.0.",
+    minVersion: "1.6.0",
   },
   {
     pkgPath: "packages/server/package.json",
@@ -83,12 +96,122 @@ const RULES = [
       "jiti/tsx loader contract used by packages/server/bin/pi-dashboard.mjs.",
     minVersion: "4.21.0",
   },
+  ...["vite", "@vitejs/plugin-react", "@tailwindcss/vite", "tailwindcss"].map((dep) => ({
+    pkgPath: "packages/client/package.json",
+    dep,
+    kind: "dependencies",
+    evidence:
+      "fix-pi-install-node26-and-omit-dev-build task 1.4 — pi installs via " +
+      "`npm install --omit=dev`, which drops devDependencies. The client `prepare` " +
+      "script runs a Vite build, so its direct build-time requirements must be " +
+      "runtime dependencies or the git-install path dies with " +
+      "`Cannot find module 'vite/package.json'` (issue #357).",
+  })),
+  {
+    pkgPath: "packages/client/package.json",
+    dep: "tsx",
+    kind: "dependencies",
+    evidence:
+      "fix-pi-install-node26-and-omit-dev-build task 1.2 — `scripts/vite-build.mjs` " +
+      "imports `tsx/esm/api`; declared explicitly on the client instead of relying " +
+      "on the fragile hoist of the packages/server runtime tsx dep. Floor 4.21.0 " +
+      "matches the root/server pin.",
+    minVersion: "4.21.0",
+  },
 ];
 
-const failures = [];
+/**
+ * Extract the version floor from a declared range: strips a leading caret/tilde
+ * and any prerelease suffix so `^1.6.0` / `~1.6.0` / `1.6.0` all floor to
+ * `1.6.0`. Returns null for a range we cannot parse (e.g. `*`, a git/url dep).
+ */
+export function floorOf(range) {
+  const m = String(range).match(/(\d+\.\d+\.\d+)/);
+  return m ? m[1] : null;
+}
 
-for (const rule of RULES) {
-  const abs = path.join(REPO_ROOT, rule.pkgPath);
+/**
+ * pi pin coherence: the three single-source pi-version pins MUST resolve to the
+ * same normalized version — the server dep range, `piCompatibility.recommended`,
+ * and the docker global-install pin. Compares normalized floors (via `floorOf`)
+ * so the differing syntaxes `^0.83.0` / `0.83.0` / `@0.83.0` are treated equal.
+ * Returns an error string naming the drifted site(s), or null when coherent.
+ * Exported so the unit test can drive it with fixtures.
+ * See change: update-pi-core-0-83-adopt-apis.
+ */
+export function checkPiPinCoherence(serverPkg, dockerfileText) {
+  const depRange = serverPkg?.dependencies?.["@earendil-works/pi-coding-agent"];
+  const recommended = serverPkg?.piCompatibility?.recommended;
+  const dockerMatch = String(dockerfileText ?? "").match(
+    /@earendil-works\/pi-coding-agent@(\S+)/,
+  );
+  const dockerPin = dockerMatch ? dockerMatch[1] : undefined;
+  if (!depRange || !recommended || !dockerPin) {
+    return (
+      "pi pin coherence: missing a governed pi pin " +
+      `(server dep=${depRange ?? "absent"}, recommended=${recommended ?? "absent"}, ` +
+      `dockerfile=${dockerPin ?? "absent"})`
+    );
+  }
+  const depFloor = floorOf(depRange);
+  const recFloor = floorOf(recommended);
+  const dockerFloor = floorOf(dockerPin);
+  if (
+    depFloor === null ||
+    recFloor === null ||
+    dockerFloor === null ||
+    depFloor !== recFloor ||
+    depFloor !== dockerFloor
+  ) {
+    const drifted = [];
+    if (recFloor !== depFloor) drifted.push(`piCompatibility.recommended ("${recommended}")`);
+    if (dockerFloor !== depFloor) drifted.push(`docker/Dockerfile ("${dockerPin}")`);
+    return (
+      "pi pin drift: the three pi-version pins must resolve to one version — " +
+      `server dep "${depRange}" (floor ${depFloor}); drifted: ${drifted.join(", ") || "(unparseable pin)"}`
+    );
+  }
+  return null;
+}
+
+/**
+ * Cross-consistency: the server and extension `@fission-ai/openspec` ranges MUST
+ * share one version floor (single-source governance). Returns an error string
+ * naming the drifted sites, or null when consistent. Exported so the T-S1 unit
+ * test can drive it with package.json fixtures.
+ * See change: provision-openspec-cli-in-sessions.
+ */
+export function checkOpenspecFloorConsistency(serverPkg, extensionPkg) {
+  const serverRange = serverPkg?.dependencies?.["@fission-ai/openspec"];
+  const extensionRange = extensionPkg?.dependencies?.["@fission-ai/openspec"];
+  if (!serverRange || !extensionRange) {
+    return (
+      "openspec floor consistency: missing @fission-ai/openspec dependency " +
+      `(server=${serverRange ?? "absent"}, extension=${extensionRange ?? "absent"})`
+    );
+  }
+  const serverFloor = floorOf(serverRange);
+  const extensionFloor = floorOf(extensionRange);
+  if (serverFloor === null || extensionFloor === null || serverFloor !== extensionFloor) {
+    return (
+      "openspec floor drift: server and extension @fission-ai/openspec floors must match — " +
+      `server "${serverRange}" (floor ${serverFloor}) vs extension "${extensionRange}" (floor ${extensionFloor})`
+    );
+  }
+  return null;
+}
+
+/**
+ * Evaluate every gate against a repo tree. Exported (with an injectable
+ * `repoRoot`) so the unit test can drive it against a tmp fixture tree instead
+ * of mutating tracked files or spawning the CLI.
+ * See change: fix-pi-install-node26-and-omit-dev-build (task 4.7).
+ */
+export function collectFailures({ repoRoot = REPO_ROOT } = {}) {
+  const failures = [];
+
+  for (const rule of RULES) {
+  const abs = path.join(repoRoot, rule.pkgPath);
   let pkg;
   try {
     pkg = JSON.parse(readFileSync(abs, "utf-8"));
@@ -119,19 +242,55 @@ for (const rule of RULES) {
   }
 }
 
-if (failures.length > 0) {
-  console.error("verify-release-deps.mjs: pre-release dependency gate FAILED");
-  console.error("");
-  for (const f of failures) {
-    console.error("  ✗ " + f.replace(/\n/g, "\n    "));
-    console.error("");
-  }
-  console.error(
-    `Total failures: ${failures.length}. Fix the workspace package.json files before cutting a release.`,
+// Cross-consistency gate: server ↔ extension openspec floors must not drift.
+try {
+  const serverPkg = JSON.parse(
+    readFileSync(path.join(repoRoot, "packages/server/package.json"), "utf-8"),
   );
-  process.exit(1);
+  const extensionPkg = JSON.parse(
+    readFileSync(path.join(repoRoot, "packages/extension/package.json"), "utf-8"),
+  );
+  const drift = checkOpenspecFloorConsistency(serverPkg, extensionPkg);
+  if (drift) failures.push(drift);
+  } catch (err) {
+    failures.push(`Cannot check openspec floor consistency: ${err.message}`);
+  }
+
+  // pi pin coherence gate: server dep ↔ piCompatibility.recommended ↔ Dockerfile.
+  try {
+    const serverPkg = JSON.parse(
+      readFileSync(path.join(repoRoot, "packages/server/package.json"), "utf-8"),
+    );
+    const dockerfileText = readFileSync(path.join(repoRoot, "docker/Dockerfile"), "utf-8");
+    const piDrift = checkPiPinCoherence(serverPkg, dockerfileText);
+    if (piDrift) failures.push(piDrift);
+  } catch (err) {
+    failures.push(`Cannot check pi pin coherence: ${err.message}`);
+  }
+
+  return failures;
 }
 
-console.log(
-  `verify-release-deps.mjs: OK — ${RULES.length} rules passed.`,
-);
+function main() {
+  const failures = collectFailures();
+
+  if (failures.length > 0) {
+    console.error("verify-release-deps.mjs: pre-release dependency gate FAILED");
+    console.error("");
+    for (const f of failures) {
+      console.error("  ✗ " + f.replace(/\n/g, "\n    "));
+      console.error("");
+    }
+    console.error(
+      `Total failures: ${failures.length}. Fix the workspace package.json files before cutting a release.`,
+    );
+    process.exit(1);
+  }
+
+  console.log(`verify-release-deps.mjs: OK — ${RULES.length} rules passed.`);
+}
+
+// Run only when invoked directly (CLI), not when imported by a unit test.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}

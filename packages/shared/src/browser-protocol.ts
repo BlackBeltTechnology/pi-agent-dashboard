@@ -7,7 +7,7 @@ import type {
   PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
-import type { EditorInstanceStatus } from "./editor-types.js";
+import type { NotifyLevel } from "./protocol.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type {
   CommandInfo,
@@ -23,6 +23,7 @@ import type {
   OpenSpecData,
   OpenSpecGroup,
   PiSessionInfo,
+  ViewTarget,
 } from "./types.js";
 
 // Batch ask_user contracts live in protocol.ts; re-export so browser-side
@@ -32,6 +33,7 @@ export type {
   BatchQuestion,
   BatchResult,
   InteractiveMethod,
+  NotifyLevel,
 } from "./protocol.js";
 
 // ── Configurable chat display ───────────────────────────────────────
@@ -76,6 +78,18 @@ export interface SetSessionTagsBrowserMessage {
   type: "set_session_tags";
   sessionId: string;
   tags: string[];
+}
+
+/**
+ * Browser → server: strip a single user tag from every session that carries
+ * it. The server normalizes the inbound tag first; a blank/whitespace-only
+ * tag (normalizes to empty) is a no-op. Fan-out reuses the per-session
+ * normalize → update → broadcast path (one `session_updated` per changed
+ * session). Bridges never send this. See change: sidebar-tag-collapse-and-delete.
+ */
+export interface RemoveTagGloballyBrowserMessage {
+  type: "remove_tag_globally";
+  tag: string;
 }
 
 // ── Server → Browser ────────────────────────────────────────────────
@@ -259,6 +273,12 @@ export interface ResumeResultBrowserMessage {
    * `message`. See change: fix-fork-empty-session-silent-timeout.
    */
   code?: string;
+  /**
+   * Interpolation variables for the client-side translation of `code`
+   * (`err.<domain>.<code>`). Additive; ignored by old clients.
+   * See change: make-all-ui-text-i18n.
+   */
+  vars?: Record<string, string | number>;
 }
 
 export interface SpawnResultBrowserMessage {
@@ -270,6 +290,10 @@ export interface SpawnResultBrowserMessage {
   requestId?: string;
   /** Spawned process PID when known (headless strategies); informational. */
   pid?: number;
+  /** Stable failure classifier for client translation. Additive. See change: make-all-ui-text-i18n. */
+  code?: string;
+  /** Interpolation vars for `err.<domain>.<code>`. Additive. */
+  vars?: Record<string, string | number>;
 }
 
 /**
@@ -316,6 +340,8 @@ export interface SpawnErrorMessage {
   code?: SpawnFailureCode;
   /** Preflight failure reasons. Only set when code === "PREFLIGHT_FAILED". See change: spawn-failure-diagnostics. */
   reasons?: PreflightReason[];
+  /** Interpolation vars for `err.<domain>.<code>`. Additive. See change: make-all-ui-text-i18n. */
+  vars?: Record<string, string | number>;
 }
 
 /**
@@ -432,14 +458,6 @@ export interface SessionStateResetMessage {
   sessionId: string;
 }
 
-/** Notifies browsers of editor instance status changes. */
-export interface EditorStatusMessage {
-  type: "editor_status";
-  cwd: string;
-  id: string;
-  status: EditorInstanceStatus;
-}
-
 // ── PromptBus protocol (Server → Browser) ───────────────────────────
 
 export interface BrowserPromptRequestMessage {
@@ -461,6 +479,19 @@ export interface BrowserPromptRequestMessage {
     props: Record<string, unknown>;
   };
   placement: string;
+}
+
+/**
+ * Server → Browser notification. Render-only: the client appends an
+ * `interactiveUi` row to `messages` and never an `interactiveRequests` entry.
+ * See change: split-notify-from-prompt-request.
+ */
+export interface BrowserNotifyMessage {
+  type: "notify";
+  sessionId: string;
+  notifyId: string;
+  message: string;
+  level?: NotifyLevel;
 }
 
 export interface BrowserPromptDismissMessage {
@@ -581,6 +612,15 @@ export interface BootstrapStatusUpdateMessage {
  * which describe the dashboard's own pi-core install. See change:
  * generalize-worktree-init-hook (renamed from worktree_bootstrap_*).
  */
+/**
+ * Trust scope chosen at confirm time for `POST /api/git/worktree/init`.
+ * `session` = ephemeral (server memory, gone on restart); `project` = persisted
+ * (today's behavior). Omitted → `project` (backward compatible). Any other value
+ * is rejected `bad_request` by the server — no upward coercion.
+ * See change: add-session-scoped-init-trust.
+ */
+export type WorktreeInitTrustScope = "session" | "project";
+
 export interface WorktreeInitProgressMessage {
   type: "worktree_init_progress";
   requestId: string;
@@ -621,18 +661,20 @@ export interface BootstrapTicketCompleteMessage {
 export interface PackageOperationCompleteMessage {
   type: "package_operation_complete";
   operationId: string;
-  /** Optional move grouping id; set on every event of a composite move op. */
+  /** Optional composite grouping id; set on every event of a composite move/reset op. */
   moveId?: string;
-  action: "install" | "remove" | "update" | "move";
+  action: "install" | "remove" | "update" | "move" | "reset";
   source: string;
   scope: "global" | "local";
   success: boolean;
   error?: string;
   /** Number of sessions reloaded (only on success). */
   sessionsReloaded?: number;
-  /** Set on a move op when install succeeded but remove failed.
-   * Indicates the package now exists in BOTH scopes; UI should surface
-   * a recovery action (POST /api/packages/remove against fromScope). */
+  /** Set on a composite move OR reset op when install succeeded but remove
+   * failed. Move: the package now exists in BOTH scopes. Reset: the published
+   * spec installed but the local/git entry is still registered. Either way the
+   * UI should surface a recovery action (POST /api/packages/remove of the
+   * still-present entry). */
   partialSuccess?: {
     installed: boolean;
     removed: boolean;
@@ -690,6 +732,22 @@ export interface BrowserAssetRegisterMessage {
   data: string;
 }
 
+/**
+ * Server → browser: a `plugin_action` arrived for a `pluginId` with no
+ * registered handler. Surfaced to the sender so the action is never silently
+ * dropped. Best-effort out-of-band signal (plugin_action is fire-and-forget,
+ * not correlated). See change: fix-plugin-action-fanout-and-handlers.
+ */
+export interface PluginActionErrorMessage {
+  type: "plugin_action_error";
+  /** The pluginId that had no registered handler. */
+  pluginId: string;
+  /** The action that could not be delivered (echoed for client branching). */
+  action?: string;
+  /** Human-readable error description. */
+  error: string;
+}
+
 /** Sent when a plugin's config changes; carries only that plugin's namespace. */
 export interface PluginConfigUpdateMessage {
   type: "plugin_config_update";
@@ -736,6 +794,15 @@ export interface RecoveryCandidate {
 export interface RecoveryOfferMessage {
   type: "recovery_offer";
   candidates: RecoveryCandidate[];
+  /**
+   * Epoch-ms deadline until which each candidate's process liveness is still
+   * being resolved (the Class-2 bridge-reattach grace window). While
+   * `Date.now() < graceUntil` the offer is shown but Reopen is NOT actionable —
+   * a still-alive bridge may reattach and retract the candidate, and reopening
+   * it early would double-spawn pi for one sessionId. Absent/past ⇒ liveness is
+   * finalized and Reopen is active. See change: fix-recovery-offer-bridge-liveness-gate.
+   */
+  graceUntil?: number;
 }
 
 /**
@@ -767,11 +834,24 @@ export interface IbDomainEventMessage {
   event: { eventType: string; data: unknown };
 }
 
+/**
+ * Server → browser: automatic session naming failed for `sessionId`. Forwarded
+ * from the bridge's `auto_name_error`; the client renders a one-shot toast
+ * ("Couldn't auto-name session: <reason>"). See change: add-auto-session-naming.
+ */
+export interface AutoNameErrorBrowserMessage {
+  type: "auto_name_error";
+  sessionId: string;
+  reason: string;
+}
+
 export type ServerToBrowserMessage =
   | ServerRestartingMessage
   | IbDomainEventMessage
+  | AutoNameErrorBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
+  | PluginActionErrorMessage
   | SessionAddedMessage
   | SessionUpdatedMessage
   | SessionRemovedMessage
@@ -806,13 +886,13 @@ export type ServerToBrowserMessage =
   | PackageOperationCompleteMessage
   | PiCoreUpdateProgressMessage
   | PiCoreUpdateCompleteMessage
-  | EditorStatusMessage
   | ForceKillResultMessage
   | BrowserRolesListMessage
   | ProcessListUpdateMessage
   | ServersDiscoveredMessage
   | ServersUpdatedMessage
   | BrowserPromptRequestMessage
+  | BrowserNotifyMessage
   | BrowserPromptDismissMessage
   | BrowserPromptCancelMessage
   | ModelsRefreshedMessage
@@ -830,8 +910,50 @@ export type ServerToBrowserMessage =
   | DisplayPrefsUpdatedMessage
   | QueueUpdateToBrowserMessage
   | PromptReceivedToBrowserMessage
-  | ViewMessagesUpdateMessage
+  | CanvasIntentMessage
+  | CanvasServerChipMessage
   | FileChangedMessage;
+
+/**
+ * Server push: drive the per-session auto-canvas surface (change: auto-canvas).
+ *
+ * Two phases (Decision 1 two-phase open):
+ *   - `eager`  — the first qualifying candidate mid-turn; open immediately
+ *                (subject to the client viewport gate — mobile surfaces a chip
+ *                instead of yanking chat).
+ *   - `settle` — fired at `agent_end`; the turn's winning target owns the slot.
+ *
+ * `target` is the normalized winning `ViewTarget` (file/url), or `null` when the
+ * turn produced nothing renderable. `mode` maps to the lifecycle state
+ * (`replace` transient vs `pin` kept). Servers never arrive here — they use
+ * `canvas_server_chip`.
+ */
+export interface CanvasIntentMessage {
+  type: "canvas_intent";
+  sessionId: string;
+  phase: "eager" | "settle";
+  target: ViewTarget | null;
+  mode?: "replace" | "pin";
+  title?: string;
+}
+
+/**
+ * Server push: surface a declared-server confirm chip (Decision 4). Carries
+ * ONLY the port — NO announced host (SSRF gate: the client probes
+ * `127.0.0.1:port` on tap, never a host the agent named). No pre-tap fetch.
+ */
+export interface CanvasServerChipMessage {
+  type: "canvas_server_chip";
+  sessionId: string;
+  port: number;
+  title?: string;
+  /**
+   * True = the chip expired at the turn boundary / server-exit and MUST become
+   * non-actionable (S32). When set, `port` echoes the expired chip's port; the
+   * client drops it. Absent/false = surface a fresh, tappable chip.
+   */
+  expire?: boolean;
+}
 
 /**
  * Server push: an open editor-pane file changed on disk (agent edit or
@@ -942,25 +1064,10 @@ export interface PromptReceivedToBrowserMessage {
   fresh: boolean;
 }
 
-/**
- * Server → browser: full snapshot of a session's `/view` preview rows.
- * Sent on subscribe (as a snapshot) and on every change (append). Each
- * entry is a minimal ChatMessage shape with `view` set; the client merges
- * them into its rendered chat by timestamp. View messages live in a
- * separate server-side store, NEVER in pi's events.jsonl — the agent does
- * not observe them. See change: render-file-previews.
- */
-export interface ViewMessagesUpdateMessage {
-  type: "view_messages_update";
-  sessionId: string;
-  viewMessages: Array<{
-    id: string;
-    role: "user";
-    content: "";
-    timestamp: number;
-    view: import("./types.js").ViewTarget;
-  }>;
-}
+// The `/view` inline surface is retired (change:
+// open-view-command-in-editor-pane): `/view` opens the editor pane, so the
+// server no longer emits `view_messages_update` nor accepts
+// `inject_view_message`. Both message types removed.
 
 export interface RequestCommandsToBrowserMessage {
   type: "request_commands";
@@ -1042,6 +1149,10 @@ export interface ForceKillResultMessage {
   sessionId: string;
   success: boolean;
   message?: string;
+  /** Stable failure classifier for client translation. Additive. See change: make-all-ui-text-i18n. */
+  code?: string;
+  /** Interpolation vars for `err.<domain>.<code>`. Additive. */
+  vars?: Record<string, string | number>;
 }
 
 export interface ProcessListUpdateMessage {
@@ -1288,6 +1399,20 @@ export interface ReorderWorkspacesMessage {
   ids: string[];
 }
 
+/**
+ * Move a folder into a workspace, or eject it from all workspaces.
+ * `toWorkspaceId: null` ejects the folder and pins it.
+ * `index` is the insert position in the target (omitted = append); it is
+ * clamped server-side and ignored when the target is null.
+ * See change: drag-folders-across-workspaces.
+ */
+export interface MoveFolderToWorkspaceMessage {
+  type: "move_folder_to_workspace";
+  path: string;
+  toWorkspaceId: string | null;
+  index?: number;
+}
+
 export interface OpenSpecBulkArchiveBrowserMessage {
   type: "openspec_bulk_archive";
   cwd: string;
@@ -1471,19 +1596,6 @@ export interface UiManagementBrowserMessage {
   params?: Record<string, unknown>;
 }
 
-/**
- * Browser → server: inject a `/view` preview row into the session. The
- * server persists it in a per-session view-messages store (separate from
- * pi's events.jsonl so the agent never observes it) and broadcasts the
- * updated list via `view_messages_update`.
- * See change: render-file-previews.
- */
-export interface InjectViewMessageBrowserMessage {
-  type: "inject_view_message";
-  sessionId: string;
-  target: import("./types.js").ViewTarget;
-}
-
 export type BrowserToServerMessage =
   | SubscribeMessage
   | UnsubscribeMessage
@@ -1524,6 +1636,7 @@ export type BrowserToServerMessage =
   | RemoveFolderFromWorkspaceMessage
   | ReorderWorkspaceFoldersMessage
   | ReorderWorkspacesMessage
+  | MoveFolderToWorkspaceMessage
   | OpenSpecBulkArchiveBrowserMessage
   | CreateTerminalBrowserMessage
   | KillTerminalBrowserMessage
@@ -1556,7 +1669,7 @@ export type BrowserToServerMessage =
   | SetSessionDisplayPrefsBrowserMessage
   | SetSessionProcessDrawerBrowserMessage
   | SetSessionTagsBrowserMessage
-  | InjectViewMessageBrowserMessage
+  | RemoveTagGloballyBrowserMessage
   | RecoveryDismissMessage
   | SubagentResyncRequestBrowserMessage
   | WatchFilesBrowserMessage;

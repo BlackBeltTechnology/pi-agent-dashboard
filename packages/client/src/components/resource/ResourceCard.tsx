@@ -1,0 +1,179 @@
+/**
+ * ResourceCard — a single pi-resource rendered as a card (replaces the legacy
+ * `resource-tree.tsx` row). The tree encoded scope/source by nesting position;
+ * the card carries them explicitly as badges:
+ *   - scope  → `⬡ local` (green) / `◇ global` (purple)
+ *   - source → `loose` / `📦 <package-name>` (orange)
+ *   - provenance → skills only, from the live join: nothing for `active`,
+ *              `not loaded` / `loaded elsewhere` otherwise. No cause is
+ *              asserted — discovery already dropped anything failing pi's
+ *              load gate, so the status is all that is known.
+ *              See change: fix-skill-discovery-parity.
+ *   - path   → monospace line at the card bottom
+ *   - toggle → activation switch, top-right (omitted for agents — pi has no
+ *              activation dimension for `.pi/agents/*.md`)
+ *
+ * Type-specific treatments:
+ *   - agent → `◆ model` + `🔧 tools` badges
+ *   - theme → palette swatch strip replaces the description row
+ *
+ * A globally-defined resource disabled at folder scope keeps its row in the
+ * section the user acted in, and gains a `folder-controlled` badge rather than
+ * silently jumping to the local section — the activation genuinely is a
+ * project-scope settings entry now, and hiding that would be a lie.
+ *
+ * See change: resources-card-tabs, project-scope-disable-global-resources.
+ */
+
+import type { PiResource } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { mdiBookOpenPageVariant, mdiPalette, mdiPuzzleOutline, mdiRobotOutline, mdiTextBoxOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type { ResourceActivationController } from "../../hooks/useResourceActivation.js";
+import type { ResourceScope } from "../../lib/api/resources-api.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { ActivationToggle } from "./resource-tree.js";
+
+const TYPE_ICON: Record<PiResource["type"], string> = {
+  skill: mdiBookOpenPageVariant,
+  extension: mdiPuzzleOutline,
+  prompt: mdiTextBoxOutline,
+  theme: mdiPalette,
+  agent: mdiRobotOutline,
+};
+
+interface Props {
+  resource: PiResource;
+  /** Scope this card belongs to — drives the scope badge. */
+  scope: ResourceScope;
+  /**
+   * Scope the toggle WRITES to — the surface's scope, not the resource's.
+   * On the folder surface a globally-defined resource is disabled at `local`
+   * scope (that is the cross-scope disable this surface exists to offer);
+   * writing at the resource's own `global` scope would disable it everywhere.
+   */
+  toggleScope: ResourceScope;
+  /** Package name when package-contributed; undefined → loose. */
+  packageName?: string;
+  /** Raw package source string (pi settings key) used by the activation write. */
+  packageSource?: string;
+  /**
+   * Working directory of the session behind the provenance status, shown only
+   * when it differs from the scanned folder. See change: fix-skill-discovery-parity.
+   */
+  sessionCwd?: string;
+  onView: () => void;
+  activation?: ResourceActivationController;
+}
+
+export function ResourceCard({ resource, scope, toggleScope, packageName, packageSource, sessionCwd, onView, activation }: Props) {
+  const isAgent = resource.type === "agent";
+  const isTheme = resource.type === "theme";
+  // Agents have no pi activation dimension → no toggle, never dimmed.
+  const enabled = isAgent ? true : activation ? activation.isEnabled(resource) : resource.enabled;
+  const showToggle = !isAgent && !!activation;
+  const folderControlled = scope === "global" && !!activation?.isFolderControlled(resource);
+
+  return (
+    <div
+      data-testid="resource-card"
+      data-type={resource.type}
+      className={`flex flex-col gap-2 p-3.5 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] cursor-pointer transition-colors hover:border-[var(--border-secondary)] hover:bg-[var(--bg-hover)] ${!enabled ? "opacity-55" : ""}`}
+      onClick={onView}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onView(); } }}
+    >
+      <div className="flex items-start gap-2">
+        <Icon path={TYPE_ICON[resource.type]} size={0.62} className="shrink-0 text-[var(--text-secondary)] mt-0.5" />
+        <span className="flex-1 min-w-0 text-[13.5px] font-semibold text-[var(--text-primary)] break-words">{resource.name}</span>
+        {showToggle && (
+          <ActivationToggle
+            resource={resource}
+            enabled={enabled}
+            onToggle={() => activation?.toggle(resource, toggleScope, packageSource)}
+          />
+        )}
+      </div>
+
+      {isTheme && resource.colors && resource.colors.length > 0 ? (
+        <div data-testid="resource-card-swatch" className="flex h-6 rounded-md overflow-hidden border border-[var(--border-primary)]">
+          {resource.colors.map((c, i) => (
+            <span key={`${c}-${i}`} className="flex-1" style={{ background: c }} />
+          ))}
+        </div>
+      ) : (
+        resource.description && (
+          <p className="text-[11.5px] leading-snug text-[var(--text-tertiary)] line-clamp-2">{resource.description}</p>
+        )
+      )}
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {scope === "local" ? (
+          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-green-500/12 text-[var(--accent-green,#16a34a)]" data-testid="badge-scope">⬡ {i18nT("common.local", undefined, "local")}</span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/12 text-[var(--accent-purple,#9333ea)]" data-testid="badge-scope">◇ {i18nT("common.global", undefined, "global")}</span>
+        )}
+        {packageName ? (
+          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-orange-500/12 text-[var(--accent-orange,#ea580c)]" data-testid="badge-source">📦 {packageName}</span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]" data-testid="badge-source">{i18nT("common.loose", undefined, "loose")}</span>
+        )}
+        {folderControlled && (
+          <span
+            className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/12 text-[var(--accent-orange,#ea580c)]"
+            data-testid="badge-folder-controlled"
+            title={i18nT(
+              "resources.folderControlsActivationHint",
+              undefined,
+              "This folder's .pi/settings.json now controls whether this resource loads.",
+            )}
+          >
+            ⚑ {i18nT("resources.folderControlsActivation", undefined, "folder controls activation")}
+          </span>
+        )}
+        {isAgent && resource.model && (
+          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-[var(--accent-primary)]" data-testid="badge-model">◆ {resource.model}</span>
+        )}
+        {isAgent && resource.tools && (
+          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-[var(--accent-primary)]" data-testid="badge-tools">🔧 {resource.tools}</span>
+        )}
+        {resource.status === "not-loaded" && (
+          <span
+            className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/12 text-[var(--accent-orange,#d97706)]"
+            data-testid="badge-provenance"
+            data-provenance="not-loaded"
+          >
+            ○ {i18nT("common.notLoaded", undefined, "not loaded")}
+          </span>
+        )}
+        {resource.status === "loaded-elsewhere" && (
+          <span
+            className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-sky-500/12 text-[var(--accent-primary)]"
+            data-testid="badge-provenance"
+            data-provenance="loaded-elsewhere"
+          >
+            ↗ {i18nT("common.loadedElsewhere", undefined, "loaded elsewhere")}
+          </span>
+        )}
+      </div>
+
+      {resource.status === "loaded-elsewhere" && resource.sessionPath && (
+        <div
+          data-testid="resource-card-session-path"
+          className="text-[10px] font-mono text-[var(--text-muted)] truncate"
+          title={resource.sessionPath}
+        >
+          {resource.sessionPath}
+        </div>
+      )}
+
+      {resource.status === "not-loaded" && sessionCwd && (
+        <div data-testid="resource-card-session-cwd" className="text-[10px] text-[var(--text-muted)] truncate" title={sessionCwd}>
+          {i18nT("common.sessionCwd", { cwd: sessionCwd }, `session cwd: ${sessionCwd}`)}
+        </div>
+      )}
+
+      <div className="text-[10px] font-mono text-[var(--text-muted)] truncate" title={resource.filePath}>{resource.filePath}</div>
+    </div>
+  );
+}

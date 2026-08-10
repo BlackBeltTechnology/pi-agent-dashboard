@@ -5,16 +5,17 @@
  *
  * See change: sophisticate-goal-authoring-and-control.
  */
-import React from "react";
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
-import { Router } from "wouter";
+
 import {
+  clearSessionEvents,
   PluginContextProvider,
   publishSessionEvent,
-  clearSessionEvents,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { GoalRecord } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Router } from "wouter";
 import { GoalsBoardClaim } from "../client/GoalsBoardClaim.js";
 import { encodeFolderPath } from "../client/goals-api.js";
 import { GOAL_STATUS_EVENT_TYPE } from "../shared/goal-types.js";
@@ -106,5 +107,23 @@ describe("GoalsBoardClaim", () => {
     fireEvent.click(getByTestId("goal-form-submit"));
     await waitFor(() => getAllByTestId("goal-card"));
     expect(getByTestId("goal-card").textContent).toContain("Ship importer");
+  });
+
+  // Completed goal, driver session ended (no live snapshot) → the board must
+  // surface the persisted turns + summed spend, not placeholders.
+  // See change: fix-goal-detail-turns-and-spend.
+  it("F2: ended driver → TurnRing reflects persisted lastKnownTurnsUsed (1/3), not empty", async () => {
+    const goal = goalFixture({ status: "achieved", driverSessionId: undefined, lastKnownTurnsUsed: 1, budget: { maxTurns: 3 } });
+    const { getByTestId } = renderBoard([goal]);
+    await waitFor(() => getByTestId("goal-card"));
+    expect(getByTestId("goal-turn-ring")).toBeTruthy();
+    expect(getByTestId("goal-live-progress").textContent).toContain("1/3");
+  });
+
+  it("F5: completed goal totalSpendUsd 0.29 → spend block shows $0.29", async () => {
+    const goal = goalFixture({ status: "achieved", driverSessionId: undefined, totalSpendUsd: 0.29 });
+    const { getByTestId } = renderBoard([goal]);
+    await waitFor(() => getByTestId("goal-card"));
+    expect(getByTestId("goal-card-spend").textContent).toContain("$0.29");
   });
 });

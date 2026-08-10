@@ -4,7 +4,7 @@ import {
   readAllDrafts,
   writeDraft,
   deleteDraft,
-} from "../draft-storage.js";
+} from "../state/draft-storage.js";
 
 describe("draft-storage", () => {
   beforeEach(() => {

@@ -9,9 +9,10 @@
  * takeover uses).
  */
 
-import { t as i18nT } from "../../lib/i18n";
-import { DiffPanel } from "../DiffPanel.js";
-import { useOptionalSessionDiff } from "../SessionDiffContext.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { normalizeUnderCwd } from "../../lib/util/normalize-path.js";
+import { DiffPanel } from "../diff/DiffPanel.js";
+import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
 import type { ViewerProps } from "./types.js";
 
 /** Strip the `diff:` sentinel from a virtual viewer path. */
@@ -19,27 +20,33 @@ export function stripDiffPrefix(path: string): string {
   return path.startsWith("diff:") ? path.slice("diff:".length) : path;
 }
 
-export default function DiffViewer({ path }: ViewerProps) {
+export default function DiffViewer({ path, cwd }: ViewerProps) {
   const relPath = stripDiffPrefix(path);
   const ctx = useOptionalSessionDiff();
 
   if (!ctx) {
     return (
       <div className="flex h-full items-center justify-center text-[var(--text-tertiary)] text-sm">
-        {i18nT("auto.diff_unavailable", undefined, "Diff unavailable")}
+        {i18nT("common.diffUnavailable", undefined, "Diff unavailable")}
       </div>
     );
   }
 
   const { data, isLoading } = ctx;
-  const file = data?.files.find((f) => f.path === relPath);
+  // Exact match first; on a miss retry with the cwd-normalized path
+  // (belt-and-suspenders for any caller that opened an absolute `diff:` path).
+  // See change: fix-session-diff-open-nongit-and-preview.
+  const normPath = normalizeUnderCwd(relPath, cwd);
+  const file =
+    data?.files.find((f) => f.path === relPath) ??
+    (normPath !== relPath ? data?.files.find((f) => f.path === normPath) : undefined);
 
   if (!file) {
     return (
       <div className="flex h-full items-center justify-center text-[var(--text-tertiary)] text-sm">
         {isLoading
-          ? i18nT("auto.loading_diff", undefined, "Loading diff…")
-          : i18nT("auto.no_changes_for_file", undefined, "No changes for this file")}
+          ? i18nT("status.loadingDiff", undefined, "Loading diff…")
+          : i18nT("common.noChangesForFile", undefined, "No changes for this file")}
       </div>
     );
   }
@@ -47,8 +54,9 @@ export default function DiffViewer({ path }: ViewerProps) {
   return (
     <DiffPanel
       file={file}
-      selection={{ filePath: relPath, changeIndex: null }}
+      selection={{ filePath: file.path, changeIndex: null }}
       sessionId={ctx.sessionId}
+      cwd={cwd}
     />
   );
 }

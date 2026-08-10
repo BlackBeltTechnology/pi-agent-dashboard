@@ -137,20 +137,23 @@ const INSTALL_HINTS: Record<string, InstallHints> = {
   },
   zrok: {
     docsAnchor: "install-zrok",
+    // zrok v2: Homebrew still ships the binary as `zrok`; the tarball, Windows,
+    // and Linux packages install `zrok2`. Both names resolve at runtime.
+    // See change: support-zrok-v2.
     darwin: {
       commands: { brew: "brew install zrok" },
-      url: "https://docs.zrok.io/docs/guides/install/",
+      url: "https://docs.zrok.io/docs/getting-started/",
     },
     win32: {
-      manual: "Download the Windows zrok release and add it to PATH.",
+      manual: "Download the zrok v2 Windows release and add `zrok2` to PATH.",
       url: "https://github.com/openziti/zrok/releases/latest",
     },
     linux: {
       commands: {
         brew: "brew install zrok",
-        script: "curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok",
+        script: "curl -sSLf https://get.openziti.io/install.bash | sudo bash -s zrok",
       },
-      url: "https://docs.zrok.io/docs/guides/install/linux/",
+      url: "https://docs.zrok.io/docs/getting-started/",
     },
   },
   ngrok: {

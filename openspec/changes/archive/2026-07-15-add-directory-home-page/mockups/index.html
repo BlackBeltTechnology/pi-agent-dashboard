@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Directory Home Page — mockup</title>
+<style>
+/* ── Theme tokens (verbatim from packages/client/src/index.css) ───────── */
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --bg-hover:rgba(255,255,255,.06); --bg-selected:#1e1e1e; --bg-code:#1a1a1a; --bg-overlay:rgba(0,0,0,.6);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858; --text-faint:#3a3a3a;
+  --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444;
+  --accent-purple:#a855f7; --accent-orange:#f97316; --accent-primary:#3b82f6; --link:#60a5fa; --link-hover:#93bbfd;
+  --status-needs-you:var(--accent-purple); --status-working:var(--accent-yellow); --status-idle:var(--accent-green);
+  --focus-ring:var(--accent-primary); --shadow-card:rgba(0,0,0,.4); --elevation-rim:rgba(255,255,255,.10);
+}
+[data-theme="light"]{
+  --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --bg-hover:rgba(0,0,0,.04); --bg-selected:#e8e8e8; --bg-code:#f5f5f5; --bg-overlay:rgba(0,0,0,.3);
+  --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa; --text-faint:#d0d0d0;
+  --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+  --accent-primary:#2563eb; --link:#2563eb; --link-hover:#1d4ed8; --shadow-card:rgba(0,0,0,.08); --elevation-rim:rgba(255,255,255,.9);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg-primary);color:var(--text-primary);height:100vh;overflow:hidden}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
+
+/* ── Demo chrome (not part of the product) ───────────────────────────── */
+.demobar{position:fixed;top:0;left:0;right:0;height:40px;display:flex;gap:8px;align-items:center;padding:0 12px;
+  background:var(--bg-surface);border-bottom:1px solid var(--border-secondary);z-index:50;font-size:12px}
+.demobar b{color:var(--text-secondary);font-weight:600;margin-right:4px}
+.demobar button{padding:4px 10px;border-radius:6px;border:1px solid var(--border-secondary);color:var(--text-secondary);font-size:12px}
+.demobar button[aria-pressed="true"]{background:color-mix(in srgb,var(--accent-primary) 18%,transparent);color:var(--text-primary);border-color:color-mix(in srgb,var(--accent-primary) 60%,transparent)}
+.demobar .spacer{flex:1}
+
+.app{display:flex;height:100vh;padding-top:40px}
+
+/* ── Sidebar (context) ───────────────────────────────────────────────── */
+.sidebar{width:264px;flex-shrink:0;background:var(--bg-secondary);border-right:1px dashed var(--border-secondary);
+  display:flex;flex-direction:column;overflow-y:auto}
+.side-head{padding:12px 12px 6px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted)}
+/* Folder + its sessions form ONE common region (Gestalt). The dashed border
+   lives on the group so it encloses the folder header AND its sessions. */
+.folder-group{margin:2px 6px;border-radius:10px;border:1px dashed transparent;padding:1px}
+.folder-group.sel{border-color:color-mix(in srgb,var(--accent-primary) 55%,var(--border-secondary));background:color-mix(in srgb,var(--accent-primary) 6%,transparent)}
+.folder{display:flex;align-items:center;gap:6px;padding:7px 9px;border-radius:8px;color:var(--text-secondary)}
+.folder:hover{background:var(--bg-hover)}
+.folder-group.sel>.folder{color:var(--text-primary)}
+/* Sidebar session list: the SAME rich .scard format as the content pane,
+   sized down to fit the narrow (264px) column. */
+.group-sessions{display:flex;flex-direction:column;gap:6px;padding:2px 6px 6px}
+.sidebar .scard{padding:8px 10px 7px 12px;border-radius:10px;gap:5px}
+.sidebar .scard::before{width:2.5px}
+.sidebar .srow1{gap:7px}
+.sidebar .stitle{font-size:12.5px}
+.sidebar .sage{font-size:10px}
+.sidebar .srow2{gap:6px;font-size:10.5px}
+.sidebar .smodel{max-width:96px}
+.sidebar .sact{display:none}          /* activity text omitted in the narrow rail */
+.sidebar .ctxbar{width:40px;height:4px}
+.sidebar .qbadge{height:15px;font-size:9.5px;padding:0 5px}
+.folder .chev{width:16px;height:16px;flex-shrink:0;color:var(--text-muted);border-radius:4px}
+.folder .chev:hover{background:var(--bg-hover);color:var(--text-secondary)}
+.folder .fname{flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.folder .count{font-size:11px;color:var(--text-muted)}
+.folder .open{width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--text-muted);opacity:0;transition:opacity .12s}
+.folder:hover .open,.folder.sel .open{opacity:1}
+.folder .open:hover{background:var(--bg-hover);color:var(--accent-primary)}
+.session{display:flex;align-items:center;gap:7px;padding:6px 9px 6px 29px;font-size:12.5px;color:var(--text-tertiary);border-radius:8px}
+.session:hover{background:var(--bg-hover)}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot.idle{background:var(--status-idle)} .dot.work{background:var(--status-working)} .dot.need{background:var(--status-needs-you)}
+
+/* ── Content: Directory Home ─────────────────────────────────────────── */
+.content{flex:1;min-width:0;background:var(--bg-primary);display:flex;flex-direction:column;overflow-y:auto}
+.dh-header{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--border-primary)}
+.dh-title{font-size:15px;font-weight:600;color:var(--text-primary)}
+.dh-path{font-size:12px;color:var(--text-tertiary)}
+.qa{display:flex;gap:6px;margin-left:auto}
+.qa a{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 10px;border-radius:8px;
+  border:1px solid var(--border-secondary);color:var(--text-secondary);text-decoration:none}
+.qa a:hover{background:var(--bg-hover);color:var(--text-primary)}
+
+/* Prompt composer — grounded in CommandInput.tsx */
+.composer{background:var(--bg-tertiary);border:1px solid var(--border-secondary);border-radius:12px;padding:8px 10px 6px;transition:border-color .12s}
+.composer:focus-within{border-color:color-mix(in srgb,var(--accent-primary) 60%,transparent)}
+.composer textarea{display:block;width:100%;background:transparent;border:none;outline:none;resize:none;
+  font-size:14px;line-height:1.5;color:var(--text-primary);padding:6px}
+.composer textarea::placeholder{color:var(--text-muted)}
+.composer-bar{display:flex;align-items:center;gap:8px;padding-top:4px}
+.chip{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;border-radius:8px;font-size:12px;
+  color:var(--text-secondary)}
+.chip:hover{background:var(--bg-hover)}
+.chip .k{color:var(--text-muted)}
+.send{margin-left:auto;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;
+  background:var(--accent-blue);border-radius:10px;color:#fff}
+.send:hover{filter:brightness(1.08)}
+.send[disabled]{opacity:.5;cursor:not-allowed}
+.spin{width:18px;height:18px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* Empty state: centered focal prompt */
+.empty-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:18px;text-align:center}
+.empty-wrap .glyph{font-size:44px;color:var(--accent-primary);opacity:.5;line-height:1}
+.empty-wrap h1{font-size:20px;font-weight:600}
+.empty-wrap p{font-size:13px;color:var(--text-tertiary);max-width:44ch}
+.empty-composer{width:100%;max-width:640px}
+.hintrow{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:2px}
+.hintrow button{font-size:12px;padding:5px 11px;border-radius:999px;border:1px solid var(--border-secondary);color:var(--text-secondary)}
+.hintrow button:hover{background:var(--bg-hover);color:var(--text-primary)}
+
+/* Populated state: docked-top prompt + session list */
+.pop-wrap{flex:1;display:flex;flex-direction:column;padding:18px 20px;gap:16px}
+.pop-composer{max-width:760px;width:100%}
+.sec-label{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px}
+.slist{display:flex;flex-direction:column;gap:8px;max-width:760px}
+/* Rich session card — mirrors packages/client/src/components/SessionCard.tsx:
+   rounded-xl + bevel/drop shadow, status-tinted left rail, status-shape marker,
+   two-line meta (model · activity · context bar · cost), selected ring. */
+.scard{position:relative;isolation:isolate;overflow:hidden;display:flex;flex-direction:column;gap:6px;
+  padding:11px 13px 10px 16px;border-radius:12px;border:1px solid var(--border-subtle);background:var(--bg-tertiary);
+  box-shadow:inset 0 1px 0 var(--elevation-rim),0 4px 8px var(--shadow-card);
+  transition:box-shadow .2s,border-color .2s;cursor:pointer}
+.scard:hover{box-shadow:inset 0 1px 0 var(--elevation-rim),0 6px 13px var(--shadow-card)}
+.scard.sel{border-color:color-mix(in srgb,var(--accent-blue) 60%,transparent);background:color-mix(in srgb,var(--accent-blue) 6%,transparent);
+  box-shadow:inset 0 1px 0 var(--elevation-rim),0 0 0 1px color-mix(in srgb,var(--accent-blue) 30%,transparent),0 6px 15px var(--shadow-card)}
+/* status-tinted left rail */
+.scard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--rail,var(--border-secondary))}
+.scard.work{--rail:var(--status-working)} .scard.idle{--rail:var(--status-idle)} .scard.need{--rail:var(--status-needs-you)}
+.srow1{display:flex;align-items:center;gap:8px}
+.sicon{position:relative;flex-shrink:0;width:15px;height:15px;display:flex;align-items:center;justify-content:center}
+.sicon svg{width:14px;height:14px}
+/* non-color status shape: filled / ring / half — survives grayscale + reduced motion */
+.shape{position:absolute;right:-3px;bottom:-3px;width:8px;height:8px;border-radius:50%;box-shadow:0 0 0 1.5px var(--bg-tertiary)}
+.work .sicon{color:var(--status-working)} .idle .sicon{color:var(--status-idle)} .need .sicon{color:var(--status-needs-you)}
+.work .shape{background:var(--status-working)}
+.idle .shape{background:var(--status-idle)}
+.need .shape{background:transparent;box-shadow:0 0 0 1.5px var(--bg-tertiary),inset 0 0 0 1.6px var(--status-needs-you)}
+.scard .stitle{font-size:13.5px;font-weight:600;color:var(--text-primary);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scard .sage{font-size:11px;color:var(--text-muted);flex-shrink:0}
+.srow2{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--text-tertiary)}
+.smodel{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
+.sact{color:var(--text-secondary)}
+.spacer2{flex:1}
+.ctxbar{width:64px;height:5px;border-radius:999px;background:var(--bg-surface);overflow:hidden;flex-shrink:0}
+.ctxbar>i{display:block;height:100%;border-radius:999px;background:color-mix(in srgb,var(--accent-blue) 75%,var(--text-muted))}
+.scost{color:var(--text-tertiary);flex-shrink:0}
+.qbadge{display:inline-flex;align-items:center;padding:0 6px;height:16px;font-size:10px;border-radius:999px;
+  background:color-mix(in srgb,var(--accent-blue) 15%,transparent);color:var(--link);border:1px solid color-mix(in srgb,var(--accent-blue) 30%,transparent)}
+
+/* Not-pinned + loading */
+.notice{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px}
+.notice .glyph{font-size:36px;opacity:.5}
+.notice p{font-size:13px;color:var(--text-tertiary);max-width:40ch}
+.cta{padding:8px 16px;border-radius:9px;border:1px solid color-mix(in srgb,var(--accent-primary) 50%,transparent);color:var(--accent-primary);font-size:13px}
+.cta:hover{background:color-mix(in srgb,var(--accent-primary) 12%,transparent)}
+.skel{border-radius:10px;background:linear-gradient(90deg,var(--bg-secondary),var(--bg-tertiary),var(--bg-secondary));
+  background-size:200% 100%;animation:sh 1.3s ease-in-out infinite}
+@keyframes sh{to{background-position:-200% 0}}
+
+.hide{display:none!important}
+svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* Reduced-motion: the shipped app uses motion-reduce:animate-none — mirror it. */
+@media (prefers-reduced-motion:reduce){.spin,.skel{animation:none}.folder .open{transition:none}}
+
+/* Narrow width: avoid header overflow + reclaim space (real app swaps to MobileShell). */
+@media (max-width:720px){
+  .sidebar{width:200px}
+  .dh-header{flex-wrap:wrap;gap:6px 10px}
+  .qa{margin-left:0;width:100%}
+  .qa a span,.qa a{font-size:0}          /* icon-only quick actions */
+  .qa a svg{width:18px;height:18px}
+  .qa a{padding:8px}                      /* keep >=24px target */
+}
+@media (max-width:480px){
+  .sidebar{display:none}                  /* MobileShell owns nav at this width */
+  .empty-composer,.pop-composer{max-width:none}
+}
+</style>
+</head>
+<body>
+<div class="demobar">
+  <b>State</b>
+  <button data-state="empty" aria-pressed="true">Empty folder</button>
+  <button data-state="populated" aria-pressed="false">Populated</button>
+  <button data-state="sending" aria-pressed="false">Sending…</button>
+  <button data-state="notpinned" aria-pressed="false">Not pinned</button>
+  <button data-state="loading" aria-pressed="false">Cold-load</button>
+  <span class="spacer"></span>
+  <b>Theme</b>
+  <button id="themeBtn">◐ Toggle dark/light</button>
+</div>
+
+<div class="app">
+  <!-- Sidebar context: the "open" affordance is distinct from the chevron -->
+  <aside class="sidebar" aria-label="Directories">
+    <div class="side-head">Pinned</div>
+
+    <div class="folder-group sel">
+      <div class="folder">
+        <button class="chev" title="Collapse folder" aria-label="Collapse folder"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+        <span class="fname">pi-agent-dashboard</span>
+        <span class="count">3</span>
+        <button class="open" title="Open directory home" aria-label="Open directory home"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+      </div>
+      <div class="group-sessions">
+        <div class="scard work sel">
+          <div class="srow1">
+            <span class="sicon"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9l3 3-3 3M13 15h4"/></svg><span class="shape"></span></span>
+            <span class="stitle">redesign session card</span>
+            <span class="qbadge">2</span>
+            <span class="sage">2m</span>
+          </div>
+          <div class="srow2">
+            <span class="smodel">claude-opus-4-8</span>
+            <span class="spacer2"></span>
+            <span class="ctxbar" title="context 61%"><i style="width:61%"></i></span>
+            <span class="scost">$0.42</span>
+          </div>
+        </div>
+        <div class="scard idle">
+          <div class="srow1">
+            <span class="sicon"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9l3 3-3 3M13 15h4"/></svg><span class="shape"></span></span>
+            <span class="stitle">fix reconnect race during replay</span>
+            <span class="sage">1h</span>
+          </div>
+          <div class="srow2">
+            <span class="smodel">deepseek-v4-pro</span>
+            <span class="spacer2"></span>
+            <span class="ctxbar" title="context 24%"><i style="width:24%"></i></span>
+            <span class="scost">$0.08</span>
+          </div>
+        </div>
+        <div class="scard need">
+          <div class="srow1">
+            <span class="sicon"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9l3 3-3 3M13 15h4"/></svg><span class="shape"></span></span>
+            <span class="stitle">add playwright e2e harness</span>
+            <span class="sage">3h</span>
+          </div>
+          <div class="srow2">
+            <span class="smodel">glm-5.2</span>
+            <span class="spacer2"></span>
+            <span class="ctxbar" title="context 38%"><i style="width:38%"></i></span>
+            <span class="scost">$0.15</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="folder-group">
+      <div class="folder">
+        <button class="chev" title="Expand folder" aria-label="Expand folder"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+        <span class="fname">api-server</span>
+        <span class="count">1</span>
+        <button class="open" title="Open directory home" aria-label="Open directory home"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Content pane -->
+  <main class="content" aria-label="Directory home">
+    <!-- Header (shown for empty + populated) -->
+    <header class="dh-header" id="dhHeader">
+      <span class="dh-title">pi-agent-dashboard</span>
+      <span class="dh-path">~/Project/pi-agent-dashboard</span>
+      <nav class="qa" aria-label="Directory quick actions">
+        <a href="#"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>Terminals</a>
+        <a href="#"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9l-2 3 2 3M16 9l2 3-2 3"/></svg>Editor</a>
+        <a href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 00-2-1.2L14 1h-4l-.5 2.6a7 7 0 00-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 005 12"/></svg>Settings</a>
+      </nav>
+    </header>
+
+    <!-- EMPTY -->
+    <section class="empty-wrap" id="s-empty">
+      <div class="glyph">π</div>
+      <div>
+        <h1>Start working in <span style="color:var(--accent-primary)">pi-agent-dashboard</span></h1>
+        <p>Type what you want to do. We'll open a new session in this folder and take it from there.</p>
+      </div>
+      <div class="composer empty-composer">
+        <textarea rows="3" placeholder="Ask anything — e.g. “add a health check endpoint and a test for it”"></textarea>
+        <div class="composer-bar">
+          <button class="chip" title="Attach"><svg viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5 5 0 01-7-7l8.5-8.6a3.5 3.5 0 015 5l-8.6 8.5a2 2 0 01-2.8-2.8l7.8-7.8"/></svg></button>
+          <span class="chip"><span class="k">⏎</span> to send · <span class="k">⇧⏎</span> newline</span>
+          <button class="send" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg></button>
+        </div>
+      </div>
+      <div class="hintrow" aria-label="Prompt starters">
+        <button>Explain this codebase</button>
+        <button>Fix a failing test</button>
+        <button>Add a feature</button>
+      </div>
+    </section>
+
+    <!-- POPULATED -->
+    <section class="pop-wrap hide" id="s-populated">
+      <div class="composer pop-composer">
+        <textarea rows="2" placeholder="Start a new session in this folder…"></textarea>
+        <div class="composer-bar">
+          <button class="chip" title="Attach"><svg viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5 5 0 01-7-7l8.5-8.6a3.5 3.5 0 015 5l-8.6 8.5a2 2 0 01-2.8-2.8l7.8-7.8"/></svg></button>
+          <span class="chip"><span class="k">⏎</span> new session</span>
+          <button class="send" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg></button>
+        </div>
+      </div>
+      <div>
+        <div class="sec-label">Sessions in this folder (3)</div>
+        <div class="slist">
+          <div class="scard work sel">
+            <div class="srow1">
+              <span class="sicon"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9l3 3-3 3M13 15h4"/></svg><span class="shape"></span></span>
+              <span class="stitle">redesign session card</span>
+              <span class="qbadge" title="queued">2</span>
+              <span class="sage">2m ago</span>
+            </div>
+            <div class="srow2">
+              <span class="smodel">claude-opus-4-8</span>
+              <span class="sact">Editing SessionCard.tsx…</span>
+              <span class="spacer2"></span>
+              <span class="ctxbar" title="context 61%"><i style="width:61%"></i></span>
+              <span class="scost">$0.42</span>
+            </div>
+          </div>
+          <div class="scard idle">
+            <div class="srow1">
+              <span class="sicon"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9l3 3-3 3M13 15h4"/></svg><span class="shape"></span></span>
+              <span class="stitle">fix reconnect race during replay</span>
+              <span class="sage">1h ago</span>
+            </div>
+            <div class="srow2">
+              <span class="smodel">deepseek-v4-pro</span>
+              <span class="sact">Idle</span>
+              <span class="spacer2"></span>
+              <span class="ctxbar" title="context 24%"><i style="width:24%"></i></span>
+              <span class="scost">$0.08</span>
+            </div>
+          </div>
+          <div class="scard need">
+            <div class="srow1">
+              <span class="sicon"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M8 9l3 3-3 3M13 15h4"/></svg><span class="shape"></span></span>
+              <span class="stitle">add playwright e2e harness</span>
+              <span class="sage">3h ago</span>
+            </div>
+            <div class="srow2">
+              <span class="smodel">glm-5.2</span>
+              <span class="sact" style="color:var(--status-needs-you)">⤴ Needs you · approve edit</span>
+              <span class="spacer2"></span>
+              <span class="ctxbar" title="context 38%"><i style="width:38%"></i></span>
+              <span class="scost">$0.15</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SENDING (spawn in flight) -->
+    <section class="empty-wrap hide" id="s-sending">
+      <div class="glyph">π</div>
+      <div>
+        <h1>Starting your session…</h1>
+        <p>Creating a session in <b>pi-agent-dashboard</b> and sending your first prompt.</p>
+      </div>
+      <div class="composer empty-composer">
+        <textarea rows="3" disabled>add a health check endpoint and a test for it</textarea>
+        <div class="composer-bar">
+          <span class="chip" style="color:var(--text-muted)">Opening session…</span>
+          <button class="send" disabled aria-label="Sending"><span class="spin"></span></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- NOT PINNED -->
+    <section class="notice hide" id="s-notpinned">
+      <div class="glyph">📌</div>
+      <div>
+        <div style="font-size:16px;font-weight:600">This folder isn't pinned</div>
+        <p><code>~/tmp/scratch</code> isn't in your pinned directories, so it has no home page. Pin it to start sessions here.</p>
+      </div>
+      <button class="cta">Pin this folder…</button>
+    </section>
+
+    <!-- COLD LOAD -->
+    <section class="empty-wrap hide" id="s-loading" aria-busy="true" aria-label="Loading directory">
+      <div class="skel" style="width:44px;height:44px;border-radius:50%"></div>
+      <div class="skel" style="width:260px;height:20px"></div>
+      <div class="skel" style="width:340px;height:13px"></div>
+      <div class="skel empty-composer" style="height:104px"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+const states={empty:"s-empty",populated:"s-populated",sending:"s-sending",notpinned:"s-notpinned",loading:"s-loading"};
+const header=document.getElementById("dhHeader");
+function show(state){
+  for(const id of Object.values(states)) document.getElementById(id).classList.add("hide");
+  document.getElementById(states[state]).classList.remove("hide");
+  // Header only makes sense for empty + populated + sending (a real directory)
+  header.style.display=(state==="notpinned"||state==="loading")?"none":"";
+  document.querySelectorAll('.demobar [data-state]').forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.state===state)));
+}
+document.querySelectorAll('.demobar [data-state]').forEach(b=>b.addEventListener("click",()=>show(b.dataset.state)));
+document.getElementById("themeBtn").addEventListener("click",()=>{
+  const h=document.documentElement;h.dataset.theme=h.dataset.theme==="dark"?"light":"dark";
+});
+show("empty");
+</script>
+</body>
+</html>

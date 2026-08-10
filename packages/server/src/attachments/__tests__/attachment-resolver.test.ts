@@ -1,0 +1,339 @@
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createMemoryEventStore,
+  DEFAULT_MAX_EVENT_DATA_SIZE,
+} from "../../persistence/memory-event-store.js";
+import {
+  ATTACHMENT_FITTED_EVENT,
+  prepareEventForIngest,
+} from "../attachment-ingest.js";
+import { createAttachmentResolver } from "../attachment-resolver.js";
+import type { FitWorkerPool } from "../fit-worker-pool.js";
+
+/** Pool stub that echoes a small fitted payload per block. */
+function fakePool(overrides: Partial<FitWorkerPool> = {}): FitWorkerPool {
+  return {
+    fit: vi.fn(async (req: any) => ({
+      jobId: 1,
+      results: req.blocks.map((b: any) => ({
+        blockIndex: b.blockIndex,
+        data: "RklUVEVE",
+        mimeType: b.mimeType,
+        fitted: true,
+      })),
+    })),
+    dispose: vi.fn(async () => {}),
+    inFlight: () => 0,
+    ...overrides,
+  } as FitWorkerPool;
+}
+
+function imageEvent(data: string): DashboardEvent {
+  return {
+    eventType: "message_start",
+    timestamp: Date.now(),
+    data: {
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "replayed screenshot" },
+          { type: "image", data, mimeType: "image/png" },
+        ],
+      },
+    },
+  };
+}
+
+describe("attachment-resolver", () => {
+  it("E9: a replayed 5 MB inline image yields a bounded row plus a fitted event", async () => {
+    const store = createMemoryEventStore(() => false);
+    const emitted: Array<{ seq: number; event: DashboardEvent }> = [];
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: fakePool(),
+      emit: (_s, seq, event) => emitted.push({ seq, event }),
+    });
+
+    // Mirrors the hydration path: strip, insert, then resolve.
+    const { event, pending } = prepareEventForIngest(imageEvent("Z".repeat(5_000_000)));
+    store.insertEvent("s1", event);
+    await resolver.resolve("s1", pending);
+
+    const row = store.getEvent("s1", 1) as any;
+    expect(row.data.__truncated).toBeUndefined();
+    expect(row.data.message.role).toBe("user");
+    expect(Buffer.byteLength(JSON.stringify(row.data))).toBeLessThanOrEqual(
+      DEFAULT_MAX_EVENT_DATA_SIZE,
+    );
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].event.eventType).toBe(ATTACHMENT_FITTED_EVENT);
+    expect((emitted[0].event.data as any).state).toBe("ready");
+    expect((emitted[0].event.data as any).attachmentId).toBe(pending[0].attachmentId);
+  });
+
+  it("emits one resolution per block, in block order", async () => {
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: fakePool(),
+      emit: (_s, _q, event) => emitted.push(event),
+    });
+    await resolver.resolve("s1", [
+      { attachmentId: "a".repeat(64), blockIndex: 1, data: "AA", mimeType: "image/png" },
+      { attachmentId: "b".repeat(64), blockIndex: 3, data: "BB", mimeType: "image/png" },
+    ]);
+    expect(emitted).toHaveLength(2);
+    expect(emitted.map((e) => (e.data as any).attachmentId)).toEqual([
+      "a".repeat(64),
+      "b".repeat(64),
+    ]);
+  });
+
+  it("X7: a failing pool resolves every placeholder to failed rather than stranding it", async () => {
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    const pool = fakePool({ fit: vi.fn(async () => { throw new Error("pool down"); }) });
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: (_s, _q, event) => emitted.push(event),
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await resolver.resolve("s1", [
+      { attachmentId: "c".repeat(64), blockIndex: 1, data: "AA", mimeType: "image/png" },
+      { attachmentId: "d".repeat(64), blockIndex: 2, data: "BB", mimeType: "image/png" },
+    ]);
+    err.mockRestore();
+
+    expect(emitted).toHaveLength(2);
+    for (const e of emitted) expect((e.data as any).state).toBe("failed");
+  });
+
+  it("an emit failure does not rewrite a persisted ready resolution as failed", async () => {
+    // `publish` PERSISTS before it emits. If the broadcast throws, the outer
+    // catch used to append failed events for every attachment — turning a
+    // stored `ready` resolution into `failed` over a pure transport problem,
+    // and making `resolve` reject despite its fire-and-forget contract.
+    const store = createMemoryEventStore(() => false);
+    const pool = fakePool();
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: () => {
+        throw new Error("socket gone");
+      },
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      resolver.resolve("s1", [
+        { attachmentId: "1".repeat(64), blockIndex: 0, data: "AA", mimeType: "image/png" },
+      ]),
+    ).resolves.toBeUndefined();
+    err.mockRestore();
+
+    // Read back what was PERSISTED (seq 1 is the resolution — nothing else was
+    // inserted in this test), which is the state a later replay will serve.
+    const stored = store.getEvent("s1", 1) as any;
+    expect(stored?.eventType, "the resolution should be persisted").toBe(ATTACHMENT_FITTED_EVENT);
+    expect(stored.data.state).toBe("ready");
+    expect(store.getEvent("s1", 2), "no failed event should be appended").toBeUndefined();
+  });
+
+  it("hydration fits in bounded batches instead of one giant request", async () => {
+    // Hydration aggregates every image in the session. Sending them as ONE fit
+    // meant the whole set crossed to the worker in a single structured clone —
+    // a full-resolution copy of every attachment at once. Batch it, and still
+    // resolve all of them.
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    const pool = fakePool();
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: (_s, _q, event) => emitted.push(event),
+    });
+    const pending = Array.from({ length: 20 }, (_, i) => ({
+      attachmentId: String(i).padStart(64, "0"),
+      blockIndex: i,
+      data: "AA",
+      mimeType: "image/png",
+    }));
+
+    await resolver.resolve("s1", pending);
+
+    const calls = (pool.fit as unknown as { mock: { calls: Array<[{ blocks: unknown[] }]> } }).mock
+      .calls;
+    expect(calls.length, "20 blocks should not go out as one request").toBeGreaterThan(1);
+    for (const [req] of calls) {
+      expect(req.blocks.length, "each batch stays bounded").toBeLessThanOrEqual(8);
+    }
+    // Every attachment still resolves exactly once, in order.
+    expect(emitted).toHaveLength(20);
+    expect(emitted.map((e) => (e.data as any).attachmentId)).toEqual(
+      pending.map((p) => p.attachmentId),
+    );
+    for (const e of emitted) expect((e.data as any).state).toBe("ready");
+  });
+
+  it("X7b: a pool that omits a result still settles that placeholder", async () => {
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    // Answers only the FIRST block. A partial answer is the dangerous case: the
+    // catch-all in `resolve` never fires, so nothing else can rescue block 1.
+    const pool = fakePool({
+      fit: vi.fn(async () => ({
+        jobId: 1,
+        results: [{ blockIndex: 0, data: "RklUVEVE", mimeType: "image/png", fitted: true }],
+      })) as unknown as FitWorkerPool["fit"],
+    });
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: (_s, _q, event) => emitted.push(event),
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await resolver.resolve("s1", [
+      { attachmentId: "e".repeat(64), blockIndex: 0, data: "AA", mimeType: "image/png" },
+      { attachmentId: "f".repeat(64), blockIndex: 1, data: "BB", mimeType: "image/png" },
+    ]);
+    warn.mockRestore();
+
+    expect(emitted, "every pending block must receive a resolution").toHaveLength(2);
+    const byId = new Map(emitted.map((e) => [(e.data as any).attachmentId, e]));
+    expect((byId.get("e".repeat(64))?.data as any).state).toBe("ready");
+    expect(
+      (byId.get("f".repeat(64))?.data as any).state,
+      "an unanswered block must fail explicitly, never stay pending",
+    ).toBe("failed");
+  });
+
+  it("X7c: a result whose blockIndex is out of range does not strand its placeholder", async () => {
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    const pool = fakePool({
+      fit: vi.fn(async () => ({
+        jobId: 1,
+        // blockIndex 7 does not exist in `pending` — hits the `continue`.
+        results: [{ blockIndex: 7, data: "RklUVEVE", mimeType: "image/png", fitted: true }],
+      })) as unknown as FitWorkerPool["fit"],
+    });
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: (_s, _q, event) => emitted.push(event),
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await resolver.resolve("s1", [
+      { attachmentId: "9".repeat(64), blockIndex: 0, data: "AA", mimeType: "image/png" },
+    ]);
+    warn.mockRestore();
+
+    expect(emitted).toHaveLength(1);
+    expect((emitted[0].data as any).state).toBe("failed");
+  });
+
+  it("a failed individual block resolves failed without affecting its siblings", async () => {
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    const pool = fakePool({
+      fit: vi.fn(async (req: any) => ({
+        jobId: 1,
+        results: req.blocks.map((b: any, i: number) =>
+          i === 0
+            ? { blockIndex: b.blockIndex, data: "", mimeType: b.mimeType, fitted: false, failed: true }
+            : { blockIndex: b.blockIndex, data: "T0s=", mimeType: b.mimeType, fitted: true },
+        ),
+      })),
+    });
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: (_s, _q, event) => emitted.push(event),
+    });
+    await resolver.resolve("s1", [
+      { attachmentId: "e".repeat(64), blockIndex: 1, data: "AA", mimeType: "image/png" },
+      { attachmentId: "f".repeat(64), blockIndex: 2, data: "BB", mimeType: "image/png" },
+    ]);
+    expect((emitted[0].data as any).state).toBe("failed");
+    expect((emitted[1].data as any).state).toBe("ready");
+  });
+
+  it("no pending blocks is a no-op (no events, no pool call)", async () => {
+    const store = createMemoryEventStore(() => false);
+    const pool = fakePool();
+    const emitted: DashboardEvent[] = [];
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: (_s, _q, e) => emitted.push(e),
+    });
+    await resolver.resolve("s1", []);
+    expect(emitted).toEqual([]);
+    expect(pool.fit).not.toHaveBeenCalled();
+  });
+});
+
+describe("attachment-resolver — over-budget guard", () => {
+  it("degrades an over-budget derivative to failed rather than an unpublishable event", async () => {
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    // A pool that (hypothetically) returns a derivative larger than the budget.
+    const pool = fakePool({
+      fit: vi.fn(async (req: any) => ({
+        jobId: 1,
+        results: req.blocks.map((b: any) => ({
+          blockIndex: b.blockIndex,
+          data: "Q".repeat(300_000),
+          mimeType: b.mimeType,
+          fitted: true,
+        })),
+      })),
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: pool,
+      emit: (_s, _q, e) => emitted.push(e),
+    });
+    await resolver.resolve("s1", [
+      { attachmentId: "9".repeat(64), blockIndex: 1, data: "AA", mimeType: "image/png" },
+    ]);
+    warn.mockRestore();
+
+    expect(emitted).toHaveLength(1);
+    expect((emitted[0].data as any).state).toBe("failed");
+    // Crucially the event SURVIVES the store intact, so the client can still
+    // match its attachmentId and resolve the placeholder.
+    const stored = store.getEvent("s1", 1) as any;
+    expect(stored.data.__truncated).toBeUndefined();
+    expect(stored.data.attachmentId).toBe("9".repeat(64));
+  });
+
+  it("hydration: blocks from DIFFERENT rows sharing a blockIndex each resolve", async () => {
+    // Hydration aggregates pending blocks across MANY message rows, so the
+    // message-relative blockIndex repeats. Matching results on it made a later
+    // result resolve the first attachment again and strand its own placeholder.
+    // (CodeRabbit, PR #419.)
+    const store = createMemoryEventStore(() => false);
+    const emitted: DashboardEvent[] = [];
+    const resolver = createAttachmentResolver({
+      eventStore: store,
+      fitWorkerPool: fakePool(),
+      emit: (_s, _q, e) => emitted.push(e),
+    });
+    await resolver.resolve("s1", [
+      { attachmentId: "1".repeat(64), blockIndex: 1, data: "AA", mimeType: "image/png" },
+      { attachmentId: "2".repeat(64), blockIndex: 1, data: "BB", mimeType: "image/png" },
+      { attachmentId: "3".repeat(64), blockIndex: 1, data: "CC", mimeType: "image/png" },
+    ]);
+    expect(emitted).toHaveLength(3);
+    expect(emitted.map((e) => (e.data as any).attachmentId)).toEqual([
+      "1".repeat(64), "2".repeat(64), "3".repeat(64),
+    ]);
+    for (const e of emitted) expect((e.data as any).state).toBe("ready");
+  });
+});
+

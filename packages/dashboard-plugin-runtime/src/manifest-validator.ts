@@ -2,17 +2,17 @@
  * Hand-rolled manifest validator (no Zod dependency).
  * Validates PluginManifest and PluginClaim objects.
  */
-import {
-  SLOT_DEFINITIONS,
-  VALID_SETTINGS_TABS,
-  type SlotId,
-  type SettingsTab,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
+
 import type {
-  PluginManifest,
   PluginClaim,
+  PluginManifest,
   PluginRequirements,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
+import {
+  type SettingsTab,
+  SLOT_DEFINITIONS,
+  type SlotId,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 
 export class ManifestValidationError extends Error {
   constructor(
@@ -105,14 +105,17 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     }
   }
 
-  // settings-section: validate optional tab field
-  if (slotId === "settings-section" && c.tab !== undefined) {
-    if (!VALID_SETTINGS_TABS.includes(c.tab as SettingsTab)) {
-      throw new ManifestValidationError(
-        pluginId,
-        `claims[${index}].tab "${c.tab}" is not a valid settings tab. Valid tabs: ${VALID_SETTINGS_TABS.join(", ")}`,
-      );
-    }
+  // settings-section: `tab` is accepted but inert. Every `settings-section`
+  // claim renders on its owning plugin's page (`/settings/plugins/<id>`), so
+  // rejecting an unknown VALUE would fail a manifest over a field nothing
+  // reads. The TYPE is still enforced: `tab` is copied onto the normalized
+  // claim, so a non-string would violate the manifest type it is cast to.
+  // See change: plugin-settings-pages (design D3).
+  if (slotId === "settings-section" && c.tab !== undefined && typeof c.tab !== "string") {
+    throw new ManifestValidationError(
+      pluginId,
+      `claims[${index}].tab must be a string if provided`,
+    );
   }
 
   // optional string fields
@@ -199,7 +202,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     }
     const r = m.requires as Record<string, unknown>;
     const out: PluginRequirements = {};
-    for (const field of ["piExtensions", "binaries", "services"] as const) {
+    for (const field of ["piExtensions", "binaries", "services", "paths"] as const) {
       const arr = r[field];
       if (arr === undefined) continue;
       if (!Array.isArray(arr)) {
@@ -326,6 +329,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     ...(typeof m.server === "string" ? { server: m.server } : {}),
     ...(typeof m.bridge === "string" ? { bridge: m.bridge } : {}),
     ...(typeof m.configSchema === "string" ? { configSchema: m.configSchema } : {}),
+    ...(typeof m.i18nCatalog === "string" ? { i18nCatalog: m.i18nCatalog } : {}),
     ...(m.fixture === true ? { fixture: true } : {}),
     ...(requires ? { requires } : {}),
     ...(dependsOn ? { dependsOn } : {}),

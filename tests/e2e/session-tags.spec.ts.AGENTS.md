@@ -1,0 +1,3 @@
+# session-tags.spec.ts — index
+
+E2E for change add-session-tags (task 7.2). Spawns a fresh git session (`spawnFreshGitSession`), selects it, adds a unique user tag via the detail-header editor (aria-label `Add tag` → `Tag name` input → Enter), asserts the colorized removable chip (`Remove tag <t>`) appears, reloads the page and asserts the tag persists (server `.meta.json` persist + WS rebroadcast), asserts the sidebar "Your tags" filter chip (`Filter by tag <t>`) appears + selects (`aria-pressed=true`) keeping the tagged card visible, clears via `clear-tag-filters`, then removes the tag via the chip ✖. Selects on semantic aria-labels (no new app testids). Needs PI_E2E_SEED=1 + Docker harness. See change: add-session-tags.

@@ -13,7 +13,7 @@
  */
 import { describe, it, expect } from "vitest";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { sortSessionsByOrder } from "../session-grouping.js";
+import { sortSessionsByOrder } from "../session/session-grouping.js";
 
 function makeSession(
   partial: Partial<DashboardSession> & { id: string },

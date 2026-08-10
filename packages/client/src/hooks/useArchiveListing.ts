@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
-import { getApiBase } from "../lib/api-context.js";
 import type { ArchiveEntry } from "@blackbelt-technology/pi-dashboard-shared/archive-types.js";
+import { useEffect, useState } from "react";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 export type { ArchiveEntry };
 
@@ -25,7 +26,7 @@ export function useArchiveListing(cwd: string): ArchiveListingState {
       .then((body) => {
         if (cancelled) return;
         if (!body.success) {
-          setError(body.error ?? "Failed to fetch archive");
+          setError(body.error ?? t("archive.fetchFailed", undefined, "Failed to fetch archive"));
         } else {
           setEntries(body.data);
         }
@@ -33,7 +34,7 @@ export function useArchiveListing(cwd: string): ArchiveListingState {
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err.message ?? "Failed to fetch archive");
+        setError(err.message ?? t("archive.fetchFailed", undefined, "Failed to fetch archive"));
         setIsLoading(false);
       });
 

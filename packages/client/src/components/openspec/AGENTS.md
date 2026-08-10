@@ -1,0 +1,25 @@
+# DOX — packages/client/src/components/openspec
+
+Files in this directory. One row per source file. See change: fold-oversized-agents-directories.
+
+| File | Purpose |
+|------|---------|
+| `ArchiveBrowserView.tsx` | Browser view for archived OpenSpec changes. Exports `ArchiveBrowserView`. → see `ArchiveBrowserView.tsx.AGENTS.md` |
+| `ExploreDialog.tsx` | Modal dialog for OpenSpec Explore prompts. Textarea + `useImagePaste` for pasted images; `Cmd/Ctrl+Enter` sends `onSend(text, images?)`. Renders shared `ImagePreviewStrip`. Exports `ExploreDialog`. |
+| `FolderOpenSpecSection.tsx` | Slim single-line navigation entry `OpenSpec (N) →` to board route; Refresh/Archive/Specs are icon-only buttons inside the SlotPill `actions` cluster. → see `FolderOpenSpecSection.tsx.AGENTS.md` |
+| `NewChangeDialog.tsx` | Dialog launching `/skill:openspec-new-change`. Exports `NewChangeDialog`, `formatNewChangePrompt(name,… → see `NewChangeDialog.tsx.AGENTS.md` |
+| `openspec-helpers.tsx` | Shared OpenSpec UI helpers. Exports `LETTER_MAP`, `artifactLetter(id)`, `statusColor(status)`,… → see `openspec-helpers.tsx.AGENTS.md` |
+| `OpenSpecActivityBadge.tsx` | Session-card sub-badge showing active OpenSpec phase. Exports `OpenSpecActivityBadge`. → see `OpenSpecActivityBadge.tsx.AGENTS.md` |
+| `OpenSpecArtifactDialog.tsx` | Non-mobile artifact reader in a flush full `Dialog` (URL unchanged). No back arrow; closes via Dialog ✕/Esc/backdrop (passes `closeInset`, no `onBack`). → see `OpenSpecArtifactDialog.tsx.AGENTS.md` |
+| `OpenSpecBoardView.tsx` | Full-page OpenSpec kanban board. Route `/folder/:encodedCwd/openspec`. → see `OpenSpecBoardView.tsx.AGENTS.md` |
+| `OpenSpecGroupManager.tsx` | CRUD manager: create/rename/recolor/reorder(dnd-kit)/delete groups. See change: add-openspec-change-grouping. |
+| `OpenSpecGroupPicker.tsx` | Per-row chip+dropdown assigning change to group; inline create. See change: add-openspec-change-grouping. |
+| `OpenSpecGroupPills.tsx` | Pill row filtering OpenSpec changes by group; single-select; "Manage groups…" link. See change: add-openspec-change-grouping. |
+| `OpenSpecGroupSection.tsx` | Collapsible group section header with color swatch, name, count, body slot. See change: add-openspec-change-grouping. |
+| `OpenSpecGroupsSettingsSection.tsx` | Settings section listing cwds with per-cwd group manager. See change: add-openspec-change-grouping. |
+| `OpenSpecProfileSection.tsx` | Settings section. Sets global OpenSpec profile (core/expanded/custom) + workflow multiselect. → see `OpenSpecProfileSection.tsx.AGENTS.md` |
+| `OpenSpecStepper.tsx` | 7-node pills+lines stepper. Exports OpenSpecStepper, deriveStepperState. Variants sidebar \| compact. See change: redesign-session-card-and-composer. |
+| `ProposeDialog.tsx` | Name-only dialog launching `/skill:openspec-propose`. Exports `ProposeDialog`, `formatProposePrompt(name)`. → see `ProposeDialog.tsx.AGENTS.md` |
+| `SessionOpenSpecActions.tsx` | OpenSpec action panel for a session (attach/detach, New/Propose/Explore, Continue/FF/Apply/Verify/Archive,… → see `SessionOpenSpecActions.tsx.AGENTS.md` |
+| `useOpenSpecRunConfigRow.tsx` | Shared "Runs with" run-config row + confirm-before-send gate for the three OpenSpec launch dialogs (Explore / Propose / New Change). Exports `useOpenSpecRunConfigRow` → `{ rowElement, submit, sending }` and `RUN_CONFIG_CONFIRM_TIMEOUT_MS` (8s). The gate emits `set_model`/`set_thinking_level` then waits until the session REPORTS the new `(model, thinkingLevel)` pair before sending, because the bridge pump dispatches handlers concurrently and an unguarded prompt runs on the OLD model; times out with a notify-and-send fallback. Sticky: changes apply to the session, disclosed in-row. `fieldset[disabled]` gates both selectors for pointer AND keyboard while pending. **9th popover-consumer surface (fix-popover-pane-bounded-height):** it re-mounts `ModelSelector` + `ThinkingLevelSelector` — NOT a new `usePopoverFlip` call site (still 8) — and mounts `PopoverBoundaryProvider` with `closest('[role="dialog"]')`, resolving to the shared `Dialog` panel (`packages/client-utils/src/Dialog.tsx`, `max-h-[80vh] overflow-y-auto`). Both height bounds are INHERITED because each consumer sets its own floor internally, so a new host cannot forget it; the dialog is the shortest host in the app, making it where the 260px list floor most often exceeds available space (capped by `minHeight = min(floor, maxHeight)`). Pinned by `components/__tests__/OpenSpecRunConfig.test.tsx` incl. a contrast case (no dialog ancestor → viewport `440px` vs pane `192px`). See change: openspec-dialog-model-effort-selector. See change: fix-popover-pane-bounded-height. |
+| `SpecsBrowserView.tsx` | Full-page main specs reader for a cwd. Combobox jump-to-spec + `MarkdownPreviewView` (searchable). Backed by `useMainSpecsReader`. Props: `cwd`, `onBack`. Exports `SpecsBrowserView`. |

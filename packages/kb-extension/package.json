@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-kb-extension",
-  "version": "0.5.4",
+  "version": "0.7.0",
   "description": "Isolated pi extension: registers kb_search/kb_neighbors/kb_get tools and a tool_result hook that reindexes markdown on edit and (opt-in) nudges DOX AGENTS.md row upkeep.",
   "type": "module",
   "license": "MIT",
@@ -9,28 +9,52 @@
     "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
     "directory": "packages/kb-extension"
   },
-  "publishConfig": { "access": "public" },
-  "keywords": ["pi-package", "pi-extension", "knowledge-base", "dox"],
-  "pi": {
-    "extensions": ["src/extension.ts"]
+  "publishConfig": {
+    "access": "public"
   },
-  "files": ["src/", "!src/__tests__", "README.md"],
-  "exports": { ".": "./src/index.ts" },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "knowledge-base",
+    "dox"
+  ],
+  "pi": {
+    "extensions": [
+      "src/extension.ts"
+    ]
+  },
+  "files": [
+    "src/",
+    "!src/__tests__",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "test": "NODE_OPTIONS=--experimental-sqlite vitest run"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-kb": "^0.5.4"
+    "@blackbelt-technology/pi-dashboard-kb": "^0.7.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@mariozechner/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=0.80.10",
+    "@mariozechner/pi-coding-agent": ">=0.73.1",
+    "typebox": ">=1.3.6"
   },
   "peerDependenciesMeta": {
-    "@earendil-works/pi-coding-agent": { "optional": true },
-    "@mariozechner/pi-coding-agent": { "optional": true }
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@mariozechner/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=0.80.10",
+    "typebox": "^1.3.6"
   }
 }

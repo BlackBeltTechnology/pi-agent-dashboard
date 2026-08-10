@@ -2,11 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { COOKIE_NAME, signToken } from "../auth.js";
-import { validateWsUpgrade } from "../auth-plugin.js";
-import { parseBearerHeader } from "../bearer-auth.js";
-import { PairedDeviceRegistry } from "../paired-devices.js";
-import { WsTicketStore } from "../ws-ticket.js";
+import { COOKIE_NAME, signToken } from "../auth/auth.js";
+import { validateWsUpgrade } from "../auth/auth-plugin.js";
+import { parseBearerHeader } from "../auth/bearer-auth.js";
+import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { WsTicketStore } from "../auth/ws-ticket.js";
 
 const SECRET = "test-secret-for-bearer";
 let tmpDir: string;

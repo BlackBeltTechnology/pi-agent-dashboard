@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, fireEvent, cleanup } from "@testing-library/react";
-import { CommandInput } from "../components/CommandInput.js";
+import { CommandInput } from "../components/chat/CommandInput.js";
 
 afterEach(() => cleanup());
 

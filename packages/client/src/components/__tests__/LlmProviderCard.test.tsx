@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
-import { LlmProviderCard } from "../SettingsPanel.js";
+import { LlmProviderCard } from "../settings/SettingsPanel.js";
 
 const mockTestProvider = vi.fn();
 
-vi.mock("../../lib/providers-api.js", () => ({
+vi.mock("../../lib/api/providers-api.js", () => ({
   testProvider: (...args: any[]) => mockTestProvider(...args),
 }));
 

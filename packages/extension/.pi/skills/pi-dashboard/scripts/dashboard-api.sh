@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Pi Dashboard API helper — wraps curl with port auto-detection and JSON formatting.
 #
+# This is the REST layer for READ-ONLY + no-WS-twin operations (session/health/
+# config reads, git ops, grep/browse, plugin_config_write, tunnel, peer scan,
+# openspec archive/toggle). Session/flow COMMAND verbs (abort, send_prompt,
+# spawn, resume, flow_control, set_model/thinking, rename, hide/unhide,
+# attach/detach_proposal) should use scripts/dashboard-bus.ts — the typed WS bus.
+#
 # Usage:
 #   ./dashboard-api.sh METHOD PATH [JSON_BODY]
 #

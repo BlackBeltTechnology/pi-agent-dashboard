@@ -1,4 +1,4 @@
-# docs/qa/
+# DOX — docs/qa
 
 docs/qa/ holds QA planning artifacts + test-case inventories.
 

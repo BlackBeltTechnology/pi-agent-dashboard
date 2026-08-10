@@ -5,9 +5,10 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { render, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-import { CommandInput, DASHBOARD_LOCAL_COMMANDS, parseViewCommand } from "../CommandInput.js";
+import { CommandInput, DASHBOARD_LOCAL_COMMANDS, parseViewCommand } from "../chat/CommandInput.js";
 import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { ChatMessage } from "../../lib/event-reducer.js";
+import type { ChatMessage } from "../../lib/chat/event-reducer.js";
+import { viewTargetToEditorPath } from "../../lib/nav/view-route.js";
 
 afterEach(() => cleanup());
 
@@ -51,6 +52,22 @@ describe("parseViewCommand", () => {
   it("rejects non-/view text", () => {
     expect(parseViewCommand("hello", "/x")).toBeNull();
     expect(parseViewCommand("/viewing", "/x")).toBeNull();
+  });
+});
+
+// `/view` now routes to the editor pane deep-link (D1) instead of sending
+// `inject_view_message`. `viewTargetToEditorPath` is the exact navigate target.
+describe("viewTargetToEditorPath — /view → editor pane route (E13/E14)", () => {
+  it("E13 file target → ?file=<relPath>, no inject_view_message", () => {
+    const target = parseViewCommand("/view @src/foo.ts", "/p")!;
+    expect(viewTargetToEditorPath("s1", target)).toBe("/session/s1/editor?file=src%2Ffoo.ts");
+  });
+
+  it("E14 url target → ?url=<encoded>", () => {
+    const target = parseViewCommand("/view https://youtu.be/x", "/p")!;
+    expect(viewTargetToEditorPath("s1", target)).toBe(
+      "/session/s1/editor?url=https%3A%2F%2Fyoutu.be%2Fx",
+    );
   });
 });
 

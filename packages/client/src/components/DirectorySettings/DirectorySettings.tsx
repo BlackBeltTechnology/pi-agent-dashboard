@@ -19,10 +19,10 @@ import { useMemo } from "react";
 import { useLocation } from "wouter";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
-import { t as i18nT } from "../../lib/i18n";
-import { buildFolderSettingsUrl } from "../../lib/route-builders.js";
-import { countResources, type ResourceType } from "../ResourceCardGrid.js";
-import { ResourceGridPanel } from "../ResourceGridPanel.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { buildFolderSettingsUrl } from "../../lib/nav/route-builders.js";
+import { countResources, type ResourceType } from "../resource/ResourceCardGrid.js";
+import { ResourceGridPanel } from "../resource/ResourceGridPanel.js";
 import { InstructionsPage } from "./InstructionsPage.js";
 import { PackagesPage } from "./PackagesPage.js";
 
@@ -62,15 +62,15 @@ export function DirectorySettings({ cwd, page, onBack, onViewFile }: Props) {
   }, [data]);
 
   const topItems: { id: DirectorySettingsPage; label: string; icon: string }[] = [
-    { id: "instructions", label: i18nT("auto.instructions", undefined, "Instructions"), icon: mdiFileDocumentOutline },
-    { id: "packages", label: i18nT("auto.packages", undefined, "Packages"), icon: mdiPackageVariant },
+    { id: "instructions", label: i18nT("common.instructions", undefined, "Instructions"), icon: mdiFileDocumentOutline },
+    { id: "packages", label: i18nT("packages.packages", undefined, "Packages"), icon: mdiPackageVariant },
   ];
   const resourceItems: { id: DirectorySettingsResourcePage; label: string; icon: string }[] = [
-    { id: "skills", label: i18nT("auto.skills", undefined, "Skills"), icon: mdiBookOpenPageVariant },
-    { id: "agents", label: i18nT("auto.agents", undefined, "Agents"), icon: mdiRobotOutline },
-    { id: "extensions", label: i18nT("auto.extensions", undefined, "Extensions"), icon: mdiPuzzleOutline },
-    { id: "prompts", label: i18nT("auto.prompts", undefined, "Prompts"), icon: mdiTextBoxOutline },
-    { id: "themes", label: i18nT("auto.themes", undefined, "Themes"), icon: mdiPalette },
+    { id: "skills", label: i18nT("common.skills", undefined, "Skills"), icon: mdiBookOpenPageVariant },
+    { id: "agents", label: i18nT("common.agents", undefined, "Agents"), icon: mdiRobotOutline },
+    { id: "extensions", label: i18nT("packages.extensions", undefined, "Extensions"), icon: mdiPuzzleOutline },
+    { id: "prompts", label: i18nT("session.prompts", undefined, "Prompts"), icon: mdiTextBoxOutline },
+    { id: "themes", label: i18nT("common.themes", undefined, "Themes"), icon: mdiPalette },
   ];
 
   const navButton = (item: { id: DirectorySettingsPage; label: string; icon: string }, count?: number) => {
@@ -109,13 +109,13 @@ export function DirectorySettings({ cwd, page, onBack, onViewFile }: Props) {
           type="button"
           onClick={onBack}
           className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-          title={i18nT("auto.back", undefined, "Back")}
+          title={i18nT("common.back2", undefined, "Back")}
           data-testid="directory-settings-back"
         >
           <Icon path={mdiArrowLeft} size={0.8} />
         </button>
         <h1 className="text-lg font-bold text-[var(--text-primary)]">
-          {i18nT("auto.directory_settings", undefined, "Directory Settings")}
+          {i18nT("folders.directorySettings", undefined, "Directory Settings")}
         </h1>
         <span
           className="text-xs font-mono text-[var(--text-muted)] truncate"
@@ -129,15 +129,15 @@ export function DirectorySettings({ cwd, page, onBack, onViewFile }: Props) {
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
         <nav
           data-testid="directory-settings-nav"
-          aria-label={i18nT("auto.directory_settings", undefined, "Directory Settings")}
+          aria-label={i18nT("folders.directorySettings", undefined, "Directory Settings")}
           className="shrink-0 w-full md:w-56 flex md:flex-col gap-0.5 overflow-x-auto md:overflow-y-auto border-b md:border-b-0 md:border-r border-[var(--border-primary)] p-2"
         >
           <div className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]">
-            {i18nT("auto.directory", undefined, "Directory")}
+            {i18nT("folders.directory", undefined, "Directory")}
           </div>
           {topItems.map((item) => navButton(item))}
           <div className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]">
-            {i18nT("auto.resources", undefined, "Resources")}
+            {i18nT("common.resources", undefined, "Resources")}
           </div>
           {resourceItems.map((item) => navButton(item, counts[item.id]))}
         </nav>

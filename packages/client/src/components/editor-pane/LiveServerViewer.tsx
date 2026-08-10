@@ -14,8 +14,9 @@ import { isLoopbackUrl, type LiveServerTarget } from "@blackbelt-technology/pi-d
 import { mdiOpenInNew, mdiPlay } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
-import { getApiBase } from "../../lib/api-context.js";
-import { listLiveServers, startLiveServer } from "../../lib/live-server-api.js";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
+import { listLiveServers, startLiveServer } from "../../lib/api/live-server-api.js";
 import type { ViewerProps } from "./types.js";
 
 /**
@@ -56,6 +57,7 @@ function parseTarget(input: string): { host: string; port: number } | null {
 }
 
 export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerProps> = {}) {
+  const { t } = useI18n();
   const [servers, setServers] = useState<LiveServerTarget[]>([]);
   const [path, setPath] = useState<string | null>(null);
   const [deep, setDeep] = useState("");
@@ -67,7 +69,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
   useEffect(() => {
     listLiveServers()
       .then(setServers)
-      .catch(() => setError("Couldn't load saved targets."));
+      .catch(() => setError(t("editor.couldntLoadSavedTargets", undefined, "Couldn't load saved targets.")));
   }, []);
 
   // Auto-launch a preset `live:<url>` target instead of showing the picker.
@@ -102,7 +104,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
   const onConfirm = () => {
     const parsed = parseTarget(url);
     if (!parsed) {
-      setError("Enter a valid URL, e.g. http://localhost:5173");
+      setError(t("editor.enterValidUrl", undefined, "Enter a valid URL, e.g. http://localhost:5173"));
       return;
     }
     void launch({ ...parsed, label: label.trim() || undefined });
@@ -118,7 +120,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
             onClick={() => setPath(null)}
             className="rounded px-2 py-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"
           >
-            ← Targets
+            {t("editor.backToTargets", undefined, "← Targets")}
           </button>
           <span className="truncate font-mono text-[var(--text-secondary)]">{path}</span>
           <span className="flex-1" />
@@ -129,7 +131,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
             className="flex items-center gap-1 rounded px-2 py-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"
           >
             <Icon path={mdiOpenInNew} size={0.55} />
-            <span>Open</span>
+            <span>{t("editor.openExternal", undefined, "Open")}</span>
           </a>
         </div>
         <iframe
@@ -138,7 +140,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
           // embedded app cannot read the dashboard token or call /api/*.
           sandbox="allow-scripts allow-forms allow-popups"
           src={`${getApiBase()}${path}${deep}`}
-          title="Live server preview"
+          title={t("editor.liveServerPreview", undefined, "Live server preview")}
           className="min-h-0 flex-1 border-0 bg-white"
         />
       </div>
@@ -148,9 +150,9 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
   return (
     <div className="flex h-full flex-col gap-4 overflow-auto p-4 text-sm">
       <div>
-        <h3 className="mb-1 font-medium text-[var(--text-primary)]">Preview a local dev server</h3>
+        <h3 className="mb-1 font-medium text-[var(--text-primary)]">{t("editor.previewLocalDevServer", undefined, "Preview a local dev server")}</h3>
         <p className="text-xs text-[var(--text-tertiary)]">
-          Loopback only (localhost / 127.0.0.1). Runs sandboxed — the app can't reach the dashboard.
+          {t("editor.loopbackOnlyHint", undefined, "Loopback only (localhost / 127.0.0.1). Runs sandboxed — the app can't reach the dashboard.")}
         </p>
       </div>
 
@@ -167,7 +169,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
           data-testid="live-label"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder="label (optional)"
+          placeholder={t("editor.labelOptional", undefined, "label (optional)")}
           className="w-32 rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 py-1 text-xs"
         />
         <button
@@ -178,7 +180,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
           className="flex items-center gap-1 rounded bg-[var(--accent-blue)] px-3 py-1 text-white disabled:opacity-40"
         >
           <Icon path={mdiPlay} size={0.6} />
-          <span>Preview</span>
+          <span>{t("editor.preview", undefined, "Preview")}</span>
         </button>
       </div>
 
@@ -187,7 +189,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
       {/* Saved allowlist */}
       {servers.length > 0 && (
         <div>
-          <div className="mb-1 text-xs font-medium text-[var(--text-secondary)]">Saved targets</div>
+          <div className="mb-1 text-xs font-medium text-[var(--text-secondary)]">{t("editor.savedTargets", undefined, "Saved targets")}</div>
           <ul className="flex flex-col gap-1">
             {servers.map((s) => (
               <li key={s.id}>

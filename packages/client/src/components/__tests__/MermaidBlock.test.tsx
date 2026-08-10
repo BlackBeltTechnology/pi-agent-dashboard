@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import React from "react";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 // Mock mermaid module
 const mockRender = vi.fn();
@@ -20,7 +20,7 @@ import {
   colorizeDefaultNodes,
   hashId,
   rgba,
-} from "../MermaidBlock.js";
+} from "../preview/MermaidBlock.js";
 
 const ACCENTS_A = ["#3b82f6", "#22c55e", "#eab308", "#ef4444", "#a855f7", "#f97316"];
 const ACCENTS_B = ["#8be9fd", "#50fa7b", "#f1fa8c", "#ff5555", "#bd93f9", "#ffb86c"];

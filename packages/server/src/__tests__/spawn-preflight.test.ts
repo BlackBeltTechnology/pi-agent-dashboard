@@ -17,7 +17,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", (
   },
 }));
 
-import { preflightSpawn } from "../spawn-preflight.js";
+import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 
 function makeResolver(overrides: { resolvePi?: () => string[] | null; resolveNode?: () => string | null }) {

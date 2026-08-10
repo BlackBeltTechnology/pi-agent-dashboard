@@ -4,8 +4,8 @@ import { useRef } from "react";
 import { IDBFactory } from "fake-indexeddb";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { createReplayCache, type CachedEvent } from "../../lib/replay-cache.js";
-import { createReplayPersister } from "../../lib/replay-persist.js";
+import { createReplayCache, type CachedEvent } from "../../lib/replay/replay-cache.js";
+import { createReplayPersister } from "../../lib/replay/replay-persist.js";
 import { useMessageHandler, type MessageHandlerSetters } from "../useMessageHandler.js";
 
 function noopSetters(): MessageHandlerSetters {

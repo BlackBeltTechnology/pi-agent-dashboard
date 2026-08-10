@@ -4,13 +4,25 @@
 
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { WebSocket } from "ws";
-import { extractStatsFromEvents } from "../event-status-extraction.js";
-import type { StoredEvent } from "../memory-event-store.js";
+import {
+  type PendingAttachment,
+  prepareEventForIngest,
+} from "../attachments/attachment-ingest.js";
+import { createAttachmentResolver } from "../attachments/attachment-resolver.js";
+import type { StoredEvent } from "../persistence/memory-event-store.js";
 import { pluginIntentCache } from "../plugin-intent-cache.js";
-import { truncateToolResultForReplay } from "../replay-truncate.js";
+import { extractStatsFromEvents } from "../session/event-status-extraction.js";
+import { compactEventsForReplay } from "../session/replay-compaction.js";
+import { truncateToolResultForReplay } from "../session/replay-truncate.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
-const REPLAY_BATCH_SIZE = 50;
+/**
+ * Raised 50 → 200. Each batch is one client React commit, so a large warm
+ * window used to cost hundreds of commits. With `compactEventsForReplay`
+ * removing the superseded snapshot updates, a 200-event batch stays well under
+ * BACKPRESSURE_THRESHOLD. See change: compact-warm-replay-stream (D5).
+ */
+const REPLAY_BATCH_SIZE = 200;
 /** Max events to replay per session subscription (0 = unlimited) */
 const MAX_REPLAY_EVENTS = 0;
 /** Max buffered bytes before pausing replay sends (1MB) */
@@ -30,17 +42,32 @@ const HYDRATE_HEARTBEAT_MS = 10000;
  */
 /**
  * Send stored events to a WebSocket in batches with backpressure handling.
- * Returns the highest seq sent, or 0 if no events were sent.
+ *
+ * Returns the PRE-compaction highest seq of the window, or 0 if nothing was
+ * sent. Compaction can drop the highest-seq event (a still-superseded
+ * `message_update`); returning the last SURVIVING seq would make
+ * `clearReplaying` re-send already-covered events as a catch-up batch.
+ * See change: compact-warm-replay-stream (D4).
+ *
+ * Exported so unit tests can drive the batching / backpressure / socket-close
+ * paths directly, mirroring `replayUiState` / `replaySessionAssets`.
  */
-async function sendEventBatches(
+export async function sendEventBatches(
   ws: WebSocket,
   sessionId: string,
   stored: StoredEvent[],
   sendTo: (ws: WebSocket, msg: ServerToBrowserMessage) => void,
 ): Promise<number> {
-  for (let i = 0; i < stored.length; i += REPLAY_BATCH_SIZE) {
+  // High-water mark is computed from the PRE-compaction window (D4).
+  const preCompactionMaxSeq = stored.length > 0 ? stored[stored.length - 1].seq : 0;
+  // Replay-only stream compaction: drop assistant `message_update` snapshots
+  // superseded by a later `message_end`, bringing the warm (in-memory) window
+  // down to the cold (on-disk) path's shape. The store keeps the full stream.
+  // See change: compact-warm-replay-stream.
+  const compacted = compactEventsForReplay(stored);
+  for (let i = 0; i < compacted.length; i += REPLAY_BATCH_SIZE) {
     if (ws.readyState !== ws.OPEN) return 0;
-    const batch = stored.slice(i, i + REPLAY_BATCH_SIZE);
+    const batch = compacted.slice(i, i + REPLAY_BATCH_SIZE);
     sendTo(ws, {
       type: "event_replay",
       sessionId,
@@ -49,7 +76,7 @@ async function sendEventBatches(
       // keeps the full body for develop's "Show full output" route; small
       // results and non-tool events pass through untouched.
       events: batch.map((e) => ({ seq: e.seq, event: truncateToolResultForReplay(e.event) })),
-      isLast: i + REPLAY_BATCH_SIZE >= stored.length,
+      isLast: i + REPLAY_BATCH_SIZE >= compacted.length,
     });
     // Yield to event loop between batches to allow GC and buffer flushing
     if (ws.bufferedAmount > BACKPRESSURE_THRESHOLD) {
@@ -67,7 +94,7 @@ async function sendEventBatches(
       await new Promise<void>((r) => setImmediate(r));
     }
   }
-  return stored.length > 0 ? stored[stored.length - 1].seq : 0;
+  return preCompactionMaxSeq;
 }
 
 /**
@@ -167,19 +194,8 @@ export function handleSubscribe(
   subs: Set<string>,
   ctx: BrowserHandlerContext,
 ): void {
-  const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, markReplaying, clearReplaying, viewMessageStore } = ctx;
+  const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, replayNotifyLog, markReplaying, clearReplaying } = ctx;
   subs.add(msg.sessionId);
-
-  // Send the current view-messages snapshot before any event replay so the
-  // client can merge view rows into the rendered chat.
-  // See change: render-file-previews.
-  if (viewMessageStore) {
-    sendTo(ws, {
-      type: "view_messages_update",
-      sessionId: msg.sessionId,
-      viewMessages: viewMessageStore.get(msg.sessionId),
-    });
-  }
 
   // Request metadata from the extension so commands/flows/models/roles arrive
   // while the browser is actually subscribed (responses use sendToSubscribers).
@@ -209,6 +225,7 @@ export function handleSubscribe(
       sendEventBatches(ws, msg.sessionId, events, sendTo).then((lastSent) => {
         clearReplaying(ws, msg.sessionId, lastSent);
         replayPendingUiRequests(ws, msg.sessionId);
+        replayNotifyLog(ws, msg.sessionId);
         replayUiState(ws, msg.sessionId, ctx);
       });
     } else {
@@ -232,11 +249,13 @@ export function handleSubscribe(
         sendEventBatches(ws, msg.sessionId, events, sendTo).then((lastSent) => {
           clearReplaying(ws, msg.sessionId, lastSent);
           replayPendingUiRequests(ws, msg.sessionId);
+          replayNotifyLog(ws, msg.sessionId);
           replayUiState(ws, msg.sessionId, ctx);
         });
       } else {
         sendEventBatches(ws, msg.sessionId, events, sendTo).then(() => {
           replayPendingUiRequests(ws, msg.sessionId);
+          replayNotifyLog(ws, msg.sessionId);
           replayUiState(ws, msg.sessionId, ctx);
         });
       }
@@ -271,8 +290,22 @@ export function handleSubscribe(
       directoryService.loadSessionEvents(msg.sessionId, session.sessionFile, session.contextWindow).then(async (result) => {
         stopHeartbeat();
         if (result.success) {
+          // Hydration admits full-resolution inline images straight from the
+          // transcript, so it needs the SAME two-phase strip as the live path.
+          // Without it a reload resurrects the original bug: the event blows
+          // the per-event ceiling, collapses to {__truncated}, and the user's
+          // message row disappears on every replay.
+          // See change: fit-attachments-for-display (task 5.2, test-plan #E9).
+          const pendingAttachments: PendingAttachment[] = [];
           for (const evt of result.events) {
-            eventStore.insertEvent(msg.sessionId, evt);
+            // Strip UNCONDITIONALLY. Gating this on the pool meant a host
+            // without one hydrated full-resolution events — the exact bug the
+            // comment above describes. The bound must not depend on whether a
+            // fitter happens to be configured; placeholders are settled below
+            // either way.
+            const prepared = prepareEventForIngest(evt);
+            pendingAttachments.push(...prepared.pending);
+            eventStore.insertEvent(msg.sessionId, prepared.event);
           }
           const statsUpdates = extractStatsFromEvents(result.events);
           const metaUpdates: Record<string, unknown> = { dataUnavailable: false, ...statsUpdates };
@@ -288,7 +321,40 @@ export function handleSubscribe(
             replaySessionAssets(sub, msg.sessionId, ctx);
             await sendEventBatches(sub, msg.sessionId, stored, sendTo);
             replayPendingUiRequests(sub, msg.sessionId);
+            replayNotifyLog(sub, msg.sessionId);
             replayUiState(sub, msg.sessionId, ctx);
+          }
+          // Fit AFTER the batches are on the wire: the rows (with their
+          // placeholders) render immediately and each image swaps in as its
+          // derivative lands, so hydration is never blocked on a resize.
+          // Detached — a fit failure can only degrade an attachment.
+          if (pendingAttachments.length > 0) {
+            // With no pool, stand in one that answers nothing: the resolver
+            // settles every unanswered placeholder to an explicit failed state,
+            // so a row can never keep a placeholder that no one will resolve.
+            const pool = ctx.fitWorkerPool ?? {
+              fit: async () => ({ jobId: 0, results: [] }),
+              dispose: async () => {},
+              inFlight: () => 0,
+            };
+            void createAttachmentResolver({
+              eventStore,
+              fitWorkerPool: pool,
+              emit: (sessionId, seq, event) => {
+                for (const sub of getSubscribers(sessionId)) {
+                  if (sub.readyState === sub.OPEN) {
+                    sendTo(sub, { type: "event", sessionId, seq, event });
+                  }
+                }
+              },
+            })
+              .resolve(msg.sessionId, pendingAttachments)
+              // Detached: `resolve` guards the fit, but not its publish calls.
+              // An escaping rejection here would be unhandled and take the
+              // process down, so hydration degrades the attachment instead.
+              .catch((err) => {
+                console.error(`[attachments] hydration resolve failed for ${msg.sessionId}:`, err);
+              });
           }
         } else if (result.error === "cancelled") {
           // The load was cancelled because the subscriber left before it

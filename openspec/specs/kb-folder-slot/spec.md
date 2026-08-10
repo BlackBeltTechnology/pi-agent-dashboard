@@ -90,11 +90,27 @@ A worktree session groups under its `gitWorktree.mainPath` in the sidebar and th
 
 ### Requirement: KB row reflects index state
 
-The KB folder row SHALL derive its presentation from the folder's KB stats and from the outcome of any client-initiated reindex, distinguishing not-indexed, indexing, populated, stale, and error states. A reindex that fails to complete — whether the server job errored or the client request itself was rejected — SHALL surface a visible failed state, never a silent no-op.
+The KB folder row SHALL derive its presentation from the folder's KB stats and from the outcome of any client-initiated reindex, distinguishing not-indexed, indexing, populated, stale, and error states. A reindex that fails to complete — whether the server job errored or the client request itself was rejected — SHALL surface a visible failed state, never a silent no-op. Activating the primary reindex action SHALL give immediate visible feedback (an optimistic indexing indicator) on click, before the server acknowledges, and SHALL disable the action for the duration of that pending window so a single click cannot start two jobs. The optimistic indicator SHALL always resolve into a real state (polled indexing, populated, or failed) and SHALL never persist indefinitely.
 
 #### Scenario: Empty worktree prompts indexing
 - **WHEN** folder `W` reports `indexed: false`
 - **THEN** the row shows a not-indexed label and a prominent `Index now` action
+
+#### Scenario: Click gives immediate optimistic feedback before the server acknowledges
+- **WHEN** the user activates `Index now` (or the reindex control) for folder `C`
+- **THEN** the row shows the indexing indicator immediately on click, before the `POST /api/kb/reindex?cwd=C` response or the first `GET /api/kb/stats?cwd=C` poll resolves
+- **AND** the activated action control is disabled while this optimistic pending state is in effect, so a second activation starts no second reindex
+- **AND** the optimistic indicator is presented identically to the running-job indexing indicator (no separate submitting affordance)
+
+#### Scenario: Optimistic pending hands off to the real running job
+- **WHEN** an optimistic pending indicator is showing for folder `C` and a subsequent `GET /api/kb/stats?cwd=C` poll first reports `indexing: true`
+- **THEN** the row continues to show the indexing indicator without any flicker back to the `Index now` / not-indexed presentation
+- **AND** the row is thereafter driven by the polled job state, updating to the populated chunk count when the job completes
+
+#### Scenario: Optimistic pending never wedges on a fast-settling job
+- **WHEN** an optimistic pending indicator is showing for folder `C` but the reindex completes so quickly that no `GET /api/kb/stats?cwd=C` poll ever observes `indexing: true`
+- **THEN** the optimistic indicator clears within a bounded time rather than spinning indefinitely
+- **AND** the row settles to the state derived from fresh stats (for example the populated chunk count)
 
 #### Scenario: Running job shows progress from the primary action
 - **WHEN** the user activates `Index now` (or the reindex control) for folder `C` and the server responds `202 { status: "running" }`
@@ -119,7 +135,7 @@ The KB folder row SHALL derive its presentation from the folder's KB stats and f
 
 #### Scenario: Rejected client reindex surfaces an error, not a silent no-op
 - **WHEN** the user activates `Index now` for folder `C` and the `POST /api/kb/reindex?cwd=C` request itself is rejected (for example `403`, `500`, or a transport failure) so no server job is registered
-- **THEN** the row shows a visible failed state carrying the reject reason with a `Retry` action
+- **THEN** the optimistic pending indicator clears and the row shows a visible failed state carrying the reject reason with a `Retry` action
 - **AND** the failed state is driven by the trigger rejection specifically, distinct from a transient stats-poll failure
 - **AND** activating `Retry` re-issues the reindex for `C`
 
@@ -182,4 +198,30 @@ The per-folder KB settings page (opened from the folder row's `→`) SHALL let t
 - **WHEN** the settings page for a folder with no project file opens
 - **THEN** it offers `Create project config` and `Copy from parent repo`
 - **AND** `Copy from parent repo` seeds `sources[]` from the parent, rewritten relative to the folder cwd
+
+### Requirement: KB cwd admission
+
+Every `/api/kb/*` route SHALL validate the query `cwd` against the host-provided known-folder set (live session cwds ∪ pinned directories) BEFORE opening a store or touching disk. The match SHALL be realpath-canonicalized on BOTH sides — the query `cwd` and each known folder are resolved to an absolute path and, best-effort, symlink-followed — so that two paths denoting the same directory match regardless of symlink traversal. In addition, when the direct match fails, a `cwd` that is a git worktree whose MAIN working-tree path is a known folder SHALL be admitted; the main path is derived server-side via git and never taken from client input. A `cwd` that is neither a known folder nor a git worktree of a known folder SHALL be rejected with `403`.
+
+#### Scenario: Symlink-equivalent cwd matches a known folder
+- **WHEN** `GET /api/kb/stats?cwd=A` is called where `A` reaches a known folder `K` through a symlink (for example `/tmp` for a session/pinned `/private/tmp`)
+- **THEN** the canonicalized `A` equals the canonicalized `K`
+- **AND** the request is admitted (not `403`)
+
+#### Scenario: Session-less worktree of a known repo is admitted
+- **WHEN** `POST /api/kb/reindex?cwd=W` (or `GET /api/kb/stats?cwd=W`) is called for a git worktree `W` that has NO live pi session and is NOT pinned, whose main repository `R` IS a known folder
+- **THEN** the guard server-derives `W`'s main working-tree path via git and finds it equals a known folder `R`
+- **AND** the request is admitted so `W` is indexable and its stats are readable
+
+#### Scenario: Worktree whose main repo is not known is rejected
+- **WHEN** `GET /api/kb/stats?cwd=W` is called for a git worktree `W` whose main repository is NOT a known folder
+- **THEN** the request is rejected with `403` and no store is opened
+
+#### Scenario: Unknown non-worktree cwd is rejected
+- **WHEN** `GET /api/kb/stats?cwd=X` is called with a cwd that is neither a known folder nor a git worktree of a known folder
+- **THEN** the request is rejected with `403` and no store is opened
+
+#### Scenario: Missing cwd is rejected
+- **WHEN** any `/api/kb/*` route is called with no `cwd` query parameter
+- **THEN** the request is rejected with `400`
 

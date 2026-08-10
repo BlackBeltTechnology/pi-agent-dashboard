@@ -12,24 +12,30 @@
  */
 
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
-import { mdiClose, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
+import { mdiClose, mdiConsoleLine, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { grepContents } from "../../lib/grep-api.js";
-import { useRailWidth } from "../../lib/rail-width.js";
-import { useTreeVisible } from "../../lib/tree-visible.js";
-import { SplitDivider } from "../SplitDivider.js";
-import { useSplitWorkspace } from "../SplitWorkspaceContext.js";
+import { grepContents } from "../../lib/api/grep-api.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
+import { useRailWidth } from "../../lib/layout/rail-width.js";
+import { useTreeVisible } from "../../lib/util/tree-visible.js";
+import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
+import { SplitDivider } from "../split/SplitDivider.js";
+import { useSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
-import { EditorFileTree } from "./EditorFileTree.js";
 import { ChangesRailSection } from "./ChangesRailSection.js";
+import { EditorFileTree } from "./EditorFileTree.js";
 import { EditorSearchPanel } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
-import { viewerRegistry } from "./viewer-registry.js";
+import { TerminalPaneLayer } from "./TerminalPaneLayer.js";
+import { useServerCapabilities } from "../../hooks/useServerCapabilities.js";
+import { CappedViewer } from "./CappedViewer.js";
+import { TabActions, type TabActionTarget } from "./TabActions.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
 export function EditorPane() {
+  const { t } = useI18n();
   const {
     sessionId,
     cwd,
@@ -43,8 +49,39 @@ export function EditorPane() {
     onFilenameSearch,
     changedFiles,
     clearChanged,
+    changesRevealSignal,
+    openDiffTab,
+    terminal,
   } = useSplitWorkspace();
+  const terminalTitle = useCallback(
+    (id: string) => {
+      const s = terminal.terminals.find((t) => t.id === id);
+      return s?.title || s?.shell?.split("/").pop() || undefined;
+    },
+    [terminal.terminals],
+  );
   const [treeVisible, setTreeVisible] = useTreeVisible(sessionId);
+  // Rail-local `this session only` (D3 — NOT lifted to context; that would
+  // break the FileDiffView takeover, which renders DiffFileTree outside the
+  // SplitWorkspaceProvider). Shared by the summary bar + the tree's other-
+  // changes group; ephemeral, resets each mount.
+  const [sessionOnly, setSessionOnly] = useState(false);
+  // Reset the filter when the pane is reused for a different session.
+  useEffect(() => setSessionOnly(false), [sessionId]);
+
+  // openChanges() (the Changed Files chip) bumps changesRevealSignal to request
+  // the Changes rail. The tree rail defaults to collapsed (change:
+  // collapse-files-panel-by-default), so reveal it here — otherwise the split
+  // opens but ChangesRailSection (mounted only when treeVisible) stays hidden
+  // and the chip appears to do nothing. Skip the initial mount value so it does
+  // not fight a user's collapse choice. See change: detect-tool-created-files.
+  const prevRevealRef = useRef(changesRevealSignal);
+  useEffect(() => {
+    if (changesRevealSignal !== prevRevealRef.current) {
+      prevRevealRef.current = changesRevealSignal;
+      setTreeVisible(true);
+    }
+  }, [changesRevealSignal, setTreeVisible]);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [railWidth, setRailWidth] = useRailWidth(sessionId);
@@ -76,6 +113,18 @@ export function EditorPane() {
   const activeTab = state.activeIndex >= 0 ? state.openFiles[state.activeIndex] : null;
   const activePath = activeTab?.path ?? null;
 
+  // System-open tab actions (D9). Gated on the server capability; only a real
+  // file or a url tab exposes an action (virtual live-server/diff/terminal do
+  // not). See change: open-view-command-in-editor-pane.
+  const caps = useServerCapabilities();
+  const tabActionTarget: TabActionTarget | null = !activeTab
+    ? null
+    : activeTab.viewer === "url"
+      ? { kind: "url", url: activeTab.path.replace(/^url:/, "") }
+      : activeTab.viewer === "live-server" || activeTab.viewer === "diff" || activeTab.viewer === "terminal"
+        ? null
+        : { kind: "file", cwd, path: activeTab.path };
+
   // Honour a pending scroll for the active tab exactly once, then clear it.
   useEffect(() => {
     if (pendingScroll && pendingScroll.path === activePath) {
@@ -90,22 +139,23 @@ export function EditorPane() {
   if (!activeTab) {
     body = (
       <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
-        No files open — pick one from the tree.
+        {t("editor.noFilesOpen", undefined, "No files open — pick one from the tree.")}
       </div>
     );
   } else {
     const classification = fileKind(absOf(cwd, activeTab.path));
-    const Viewer = viewerRegistry[activeTab.viewer];
     body = (
-      <Suspense fallback={<div className="p-4 text-sm text-[var(--text-tertiary)]">Loading viewer…</div>}>
-        <Viewer
+      <Suspense fallback={<div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>}>
+        <CappedViewer
           key={`${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}`}
+          viewer={activeTab.viewer}
           cwd={cwd}
           path={activeTab.path}
           kind={classification.kind}
           mimeType={classification.mimeType}
           size={0}
           line={lineForTab}
+          restrictCsp={activeTab.restrictCsp}
         />
       </Suspense>
     );
@@ -121,7 +171,7 @@ export function EditorPane() {
           type="button"
           onClick={() => setTreeVisible(!treeVisible)}
           aria-pressed={treeVisible}
-          aria-label="Toggle file tree"
+          aria-label={t("editor.toggleFileTree", undefined, "Toggle file tree")}
           data-testid="tree-toggle"
           className={[
             "flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium",
@@ -129,21 +179,30 @@ export function EditorPane() {
               ? "bg-[var(--bg-selected)] text-[var(--text-primary)]"
               : "text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
           ].join(" ")}
-          title={treeVisible ? "Hide file tree" : "Show file tree"}
+          title={treeVisible ? t("editor.hideFileTree", undefined, "Hide file tree") : t("editor.showFileTree", undefined, "Show file tree")}
         >
           <Icon path={mdiFileTreeOutline} size={0.7} />
-          <span>Files</span>
+          <span>{t("common.files", undefined, "Files")}</span>
         </button>
-        <span className="truncate text-sm font-medium">{activePath ?? "Editor"}</span>
+        <span className="truncate text-sm font-medium">{activePath ?? t("editor.editorTitle", undefined, "Editor")}</span>
         <span className="flex-1" />
         <button
           type="button"
           onClick={() => dispatch({ type: "openFile", path: "live:preview", viewer: "live-server" })}
           data-testid="live-preview-launch"
           className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-          title="Preview a local dev server"
+          title={t("editor.previewLocalDevServer", undefined, "Preview a local dev server")}
         >
           <Icon path={mdiWeb} size={0.7} />
+        </button>
+        <button
+          type="button"
+          onClick={() => terminal.createTerminal()}
+          data-testid="new-terminal-launch"
+          className="text-[var(--text-tertiary)] hover:text-cyan-400"
+          title={t("terminal.newTerminal", undefined, "New Terminal")}
+        >
+          <Icon path={mdiConsoleLine} size={0.7} />
         </button>
         <button
           type="button"
@@ -151,25 +210,26 @@ export function EditorPane() {
           aria-pressed={searchOpen}
           data-testid="editor-search-toggle"
           className={searchOpen ? "text-blue-400" : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"}
-          title="Search (Cmd-P / Cmd-Shift-F)"
+          title={t("editor.searchShortcutHint", undefined, "Search (Cmd-P / Cmd-Shift-F)")}
         >
           <Icon path={mdiMagnify} size={0.7} />
         </button>
+        {tabActionTarget && <TabActions target={tabActionTarget} systemOpen={caps.systemOpen} />}
         {activeTab && (
           <button
             type="button"
             onClick={() => setRefreshNonce((n) => n + 1)}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-            title="Reload file"
+            title={t("editor.reloadFile", undefined, "Reload file")}
           >
             <Icon path={mdiRefresh} size={0.7} />
           </button>
         )}
         <button
           type="button"
-          onClick={() => updateSplit({ open: false })}
+          onClick={() => updateSplit({ mode: "closed" })}
           className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-          title="Close editor (unsplit)"
+          title={t("editor.closeEditor", undefined, "Close editor")}
         >
           <Icon path={mdiClose} size={0.7} />
         </button>
@@ -180,8 +240,15 @@ export function EditorPane() {
         <EditorTabs
           openFiles={state.openFiles}
           activeIndex={state.activeIndex}
+          terminalTitle={terminalTitle}
           onActivate={(i) => dispatch({ type: "setActive", index: i })}
-          onClose={(i) => dispatch({ type: "closeTab", index: i })}
+          onClose={(i) => {
+            const f = state.openFiles[i];
+            const termId = f?.viewer === "terminal" ? stripTermId(f.path) : null;
+            // D4 — closing a terminal tab kills its terminal.
+            if (termId) terminal.closeTerminalTab(termId);
+            else dispatch({ type: "closeTab", index: i });
+          }}
           onReorder={(from, to) => dispatch({ type: "reorderTabs", from, to })}
         />
       )}
@@ -193,14 +260,16 @@ export function EditorPane() {
             <div className="shrink-0 flex min-h-0 flex-col" style={{ width: railWidth }}>
               {/* Changes section pinned atop the project-tree rail (change:
                   add-change-summary-table). Absent when no changes. */}
-              <ChangesRailSection activePath={activePath} />
+              <ChangesRailSection sessionOnly={sessionOnly} onSessionOnlyChange={setSessionOnly} />
               <div className="min-h-0 flex-1 overflow-hidden">
                 <EditorFileTree
                   cwd={cwd}
                   treeOpenRoots={state.treeOpenRoots}
                   onToggleRoot={(relPath) => dispatch({ type: "toggleTreeRoot", relPath })}
                   onOpenFile={(relPath) => openInSplit(relPath)}
+                  onOpenDiff={(relPath) => openDiffTab(relPath)}
                   activePath={activePath}
+                  sessionOnly={sessionOnly}
                 />
               </div>
             </div>
@@ -211,7 +280,7 @@ export function EditorPane() {
                 setRailWidth(clientX - left);
               }}
               data-testid="rail-divider"
-              title="Drag to resize the browse rail"
+              title={t("editor.dragResizeRail", undefined, "Drag to resize the browse rail")}
             />
           </>
         )}
@@ -236,7 +305,14 @@ export function EditorPane() {
               onDismiss={() => clearChanged(activePath)}
             />
           )}
-          <div className="min-h-0 flex-1">{body}</div>
+          {/* File viewer + keep-alive terminal layer share the body region.
+              When a file tab is active the terminals are display:none; when a
+              term tab is active `body` is the null placeholder and the layer's
+              active terminal fills. See change: terminals-in-tabbed-panes. */}
+          <div className="min-h-0 flex-1 flex flex-col">
+            {body}
+            <TerminalPaneLayer />
+          </div>
         </div>
       </div>
 

@@ -6,7 +6,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
 
-vi.mock("../../lib/openspec-groups-api.js", () => ({
+vi.mock("../../lib/openspec/openspec-groups-api.js", () => ({
   fetchGroups: vi.fn(async () => ({
     schemaVersion: 1,
     groups: [{ id: "ui", name: "UI", color: "#3b82f6", order: 0 }],
@@ -21,7 +21,7 @@ vi.mock("../../lib/openspec-groups-api.js", () => ({
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch as any;
 
-import { OpenSpecGroupsSettingsSection } from "../OpenSpecGroupsSettingsSection.js";
+import { OpenSpecGroupsSettingsSection } from "../openspec/OpenSpecGroupsSettingsSection.js";
 
 afterEach(() => {
   cleanup();

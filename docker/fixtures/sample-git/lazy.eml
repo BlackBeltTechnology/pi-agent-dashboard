@@ -1,0 +1,18 @@
+From: Alice Example <alice@example.com>
+To: Bob Reviewer <bob@example.com>
+Subject: Lazy attachment fetch
+Date: Wed, 01 Jan 2025 12:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="LAZY1"
+
+--LAZY1
+Content-Type: text/html; charset=utf-8
+
+<p>The PDF below must not be fetched until expanded.</p>
+--LAZY1
+Content-Type: application/pdf; name="deferred.pdf"
+Content-Disposition: attachment; filename="deferred.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlwZS9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveFswIDAgMjAwIDIwMF0+PmVuZG9iagp4cmVmCjAgNAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1MiAwMDAwMCBuIAowMDAwMDAwMTAxIDAwMDAwIG4gCnRyYWlsZXI8PC9TaXplIDQvUm9vdCAxIDAgUj4+CnN0YXJ0eHJlZgoxNjQKJSVFT0YK
+--LAZY1--

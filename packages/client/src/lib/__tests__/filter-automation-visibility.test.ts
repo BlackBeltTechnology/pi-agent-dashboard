@@ -7,7 +7,7 @@
  * sessions). See change: add-automation-plugin.
  */
 import { describe, it, expect } from "vitest";
-import { filterSessions } from "../session-grouping.js";
+import { filterSessions } from "../session/session-grouping.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function mk(partial: Partial<DashboardSession>): DashboardSession {

@@ -13,7 +13,7 @@ import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/type
 import type { FastifyInstance } from "fastify";
 import { runGrep } from "../lib/grep.js";
 import { isAllowed } from "../lib/path-containment.js";
-import type { SessionManager } from "../memory-session-manager.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import { detectRipgrep } from "../ripgrep-detection.js";
 import type { NetworkGuard } from "./route-deps.js";
 

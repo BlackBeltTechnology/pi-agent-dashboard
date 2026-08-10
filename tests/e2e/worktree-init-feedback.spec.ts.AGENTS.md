@@ -1,0 +1,3 @@
+# worktree-init-feedback.spec.ts — index
+
+Playwright E2E for friendly worktree-init feedback (Level 1, change: friendlier-worktree-init; automates manual task 7.4). Pins baked hook fixtures `/fixtures/sample-hook-ok` (slow success) + `/fixtures/sample-hook-fail` (exit 3). `folderGroup(cwd)` scopes via `sortable-pinned-group` filtered by `folder-urgency-sort-<cwd>`. `trustAndRun` clicks `worktree-init-btn` → TOFU `role=dialog` → Run. Test 1: running `worktree-init-chip` (not raw `<pre>`, log opt-in) → `gotoDashboard` reload MID-RUN rehydrates chip from `/active-inits` → chip+btn collapse on success. Test 2: `worktree-init-error` sticky (survives 2.5s) + `worktree-init-retry` re-runs → fails again. Needs `PI_E2E_SEED=1`. See change: friendlier-worktree-init.

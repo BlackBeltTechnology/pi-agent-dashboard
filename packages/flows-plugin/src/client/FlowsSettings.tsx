@@ -9,9 +9,11 @@
  * Uses the unified buffered-draft save contract (commits via the host Settings
  * panel's Save). See change: rework-flows-plugin-for-new-pi-flows.
  */
-import React, { useCallback, useRef, useState } from "react";
+
+import { useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type React from "react";
+import { useCallback, useRef, useState } from "react";
 
 export interface FlowsPluginConfig {
   /** Global default for pi-flows `flows.editFlow`. Default off. */
@@ -19,6 +21,7 @@ export interface FlowsPluginConfig {
 }
 
 export function FlowsSettings(): React.ReactElement {
+  const t = useT();
   const config = usePluginConfig<FlowsPluginConfig>();
   const send = usePluginSend();
 
@@ -35,11 +38,11 @@ export function FlowsSettings(): React.ReactElement {
     await send({ type: "plugin_config_write", id: "flows", config: { editFlow: valuesRef.current } });
   }, [send]);
   const reset = useCallback(() => setEditFlow(baseRef.current), []);
-  useSettingsDraftSource({ id: "plugin:flows", page: "plugins", isDirty, commit, reset });
+  useSettingsDraftSource({ id: "plugin:flows", isDirty, commit, reset });
 
   return (
-    <section className="border border-[var(--border-primary)] rounded-lg p-4">
-      <h3 className="text-sm font-semibold mb-0.5">Flows</h3>
+    // No self-header: the host owns identity + status chrome (design D1).
+    <div>
       <p className="text-xs text-[var(--text-tertiary)] mb-3">
         Multi-agent workflow orchestration. Applies globally; sessions inherit this default.
       </p>
@@ -52,7 +55,7 @@ export function FlowsSettings(): React.ReactElement {
           data-testid="flows-edit-mode-toggle"
         />
         <span>
-          <span className="font-medium">Edit mode</span>
+          <span className="font-medium">{t("editModeLabel", undefined, "Edit mode")}</span>
           {" — allow the main session to author flows & agents"}
           <span className="block text-[11px] text-[var(--text-muted)] mt-0.5">
             Activates <code>flow_agents</code> / <code>flow_write</code> and makes the
@@ -60,6 +63,6 @@ export function FlowsSettings(): React.ReactElement {
           </span>
         </span>
       </label>
-    </section>
+    </div>
   );
 }

@@ -17,7 +17,7 @@ import {
   __resetSpawnErrorToastBusForTests,
   subscribeSpawnErrorToasts,
   type SpawnErrorToastEntry,
-} from "../../lib/spawn-error-toast-bus.js";
+} from "../../lib/state/spawn-error-toast-bus.js";
 
 function setupHandler(visibilityInputs: {
   pinnedDirectories: ReadonlyArray<string>;

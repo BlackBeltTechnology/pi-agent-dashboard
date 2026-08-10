@@ -10,6 +10,7 @@
  */
 import React, { useEffect, useState } from "react";
 import Icon from "@mdi/react";
+import * as mdi from "@mdi/js";
 import type {
   UiStatusPillProps,
   UiStatusPillState,
@@ -64,20 +65,11 @@ export function StatusPill({ state, text, icon, tooltip }: UiStatusPillProps) {
 }
 
 function IconByKey({ iconKey }: { iconKey: string }) {
-  const [path, setPath] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    import("@mdi/js")
-      .then((mdi) => {
-        if (cancelled) return;
-        const candidate = (mdi as Record<string, unknown>)[iconKey];
-        setPath(typeof candidate === "string" ? candidate : null);
-      })
-      .catch(() => setPath(null));
-    return () => {
-      cancelled = true;
-    };
-  }, [iconKey]);
+  // @mdi/js is already eager (statically imported across the shell), so this
+  // is a synchronous flat property lookup — no dynamic import, no loading
+  // state. See change: shrink-client-index-chunk.
+  const candidate = (mdi as Record<string, unknown>)[iconKey];
+  const path = typeof candidate === "string" ? candidate : null;
   if (!path) return null;
   return <Icon path={path} size={0.55} />;
 }

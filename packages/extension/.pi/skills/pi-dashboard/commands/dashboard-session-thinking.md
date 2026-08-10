@@ -1,8 +1,10 @@
 ---
 description: Set a session's thinking level. Usage /dashboard:session-thinking <id-prefix> <level>
 ---
-Use the pi-dashboard skill (see ../SKILL.md). Discover the base URL: prefer the $PI_DASHBOARD_PORT or $DASHBOARD_PORT env var, else read the port from ~/.pi/dashboard/config.json (default 8000); BASE="http://localhost:$PORT". When auth is enabled, include the JWT cookie. Resolve any <id-prefix> via GET /api/sessions, matching the first session whose id starts with the prefix.
+Use the pi-dashboard skill (see ../SKILL.md). Set a session's thinking level over the WebSocket bus:
 
-Task: resolve the id-prefix (first argument), then POST /api/session/<full-id>/thinking-level with body {"level": "<level>"} (e.g. off, low, medium, high). Report the result.
+    npx tsx ./scripts/dashboard-bus.ts thinking <id-prefix> <level>
+
+Levels are off, low, medium, high. The CLI resolves the id-prefix to a full session id and sends the typed `set_thinking_level` verb. Report the result, or the error if no session matches the prefix.
 
 Arguments (id-prefix then level):

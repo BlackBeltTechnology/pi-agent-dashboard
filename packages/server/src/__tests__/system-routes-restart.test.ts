@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerSystemRoutes } from "../routes/system-routes.js";
-import type { PiGateway } from "../pi-gateway.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 

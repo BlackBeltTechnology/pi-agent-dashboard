@@ -1,6 +1,6 @@
 ---
 name: distill-session-knowledge
-description: Offline-mine this project's pi session JSONL logs into reusable, verified knowledge. Walks sessions newer than a watermark, extracts five signal classes (faults, ask_user decisions, corrections, procedures, docs) anchored on objective outcomes, promotes only patterns recurring across >= N sessions, and routes distilled artifacts into existing sinks (skill_manage, memory, docs + ctx_index). Use when the user says "mine my sessions", "distill session knowledge", "what have I learned across sessions", "extract lessons from logs", or "turn my pi history into skills/memory".
+description: 'Offline-mine this project''s pi session JSONL logs into reusable, verified knowledge: extracts faults, decisions, corrections, procedures and docs, promotes only recurring patterns, and routes artifacts into skill_manage, memory and docs. Use on "mine my sessions", "distill session knowledge", "extract lessons from logs", "turn my pi history into skills/memory".'
 ---
 
 # distill-session-knowledge

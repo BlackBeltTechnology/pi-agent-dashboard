@@ -18,7 +18,7 @@
  * See change: pi-update-whats-new-panel.
  */
 import { useState, useEffect, useRef, useCallback } from "react";
-import { fetchPiChangelog } from "../lib/pi-core-api.js";
+import { fetchPiChangelog } from "../lib/api/pi-core-api.js";
 import type { ChangelogResponse } from "@blackbelt-technology/pi-dashboard-shared/changelog-types.js";
 
 export interface UsePiChangelogResult {

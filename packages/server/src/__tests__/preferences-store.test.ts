@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createPreferencesStore } from "../preferences-store.js";
+import { createPreferencesStore } from "../persistence/preferences-store.js";
 
 // Mock resolve-path to be a no-op (no symlink resolution in tests)
 vi.mock("../resolve-path.js", () => ({
@@ -48,6 +48,38 @@ describe("preferences-store", () => {
     expect(store.getPinnedDirectories()).toEqual([A_PATH, B_PATH]);
     expect(store.getSessionOrder()).toEqual({ [A_PATH]: ["s1", "s2"] });
     store.dispose();
+  });
+
+  // ── add-auto-session-naming ─────────────────────────────────────────
+  describe("autoNameSessions", () => {
+    it("defaults to true when the field is absent", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ pinnedDirectories: [] }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getAutoNameSessions()).toBe(true);
+      store.dispose();
+    });
+
+    it("defaults to true when the file is missing", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.getAutoNameSessions()).toBe(true);
+      store.dispose();
+    });
+
+    it("reads a persisted false value", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ autoNameSessions: false }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getAutoNameSessions()).toBe(false);
+      store.dispose();
+    });
+
+    it("persists a toggled value", () => {
+      const store = createPreferencesStore(filePath);
+      store.setAutoNameSessions(false);
+      store.flush();
+      const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      expect(raw.autoNameSessions).toBe(false);
+      store.dispose();
+    });
   });
 
   it("should pin and unpin directories", () => {
@@ -544,6 +576,49 @@ describe("preferences-store", () => {
       store.setDisplayPrefs({ changeSummaryTable: false });
       const merged = store.setDisplayPrefs({ reasoning: true });
       expect(merged.changeSummaryTable).toBe(false);
+      store.dispose();
+    });
+
+    it("backfills reserveProcessLineAtIdle to false for a legacy displayPrefs file", () => {
+      fs.writeFileSync(filePath, JSON.stringify({
+        displayPrefs: {
+          tokenStatsBar: true,
+          contextUsageBar: true,
+          reasoning: false,
+          toolResults: true,
+          turnMetadata: true,
+          debugTools: false,
+          toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+        },
+      }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getDisplayPrefs()?.reserveProcessLineAtIdle).toBe(false);
+      store.dispose();
+    });
+
+    it("PATCH omitting reserveProcessLineAtIdle preserves the stored value", () => {
+      const store = createPreferencesStore(filePath);
+      store.setDisplayPrefs({ reserveProcessLineAtIdle: true });
+      const merged = store.setDisplayPrefs({ reasoning: true });
+      expect(merged.reserveProcessLineAtIdle).toBe(true);
+      store.dispose();
+    });
+
+    // opt-in-out-of-cwd-session-diffs (E8): default OFF for legacy files.
+    it("backfills showOutOfCwdSessionDiffs to false for a legacy displayPrefs file", () => {
+      fs.writeFileSync(filePath, JSON.stringify({
+        displayPrefs: {
+          tokenStatsBar: true,
+          contextUsageBar: true,
+          reasoning: false,
+          toolResults: true,
+          turnMetadata: true,
+          debugTools: false,
+          toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+        },
+      }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getDisplayPrefs()?.showOutOfCwdSessionDiffs).toBe(false);
       store.dispose();
     });
   });

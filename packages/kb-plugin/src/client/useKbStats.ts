@@ -19,6 +19,12 @@ import { fetchKbStats, reindexKb } from "./kb-api.js";
 const POLL_MS = 1000;
 /** Consecutive `/stats` failures tolerated before giving up + surfacing `error`. */
 const MAX_POLL_MISSES = 3;
+/**
+ * Bounded guard (a few poll intervals) after which an unacknowledged optimistic
+ * `pending` clears + refetches, so a job that settled before the first poll can
+ * never wedge the row on a permanent spinner. See change: add-kb-index-optimistic-pending.
+ */
+export const REINDEX_GUARD_MS = 4000;
 
 export interface UseKbStatsResult {
   stats: KbStats | null;
@@ -27,6 +33,12 @@ export interface UseKbStatsResult {
   error: string | null;
   /** The reindex trigger POST was rejected (no job started). */
   reindexError: string | null;
+  /**
+   * Optimistic click acknowledgement: `true` synchronously from `reindex()` until
+   * a definitive outcome (POST reject / a `/stats` poll sees `indexing:true` / the
+   * guard elapses). NEVER cleared on the bare `202`. See change: add-kb-index-optimistic-pending.
+   */
+  pending: boolean;
   reindex: () => void;
   refetch: () => void;
 }
@@ -36,8 +48,10 @@ export function useKbStats(cwd: string | null | undefined): UseKbStatsResult {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reindexError, setReindexError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
   const [nonce, setNonce] = useState(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const guardRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const missRef = useRef(0);
 
   const refetch = useCallback(() => setNonce((n) => n + 1), []);
@@ -48,6 +62,23 @@ export function useKbStats(cwd: string | null | undefined): UseKbStatsResult {
       pollRef.current = null;
     }
   }, []);
+
+  const clearGuard = useCallback(() => {
+    if (guardRef.current) {
+      clearTimeout(guardRef.current);
+      guardRef.current = null;
+    }
+  }, []);
+
+  // Reset optimistic state on unmount OR when cwd changes, so a `pending` spinner /
+  // reindexError / armed guard from one folder never leaks into the next.
+  // See change: add-kb-index-optimistic-pending.
+  useEffect(() => {
+    setPending(false);
+    setReindexError(null);
+    clearGuard();
+    return () => clearGuard();
+  }, [cwd, clearGuard]);
 
   useEffect(() => {
     if (!cwd) {
@@ -68,6 +99,12 @@ export function useKbStats(cwd: string | null | undefined): UseKbStatsResult {
           missRef.current = 0; // a success resets the miss run
           setError(null);
           setStats(s);
+          // Real job now owns the spinner — hand off from the optimistic `pending`.
+          // Batched with setStats so `pending || indexing` never has a false/false gap.
+          if (s.indexing) {
+            setPending(false);
+            clearGuard();
+          }
           // Poll only while a job is running; stop as soon as it settles.
           if (s.indexing && !pollRef.current) {
             pollRef.current = setInterval(load, POLL_MS);
@@ -105,10 +142,25 @@ export function useKbStats(cwd: string | null | undefined): UseKbStatsResult {
   const reindex = useCallback(() => {
     if (!cwd) return;
     setReindexError(null);
+    setError(null); // also clear a poll-outage `error` so it can't mask the optimistic spinner
+    setPending(true); // synchronous optimistic click acknowledgement
+    clearGuard();
+    guardRef.current = setTimeout(() => {
+      // No reject and no observed indexing:true — the job likely settled before the
+      // first poll. Clear + refetch so the row derives from fresh stats (never wedges).
+      guardRef.current = null;
+      setPending(false);
+      refetch();
+    }, REINDEX_GUARD_MS);
     reindexKb(cwd)
       .then(() => refetch()) // 202 → refetch engages the /stats poll (sees indexing:true)
-      .catch((e) => setReindexError(e instanceof Error ? e.message : String(e)));
-  }, [cwd, refetch]);
+      .catch((e) => {
+        // Definitive failure: no job started. Clear pending + surface the error.
+        setPending(false);
+        clearGuard();
+        setReindexError(e instanceof Error ? e.message : String(e));
+      });
+  }, [cwd, refetch, clearGuard]);
 
-  return { stats, loading, error, reindexError, reindex, refetch };
+  return { stats, loading, error, reindexError, pending, reindex, refetch };
 }

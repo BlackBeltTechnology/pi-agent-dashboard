@@ -25,7 +25,8 @@ cover**, with every `description` retargeted so it never fires on
 | Skill | Fills the gap | Fires on (not openspec verbs) |
 |-------|---------------|-------------------------------|
 | `interview-me` | pre-spec intent extraction, upstream of `openspec-explore` | "interview me", "grill me", underspecified ask |
-| `doubt-driven-review` | in-flight adversarial check (≠ post-hoc `code-review`) | "stress-test this", "verify before commit", "are we sure" |
+| `doubt-driven-review` | in-flight adversarial check, per-decision (≠ post-hoc diff review) | "stress-test this", "verify before commit", "are we sure" |
+| `review-code` | engine-agnostic inner-loop review *discipline* (≠ the cloud PR gate) | "review this code", "review my diff", "is this change good", "review before commit" |
 | `code-simplification` | active simplify pass (vs the passive simplicity-first rule) | "simplify this", "reduce complexity", "clean up" |
 | `security-hardening` | security discipline (no prior equiv) | "security audit", "harden", "threat model" |
 | `performance-optimization` | measure-first perf (no prior equiv) | "it's slow", "profile", "optimize perf" |
@@ -33,6 +34,16 @@ cover**, with every `description` retargeted so it never fires on
 | `systematic-debugging` | post-failure root-cause discipline (no prior equiv) | "root cause this", "why is this failing", "debug systematically" |
 | `node-inspect-debugger` | runtime state a `console.log` can't reach; jiti-verified breakpoints | "set a breakpoint", "inspect runtime state", "console.log isn't enough" |
 | `scenario-design` | test-scenario design (ISTQB) before the bug exists (≠ post-bug `systematic-debugging`) | "design test scenarios", "find edge cases", "is this spec testable" |
+
+> **On `review-code` vs the cloud gate.** The openspec pipeline does not own a
+> reviewer *discipline* — it delegates post-hoc review to a cloud tool
+> (CodeRabbit, via `rabbit-code-review`), which is rate-limited and therefore
+> unfit for a per-change inner loop. `review-code` fills exactly that gap: the
+> engine-agnostic discipline (WHAT to look for, severity taxonomy, review→fix
+> loop) that runs inline on an unlimited model engine before commit. The cloud
+> gate stays reserved for the PR. This is why `review-code` ships here while
+> `code-review-and-quality` (below) does not — it is a discipline, not a second
+> lifecycle.
 
 ### Deliberately excluded
 
@@ -64,4 +75,7 @@ from NousResearch's `hermes-agent` and adapted to this repo's jiti-based
 TypeScript stack (the emitted-JS pitfall is corrected, and `cdp-inspect.ts` is a
 dependency-free TypeScript rewrite of the upstream CDP scope-walker). The
 `scenario-design` skill is repo-authored (MIT, `author: robson`) — no
-third-party attribution. Full attribution and license in [`NOTICE`](./NOTICE).
+third-party attribution. The `review-code` skill is repo-authored (MIT) —
+distilled from public methodology (Google Engineering Practices, the Conventional
+Comments spec) with no copied code. Full attribution and license in
+[`NOTICE`](./NOTICE).

@@ -9,7 +9,7 @@ import {
   saveTreeVisible,
   useTreeVisible,
   TREE_VISIBLE_KEY_PREFIX,
-} from "../tree-visible.js";
+} from "../util/tree-visible.js";
 
 describe("tree-visible persistence", () => {
   beforeEach(() => localStorage.clear());

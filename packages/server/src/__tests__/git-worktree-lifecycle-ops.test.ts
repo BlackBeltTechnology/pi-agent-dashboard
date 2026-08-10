@@ -23,7 +23,7 @@ import {
   resolveRemoteBase,
   sweepResidualWorktreeDir,
   worktreeDiffStat,
-} from "../git-operations.js";
+} from "../git-worktree/git-operations.js";
 
 function git(cmd: string, cwd: string): string {
   return execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" }).trim();

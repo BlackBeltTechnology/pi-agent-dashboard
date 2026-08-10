@@ -10,8 +10,8 @@ import {
   createFolderHeadPoll,
   deriveDisplayBranch,
   type FolderGroupSession,
-} from "../folder-head-poll.js";
-import type { HeadInfo } from "../git-operations.js";
+} from "../git-worktree/folder-head-poll.js";
+import type { HeadInfo } from "../git-worktree/git-operations.js";
 
 function session(over: Partial<FolderGroupSession> & { cwd: string }): FolderGroupSession {
   return { status: "active", gitWorktree: undefined, ...over } as FolderGroupSession;

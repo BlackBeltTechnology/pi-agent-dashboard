@@ -1,0 +1,3 @@
+# PairingView.tsx — index
+
+Settings→Security operator pairing view. Exports `PairingView`. Fetches `GET /api/pair/payload`; renders QR (`qrcode` idiom) + base64url copy-string + fingerprint + 60s TTL countdown + `urls[]`. `no_reachable_endpoint`→empty state (start tunnel + localhost note; never implies plain-http LAN pairs). Typed confirm-code → `approvePairing` (`POST /api/pair/approve`). NOTE: still renders a bare-payload (non-scannable) QR + own `encodePayloadString` — not migrated to the scannable deep link (follow-up to make-pairing-qr-camera-scannable). See change: wire-nonzrok-pairing-view.

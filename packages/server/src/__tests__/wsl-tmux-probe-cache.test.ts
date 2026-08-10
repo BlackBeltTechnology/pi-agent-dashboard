@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { _resetWslTmuxCacheForTests } from "../process-manager.js";
+import { _resetWslTmuxCacheForTests } from "../spawn-process/process-manager.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,7 +18,7 @@ const __dirname = path.dirname(__filename);
  */
 describe("WSL-tmux probe cache invariant", () => {
   const src = readFileSync(
-    path.resolve(__dirname, "../process-manager.ts"),
+    path.resolve(__dirname, "../spawn-process/process-manager.ts"),
     "utf-8",
   );
 

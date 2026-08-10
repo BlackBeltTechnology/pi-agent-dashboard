@@ -7,7 +7,7 @@
  * bootstrap path. See change: fix-cold-boot-openspec-protocol.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { discoverAndBroadcastSessions } from "../session-bootstrap.js";
+import { discoverAndBroadcastSessions } from "../session/session-bootstrap.js";
 
 interface SpyDirSvc {
   knownDirectories: ReturnType<typeof vi.fn>;

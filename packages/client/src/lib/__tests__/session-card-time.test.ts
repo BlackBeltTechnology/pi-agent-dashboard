@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { selectBadgeTimestamp } from "../session-card-time.js";
+import { selectBadgeTimestamp } from "../session/session-card-time.js";
 
 /**
  * Render-precedence helper for the session-card relative-time badge.

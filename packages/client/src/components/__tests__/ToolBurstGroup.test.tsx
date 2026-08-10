@@ -11,14 +11,14 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { DisplayPrefsProvider } from "../../lib/DisplayPrefsContext.js";
-import type { ChatMessage } from "../../lib/event-reducer.js";
-import type { ChatItem } from "../../lib/group-tool-calls.js";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { ToolBurstGroup } from "../ToolBurstGroup.js";
+import { DisplayPrefsProvider } from "../../lib/state/DisplayPrefsContext.js";
+import type { ChatMessage } from "../../lib/chat/event-reducer.js";
+import type { ChatItem } from "../../lib/chat/group-tool-calls.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { ToolBurstGroup } from "../chat/ToolBurstGroup.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
-const toolContext: ToolContext = { editors: [] };
+const toolContext: ToolContext = {};
 
 // jsdom implements neither scrollTo nor matchMedia; shim them for the suite.
 // NOT restored in afterAll on purpose — sibling suites (e.g. EditorFileTree)

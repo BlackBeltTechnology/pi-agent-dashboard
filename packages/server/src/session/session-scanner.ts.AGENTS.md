@@ -1,0 +1,3 @@
+# session-scanner.ts — index
+
+Cold-start session scanner. Exports `ScanResult`, `scanAllSessions(sessionsDir)` — scans `~/.pi/agent/sessions/`, reads `.meta.json` sidecars, falls back to JSONL parsing writing fresh meta. Seeds `lastActivityAt` from events.jsonl mtime, probes `cwdMissing`, reconstructs worktree parentage. Also restores `kind`/`live`/`liveEpoch`/`closedReason`/`isGitRepo`/`tags` from meta so cold-start recovery classifies interrupted sessions, ended git-repo sessions keep the +Worktree button, and tagged sessions stay tagged. See changes: reopen-sessions-after-shutdown, gate-session-worktree-button-on-git, add-session-tags.

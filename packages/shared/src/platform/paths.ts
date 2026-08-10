@@ -255,6 +255,18 @@ export function joinForDisplay(
  * server-side `browse.ts` to compute `parent = null` uniformly
  * (replacing the Unix-only `resolved === "/"` check).
  */
+/**
+ * Whether the host filesystem is case-insensitive by default (macOS + Windows).
+ * Used to decide whether a canonical path should be case-normalized so that
+ * case-variant strings for one physical directory collapse to a single key.
+ * See change: add-embed-session-lifecycle.
+ */
+export function caseInsensitiveFilesystem(
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform === "darwin" || platform === "win32";
+}
+
 export function isFilesystemRoot(
   resolved: string,
   platform: NodeJS.Platform = process.platform,

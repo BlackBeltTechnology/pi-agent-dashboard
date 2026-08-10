@@ -2,16 +2,18 @@
 // kb CLI (Phase 1): index | search | neighbors | backlinks | get | config
 // Run (dev): NODE_OPTIONS=--experimental-sqlite tsx src/cli.ts <cmd> ...
 // Shipped bin builds to dist/cli.js (build step deferred).
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { loadConfig, type ResolvedConfig, type ResolvedSource } from "./config.js";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { frontmatterConfigHash, loadConfig, type ResolvedConfig, type ResolvedSource } from "./config.js";
+import { ackTargets, applyDecisions, buildWorkItems } from "./dox-triage.js";
 import { agentsChain, doxInit, doxLint } from "./dox.js";
 import { evaluate, type GoldenItem } from "./eval.js";
 import { runIndexAtomic } from "./index-run.js";
 import { indexSource } from "./indexer.js";
 import { kbInit } from "./init.js";
+import { renderHits } from "./render.js";
 import { classifyRef, type ResolvedSource as RResolvedSource, resolveAll } from "./sources.js";
-import { SqliteFtsStore } from "./sqlite-store.js";
+import { SCHEMA_VERSION, SqliteFtsStore } from "./sqlite-store.js";
 import { defaultPromptTrust } from "./trust.js";
 import type { DocType, SearchOpts } from "./types.js";
 
@@ -70,11 +72,19 @@ function openStore(cfg: ResolvedConfig): SqliteFtsStore {
   return store;
 }
 async function runIndex(cfg: ResolvedConfig, store: SqliteFtsStore, sources: RResolvedSource[], force = false) {
+  // Apply the same schema-version / facet-config gate as runIndexAtomic so the
+  // auto-index-on-search path also picks up new structures after an upgrade or a
+  // frontmatter-config change (else the DB stays stale until an explicit `index`).
+  const hash = frontmatterConfigHash(cfg.frontmatter);
+  const stale = (store.getUserVersion?.() ?? 0) < SCHEMA_VERSION || (store.getMeta?.("facetConfigHash") ?? null) !== hash;
+  const eff = force || stale;
   let scanned = 0, changed = 0, deleted = 0, chunks = 0;
   for (const s of sources) {
-    const st = await indexSource(store, { root: s.id, dir: s.dir }, { force, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions });
+    const st = await indexSource(store, { root: s.id, dir: s.dir }, { force: eff, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions, frontmatter: cfg.frontmatter });
     scanned += st.scanned; changed += st.changed; deleted += st.deleted; chunks += st.chunks;
   }
+  store.setUserVersion?.(SCHEMA_VERSION);
+  store.setMeta?.("facetConfigHash", hash);
   return { scanned, changed, deleted, chunks };
 }
 
@@ -105,6 +115,8 @@ Usage:
   kb agents <path>                  nearest AGENTS.md chain (root→nearest); --fallback-manifest
   kb dox init [--dry-run]           scaffold a DOX AGENTS.md tree (path rows only)
   kb dox lint [--json] [--fix]      audit DOX tree drift
+  kb dox triage [--json] [--limit N]  triage STALE rows vs the git diff since ack
+              [--apply <d.json> [--write]] [--ack <targets.json>]
   kb eval    --golden <file.json> [--limit N] [--doc-type ...] [--no-reindex]
   kb config   show resolved config
 Global: --cwd <dir>  --config <file>`;
@@ -161,6 +173,31 @@ function main() {
       if (r.issues.length) process.exit(1);
       return;
     }
+    if (sub === "triage") {
+      const stalenessFile = (flags["staleness-file"] as string) ?? join(cwd, ".pi/dashboard/kb/dox-staleness.json");
+      if (flags.apply) {
+        const decisions = JSON.parse(readFileSync(flags.apply as string, "utf8"));
+        const r = applyDecisions({ cwd, decisions, write: !!flags.write });
+        for (const s of r.skipped) console.error(`skipped: ${s}`);
+        console.log(`${flags.write ? "applied" : "dry-run"}: ${r.rewritten} rewritten, ${r.kept} kept`);
+        if (!flags.write) console.log("re-run with --write to apply");
+        return;
+      }
+      if (flags.ack) {
+        const targets = JSON.parse(readFileSync(flags.ack as string, "utf8"));
+        console.log(`re-acked ${ackTargets({ cwd, targets, stalenessFile })} entries`);
+        return;
+      }
+      const staleness = existsSync(stalenessFile) ? JSON.parse(readFileSync(stalenessFile, "utf8")) : {};
+      const items = buildWorkItems({ cwd, issues: doxLint({ cwd }).issues, staleness, limit: flags.limit ? Number(flags.limit) : undefined });
+      if (flags.json) { console.log(JSON.stringify(items, null, 2)); return; }
+      const noBase = items.filter((i) => !i.baselineFound);
+      console.log(`stale rows: ${items.length}`);
+      console.log(`  with a recoverable diff : ${items.length - noBase.length}`);
+      console.log(`  no baseline (needs eyes): ${noBase.length}`);
+      for (const i of items) console.log(`  ${i.baselineFound ? "diff" : "????"}\t${i.agentsFile}\t${i.row}`);
+      return;
+    }
     console.error(`unknown dox subcommand: ${sub}`); process.exit(2);
   }
 
@@ -187,7 +224,8 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
     const s = await runIndexAtomic({
       dbPath: cfg.dbAbsPath,
       sources: sources.map((x) => ({ id: x.id, dir: x.dir })),
-      indexOpts: { force: !!flags.force, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions },
+      indexOpts: { force: !!flags.force, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions, frontmatter: cfg.frontmatter },
+      facetConfigHash: frontmatterConfigHash(cfg.frontmatter),
       explicit,
     });
     console.log(`indexed ${s.scanned} files (${s.changed} changed, ${s.deleted} deleted, ${s.chunks} chunks) in ${(performance.now() - t).toFixed(0)}ms`);
@@ -218,7 +256,7 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
       };
       const hits = store.search(q, so);
       if (flags.json) console.log(JSON.stringify(hits, null, 2));
-      else for (const h of hits) console.log(`${h.score.toFixed(2)}  ${h.path}  ::  ${h.headingPath}${h.akaPaths ? `  (+${h.akaPaths.length} dup)` : ""}${h.parent ? `  [parent: ${h.parent.headingPath}]` : ""}\n      ${h.snippet.replace(/\s+/g, " ").slice(0, 160)}`);
+      else if (hits.length) console.log(renderHits(hits, { leading: "score", parentGlyph: "[parent: ", multiline: false }));
     } else if (cmd === "neighbors") {
       const depth = posInt(flags.depth, "--depth") ?? 2;
       const rel = enumFlag(flags.rel, ["child_of", "links_to", "references", "has_tag"], "--rel");

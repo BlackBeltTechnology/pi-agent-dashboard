@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ChangeSummaryBlock · mime icon mockup</title>
+<style>
+  :root {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-hover: rgba(255, 255, 255, 0.06);
+    --text-primary: #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-tertiary: #808080;
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --accent-blue: #3b82f6;
+    --accent-green: #22c55e;
+    --accent-yellow: #eab308;
+    --accent-red: #ef4444;
+    --accent-purple: #a855f7;
+    --accent-orange: #f97316;
+  }
+  [data-theme="light"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #fafafa;
+    --bg-hover: rgba(0, 0, 0, 0.04);
+    --text-primary: #1a1a1a;
+    --text-secondary: #444444;
+    --text-tertiary: #777777;
+    --border-subtle: rgba(0, 0, 0, 0.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px;
+    background: var(--bg-primary); color: var(--text-secondary);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  h1 { color: var(--text-primary); font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--text-tertiary); font-size: 13px; margin-bottom: 28px; }
+  .toolbar { margin-bottom: 24px; display: flex; gap: 8px; align-items: center; }
+  button.theme {
+    background: var(--bg-secondary); color: var(--text-secondary);
+    border: 1px solid var(--border-subtle); border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; font-size: 13px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 24px; }
+  .col-label { color: var(--text-primary); font-weight: 600; font-size: 13px; margin: 0 0 2px; }
+  .col-note { color: var(--text-tertiary); font-size: 12px; margin: 0 0 10px; }
+
+  /* ---- ChangeSummaryBlock replica ---- */
+  .csb {
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-secondary);
+    border-radius: 6px; font-size: 12px; overflow: hidden;
+  }
+  .csb-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; width: 100%;
+    background: none; border: none; color: var(--text-secondary); cursor: pointer;
+    font: inherit; font-size: 12px;
+  }
+  .csb-header:hover { background: var(--bg-hover); }
+  .chev { color: var(--text-tertiary); display: inline-flex; }
+  .fcount { font-weight: 600; }
+  .dot-sep { color: var(--text-tertiary); }
+  .badge-add { color: var(--accent-green); font-weight: 600; }
+  .badge-del { color: var(--accent-red); font-weight: 600; }
+  .csb-list { border-top: 1px solid var(--border-subtle); list-style: none; margin: 0; padding: 0; }
+  .row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; width: 100%;
+    background: none; border: none; text-align: left; color: inherit; cursor: pointer; font: inherit;
+  }
+  .row:hover { background: var(--bg-hover); }
+  .row .path { flex: 1; color: var(--text-primary); font-family: ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .counts { margin-left: auto; padding-left: 8px; white-space: nowrap; }
+  svg.i { flex: none; }
+  .glyph-add { color: var(--accent-green); }
+  .glyph-mod { color: var(--text-tertiary); }
+  .glyph-del { color: var(--accent-red); }
+  .strike { text-decoration: line-through; text-decoration-color: var(--accent-red); opacity: .8; }
+  .cap { color: var(--text-tertiary); font-size: 11px; padding: 6px 8px 2px; }
+</style>
+</head>
+<body>
+  <h1>Changed-file list · mime-type icons</h1>
+  <div class="sub mono">ChangeSummaryBlock.tsx — real theme tokens, real @mdi glyphs</div>
+  <div class="toolbar">
+    <button class="theme" onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme')==='light'?'':'light')">Toggle dark / light</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+<script>
+const P = {
+  ts:"M3,3H21V21H3V3M13.71,17.86C14.21,18.84 15.22,19.59 16.8,19.59C18.4,19.59 19.6,18.76 19.6,17.23C19.6,15.82 18.79,15.19 17.35,14.57L16.93,14.39C16.2,14.08 15.89,13.87 15.89,13.37C15.89,12.96 16.2,12.64 16.7,12.64C17.18,12.64 17.5,12.85 17.79,13.37L19.1,12.5C18.55,11.54 17.77,11.17 16.7,11.17C15.19,11.17 14.22,12.13 14.22,13.4C14.22,14.78 15.03,15.43 16.25,15.95L16.67,16.13C17.45,16.47 17.91,16.68 17.91,17.26C17.91,17.74 17.46,18.09 16.76,18.09C15.93,18.09 15.45,17.66 15.09,17.06L13.71,17.86M13,11.25H8V12.75H9.5V20H11.25V12.75H13V11.25Z",
+  css:"M5,3L4.35,6.34H17.94L17.5,8.5H3.92L3.26,11.83H16.85L16.09,15.64L10.61,17.45L5.86,15.64L6.19,14H2.85L2.06,18L9.91,21L18.96,18L20.16,11.97L20.4,10.76L21.94,3H5Z",
+  json:"M5,3H7V5H5V10A2,2 0 0,1 3,12A2,2 0 0,1 5,14V19H7V21H5C3.93,20.73 3,20.1 3,19V15A2,2 0 0,0 1,13H0V11H1A2,2 0 0,0 3,9V5A2,2 0 0,1 5,3M19,3A2,2 0 0,1 21,5V9A2,2 0 0,0 23,11H24V13H23A2,2 0 0,0 21,15V19A2,2 0 0,1 19,21H17V19H19V14A2,2 0 0,1 21,12A2,2 0 0,1 19,10V5H17V3H19M12,15A1,1 0 0,1 13,16A1,1 0 0,1 12,17A1,1 0 0,1 11,16A1,1 0 0,1 12,15M8,15A1,1 0 0,1 9,16A1,1 0 0,1 8,17A1,1 0 0,1 7,16A1,1 0 0,1 8,15M16,15A1,1 0 0,1 17,16A1,1 0 0,1 16,17A1,1 0 0,1 15,16A1,1 0 0,1 16,15Z",
+  img:"M14,2L20,8V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V4A2,2 0 0,1 6,2H14M18,20V9H13V4H6V20H18M17,13V19H7L12,14L14,16M10,10.5A1.5,1.5 0 0,1 8.5,12A1.5,1.5 0 0,1 7,10.5A1.5,1.5 0 0,1 8.5,9A1.5,1.5 0 0,1 10,10.5Z",
+  file:"M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z",
+  md:"M20.56 18H3.44C2.65 18 2 17.37 2 16.59V7.41C2 6.63 2.65 6 3.44 6H20.56C21.35 6 22 6.63 22 7.41V16.59C22 17.37 21.35 18 20.56 18M6.81 15.19V11.53L8.73 13.88L10.65 11.53V15.19H12.58V8.81H10.65L8.73 11.16L6.81 8.81H4.89V15.19H6.81M19.69 12H17.77V8.81H15.85V12H13.92L16.81 15.28L19.69 12Z",
+  doc:"M6,2A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2H6M6,4H13V9H18V20H6V4M8,12V14H16V12H8M8,16V18H13V16H8Z",
+  chev:"M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z",
+  plus:"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z",
+  circle:"M12,8A4,4 0 0,0 8,12A4,4 0 0,0 12,16A4,4 0 0,0 16,12A4,4 0 0,0 12,8Z",
+  minus:"M19,13H5V11H19V13Z",
+};
+function svg(path, cls, size=15){ return `<svg class="i ${cls||''}" width="${size}" height="${size}" viewBox="0 0 24 24"><path fill="currentColor" d="${path}"/></svg>`; }
+
+// mime icon per extension (mirrors lib/file-icon.ts)
+function mime(name){
+  if(/\.tsx?$/.test(name)) return {p:P.ts, c:'--accent-blue'};
+  if(/\.css$/.test(name)) return {p:P.css, c:'--accent-blue'};
+  if(/\.json c?$/.test(name)||/\.json$/.test(name)) return {p:P.json, c:'--accent-orange'};
+  if(/\.(png|jpe?g|gif|svg|webp)$/.test(name)) return {p:P.img, c:'--accent-green'};
+  if(/\.mdx?$/.test(name)) return {p:P.md, c:'--accent-blue'};
+  if(/\.(txt|csv|log)$/.test(name)) return {p:P.doc, c:''};
+  return {p:P.file, c:''};
+}
+
+// sample changeset (mixed statuses + types)
+const FILES = [
+  {path:"packages/client/src/index.css", status:"modified", add:19, del:0},
+  {path:"packages/client/src/components/ChangeSummaryBlock.tsx", status:"modified", add:24, del:6},
+  {path:"packages/client/src/lib/file-icon.ts", status:"added", add:41, del:0},
+  {path:"packages/server/config/legacy.json", status:"deleted", add:0, del:88},
+  {path:"docs/architecture.md", status:"modified", add:3, del:1},
+  {path:"public/logo.png", status:"added", add:0, del:0},
+];
+
+function counts(f){
+  let s='';
+  if(f.add) s+=`<span class="badge-add">+${f.add}</span>`;
+  if(f.add&&f.del) s+=' ';
+  if(f.del) s+=`<span class="badge-del">−${f.del}</span>`;
+  if(!f.add&&!f.del) s=`<span class="dot-sep">bin</span>`;
+  return s;
+}
+function statusGlyph(status){
+  if(status==="added") return svg(P.plus,'glyph-add');
+  if(status==="deleted") return svg(P.minus,'glyph-del');
+  return svg(P.circle,'glyph-mod',13);
+}
+
+// variant renderers -> return leading-slot HTML + optional path class
+function leadCurrent(f){ // baseline
+  if(f.status==="added") return {lead:`<span class="glyph-add" style="width:15px;text-align:center">+</span>`, pathcls:''};
+  return {lead:`<span class="glyph-mod" style="width:15px;text-align:center">●</span>`, pathcls:''};
+}
+function leadA(f){ const m=mime(f.path); return {lead:svg(m.p, '', 15), style:m.c, pathcls: f.status==="deleted"?'strike':''}; }
+function leadB(f){ const m=mime(f.path); return {lead: statusGlyph(f.status)+svg(m.p,'',15), style:m.c, pathcls:''}; }
+function leadC(f){ const m=mime(f.path);
+  const tone = f.status==="added" ? '--accent-green' : f.status==="deleted" ? '--accent-red' : m.c;
+  return {lead:svg(m.p,'',15), style:tone, pathcls: f.status==="deleted"?'strike':''}; }
+
+function block(title, note, leadFn){
+  const rows = FILES.map(f=>{
+    const L = leadFn(f);
+    const style = L.style ? `style="color:var(${L.style})"` : (L.lead.includes('svg')?'style="color:var(--text-tertiary)"':'');
+    const leadWrap = `<span ${L.style?`style="color:var(${L.style})"`:''} class="lead">${L.lead}</span>`;
+    return `<li><button class="row">
+      ${leadWrap}
+      <span class="path ${L.pathcls}">${f.path}</span>
+      <span class="counts">${counts(f)}</span>
+    </button></li>`;
+  }).join('');
+  const totAdd = FILES.reduce((a,f)=>a+f.add,0), totDel = FILES.reduce((a,f)=>a+f.del,0);
+  return `<div>
+    <p class="col-label">${title}</p>
+    <p class="col-note">${note}</p>
+    <div class="csb">
+      <button class="csb-header">
+        <span class="chev">${svg(P.chev,'',14)}</span>
+        <span class="fcount">${FILES.length} files</span>
+        <span class="dot-sep">·</span>
+        <span class="badge-add">+${totAdd}</span> <span class="badge-del">−${totDel}</span>
+      </button>
+      <ul class="csb-list">${rows}</ul>
+    </div>
+  </div>`;
+}
+
+document.getElementById('grid').innerHTML =
+  block("Current", "Status glyph only (green + / gray ●). No file-type signal.", leadCurrent) +
+  block("A · Replace", "Mime icon replaces status glyph. Deleted = strikethrough path.", leadA) +
+  block("B · Both", "Status glyph + mime icon. Two slots, most info, busiest.", leadB) +
+  block("C · Tint", "Mime icon tinted by status (green add / red delete / type-color modified).", leadC);
+</script>
+</body>
+</html>

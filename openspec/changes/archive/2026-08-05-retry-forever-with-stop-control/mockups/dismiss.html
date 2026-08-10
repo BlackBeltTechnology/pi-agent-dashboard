@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>X1 — what dismiss does while retries run</title>
+<style>
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-red:#ef4444; --accent-orange:#f97316;
+  }
+  [data-theme="light"] {
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg-secondary); color:var(--text-secondary);
+    font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .page { max-width:960px; margin:0 auto; padding:24px 20px 90px; }
+  h1 { color:var(--text-primary); font-size:21px; margin:0 0 4px; }
+  h2 { color:var(--text-primary); font-size:14px; margin:0 0 2px; }
+  .lede,.note { color:var(--text-tertiary); font-size:12px; margin:0 0 10px; }
+  .note b,.lede b { color:var(--text-secondary); }
+  code { background:var(--bg-tertiary); padding:1px 5px; border-radius:4px; font-size:11.5px; color:var(--text-secondary); }
+  .bar { position:sticky; top:0; z-index:9; background:var(--bg-secondary); border-bottom:1px solid var(--border-subtle);
+    padding:10px 0; margin-bottom:14px; display:flex; gap:8px; align-items:center; }
+  .bar button { background:var(--bg-tertiary); color:var(--text-secondary); border:1px solid var(--border-secondary);
+    border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer; }
+  .opt { border:1px solid var(--border-primary); border-radius:12px; background:var(--bg-primary); padding:16px; margin:0 0 18px; }
+  .opt.rec { border-color:color-mix(in srgb,var(--accent-green) 45%,transparent); }
+  .badge { display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.5px; padding:2px 7px; border-radius:999px;
+    text-transform:uppercase; margin-left:8px; vertical-align:middle;
+    background:color-mix(in srgb,var(--accent-green) 16%,transparent); color:var(--accent-green); }
+  .badge.warn { background:color-mix(in srgb,var(--accent-orange) 16%,transparent); color:var(--accent-orange); }
+  .badge.bad { background:color-mix(in srgb,var(--accent-red) 16%,transparent); color:var(--accent-red); }
+  .stage { background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:10px; padding:12px; margin:10px 0 8px; }
+  .stagelabel { font-size:10px; letter-spacing:.6px; text-transform:uppercase; color:var(--text-muted); margin:0 0 8px; }
+  .card { position:relative; border:1px solid color-mix(in srgb,var(--accent-orange) 40%,transparent);
+    background:color-mix(in srgb,var(--accent-orange) 9%,var(--bg-primary)); border-radius:12px;
+    padding:8px 12px 8px 14px; overflow:hidden; }
+  .card.red { border-color:color-mix(in srgb,var(--accent-red) 40%,transparent); background:color-mix(in srgb,var(--accent-red) 9%,var(--bg-primary)); }
+  .card::before { content:""; position:absolute; inset:0 auto 0 0; width:3px; background:var(--accent-orange); }
+  .card.red::before { background:var(--accent-red); }
+  .strip { position:absolute; inset:0 0 auto 0; height:2px; overflow:hidden; }
+  .strip::after { content:""; position:absolute; inset:0; width:35%;
+    background:linear-gradient(90deg,transparent,var(--accent-orange),transparent); animation:sweep 1.5s linear infinite; }
+  @keyframes sweep { from{transform:translateX(-120%)} to{transform:translateX(360%)} }
+  .row { display:flex; gap:9px; align-items:flex-start; }
+  .ico { color:var(--accent-orange); flex:0 0 auto; margin-top:1px; }
+  .card.red .ico { color:var(--accent-red); }
+  .msg { flex:1 1 auto; color:var(--text-primary); font-size:12.5px; font-weight:700; word-break:break-word; }
+  .sub { color:var(--text-tertiary); font-size:11.5px; margin-top:3px; display:flex; align-items:center; gap:6px; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--accent-orange); animation:pulse 1.1s ease-in-out infinite; flex:0 0 auto; }
+  @keyframes pulse { 0%,100%{opacity:.25} 50%{opacity:1} }
+  .acts { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px; }
+  .btn { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; padding:2px 9px; border-radius:999px;
+    border:1px solid currentColor; background:transparent; color:var(--text-secondary); cursor:pointer; }
+  .btn.stop { color:var(--accent-orange); } .btn.primary { color:var(--accent-blue); }
+  .pimark { font:10px/1 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--text-muted);
+    border:1px solid var(--border-secondary); border-radius:4px; padding:2px 4px; flex:0 0 auto; }
+  .corner { position:absolute; top:6px; right:8px; display:flex; gap:2px; }
+  .corner button { border:0; background:transparent; color:var(--text-muted); font-size:13px; line-height:1;
+    cursor:pointer; padding:2px 4px; border-radius:4px; }
+  .corner button.off { opacity:.28; cursor:not-allowed; }
+  /* collapsed one-liner */
+  .mini { display:flex; align-items:center; gap:8px; border:1px solid color-mix(in srgb,var(--accent-orange) 40%,transparent);
+    background:color-mix(in srgb,var(--accent-orange) 9%,var(--bg-primary)); border-radius:999px; padding:3px 6px 3px 12px;
+    font-size:11.5px; position:relative; overflow:hidden; }
+  .mini .grow { flex:1 1 auto; color:var(--text-secondary); }
+  /* sidebar card */
+  .side { border:1px solid var(--border-secondary); border-radius:10px; background:var(--bg-tertiary); padding:8px 10px; width:270px; }
+  .side .title { color:var(--text-primary); font-size:12px; font-weight:600; display:flex; align-items:center; gap:6px; }
+  .side .meta { color:var(--text-tertiary); font-size:10.5px; margin-top:3px; display:flex; align-items:center; gap:5px; }
+  .pill { font-size:9.5px; padding:1px 6px; border-radius:999px; border:1px solid var(--accent-orange); color:var(--accent-orange); }
+  table.cmp { border-collapse:collapse; width:100%; font-size:12px; margin-top:6px; }
+  table.cmp th,table.cmp td { border:1px solid var(--border-primary); padding:6px 8px; text-align:left; vertical-align:top; }
+  table.cmp th { color:var(--text-primary); background:var(--bg-primary); font-weight:600; }
+  .yes { color:var(--accent-green); } .no { color:var(--accent-red); } .part { color:var(--accent-orange); }
+
+  /* MDI icons as inline sprite refs — no emoji anywhere */
+  svg.i { width:14px; height:14px; fill:currentColor; flex:0 0 auto; vertical-align:-2px; }
+  svg.i.sm { width:12px; height:12px; }
+  svg.i.lg { width:16px; height:16px; }
+  .piprefix { font:11px/1 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--text-muted); flex:0 0 auto; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="alert" viewBox="0 0 24 24"><path d="M13 14H11V9H13M13 18H11V16H13M1 21H23L12 2L1 21Z"/></symbol><symbol id="octagon" viewBox="0 0 24 24"><path d="M13 13H11V7H13M11 15H13V17H11M15.73 3H8.27L3 8.27V15.73L8.27 21H15.73L21 15.73V8.27L15.73 3Z"/></symbol><symbol id="stop" viewBox="0 0 24 24"><path d="M18,18H6V6H18V18Z"/></symbol><symbol id="refresh" viewBox="0 0 24 24"><path d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/></symbol><symbol id="copy" viewBox="0 0 24 24"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></symbol><symbol id="close" viewBox="0 0 24 24"><path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/></symbol><symbol id="chevup" viewBox="0 0 24 24"><path d="M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z"/></symbol><symbol id="chevdown" viewBox="0 0 24 24"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></symbol></svg>
+<div class="page">
+  <div class="bar">
+    <button onclick="document.documentElement.dataset.theme='dark'">dark</button>
+    <button onclick="document.documentElement.dataset.theme='light'">light</button>
+    <span class="note" style="margin:0">4 solutions to “closed the card → lost Stop + status”</span>
+  </div>
+
+  <h1>If the user closes it, they lose Stop, the attempt count, and the countdown</h1>
+  <p class="lede">Four ways out. Your two suggestions are S1 (collapse-only until fixed) and S3 (close only when stopped) —
+  plus S2, which is nearly free because the sidebar already knows a session is retrying
+  (<code>retrySessionIds → isRetrying</code>, App.tsx:1303 → SessionList:1313).</p>
+
+  <!-- S1 -->
+  <div class="opt rec">
+    <h2>S1 · While retries run, dismiss becomes “collapse” <span class="badge">CHOSEN — see index.html state D</span></h2>
+    <p class="note">The card can never leave the screen while something is still going to happen. Collapsed = one pill that
+    still carries the countdown and Stop. True dismiss appears only once the loop has stopped.</p>
+    <div class="stage"><div class="stagelabel">expanded — ⌃ collapses, dismiss is absent</div>
+      <div class="card"><div class="strip"></div>
+        <div class="corner"><button title="Collapse"><svg class="i"><use href="#chevup"/></svg></button></div>
+        <div class="row"><span class="ico"><svg class="i lg"><use href="#alert"/></svg></span><div class="msg">overloaded_error: Overloaded</div></div>
+        <div class="sub"><span class="dot"></span>waiting to retry — next attempt in 42s · attempt 7</div>
+        <div class="acts"><button class="btn stop"><svg class="i sm"><use href="#stop"/></svg> Stop retrying</button><button class="btn"><svg class="i sm"><use href="#copy"/></svg> Copy</button></div>
+      </div>
+    </div>
+    <div class="stage"><div class="stagelabel">collapsed — the whole state survives in one line (dashboard phase: no mark)</div>
+      <div class="mini"><div class="strip"></div>
+        <span class="dot"></span><span class="grow"><b style="color:var(--text-primary)">Overloaded</b> · retry in 42s · attempt 7</span>
+        <button class="btn stop"><svg class="i sm"><use href="#stop"/></svg> Stop</button><button class="btn"><svg class="i"><use href="#chevdown"/></svg></button>
+      </div>
+    </div>
+    <div class="stage"><div class="stagelabel">collapsed while retrying — exact countdown, no phase mark (v4)</div>
+      <div class="mini"><div class="strip"></div>
+        <span class="dot"></span>
+        <span class="grow"><b style="color:var(--text-primary)">Overloaded</b> · attempt 7 · next in 38s</span>
+        <button class="btn stop"><svg class="i sm"><use href="#stop"/></svg> Stop</button><button class="btn"><svg class="i"><use href="#chevdown"/></svg></button>
+      </div>
+    </div>
+    <div class="stage"><div class="stagelabel">after Stop / success — now it is closable</div>
+      <div class="card red">
+        <div class="corner"><button title="Collapse"><svg class="i"><use href="#chevup"/></svg></button><button title="Dismiss"><svg class="i"><use href="#close"/></svg></button></div>
+        <div class="row"><span class="ico"><svg class="i lg"><use href="#octagon"/></svg></span><div class="msg">overloaded_error: Overloaded</div></div>
+        <div class="sub">retrying stopped after 7 attempts</div>
+        <div class="acts"><button class="btn primary"><svg class="i sm"><use href="#refresh"/></svg> Retry</button><button class="btn"><svg class="i sm"><use href="#copy"/></svg> Copy</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S2 -->
+  <div class="opt">
+    <h2>S2 · dismiss really closes, the sidebar keeps the handle <span class="badge">cheap</span></h2>
+    <p class="note">Chat stays clean (your D20). The session card — which already renders an <code>isRetrying</code> state —
+    grows a countdown + inline Stop, and clicking it reopens the card. Cost: the control lives away from where you were looking.</p>
+    <div class="stage"><div class="stagelabel">chat: nothing · sidebar session card</div>
+      <div class="side">
+        <div class="title"><span class="dot"></span>fix-retry-banner</div>
+        <div class="meta"><span class="pill">retrying</span> next in 42s · attempt 7 <button class="btn stop" style="margin-left:auto"><svg class="i sm"><use href="#stop"/></svg></button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S3 -->
+  <div class="opt">
+    <h2>S3 · dismiss = “I'm done with this failure” → stops retrying and closes <span class="badge warn">simplest model</span></h2>
+    <p class="note">One gesture, nothing hidden, no second surface, no reopen problem — because after dismiss there is nothing left
+    running. Cost: you lose “dismiss the noise but keep trying”, and it contradicts your D11.</p>
+    <div class="stage"><div class="stagelabel">dismiss asks once, then it's over</div>
+      <div class="card">
+        <div class="corner"><button title="Stop retrying and dismiss"><svg class="i"><use href="#close"/></svg></button></div>
+        <div class="row"><span class="ico"><svg class="i lg"><use href="#alert"/></svg></span><div class="msg">overloaded_error: Overloaded</div></div>
+        <div class="sub"><span class="dot"></span>waiting to retry — next attempt in 42s · attempt 7</div>
+        <div class="acts"><button class="btn"><svg class="i sm"><use href="#copy"/></svg> Copy</button>
+          <span style="font-size:11px;color:var(--text-muted)">dismiss stops retrying and closes</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S4 -->
+  <div class="opt">
+    <h2>S4 · dismiss is disabled while retrying <span class="badge bad">blunt</span></h2>
+    <p class="note">Your “only close if retries stopped”. Honest but hostile — a user who just wants the red thing out of the
+    way is told no, with a tooltip. S1 is this idea with an escape hatch.</p>
+    <div class="stage"><div class="stagelabel">dismiss greyed, tooltip “Stop retrying first”</div>
+      <div class="card"><div class="strip"></div>
+        <div class="corner"><button class="off" title="Stop retrying first"><svg class="i"><use href="#close"/></svg></button></div>
+        <div class="row"><span class="ico"><svg class="i lg"><use href="#alert"/></svg></span><div class="msg">overloaded_error: Overloaded</div></div>
+        <div class="sub"><span class="dot"></span>waiting to retry — next attempt in 42s · attempt 7</div>
+        <div class="acts"><button class="btn stop"><svg class="i sm"><use href="#stop"/></svg> Stop retrying</button><button class="btn"><svg class="i sm"><use href="#copy"/></svg> Copy</button></div>
+      </div>
+    </div>
+  </div>
+
+  <h2 style="margin-top:26px">Scorecard</h2>
+  <table class="cmp">
+    <tr><th>Need</th><th>S1 collapse</th><th>S2 sidebar</th><th>S3 dismiss stops</th><th>S4 dismiss disabled</th></tr>
+    <tr><td>Stop always reachable</td><td class="yes">yes</td><td class="part">yes, elsewhere</td><td class="yes">n/a — nothing runs</td><td class="yes">yes</td></tr>
+    <tr><td>Attempt count + countdown visible</td><td class="yes">yes</td><td class="part">in sidebar</td><td class="no">gone after dismiss</td><td class="yes">yes</td></tr>
+    <tr><td>Chat can be cleared of the red block</td><td class="part">shrunk, not gone</td><td class="yes">yes</td><td class="yes">yes</td><td class="no">no</td></tr>
+    <tr><td>Reopen problem (X1)</td><td class="yes">cannot occur</td><td class="yes">solved via sidebar</td><td class="yes">cannot occur</td><td class="yes">cannot occur</td></tr>
+    <tr><td>Runaway loop stays visible (X2)</td><td class="yes">yes</td><td class="part">only in sidebar</td><td class="yes">yes</td><td class="yes">yes</td></tr>
+    <tr><td>Honors D11 “dismiss keeps retrying”</td><td class="yes">yes</td><td class="yes">yes</td><td class="no">no</td><td class="part">n/a</td></tr>
+    <tr><td>New surfaces to build</td><td class="yes">none</td><td class="part">sidebar countdown+Stop</td><td class="yes">none</td><td class="yes">none</td></tr>
+  </table>
+  <p class="note" style="margin-top:10px"><b>S1 + S2 combine well:</b> collapse in chat as the guarantee, sidebar pill as the
+  at-a-glance view. S1 alone already closes every hole; S2 alone leaves the control far from the failure.</p>
+</div>
+</body>
+</html>

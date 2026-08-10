@@ -11,8 +11,8 @@
  * See change: friendlier-worktree-init.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetInitBusForTests, dispatchInitEvent } from "../worktree-init-bus.js";
-import { DONE_FLASH_MS, initStore, RECONCILE_GRACE_MS } from "../worktree-init-store.js";
+import { __resetInitBusForTests, dispatchInitEvent } from "../git/worktree-init-bus.js";
+import { DONE_FLASH_MS, initStore, RECONCILE_GRACE_MS } from "../git/worktree-init-store.js";
 
 beforeEach(() => { initStore.__resetForTests(); __resetInitBusForTests(); });
 afterEach(() => { initStore.__resetForTests(); __resetInitBusForTests(); vi.useRealTimers(); });

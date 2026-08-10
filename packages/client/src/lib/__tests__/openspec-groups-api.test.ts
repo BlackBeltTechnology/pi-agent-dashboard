@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { setGlobalApiBase } from "../api-context.js";
+import { setGlobalApiBase } from "../api/api-context.js";
 import {
   fetchGroups,
   createGroup,
   updateGroup,
   deleteGroup,
   setAssignment,
-} from "../openspec-groups-api.js";
+} from "../openspec/openspec-groups-api.js";
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch as any;

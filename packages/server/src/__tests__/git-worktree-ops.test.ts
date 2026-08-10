@@ -13,7 +13,7 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { addWorktree, listWorktrees, readHead } from "../git-operations.js";
+import { addWorktree, listWorktrees, readHead } from "../git-worktree/git-operations.js";
 
 function git(cmd: string, cwd: string): string {
   return execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" }).trim();

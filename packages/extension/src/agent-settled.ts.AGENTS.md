@@ -1,0 +1,3 @@
+# agent-settled.ts — index
+
+Bridge `agent_settled` normalization (pure). `nativeAgentSettledSupported(piVersion)` → pi ≥ 0.80.4 emits `agent_settled` natively (unknown version → false = synthesize). `synthesizeAgentSettledEvent(ts)` → payload-less settle. `settleFollowUp(eventType, nativeSupported, ts)` → the synthetic settle the bridge forwards after an `agent_end` on floor pi, else null. Bridge forwards native settle as-is (clears `isAgentStreaming`) and synthesizes one synchronously after each floor-pi `agent_end` so the dashboard gets exactly one terminal settle per run on every pi. `NATIVE_AGENT_SETTLED_FLOOR="0.80.4"`. See change: adopt-pi-074-080-features.

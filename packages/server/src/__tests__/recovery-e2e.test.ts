@@ -11,8 +11,15 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync
 import path from "node:path";
 import os from "node:os";
 import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * The `ask` offer is withheld until the reattach grace window closes, so every
+ * browser collect below must outlast it. See change: fix-recovery-exit-intent (D6).
+ */
+const OFFER_WAIT_MS = RECOVERY_REATTACH_GRACE_MS + 800;
 
 function seedSidecar(sessionsDir: string, id: string, meta: Record<string, unknown>): void {
   const cwdDir = path.join(sessionsDir, "proj");
@@ -71,7 +78,6 @@ describe("recovery end-to-end", () => {
     serverA = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await serverA.start();
     const piPortA = serverA.piPort();
@@ -103,7 +109,6 @@ describe("recovery end-to-end", () => {
     serverB = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await serverB.start();
     const browserPortB = serverB.httpPort();
@@ -121,7 +126,7 @@ describe("recovery end-to-end", () => {
     await new Promise<void>((resolve) => {
       browser.on("open", () => {
         browser.on("message", (raw) => { try { msgs.push(JSON.parse(raw.toString())); } catch {} });
-        setTimeout(resolve, 200);
+        setTimeout(resolve, OFFER_WAIT_MS);
       });
     });
     browser.close();
@@ -132,7 +137,7 @@ describe("recovery end-to-end", () => {
     expect(ids).toContain(SID);
     expect(ids).not.toContain("manual11-2222-3333-4444-555555555555");
     expect(ids).not.toContain("clean111-2222-3333-4444-555555555555");
-  }, 15_000); // heavy e2e: two full server boots + WS round-trips; 5s default is too tight under CI parallel load.
+  }, 45_000); // heavy e2e: two full server boots + WS round-trips + the deferred-broadcast wait.
 
   it("shown once per dirty boot: dismiss + full restart yields no offer", async () => {
     writeAskConfig();
@@ -148,7 +153,6 @@ describe("recovery end-to-end", () => {
     serverB = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await serverB.start();
     const portB = serverB.httpPort();
@@ -162,7 +166,7 @@ describe("recovery end-to-end", () => {
           // Durable dismiss: consumes the on-disk liveness marker.
           browser.send(JSON.stringify({ type: "recovery_dismiss", sessionIds: [SID] }));
           setTimeout(resolve, 200);
-        }, 200);
+        }, OFFER_WAIT_MS);
       });
     });
     browser.close();
@@ -175,7 +179,6 @@ describe("recovery end-to-end", () => {
     serverA = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await serverA.start();
     const portC = serverA.httpPort();
@@ -186,10 +189,10 @@ describe("recovery end-to-end", () => {
     await new Promise<void>((resolve) => {
       browser2.on("open", () => {
         browser2.on("message", (raw) => { try { msgsC.push(JSON.parse(raw.toString())); } catch {} });
-        setTimeout(resolve, 200);
+        setTimeout(resolve, OFFER_WAIT_MS);
       });
     });
     browser2.close();
     expect(msgsC.filter((m) => m.type === "recovery_offer")).toHaveLength(0);
-  }, 15_000); // heavy e2e: two full server boots + WS round-trips; 5s default is too tight under CI parallel load.
+  }, 45_000); // heavy e2e: two full server boots + WS round-trips + the deferred-broadcast wait.
 });

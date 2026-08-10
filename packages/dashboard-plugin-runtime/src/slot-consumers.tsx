@@ -20,7 +20,7 @@ import { CurrentPluginLayer, useSlotRegistryOrNull } from "./plugin-context.js";
 import { useShellSessionOrNull } from "./shell-sessions-context.js";
 import { SlotErrorBoundary } from "./slot-error-boundary.js";
 import type { FolderDescriptor } from "./slot-registry.js";
-import { forActionId, forFolder, forSession, forSessionRendered, forTab, forToolName, type SlotRegistry } from "./slot-registry.js";
+import { forActionId, forFolder, forSession, forSessionRendered, forToolName, type SlotRegistry } from "./slot-registry.js";
 
 /**
  * Returns true when at least one plugin claim exists for `slotId` AND matches
@@ -116,7 +116,7 @@ export function WorktreeCardSectionSlot({ folder }: { folder: FolderDescriptor }
   return (
     <>
       {claims.map(c =>
-        renderClaim(c as Parameters<typeof renderClaim>[0], "worktree-card-section", { folder }),
+        renderClaim(c as Parameters<typeof renderClaim>[0], "worktree-card-section", { folder, placement: "card" }),
       )}
     </>
   );
@@ -335,53 +335,51 @@ export function CommandRouteSlot({
   });
 }
 
-export function SettingsSectionSlot({ tab = "general" }: { tab?: string }) {
-  const registry = useSlotRegistryOrNull();
-  // settings-section is global (sessionId=null). Per-tab filtering on
-  // intents is the plugin's responsibility (it can choose not to emit
-  // for a non-matching tab); for legacy refs claims we still use forTab.
-  const intents = useSlotIntents("settings-section", null);
-  const legacyClaims = registry
-    ? forTab(registry.getClaims("settings-section"), tab)
-    : [];
-  if (!legacyClaims.length && intents.size === 0) return null;
-  return (
-    <>
-      {legacyClaims.map((c) =>
-        renderClaim(c as Parameters<typeof renderClaim>[0], "settings-section", {}),
-      )}
-      {Array.from(intents.entries()).map(([pluginId, intent]) =>
-        renderIntent(pluginId, "settings-section", intent, null),
-      )}
-    </>
-  );
+/**
+ * Inert since `plugin-settings-pages`.
+ *
+ * `settings-section` contributions render exclusively on their owning plugin's
+ * page (`/settings/plugins/<id>`) via `SettingsSectionByPluginSlot`. Two live
+ * render paths was the bug this change removes, so this consumer emits nothing
+ * for any `tab`. Kept as an exported no-op only so an out-of-tree import does
+ * not hard-fail at module load. See change: plugin-settings-pages (design D3).
+ */
+export function SettingsSectionSlot(_props: { tab?: string }): null {
+  return null;
 }
 
 /**
- * Render every `settings-section` claim that belongs to a single plugin id,
- * irrespective of the claim's `tab` field. Used by the Plugins activation tab
- * to render a plugin's settings inline beneath its activation row.
+ * Render every `settings-section` contribution that belongs to a single plugin
+ * id, irrespective of the claim's `tab` field. This is the ONLY render path for
+ * the slot: the host mounts it inside `PluginSettingsPage`'s chrome.
  *
- * Sorted by registry order (descending priority, ties broken by registration
- * order — the registry already pre-sorts).
+ * Consumes BOTH forms, per the canonical dual-source contract:
+ * - refs claims, ordered by the registry comparator (ascending `priority`,
+ *   tie-broken by `pluginId.localeCompare`);
+ * - intent broadcasts (which carry no priority), rendered after every claim in
+ *   store order.
  *
- * See change: add-plugin-activation-ui.
+ * Intents are filtered against the enabled set here because the registry's own
+ * filter covers claims only — without this, a plugin disabled while its page is
+ * open would keep an intent-rendered body mounted (design D6, D7, D8).
+ *
+ * See change: add-plugin-activation-ui, plugin-settings-pages.
  */
 export function SettingsSectionByPluginSlot({ pluginId }: { pluginId: string }) {
   const registry = useSlotRegistryOrNull();
-  // Note: we deliberately do NOT use the intent store here. Activation-tab
-  // rendering only consumes the claim form. If a plugin author later adds
-  // intent-driven settings sections, they will still surface through the
-  // legacy <SettingsSectionSlot tab="..."> consumers in SettingsPanel.
+  const allIntents = useSlotIntents("settings-section", null);
   const claims = registry
     ? registry.getClaims("settings-section").filter((c) => c.pluginId === pluginId)
     : [];
-  if (!claims.length) return null;
+  const enabled = registry ? registry.isPluginEnabled(pluginId) : false;
+  const intent = enabled ? allIntents.get(pluginId) : undefined;
+  if (!claims.length && !intent) return null;
   return (
     <>
       {claims.map((c) =>
         renderClaim(c as Parameters<typeof renderClaim>[0], "settings-section", {}),
       )}
+      {intent ? renderIntent(pluginId, "settings-section", intent, null) : null}
     </>
   );
 }

@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+GitHub-style per-session file diff viewer: a split-pane file tree + syntax-highlighted diff/preview panel for reviewing what a session changed.
+
+## Requirements
 
 ### Requirement: Split-pane layout
 The file diff view SHALL render as a horizontally split pane within the content area: a file tree panel on the left and a diff/content panel on the right.
@@ -46,7 +50,12 @@ The file tree panel SHALL display changed files as a directory tree. Each file n
 - **THEN** a summary line SHALL show the total number of changed files (e.g., "5 files changed")
 
 ### Requirement: Rich diff rendering
-The diff panel SHALL render diffs using `@git-diff-view/react` with syntax highlighting via `@git-diff-view/lowlight`.
+The change/diff detail panel SHALL render a syntax-highlighted diff for the selected file using `@git-diff-view/react` with syntax highlighting via `@git-diff-view/lowlight`. Rendering SHALL follow a stated precedence so the panel never blanks when the file exists in the session-diff data, whether or not the cwd is a git repository.
+
+The precedence SHALL be:
+1. If a specific change event is selected, render that change's derived texts (Edit `oldText`/`newText`, or Write `content` as all-additions).
+2. Else if the file carries a `gitDiff` (git repo: real diff, or the synthetic `--- /dev/null` diff for an untracked new file), render the git hunks.
+3. Else (non-git cwd, git unavailable, or no `gitDiff`), derive the diff from the file's own session change payload (most recent Write `content` / Edit ops) and render it.
 
 #### Scenario: Edit change displayed
 - **WHEN** an Edit change event is selected
@@ -62,6 +71,12 @@ The diff panel SHALL render diffs using `@git-diff-view/react` with syntax highl
 - **WHEN** a file node is selected and `gitDiff` data is available
 - **THEN** the diff SHALL render using git diff mode (`@git-diff-view/core`) consuming the unified diff output
 
+#### Scenario: Non-git session fallback (never blank)
+- **WHEN** no specific change is selected AND the file has no `gitDiff` (non-git cwd or git unavailable)
+- **AND** the file exists in the session-diff `data.files`
+- **THEN** the panel SHALL render a diff derived from the file's session change payload
+- **AND** the panel SHALL NOT show an empty / "No diff data available" state
+
 #### Scenario: Split and unified mode toggle
 - **WHEN** viewing a diff
 - **THEN** the user SHALL be able to toggle between split (side-by-side) and unified diff modes
@@ -72,12 +87,17 @@ The diff panel SHALL render diffs using `@git-diff-view/react` with syntax highl
 - **THEN** the diff view SHALL use dark theme colors consistent with the dashboard
 
 ### Requirement: File content view toggle
-The diff panel SHALL support toggling to view the current file content.
+The diff panel SHALL support toggling to view the current file content, and this file preview SHALL be surfaced as a first-class, persistently visible control in the split `DiffViewer` tab (not hidden behind a diff-only toolbar). The default view SHALL be the diff.
 
 #### Scenario: Switch to file content
-- **WHEN** the user toggles to "File" mode
+- **WHEN** the user activates the "File" / "Preview" control
 - **THEN** the panel SHALL display the current file content with syntax highlighting
-- **AND** the content SHALL be fetched via the existing `/api/pi-resource-file` endpoint
+- **AND** the content SHALL be fetched via the existing session-file endpoint (`/api/session-file`)
+
+#### Scenario: First-class preview control in the split diff tab
+- **WHEN** a `diff`-viewer tab is open in the split editor pane
+- **THEN** a labeled file-preview control SHALL be visible in that tab's header
+- **AND** it SHALL be reachable in one click without opening any overflow/diff-only menu
 
 #### Scenario: Switch back to diff
 - **WHEN** the user toggles back to "Diff" mode

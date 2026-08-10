@@ -135,28 +135,79 @@ When `run.type === "agent"`, the server SHALL spawn a DETACHED headless pi proce
 
 ### Requirement: First-use trust (TOFU) gates hook execution
 
-Before running a hook for a checkout, the server SHALL require trust keyed by `repoRoot + sha256(canonical(worktreeInit))`. `isTrusted(repoRoot, hash)` SHALL be false until `recordTrust(repoRoot, hash)` is called. A run request for an untrusted hook SHALL NOT execute; it SHALL return an `init_untrusted` response carrying the hook definition so the client can prompt for confirmation. Editing any part of `worktreeInit` changes the hash and SHALL require re-confirmation. This trust gate SHALL apply identically whether the run is triggered manually (via `WorktreeInitButton`) or automatically (via the `autoInitWorktreeOnSpawn` preference); no caller may cause an untrusted hook to run without an explicit user trust grant.
+Before running a hook for a checkout, the server SHALL require trust keyed by `configRoot + sha256(canonical(worktreeInit))` (the hash component is `hookDefHash`). Trust SHALL carry a **scope**, one of `session` or `project`:
+
+- `project` scope SHALL be persisted to `~/.pi/dashboard/worktree-init-trust.json` (durable across restarts) — the pre-existing behavior.
+- `session` scope SHALL be held only in server process memory and SHALL NOT be written to disk; it SHALL be lost when the dashboard server process restarts.
+
+`recordTrust(configRoot, hash, scope)` SHALL record trust in the store selected by `scope`. The in-memory session store and the persisted project store SHALL derive the trust key identically to the pre-existing store (`path.resolve(configRoot)` joined with `hash`), so a session grant and a project grant for the same checkout+hook are interchangeable at read time and neither store can produce a false negative from divergent key forms. `isTrusted(configRoot, hash)` SHALL return `true` when a grant for that key exists in **either** the in-memory session store **or** the persisted project store, and `false` otherwise.
+
+The server SHALL accept only the exact scope tokens `session` and `project`. Scope validation SHALL NOT coerce an unrecognized value upward into greater durability: when a confirm request omits `scope`, the server SHALL treat it as `project` (backward compatibility); when a confirm request carries a `scope` value that is present but is neither exactly `session` nor exactly `project`, the server SHALL reject the request with a `bad_request` error and SHALL NOT record trust or run the hook.
+
+A run request for an untrusted hook SHALL NOT execute; it SHALL return an `init_untrusted` response carrying the hook definition and hash so the client can prompt for confirmation. On confirm, the client SHALL send `confirmHash` together with the chosen `scope`; when `confirmHash` matches the computed hash and the scope is valid, the server SHALL call `recordTrust(configRoot, hash, scope)` before running.
+
+Editing any part of `worktreeInit` changes the hash and SHALL require re-confirmation regardless of scope. This trust gate SHALL apply identically whether the run is triggered manually (via `WorktreeInitButton`) or automatically (via the `autoInitWorktreeOnSpawn` preference); no caller may cause an untrusted hook to run without an explicit user trust grant. The scope choice SHALL apply identically to git checkouts and to external (non-git) config roots resolved via `resolveConfigRoot`.
 
 #### Scenario: Untrusted hook blocks run
 
-- **WHEN** a run is requested for a hook whose `repoRoot + hash` is not trusted
+- **WHEN** a run is requested for a hook whose `configRoot + hash` is not trusted in either store
 - **THEN** the server SHALL NOT execute the hook
-- **AND** SHALL respond `init_untrusted` with the hook definition
+- **AND** SHALL respond `init_untrusted` with the hook definition and hash
+
+#### Scenario: Project-scope trust persists across restart
+
+- **WHEN** the client confirms with `scope: "project"` and the server records trust
+- **THEN** `recordTrust` SHALL write the grant to `worktree-init-trust.json`
+- **AND** `isTrusted(configRoot, hash)` SHALL return `true` after a simulated reload of the persisted store
+
+#### Scenario: Session-scope trust is memory-only and not persisted
+
+- **WHEN** the client confirms with `scope: "session"` and the server records trust
+- **THEN** `recordTrust` SHALL add the grant to the in-memory session store and SHALL NOT write `worktree-init-trust.json`
+- **AND** `isTrusted(configRoot, hash)` SHALL return `true` while the process lives
+- **AND** a fresh read of the persisted store alone SHALL NOT contain the grant
+
+#### Scenario: Session trust satisfies isTrusted without a persisted grant
+
+- **GIVEN** a `configRoot + hash` present only in the in-memory session store
+- **WHEN** a run is requested for that hook
+- **THEN** `isTrusted` SHALL return `true` (session store alone satisfies the OR-combined read)
+- **AND** the run SHALL proceed without an `init_untrusted` response
 
 #### Scenario: Recording trust permits run
 
-- **WHEN** the client confirms and the server records trust for `repoRoot + hash`
+- **WHEN** the client confirms and the server records trust for `configRoot + hash` in either scope
 - **THEN** subsequent run requests with the same hash SHALL execute without prompting
 
-#### Scenario: Editing the hook re-prompts
+#### Scenario: Omitted scope defaults to project
 
-- **WHEN** the `worktreeInit` definition changes (gate, command, prompt, or model)
+- **WHEN** a confirm request matches the hash but omits `scope`
+- **THEN** the server SHALL record trust with `project` scope (persisted) — identical to pre-change behavior
+- **AND** SHALL NOT treat the request as untrusted
+
+#### Scenario: Unrecognized scope is rejected, not coerced
+
+- **WHEN** a confirm request matches the hash but carries a `scope` value present yet not exactly `session` or `project` (e.g. `"Session"`, `"permanent"`, `""`, a non-string)
+- **THEN** the server SHALL respond `bad_request`
+- **AND** SHALL NOT record trust in either store (it SHALL NOT coerce the value to `project`)
+- **AND** SHALL NOT run the hook
+
+#### Scenario: Editing the hook re-prompts regardless of scope
+
+- **WHEN** the `worktreeInit` definition changes (gate, command, prompt, or model) after a session- or project-scope grant
 - **THEN** the computed hash SHALL differ
-- **AND** `isTrusted` SHALL return false until trust is recorded for the new hash
+- **AND** `isTrusted` SHALL return `false` for the new hash until trust is recorded for it
+
+#### Scenario: Session scope applies to an external (non-git) config root
+
+- **GIVEN** an external non-git directory whose `resolveConfigRoot` yields the directory itself and whose hook is untrusted
+- **WHEN** the client confirms with `scope: "session"`
+- **THEN** the server SHALL record the session grant keyed by that config root and run the hook
+- **AND** the grant SHALL NOT be written to `worktree-init-trust.json`
 
 #### Scenario: Auto-trigger cannot bypass trust
 
-- **WHEN** the `autoInitWorktreeOnSpawn` preference is ON and a spawned checkout's hook is untrusted
+- **WHEN** the `autoInitWorktreeOnSpawn` preference is ON and a spawned checkout's hook is untrusted in both stores
 - **THEN** the auto-trigger SHALL NOT call the init endpoint with any forged or implied trust
 - **AND** initialization SHALL only proceed via the manual, user-confirmed path
 
@@ -295,4 +346,44 @@ server SHALL NOT spawn its gate or run until trust is recorded.
 - **WHEN** `POST /api/git/worktree/init` is called for a non-git directory with no `.pi/settings.json`
 - **THEN** the response SHALL be `{ success: true, data: { ran: false, skippedReason: "no_hook" } }`
 - **AND** the response SHALL NOT be `not_a_repo`
+
+### Requirement: Run SHALL degrade gracefully when the pinned package-manager activator is unavailable
+
+A declared hook's `run` command SHALL NOT hard-depend on a package-manager
+*activator* (e.g. `corepack`) that is absent in a runtime the hook is executed
+under; the run MAY assume the package manager itself is on PATH. The dashboard runs the hook under whichever
+Node the server process resolves — including a bundled, stripped Node whose
+`lib/node_modules/corepack` has been removed. When the activator is missing, an
+unconditional `corepack enable && …` aborts the entire `&&` chain with
+`command not found` before any real init step runs, and (because no assets are
+produced) the gate stays open and the run re-fires indefinitely.
+
+This is a coherence property of the project's declared hook, not new engine
+behavior: the engine still runs whatever bash the project declares. Projects
+whose `run` invokes a package-manager activator MUST make that invocation
+best-effort — guard it (`command -v <activator> >/dev/null 2>&1 && <activator>
+enable; …`) or otherwise ensure its absence does not abort the chain — so the run
+falls through to the package manager already on PATH.
+
+#### Scenario: Missing activator does not abort the run
+
+- **GIVEN** a `run` whose intent is `<activator> enable && pnpm install && …`
+- **AND** a runtime whose Node omits `<activator>` (not on PATH)
+- **WHEN** the hook runs and `pnpm` IS on PATH at the pinned version
+- **THEN** a coherent `run` SHALL NOT abort on the missing activator
+- **AND** it SHALL proceed to `pnpm install` and the remaining chain and exit `0`
+
+#### Scenario: Present activator is still used
+
+- **GIVEN** the same guarded `run`
+- **AND** a runtime where `<activator>` IS on PATH (e.g. Docker/CI)
+- **WHEN** the hook runs
+- **THEN** the guard SHALL evaluate true and `<activator> enable` SHALL still run before install
+
+#### Scenario: Unguarded activator dependency re-fires forever (anti-pattern)
+
+- **GIVEN** an unguarded `run` beginning `<activator> enable && …` and a gate that only reports satisfied once the run's assets exist
+- **WHEN** the hook runs under a Node that omits `<activator>`
+- **THEN** the chain aborts before producing any asset, the gate stays open, and the run re-fires on every trigger
+- **AND** this configuration SHALL be treated as incoherent and corrected to guard the activator
 

@@ -8,12 +8,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import React from "react";
-import type { ToolListEntry } from "../../lib/tools-api.js";
+import type { ToolListEntry } from "../../lib/api/tools-api.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 const copyText = vi.fn().mockResolvedValue(true);
-vi.mock("../../lib/clipboard.js", () => ({ copyText: (...a: unknown[]) => copyText(...a) }));
+vi.mock("../../lib/util/clipboard.js", () => ({ copyText: (...a: unknown[]) => copyText(...a) }));
 
 // Host OS fixed to win32 so we can assert per-OS filtering.
 vi.mock("../../hooks/useHostPlatform.js", () => ({
@@ -21,7 +21,7 @@ vi.mock("../../hooks/useHostPlatform.js", () => ({
 }));
 
 const fetchTools = vi.fn();
-vi.mock("../../lib/tools-api.js", () => ({
+vi.mock("../../lib/api/tools-api.js", () => ({
   fetchTools: () => fetchTools(),
   rescanAll: vi.fn(),
   rescanOne: vi.fn(),
@@ -30,7 +30,7 @@ vi.mock("../../lib/tools-api.js", () => ({
   downloadDiagnostics: vi.fn(),
 }));
 
-import { ToolsSection } from "../ToolsSection.js";
+import { ToolsSection } from "../settings/ToolsSection.js";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 

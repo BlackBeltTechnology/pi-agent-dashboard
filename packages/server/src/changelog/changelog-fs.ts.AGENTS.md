@@ -1,0 +1,3 @@
+# changelog-fs.ts — index
+
+`findChangelogPath(pkg, opts)` resolves CHANGELOG.md (managed > bare-import > filesystem-walk). `readPackageJson(pkg)`. `deriveChangelogUrl(pkgJson)` from `repository` `github:` / `https` / object / monorepo `directory`. Strategy 3 filesystem-walk: walks up `node_modules` from `import.meta.url` (`opts.moduleUrl` overridable for tests) looking for `node_modules/<pkg>/CHANGELOG.md`. Needed because `@earendil-works/pi-coding-agent` exports only `"."` (no `"./package.json"`) — Strategy 2 `require.resolve` throws in CLI/global-npm/dev deployments. See change: pi-update-whats-new-panel.

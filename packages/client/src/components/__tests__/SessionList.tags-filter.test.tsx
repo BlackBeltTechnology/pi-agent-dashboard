@@ -16,8 +16,8 @@ import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { SessionList } from "../SessionList.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { SessionList } from "../session/SessionList.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });
@@ -34,7 +34,10 @@ beforeEach(() => {
       removeEventListener: vi.fn(),
     })),
   });
-  const store: Record<string, string> = {};
+  // The sidebar tag area is default-collapsed (change:
+  // sidebar-tag-collapse-and-delete). These tests exercise filter LOGIC, so
+  // pre-open the area to keep the filter chips rendered.
+  const store: Record<string, string> = { "sidebar.tagArea.open": "true" };
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => store[key] ?? null,
     setItem: (key: string, val: string) => { store[key] = val; },

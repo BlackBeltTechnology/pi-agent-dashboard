@@ -6,12 +6,12 @@ import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import type { NetworkGuard } from "./route-deps.js";
-import type { PiGateway } from "../pi-gateway.js";
-import type { BrowserGateway } from "../browser-gateway.js";
-import { probeProvider, resolveProbeApiKey, type ProbeApi } from "../provider-probe.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
+import { probeProvider, resolveProbeApiKey, type ProbeApi } from "../package/provider-probe.js";
 import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
 import { isSelfPointing, collectDashboardOrigins } from "../model-proxy/recursion-guard.js";
-import { getTunnelUrl } from "../tunnel.js";
+import { getTunnelUrl } from "../tunnel/tunnel.js";
 
 const REDACTED = "***";
 const CONFIG_PATH = join(homedir(), ".pi", "agent", "providers.json");

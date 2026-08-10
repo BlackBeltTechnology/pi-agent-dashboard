@@ -23,7 +23,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/process.js", async (
   };
 });
 
-const { cleanupStaleZrok, writeZrokPid, readZrokPid } = await import("../tunnel.js");
+const { cleanupStaleZrok, writeZrokPid, readZrokPid } = await import("../tunnel/tunnel.js");
 
 function pidFile(): string {
   return path.join(os.homedir(), ".pi", "dashboard", "zrok.pid");

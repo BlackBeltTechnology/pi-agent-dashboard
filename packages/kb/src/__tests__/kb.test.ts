@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { KbStore } from "../types.js";
 import { resolveAll, classifyRef, sourceIdentity, filesystemResolver, npmResolver, httpsResolver } from "../sources.js";
 import { isTrusted, recordTrust, canonicalSource } from "../trust.js";
-import { agentsChain, doxInit, doxLint } from "../dox.js";
+import { agentsChain, doxInit, doxLint, countInlineRows, parseRowPaths, extractRefPaths } from "../dox.js";
 import { createServer, type Server } from "node:http";
 
 describe("chunker", () => {
@@ -490,6 +490,75 @@ describe("dox: source-aware kb dox init (migrate-file-index deltas)", () => {
   });
 });
 
+describe("dox: broken path references inside row prose", () => {
+  // The lint hashes the FILE BEHIND a row but never validates paths written
+  // INSIDE a row's purpose text. That blind spot let a routing rule point at
+  // two deleted directories for weeks. False positives are the whole risk here:
+  // an ad-hoc scan of this repo produced 548 raw hits for ~4 real defects.
+  const topLevel = new Set(["packages", "docs", "scripts", "qa"]);
+
+  it("extracts a plain repo-relative source path", () => {
+    expect(extractRefPaths("Wraps `packages/server/src/session-api.ts` for reads.", topLevel))
+      .toEqual(["packages/server/src/session-api.ts"]);
+  });
+
+  it.each([
+    ["URL route", "Mounts `/folder/:encodedCwd/view` overlay."],
+    ["MIME type", "Serves `application/pdf` inline."],
+    ["code fragment", "Exports `get/list/remove` helpers."],
+    ["npm specifier", "Re-exports `@blackbelt-technology/pi-dashboard-shared`."],
+    ["scoped subpath", "Imports `@mdi/js` icons."],
+    ["home path", "Tails `~/.pi/dashboard/server.log`."],
+    ["absolute path", "Mounts `/mnt/test-lower` read-only."],
+    ["model id", "Defaults to `anthropic/claude-haiku-4-5`."],
+    ["placeholder", "Writes `openspec/changes/<name>/proposal.md`."],
+    ["prose with spaces", "See `some dir/other file.ts` maybe."],
+    ["unknown top-level", "Consumer projects put it in `lib/validations.ts`."],
+    ["no extension", "Resolves `provider/model` pairs."],
+    ["build output", "Zips `packages/electron/out/make/*.dmg` for release."],
+    ["excluded tree", "Prunes `.worktrees/*` checkouts."],
+  ])("ignores %s", (_label, cell) => {
+    expect(extractRefPaths(cell, topLevel)).toEqual([]);
+  });
+
+  it("flags a stale reference but not a live sibling in the same cell", () => {
+    const cell = "Moved from `packages/server/src/old.ts` to `packages/server/src/new.ts`.";
+    expect(extractRefPaths(cell, topLevel)).toEqual([
+      "packages/server/src/old.ts",
+      "packages/server/src/new.ts",
+    ]);
+  });
+
+  it("reports broken-ref for a referenced file that does not exist", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kb-doxref-"));
+    mkdirSync(join(dir, "packages", "srv"), { recursive: true });
+    writeFileSync(join(dir, "packages", "srv", "real.ts"), "export const a = 1;\n");
+    writeFileSync(
+      join(dir, "AGENTS.md"),
+      "# DOX\n\n| `packages/srv/real.ts` | Mirrors `packages/srv/gone.ts` logic. |\n",
+    );
+    const r = doxLint({ cwd: dir });
+    const refs = r.issues.filter((i) => i.kind === "broken-ref");
+    expect(refs).toHaveLength(1);
+    expect(refs[0].path).toBe("packages/srv/gone.ts");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("does NOT report broken-ref when the referenced file exists", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kb-doxref-ok-"));
+    mkdirSync(join(dir, "packages", "srv"), { recursive: true });
+    writeFileSync(join(dir, "packages", "srv", "real.ts"), "export const a = 1;\n");
+    writeFileSync(join(dir, "packages", "srv", "other.ts"), "export const b = 2;\n");
+    writeFileSync(
+      join(dir, "AGENTS.md"),
+      "# DOX\n\n| `packages/srv/real.ts` | Mirrors `packages/srv/other.ts` logic. |\n",
+    );
+    const r = doxLint({ cwd: dir });
+    expect(r.issues.filter((i) => i.kind === "broken-ref")).toHaveLength(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe("dox: kb dox lint", () => {
   let dir: string;
   beforeEach(() => {
@@ -542,6 +611,24 @@ describe("dox: kb dox lint", () => {
     expect(r.issues.filter((i) => i.kind === "orphan" && i.path === "api.ts").length).toBe(0);
   });
 
+  it("walks .pi/skills and .pi/agents (doctrine requires rows there)", () => {
+    // .pi/skills/ carries per-skill rows per the Documentation Update Protocol.
+    // Excluding all of .pi blinds the orphan check on that whole tree.
+    const sk = join(dir, ".pi", "skills");
+    mkdirSync(sk, { recursive: true });
+    writeFileSync(join(sk, "AGENTS.md"), "# DOX \u2014 .pi/skills\n\n| `moved/SKILL.md` |  |\n");
+    const r = doxLint({ cwd: dir });
+    expect(r.issues.filter((i) => i.kind === "orphan" && i.path === "moved/SKILL.md").length).toBe(1);
+  });
+
+  it("still excludes .pi/dashboard (caches, kb index, not source)", () => {
+    const dash = join(dir, ".pi", "dashboard");
+    mkdirSync(dash, { recursive: true });
+    writeFileSync(join(dash, "AGENTS.md"), "# DOX\n\n| `nope.md` |  |\n");
+    const r = doxLint({ cwd: dir });
+    expect(r.issues.filter((i) => i.agentsFile.includes(".pi/dashboard")).length).toBe(0);
+  });
+
   it("falls back to repo-root for root-config rows documented in a sub-dir AGENTS.md (Option B)", () => {
     // docs/AGENTS.md documents root-level config that lives at the repo root
     mkdirSync(join(dir, "docs"), { recursive: true });
@@ -557,5 +644,172 @@ describe("dox: kb dox lint", () => {
     const r = doxLint({ cwd: dir });
     // `Explore` lives under a non-DOX heading → not a file row, no orphan
     expect(r.issues.filter((i) => i.path === "Explore").length).toBe(0);
+  });
+
+  it("excludes build output + electron bundled/vendored trees from the md walk", () => {
+    // gitignored build/vendored md must never surface as missing/companion rows
+    for (const rel of [
+      "packages/electron/out/app/README.md",
+      "packages/electron/resources/bundled-extensions/pi-flows/docs/flows.md",
+      "packages/electron/resources/server/README.md",
+    ]) {
+      mkdirSync(join(dir, rel, ".."), { recursive: true });
+      writeFileSync(join(dir, rel), "# vendored\nbundled copy, not documented.\n");
+    }
+    const r = doxLint({ cwd: dir });
+    const touched = r.issues.filter(
+      (i) => i.path?.includes("/out/") || i.path?.includes("bundled-extensions") || i.path?.includes("resources/server"),
+    );
+    expect(touched.length).toBe(0);
+    // a real `server` source dir stays eligible (token scoped to electron/resources/server)
+    mkdirSync(join(dir, "packages/server"), { recursive: true });
+    writeFileSync(join(dir, "packages/server", "guide.md"), "# guide\nreal server doc.\n");
+    const r2 = doxLint({ cwd: dir });
+    expect(r2.issues.some((i) => i.path === "packages/server/guide.md" && i.kind === "missing")).toBe(true);
+  });
+
+  it("treats `*.agent.md` companions as index artifacts (no row/companion of their own)", () => {
+    // a big doc + its pull-only companion sidecar
+    writeFileSync(join(dir, "src", "big.md"), "# Big\n" + "line\n".repeat(400));
+    writeFileSync(join(dir, "src", "big.agent.md"), "# big \u2014 index\n\nmap of big.md.\n");
+    const r = doxLint({ cwd: dir });
+    // the companion must not surface as its own missing row or need a nested companion
+    expect(r.issues.some((i) => i.path === "src/big.agent.md")).toBe(false);
+    expect(r.issues.some((i) => (i.agentsFile || "").endsWith(".agent.agent.md"))).toBe(false);
+  });
+});
+
+// Scenarios E1–E9, X1–X2 from test-plan.md (fold-oversized-agents-directories):
+// over-threshold byte/row severity split + inline-row counting (sidecar-pointer
+// rows excluded), plus rollup-decomposition end-state and fold idempotency.
+describe("dox: over-threshold severity split (fold-oversized-agents-directories)", () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "kb-doxarm-")); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  // Build a fixture AGENTS.md: `inline` normal rows + `pointers` sidecar-pointer
+  // rows, each purpose padded by `pad` chars to drive the byte total.
+  const writeAgents = (opts: { inline: number; pointers?: number; pad?: number }) => {
+    const { inline, pointers = 0, pad = 0 } = opts;
+    const lines = ["# DOX \u2014 fixture", ""];
+    for (let i = 0; i < inline; i++) lines.push(`| \`f${i}.ts\` | purpose ${i}${"x".repeat(pad)} |`);
+    for (let i = 0; i < pointers; i++) lines.push(`| \`p${i}.ts\` | summary \u2192 see \`P${i}.AGENTS.md\` |`);
+    writeFileSync(join(dir, "AGENTS.md"), lines.join("\n") + "\n");
+  };
+  const overArms = () => doxLint({ cwd: dir }).issues.filter((i) => i.kind === "over-threshold");
+
+  it("E1: exactly 40 inline rows, <30000 bytes → no over-threshold (40 == cap, not >)", () => {
+    writeAgents({ inline: 40 });
+    expect(overArms().length).toBe(0);
+  });
+
+  it("E2: 41 inline rows, <30000 bytes → one over-threshold arm:rows, count 41", () => {
+    writeAgents({ inline: 41 });
+    const arms = overArms();
+    expect(arms.length).toBe(1);
+    expect(arms[0].arm).toBe("rows");
+    expect(arms[0].detail).toContain("41");
+  });
+
+  it("E3: 45 rows where 6 are sidecar-pointers (39 inline), <30000 bytes → no row-arm over-threshold", () => {
+    writeAgents({ inline: 39, pointers: 6 });
+    expect(overArms().filter((i) => i.arm === "rows").length).toBe(0);
+  });
+
+  it("E4: countInlineRows regex precision — true pointer excluded, prose mention counted", () => {
+    writeFileSync(join(dir, "AGENTS.md"),
+      "# DOX \u2014 fixture\n\n| `A.ts` | promoted \u2192 see `Foo.AGENTS.md` |\n| `B.ts` | documents the Foo.AGENTS.md sidecar |\n");
+    expect(countInlineRows(join(dir, "AGENTS.md"))).toBe(1); // only B (prose mention, no `→ see`)
+  });
+
+  it("E5: inline ≤40 AND bytes <30000 → no over-threshold at all", () => {
+    writeAgents({ inline: 10 });
+    expect(overArms().length).toBe(0);
+  });
+
+  it("E6: bytes >30000 AND inline ≤40 → one over-threshold arm:bytes (actionable)", () => {
+    writeAgents({ inline: 40, pad: 800 });
+    const arms = overArms();
+    expect(arms.length).toBe(1);
+    expect(arms[0].arm).toBe("bytes");
+    expect(arms[0].detail).toMatch(/sidecar/i);
+  });
+
+  it("E7: inline >40 AND bytes <30000 → one over-threshold arm:rows (informational)", () => {
+    writeAgents({ inline: 45 });
+    const arms = overArms();
+    expect(arms.length).toBe(1);
+    expect(arms[0].arm).toBe("rows");
+    expect(arms[0].detail).toMatch(/informational/i);
+  });
+
+  it("E8: inline >40 AND bytes >30000 → two arms (bytes + rows)", () => {
+    writeAgents({ inline: 45, pad: 800 });
+    const arms = overArms();
+    expect(arms.map((a) => a.arm).sort()).toEqual(["bytes", "rows"]);
+  });
+
+  it("E9: sidecar-pointer-only row for an existing file → no orphan/missing; parseRowPaths still lists it", () => {
+    writeFileSync(join(dir, "Foo.tsx"), "export const Foo = 1;\n");
+    writeFileSync(join(dir, "AGENTS.md"), "# DOX \u2014 fixture\n\n| `Foo.tsx` | promoted \u2192 see `Foo.tsx.AGENTS.md` |\n");
+    const r = doxLint({ cwd: dir });
+    expect(r.issues.filter((i) => i.path === "Foo.tsx" && (i.kind === "orphan" || i.kind === "missing")).length).toBe(0);
+    expect(parseRowPaths(join(dir, "AGENTS.md"))).toContain("Foo.tsx"); // exclusion is count-only
+  });
+
+  it("X1: rollup decomposed (rows moved to scaffolded sub/AGENTS.md) lints clean; parent inline == root-only", () => {
+    // post-migration end state: parent documents only its root file; sub/ owns its rows.
+    mkdirSync(join(dir, "sub"), { recursive: true });
+    writeFileSync(join(dir, "root.md"), "# root\nroot doc.\n");
+    writeFileSync(join(dir, "sub", "a.md"), "# a\nsub doc a.\n");
+    writeFileSync(join(dir, "sub", "b.md"), "# b\nsub doc b.\n");
+    writeFileSync(join(dir, "AGENTS.md"), "# DOX \u2014 root\n\n| `root.md` | root doc. |\n");
+    writeFileSync(join(dir, "sub", "AGENTS.md"),
+      "# DOX \u2014 sub\n\n| `a.md` | sub doc a. See change: fold-oversized-agents-directories. |\n| `b.md` | sub doc b. |\n");
+    const r = doxLint({ cwd: dir });
+    const bad = r.issues.filter((i) => ["missing", "orphan", "broken-pointer"].includes(i.kind));
+    expect(bad.length).toBe(0);
+    expect(countInlineRows(join(dir, "AGENTS.md"))).toBe(1); // parent = root-only
+    expect(readFileSync(join(dir, "sub", "AGENTS.md"), "utf8")).toContain("See change: fold-oversized-agents-directories");
+  });
+
+  it("X2: dox init is idempotent — a moved+documented file is not re-homed to the parent", () => {
+    // SessionCard.tsx moved to session/, documented there, removed from parent.
+    mkdirSync(join(dir, "components", "session"), { recursive: true });
+    writeFileSync(join(dir, "components", "session", "SessionCard.tsx"), "export const SessionCard = 1;\n");
+    writeFileSync(join(dir, "components", "AGENTS.md"), "# DOX \u2014 components\n\n");
+    writeFileSync(join(dir, "components", "session", "AGENTS.md"),
+      "# DOX \u2014 components/session\n\n| `SessionCard.tsx` | Session card. |\n");
+    const plan = doxInit({ cwd: dir, dryRun: true });
+    const parentAppend = plan.appended.find((a) => a.file.endsWith("components/AGENTS.md"));
+    const reHomed = (parentAppend?.rows ?? []).filter((row) => row.includes("SessionCard.tsx"));
+    expect(reHomed.length).toBe(0); // owned by session/AGENTS.md, not re-homed to parent
+  });
+});
+
+// E10 (test-plan): several marginal-shaped dirs (inline >40 but < byte cap)
+// lint as rows-arm informational; NONE bytes-arm. Mirrors the real repo residue
+// (hooks/, extension/src/, shared/src/, docs/) without coupling to repo state.
+describe("dox: marginal dirs report rows-arm only, never bytes-arm (E10)", () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "kb-e10-")); });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("E10: marginal dirs (inline >40, <30000 bytes) → rows-arm; a small dir → no over-threshold; zero bytes-arm", () => {
+    const mkDir = (name: string, inline: number) => {
+      mkdirSync(join(dir, name), { recursive: true });
+      const lines = [`# DOX \u2014 ${name}`, ""];
+      for (let i = 0; i < inline; i++) lines.push(`| \`${name}-f${i}.ts\` | short purpose ${i} |`);
+      writeFileSync(join(dir, name, "AGENTS.md"), lines.join("\n") + "\n");
+    };
+    mkDir("hooks", 47);
+    mkDir("extension", 47);
+    mkDir("shared", 44);
+    mkDir("small", 12); // within cap → no over-threshold
+    const over = doxLint({ cwd: dir }).issues.filter((i) => i.kind === "over-threshold");
+    expect(over.every((i) => i.arm === "rows")).toBe(true);        // none actionable byte-arm
+    expect(over.filter((i) => i.arm === "bytes").length).toBe(0);
+    expect(over.filter((i) => i.arm === "rows").length).toBe(3);   // hooks, extension, shared
+    expect(over.some((i) => i.agentsFile.includes("small"))).toBe(false);
   });
 });

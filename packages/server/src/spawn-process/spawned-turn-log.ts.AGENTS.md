@@ -1,0 +1,3 @@
+# spawned-turn-log.ts — index
+
+Build redacted `server.log` lines for spawned-session turn outcomes. Exports `redactSecrets(text)`, `buildEmptyActionableLogLine`, `buildModelErrorLogLine`, `extractModelTurnError(data)`. `redactSecrets` strips bearer tokens, AIza/ya29/sk- keys, long opaque blobs. `extractModelTurnError` returns error only when terminal assistant msg `stopReason==='error'` (empty-actionable `stop` NOT matched — distinct paths). Pure; callers `console.log/error` (server stdout → server.log). `event-wiring.ts` calls both on live events. See change: fix-gemini-subagent-silent-tool-schema-failure.

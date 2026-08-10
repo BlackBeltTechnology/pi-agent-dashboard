@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { getApiBase } from "../lib/api-context.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 const DEBOUNCE_MS = 400;
 
@@ -35,11 +36,11 @@ export function usePackageSearch() {
         setPackages(body.data.packages);
         setTotal(body.data.total);
       } else {
-        setError(body.error ?? "Search failed");
+        setError(body.error ?? t("packages.searchFailed", undefined, "Search failed"));
       }
     } catch (err: any) {
       if (err.name === "AbortError") return;
-      setError(err.message ?? "Network error");
+      setError(err.message ?? t("common.networkError", undefined, "Network error"));
     } finally {
       if (!ctrl.signal.aborted) setIsLoading(false);
     }

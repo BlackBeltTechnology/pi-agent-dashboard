@@ -3,10 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { metaPath, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { scanAllSessions } from "../session-scanner.js";
+import { scanAllSessions } from "../session/session-scanner.js";
 
 // Mock extractSessionStats to avoid needing real JSONL content with usage data
-vi.mock("../session-stats-reader.js", () => ({
+vi.mock("../session/session-stats-reader.js", () => ({
   extractSessionStats: vi.fn(() => ({
     tokensIn: 10,
     tokensOut: 20,

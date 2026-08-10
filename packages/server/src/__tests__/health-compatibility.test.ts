@@ -9,13 +9,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 
-vi.mock("../pi-version-skew.js", async (importActual) => {
-  const actual = await importActual<typeof import("../pi-version-skew.js")>();
+vi.mock("../pi/pi-version-skew.js", async (importActual) => {
+  const actual = await importActual<typeof import("../pi/pi-version-skew.js")>();
   return { ...actual, readCurrentPiVersion: vi.fn() };
 });
 
 import { registerSystemRoutes } from "../routes/system-routes.js";
-import { readCurrentPiVersion } from "../pi-version-skew.js";
+import { readCurrentPiVersion } from "../pi/pi-version-skew.js";
 
 const mockReadCurrent = vi.mocked(readCurrentPiVersion);
 

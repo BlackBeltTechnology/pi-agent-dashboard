@@ -13,7 +13,7 @@ import {
   popNav,
   handlePopState,
   initNavTracker,
-} from "../nav-tracker.js";
+} from "../nav/nav-tracker.js";
 
 describe("nav-tracker", () => {
   beforeEach(() => resetNavStack());

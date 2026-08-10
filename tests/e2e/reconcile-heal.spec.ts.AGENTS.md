@@ -1,0 +1,3 @@
+# reconcile-heal.spec.ts — index
+
+Playwright spec (task 5.1, change: fix-stuck-tool-card-on-dropped-event). RECOVERABLE counterpart to `superseded-heal.spec.ts`. Drives `[[faux:stuck-tool-superseded]]`. `routeWebSocket` drops the tool's `tool_execution_end` frame (server→browser drop) but the reconcile route is left UNSTUBBED, so `GET /api/sessions/*/tool-result/*` hits the real server (store still holds the result) → HTTP 200. Asserts the stuck `tool-burst-group` (`data-running=true`) flips to `data-running=false` (~25s STALE_TOOL_MS heal), body contains the real `supersede-probe` echo output, and `tool-superseded-badge` count 0 (real result wins; placeholder never fires). `test.setTimeout(120s)`. Requires the Docker harness.

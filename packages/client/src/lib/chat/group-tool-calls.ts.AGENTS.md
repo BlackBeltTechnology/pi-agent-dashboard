@@ -1,0 +1,3 @@
+# group-tool-calls.ts — index
+
+Collapses repetitive retry loops in chat view. Exports `ToolCallGroup`, `ChatItem`, `groupConsecutiveToolCalls(messages)` — groups ≥3 consecutive same-`toolName`/similar-args `toolResult`s into ×N pill, absorbing transparent intermediate rows (`assistant`/`thinking`/`turnSeparator`/`rawEvent`/`commandFeedback`). Never groups running tools. `ToolCallGroup.rendered: ChatMessage[]` = full interleaved walked slice `[start,lastToolEnd)` (toolResults + absorbed narration in original order) for the EXPANDED view; `messages` (toolResult-only) drives ×N count/summary. Trailing transparents after final grouped call NOT absorbed. See change: collapse-tool-calls-across-narration.

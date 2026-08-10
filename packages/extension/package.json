@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-extension",
-  "version": "0.5.4",
+  "version": "0.7.0",
   "description": "Pi bridge extension for pi-dashboard",
   "type": "module",
   "repository": {
@@ -27,18 +27,26 @@
     ".pi/skills/pi-dashboard/",
     ".pi/skills/browser/",
     ".pi/skills/project-init/",
-    ".pi/skills/doctor/"
+    ".pi/skills/doctor/",
+    "agents/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",
+    "@blackbelt-technology/pi-dashboard-bus-client": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@fission-ai/openspec": "^1.6.0",
+    "minimatch": "^10.0.0",
     "ws": "^8.18.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
-    "typebox": "*"
+    "@earendil-works/pi-ai": ">=0.75.5",
+    "@earendil-works/pi-coding-agent": ">=0.80.10",
+    "@earendil-works/pi-tui": ">=0.80.10",
+    "@mariozechner/pi-coding-agent": ">=0.73.1",
+    "@mariozechner/pi-tui": ">=0.73.1",
+    "typebox": ">=1.3.6"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
@@ -52,11 +60,14 @@
     },
     "@mariozechner/pi-tui": {
       "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-tui": "*",
+    "@earendil-works/pi-tui": ">=0.80.10",
     "@types/ws": "^8.18.1",
-    "typebox": "^1.1.33"
+    "typebox": "^1.3.7"
   }
 }

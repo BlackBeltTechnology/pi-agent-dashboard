@@ -1,0 +1,3 @@
+# FolderOpenSpecSection.tsx — index
+
+Slim single-line navigation entry `OpenSpec (N) →` to board route. Refresh + Archive + Specs are now icon-only buttons inside the SlotPill trailing `actions` cluster (order Refresh, Archive purple, Specs cyan; each has title + aria-label since text labels dropped; test-ids folder-openspec-refresh / folder-archive-btn / folder-specs-btn). Props: data, cwd, onRefresh, onOpenBoard, onOpenSpecs, onOpenArchive. Inline accordion/pills/search/DnD/session rows removed → moved to OpenSpecBoardView. See change: add-folder-task-checker-and-spawn-attach. See change: add-session-status-to-folder-proposal-rows. See change: redesign-openspec-board. See change: openspec-pill-inline-icon-actions.

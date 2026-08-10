@@ -3,7 +3,7 @@
  * the `writePluginConfig` REST helper. See change: fix-plugin-config-write-persistence.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { dispatchPluginMessage, writePluginConfig } from "../plugins-api.js";
+import { dispatchPluginMessage, writePluginConfig } from "../package/plugins-api.js";
 
 const origFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = origFetch; vi.restoreAllMocks(); });

@@ -27,6 +27,48 @@ export type ListSessionsResponse = ApiResponse<DashboardSession[]>;
 
 export type FetchEventContentResponse = ApiResponse<DashboardEvent>;
 
+// pi retry policy (pi-retry-settings capability). pi's OWN native retry knobs,
+// read from / written to the GLOBAL `~/.pi/agent/settings.json` `retry` block.
+// The dashboard keeps no parallel policy and runs no retry loop; this is a thin
+// editor over pi's settings. GLOBAL only -- pi has no persisted per-session
+// retry policy (`setAutoRetryEnabled` delegates to the global setter), so there
+// is no project-scoped or per-session variant.
+// See change: retry-forever-with-stop-control.
+
+/** pi's `retry.provider.*` sub-block (provider/SDK-level request controls). */
+export interface PiRetryProviderPolicy {
+  /** Provider/SDK request timeout (ms). Absent = SDK default. */
+  timeoutMs?: number;
+  /** Provider/SDK retry attempts. pi default 0. */
+  maxRetries: number;
+  /** Max server-requested delay (ms) before failing. pi default 60000; 0 disables the limit. */
+  maxRetryDelayMs: number;
+}
+
+export interface PiRetryPolicy {
+  /** pi retries transient provider failures. */
+  enabled: boolean;
+  /** Max agent-level retry attempts. No clamp -- pi accepts any non-negative int. */
+  maxRetries: number;
+  /** Base backoff (ms); pi's delay is `baseDelayMs * 2^(attempt-1)`, uncapped. */
+  baseDelayMs: number;
+  /** Provider/SDK-level controls. A wait taken here emits NO event (invisible). */
+  provider: PiRetryProviderPolicy;
+}
+
+export type GetPiRetryPolicyResponse = ApiResponse<PiRetryPolicy>;
+
+/** PUT body -- all fields required (the client always sends the full policy). */
+export type PutPiRetryPolicyRequest = PiRetryPolicy;
+
+export interface PutPiRetryPolicyResult {
+  policy: PiRetryPolicy;
+  /** How many connected sessions were reloaded to apply the new policy. */
+  reloadedSessions: number;
+}
+
+export type PutPiRetryPolicyResponse = ApiResponse<PutPiRetryPolicyResult>;
+
 // ── Session Spawn ───────────────────────────────────────────────────
 
 export interface SpawnSessionRequest {
@@ -296,7 +338,27 @@ export interface PiResource {
   tools?: string;
   /** Theme-only: palette swatch colors (bg / surface / accent / text) for the card strip. */
   colors?: string[];
+  /**
+   * Raw `metadata.source` of a package-origin resolver entry whose source matched
+   * no known package row. Rendered as the card's package label rather than dropped.
+   * See change: fix-skill-discovery-parity.
+   */
+  packageSource?: string;
+  /**
+   * Skill-only provenance from the live join against a session's retained
+   * `commands_list`. Absent when the payload is scan-only or degraded.
+   * See change: fix-skill-discovery-parity.
+   */
+  status?: PiSkillStatus;
+  /** Skill-only: the path the session reported, for `loaded-elsewhere` entries. */
+  sessionPath?: string;
 }
+
+/**
+ * Provenance of a skill relative to the session that reported its loaded set.
+ * See change: fix-skill-discovery-parity.
+ */
+export type PiSkillStatus = "active" | "not-loaded" | "loaded-elsewhere";
 
 export interface PiResourceScope {
   extensions: PiResource[];
@@ -304,6 +366,8 @@ export interface PiResourceScope {
   prompts: PiResource[];
   /** Subagents from `agents/*.md`. See change: resources-card-tabs. */
   agents: PiResource[];
+  /** Themes from pi's resolver (`ResolvedPaths.themes`). See change: fix-skill-discovery-parity. */
+  themes: PiResource[];
 }
 
 export interface PiPackageInfo {
@@ -319,6 +383,26 @@ export interface PiResourcesResult {
   local: PiResourceScope;
   global: PiResourceScope;
   packages: PiPackageInfo[];
+  /**
+   * True when skills/prompts/themes came from the filesystem fallback because
+   * pi's resolver was unavailable or returned a contradicted empty result.
+   * See change: fix-skill-discovery-parity.
+   */
+  degraded?: boolean;
+  /**
+   * True when no single session has reported a `commands_list` for this folder
+   * (none, or more than one). No skill carries a `status` in that case.
+   */
+  scanOnly?: boolean;
+  /**
+   * The single reporting session behind the join, when there is exactly one.
+   * `differsFromFolder` is true when its working directory is not the scanned
+   * folder (a worktree or subdirectory), which is what makes a `not-loaded`
+   * status attributable to scope rather than to rejection.
+   */
+  contributingSession?: { sessionId: string; cwd: string; differsFromFolder: boolean };
+  /** True when the retained skill commands carried no joinable `path` at all. */
+  pathlessCommands?: boolean;
 }
 
 export type PiResourcesResponse = ApiResponse<PiResourcesResult>;
@@ -513,6 +597,18 @@ export interface InstalledPackage {
   isRecommended?: boolean;
   /** True when isRecommended AND id is in BUNDLED_EXTENSION_IDS AND bundle subtree exists. */
   isBundled?: boolean;
+  /**
+   * Canonical published spec (`npm:<name>` or a git URL) for a local/git
+   * row that has a resolvable published variant. Two resolution paths:
+   *   - recommended rows → RECOMMENDED_EXTENSIONS manifest source.
+   *   - non-recommended local rows → npm-registry lookup by package.json `name`.
+   * Absent when the row is plain npm, or no published variant resolves.
+   * Drives the second source line + Reset to npm action.
+   * See change: reset-override-to-npm.
+   */
+  publishedVariantSource?: string;
+  /** Latest published version of `publishedVariantSource`, when known (best-effort; undefined offline). */
+  publishedVariantVersion?: string;
 }
 
 export type InstalledPackagesResponse = ApiResponse<InstalledPackage[]>;

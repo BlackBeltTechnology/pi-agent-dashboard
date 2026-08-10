@@ -93,15 +93,16 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.ref }}
 
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm test
+      - run: pnpm run build
 
   # ── release-gate: smoke (standalone-install-smoke matrix) ─────────────────
   # Calls the reusable `_smoke.yml` with the resolved ref. Fans out in
@@ -132,15 +133,16 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: pnpm/action-setup@v4
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
         shell: bash
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Bump workspace versions
         shell: bash
@@ -158,16 +160,15 @@ jobs:
         shell: bash
         run: node scripts/sync-versions.js
 
-      - name: Regenerate package-lock.json with bumped versions
+      - name: Regenerate pnpm-lock.yaml with bumped versions
         shell: bash
         run: |
-          # The workspace symlink graph changed (every package.json's
-          # version + cross-ref specifiers were bumped). The lockfile
-          # must be regenerated so its recorded specifiers match,
-          # otherwise strict prerelease semver causes npm ci on consumers
-          # to fall back to the registry on every install. See change:
-          # fix-release-lockfile-drift.
-          npm install --package-lock-only --no-audit --no-fund
+          # The workspace graph changed (every package.json's version +
+          # cross-ref specifiers were bumped). The lockfile must be
+          # regenerated so its recorded specifiers match, otherwise strict
+          # prerelease semver causes consumer installs to fall back to the
+          # registry on every install. See change: fix-release-lockfile-drift.
+          pnpm install --lockfile-only
 
       - name: Verify lockfile matches workspace versions
         shell: bash
@@ -240,17 +241,23 @@ jobs:
           # have moved past.
           ref: ${{ needs.resolve.outputs.tag }}
 
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          cache: pnpm
 
-      # Trusted Publishing requires npm CLI ≥ 11.5.1. Node 24 ships a recent
-      # npm, but upgrade explicitly to guarantee the feature is available.
-      - name: Upgrade npm to latest (trusted publishing)
+      # Trusted Publishing requires npm CLI ≥ 11.5.1 for the OIDC provenance
+      # exchange. Dependency installation is now pnpm's job (blockExoticSubdeps
+      # handles the transitive git dep @electron/node-gyp), so the old EALLOWGIT
+      # pin to 11.12.1 is no longer needed — float to @latest, which guarantees
+      # the OIDC floor. npm survives here only for `npm publish --provenance`.
+      # See change: adopt-pnpm-for-dev-ci (§8.3).
+      - name: Upgrade npm for trusted publishing (OIDC ≥ 11.5.1)
         run: npm install -g npm@latest
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Set version from resolved tag
         run: npm version "${{ needs.resolve.outputs.version }}" --no-git-tag-version --allow-same-version --workspaces --include-workspace-root
@@ -258,7 +265,7 @@ jobs:
       - name: Sync inter-package dep specifiers to bumped version
         run: node scripts/sync-versions.js
 
-      - run: npm run build
+      - run: pnpm run build
 
       - name: "Publish to npm (idempotent, ordered: sub-packages first, root last)"
         # Replaces the old `npm publish --workspaces --include-workspace-root` call.
@@ -278,7 +285,11 @@ jobs:
         #
         # Failure mode: any single non-skip publish failure marks the whole step
         # failed (FAIL=1) but lets the loop finish so the logs show every
-        # package's outcome.
+        # package's outcome. Each failure is classified: an OIDC / trusted-
+        # publisher signature in npm's output emits a `::error::<pkg> —
+        # trusted publisher likely missing` annotation and lands the package
+        # in a gap report written to $GITHUB_STEP_SUMMARY, so one release run
+        # tells you exactly which packages still need a Trusted Publisher.
         run: |
           set -uo pipefail
           # Ordering invariant: a package MUST appear AFTER every
@@ -289,6 +300,7 @@ jobs:
           # which enforces every non-private workspace appears here.
           PACKAGES=(
             "@blackbelt-technology/pi-dashboard-shared"
+            "@blackbelt-technology/pi-dashboard-bus-client"
             "@blackbelt-technology/pi-dashboard-extension"
             "@blackbelt-technology/pi-dashboard-server"
             "@blackbelt-technology/pi-dashboard-web"
@@ -303,17 +315,24 @@ jobs:
             "@blackbelt-technology/pi-dashboard-automation-plugin"
             "@blackbelt-technology/pi-dashboard-invoicebot-plugin"
             "@blackbelt-technology/pi-image-fit-extension"
+            "@blackbelt-technology/pi-dashboard-nano-banana"
+            "@blackbelt-technology/pi-dashboard-video-production"
             "@blackbelt-technology/frontend-mockup-loop"
             "@blackbelt-technology/pi-dashboard-kb"
             "@blackbelt-technology/pi-dashboard-kb-extension"
             "@blackbelt-technology/pi-dashboard-kb-plugin"
+            "@blackbelt-technology/pi-dashboard-hermes-memory-plugin"
             "@blackbelt-technology/pi-dashboard-document-converter"
             "@blackbelt-technology/anti-slop-frontend"
             "@blackbelt-technology/pi-dashboard-eng-disciplines"
             "@blackbelt-technology/pi-dashboard-authoring-toolkit"
+            "@blackbelt-technology/pi-dashboard-apple-tools"
             "@blackbelt-technology/pi-dashboard-video-transcription"
             "@blackbelt-technology/pi-dashboard-session-distiller"
             "@blackbelt-technology/pi-dashboard-distill-session-knowledge"
+            "@blackbelt-technology/pi-dashboard-code-review-toolkit"
+            "@blackbelt-technology/pi-dashboard-frontend-patterns"
+            "@blackbelt-technology/pi-dashboard-openspec-workflow"
             "@blackbelt-technology/pi-agent-dashboard"
           )
           VERSION="${{ needs.resolve.outputs.version }}"
@@ -325,6 +344,14 @@ jobs:
           TAG_ARG=""
           if [ "$PRERELEASE" = "true" ]; then TAG_ARG="--tag next"; fi
           FAIL=0
+          FAILED_TP=()     # failures whose signature = missing trusted-publisher / OIDC config
+          FAILED_OTHER=()  # failures for any other reason
+          # Disable set -e for the publish loop: each package's rc is captured
+          # explicitly (PIPESTATUS) and handled below, so a single failure must
+          # NOT abort the loop. Without this, `set -euo pipefail` exits at the
+          # first failing `npm publish | tee`, so the gap report never lists more
+          # than one package. Re-enabled after the loop.
+          set +e
           for pkg in "${PACKAGES[@]}"; do
             if npm view "$pkg@$VERSION" version >/dev/null 2>&1; then
               echo "::notice::$pkg@$VERSION already published — skip"
@@ -332,13 +359,98 @@ jobs:
             fi
             echo "::group::Publishing $pkg@$VERSION (is_prerelease=$PRERELEASE)"
             if [ "$pkg" = "@blackbelt-technology/pi-agent-dashboard" ]; then
-              npm publish --provenance --access public $TAG_ARG || FAIL=1
+              npm publish --provenance --access public $TAG_ARG 2>&1 | tee /tmp/pub.log; rc=${PIPESTATUS[0]}
             else
-              npm publish --workspace="$pkg" --provenance --access public $TAG_ARG || FAIL=1
+              npm publish --workspace="$pkg" --provenance --access public $TAG_ARG 2>&1 | tee /tmp/pub.log; rc=${PIPESTATUS[0]}
             fi
             echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then
+              FAIL=1
+              # OIDC / trusted-publisher signatures: the id-token exchange is
+              # rejected, or npm cannot authenticate the provenance publish.
+              if grep -qiE 'oidc|trusted publish|id-token|unable to authenticate|ENEEDAUTH|could not (get|retrieve|read).*(oidc|token)' /tmp/pub.log; then
+                echo "::error::$pkg — publish failed; Trusted Publisher likely NOT configured (OIDC token exchange rejected). Add it: npmjs.com → $pkg → Settings → Trusted Publisher (repo ${GITHUB_REPOSITORY}, workflow publish.yml, environment npm-publish)."
+                FAILED_TP+=("$pkg")
+              else
+                echo "::error::$pkg — publish failed (non-OIDC error; see the group log above)."
+                FAILED_OTHER+=("$pkg")
+              fi
+            fi
           done
+          set -e
+          # Gap report → job summary (renders on the run's Summary tab).
+          {
+            echo "## npm publish — Trusted Publisher gap report"
+            echo ""
+            if [ "${#FAILED_TP[@]}" -eq 0 ] && [ "${#FAILED_OTHER[@]}" -eq 0 ]; then
+              echo "✅ All packages published (or already up-to-date). No Trusted Publisher gaps detected."
+            else
+              if [ "${#FAILED_TP[@]}" -gt 0 ]; then
+                echo "### ❌ Trusted Publisher likely MISSING (${#FAILED_TP[@]})"
+                for p in "${FAILED_TP[@]}"; do echo "- \`$p\`"; done
+                echo ""
+                echo "Fix each: npmjs.com → package → **Settings → Trusted Publisher** — repo \`${GITHUB_REPOSITORY}\`, workflow \`publish.yml\`, environment \`npm-publish\`."
+                echo ""
+              fi
+              if [ "${#FAILED_OTHER[@]}" -gt 0 ]; then
+                echo "### ⚠️ Other publish failures (${#FAILED_OTHER[@]})"
+                for p in "${FAILED_OTHER[@]}"; do echo "- \`$p\`"; done
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
           exit $FAIL
+
+      # Post-release registry assertion. The publish loop reports its own
+      # failures, but "publish exited zero" is not the same as "the version is
+      # resolvable". Assert the registry actually serves <version> for every
+      # non-private workspace, so a silently-missing package is caught here
+      # rather than by a consumer's install.
+      # See change: cleanup-undeclared-dependencies (test-plan R1).
+      - name: Verify every non-private workspace resolves on the registry
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Captured into a variable, not piped through process substitution:
+          # a failure inside `< <(...)` does NOT fail `mapfile`, so a broken
+          # discovery would yield an empty set and the loop below would report a
+          # successful registry assertion having checked nothing.
+          names_text="$(node -e "
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const base = path.join(process.cwd(), 'packages');
+            const out = [];
+            for (const d of fs.readdirSync(base)) {
+              const p = path.join(base, d, 'package.json');
+              if (!fs.existsSync(p)) continue;
+              const m = JSON.parse(fs.readFileSync(p, 'utf8'));
+              if (m.private === true) continue;
+              out.push(m.name);
+            }
+            out.push(JSON.parse(fs.readFileSync('package.json', 'utf8')).name);
+            console.log(out.join('\n'));
+          ")"
+          if [ -z "$names_text" ]; then
+            echo "::error::workspace discovery returned no package names; refusing to report a vacuous pass"
+            exit 1
+          fi
+          mapfile -t names <<< "$names_text"
+          echo "Asserting ${#names[@]} package(s) resolve at ${VERSION}"
+          missing=()
+          for name in "${names[@]}"; do
+            actual=$(npm view "${name}@${VERSION}" version 2>/dev/null || true)
+            if [ "$actual" != "$VERSION" ]; then
+              echo "::error::${name} does not resolve at ${VERSION} on the registry (npm view returned '${actual:-<nothing>}')"
+              missing+=("$name")
+            else
+              echo "ok  ${name}@${VERSION}"
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::${#missing[@]} package(s) did not resolve at ${VERSION}"
+            exit 1
+          fi
 
   # ── Electron builds (parallel) ────────────────────────────────
   # MUST `needs: [resolve, publish]` — the bundled server's `npm install`
@@ -350,6 +462,13 @@ jobs:
   # `packages/shared/src/__tests__/publish-workflow-contract.test.ts`.
   electron:
     needs: [resolve, publish]
+    # On the tag-push path `tag-and-push` is SKIPPED, and a skipped job in the
+    # needs-ancestry poisons the DEFAULT `if: success()` — GitHub then skips
+    # `electron` (and `github-release`) even when `publish` is green. Mirror the
+    # explicit skip-tolerant guard `publish` already uses so the release's
+    # installer + GitHub Release stages survive the skipped `tag-and-push`.
+    # See change: gate-publish-on-smoke-and-tests.
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
     # All matrix/steps moved to .github/workflows/_electron-build.yml so the
     # same definition serves both this release flow AND the on-demand CI
     # workflow (.github/workflows/ci-electron.yml). See change:

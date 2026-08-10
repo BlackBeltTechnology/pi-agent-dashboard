@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildSpawnEnv } from "../process-manager.js";
+import { buildSpawnEnv } from "../spawn-process/process-manager.js";
 
 const isWin = process.platform === "win32";
 

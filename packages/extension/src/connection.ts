@@ -7,9 +7,22 @@ export interface ConnectionManagerOptions {
   url: string;
   WebSocketImpl?: any;
   maxBufferSize?: number;
+  /**
+   * Bound on the SERIALIZED INBOUND queue. Distinct from `maxBufferSize`, which
+   * bounds the OUTGOING send ring. On overflow the newest inbound message is
+   * refused. Default 1000.
+   *
+   * NOTE: the drain loop dequeues with `Array.prototype.shift()`, which
+   * reindexes the remainder — so draining is O(n²) in the queue length. That is
+   * irrelevant at the default bound (1000 → sub-millisecond), but raising this
+   * value by orders of magnitude would make the cost noticeable; switch the
+   * queue to a read-index/deque first if you ever do.
+   * See change: serialize-bridge-message-pump.
+   */
+  maxInboundQueue?: number;
   /** Server liveness watchdog: force reconnect after this many ms without any received message. Default 60000. Set 0 to disable. */
   watchdogTimeout?: number;
-  onMessage?: (data: unknown) => void;
+  onMessage?: (data: unknown) => void | Promise<void>;
   onReconnect?: () => void;
 }
 
@@ -23,8 +36,42 @@ export class ConnectionManager {
   private backoff = 0;
   private intentionalClose = false;
   private hasConnectedBefore = false;
-  private onMessage?: (data: unknown) => void;
+  private onMessage?: (data: unknown) => void | Promise<void>;
   private onReconnect?: () => void;
+
+  /**
+   * Serialized inbound pump. `ws.onmessage` enqueues; a single drain loop
+   * awaits each handler to completion before dispatching the next, so a
+   * state-mutating message (`set_model`) can no longer be overtaken by a
+   * dependent one (`send_prompt`) that runs during its first `await`.
+   * See change: serialize-bridge-message-pump.
+   */
+  private inboundQueue: unknown[] = [];
+  private draining = false;
+  /**
+   * Bumped on every teardown. The drain loop captures it on entry and retires
+   * itself when it no longer matches, so a loop parked on an uncancellable
+   * in-flight handler can never dispatch against a replacement connection.
+   */
+  private drainEpoch = 0;
+  private maxInboundQueue: number;
+  private droppedInboundCount = 0;
+  private discardedInboundCount = 0;
+  private lastInboundWarnAt = 0;
+
+  /**
+   * Types dispatched WITHOUT waiting for the serialized queue. Allow-list: an
+   * unrecognized type falls through to the serialized lane. Each member is
+   * incapable of invalidating a message queued behind it —
+   * `prompt_response` is correlated by request id (queueing it behind the
+   * handler awaiting it would deadlock permanently), `server_restarting` is a
+   * time-critical lifecycle signal delivered immediately before the socket
+   * closes, and `kill_process` is pgid-keyed and is the only mechanism able to
+   * terminate a child that is itself occupying the queue.
+   * `abort` is deliberately NOT here: dispatched early it would run ahead of
+   * the `send_prompt` it cancels and silently lose the cancellation.
+   */
+  private static readonly IMMEDIATE_TYPES = new Set(["prompt_response", "server_restarting", "kill_process"]);
 
   private static readonly INITIAL_BACKOFF = 1000;
   private static readonly MAX_BACKOFF = 30000;
@@ -48,10 +95,33 @@ export class ConnectionManager {
   constructor(options: ConnectionManagerOptions) {
     this.url = options.url;
     this.WS = options.WebSocketImpl ?? (globalThis as any).WebSocket;
-    this.maxBufferSize = options.maxBufferSize ?? 10000;
-    this.watchdogTimeout = options.watchdogTimeout ?? ConnectionManager.DEFAULT_WATCHDOG_TIMEOUT;
+    // Validate the numeric options up front: a negative bound would refuse
+    // every message and a NaN/Infinity bound would disable the limit entirely
+    // (`length >= NaN` is always false), both silently.
+    this.maxBufferSize = ConnectionManager.intOption(options.maxBufferSize, 10000, "maxBufferSize", 1);
+    this.maxInboundQueue = ConnectionManager.intOption(options.maxInboundQueue, 1000, "maxInboundQueue", 1);
+    // `watchdogTimeout` accepts 0 — that documented value disables the watchdog.
+    this.watchdogTimeout = ConnectionManager.intOption(
+      options.watchdogTimeout,
+      ConnectionManager.DEFAULT_WATCHDOG_TIMEOUT,
+      "watchdogTimeout",
+      0,
+    );
     this.onMessage = options.onMessage;
     this.onReconnect = options.onReconnect;
+  }
+
+  /**
+   * Resolve a numeric constructor option, rejecting values that would silently
+   * break the behaviour they configure. `min` is the smallest legal value (1 for
+   * the bounds, 0 for `watchdogTimeout` where 0 means "disabled").
+   */
+  private static intOption(value: number | undefined, fallback: number, name: string, min: number): number {
+    const resolved = value ?? fallback;
+    if (!Number.isSafeInteger(resolved) || resolved < min) {
+      throw new RangeError(`${name} must be a safe integer >= ${min} (received ${resolved})`);
+    }
+    return resolved;
   }
 
   connect(): void {
@@ -62,6 +132,7 @@ export class ConnectionManager {
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.resetInbound();
     this.stopWatchdog();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -103,6 +174,98 @@ export class ConnectionManager {
   /** Total messages evicted from the send buffer on overflow (for diagnostics). */
   getDroppedBufferedCount(): number {
     return this.droppedBufferedCount;
+  }
+
+  /**
+   * Inbound messages REFUSED because the serialized queue was at
+   * `maxInboundQueue`. Kept separate from `getDiscardedInboundCount()` because
+   * an overflow is a bug signal while a disconnect discard is routine — one
+   * counter would let reconnect churn mask the overflow.
+   */
+  getDroppedInboundCount(): number {
+    return this.droppedInboundCount;
+  }
+
+  /** Inbound messages discarded because the socket went away before dispatch. */
+  getDiscardedInboundCount(): number {
+    return this.discardedInboundCount;
+  }
+
+  /**
+   * Route an inbound message: immediate lane, or the serialized queue with
+   * drop-newest back-pressure.
+   */
+  private enqueueInbound(parsed: unknown): void {
+    const type = (parsed as { type?: unknown } | null)?.type;
+    if (typeof type === "string" && ConnectionManager.IMMEDIATE_TYPES.has(type)) {
+      this.dispatchInbound(parsed);
+      return;
+    }
+
+    if (this.inboundQueue.length >= this.maxInboundQueue) {
+      // Drop NEWEST: refusing the tail keeps the ordering guarantee of the
+      // already-accepted prefix intact. (Dropping oldest would silently discard
+      // the `set_model` whose ordering this pump exists to protect.)
+      this.droppedInboundCount++;
+      const now = Date.now();
+      if (now - this.lastInboundWarnAt >= ConnectionManager.DROP_WARN_WINDOW_MS) {
+        this.lastInboundWarnAt = now;
+        console.warn(
+          `[bridge] refused inbound message (queue full) hop=server→bridge refusedType=${typeof type === "string" ? type : "unknown"} (total refused=${this.droppedInboundCount}, maxInboundQueue=${this.maxInboundQueue})`,
+        );
+      }
+      return;
+    }
+
+    this.inboundQueue.push(parsed);
+    if (!this.draining) void this.drainInbound();
+  }
+
+  /** Invoke the handler without awaiting it, isolating sync throws + rejections. */
+  private dispatchInbound(parsed: unknown): void {
+    try {
+      const result = this.onMessage?.(parsed);
+      if (result && typeof (result as Promise<void>).catch === "function") {
+        (result as Promise<void>).catch((err: unknown) => {
+          console.error("[bridge] inbound handler failed:", err);
+        });
+      }
+    } catch (err) {
+      console.error("[bridge] inbound handler failed:", err);
+    }
+  }
+
+  private async drainInbound(): Promise<void> {
+    this.draining = true;
+    const epoch = this.drainEpoch;
+    while (this.inboundQueue.length > 0) {
+      const msg = this.inboundQueue.shift();
+      try {
+        await this.onMessage?.(msg);
+      } catch (err) {
+        // Failure isolation lives here: the pump owns the loop that could stall.
+        console.error("[bridge] inbound handler failed:", err);
+      }
+      // Superseded by a teardown while awaiting: retire WITHOUT touching the
+      // queue or the guard — a replacement loop already owns both.
+      if (epoch !== this.drainEpoch) return;
+    }
+    this.draining = false;
+  }
+
+  /**
+   * Drop the pending inbound queue and retire the current drain loop. The
+   * running-guard is released HERE, not when the superseded loop finally
+   * exits: an in-flight handler cannot be cancelled, so waiting for it would
+   * stall the replacement connection for the handler's full duration.
+   */
+  private resetInbound(): void {
+    if (this.inboundQueue.length > 0) {
+      this.discardedInboundCount += this.inboundQueue.length;
+      this.inboundQueue = [];
+    }
+    this.drainEpoch++;
+    this.draining = false;
   }
 
   private bufferMessage(data: string): void {
@@ -198,7 +361,15 @@ export class ConnectionManager {
       this.lastMessageAt = Date.now();
       try {
         const parsed = JSON.parse(ev.data);
-        this.onMessage?.(parsed);
+        // Handler dispatch is SERIALIZED: `enqueueInbound` appends to a queue
+        // drained by a single loop that awaits each handler to completion, so a
+        // `set_model` can no longer be overtaken by a following `send_prompt`
+        // during its first `await`. Three types bypass the queue (see
+        // `IMMEDIATE_TYPES`); everything else, including `abort`, is ordered.
+        // The client-side confirm-before-send gate in the OpenSpec dialogs is
+        // kept as belt-and-suspenders.
+        // See change: serialize-bridge-message-pump.
+        this.enqueueInbound(parsed);
       } catch {
         // Ignore malformed messages
       }
@@ -218,6 +389,7 @@ export class ConnectionManager {
 
   private handleDisconnect(): void {
     if (!this.ws) return; // Already handled — idempotent guard
+    this.resetInbound();
     const ws = this.ws;
     this.ws = null;
     // Detach handlers to prevent re-entrant calls from ws.close()

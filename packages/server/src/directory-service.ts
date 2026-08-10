@@ -28,41 +28,41 @@ import {
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { createSemaphore, type Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import type { OpenSpecChange, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { EventLoopSpikeMetrics, EventLoopTurn } from "./eventloop-spike-metrics.js";
-import { createFolderHeadPoll, type FolderHeadPoll } from "./folder-head-poll.js";
-import { createFolderHeadWatcher, type FolderHeadWatcher } from "./folder-head-watcher.js";
-import type { HeadInfo } from "./git-operations.js";
-import type { HydrationMetrics } from "./hydration-metrics.js";
-import type { SessionManager } from "./memory-session-manager.js";
-import { createOpenSpecChangeWatcher, type OpenSpecChangeWatcher } from "./openspec-change-watcher.js";
+import type { EventLoopSpikeMetrics, EventLoopTurn } from "./metrics/eventloop-spike-metrics.js";
+import { createFolderHeadPoll, type FolderHeadPoll } from "./git-worktree/folder-head-poll.js";
+import { createFolderHeadWatcher, type FolderHeadWatcher } from "./git-worktree/folder-head-watcher.js";
+import type { HeadInfo } from "./git-worktree/git-operations.js";
+import type { HydrationMetrics } from "./metrics/hydration-metrics.js";
+import type { SessionManager } from "./session/memory-session-manager.js";
+import { createOpenSpecChangeWatcher, type OpenSpecChangeWatcher } from "./openspec/openspec-change-watcher.js";
 import {
   effectiveMtimeOr,
   perChangeArtifactPaths,
   statMtimeOr,
-} from "./openspec-poll-fs-helpers.js";
+} from "./openspec/openspec-poll-fs-helpers.js";
 import type {
   PollWorkerPerChangeIn,
   PollWorkerRequest,
-} from "./openspec-poll-worker.js";
+} from "./openspec/openspec-poll-worker.js";
 import {
   createOpenSpecPollWorkerPool,
   type PollWorkerPool,
-} from "./openspec-poll-worker-pool.js";
-import { scanPiResources } from "./pi-resource-scanner.js";
-import type { PreferencesStore } from "./preferences-store.js";
-import { discoverSessionsForCwd } from "./session-discovery.js";
+} from "./openspec/openspec-poll-worker-pool.js";
+import { scanPiResources } from "./pi/pi-resource-scanner.js";
+import type { PreferencesStore } from "./persistence/preferences-store.js";
+import { discoverSessionsForCwd } from "./session/session-discovery.js";
 import {
   createSessionLoadWorkerPool,
   type SessionLoadWorkerPool,
-} from "./session-load-worker-pool.js";
+} from "./session/session-load-worker-pool.js";
 
 // Re-export `effectiveMtimeOr` here to preserve the prior public symbol for
 // external importers. See change: offload-openspec-poll-to-worker.
-export { effectiveMtimeOr } from "./openspec-poll-fs-helpers.js";
+export { effectiveMtimeOr } from "./openspec/openspec-poll-fs-helpers.js";
 
-import type { DiscoveredSession } from "./session-discovery.js";
+import type { DiscoveredSession } from "./session/session-discovery.js";
 
-export type { DiscoveredSession } from "./session-discovery.js";
+export type { DiscoveredSession } from "./session/session-discovery.js";
 
 export interface LoadResult {
   success: boolean;

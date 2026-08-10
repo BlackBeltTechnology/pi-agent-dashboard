@@ -22,8 +22,8 @@ import type { MdCandidate, MdCandidatesResponse } from "@blackbelt-technology/pi
 import { mdiChevronDown, mdiChevronRight } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getApiBase } from "../../lib/api-context.js";
-import { t as i18nT } from "../../lib/i18n";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { buildTree, type FileLeaf, subtreeMatches, type TreeNode } from "./file-tree.js";
 
 const COLLAPSED_KEY = "dashboard:dirset-collapsed";
@@ -218,8 +218,8 @@ export function FilePicker({ cwd, selectedPath, onSelect, onLoaded, width }: Pro
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-primary)] shrink-0">
         <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">
           {cwd
-            ? i18nT("auto.directory", undefined, "directory")
-            : i18nT("auto.global", undefined, "global")}
+            ? i18nT("folders.directory", undefined, "directory")
+            : i18nT("common.global", undefined, "global")}
         </span>
       </div>
 
@@ -229,7 +229,7 @@ export function FilePicker({ cwd, selectedPath, onSelect, onLoaded, width }: Pro
           type="text"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder={i18nT("auto.filter_files", undefined, "Filter…")}
+          placeholder={i18nT("common.filterFiles", undefined, "Filter…")}
           className="w-full px-2 py-1 text-xs rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-secondary)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-blue-500/50"
         />
       </div>
@@ -239,14 +239,14 @@ export function FilePicker({ cwd, selectedPath, onSelect, onLoaded, width }: Pro
         {error && <div className="px-2 py-2 text-xs text-[var(--text-tertiary)]">{error}</div>}
         {!error && candidates === null && (
           <div className="px-2 py-2 text-xs text-[var(--text-tertiary)]">
-            {i18nT("auto.loading", undefined, "Loading…")}
+            {i18nT("common.loading2", undefined, "Loading…")}
           </div>
         )}
         {!error && candidates !== null && !hasMatches && (
           <div className="px-2 py-2 text-xs text-[var(--text-tertiary)]">
             {candidates.length === 0
-              ? i18nT("auto.no_markdown_files", undefined, "No markdown files")
-              : i18nT("auto.no_matches", undefined, "No matches")}
+              ? i18nT("common.noMarkdownFiles", undefined, "No markdown files")
+              : i18nT("common.noMatches", undefined, "No matches")}
           </div>
         )}
         {!error && candidates !== null && renderNode(tree, 0)}

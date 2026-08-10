@@ -9,8 +9,8 @@
 
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { foldLiveEvents, type QueuedLiveEvent } from "../coalesce-live-events.js";
-import { createInitialState, reduceEvent, type SessionState } from "../event-reducer.js";
+import { foldLiveEvents, type QueuedLiveEvent } from "../chat/coalesce-live-events.js";
+import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
 
 let ts = 1000;
 const mkUpdate = (type: string, extra: Record<string, unknown> = {}): DashboardEvent => ({

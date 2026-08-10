@@ -32,6 +32,7 @@ const scannerPath = path.resolve(
   "..",
   "server",
   "src",
+  "pi",
   "pi-resource-scanner.ts",
 );
 const resolverPath = path.resolve(__dirname, "..", "pi-package-resolver.ts");

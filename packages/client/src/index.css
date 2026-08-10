@@ -36,7 +36,9 @@
   --bg-hover: rgba(255, 255, 255, 0.06);
   --bg-selected: #1e1e1e;
   --bg-code: #1a1a1a;          /* code blocks, tool output */
+  --bg-canvas: #141414;        /* PDF viewer gutter (pdf-preview-continuous-scroll) */
   --bg-overlay: rgba(0, 0, 0, 0.6);
+  --table-stripe: rgba(255, 255, 255, 0.045); /* markdown table zebra overlay */
 
   /* Text — clear hierarchy */
   --text-primary: #e5e5e5;     /* headings, important text */
@@ -72,6 +74,36 @@
      See change: fix-gemini-subagent-silent-tool-schema-failure. */
   --status-notice: var(--accent-blue);
 
+  /* Message-severity tokens — single color source of truth for every toast /
+     banner surface. Each accent tier is a triple derived from one base accent
+     via color-mix so the muted translucent-box look is theme-robust: bg tints
+     into --bg-tertiary, fg mixes toward --text-primary (both flip per theme),
+     border is the accent at 40% alpha. neutral is the ABSENCE of severity, so
+     it reuses the literal subdued base tokens (NOT a color-mix from
+     --text-muted, which fails contrast). --severity-info is its own token
+     (independent of the --status-notice protocol signal, though both may share
+     --accent-blue). Percentages (bg 10% / fg 46% / border 40%) tuned so the
+     derived triples clear a 3:1 legibility floor across all 9 themes ×
+     light+dark (AA 4.5:1 on the majority); the sole documented exception is
+     tokyo-night light `info` (that theme's own body text is already sub-AA at
+     3.5:1, so no derived tint can beat it). See change:
+     unify-message-severity-colors, design.md D4/D6. */
+  --severity-error-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --severity-error-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --severity-error-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
+  --severity-warning-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --severity-warning-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --severity-warning-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --severity-success-bg: color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --severity-success-fg: color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --severity-success-border: color-mix(in srgb, var(--accent-green) 40%, transparent);
+  --severity-info-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --severity-info-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+  --severity-info-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  --severity-neutral-bg: var(--bg-tertiary);
+  --severity-neutral-fg: var(--text-secondary);
+  --severity-neutral-border: var(--border-primary);
+
   /* Shared focus-ring color (:focus-visible). ≥3:1 vs adjacent colors.
      See change: extend-client-utils-state-feedback-primitives. */
   --focus-ring: var(--accent-primary);
@@ -102,7 +134,9 @@
   --bg-hover: rgba(0, 0, 0, 0.04);
   --bg-selected: #e8e8e8;
   --bg-code: #f5f5f5;
+  --bg-canvas: #e9e9ec;        /* PDF viewer gutter (pdf-preview-continuous-scroll) */
   --bg-overlay: rgba(0, 0, 0, 0.3);
+  --table-stripe: rgba(0, 0, 0, 0.035); /* markdown table zebra overlay */
 
   /* Text */
   --text-primary: #1a1a1a;
@@ -149,6 +183,25 @@
   border-radius: inherit;
 }
 
+/* ── Clickable-cursor restore (Tailwind v4) ──────────────────────
+   Tailwind v4 Preflight dropped the v3 default of `cursor: pointer` on
+   <button>, so native buttons render the arrow cursor on hover. Restore
+   pointer for every enabled push-target app-wide (client + all plugin
+   client bundles + dialogs/modals share this stylesheet's DOM). Disabled
+   controls keep the default arrow. Base layer so explicit `cursor-*`
+   utilities (e.g. cursor-not-allowed on a loading button) still win. */
+@layer base {
+  button:not(:disabled):not([aria-disabled="true"]),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  summary,
+  label:has(> input[type="checkbox"]:not(:disabled)),
+  label:has(> input[type="radio"]:not(:disabled)),
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 html, body {
   overscroll-behavior: none;
 }
@@ -187,10 +240,22 @@ body {
 .markdown-content a { color: var(--link); text-decoration: underline; }
 .markdown-content a:hover { color: var(--link-hover); }
 
-.markdown-content table { border-collapse: collapse; margin: 0.5em 0; width: 100%; }
-.markdown-content th,
-.markdown-content td { border: 1px solid var(--border-secondary); padding: 0.3em 0.6em; text-align: left; }
-.markdown-content th { background-color: var(--bg-tertiary); font-weight: 600; }
+.markdown-content table {
+  border-collapse: separate; border-spacing: 0; margin: 0.6em 0; width: 100%;
+  border: 1px solid var(--border-secondary); border-radius: 8px; overflow: hidden;
+}
+.markdown-content thead th {
+  background: var(--bg-surface); color: var(--text-primary); font-weight: 600;
+  text-align: left; padding: 0.5em 0.7em; border-bottom: 1px solid var(--border-secondary);
+}
+.markdown-content tbody td {
+  padding: 0.45em 0.7em; border-bottom: 1px solid var(--border-primary); vertical-align: top;
+}
+.markdown-content tbody tr:last-child td { border-bottom: none; }
+.markdown-content tbody tr:nth-child(even) { background: var(--table-stripe); }
+.markdown-content tbody tr:hover { background: var(--bg-hover); }
+.markdown-content th:not(:last-child),
+.markdown-content td:not(:last-child) { border-right: 1px solid var(--border-primary); }
 
 .markdown-content pre { margin: 0.5em 0; border-radius: 0.375rem; overflow-x: auto; -webkit-overflow-scrolling: touch; font-family: 'SF Mono', 'Menlo', 'Monaco', 'Cascadia Code', 'Consolas', 'Courier New', monospace !important; }
 .markdown-content pre *,
@@ -633,6 +698,21 @@ mark.markdown-search-highlight-active {
   0%, 100% { opacity: 0.35; }
   50%      { opacity: 0.65; }
 }
+
+/* Transient flash applied to a card revealed by the header Seek-to-card
+   gesture. Pulses the selection ring so the just-scrolled card is noticeable.
+   See change: add-seek-to-session-card. */
+@keyframes card-seek-flash-kf {
+  0%   { box-shadow: 0 0 0 0 rgb(59 130 246 / 0.0); }
+  30%  { box-shadow: 0 0 0 3px rgb(59 130 246 / 0.55); }
+  100% { box-shadow: 0 0 0 0 rgb(59 130 246 / 0.0); }
+}
+.card-seek-flash {
+  animation: card-seek-flash-kf 1.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-seek-flash { animation: none; }
+}
 @supports not (background: conic-gradient(from 0deg, red, blue)) {
   .card-ring-fx::before {
     background: rgba(96, 165, 250, 0.5);
@@ -706,3 +786,8 @@ mark.markdown-search-highlight-active {
   0%   { transform: translateX(-120%); }
   100% { transform: translateX(320%); }
 }
+
+/* ── PDF viewer gutter — theme the surrounding gutter of the pdfjs component
+   viewer while pages keep their authored (light) colour. Overrides pdf_viewer.css's
+   default light gutter. See change: pdf-preview-continuous-scroll. */
+.pdfViewerContainer { background: var(--bg-canvas); }

@@ -4,7 +4,7 @@ import {
   guardPairingUrls,
   isPairingEligible,
   splitEndpoints,
-} from "../gateway-endpoints.js";
+} from "../gateway/gateway-endpoints.js";
 
 const eps: TunnelEndpoint[] = [
   { kind: "public", url: "https://kraken.tailnet-abc.ts.net", tls: true },

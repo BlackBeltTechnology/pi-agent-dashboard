@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getTheme, CSS_VAR_KEYS } from "../lib/themes.js";
+import { getTheme, CSS_VAR_KEYS } from "../lib/theme/themes.js";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";

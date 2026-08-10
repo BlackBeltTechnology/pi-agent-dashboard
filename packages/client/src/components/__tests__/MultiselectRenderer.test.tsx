@@ -1,9 +1,22 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 import { MultiselectRenderer } from "../interactive-renderers/MultiselectRenderer.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 afterEach(cleanup);
+
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(prefers-color-scheme: dark)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  });
+});
 
 const baseProps = {
   requestId: "req-1",
@@ -239,5 +252,35 @@ describe("MultiselectRenderer", () => {
       expect(screen.queryByText("Select all")).toBeNull();
       expect(screen.queryByTestId("select-all-row")).toBeNull();
     });
+  });
+});
+
+describe("MultiselectRenderer — resolved shows message body (change: fix-ask-user-card-duplication)", () => {
+  const MSG = "Choose all that apply.";
+  it("renders params.message in the resolved state", () => {
+    render(
+      <ThemeProvider>
+        <MultiselectRenderer
+        requestId="r" method="multiselect"
+        params={{ title: "Pick files", options: ["a.ts", "b.ts"], message: MSG }}
+        status="resolved" result={{ values: ["a.ts"] }}
+        onRespond={vi.fn()} onCancel={vi.fn()}
+      />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText(MSG)).toBeTruthy();
+  });
+  it("renders no message body when params.message is absent", () => {
+    render(
+      <ThemeProvider>
+        <MultiselectRenderer
+        requestId="r" method="multiselect"
+        params={{ title: "Pick files", options: ["a.ts", "b.ts"] }}
+        status="resolved" result={{ values: ["a.ts"] }}
+        onRespond={vi.fn()} onCancel={vi.fn()}
+      />
+      </ThemeProvider>,
+    );
+    expect(screen.queryByText(MSG)).toBeNull();
   });
 });

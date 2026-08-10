@@ -9,12 +9,23 @@ lacks the `<!-- dox-doctrine -->` marker: the WRITE discipline plus one READ
 variant (kb-wired or manual). The sections below are delimited so the seeder
 can compose the right block.
 
+The MAINTAIN section at the end sits deliberately **outside** those markers: it is
+reference for whoever repairs a drifted tree, not a per-turn rule, so it is never
+seeded into a root `AGENTS.md` and costs nothing per turn. Reach it on demand via
+`kb_search "dox maintenance"`.
+
 <!-- dox:write:start -->
 ## Documentation Update Protocol (WRITE discipline)
 
 Per-directory `AGENTS.md` files form a tree. Each directory `AGENTS.md` is the
 per-file record for the files in that directory. The ROOT `AGENTS.md` holds
 doctrine + architecture pointers only — never a per-file index.
+
+**Keep the root lean.** The root `AGENTS.md` loads into every agent turn — every
+byte costs tokens on every turn. A verbose root file buries the rules the model
+must follow (signal dilution) and measurably degrades adherence; a lean file
+keeps doctrine salient. Default assumption: your update does NOT belong in the
+root — route it by the table below.
 
 **Route every doc update by kind:**
 
@@ -54,33 +65,82 @@ the threshold stay verbatim (lossless).
 <!-- dox:read:kb:start -->
 ## Finding docs (READ discipline)
 
-For any "where is X" / "how does Y work" / "what files relate to X" question,
-consult the doc tree BEFORE grepping source:
+`kb_*` tools are faster and cheaper than raw search — they return a one-line
+purpose + key exports per file, not raw bytes. **This fires on the ACTION, not
+the intent** — before you `grep`/`rg` for a symbol, `cat`/read a file to learn
+what it does, or chase an import, the kb call goes first. It fires **even
+mid-task when you already know the file**; knowing the file does not exempt you.
+When your reflex is the left column, run the right column instead:
 
-1. `kb agents <path>` — returns the root→nearest `AGENTS.md` chain for a file or
-   directory (the cheapest map: one-line purpose + key exports + change history
-   per file).
-2. `kb_search "<terms>"` — full-text search across the indexed markdown tree.
-3. Only then open source for the few files that matter.
+| You're about to… | Do this FIRST instead |
+|---|---|
+| `grep -rn "SymbolName" src/` — find where a fn / type / const lives | `kb_search --doc-type agents "SymbolName"` — tree indexes key exports per file |
+| `grep -rn "feature\|topic" src/` — how does X work / where's X handled | `kb_search "feature topic"` |
+| `cat` / read a file just to learn its purpose before editing | `kb agents <path>` — one-line purpose + exports + change history |
+| chase imports / callers across files | `kb_neighbors <path\|heading>` |
+| read one doc section in full | `kb_get <path> <section>` |
 
-Grepping source before checking the tree wastes tokens and risks hallucinated
-answers. Fall through to `rg` / manual search only when the tree misses — then
-add the missing row per the WRITE discipline.
+**Fall-through (explicit):** if the kb call returns nothing relevant, `rg` /
+source read is allowed — then add the missing directory `AGENTS.md` row per the
+WRITE discipline. kb does NOT replace grep; it goes first.
 <!-- dox:read:kb:end -->
 
 <!-- dox:read:manual:start -->
 ## Finding docs (READ discipline)
 
-For any "where is X" / "how does Y work" / "what files relate to X" question,
-consult the doc tree BEFORE grepping source:
+The directory `AGENTS.md` tree is faster and cheaper than raw search — each row
+carries a one-line purpose + key exports per file. **This fires on the ACTION,
+not the intent** — before you `grep`/`rg` for a symbol, `cat`/read a file to
+learn what it does, or chase an import, consult the tree first. It fires **even
+mid-task when you already know the file**; knowing the file does not exempt you.
+When your reflex is the left column, do the right column instead:
 
-1. Read the ROOT `AGENTS.md`, then walk down the directory `AGENTS.md` chain
-   toward the file's directory. Each directory `AGENTS.md` records the files in
-   that directory (one-line purpose + key exports + change history per file).
-2. Read the nearest directory `AGENTS.md` for the file's row.
-3. Only then open source for the few files that matter.
+| You're about to… | Do this FIRST instead |
+|---|---|
+| `grep -rn "SymbolName" src/` — find where a fn / type / const lives | read the nearest directory `AGENTS.md`; scan rows for the symbol |
+| `grep -rn "feature\|topic" src/` — how does X work / where's X handled | walk the root→nearest `AGENTS.md` chain toward the file's directory |
+| `cat` a file just to learn its purpose before editing | read that file's row in its directory `AGENTS.md` (purpose + exports + change history) |
+| chase imports / callers across files | follow the `See change:` / pointer references in the nearest `AGENTS.md` |
+| read one doc section in full | open the specific `docs/<topic>.md` section |
 
-Grepping source before checking the tree wastes tokens and risks hallucinated
-answers. Fall through to manual search only when the tree misses — then add the
-missing row per the WRITE discipline.
+**Fall-through (explicit):** if the tree misses, `rg` / source read is allowed —
+then add the missing directory `AGENTS.md` row per the WRITE discipline. The tree
+goes first.
 <!-- dox:read:manual:end -->
+
+## Maintaining a drifted tree (NOT seeded — reference only)
+
+Three failure modes account for most rot. None is caught by a naive "does the row
+exist" check, and two are invisible to tooling that only hashes files.
+
+**1. Moving a file rots OTHER rows' prose.** A lint hashes the file behind each
+row; it does not validate paths written *inside* a row's purpose text. So a
+directory reorg leaves cross-references pointing at paths that no longer exist,
+and the tree still lints clean. Observed cost: a subagent routing rule cited two
+deleted directories for weeks, so the trigger could never fire and the agent was
+never spawned. **After any move, grep the whole tree for the old path.**
+`kb dox lint` reports this as `broken-ref`.
+
+**2. An orphan row is usually a RELOCATION, not garbage.** When a row's file no
+longer exists, the file has typically moved rather than died. Deleting the row
+throws away a written purpose; the fix is to move it to the node that now owns
+the file, creating that node if absent. Never let rows bubble up to the root
+`AGENTS.md` because an intermediate directory lacks its own — the root must stay
+a per-file-index-free doctrine file.
+
+**3. `stale` means bytes changed, NOT that the row is wrong.** Staleness is a
+content hash against a last-acknowledged value. A row is a one-line purpose
+summary, not an export manifest: it may legitimately omit everything a diff
+added. Two tempting responses are both wrong — bulk re-acknowledging launders
+real drift, and a "does the row still name symbols present in the file"
+heuristic produces false positives (it will flag a row that correctly documents
+a symbol as *removed*). Judge each row against the actual diff since its
+acknowledged state: `kb dox triage` recovers that diff by finding the commit
+whose blob matches the acked hash, and can hand it to a cheap model.
+
+**Corollary — before trusting any cleanup pass:** a scan tuned only for recall
+drowns in false positives. Ranking one repo's candidate path references produced
+548 raw hits for roughly 4 real defects; the discriminator that mattered was
+requiring the first path segment to be a real top-level entry of *this* repo,
+which rejects URL routes, MIME types, npm specifiers and descriptions of other
+projects' layouts.

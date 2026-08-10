@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin",
-  "version": "0.5.4",
+  "version": "0.7.0",
   "description": "pi-flows-aware bridge: forwards @pi/anthropic-messages into every spawned flow agent. Defers activation until both peers are present; status surfaced to dashboard UI.",
   "license": "MIT",
   "publishConfig": {
@@ -36,7 +36,10 @@
   },
   "files": [
     "src/",
-    "configSchema.json"
+    "configSchema.json",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "scripts": {
     "test": "vitest run"
@@ -44,6 +47,7 @@
   "pi-dashboard-plugin": {
     "id": "flows-anthropic-bridge",
     "displayName": "Anthropic Messages Bridge",
+    "i18nCatalog": "catalog",
     "priority": 500,
     "client": "./src/client.tsx",
     "server": "./src/server/index.ts",
@@ -58,16 +62,23 @@
     ]
   },
   "peerDependencies": {
+    "@blackbelt-technology/pi-anthropic-messages": ">=0.3.4",
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4"
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@blackbelt-technology/pi-anthropic-messages": {
+      "optional": true
+    }
   }
 }

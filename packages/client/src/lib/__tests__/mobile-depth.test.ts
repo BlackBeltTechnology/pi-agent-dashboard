@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getMobileDepth, type MobileDepthInput } from "../mobile-depth.js";
+import { getMobileDepth, type MobileDepthInput } from "../layout/mobile-depth.js";
 
 function input(over: Partial<MobileDepthInput> = {}): MobileDepthInput {
   return {

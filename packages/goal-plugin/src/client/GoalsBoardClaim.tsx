@@ -9,7 +9,7 @@
  * See change: add-goals-folder-page (tasks 4.1, 4.2). Mockup screen B.
  */
 
-import { useSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useSessionEvents, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { GoalRecord, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiArrowLeft, mdiChevronDown, mdiChevronRight, mdiPlus, mdiRefresh, mdiTrashCanOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -17,7 +17,7 @@ import type React from "react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { CreateGoalDialog } from "./CreateGoalDialog.js";
-import { deriveSnapshot } from "./goal-state.js";
+import { deriveSnapshot, fmtUsd, gaugePct, resolveGoalTurns } from "./goal-state.js";
 import { decodeFolderPath, deleteGoal, goalDetailUrl } from "./goals-api.js";
 import { statusMeta, useGoals } from "./useGoals.js";
 
@@ -34,11 +34,12 @@ const FILTERS: { id: "all" | GoalRecordStatus; label: string }[] = [
 
 /** Small circular turn-progress ring for the driver session (task 5.3). */
 function TurnRing({ used, max }: { used: number; max: number }): React.ReactElement {
+  const t = useT();
   const pct = max > 0 ? Math.min(1, used / max) : 0;
   const r = 7;
   const c = 2 * Math.PI * r;
   return (
-    <span data-testid="goal-turn-ring" title={`${used}/${max} turns`} className="inline-flex items-center">
+    <span data-testid="goal-turn-ring" title={t("turnsTooltip", { used, max }, `${used}/${max} turns`)} className="inline-flex items-center">
       <svg width="18" height="18" viewBox="0 0 18 18" className="-rotate-90">
         <circle cx="9" cy="9" r={r} fill="none" stroke="var(--border-subtle)" strokeWidth="2" />
         <circle cx="9" cy="9" r={r} fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray={c} strokeDashoffset={c * (1 - pct)} className="text-indigo-400" strokeLinecap="round" />
@@ -47,20 +48,22 @@ function TurnRing({ used, max }: { used: number; max: number }): React.ReactElem
   );
 }
 
-/** Reactive live-turn rollup for a goal's driver session (task 5.3): ring +
- *  turns text + latest live verdict. */
-function GoalLiveProgress({ sessionId }: { sessionId?: string }): React.ReactElement | null {
-  const events = useSessionEvents(sessionId ?? "");
-  if (!sessionId) return null;
-  const snap = deriveSnapshot(events);
-  if (!snap) return null;
+/** Reactive turn rollup for a goal: ring + turns text + latest live verdict.
+ *  Live snapshot wins; when the driver has ended it falls back to the goal's
+ *  persisted `lastKnownTurnsUsed` so a completed goal's ring is not empty.
+ *  See change: fix-goal-detail-turns-and-spend. */
+function GoalLiveProgress({ goal }: { goal: GoalRecord }): React.ReactElement | null {
+  const events = useSessionEvents(goal.driverSessionId ?? "");
+  const snap = goal.driverSessionId ? deriveSnapshot(events) : null;
+  const { turnsUsed, maxTurns } = resolveGoalTurns(snap, goal);
+  if (turnsUsed === undefined) return null;
   return (
     <span className="inline-flex items-center gap-1" data-testid="goal-live-progress">
-      <TurnRing used={snap.turnsUsed} max={snap.maxTurns} />
+      <TurnRing used={turnsUsed} max={maxTurns ?? 0} />
       <span className="text-[10px] font-mono text-[var(--text-tertiary)]">
-        {snap.status === "paused" ? "⏸" : "●"} {snap.turnsUsed}/{snap.maxTurns}
+        {snap?.status === "paused" ? "⏸" : "●"} {turnsUsed}/{maxTurns ?? "—"}
       </span>
-      {snap.lastVerdict && (
+      {snap?.lastVerdict && (
         <span className="text-[9px] px-1 py-px rounded-full border border-[var(--border-subtle)] text-[var(--text-tertiary)]" data-testid="goal-card-verdict">
           {snap.lastVerdict}
         </span>
@@ -70,6 +73,7 @@ function GoalLiveProgress({ sessionId }: { sessionId?: string }): React.ReactEle
 }
 
 function GoalCard({ goal, onOpen, onDelete }: { goal: GoalRecord; onOpen: () => void; onDelete: () => void }): React.ReactElement {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const meta = statusMeta(goal.status);
   const doneCriteria = goal.criteria.filter((c) => c.done).length;
@@ -83,10 +87,10 @@ function GoalCard({ goal, onOpen, onDelete }: { goal: GoalRecord; onOpen: () => 
             <span className={`text-[10px] px-1.5 py-px rounded-full border ${meta.cls}`}>
               {meta.dot} {meta.label}
             </span>
-            <GoalLiveProgress sessionId={goal.driverSessionId} />
+            <GoalLiveProgress goal={goal} />
             {goal.criteria.length > 0 && (
               <span className="text-[10px] text-[var(--text-tertiary)]">
-                {doneCriteria}/{goal.criteria.length} criteria
+                {t("criteriaCount", { done: doneCriteria, total: goal.criteria.length }, `${doneCriteria}/${goal.criteria.length} criteria`)}
               </span>
             )}
             {!goal.driverSessionId && lastVerdict && (
@@ -95,12 +99,18 @@ function GoalCard({ goal, onOpen, onDelete }: { goal: GoalRecord; onOpen: () => 
               </span>
             )}
           </div>
-          {goal.budget?.maxSpendUsd !== undefined && (
+          {(goal.totalSpendUsd !== undefined || goal.budget?.maxSpendUsd !== undefined) && (
             <div className="mt-1.5" data-testid="goal-card-spend">
-              <div className="h-1 rounded bg-[var(--border-subtle)] overflow-hidden">
-                <div className="h-full bg-emerald-400/60" style={{ width: "0%" }} />
-              </div>
-              <span className="text-[9px] text-[var(--text-muted)]">budget ${goal.budget.maxSpendUsd}</span>
+              {goal.budget?.maxSpendUsd !== undefined && (
+                <div className="h-1 rounded bg-[var(--border-subtle)] overflow-hidden">
+                  <div className="h-full bg-emerald-400/60" style={{ width: `${gaugePct(goal.totalSpendUsd, goal.budget.maxSpendUsd)}%` }} />
+                </div>
+              )}
+              <span className="text-[9px] text-[var(--text-muted)]">
+                {goal.budget?.maxSpendUsd !== undefined
+                  ? `${fmtUsd(goal.totalSpendUsd)} / ${fmtUsd(goal.budget.maxSpendUsd)}`
+                  : `${fmtUsd(goal.totalSpendUsd)} · ${t("noCap", undefined, "no cap")}`}
+              </span>
             </div>
           )}
         </button>
@@ -117,7 +127,7 @@ function GoalCard({ goal, onOpen, onDelete }: { goal: GoalRecord; onOpen: () => 
         <button
           onClick={onDelete}
           className="text-[var(--text-muted)] hover:text-red-400"
-          title="Delete goal"
+          title={t("deleteGoal", undefined, "Delete goal")}
           data-testid="goal-card-delete"
         >
           <Icon path={mdiTrashCanOutline} size={0.55} />
@@ -137,7 +147,7 @@ function GoalCard({ goal, onOpen, onDelete }: { goal: GoalRecord; onOpen: () => 
         <ul className="mt-2 space-y-0.5 border-t border-[var(--border-subtle)] pt-2" data-testid="goal-card-sessions">
           {goal.sessionIds.map((sid) => (
             <li key={sid} className="text-[10px] font-mono text-[var(--text-tertiary)] flex items-center gap-1">
-              {sid === goal.driverSessionId && <span title="driver">⚑</span>}
+              {sid === goal.driverSessionId && <span title={t("driver", undefined, "driver")}>⚑</span>}
               <span className="truncate">{sid}</span>
             </li>
           ))}
@@ -153,6 +163,7 @@ export interface GoalsBoardClaimProps {
 }
 
 export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React.ReactElement {
+  const t = useT();
   const cwd = decodeFolderPath(params.encodedCwd ?? "") ?? "";
   const [, navigate] = useLocation();
   const { goals, loading, error, refetch } = useGoals(cwd);
@@ -167,26 +178,26 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
 
   const remove = async (goal: GoalRecord): Promise<void> => {
     if (!cwd) return;
-    if (!window.confirm(`Delete goal “${goal.objective}”? Linked sessions are unlinked.`)) return;
+    if (!window.confirm(t("deleteGoalConfirm", { objective: goal.objective }, `Delete goal “${goal.objective}”? Linked sessions are unlinked.`))) return;
     try {
       await deleteGoal(cwd, goal.id);
       setMutErr(null);
       refetch();
     } catch (e) {
-      setMutErr(e instanceof Error ? e.message : "Delete failed");
+      setMutErr(e instanceof Error ? e.message : t("deleteFailed", undefined, "Delete failed"));
     }
   };
 
   return (
     <div className="flex flex-col h-full overflow-hidden" data-testid="goals-board-page">
       <div className="px-3 py-2 border-b border-[var(--border-primary)] bg-[var(--bg-primary)] flex items-center gap-2 flex-shrink-0">
-        <button onClick={onBack} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]" title="Back">
+        <button onClick={onBack} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]" title={t("back", undefined, "Back")}>
           <Icon path={mdiArrowLeft} size={0.7} />
         </button>
         <span className="text-sm font-medium text-[var(--text-primary)] flex-1 truncate">
-          Goals · {cwd.split("/").pop() || cwd}
+          {t("goalsBoardTitle", { folder: cwd.split("/").pop() || cwd }, `Goals · ${cwd.split("/").pop() || cwd}`)}
         </span>
-        <button onClick={refetch} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]" title="Refresh">
+        <button onClick={refetch} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]" title={t("refresh", undefined, "Refresh")}>
           <Icon path={mdiRefresh} size={0.6} />
         </button>
         <button
@@ -194,7 +205,7 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
           className="text-[11px] px-2 py-0.5 rounded border text-indigo-400 border-indigo-500/40 bg-indigo-500/5 hover:border-indigo-500/70 flex items-center gap-1"
           data-testid="goals-board-new"
         >
-          <Icon path={mdiPlus} size={0.5} />New Goal
+          <Icon path={mdiPlus} size={0.5} />{t("newGoal", undefined, "New Goal")}
         </button>
       </div>
 
@@ -223,11 +234,11 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
         {error && <div className="text-xs text-red-400">{error}</div>}
         {mutErr && <div className="text-xs text-red-400" data-testid="goals-board-mutation-error">{mutErr}</div>}
         {!error && loading && goals.length === 0 && (
-          <div className="text-xs text-[var(--text-muted)]">Loading goals…</div>
+          <div className="text-xs text-[var(--text-muted)]">{t("loadingGoals", undefined, "Loading goals…")}</div>
         )}
         {!loading && visible.length === 0 && (
           <div className="text-xs text-[var(--text-muted)]" data-testid="goals-empty">
-            {goals.length === 0 ? "No goals yet. Create one with + New Goal." : "No goals match this filter."}
+            {goals.length === 0 ? t("noGoalsYet", undefined, "No goals yet. Create one with + New Goal.") : t("noGoalsMatch", undefined, "No goals match this filter.")}
           </div>
         )}
         {visible.map((g) => (

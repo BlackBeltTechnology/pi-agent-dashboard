@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../lib/openspec-groups-api.js", () => ({
+vi.mock("../../lib/openspec/openspec-groups-api.js", () => ({
   fetchGroups: vi.fn(async () => ({ schemaVersion: 1, groups: [], assignments: {}, changeOrder: {} })),
   createGroup: vi.fn(async () => ({ id: "g-new", name: "New", order: 0 })),
   updateGroup: vi.fn(),
@@ -15,12 +15,12 @@ vi.mock("../../lib/openspec-groups-api.js", () => ({
   setAssignment: vi.fn(async () => {}),
   setChangeOrder: vi.fn(async () => {}),
 }));
-vi.mock("../../lib/openspec-config-api.js", () => ({
+vi.mock("../../lib/openspec/openspec-config-api.js", () => ({
   useOpenSpecConfig: () => ({ profile: "custom", delivery: "both", workflows: [] }),
 }));
 
 import type { DashboardSession, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { OpenSpecBoardView } from "../OpenSpecBoardView.js";
+import { OpenSpecBoardView } from "../openspec/OpenSpecBoardView.js";
 
 afterEach(() => cleanup());
 beforeEach(() => {

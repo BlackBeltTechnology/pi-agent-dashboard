@@ -14,10 +14,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadSessionEntries } from "../session-file-reader.js";
+import { loadSessionEntries } from "../session/session-file-reader.js";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
-import { loadAndReplay } from "../session-load-worker.js";
-import { createSessionLoadWorkerPool } from "../session-load-worker-pool.js";
+import { loadAndReplay } from "../session/session-load-worker.js";
+import { createSessionLoadWorkerPool } from "../session/session-load-worker-pool.js";
 
 let tmpDir: string;
 

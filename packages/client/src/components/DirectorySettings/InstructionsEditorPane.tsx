@@ -9,7 +9,7 @@ import type { MdCandidate } from "@blackbelt-technology/pi-dashboard-shared/rest
 import { mdiAlertCircleOutline, mdiArrowLeft, mdiCheckCircleOutline, mdiContentSave } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, Suspense } from "react";
-import { t as i18nT } from "../../lib/i18n";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 // Lazy boundary for the heavy Monaco chunk (worker imports + monaco-editor),
 // mirroring `MonacoBuffer`'s lazy mount in the viewer-registry. Keeps Monaco
@@ -79,7 +79,7 @@ export function InstructionsEditorPane({
             type="button"
             onClick={onBack}
             data-testid="instructions-mobile-back"
-            title={i18nT("auto.back", undefined, "Back")}
+            title={i18nT("common.back2", undefined, "Back")}
             className="shrink-0 -ml-1 p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
           >
             <Icon path={mdiArrowLeft} size={0.8} />
@@ -91,13 +91,13 @@ export function InstructionsEditorPane({
         {dirty && (
           <span
             data-testid="instructions-dirty-dot"
-            title={i18nT("auto.unsaved_changes", undefined, "Unsaved changes")}
+            title={i18nT("common.unsavedChanges", undefined, "Unsaved changes")}
             className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
           />
         )}
         <span className="ml-auto text-[11px] text-[var(--text-muted)] shrink-0">
           {loadedMtime !== null &&
-            `${i18nT("auto.loaded_mtime", undefined, "loaded mtime")} ${fmtMtime(loadedMtime)}`}
+            `${i18nT("common.loadedMtime", undefined, "loaded mtime")} ${fmtMtime(loadedMtime)}`}
         </span>
       </div>
 
@@ -110,7 +110,7 @@ export function InstructionsEditorPane({
           <span className="flex items-center gap-1.5">
             <Icon path={mdiAlertCircleOutline} size={0.6} />
             {i18nT(
-              "auto.file_changed_on_disk",
+              "common.fileChangedOnDisk",
               undefined,
               "File changed on disk since you loaded it. Resolve to continue.",
             )}
@@ -123,7 +123,7 @@ export function InstructionsEditorPane({
             data-testid="instructions-reload-btn"
             className="px-2.5 py-1 rounded text-xs font-medium border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
           >
-            {i18nT("auto.reload_from_disk", undefined, "Reload from disk")}
+            {i18nT("common.reloadFromDisk", undefined, "Reload from disk")}
           </button>
           <button
             type="button"
@@ -132,7 +132,7 @@ export function InstructionsEditorPane({
             data-testid="instructions-overwrite-btn"
             className="px-2.5 py-1 rounded text-xs font-medium bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
           >
-            {i18nT("auto.overwrite_anyway", undefined, "Overwrite anyway")}
+            {i18nT("common.overwriteAnyway", undefined, "Overwrite anyway")}
           </button>
         </div>
       )}
@@ -146,7 +146,7 @@ export function InstructionsEditorPane({
       <div className="flex-1 min-h-0">
         {loading ? (
           <div className="p-4 text-sm text-[var(--text-tertiary)]">
-            {i18nT("auto.loading", undefined, "Loading…")}
+            {i18nT("common.loading2", undefined, "Loading…")}
           </div>
         ) : readError ? (
           <div className="p-4 text-sm text-[var(--text-tertiary)]">{readError}</div>
@@ -154,7 +154,7 @@ export function InstructionsEditorPane({
           <Suspense
             fallback={
               <div className="p-4 text-sm text-[var(--text-tertiary)]">
-                {i18nT("auto.loading_editor", undefined, "Loading editor…")}
+                {i18nT("editor.loadingEditor", undefined, "Loading editor…")}
               </div>
             }
           >
@@ -171,12 +171,12 @@ export function InstructionsEditorPane({
         {dirty ? (
           <span className="flex items-center gap-1.5 text-sm text-amber-400">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-            {i18nT("auto.unsaved_changes", undefined, "Unsaved changes")}
+            {i18nT("common.unsavedChanges", undefined, "Unsaved changes")}
           </span>
         ) : (
           <span className="flex items-center gap-1.5 text-sm text-green-400">
             <Icon path={mdiCheckCircleOutline} size={0.6} />
-            {i18nT("auto.saved", undefined, "Saved")}
+            {i18nT("common.saved", undefined, "Saved")}
           </span>
         )}
         <div className="flex-1" />
@@ -187,7 +187,7 @@ export function InstructionsEditorPane({
           data-testid="instructions-discard-btn"
           className="px-3 py-1.5 rounded text-sm font-medium text-[var(--text-secondary)] border border-[var(--border-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
         >
-          {i18nT("auto.discard", undefined, "Discard")}
+          {i18nT("common.discard", undefined, "Discard")}
         </button>
         <button
           type="button"
@@ -198,7 +198,7 @@ export function InstructionsEditorPane({
           className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50"
         >
           <Icon path={mdiContentSave} size={0.6} />
-          {saving ? i18nT("auto.saving", undefined, "Saving…") : i18nT("auto.save", undefined, "Save")}
+          {saving ? i18nT("common.saving2", undefined, "Saving…") : i18nT("common.save2", undefined, "Save")}
         </button>
       </div>
     </>

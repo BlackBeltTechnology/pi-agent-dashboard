@@ -12,12 +12,17 @@
  * Every route validates `cwd` against the host-provided known-folder set
  * (session cwds ∪ pinned dirs) BEFORE opening a store or touching disk, so an
  * untrusted `cwd` can never drive arbitrary-path indexing (design §3, §8).
+ * Both sides of the match are realpath-canonicalized (pins are stored
+ * symlink-resolved, a session cwd / raw query may not be), and a git worktree
+ * whose MAIN repo is a known folder is admitted too — so a session-less
+ * worktree that no live session or pin covers is still indexable
+ * (kb-folder-slot spec). See change: fix-kb-worktree-cwd-guard.
  *
  * See change: add-kb-folder-slot.
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
   indexSource,
@@ -26,6 +31,7 @@ import {
   SqliteFtsStore,
   validateConfig,
 } from "@blackbelt-technology/pi-dashboard-kb";
+import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { KbConfigPatch, KbReindexResult, KbStats } from "../shared/kb-plugin-types.js";
 import type { KbJobRegistry } from "./job-registry.js";
@@ -37,8 +43,58 @@ export interface KbRouteDeps {
 }
 
 /** Absolute project config path for a folder (mirrors kb `projectConfigPath`). */
-function projectConfigPath(cwd: string): string {
+export function projectConfigPath(cwd: string): string {
   return join(cwd, ".pi", "dashboard", "knowledge_base.json");
+}
+
+/** Canonicalize an absolute path for comparison: resolve, then follow symlinks
+ *  (best-effort — a non-existent path keeps its resolved form). Pins are stored
+ *  realpath-canonicalized while session cwds / the raw query string may reach
+ *  the same folder via a symlink (macOS /var→/private/var, a symlinked repo
+ *  root), so BOTH sides of the guard must canonicalize identically or the match
+ *  spuriously fails. See change: fix-kb-worktree-cwd-guard. */
+function canonPath(p: string): string {
+  const abs = resolve(p);
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
+}
+
+/** If `cwd` is inside a git worktree, return its MAIN working-tree path (parent
+ *  of the shared git-common-dir), else null. Server-derived via git — never a
+ *  client-supplied main path — so a worktree is admitted only when its parent
+ *  repo is independently a known folder. Enables reindexing a SESSION-LESS
+ *  worktree that neither a live session cwd nor a pin covers.
+ *  See change: fix-kb-worktree-cwd-guard. */
+function worktreeMainPath(cwd: string): string | null {
+  try {
+    const commonDir = execFileSync(
+      "git",
+      ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 },
+    ).trim();
+    return commonDir ? dirname(commonDir) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Pure cwd guard shared by the REST routes and the plugin_action handler:
+ *  a cwd is allowed when it (or its git-worktree MAIN repo) is a known folder.
+ *  Both sides canonicalize. See change: fix-plugin-action-fanout-and-handlers. */
+export function isAllowedCwd(cwd: string | undefined, known: () => string[]): cwd is string {
+  if (!cwd) return false;
+  const target = canonPath(cwd);
+  const knownCanon = known().map(canonPath);
+  if (knownCanon.includes(target)) return true;
+  // Admit a git worktree whose MAIN repo is a known folder (covers a
+  // session-less worktree — worktrees are never pinned and their session is
+  // transient, so the parent repo is the durable trust anchor).
+  const main = worktreeMainPath(cwd);
+  if (main && knownCanon.includes(canonPath(main))) return true;
+  return false;
 }
 
 /** Reject a cwd that is missing or not a known folder. Returns true when handled. */
@@ -47,13 +103,9 @@ function rejectCwd(reply: FastifyReply, cwd: string | undefined, known: () => st
     reply.code(400).send({ error: "Missing cwd" });
     return true;
   }
-  const target = resolve(cwd);
-  const ok = known().some((k) => resolve(k) === target);
-  if (!ok) {
-    reply.code(403).send({ error: "cwd not allowed" });
-    return true;
-  }
-  return false;
+  if (isAllowedCwd(cwd, known)) return false;
+  reply.code(403).send({ error: "cwd not allowed" });
+  return true;
 }
 
 /** Open (and DDL-init) the folder's resolved KB store. Absent db → empty store. */
@@ -92,7 +144,7 @@ function countStale(cwd: string): number {
 }
 
 /** Run `indexSource` over the folder's resolved (filesystem) sources. */
-async function reindexAll(cwd: string): Promise<KbReindexResult> {
+export async function reindexAll(cwd: string): Promise<KbReindexResult> {
   const { store, cfg } = openStore(cwd);
   try {
     let changed = 0;
@@ -135,7 +187,7 @@ type PutResult = { ok: true; projectPath: string } | { ok: false; code: number; 
  * the DEFAULTS-filled validation output). Returns a discriminated result; the
  * route maps it to a status code. Writes nothing on a validation failure.
  */
-function applyConfigPatch(cwd: string, body: KbConfigPatch): PutResult {
+export function applyConfigPatch(cwd: string, body: KbConfigPatch): PutResult {
   const path = projectConfigPath(cwd);
   let current: Partial<KbConfig> = {};
   if (existsSync(path)) {

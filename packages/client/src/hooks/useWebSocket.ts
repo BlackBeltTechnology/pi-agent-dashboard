@@ -1,8 +1,8 @@
 import { setSender as setPluginActionSender } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { appendWsTicket, getDeviceBearer, mintWsTicket } from "../lib/device-auth.js";
+import { getApiBase } from "../lib/api/api-context.js";
+import { appendWsTicket, getDeviceBearer, mintWsTicket } from "../lib/pairing/device-auth.js";
 
 export type ConnectionStatus = "connected" | "connecting" | "offline" | "auth_required";
 

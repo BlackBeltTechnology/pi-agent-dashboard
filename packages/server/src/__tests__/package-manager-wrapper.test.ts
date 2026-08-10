@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PackageManagerWrapper, PackageOperationBusyError } from "../package-manager-wrapper.js";
+import { PackageManagerWrapper, PackageOperationBusyError } from "../package/package-manager-wrapper.js";
 import { ToolRegistry, OverridesStore } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { registerDefaultTools } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/definitions.js";
 import os from "node:os";

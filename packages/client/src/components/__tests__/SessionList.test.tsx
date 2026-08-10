@@ -1,11 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
-import { Router } from "wouter";
-import { memoryLocation } from "wouter/memory-location";
-import { SessionList, groupSessionsByDirectory } from "../SessionList.js";
-import { ThemeProvider } from "../ThemeProvider.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Router, useLocation } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
+import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
+import { groupSessionsByDirectory, SessionList } from "../session/SessionList.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });
@@ -122,8 +123,9 @@ describe("SessionList elevated spawn buttons", () => {
         </ThemeProvider>
       </TestRouter>,
     );
-    // Starts collapsed: spawn button hidden along with the other slots.
-    expect(container.querySelector(".group-collapse.collapsed")).toBeTruthy();
+    // Starts collapsed: the enclosed folder body (Create tray + sessions) is
+    // not rendered at all, so the spawn button is absent (change: folder-card-enclosure).
+    expect(container.querySelector('[data-testid="folder-body-/my/project"]')).toBeNull();
     expect(screen.queryByTestId("folder-spawn-session-btn")).toBeNull();
     // Expand via the header toggle.
     fireEvent.click(screen.getByTestId("folder-toggle-btn"));
@@ -147,6 +149,46 @@ describe("SessionList elevated spawn buttons", () => {
       </TestRouter>,
     );
     expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+  });
+
+  it("encloses the Create tray inside the folder body (change: folder-card-enclosure)", () => {
+    const { container } = render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/my/project" })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    const body = container.querySelector('[data-testid="folder-body-/my/project"]');
+    expect(body).toBeTruthy();
+    // The Create tray spawn button is a descendant of the enclosed folder body,
+    // not a detached sibling below the card.
+    expect(body?.querySelector('[data-testid="folder-spawn-session-btn"]')).toBeTruthy();
+  });
+
+  it("tints a top-level folder but not a workspace-grouped one (change: folder-card-enclosure)", () => {
+    const { container } = render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            pinnedDirectories={["/root/proj"]}
+            workspaces={[{ id: "ws1", name: "WS", folders: ["/ws/proj"], collapsed: false }]}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    // Top-level (non-workspace) folder body carries the accent-tinted inline
+    // background (color-mix on --accent-blue); a workspace folder does not.
+    const rootBody = container.querySelector('[data-testid="folder-body-/root/proj"]') as HTMLElement | null;
+    expect(rootBody).toBeTruthy();
+    expect(rootBody?.getAttribute("style") ?? "").toContain("--accent-blue");
   });
 });
 
@@ -423,6 +465,58 @@ describe("SessionList dashboard add buttons", () => {
   });
 });
 
+describe("SessionList add-to-workspace affordance", () => {
+  it("renders a labelled Workspace pill (not the cryptic +ws) on a top-level folder", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+            workspaces={[{ id: "ws1", name: "WS", folders: [], collapsed: false }]}
+            onAddFolderToWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    const btn = screen.getByTestId("add-to-workspace-btn-/root/proj");
+    expect(btn.textContent).toContain("Workspace");
+    expect(btn.textContent).not.toContain("+ws");
+  });
+
+  it("opens the AddToWorkspaceMenu on click", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+            workspaces={[{ id: "ws1", name: "WS", folders: [], collapsed: false }]}
+            onAddFolderToWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByTestId("add-to-workspace-btn-/root/proj"));
+    // The menu surfaces the "+ New workspace…" entry.
+    expect(screen.getByText("+ New workspace…")).toBeTruthy();
+  });
+
+  it("hides the add-to-workspace button when no workspace exists and no create handler", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: "/root/proj" })]}
+            onSelect={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(screen.queryByTestId("add-to-workspace-btn-/root/proj")).toBeNull();
+  });
+});
+
 describe("SessionList workspace-scope Add Folder", () => {
   const expandedWs = { id: "ws1", name: "WS One", collapsed: false, folders: [] as string[] };
 
@@ -442,8 +536,10 @@ describe("SessionList workspace-scope Add Folder", () => {
     );
     const addBtn = screen.getByTestId("workspace-add-folder-btn-ws1");
     fireEvent.click(addBtn);
-    // Opens the workspace-scoped folder picker (PinDirectoryDialog).
-    expect(screen.getByText("Pin Directory")).toBeTruthy();
+    // Opens the multi-select Add Folders dialog with THIS workspace preselected
+    // as the destination. See change: redesign-folder-workspace-add-flow.
+    expect(screen.getByTestId("add-folders-dialog")).toBeTruthy();
+    expect(screen.getByTestId("add-folders-dest-ws1").getAttribute("aria-checked")).toBe("true");
   });
 
   it("hides the workspace Add Folder button when collapsed", () => {
@@ -532,5 +628,276 @@ describe("groupSessionsByDirectory", () => {
     ];
     const { unpinned } = groupSessionsByDirectory(sessions);
     expect(unpinned.map((g) => g.cwd)).toEqual(["/new", "/mid", "/old"]);
+  });
+});
+
+// F2 — the pinned-row "open" affordance navigates to the folder home without
+// toggling collapse. See change: add-directory-home-page (D3).
+describe("SessionList folder-home open affordance", () => {
+  function LocationProbe() {
+    const [loc] = useLocation();
+    return <span data-testid="loc">{loc}</span>;
+  }
+
+  function renderPinned() {
+    const cwd = "/home/user/project";
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <LocationProbe />
+          <SessionList
+            sessions={[makeSession({ cwd })]}
+            onSelect={() => {}}
+            pinnedDirectories={[cwd]}
+            onUnpinDirectory={() => {}}
+            onSpawnSession={() => {}}
+          />
+        </ThemeProvider>
+      </Router>,
+    );
+    return { cwd };
+  }
+
+  it("renders the open affordance on a pinned row", () => {
+    const { cwd } = renderPinned();
+    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
+  });
+
+  it("navigates to /folder/<enc> and leaves the folder expanded (collapse not toggled)", () => {
+    const { cwd } = renderPinned();
+    // Expanded row shows the spawn/action bar; collapsing would hide it.
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+    // stopPropagation kept the collapse toggle from firing: still expanded.
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+  });
+
+  // directory-card-clickable-select: the whole header row is clickable to open
+  // the directory home (like clicking a session card selects its session).
+  // Collapse moved solely to the chevron, so the row navigates AND stays
+  // expanded.
+  it("clicking the whole header row navigates to the folder home without collapsing", () => {
+    const { cwd } = renderPinned();
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+    fireEvent.click(screen.getByTestId(`folder-home-row-${cwd}`));
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+    // Row navigates but does not collapse: the chevron owns collapse now.
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+  });
+});
+
+// enable-workspace-folder-home-page — the open affordance now renders on
+// workspace-folder rows too (condition `isPinned || inWorkspace`). An UNPINNED
+// workspace folder has `folder.pinned === false`, so the affordance must show
+// via `inWorkspace`. Scenario ids per that change's test-plan.md.
+describe("SessionList workspace-folder open affordance (enable-workspace-folder-home-page)", () => {
+  function LocationProbe() {
+    const [loc] = useLocation();
+    return <span data-testid="loc">{loc}</span>;
+  }
+
+  // Renders an UNPINNED folder inside a workspace container. The folder is NOT
+  // in pinnedDirectories, so `renderGroup(folder, folder.pinned=false, true)`.
+  function renderWorkspaceFolder() {
+    const cwd = "/home/user/ws-folder";
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <LocationProbe />
+          <SessionList
+            sessions={[makeSession({ cwd })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            workspaces={[{ id: "w1", name: "WS", collapsed: false, folders: [cwd] }]}
+          />
+        </ThemeProvider>
+      </Router>,
+    );
+    return { cwd };
+  }
+
+  it("F3: an unpinned workspace-folder row shows the open affordance", () => {
+    const { cwd } = renderWorkspaceFolder();
+    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
+  });
+
+  it("F4: activating the affordance navigates to /folder/<enc> without toggling collapse", () => {
+    const { cwd } = renderWorkspaceFolder();
+    // Expanded row shows the spawn/action bar; collapsing would hide it.
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+    // stopPropagation kept the collapse toggle from firing: still expanded.
+    expect(screen.getByTestId("folder-spawn-session-btn")).toBeTruthy();
+  });
+
+  it("F5 (regression): a pinned non-workspace row still shows the affordance and navigates", () => {
+    const cwd = "/home/user/pinned-only";
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <LocationProbe />
+          <SessionList
+            sessions={[makeSession({ cwd })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            pinnedDirectories={[cwd]}
+            onUnpinDirectory={() => {}}
+          />
+        </ThemeProvider>
+      </Router>,
+    );
+    expect(screen.getByTestId(`folder-open-home-${cwd}`)).toBeTruthy();
+    fireEvent.click(screen.getByTestId(`folder-open-home-${cwd}`));
+    expect(screen.getByTestId("loc").textContent).toBe(`/folder/${encodeFolderPath(cwd)}`);
+  });
+});
+
+// redesign-folder-workspace-add-flow — the `+ws` text token becomes a real
+// affordance living INSIDE the header icon cluster (order: sort · add-to ·
+// home · pin). PRESENTATION is add-to-workspace-affordance's labelled
+// `mdiViewGridPlus` + "Workspace" pill (which superseded this change's
+// icon-plus-caret while it was still unmerged); the SCOPE-keyed popover state
+// and the a11y contract asserted below remain this change's.
+describe("SessionList add-to-workspace button", () => {
+  const CWD = "/home/user/project";
+
+  function renderList(extra: Partial<React.ComponentProps<typeof SessionList>> = {}) {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: CWD })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            pinnedDirectories={[CWD]}
+            onUnpinDirectory={() => {}}
+            onCreateWorkspace={() => {}}
+            {...extra}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+  }
+
+  it("renders a labelled pill whose accessible name carries the add-to-workspace verb", () => {
+    renderList();
+    const btn = screen.getByTestId(`add-to-workspace-btn-${CWD}`);
+    // The visible label is the noun ("Workspace", per add-to-workspace-affordance);
+    // the accessible name still carries the full verb, so the two do not collapse.
+    expect(btn.getAttribute("aria-label")).toMatch(/add to workspace/i);
+    expect(btn.getAttribute("title")).toMatch(/add to workspace/i);
+    expect(btn.textContent).toMatch(/workspace/i);
+    // Glyph + label, never a bare text token.
+    expect(btn.querySelectorAll("svg path").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("exposes aria-haspopup and reflects popover state in aria-expanded", () => {
+    renderList();
+    const btn = screen.getByTestId(`add-to-workspace-btn-${CWD}`);
+    expect(btn.getAttribute("aria-haspopup")).toBe("menu");
+    expect(btn.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(btn);
+    expect(screen.getByTestId(`add-to-workspace-btn-${CWD}`).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("add-to-workspace-menu")).toBeTruthy();
+  });
+
+  it("renders no element with the literal text `+ws`", () => {
+    const { container } = render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ cwd: CWD })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            pinnedDirectories={[CWD]}
+            onCreateWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(container.textContent).not.toContain("+ws");
+  });
+
+  it("the popover offers no pin destination", () => {
+    renderList();
+    fireEvent.click(screen.getByTestId(`add-to-workspace-btn-${CWD}`));
+    const menu = screen.getByTestId("add-to-workspace-menu");
+    expect(menu.textContent).not.toMatch(/pin to dashboard/i);
+  });
+
+  it("sits inside the header action cluster in the order sort · add-to · home · pin", () => {
+    renderList();
+    const cluster = screen.getByTestId(`folder-header-cluster-${CWD}`);
+    const ids = Array.from(cluster.querySelectorAll("button[data-testid]")).map((b) =>
+      b.getAttribute("data-testid"),
+    );
+    expect(ids).toEqual([
+      `folder-urgency-sort-${CWD}`,
+      `add-to-workspace-btn-${CWD}`,
+      `folder-open-home-${CWD}`,
+      "unpin-dir-btn",
+    ]);
+  });
+
+  it("the cluster never wraps and the parent path yields before the folder name", () => {
+    renderList();
+    const cluster = screen.getByTestId(`folder-header-cluster-${CWD}`);
+    // flex:none + white-space:nowrap — the cluster absorbs no squeeze.
+    expect(cluster.className).toMatch(/\bflex-none\b/);
+    expect(cluster.className).toMatch(/\bwhitespace-nowrap\b/);
+    // The name region is the shrinkable one.
+    const name = screen.getByTestId(`folder-header-name-${CWD}`);
+    expect(name.className).toMatch(/\bmin-w-0\b/);
+    // Parent path may collapse entirely; the leaf keeps a legible floor.
+    const parent = screen.getByTestId(`folder-header-parent-${CWD}`);
+    const leaf = screen.getByTestId(`folder-header-leaf-${CWD}`);
+    expect(parent.className).toMatch(/min-w-0/);
+    expect(leaf.className).toMatch(/min-w-\[6ch\]/);
+  });
+});
+
+// redesign-folder-workspace-add-flow — the same glyph appears on the session
+// card header cluster, targeting the session's own cwd, so one learned symbol
+// works in both scopes (mockups/add-flow.html, "Session card — same button").
+describe("SessionCard add-to-workspace icon button", () => {
+  const CWD = "/home/user/project";
+
+  function renderList() {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession({ id: "s1", cwd: CWD })]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            pinnedDirectories={[CWD]}
+            onUnpinDirectory={() => {}}
+            onCreateWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+  }
+
+  it("renders on the card header with an accessible name naming the cwd scope", () => {
+    renderList();
+    const btn = screen.getByTestId("session-card-add-to-workspace-s1");
+    expect(btn.getAttribute("aria-label")).toMatch(/add cwd to workspace/i);
+    expect(btn.getAttribute("aria-haspopup")).toBe("menu");
+    expect(btn.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("opens its own popover without also opening the folder header's", () => {
+    renderList();
+    fireEvent.click(screen.getByTestId("session-card-add-to-workspace-s1"));
+    // Exactly one popover on screen — the card's, not the same-cwd folder row's.
+    expect(screen.getAllByTestId("add-to-workspace-menu")).toHaveLength(1);
+    expect(screen.getByTestId(`add-to-workspace-btn-${CWD}`).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByTestId("session-card-add-to-workspace-s1").getAttribute("aria-expanded")).toBe("true");
   });
 });

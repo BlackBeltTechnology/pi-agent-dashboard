@@ -1,6 +1,6 @@
 ---
 name: ship-it
-description: "Worktree-side implementation orchestrator for an OpenSpec change. Idempotent: gates automated scenarios on filesystem reality (test file exists + passes in the docker harness), not the tasks.md checkbox. Owns the red-test fix loop (never re-invokes apply on a checked task), runs the docker harness on its auto-derived port with always-teardown, then drives ship-change INLINE with a manifest-aware defer. Boundary-reverse escape hatch writes SHIP_IT_BLOCKED.md. Runnable headless. Triggers: \"ship it\", \"build and ship this change\", \"run ship-it\", \"implement + test + land in the worktree\"."
+description: 'Worktree-side implementation orchestrator for an OpenSpec change. Idempotent: gates automated scenarios on filesystem reality, owns the red-test fix loop, runs the docker harness with always-teardown, then drives ship-change inline. Escape hatch writes SHIP_IT_BLOCKED.md. Runnable headless. Triggers: "ship it", "build and ship this change", "run ship-it", "implement + test + land in the worktree".'
 metadata:
   version: "1.0"
   scope: project
@@ -17,7 +17,7 @@ Composes existing skills — `openspec-apply-change`, the docker harness, and
 flowchart LR
   P["plan-proposal (develop)"] -->|"boundary: spawn worktree"| S
   subgraph Worktree ["IMPLEMENTATION — worktree (this skill)"]
-    S["ship-it"] --> A["apply"] --> T["docker-harness test"] --> C["ship-change"]
+    S["ship-it"] --> A["apply"] --> M["merge develop (2.5)"] --> T["docker-harness test"] --> C["ship-change"]
   end
   S -.->|"reverse: SHIP_IT_BLOCKED.md on design issue"| P
 ```
@@ -51,6 +51,12 @@ reach the same all-green end state.
 
 ### 2. Run apply if non-manual work remains — inject the exemplar
 
+**kb-first, even as an executor.** You know which files the tasks name, so your
+reflex is `grep`/`cat`/Read on them directly. The docs-first gate still applies:
+before you `grep`/`rg` for a symbol, Read a file to learn its purpose, or chase
+an import, run `kb_search` / `kb agents <path>` / `kb_neighbors` FIRST. Knowing
+the file does not exempt you — kb the symbol/file, then edit.
+
 If non-`manual-only` tasks remain (real code + the test files the fold tasked),
 run `openspec-apply-change` for the change. `apply` writes code and marks tasks.
 
@@ -59,6 +65,29 @@ task, **resolve the harness-exemplar pointer** (the nearest existing spec of tha
 category named in the task) and inject its path into the task context you hand
 `apply` — or author the spec yourself in the fix loop (step 4). Bare
 "author X.spec.ts" with no exemplar is forbidden.
+
+### 2.5. Integrate `develop` — merge before the harness (primary integration point)
+
+The harness (step 3) is the **strongest gate** on the ship-it path, so integration
+must sit **upstream** of it: the harness must validate the merged tree `T1`, not
+the pre-merge tree `T0`. Merge `origin/develop` — the **remote ref**, never local
+`develop` (checked out in the parent repo → worktree branch-collision pitfall):
+
+```bash
+git fetch origin develop
+git merge --no-edit origin/develop
+```
+
+Idempotent: up-to-date → "Already up to date", no merge commit, safe to always
+run. **Merge, not rebase** — step 9 squash-merges anyway, so rebase's linear
+history is moot while its force-push is a documented `ship-change` footgun.
+
+**Conflict → abort + STOP.** On an unresolved conflict, `git merge --abort`,
+report, and do **not** enter the harness — never run the gate on a half-merged
+tree. Resolve trivial conflicts with `ship-change`'s existing recipes (`AGENTS.md`
+union-keep; `pnpm-lock.yaml` → `git checkout --theirs` +
+`pnpm install --lockfile-only`), then re-run the merge. A conflict you cannot
+resolve mechanically → escape hatch (step 5).
 
 ### 3. Harness lifecycle — delegate the port, always tear down
 
@@ -133,11 +162,19 @@ step-level control for the teardown ordering below.
 - `test-plan.md` absent (legacy change) → `ship-change`'s current keyword defer
   applies unchanged.
 
+**Archive+sync gate before the destructive steps (load-bearing):** do **not** let
+`ship-change` merge the PR, delete the branch, or remove the worktree while the
+proposal is not archived and specs are not synced. `ship-change` step 8.5 is that
+hard gate — driving `ship-change` inline, hold at step 8.5 until the change is
+archived (source dir moved to `openspec/changes/archive/`, move committed) and
+specs synced. Failed/skipped archive → STOP (return to step 2 or the escape hatch),
+never proceed to steps 9/10.
+
 **Teardown-before-removal ordering (load-bearing):** the harness MUST be torn down
 (`test-down.sh`, already wired via the step-3 trap) **before** `ship-change` step
 10 removes the worktree. A leaked container makes the worktree "busy" and stalls
 removal. Run the harness teardown, then let `ship-change` archive → commit → PR →
-CI → CodeRabbit → squash-merge → remove worktree.
+CI → CodeRabbit → (archive+sync gate) → squash-merge → remove worktree.
 
 ## Guardrails
 
@@ -145,6 +182,10 @@ CI → CodeRabbit → squash-merge → remove worktree.
   test file must exist and pass in the harness.
 - **ship-it owns the fix loop** — never re-invoke `apply` on a checked task.
 - **Never weaken a test to reach green** — `assertNoWeakening` rejects it.
+- **Merge `develop` before the harness (step 2.5)** — the strong gate validates
+  the integrated tree `T1`; merge `origin/develop` (remote ref), never rebase.
+  Conflict → abort + STOP, never enter the harness on a half-merged tree.
+- **Never merge / delete branch / remove worktree while the proposal is not archived and synced** — hold at `ship-change` step 8.5 (archive+sync gate) until it passes; failed archive → STOP.
 - **Always tear the harness down** (trap/finally), **before** worktree removal.
 - **Never hardcode `:18000`** — read `dashboardPort` from `.pi-test-harness.json`.
 - **Never headlessly rewrite planning artifacts** — use the escape hatch.

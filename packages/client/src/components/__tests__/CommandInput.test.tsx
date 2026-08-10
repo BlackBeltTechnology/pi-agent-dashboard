@@ -2,7 +2,7 @@ import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/type
 import { act, fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { CommandInput, shouldWalkFileQuery } from "../CommandInput.js";
+import { CommandInput, shouldWalkFileQuery } from "../chat/CommandInput.js";
 
 describe("shouldWalkFileQuery (min-3-char guard)", () => {
   it("fires for a bare @ (empty query, top-level listing)", () => {

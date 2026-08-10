@@ -1,8 +1,8 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
 import { mdiCheckCircle, mdiTextBoxEdit } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { InteractiveRendererProps } from "./types.js";
-import { t as i18nT } from "../../lib/i18n";
 
 export function EditorRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
@@ -24,10 +24,10 @@ export function EditorRenderer({ params, status, result, onRespond, onCancel }: 
           </span>
         )}
         {status === "cancelled" && (
-          <span className="ml-1 text-[var(--text-tertiary)]">{i18nT("auto.cancelled", undefined, "Cancelled")}</span>
+          <span className="ml-1 text-[var(--text-tertiary)]">{i18nT("status.cancelled", undefined, "Cancelled")}</span>
         )}
         {status === "dismissed" && (
-          <span className="ml-1 text-[var(--text-tertiary)]">{i18nT("auto.answered_in_terminal", undefined, "Answered in terminal")}</span>
+          <span className="ml-1 text-[var(--text-tertiary)]">{i18nT("terminal.answeredInTerminal", undefined, "Answered in terminal")}</span>
         )}
       </div>
     );
@@ -51,13 +51,13 @@ export function EditorRenderer({ params, status, result, onRespond, onCancel }: 
             onClick={() => onRespond({ value: text })}
             className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors"
           >
-            {i18nT("auto.submit", undefined, "Submit")}
+            {i18nT("common.submit", undefined, "Submit")}
           </button>
           <button
             onClick={onCancel}
             className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
           >
-            {i18nT("auto.cancel", undefined, "Cancel")}
+            {i18nT("common.cancel", undefined, "Cancel")}
           </button>
         </div>
       </div>

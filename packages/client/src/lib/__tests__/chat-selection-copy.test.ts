@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSelectionClipboardText, COPY_TEXT_ATTR } from "../chat-selection-copy.js";
+import { buildSelectionClipboardText, COPY_TEXT_ATTR } from "../chat/chat-selection-copy.js";
 
 /** Mount HTML into a detached container and return it. */
 function mount(html: string): HTMLElement {

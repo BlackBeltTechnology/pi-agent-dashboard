@@ -3,7 +3,7 @@
  * See change: fix-windows-server-parity.
  */
 import { describe, it, expect } from "vitest";
-import { buildOrchestratorScript } from "../restart-helper.js";
+import { buildOrchestratorScript } from "../spawn-process/restart-helper.js";
 
 describe("buildOrchestratorScript", () => {
   const baseParams = {
@@ -219,5 +219,56 @@ describe("buildOrchestratorScript", () => {
       const args = extractArgsArray(script);
       expect(args[args.indexOf("--port") + 1]).toBe("8001");
     });
+  });
+});
+
+/**
+ * The gateway port must survive a restart for exactly the same reason the
+ * dashboard port must (`fix-restart-port-loss`): the spawned child re-resolves
+ * config from CLI > env > file, and the file config normally carries no
+ * `piPort`, so an un-propagated `--pi-port` silently falls back to the 9999
+ * default. The bridge of every ALREADY-RUNNING pi session is still pointed at
+ * the old gateway port, so it can never reconnect — sessions vanish from the
+ * dashboard after a restart and never come back.
+ *
+ * Observed in the docker harness (gateway pinned to 19388 via PI_GATEWAY_PORT):
+ *   Pi gateway listening on port 9999
+ *   [crash-safety] uncaughtException (suppressed): listen EADDRINUSE 0.0.0.0:9999
+ *
+ * See change: restore-ask-user-tool-state-on-reconnect.
+ */
+describe("buildOrchestratorScript — gateway port preservation", () => {
+  const baseParams = {
+    cliPath: "/tmp/cli.ts",
+    loader: "",
+    port: 8000,
+    extraArgs: [] as string[],
+    execPath: "/usr/bin/node",
+  };
+
+  it("propagates a non-default --pi-port so running bridges can reconnect", () => {
+    const script = buildOrchestratorScript({ ...baseParams, piPort: 19388 });
+    expect(script).toMatch(/"start","--port","8000","--pi-port","19388"/);
+  });
+
+  it("keeps --pi-port before extraArgs so an explicit caller override still wins", () => {
+    // cli.ts:parseArgs is left-to-right, last-occurrence-wins.
+    const script = buildOrchestratorScript({
+      ...baseParams,
+      piPort: 19388,
+      extraArgs: ["--dev"],
+    });
+    expect(script).toMatch(/"start","--port","8000","--pi-port","19388","--dev"/);
+  });
+
+  it("omits --pi-port when it is the 9999 default (nothing to preserve)", () => {
+    const script = buildOrchestratorScript({ ...baseParams, piPort: 9999 });
+    expect(script).not.toMatch(/"--pi-port"/);
+    expect(script).toMatch(/"start","--port","8000"/);
+  });
+
+  it("omits --pi-port when unspecified, leaving pre-existing callers unchanged", () => {
+    const script = buildOrchestratorScript(baseParams);
+    expect(script).not.toMatch(/"--pi-port"/);
   });
 });

@@ -178,27 +178,45 @@ export const DEFAULT_KEEPER_LOG: KeeperLogConfig = {
   capturePiOutput: false,
 };
 
-export interface EditorConfig {
-  /** Override path to code-server binary */
-  binary?: string;
-  /** Minutes before idle instance is killed (default: 10) */
-  idleTimeoutMinutes: number;
-  /** Maximum concurrent code-server instances (default: 3) */
-  maxInstances: number;
-  /**
-   * When true, graceful dashboard shutdown (stop / restart / shutdown)
-   * sends `{"cmd":"stop"}` to every editor keeper and waits for them to
-   * exit. When false or omitted (default), keepers and their code-server children
-   * persist across dashboard restarts so editor tabs and dirty buffers
-   * survive. See change: add-editor-keeper-sidecar.
-   */
-  stopOnDashboardExit?: boolean;
+// ── Embed session lifecycle ─────────────────────────────────────────
+
+/**
+ * Server-side lifecycle controls for machine-fronted (`ephemeral`) sessions:
+ * idempotent acquire, the idle reaper, and active-session caps. Disabled by
+ * default (D8) — every numeric threshold is inert while `enabled` is false, so
+ * an upgrade is byte-for-byte behavior-preserving until an operator opts in.
+ * Thresholds are seconds on the wire; the reaper converts to ms. Lives under
+ * `~/.pi/dashboard/config.json` `embedLifecycle`.
+ * See change: add-embed-session-lifecycle.
+ */
+export interface EmbedLifecycleConfig {
+  /** Master toggle. Default false — reaper, caps, and server-side acquire dormant. */
+  enabled: boolean;
+  /** Idle reap threshold: reap a quiescent ephemeral session after this idle. */
+  idleTimeoutSeconds: number;
+  /** Phantom force-reap ceiling: a run streaming longer than this without settling is wedged. */
+  hardCeilingSeconds: number;
+  /** Post-spawn/resume grace window before a fresh session is reap-eligible. */
+  graceWindowSeconds: number;
+  /** Reaper sweep cadence. */
+  sweepIntervalSeconds: number;
+  /** Bounded acquire-coalescing timeout: reject if `session_register` never arrives. */
+  registerTimeoutSeconds: number;
+  /** Per-visitor active-ephemeral cap (fairness bound for trusted identities). */
+  maxActiveEmbedSessionsPerVisitor: number;
+  /** Global active-ephemeral cap (the HARD security bound against spoofed identities). */
+  maxActiveEmbedSessionsGlobal: number;
 }
 
-export const DEFAULT_EDITOR_CONFIG: EditorConfig = {
-  idleTimeoutMinutes: 10,
-  maxInstances: 3,
-  stopOnDashboardExit: false,
+export const DEFAULT_EMBED_LIFECYCLE: EmbedLifecycleConfig = {
+  enabled: false,
+  idleTimeoutSeconds: 1800,
+  hardCeilingSeconds: 3600,
+  graceWindowSeconds: 30,
+  sweepIntervalSeconds: 60,
+  registerTimeoutSeconds: 30,
+  maxActiveEmbedSessionsPerVisitor: 5,
+  maxActiveEmbedSessionsGlobal: 50,
 };
 
 export interface KnownServer {
@@ -298,7 +316,14 @@ export interface DashboardConfig {
      * safety; the normalized shape also carries it under `zrok.reservedToken`.
      */
     reservedToken?: string;
-    zrok?: { reservedToken?: string };
+    /**
+     * zrok sub-config. `reservedToken` is the legacy v1 token (preserved for
+     * downgrade, ignored by the v2 provider). `reservedName` is the v2 reserved
+     * name (namespaces+names) yielding a stable `<name>.shares.zrok.io` URL;
+     * `persistent` (default false) opts in to minting/serving a reserved name.
+     * See change: support-zrok-v2.
+     */
+    zrok?: { reservedToken?: string; reservedName?: string; persistent?: boolean };
     ngrok?: { authtoken?: string; domain?: string };
     tailscale?: { authKey?: string };
     zerotier?: { networkId?: string };
@@ -313,11 +338,12 @@ export interface DashboardConfig {
   auth?: AuthConfig;
   defaultModel: string;
   memoryLimits: MemoryLimitsConfig;
-  editor: EditorConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
   /** Session behavior — hydration worker offload toggle. */
   sessions: SessionsConfig;
+  /** Embed/ephemeral session lifecycle controls (reaper, caps, acquire). Off by default. */
+  embedLifecycle: EmbedLifecycleConfig;
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. */
   keeperLog: KeeperLogConfig;
   /**
@@ -458,6 +484,7 @@ const DEFAULTS: DashboardConfig = {
   spawnStrategy: "headless",
   tunnel: {
     enabled: true,
+    zrok: { persistent: false },
     watchdog: {
       enabled: true,
       intervalMs: 60000,
@@ -468,9 +495,9 @@ const DEFAULTS: DashboardConfig = {
   devBuildOnReload: false,
   defaultModel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
-  editor: { ...DEFAULT_EDITOR_CONFIG },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
   sessions: { ...DEFAULT_SESSIONS },
+  embedLifecycle: { ...DEFAULT_EMBED_LIFECYCLE },
   keeperLog: { ...DEFAULT_KEEPER_LOG },
   trustedNetworks: [],
   resolvedTrustedNetworks: [],
@@ -551,24 +578,36 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
   };
 }
 
-function parseEditorConfig(raw: any): EditorConfig {
-  if (!raw || typeof raw !== "object") return { ...DEFAULT_EDITOR_CONFIG };
-  return {
-    ...(typeof raw.binary === "string" ? { binary: raw.binary } : {}),
-    idleTimeoutMinutes: typeof raw.idleTimeoutMinutes === "number" ? raw.idleTimeoutMinutes : DEFAULT_EDITOR_CONFIG.idleTimeoutMinutes,
-    maxInstances: typeof raw.maxInstances === "number" ? raw.maxInstances : DEFAULT_EDITOR_CONFIG.maxInstances,
-    stopOnDashboardExit: typeof raw.stopOnDashboardExit === "boolean" ? raw.stopOnDashboardExit : DEFAULT_EDITOR_CONFIG.stopOnDashboardExit,
-  };
-}
-
-/** Exported for tests; same parser used by `parseConfig`. */
-export const parseEditorConfigForTest = parseEditorConfig;
-
 function clampNumber(raw: any, fallback: number, min: number, max: number): number {
   const n = typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
   if (n < min) return min;
   if (n > max) return max;
   return n;
+}
+
+export function parseEmbedLifecycleConfig(raw: any): EmbedLifecycleConfig {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_EMBED_LIFECYCLE };
+  const d = DEFAULT_EMBED_LIFECYCLE;
+  return {
+    enabled: typeof raw.enabled === "boolean" ? raw.enabled : d.enabled,
+    idleTimeoutSeconds: clampNumber(raw.idleTimeoutSeconds, d.idleTimeoutSeconds, 1, 86_400),
+    hardCeilingSeconds: clampNumber(raw.hardCeilingSeconds, d.hardCeilingSeconds, 1, 604_800),
+    graceWindowSeconds: clampNumber(raw.graceWindowSeconds, d.graceWindowSeconds, 0, 3_600),
+    sweepIntervalSeconds: clampNumber(raw.sweepIntervalSeconds, d.sweepIntervalSeconds, 1, 3_600),
+    registerTimeoutSeconds: clampNumber(raw.registerTimeoutSeconds, d.registerTimeoutSeconds, 1, 600),
+    maxActiveEmbedSessionsPerVisitor: clampNumber(
+      raw.maxActiveEmbedSessionsPerVisitor,
+      d.maxActiveEmbedSessionsPerVisitor,
+      1,
+      10_000,
+    ),
+    maxActiveEmbedSessionsGlobal: clampNumber(
+      raw.maxActiveEmbedSessionsGlobal,
+      d.maxActiveEmbedSessionsGlobal,
+      1,
+      100_000,
+    ),
+  };
 }
 
 function parseSessionsConfig(raw: any): SessionsConfig {
@@ -772,17 +811,26 @@ export function normalizeTunnelConfig(
       : undefined;
   const mode = rawMode ?? (provider === "zrok" && !rawProvider ? ("public" as TunnelMode) : undefined);
 
-  const zrok =
-    raw?.zrok?.reservedToken || legacyToken
-      ? { reservedToken: raw?.zrok?.reservedToken ?? legacyToken }
-      : undefined;
+  // v2 (support-zrok-v2): preserve the legacy reservedToken for downgrade but
+  // NEVER promote it to reservedName (a name is not a token). Surface the v2
+  // reservedName + persistent when present; persistent defaults to false.
+  const rawZrok = raw?.zrok;
+  const zrokToken =
+    typeof rawZrok?.reservedToken === "string" ? rawZrok.reservedToken : legacyToken;
+  const zrokReservedName = typeof rawZrok?.reservedName === "string" ? rawZrok.reservedName : undefined;
+  const zrokPersistent = typeof rawZrok?.persistent === "boolean" ? rawZrok.persistent : false;
+  const zrok = {
+    ...(zrokToken ? { reservedToken: zrokToken } : {}),
+    ...(zrokReservedName ? { reservedName: zrokReservedName } : {}),
+    persistent: zrokPersistent,
+  };
 
   const out: DashboardConfig["tunnel"] = {
     enabled: raw?.enabled ?? defaults.enabled,
     ...(provider ? { provider } : {}),
     ...(mode ? { mode } : {}),
     ...(legacyToken ? { reservedToken: legacyToken } : {}),
-    ...(zrok ? { zrok } : {}),
+    zrok,
     ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: { ...raw.ngrok } } : {}),
     ...(raw?.tailscale && typeof raw.tailscale === "object" ? { tailscale: { ...raw.tailscale } } : {}),
     ...(raw?.zerotier && typeof raw.zerotier === "object" ? { zerotier: { ...raw.zerotier } } : {}),
@@ -863,9 +911,9 @@ export function loadConfig(): DashboardConfig {
       defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : defaults.defaultModel,
       auth: parseAuthConfig(parsed.auth),
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
-      editor: parseEditorConfig(parsed.editor),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
       sessions: parseSessionsConfig(parsed.sessions),
+      embedLifecycle: parseEmbedLifecycleConfig(parsed.embedLifecycle),
       keeperLog: parseKeeperLogConfig(parsed.keeperLog),
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
       resolvedTrustedNetworks: [],

@@ -2,25 +2,25 @@
  * Shared context for browser message handlers.
  * Each handler receives only what it needs via this context.
  */
-import type { WebSocket } from "ws";
+
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { EventStore } from "../memory-event-store.js";
-import type { PiGateway } from "../pi-gateway.js";
-import type { PendingForkRegistry } from "../pending-fork-registry.js";
-import type { SessionOrderManager } from "../session-order-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
+import type { WebSocket } from "ws";
 import type { DirectoryService } from "../directory-service.js";
-import type { TerminalManager } from "../terminal-manager.js";
-import type { HeadlessPidRegistry } from "../headless-pid-registry.js";
-import type { MetaPersistence } from "../meta-persistence.js";
-import type { PendingResumeRegistry } from "../pending-resume-registry.js";
-import type { PendingAttachRegistry } from "../pending-attach-registry.js";
-import type { PendingInitialPromptRegistry } from "../pending-initial-prompt-registry.js";
-import type { PendingWorktreeBaseRegistry } from "../pending-worktree-base-registry.js";
-import type { PendingResumeIntentRegistry } from "../pending-resume-intent-registry.js";
-import type { PendingClientCorrelations } from "../pending-client-correlations.js";
-import type { ViewMessageStore } from "../view-message-store.js";
+import type { PendingAttachRegistry } from "../pending/pending-attach-registry.js";
+import type { PendingClientCorrelations } from "../pending/pending-client-correlations.js";
+import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
+import type { PendingInitialPromptRegistry } from "../pending/pending-initial-prompt-registry.js";
+import type { PendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
+import type { PendingResumeRegistry } from "../pending/pending-resume-registry.js";
+import type { PendingWorktreeBaseRegistry } from "../pending/pending-worktree-base-registry.js";
+import type { EventStore } from "../persistence/memory-event-store.js";
+import type { MetaPersistence } from "../persistence/meta-persistence.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { SessionOrderManager } from "../session/session-order-manager.js";
+import type { HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
+import type { TerminalManager } from "../terminal/terminal-manager.js";
 
 export interface BrowserHandlerContext {
   ws: WebSocket;
@@ -37,6 +37,18 @@ export interface BrowserHandlerContext {
    * See change: configurable-chat-display.
    */
   metaPersistence?: MetaPersistence;
+  /**
+   * Optional display-fit pool.
+   *
+   * Hydration strips inline image bytes to a bounded placeholder
+   * UNCONDITIONALLY — the bound must not depend on whether a fitter happens to
+   * be configured, or a replayed image-bearing event trips the per-event
+   * ceiling and its row vanishes. This pool only decides how the placeholder
+   * RESOLVES: with one, to the fitted derivative; without, every placeholder
+   * settles to an explicit failed state rather than spinning.
+   * See change: fit-attachments-for-display (test-plan #E9).
+   */
+  fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool;
   directoryService?: DirectoryService;
   terminalManager?: TerminalManager;
   headlessPidRegistry: HeadlessPidRegistry;
@@ -85,6 +97,16 @@ export interface BrowserHandlerContext {
    * See change: spawn-correlation-token.
    */
   pendingClientCorrelations?: PendingClientCorrelations;
+  /**
+   * True while `sessionId` is an unresolved cold-start recovery candidate whose
+   * process liveness is still being determined (the Class-2 bridge-reattach
+   * grace window). A `continue` resume MUST be refused in this window: a
+   * surviving bridge may be about to reattach, and spawning now would
+   * double-register the session and break message routing. Finalized (dead)
+   * candidates leave the pending set when the window closes.
+   * See change: fix-recovery-offer-bridge-liveness-gate.
+   */
+  isRecoveryLivenessPending?(sessionId: string): boolean;
   /** Send message to a specific WebSocket */
   sendTo(ws: WebSocket, msg: ServerToBrowserMessage): void;
   /** Broadcast to all connected browsers */
@@ -102,14 +124,14 @@ export interface BrowserHandlerContext {
   trackUiRequest(sessionId: string, requestId: string, method: string, params: Record<string, unknown>): boolean | void;
   /** Replay pending UI requests to a browser */
   replayPendingUiRequests(ws: WebSocket, sessionId: string): void;
+  /**
+   * Replay the retained notify log to a browser. Sibling of
+   * `replayPendingUiRequests` — kept separate because a notify is transcript
+   * history, never a pending ask. See change: split-notify-from-prompt-request.
+   */
+  replayNotifyLog(ws: WebSocket, sessionId: string): void;
   /** Mark a session as mid-replay for a specific WebSocket (suppresses live events) */
   markReplaying(ws: WebSocket, sessionId: string): void;
   /** Clear replay flag and send catch-up events */
   clearReplaying(ws: WebSocket, sessionId: string, lastReplayedSeq: number): void;
-  /**
-   * Per-session store for dashboard-local `/view` preview rows. Separate
-   * from pi's events.jsonl so the agent never observes them.
-   * See change: render-file-previews.
-   */
-  viewMessageStore?: ViewMessageStore;
 }

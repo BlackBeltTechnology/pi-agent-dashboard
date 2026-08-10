@@ -9,10 +9,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { loadConfig, type ResolvedConfig } from "@blackbelt-technology/pi-dashboard-kb";
-import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
-import { indexSource } from "@blackbelt-technology/pi-dashboard-kb";
-import { agentsChain, parseRowPaths } from "@blackbelt-technology/pi-dashboard-kb";
+import { agentsChain, indexSource, loadConfig, parseRowPaths, type ResolvedConfig, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 
 /** Resolve a DOX row path relative to its AGENTS.md dir, with a project-root
  *  fallback (a nested AGENTS.md may document a file living at the root).
@@ -157,6 +154,22 @@ export function reindexNow(state: ReindexState, cwd: string): Promise<{ changed:
   });
   state.inflight.set(cwd, p);
   return p;
+}
+
+/** Cold-start guard for the pull tools. Builds the index once when it is empty
+ *  so `kb_neighbors` / `kb_get` never return a false-empty result on a
+ *  never-indexed cwd (they open a store via `getKb` but do not populate it,
+ *  unlike `kb_search` which always runs a freshness `reindexNow`). On a warm
+ *  index this is a single `COUNT(*)` and a no-op walk-wise. A removed cwd is a
+ *  safe no-op. Throws propagate to the caller, which guards them (extension.ts),
+ *  mirroring `kb_search`'s existing graceful fallback. See change:
+ *  fix-kb-neighbors-get-cold-start. */
+export async function ensurePopulated(state: ReindexState, cwd: string): Promise<void> {
+  if (!existsSync(cwd)) return;
+  const { store } = getKb(state, cwd);
+  if (store.counts().chunks === 0) {
+    await reindexNow(state, cwd);
+  }
 }
 
 /** Schedule a debounced reindex for an edited .md path. */

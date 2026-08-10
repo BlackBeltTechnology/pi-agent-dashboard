@@ -11,10 +11,12 @@
  *
  * See change: add-goal-continuation-plugin (mockups/ui-plan.md).
  */
-import React, { useEffect, useState } from "react";
-import { useLocation } from "wouter";
+
+import { useSessionEvents, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type React from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
 import { deriveSnapshot } from "./goal-state.js";
 import { goalDetailUrl } from "./goals-api.js";
 
@@ -38,6 +40,7 @@ export function GoalChip({
 }: {
   session: DashboardSession;
 }): React.ReactElement | null {
+  const t = useT();
   const events = useSessionEvents(session.id);
   const light = useIsLightTheme();
   const [, navigate] = useLocation();
@@ -50,19 +53,19 @@ export function GoalChip({
   let dot: string;
   let palette: { background: string; color: string };
   if (status === "done") {
-    label = "Achieved";
+    label = t("achieved", undefined, "Achieved");
     dot = "✓";
     palette = light
       ? { background: "rgba(52,211,153,0.15)", color: "rgb(4,120,87)" }
       : { background: "rgba(52,211,153,0.15)", color: "rgb(110,231,183)" };
   } else if (status === "paused") {
-    label = lastReason ? `Paused · ${lastReason}` : "Paused";
+    label = lastReason ? t("pausedReason", { reason: lastReason }, `Paused · ${lastReason}`) : t("paused", undefined, "Paused");
     dot = "⏸";
     palette = light
       ? { background: "rgba(251,191,36,0.15)", color: "rgb(146,96,10)" }
       : { background: "rgba(251,191,36,0.15)", color: "rgb(252,211,77)" };
   } else {
-    label = `Pursuing ${turnsUsed}/${maxTurns}`;
+    label = t("pursuing", { used: turnsUsed, max: maxTurns }, `Pursuing ${turnsUsed}/${maxTurns}`);
     dot = "●";
     palette = light
       ? { background: "rgba(99,102,241,0.15)", color: "rgb(67,56,202)" }
@@ -70,10 +73,11 @@ export function GoalChip({
   }
 
   const tooltip =
-    `Goal: ${goal}` +
-    `\nStatus: ${status} (${turnsUsed}/${maxTurns})` +
-    (lastVerdict ? `\nLast verdict: ${lastVerdict}` : "") +
-    (lastReason ? `\nReason: ${lastReason}` : "");
+    t("tooltipGoal", { goal }, `Goal: ${goal}`) +
+    "\n" +
+    t("tooltipStatus", { status, used: turnsUsed, max: maxTurns }, `Status: ${status} (${turnsUsed}/${maxTurns})`) +
+    (lastVerdict ? "\n" + t("tooltipVerdict", { verdict: lastVerdict }, `Last verdict: ${lastVerdict}`) : "") +
+    (lastReason ? "\n" + t("tooltipReason", { reason: lastReason }, `Reason: ${lastReason}`) : "");
 
   // When this session is linked to a folder-scoped goal, the chip becomes a
   // read-only link to that goal's detail page (task 5.1). Otherwise it stays

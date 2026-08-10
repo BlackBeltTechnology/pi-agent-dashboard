@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock the storage and handlers to avoid touching real auth.json
-vi.mock("../provider-auth-storage.js", () => ({
+vi.mock("../auth/provider-auth-storage.js", () => ({
   getOAuthProvidersMeta: () => [
     { id: "anthropic", name: "Anthropic", flowType: "auth_code" },
     { id: "github-copilot", name: "GitHub Copilot", flowType: "device_code" },
@@ -16,7 +16,7 @@ vi.mock("../provider-auth-storage.js", () => ({
 }));
 
 // Mock the callback server to avoid opening real ports
-vi.mock("../oauth-callback-server.js", () => ({
+vi.mock("../auth/oauth-callback-server.js", () => ({
   startCallbackServer: vi.fn().mockResolvedValue({
     closed: new Promise(() => {}),
     close: vi.fn().mockResolvedValue(undefined),
@@ -88,7 +88,7 @@ describe("provider-auth-routes", () => {
   });
 
   it("POST /api/provider-auth/authorize returns authUrl with correct redirect URI", async () => {
-    const { startCallbackServer } = await import("../oauth-callback-server.js");
+    const { startCallbackServer } = await import("../auth/oauth-callback-server.js");
     const res = await app.inject({
       method: "POST",
       url: "/api/provider-auth/authorize",
@@ -129,7 +129,7 @@ describe("provider-auth-routes", () => {
   // update modelsMap[sid] incrementally without a global wipe. See
   // change: simplify-model-selection-channels.
   it("PUT /api/provider-auth/api-key saves and broadcasts credentials_updated to bridges", async () => {
-    const { writeCredential } = await import("../provider-auth-storage.js");
+    const { writeCredential } = await import("../auth/provider-auth-storage.js");
     const res = await app.inject({
       method: "PUT",
       url: "/api/provider-auth/api-key",
@@ -144,7 +144,7 @@ describe("provider-auth-routes", () => {
   });
 
   it("DELETE /api/provider-auth/:provider removes and broadcasts credentials_updated", async () => {
-    const { removeCredential } = await import("../provider-auth-storage.js");
+    const { removeCredential } = await import("../auth/provider-auth-storage.js");
     const res = await app.inject({
       method: "DELETE",
       url: "/api/provider-auth/anthropic",

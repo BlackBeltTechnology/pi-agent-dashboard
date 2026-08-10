@@ -3,9 +3,9 @@
  */
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { normalizeTags } from "@blackbelt-technology/pi-dashboard-shared/tags.js";
+import { attachRenameTarget, detachShouldClearName } from "../openspec/proposal-attach-naming.js";
+import { resolveOrderKey } from "../session/resolve-order-key.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
-import { attachRenameTarget, detachShouldClearName } from "../proposal-attach-naming.js";
-import { resolveOrderKey } from "../resolve-order-key.js";
 
 /**
  * Move a session to the front of its resolved-group order list and broadcast
@@ -33,7 +33,10 @@ export function handleRenameSession(
   ctx: BrowserHandlerContext,
 ): void {
   const { sessionManager, piGateway, broadcast } = ctx;
-  const nameUpdates = { name: msg.name || undefined };
+  // A dashboard-initiated rename is a user action — tag provenance "user" so
+  // auto-naming is permanently locked out for this session.
+  // See change: add-auto-session-naming.
+  const nameUpdates = { name: msg.name || undefined, nameSource: "user" as const };
   sessionManager.update(msg.sessionId, nameUpdates);
   broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: nameUpdates });
   piGateway.sendToSession(msg.sessionId, { type: "rename_session", sessionId: msg.sessionId, name: msg.name });
@@ -66,6 +69,35 @@ export function handleSetSessionTags(
   const updates = { tags: normalizeTags(msg.tags) };
   ctx.sessionManager.update(msg.sessionId, updates);
   ctx.broadcast({ type: "session_updated", sessionId: msg.sessionId, updates });
+}
+
+/**
+ * Browser → server: strip a single user tag from EVERY session that carries it
+ * (global, not folder-scoped — over `sessionManager.listAll()`). Normalizes the
+ * inbound tag first; a blank/whitespace-only tag (`normalizeTags` → `[]`) is an
+ * early no-op. For each carrying session it reuses the same
+ * `normalizeTags` → `sessionManager.update({ tags })` → `broadcast(session_updated)`
+ * path as `handleSetSessionTags` (one broadcast per changed session; no
+ * `mergeSessionMeta`). Best-effort fan-out, not a transaction.
+ * See change: sidebar-tag-collapse-and-delete.
+ */
+export function handleRemoveTagGlobally(
+  msg: Extract<BrowserToServerMessage, { type: "remove_tag_globally" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  const { sessionManager, broadcast } = ctx;
+  // Untrusted WS payload: guard non-string `tag` before normalize (`normalizeTags`
+  // calls `.trim()` — a malformed `null`/number would throw). See CodeRabbit #8.
+  if (typeof msg.tag !== "string") return;
+  const target = normalizeTags([msg.tag])[0];
+  if (!target) return;
+  for (const session of sessionManager.listAll()) {
+    const tags = session.tags ?? [];
+    if (!tags.includes(target)) continue;
+    const updates = { tags: normalizeTags(tags.filter((t) => t !== target)) };
+    sessionManager.update(session.id, updates);
+    broadcast({ type: "session_updated", sessionId: session.id, updates });
+  }
 }
 
 export function handleUnhideSession(

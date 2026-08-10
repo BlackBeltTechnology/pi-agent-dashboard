@@ -175,6 +175,12 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		autowired: true,
 		// Companion dashboard plugin id. See change: add-subagent-inspector.
 		dashboardPlugin: "subagents",
+		// Version floor >= 0.2.3: emits `agentSessionId` on AgentDetails so the
+		// subagent inspector resolves a run by its v7 runner session id (not just
+		// the v4 agentId). Source is unversioned (installs latest) so fresh installs
+		// satisfy the floor. Graceful degrade: an older producer omits the field and
+		// the inspector keeps today's single-key behaviour (no regression).
+		// See change: resolve-subagent-inspector-by-session-id.
 	},
 	{
 		id: "pi-flows",
@@ -453,6 +459,42 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		unlocks: [
 			"session-to-guideline / skill-creator skills (author guidelines and new skills)",
 		],
+	},
+	{
+		// Apple PIM (iMCP) integration. See change: add-apple-tools-imcp-plugin.
+		id: "@blackbelt-technology/pi-dashboard-apple-tools",
+		source: "npm:@blackbelt-technology/pi-dashboard-apple-tools",
+		displayName: "pi-dashboard-apple-tools",
+		fallbackDescription:
+			"Provision and surface iMCP (Apple Calendar, Contacts, Reminders, " +
+			"Messages, Location, Maps, Weather) for pi. One-command installer, a " +
+			"dashboard provisioning panel, and an agent skill. macOS-only; no Apple Mail.",
+		status: "optional",
+		unlocks: [
+			"Apple PIM access via iMCP + pi-mcp-adapter",
+			"Provisioning panel + one-command installer",
+		],
+		dashboardPlugin: "apple-tools",
+		requires: { piExtensions: ["pi-mcp-adapter"] },
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-video-transcription",
+		source: "npm:@blackbelt-technology/pi-dashboard-video-transcription",
+		displayName: "pi-dashboard-video-transcription",
+		fallbackDescription:
+			"Pi skill + CLI (pi-transcribe) that transcribes local video/audio " +
+			"in-place to speaker-diarized SRT via the Soniox async API, with " +
+			"long-recording chunking and idempotent re-runs. Full TypeScript port " +
+			"of the standalone skill (no Python). Needs ffmpeg/ffprobe on PATH and " +
+			"a SONIOX_API_KEY.",
+		status: "optional",
+		unlocks: [
+			"video-transcription skill (/transcribe audio/video to speaker-diarized SRT)",
+			"pi-transcribe CLI",
+		],
+		// The transcriber shells out to ffmpeg/ffprobe for audio extraction and
+		// duration probing; both are probed on PATH via the shared ToolRegistry.
+		requires: { binaries: ["ffmpeg", "ffprobe"] },
 	},
 ];
 

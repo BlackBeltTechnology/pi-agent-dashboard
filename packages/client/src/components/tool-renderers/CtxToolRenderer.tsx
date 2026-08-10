@@ -1,18 +1,19 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
 import { mdiChevronDown, mdiChevronRight, mdiOpenInNew } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { useThemeContext } from "../ThemeProvider.js";
-import { getSyntaxTheme } from "../../lib/syntax-theme.js";
-import type { ToolRendererProps } from "./types.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
+import { useThemeContext } from "../settings/ThemeProvider.js";
 import { LinkifiedText } from "./LinkifiedText.js";
 import {
-  parseCtxResult,
   type CtxResult,
-  type QueryBlock,
   type IntentPreview,
+  parseCtxResult,
+  type QueryBlock,
 } from "./parse-ctx-result.js";
-import { t as i18nT } from "../../lib/i18n";
+import type { ToolRendererProps } from "./types.js";
 
 // Single renderer for every context-mode (`ctx_*`) tool. Parses the result
 // text into a typed struct (parse-ctx-result.ts) and switches the body layout
@@ -138,7 +139,7 @@ function QueryAccordions({ queries, context }: { queries: QueryBlock[]; context:
       {queries.map((q, i) => (
         <Collapsible key={i} title={q.query}>
           {q.noResults || q.sections.length === 0 ? (
-            <span className="text-[11px] text-[var(--text-muted)] italic">{i18nT("auto.no_results_found", undefined, "No results found")}</span>
+            <span className="text-[11px] text-[var(--text-muted)] italic">{i18nT("common.noResultsFound", undefined, "No results found")}</span>
           ) : (
             <div className="space-y-2">
               {q.sections.map((s, j) => (
@@ -161,7 +162,7 @@ function IntentPreviewList({ intent }: { intent: IntentPreview }) {
   return (
     <div className="text-[11px] text-[var(--text-muted)] space-y-0.5">
       <div>
-        {intent.matched} {i18nT("auto.sections_matched", undefined, "sections matched")} <span className="font-mono">"{intent.query}"</span>
+        {intent.matched} {i18nT("common.sectionsMatched", undefined, "sections matched")} <span className="font-mono">"{intent.query}"</span>
         {intent.indexed != null && ` · ${intent.indexed} indexed`}
       </div>
       <ul className="list-disc list-inside">
@@ -189,7 +190,7 @@ function ErrorCard({
         <LinkifiedText text={parsed.message} context={context} />
       </pre>
       {parsed.receivedArgs && (
-        <Collapsible title={i18nT("auto.received_arguments", undefined, "Received arguments")}>
+        <Collapsible title={i18nT("common.receivedArguments", undefined, "Received arguments")}>
           <pre className="whitespace-pre-wrap text-code text-[var(--text-secondary)] p-2 bg-[var(--bg-code)] rounded">
             {parsed.receivedArgs}
           </pre>
@@ -202,7 +203,7 @@ function ErrorCard({
 function RunningLabel() {
   return (
     <div className="text-xs text-[var(--text-muted)] italic">
-      {i18nT("auto.running", undefined, "Running…")}
+      {i18nT("status.running", undefined, "Running…")}
     </div>
   );
 }
@@ -349,7 +350,7 @@ function CtxBody({
       return (
         <div className="text-xs text-[var(--text-secondary)] font-mono space-y-0.5">
           <div>
-            {parsed.sections} {i18nT("auto.sections", undefined, "sections ·")} {parsed.size} — {parsed.source}
+            {parsed.sections} {i18nT("common.sections", undefined, "sections ·")} {parsed.size} — {parsed.source}
           </div>
           {parsed.url && (
             <a

@@ -1,12 +1,6 @@
 ---
 name: project-init
-description: >
-  Scaffold an unconfigured directory into a configured pi project. Interactive,
-  profile-driven: lists project profiles (coding, docs, plus user profiles),
-  asks which to use, previews the planned writes, and on confirmation writes
-  AGENTS.md, .pi/settings.json (with a worktreeInit hook + toolset), and prompt
-  files. Use when a bare directory needs turning into a working pi project, or
-  when the dashboard's "Initialize" button spawns this session.
+description: 'Scaffold an unconfigured directory into a configured pi project. Interactive, profile-driven: previews the planned writes, then writes AGENTS.md, .pi/settings.json and prompt files — optionally also a knowledge base, an openspec/ scaffold, and user-global ~/.pi/agent/settings.json. Use on a bare directory, or when the dashboard''s "Initialize" button spawns this session.'
 license: MIT
 metadata:
   author: pi-dashboard
@@ -88,7 +82,35 @@ may be Node, Rust, Go, Python, Java, etc.
    remains in `AGENTS.md` or `.pi/settings.json` — an unfilled placeholder means
    the stack was not resolved; go back and ask.
 
-## Step 3 — Preview the planned writes, then confirm
+## Step 3 — Ask about optional capabilities, preview, then confirm
+
+### 3a — Ask about DOX (all profiles)
+
+DOX seeds a directory-level documentation doctrine and wires the kb toolset (see
+Step 5). It is now an **interactive choice on every profile**, not a fixed
+per-profile switch. Ask with `ask_user` (confirm), pre-selecting the profile's
+`dox` value as the DEFAULT answer:
+
+> Enable DOX documentation doctrine? Seeds a directory-level AGENTS.md discipline
+> into `./AGENTS.md` and enables the kb toolset. (default: `<profile.dox>`)
+
+Record the answer as `DOX_ENABLED`. The `dox` flag in `profile.json` only sets
+the default; the user's answer decides. Step 5 gates on `DOX_ENABLED`, not the
+raw flag.
+
+### 3b — Ask about OpenSpec init (coding profile only)
+
+**Gate: only when the selected profile is `coding`** (skip for `docs` / any
+OpenSpec-off profile), mirroring Steps 4b and 5. Skip the prompt entirely when an
+`openspec/` directory already exists in the target (idempotent — treat as
+already-initialized). Otherwise ask with `ask_user` (confirm):
+
+> Initialize OpenSpec for this project? Runs `openspec init --tools pi`, which
+> creates the `openspec/` scaffold and wires the OpenSpec commands into pi.
+
+Record the answer as `OPENSPEC_INIT`. The actual run happens in Step 6.
+
+### 3c — Preview + confirm
 
 List exactly what you will write, then ask the user to confirm (`ask_user`
 confirm). The writes for profile `<p>` are:
@@ -97,10 +119,15 @@ confirm). The writes for profile `<p>` are:
 - `./.pi/settings.json`    ← `<skill>/profiles/<p>/settings.json.tmpl`
 - `./.pi/prompts/*.md`     ← each file in `<skill>/profiles/<p>/prompts/`
 
-When the chosen profile has `dox: true`, ALSO name in the preview:
+When `DOX_ENABLED` is true, ALSO name in the preview:
 
 - the DOX doctrine seed appended to `./AGENTS.md` (see Step 5)
 - the kb toolset flip written to `./.pi/dashboard/knowledge_base.json`
+
+When `OPENSPEC_INIT` is true, ALSO disclose the side effect (see Step 6) — NOT a
+plain file write:
+
+- runs `openspec init --tools pi`, scaffolding `./openspec/` and wiring pi
 
 When the chosen profile is `coding`, ALSO disclose the possible side effect (see
 Step 4b) — NOT a file write:
@@ -173,7 +200,12 @@ branch, never on the present/installed path (so a successfully-wired project
 never carries a false "not detected" line). The install is always user-global
 and never forced.
 
-## Step 5 — DOX doctrine seed (only when the profile has `dox: true`)
+## Step 5 — DOX doctrine seed (only when `DOX_ENABLED` is true)
+
+> Gated on the user's Step 3a answer (`DOX_ENABLED`), NOT the raw `profile.json`
+> `dox` flag — the flag only supplied the default. Skip this step entirely when
+> the user declined DOX.
+
 
 The canonical doctrine ships once at `<skill>/dox-doctrine.md`. Do NOT copy the
 whole file. Seed a single block into `./AGENTS.md` **only when it does not
@@ -185,7 +217,11 @@ Compose the seeded block as:
 1. The marker line `<!-- dox-doctrine -->`
 2. The WRITE discipline — the text between `<!-- dox:write:start -->` and
    `<!-- dox:write:end -->` in `dox-doctrine.md`.
-3. ONE READ discipline variant:
+3. ONE READ discipline variant — **skip this item entirely when the chosen
+   profile's `AGENTS.md.tmpl` already embeds a `## Finding docs (READ
+   discipline)` section** (the shipped `coding` profile does; seeding it again
+   would duplicate the gate). Seed only the WRITE discipline in that case.
+   Otherwise:
    - If the kb toolset is wired (this profile writes
      `knowledge_base.json` with `indexAgentsFiles`/`directoryLevelAgents`),
      use the text between `<!-- dox:read:kb:start -->` and
@@ -207,7 +243,29 @@ directory-level AGENTS.md toolset:
 }
 ```
 
-## Step 6 — Done
+## Step 6 — Run OpenSpec init (only when `OPENSPEC_INIT` is true)
+
+Gated on the user's Step 3b answer (`OPENSPEC_INIT`); this only becomes true for
+the `coding` profile when no `openspec/` dir pre-existed. Mirrors Step 4b's
+side-effect pattern — opt-in, verified, never forced.
+
+**Run** (always non-interactive so it never hijacks the conversation):
+
+```bash
+openspec init --tools pi
+```
+
+The `--tools pi` flag pins the wiring to pi and skips OpenSpec's interactive tool
+picker. Verify exit 0 and that `./openspec/` now exists. On success, tell the
+user OpenSpec is wired (the `coding` AGENTS.md already documents
+`openspec change new <name>`). On non-zero exit (or a missing `openspec` binary),
+warn the user and point them at `openspec init --tools pi` to run manually — do
+NOT error the init; the scaffold is already written.
+
+**Idempotent re-run:** if `./openspec/` already existed, Step 3b never asked, so
+`OPENSPEC_INIT` is false and this step is skipped — no clobber.
+
+## Step 7 — Done
 
 Confirm what was written. Writing `worktreeInit` flips the directory to
 "configured": the next dashboard **Initialize** click runs the hook (change-A)

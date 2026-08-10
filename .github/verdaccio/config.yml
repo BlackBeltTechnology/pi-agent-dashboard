@@ -1,0 +1,59 @@
+# Verdaccio config for the nightly Verdaccio round-trip build.
+#
+# Ephemeral, loopback-only private registry started per Electron leg by
+# `_electron-build.yml` when `registry_url` is set. Serves the working-tree
+# @blackbelt-technology/* packages (published by
+# scripts/nightly-verdaccio-publish.mjs) so the Electron bundle's
+# `npm install` resolves them WITHOUT touching public npm — a full
+# publish→install→bundle round-trip with zero registry pollution.
+#
+# See change: add-nightly-verdaccio-build (design Decision 2).
+
+# Local cache dir for proxied third-party tarballs.
+storage: ./storage
+
+# Uplink to the public registry — used ONLY by the `**` (third-party) group.
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+    maxage: 60m
+
+packages:
+  # Our scope: LOCAL-ONLY (no `proxy`). Verdaccio never consults the uplink
+  # for @blackbelt-technology/*, so:
+  #   - a local publish of `<base>` cannot EPUBLISHCONFLICT against the
+  #     public `<base>`, and
+  #   - `^<base>` specifiers resolve to the working-tree source we just
+  #     published, not the public copy → the nightly tests UNRELEASED code.
+  '@blackbelt-technology/*':
+    access: $all
+    publish: $all
+    unpublish: $all
+    # intentionally NO `proxy:` — local shadow only.
+
+  # Everything else proxies + caches public npm so third-party deps
+  # (fastify, node-pty, pi-coding-agent, openspec, tsx, …) resolve normally.
+  '**':
+    access: $all
+    publish: $all
+    proxy: npmjs
+
+# Loopback only — the nightly reaches this via http://localhost:4873.
+# Bind 127.0.0.1 (NOT 0.0.0.0): the registry is unauthenticated, so it MUST NOT
+# be reachable on any external interface (security-hardening discipline: "assert
+# it never binds a public interface").
+listen: 127.0.0.1:4873
+
+# No auth: throwaway registry on a private CI runner, loopback-scoped.
+# htpasswd file lives in-memory; no token is ever provisioned.
+auth:
+  htpasswd:
+    file: ./htpasswd
+    max_users: -1  # disable web-signup; publishes use the anonymous $all ACL.
+
+# Do not phone home.
+web:
+  enable: false
+
+# Quiet, structured logs so a leg's publish output stays greppable.
+log: { type: stdout, format: pretty, level: warn }

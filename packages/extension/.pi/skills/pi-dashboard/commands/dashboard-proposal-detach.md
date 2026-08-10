@@ -1,8 +1,10 @@
 ---
 description: Detach the OpenSpec change from a session. Usage /dashboard:proposal-detach <id-prefix>
 ---
-Use the pi-dashboard skill (see ../SKILL.md). Discover the base URL: prefer the $PI_DASHBOARD_PORT or $DASHBOARD_PORT env var, else read the port from ~/.pi/dashboard/config.json (default 8000); BASE="http://localhost:$PORT". When auth is enabled, include the JWT cookie. Resolve any <id-prefix> via GET /api/sessions, matching the first session whose id starts with the prefix.
+Use the pi-dashboard skill (see ../SKILL.md). Detach the OpenSpec change from a session over the WebSocket bus:
 
-Task: resolve the id-prefix, then POST /api/session/<full-id>/detach-proposal with body {}. Report the result.
+    npx tsx ./scripts/dashboard-bus.ts proposal-detach <id-prefix>
+
+The CLI resolves the id-prefix to a full session id from the live snapshot and sends the typed `detach_proposal` verb. Report the result, or the error if no session matches the prefix.
 
 Argument (id-prefix):

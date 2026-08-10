@@ -18,6 +18,7 @@ const DOCTOR_DIR = path.resolve(HERE, "../../../.pi/skills/doctor");
 const MODULES_DIR = path.join(DOCTOR_DIR, "modules");
 
 const EXPECTED = [
+	"apple-tools",
 	"build-reload",
 	"env-node",
 	"install-topology",

@@ -18,9 +18,10 @@ import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/t
 import { mdiCheck, mdiContentCopy, mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useState } from "react";
-import { getConfig, putConfig } from "../../lib/gateway-api.js";
-import { appendPublicBaseUrl, isSecureBaseUrl, type PairingConfigShape } from "../../lib/gateway-config-ops.js";
-import { getGatewayEndpoints } from "../../lib/gateway-endpoints.js";
+import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
+import { appendPublicBaseUrl, isSecureBaseUrl, type PairingConfigShape } from "../../lib/gateway/gateway-config-ops.js";
+import { getGatewayEndpoints } from "../../lib/gateway/gateway-endpoints.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 
 const KIND_CLASS: Record<string, string> = {
   public: "bg-[var(--green-soft,#132d1c)] text-[#5dd67f]",
@@ -31,6 +32,7 @@ const KIND_CLASS: Record<string, string> = {
 };
 
 function EndpointRow({ ep }: { ep: TunnelEndpoint }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -61,13 +63,13 @@ function EndpointRow({ ep }: { ep: TunnelEndpoint }) {
           </span>
         ) : (
           <span className="rounded border border-[#4a3c14] px-1.5 py-px text-[9.5px] text-[var(--amber,#d29922)]">
-            no TLS
+            {t("gateway.noTls", undefined, "no TLS")}
           </span>
         ))}
       <button
         type="button"
         onClick={copy}
-        title={copied ? "Copied!" : "Copy"}
+        title={copied ? t("gateway.copied", undefined, "Copied!") : t("gateway.copy", undefined, "Copy")}
         data-testid="gateway-endpoint-copy"
         className="shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
       >
@@ -84,6 +86,7 @@ interface Props {
 }
 
 export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Props) {
+  const { t } = useI18n();
   const [endpoints, setEndpoints] = useState<TunnelEndpoint[]>(provided ?? []);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -109,7 +112,7 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
     setError(null);
     const url = draft.trim();
     if (!isSecureBaseUrl(url)) {
-      setError("Only https:// or wss:// endpoints are accepted.");
+      setError(t("gateway.err.onlyHttps", undefined, "Only https:// or wss:// endpoints are accepted."));
       return;
     }
     setSaving(true);
@@ -122,7 +125,7 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
       setDraft("");
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to add URL");
+      setError(e instanceof Error ? e.message : t("gateway.err.addUrlFailed", undefined, "Failed to add URL"));
     } finally {
       setSaving(false);
     }
@@ -131,11 +134,11 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
   return (
     <div data-testid="gateway-endpoints">
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-        Accessible at
+        {t("gateway.accessibleAt", undefined, "Accessible at")}
       </p>
       <div className="flex flex-col gap-1.5">
         {endpoints.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)]">No reachable endpoints yet.</p>
+          <p className="text-xs text-[var(--text-muted)]">{t("gateway.noEndpoints", undefined, "No reachable endpoints yet.")}</p>
         ) : (
           endpoints.map((ep) => <EndpointRow key={`${ep.kind}:${ep.url}`} ep={ep} />)
         )}
@@ -162,7 +165,7 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
           onClick={() => void addUrl()}
           className="flex items-center gap-1 rounded border border-[var(--border)] px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] disabled:opacity-50"
         >
-          <Icon path={mdiPlus} size={0.6} /> {saving ? "Adding…" : "Add HTTPS URL"}
+          <Icon path={mdiPlus} size={0.6} /> {saving ? t("gateway.adding", undefined, "Adding…") : t("gateway.addHttpsUrl", undefined, "Add HTTPS URL")}
         </button>
       </div>
       {error && (
@@ -171,7 +174,11 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
         </p>
       )}
       <p className="mt-1.5 text-[10.5px] text-[var(--text-muted)]">
-        Add your own reverse-proxy / funnel URL. Only https/wss endpoints ride the pairing QR (D14).
+        {t(
+          "gateway.addUrlHint",
+          undefined,
+          "Add your own reverse-proxy / funnel URL. Only https/wss endpoints ride the pairing QR (D14).",
+        )}
       </p>
     </div>
   );

@@ -21,7 +21,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createGoalStore, type GoalStore } from "../goal-store.js";
+import { createGoalStore, type GoalStore } from "../goal/goal-store.js";
 import {
   BREAKER_COUNT,
   BREAKER_WINDOW_MS,
@@ -29,10 +29,10 @@ import {
   type GoalDriverSpawnRequest,
   type GoalSupervisor,
   POISON_K,
-} from "../goal-supervisor.js";
+} from "../goal/goal-supervisor.js";
 
 interface FakeTimer {
-  fn: () => void;
+  fn: () => void | Promise<void>;
   ms: number;
   fired: boolean;
 }
@@ -89,11 +89,11 @@ describe("goal-supervisor", () => {
     for (const t of timers) {
       if (!t.fired) {
         t.fired = true;
-        t.fn();
+        // Await the returned performSpawn promise so real store I/O settles
+        // deterministically (no fixed-delay race on loaded CI runners).
+        await t.fn();
       }
     }
-    // let the async performSpawn chain settle (real store I/O)
-    await new Promise((r) => setTimeout(r, 10));
   }
 
   async function death(sessionId: string): Promise<void> {

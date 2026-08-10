@@ -20,7 +20,7 @@ import type {
   TunnelProvider,
 } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { providerSupportsMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
-import { type ChildProviderSpec, ChildTunnelRuntime } from "../tunnel-core.js";
+import { type ChildProviderSpec, ChildTunnelRuntime } from "../tunnel/tunnel-core.js";
 
 const ngrokResolver = new ToolResolver({ processExecPath: process.execPath, useLoginShell: true });
 

@@ -85,6 +85,18 @@ export interface TunnelProvider {
 export interface TunnelConnectOpts {
   /** zrok reserved share token / ngrok reserved domain, provider-interpreted. */
   reservedToken?: string;
+  /**
+   * zrok v2 reserved NAME (namespaces + names). Served as
+   * `-n public:<name>` → stable `<name>.shares.zrok.io`. Distinct from the
+   * legacy v1 `reservedToken` (which the v2 provider ignores). See change:
+   * support-zrok-v2.
+   */
+  reservedName?: string;
+  /**
+   * zrok v2 persistence opt-in. When true and no `reservedName` is stored,
+   * the provider mints one on connect; false → ephemeral rotating URL.
+   */
+  persistent?: boolean;
   /** Override the spawn/URL-discovery timeout (ms). */
   timeoutMs?: number;
 }

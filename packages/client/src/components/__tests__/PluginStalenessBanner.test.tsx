@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import React from "react";
-import { PluginStalenessBanner } from "../PluginStalenessBanner.js";
+import { PluginStalenessBanner } from "../packages/PluginStalenessBanner.js";
 import { PLUGIN_REGISTRY_HASH } from "../../generated/plugin-registry.js";
 
 const originalFetch = globalThis.fetch;

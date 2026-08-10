@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, screen, cleanup, act } from "@testing-library/react";
 import React from "react";
-import { PathPicker } from "../PathPicker.js";
+import { PathPicker } from "../primitives/PathPicker.js";
 
 // Mock browse-api
 const mockBrowse = vi.fn();
 const mockMkdir = vi.fn();
 const mockClassify = vi.fn();
-vi.mock("../../lib/browse-api.js", () => ({
+vi.mock("../../lib/api/browse-api.js", () => ({
   browseDirectory: (...args: unknown[]) => mockBrowse(...args),
   classifyPaths: (...args: unknown[]) => mockClassify(...args),
   createDirectory: (...args: unknown[]) => mockMkdir(...args),
@@ -438,6 +438,42 @@ describe("PathPicker", () => {
     expect(getInput().value).toBe("/Users/robson/");
   });
 
+  it("does not clobber a path typed while the default-directory fetch is in flight", async () => {
+    // Regression: the mount-time `fetchDir(undefined, "")` used to
+    // `setInputValue(result.current)` unconditionally when it resolved, wiping
+    // anything typed meanwhile — the user silently ended up browsing HOME.
+    let resolveHome!: (v: unknown) => void;
+    mockBrowse.mockImplementationOnce(
+      () => new Promise((res) => { resolveHome = res; }),
+    );
+    render(<PathPicker onSelect={onSelect} onCancel={onCancel} />);
+
+    // User types a full path BEFORE the default-dir listing comes back.
+    mockBrowse.mockResolvedValue({
+      current: "/fixtures",
+      parent: "/",
+      entries: [{ name: "sample-git", path: "/fixtures/sample-git", isGit: true, isPi: true }],
+    });
+    fireEvent.change(getInput(), { target: { value: "/fixtures/sample-git" } });
+
+    // …then the stale default-directory fetch resolves. This lands INSIDE the
+    // debounce window, so `abortRef` still points at the mount controller and
+    // the stale-response guard does NOT suppress it — only `userEditedRef` does.
+    await act(async () => {
+      resolveHome({
+        current: "/Users/robson",
+        parent: "/Users",
+        entries: [{ name: "Desktop", path: "/Users/robson/Desktop", isGit: false, isPi: false }],
+      });
+      // Flush the promise chain so any clobbering setInputValue has committed
+      // before we assert (asserting earlier would pass even without the fix).
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getInput().value).toBe("/fixtures/sample-git");
+  });
+
   it("should reset highlight when typing", async () => {
     renderPicker();
     await waitFor(() => expect(screen.getByText("Desktop")).toBeTruthy());
@@ -820,5 +856,141 @@ describe("PathPicker", () => {
         expect(onSelect).toHaveBeenCalledWith("\\\\server\\share\\"),
       );
     });
+  });
+});
+
+// redesign-folder-workspace-add-flow — the picker gains an opt-in multi-select
+// mode with explorer semantics (row body = navigate, checkbox = select) and
+// swaps every emoji glyph for an @mdi/js path.
+// Reference: openspec/changes/redesign-folder-workspace-add-flow/mockups/add-flow.html
+describe("PathPicker multi-select mode", () => {
+  const onSelect = vi.fn();
+  const onCancel = vi.fn();
+  const onToggle = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBrowse.mockResolvedValue(homeEntries);
+    mockClassify.mockResolvedValue({});
+    mockMkdir.mockResolvedValue({ path: "/Users/robson/new-thing" });
+  });
+
+  function renderMulti(selected: string[] = [], props: Record<string, unknown> = {}) {
+    return render(
+      <PathPicker
+        initialPath="/Users/robson/"
+        onSelect={onSelect}
+        onCancel={onCancel}
+        selection={{ selected: new Set(selected), onToggle }}
+        {...props}
+      />,
+    );
+  }
+
+  it("row activation browses into the directory and never calls onSelect", async () => {
+    renderMulti();
+    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
+    mockBrowse.mockResolvedValue(projectEntries);
+    fireEvent.click(screen.getByText("Project"));
+    await waitFor(() => {
+      const call = mockBrowse.mock.calls.find((c) => c[0] === "/Users/robson/Project");
+      expect(call).toBeDefined();
+    });
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it("the checkbox selects without navigating", async () => {
+    renderMulti();
+    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
+    const browseCallsBefore = mockBrowse.mock.calls.length;
+    fireEvent.click(screen.getByTestId("path-picker-check-/Users/robson/Project"));
+    expect(onToggle).toHaveBeenCalledWith("/Users/robson/Project");
+    // stopPropagation kept the row's descend handler from firing.
+    expect(mockBrowse.mock.calls.length).toBe(browseCallsBefore);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("the checkbox carries its own accessible name and checked state", async () => {
+    renderMulti(["/Users/robson/Project"]);
+    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
+    const cb = screen.getByTestId("path-picker-check-/Users/robson/Project");
+    expect(cb.getAttribute("aria-label")).toMatch(/project/i);
+    expect(cb.getAttribute("aria-checked")).toBe("true");
+    expect(
+      screen.getByTestId("path-picker-check-/Users/robson/Desktop").getAttribute("aria-checked"),
+    ).toBe("false");
+  });
+
+  it("the trailing chevron descends", async () => {
+    renderMulti();
+    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
+    mockBrowse.mockResolvedValue(projectEntries);
+    fireEvent.click(screen.getByTestId("path-picker-open-/Users/robson/Project"));
+    await waitFor(() => {
+      const call = mockBrowse.mock.calls.find((c) => c[0] === "/Users/robson/Project");
+      expect(call).toBeDefined();
+    });
+  });
+
+  it("Space toggles selection on the highlighted row; Enter activates it", async () => {
+    renderMulti();
+    await waitFor(() => expect(screen.getByText("Desktop")).toBeTruthy());
+    const input = screen.getByRole("textbox");
+    // Highlight the first entry row (index 1 — index 0 is the `..` parent row).
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: " " });
+    expect(onToggle).toHaveBeenCalledWith("/Users/robson/Desktop");
+
+    mockBrowse.mockResolvedValue(projectEntries);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      const call = mockBrowse.mock.calls.find((c) => c[0] === "/Users/robson/Desktop");
+      expect(call).toBeDefined();
+    });
+  });
+
+  it("single-select mode renders no checkboxes", async () => {
+    render(<PathPicker initialPath="/Users/robson/" onSelect={onSelect} onCancel={onCancel} />);
+    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
+    expect(screen.queryByTestId("path-picker-check-/Users/robson/Project")).toBeNull();
+  });
+});
+
+describe("PathPicker MDI iconography", () => {
+  const onSelect = vi.fn();
+  const onCancel = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBrowse.mockResolvedValue(homeEntries);
+    mockClassify.mockResolvedValue({});
+    mockMkdir.mockResolvedValue({ path: "/Users/robson/new-thing" });
+  });
+
+  it("renders no emoji glyphs and gives every row an SVG path", async () => {
+    const { container } = render(
+      <PathPicker initialPath="/Users/robson/Desk" onSelect={onSelect} onCancel={onCancel} />,
+    );
+    await waitFor(() => expect(screen.getByText("Desktop")).toBeTruthy());
+    // Create-here row is present too (partial "Desk" has no exact match here).
+    for (const glyph of ["⬆", "📁", "＋"]) {
+      expect(container.textContent).not.toContain(glyph);
+    }
+    for (const row of screen.getAllByRole("option")) {
+      expect(row.querySelector("svg path")).toBeTruthy();
+    }
+  });
+
+  it("keeps git / pi as text badges", async () => {
+    mockBrowse.mockResolvedValue(projectEntries);
+    mockClassify.mockResolvedValue(
+      makeFlagMap("/Users/robson/Project", [{ name: "pi-tools", isGit: true }]),
+    );
+    render(
+      <PathPicker initialPath="/Users/robson/Project/" onSelect={onSelect} onCancel={onCancel} />,
+    );
+    await waitFor(() => expect(screen.getByText("git")).toBeTruthy());
   });
 });

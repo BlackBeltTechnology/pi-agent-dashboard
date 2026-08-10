@@ -2,9 +2,30 @@
  * Tests for the Plugins activation tab.
  * See change: add-plugin-activation-ui.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
-import { PluginsSection } from "../PluginsSection.js";
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
+import { PluginsSection } from "../packages/PluginsSection.js";
+
+// PluginsSection takes its list/toggle from SettingsPanel so the index and the
+// nav rail share one fetch and one desired-state overlay. This harness mounts
+// the real hooks so the tests still exercise the true fetch/toggle path.
+// See change: plugin-settings-pages.
+function MountedPluginsSection() {
+  const list = usePluginList();
+  const toggle = usePluginToggle(list);
+  // Same predicate SettingsPanel supplies (claims OR intent).
+  const contributesSettings = (row: { claims: { slot: string }[] }) =>
+    row.claims.some((c) => c.slot === "settings-section");
+  return (
+    <PluginsSection
+      list={list}
+      toggle={toggle}
+      contributesSettings={contributesSettings as never}
+    />
+  );
+}
 
 vi.mock("../../hooks/usePackageOperations.js", () => ({
   usePackageOperations: () => ({
@@ -16,17 +37,14 @@ vi.mock("../../hooks/usePackageOperations.js", () => ({
   }),
 }));
 
-vi.mock("../../lib/api-context.js", () => ({
+vi.mock("../../lib/api/api-context.js", () => ({
   getApiBase: () => "",
 }));
 
-// PluginSettingsHost renders the plugin's settings-section claims via the
-// slot registry. We don't need a real registry for these tests — just check
-// the host element is mounted on expand.
-vi.mock("../PluginSettingsHost.js", () => ({
-  PluginSettingsHost: ({ pluginId }: { pluginId: string }) => (
-    <div data-testid={`plugin-settings-host-${pluginId}`}>settings for {pluginId}</div>
-  ),
+// The cog navigates instead of expanding inline, so capture wouter's navigate.
+const navigateSpy = vi.fn();
+vi.mock("wouter", () => ({
+  useLocation: () => ["/settings/plugins", navigateSpy],
 }));
 
 function makeFetchSequence(responses: Array<{ url: RegExp; body: any; status?: number }>) {
@@ -77,7 +95,7 @@ describe("PluginsSection", () => {
     ]);
     vi.stubGlobal("fetch", fetchImpl);
 
-    render(<PluginsSection />);
+    render(<MountedPluginsSection />);
 
     expect(await screen.findByTestId("plugin-row-demo")).toBeTruthy();
     expect(screen.getByText("Demo Plugin")).toBeTruthy();
@@ -106,7 +124,7 @@ describe("PluginsSection", () => {
     });
     vi.stubGlobal("fetch", fetchImpl);
 
-    render(<PluginsSection />);
+    render(<MountedPluginsSection />);
 
     const toggle = await screen.findByTestId("plugin-toggle-demo");
     fireEvent.click(toggle);
@@ -122,18 +140,20 @@ describe("PluginsSection", () => {
     });
   });
 
-  it("expanding a row mounts PluginSettingsHost", async () => {
+  it("the settings cog navigates to the plugin page instead of expanding inline", async () => {
     const { fetchImpl } = makeFetchSequence([
       { url: /\/api\/plugins$/, body: { success: true, plugins: [pluginRow()] } },
       { url: /\/api\/health/, body: { ok: true, startedAt: "2025-01-01T00:00:00Z", plugins: [] } },
     ]);
     vi.stubGlobal("fetch", fetchImpl);
 
-    render(<PluginsSection />);
+    render(<MountedPluginsSection />);
 
-    const chevron = await screen.findByTestId("plugin-expand-demo");
-    fireEvent.click(chevron);
-    expect(screen.getByTestId("plugin-settings-host-demo")).toBeTruthy();
+    const cog = await screen.findByTestId("plugin-expand-demo");
+    fireEvent.click(cog);
+    expect(navigateSpy).toHaveBeenCalledWith("/settings/plugins/demo");
+    // No inline settings body is mounted on the activation index.
+    expect(screen.queryByTestId("plugin-settings-demo")).toBeNull();
   });
 
   it("missing piExtensions render warning with inline Install button when recommended", async () => {
@@ -158,7 +178,7 @@ describe("PluginsSection", () => {
     ]);
     vi.stubGlobal("fetch", fetchImpl);
 
-    render(<PluginsSection />);
+    render(<MountedPluginsSection />);
 
     expect(await screen.findByTestId("missing-piExtension-pi-web-access")).toBeTruthy();
     // pi-web-access is in RECOMMENDED_EXTENSIONS so the inline Install button appears.
@@ -187,7 +207,7 @@ describe("PluginsSection", () => {
     ]);
     vi.stubGlobal("fetch", fetchImpl);
 
-    render(<PluginsSection />);
+    render(<MountedPluginsSection />);
 
     expect(await screen.findByTestId("install-piExtension-link-some-unknown-extension")).toBeTruthy();
     expect(screen.queryByTestId("install-piExtension-some-unknown-extension")).toBeNull();

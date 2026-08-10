@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KB slot surface — before / after</title>
+<style>
+  /* ── Real theme tokens harvested from packages/client/src/index.css ── */
+  :root, [data-theme="dark"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-subtle:rgba(255,255,255,0.06); --shadow-card:rgba(0,0,0,0.4); --accent-blue:#3b82f6;
+  }
+  [data-theme="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+    --border-subtle:rgba(0,0,0,0.06); --shadow-card:rgba(0,0,0,0.08);
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:32px 20px 64px; background:var(--bg-primary); color:var(--text-secondary);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    display:flex; flex-direction:column; align-items:center; gap:24px;
+  }
+  .toolbar { display:flex; gap:8px; align-items:center; }
+  .toolbar button {
+    font:600 12px/1 inherit; padding:8px 14px; border-radius:8px; cursor:pointer;
+    border:1px solid var(--border-subtle); background:var(--bg-secondary); color:var(--text-primary);
+  }
+  .toolbar button.active { background:var(--accent-blue); border-color:var(--accent-blue); color:#fff; }
+  .lede { max-width:760px; text-align:center; color:var(--text-tertiary); font-size:12.5px; }
+  .lede b { color:var(--text-secondary); }
+
+  .stage { display:flex; gap:28px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .col { display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .col > .caption { font:700 11px/1 inherit; letter-spacing:.06em; text-transform:uppercase; }
+  .caption.before { color:var(--text-muted); }
+  .caption.after  { color:#22c55e; }
+
+  /* ── Session card shell (approximates SessionCard body) ── */
+  .card {
+    width:340px; background:var(--bg-tertiary); border:1px solid var(--border-subtle);
+    border-radius:14px; padding:12px 12px 14px; box-shadow:0 2px 10px var(--shadow-card);
+  }
+  .card h3 { margin:0 0 2px; font-size:15px; font-weight:800; color:var(--text-primary); letter-spacing:-.01em; }
+  .card .sub { font-size:11.5px; color:var(--text-tertiary); margin-bottom:2px; }
+
+  /* ── SessionSubcard: translucent inset panel (verbatim contract) ── */
+  .subcard {
+    position:relative; margin-top:14px; border-radius:8px; border:1px solid var(--border-subtle);
+    background:color-mix(in srgb, var(--bg-surface) 50%, transparent); padding:6px 8px;
+  }
+  .legend {
+    position:absolute; top:-6px; left:50%; transform:translateX(-50%);
+    padding:1px 6px; border-radius:999px; background:var(--bg-tertiary); border:1px solid var(--border-subtle);
+    font:600 9px/1 inherit; letter-spacing:.08em; text-transform:uppercase; color:var(--text-tertiary);
+  }
+  .row { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text-secondary); }
+  .chip-btn {
+    margin-left:auto; font:600 11px/1 inherit; padding:4px 8px; border-radius:7px;
+    border:1px solid var(--border-subtle); background:transparent; color:var(--text-tertiary);
+  }
+
+  /* ── SlotPill shared base ── */
+  .slotpill {
+    position:relative; display:flex; align-items:center; gap:8px; margin-top:14px;
+    padding:10px 10px 6px; border-radius:11px; border:1px solid var(--border-subtle);
+  }
+  .slotpill .glyph {
+    flex:none; width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+    background:color-mix(in srgb,#22d3ee 10%,transparent); color:#22d3ee;
+  }
+  .slotpill .val { font:800 13px/1.1 inherit; color:var(--text-primary); display:flex; align-items:baseline; gap:6px; }
+  .slotpill .val small { font:600 10px/1 inherit; color:var(--text-tertiary); }
+  .slotpill .refresh { margin-left:auto; color:var(--text-muted); }
+
+  /* RAISED (today): opaque bg-secondary + shadow */
+  .slotpill.raised { background:var(--bg-secondary); box-shadow:0 1px 2px var(--shadow-card); }
+  /* FLAT (proposed): translucent, no shadow — matches .subcard */
+  .slotpill.flat   { background:color-mix(in srgb, var(--bg-surface) 50%, transparent); box-shadow:none; }
+
+  svg { display:block; }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <span style="font:600 12px/1 inherit;color:var(--text-tertiary)">Theme:</span>
+    <button id="tDark" class="active" onclick="setTheme('dark')">Dark</button>
+    <button id="tLight" onclick="setTheme('light')">Light</button>
+  </div>
+
+  <p class="lede">
+    The <b>KNOWLEDGE BASE</b> slot is the only card section rendered by <b>SlotPill</b> (opaque
+    <code>--bg-secondary</code> + shadow) instead of <b>SessionSubcard</b> (translucent
+    <code>color-mix(--bg-surface 50%)</code>, no shadow). Compare the KB row against its OPENSPEC / GIT
+    neighbours in each card below.
+  </p>
+
+  <div class="stage">
+    <!-- BEFORE -->
+    <div class="col">
+      <span class="caption before">Today · raised (outlier)</span>
+      <div class="card" id="cardBefore"></div>
+    </div>
+    <!-- AFTER -->
+    <div class="col">
+      <span class="caption after">Proposed · flat (matches siblings)</span>
+      <div class="card" id="cardAfter"></div>
+    </div>
+  </div>
+
+<script>
+  const dbIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.66 3.13 3 7 3s7-1.34 7-3V6"/><path d="M5 12v6c0 1.66 3.13 3 7 3s7-1.34 7-3v-6"/></svg>`;
+  const refreshIcon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>`;
+
+  function openspecSub() {
+    return `<div class="subcard"><span class="legend">OpenSpec</span>
+      <div class="row"><span style="opacity:.7">🔗</span> align-session-card-kb-slot-surface
+      <button class="chip-btn">Detach</button></div></div>`;
+  }
+  function kbSlot(variant) {
+    return `<div class="slotpill ${variant}"><span class="legend">Knowledge base</span>
+      <span class="glyph">${dbIcon}</span>
+      <span class="val">19,397 <small>chunks</small></span>
+      <span class="refresh">${refreshIcon}</span></div>`;
+  }
+  function gitSub() {
+    return `<div class="subcard"><span class="legend">Git</span>
+      <div class="row"><span style="opacity:.7">⑃</span>
+      <span style="color:var(--accent-blue)">os/align-kb…</span> · #395
+      <button class="chip-btn">Merge</button></div></div>`;
+  }
+  function cardHTML(kbVariant) {
+    return `<h3>align-session-card-kb-slot-surface</h3>
+      <div class="sub">anthropic/claude-opus · bash</div>
+      ${openspecSub()}${kbSlot(kbVariant)}${gitSub()}`;
+  }
+
+  document.getElementById('cardBefore').innerHTML = cardHTML('raised');
+  document.getElementById('cardAfter').innerHTML  = cardHTML('flat');
+
+  function setTheme(t){
+    document.documentElement.setAttribute('data-theme', t);
+    document.getElementById('tDark').classList.toggle('active', t==='dark');
+    document.getElementById('tLight').classList.toggle('active', t==='light');
+  }
+</script>
+</body>
+</html>

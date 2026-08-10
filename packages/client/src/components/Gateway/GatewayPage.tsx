@@ -14,14 +14,16 @@
 import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { getConfig, putConfig } from "../../lib/gateway-api.js";
-import type { GatewayProviderId } from "../../lib/gateway-providers.js";
+import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
+import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 import { GatewayEndpoints } from "./GatewayEndpoints.js";
 import { GatewayPairQR } from "./GatewayPairQR.js";
 import { GatewayProviderSection } from "./GatewayProviderSection.js";
 import { GatewaySetupGuide } from "./GatewaySetupGuide.js";
 
 export function GatewayPage() {
+  const { t } = useI18n();
   const [, navigate] = useLocation();
   const [provider, setProvider] = useState<GatewayProviderId>("zrok");
   const [mode, setMode] = useState<TunnelMode>("public");
@@ -48,7 +50,9 @@ export function GatewayPage() {
       await putConfig({ tunnel: { provider, mode } });
       setDirty(false);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Failed to save Gateway settings");
+      setSaveError(
+        e instanceof Error ? e.message : t("gateway.err.saveSettingsFailed", undefined, "Failed to save Gateway settings"),
+      );
     } finally {
       setSaving(false);
     }
@@ -59,9 +63,9 @@ export function GatewayPage() {
   return (
     <div className="mx-auto max-w-3xl" data-testid="gateway-page">
       <div className="mb-4">
-        <h2 className="text-lg font-semibold text-[var(--text-primary)]">Gateway</h2>
+        <h2 className="text-lg font-semibold text-[var(--text-primary)]">{t("gateway.title", undefined, "Gateway")}</h2>
         <p className="text-sm text-[var(--text-muted)]">
-          Expose this dashboard beyond localhost — public proxy or private mesh.
+          {t("gateway.page.subtitle", undefined, "Expose this dashboard beyond localhost — public proxy or private mesh.")}
         </p>
       </div>
 
@@ -88,13 +92,22 @@ export function GatewayPage() {
       <Divider />
       <div>
         <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-          Trusted networks
+          {t("gateway.trustedNetworksTitle", undefined, "Trusted networks")}
         </p>
         <p className="text-sm text-[var(--text-secondary)]">
-          Who may reach the Gateway without signing in is managed on the{" "}
-          <b className="text-[var(--text-primary)]">Security</b> page — trusted networks map to{" "}
-          <code className="font-mono text-xs">config.trustedNetworks</code>, shared with the auth system, so they
-          live once, not duplicated here.
+          {t(
+            "gateway.trustedNetworks.lead",
+            undefined,
+            "Who may reach the Gateway without signing in is managed on the ",
+          )}
+          <b className="text-[var(--text-primary)]">{t("gateway.trustedNetworks.securityWord", undefined, "Security")}</b>
+          {t("gateway.trustedNetworks.mapTo", undefined, " page — trusted networks map to ")}
+          <code className="font-mono text-xs">config.trustedNetworks</code>
+          {t(
+            "gateway.trustedNetworks.tailPage",
+            undefined,
+            ", shared with the auth system, so they live once, not duplicated here.",
+          )}
         </p>
         <button
           type="button"
@@ -102,7 +115,7 @@ export function GatewayPage() {
           onClick={() => navigate("/settings/security")}
           className="mt-2 rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
         >
-          Open Security →
+          {t("gateway.openSecurity", undefined, "Open Security →")}
         </button>
       </div>
 
@@ -120,7 +133,7 @@ export function GatewayPage() {
             onClick={() => void save()}
             className="rounded bg-[var(--accent,#3b82f6)] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("gateway.saving", undefined, "Saving…") : t("gateway.save", undefined, "Save")}
           </button>
         </div>
       )}

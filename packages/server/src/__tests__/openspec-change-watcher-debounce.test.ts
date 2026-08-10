@@ -23,7 +23,7 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
-import { createOpenSpecChangeWatcher } from "../openspec-change-watcher.js";
+import { createOpenSpecChangeWatcher } from "../openspec/openspec-change-watcher.js";
 
 describe("OpenSpecChangeWatcher debounce", () => {
   beforeEach(() => {

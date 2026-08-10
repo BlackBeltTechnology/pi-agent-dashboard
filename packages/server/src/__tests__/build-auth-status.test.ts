@@ -4,8 +4,8 @@
  * See change: replace-hardcoded-provider-lists.
  */
 import { describe, it, expect } from "vitest";
-import { _buildAuthStatus, type AuthData } from "../provider-auth-storage.js";
-import type { ProviderHandler } from "../provider-auth-handlers.js";
+import { _buildAuthStatus, type AuthData } from "../auth/provider-auth-storage.js";
+import type { ProviderHandler } from "../auth/provider-auth-handlers.js";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeOAuthHandler(providerId: string, displayName: string, flowType: "auth_code" | "device_code" = "auth_code"): ProviderHandler {

@@ -10,12 +10,13 @@
  *
  * See change: auto-hide-empty-session-subcards.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createDirectoryService, type DirectoryService } from "../directory-service.js";
-import type { PreferencesStore } from "../preferences-store.js";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 import { DEFAULT_OPENSPEC_POLL } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDirectoryService, type DirectoryService } from "../directory-service.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 
 // Mock CLI entry points so we can spy on whether they get called.
 vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (importOriginal) => {
@@ -30,7 +31,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (i
   };
 });
 
-vi.mock("../pi-resource-scanner.js", () => ({
+vi.mock("../pi/pi-resource-scanner.js", () => ({
   scanPiResources: vi.fn(async () => ({
     local: { extensions: [], skills: [], prompts: [] },
     global: { extensions: [], skills: [], prompts: [] },
@@ -40,10 +41,10 @@ vi.mock("../pi-resource-scanner.js", () => ({
 vi.mock("@blackbelt-technology/pi-dashboard-shared/state-replay.js", () => ({
   replayEntriesAsEvents: vi.fn(() => []),
 }));
-vi.mock("../session-discovery.js", () => ({
+vi.mock("../session/session-discovery.js", () => ({
   discoverSessionsForCwd: vi.fn(() => []),
 }));
-vi.mock("../session-file-reader.js", () => ({
+vi.mock("../session/session-file-reader.js", () => ({
   loadSessionEntries: vi.fn(() => []),
 }));
 vi.mock("@earendil-works/pi-coding-agent", () => ({
@@ -73,12 +74,15 @@ function makePrefs(pinnedDirs: string[] = []): PreferencesStore {
     setWorkspaceCollapsed: vi.fn(() => false),
     addFolderToWorkspace: vi.fn(() => false),
     removeFolderFromWorkspace: vi.fn(() => false),
+    moveFolderToWorkspace: vi.fn(() => false),
     reorderWorkspaceFolders: vi.fn(() => false),
     reorderWorkspaces: vi.fn(() => false),
     flush: vi.fn(),
     getDisplayPrefs: vi.fn(() => undefined),
     getOpenSpecUpdateSignature: vi.fn(() => undefined),
     getAutoInitWorktreeOnSpawn: vi.fn(() => false),
+    getAutoNameSessions: vi.fn(() => true),
+    setAutoNameSessions: vi.fn(),
     getLiveServers: vi.fn(() => []),
     setLiveServers: vi.fn(),
     setAutoInitWorktreeOnSpawn: vi.fn(),

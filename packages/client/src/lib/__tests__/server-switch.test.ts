@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { performServerSwitch, type ServerSwitchDeps } from "../server-switch.js";
+import { performServerSwitch, type ServerSwitchDeps } from "../api/server-switch.js";
 
 function makeStorage() {
   const map = new Map<string, string>();

@@ -51,6 +51,6 @@
 
 ## 9. Documentation
 
-- [ ] 9.1 Delegate to a docs subagent (caveman style): a `docs/` note linking the skill to `research/lora-dataset-from-pi-logs.md` Parts 1–6; `ctx_index` it.
+- [ ] 9.1 Delegate to a docs subagent (caveman style): a `docs/` note linking the skill to `docs/research/lora-dataset-from-pi-logs.md` Parts 1–6; `ctx_index` it.
 - [ ] 9.2 Add the skill row to `.pi/skills/AGENTS.md` (source tree, direct edit).
 - [ ] 9.3 SKILL.md documents the output schema (`messages[]` + `loss_mask`) and the train/val/test layout for an external trainer.

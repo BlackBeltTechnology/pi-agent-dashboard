@@ -20,10 +20,10 @@ import os from "node:os";
 import path from "node:path";
 import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createMemorySessionManager, type SessionManager } from "../memory-session-manager.js";
-import { createMetaPersistence, type MetaPersistence } from "../meta-persistence.js";
-import { scanAllSessions } from "../session-scanner.js";
-import { sessionToMeta } from "../session-to-meta.js";
+import { createMemorySessionManager, type SessionManager } from "../session/memory-session-manager.js";
+import { createMetaPersistence, type MetaPersistence } from "../persistence/meta-persistence.js";
+import { scanAllSessions } from "../session/session-scanner.js";
+import { sessionToMeta } from "../session/session-to-meta.js";
 
 describe("session tags persistence", () => {
   let tmpDir: string;
@@ -81,5 +81,34 @@ describe("session tags persistence", () => {
     const result = scanAllSessions(tmpDir);
     const restored = result.sessions.find((s) => s.id === "tag-id");
     expect(restored?.tags).toEqual(["docs"]);
+  });
+
+  it("preserves tags across a bridge reattach (register with registerReason=reattach)", () => {
+    mgr.update("tag-id", { tags: ["feature"] });
+    metaPersistence.flushAll();
+    expect(readSessionMeta(sessionFile)?.tags).toEqual(["feature"]);
+
+    // Simulate reboot-resume: the pi session's bridge reattaches and re-registers.
+    mgr.register({
+      id: "tag-id",
+      cwd: "/test/cwd",
+      source: "tui",
+      startedAt: 1000,
+      sessionFile,
+      registerReason: "reattach",
+    });
+
+    // In-memory survival: the reattach carry-over must keep user-owned tags.
+    expect(mgr.get("tag-id")?.tags).toEqual(["feature"]);
+
+    // Disk survival: the reattach onChange full-overwrite save must not wipe them.
+    metaPersistence.flushAll();
+    expect(readSessionMeta(sessionFile)?.tags).toEqual(["feature"]);
+  });
+
+  it("leaves tags undefined on a genuine first register (no prior record)", () => {
+    const fresh = createMemorySessionManager();
+    const s = fresh.register({ id: "fresh-id", cwd: "/test/cwd", source: "tui", startedAt: 2000 });
+    expect(s.tags).toBeUndefined();
   });
 });

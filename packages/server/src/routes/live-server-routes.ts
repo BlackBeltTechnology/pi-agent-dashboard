@@ -7,7 +7,7 @@
  */
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import type { LiveServerManager } from "../live-server-manager.js";
+import type { LiveServerManager } from "../live-server/live-server-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export function registerLiveServerRoutes(

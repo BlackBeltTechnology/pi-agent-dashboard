@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getPairPayload = vi.fn();
 const approvePairing = vi.fn();
-vi.mock("../../lib/pairing-api.js", () => ({
+vi.mock("../../lib/pairing/pairing-api.js", () => ({
   getPairPayload: (...a: any[]) => getPairPayload(...a),
   approvePairing: (...a: any[]) => approvePairing(...a),
 }));
@@ -18,7 +18,7 @@ vi.mock("wouter", () => ({
   useLocation: () => ["/", navigateFn],
 }));
 
-import { PairingView } from "../PairingView.js";
+import { PairingView } from "../connectivity/PairingView.js";
 
 const PAYLOAD = { v: 1, id: "sha256:abc", code: "123456", urls: ["wss://x.zrok.io/ws"] };
 

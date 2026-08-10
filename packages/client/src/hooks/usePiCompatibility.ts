@@ -6,7 +6,7 @@
  * field is absent (older server). See change: restore-pi-version-skew-surface.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getApiBase } from "../lib/api-context.js";
+import { getApiBase } from "../lib/api/api-context.js";
 
 /** Shape of `/api/health.compatibility` (subset the advisory reads). */
 export interface PiCompatibility {

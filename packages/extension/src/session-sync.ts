@@ -2,13 +2,82 @@
  * Session sync: register, replay, and handle session changes.
  * Extracted from bridge.ts for clarity.
  */
-import type { BridgeContext } from "./bridge-context.js";
-import { getCurrentModelString, extractFirstMessage, filterHiddenCommands } from "./bridge-context.js";
-import { detectSessionSource } from "./source-detector.js";
+
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
-import { gatherGitInfo, detectIsGitRepo } from "./vcs-info.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import * as minimatchNS from "minimatch";
+import type { BridgeContext } from "./bridge-context.js";
+import { extractFirstMessage, filterHiddenCommands, getCurrentModelString, safeCwd } from "./bridge-context.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
+import { detectSessionSource } from "./source-detector.js";
+import { detectIsGitRepo, gatherGitInfo } from "./vcs-info.js";
+
+// minimatch's entry shape varies by version/runtime (v10 exposes a named
+// `minimatch`; v3/CJS-interop exposes it as the default). A namespace import
+// normalises across both.
+type MinimatchFn = (target: string, pattern: string, opts?: { nocase?: boolean }) => boolean;
+const minimatch: MinimatchFn =
+  (minimatchNS as { minimatch?: MinimatchFn }).minimatch ??
+  (minimatchNS as unknown as { default?: MinimatchFn }).default ??
+  (minimatchNS as unknown as MinimatchFn);
+
+// Mirror pi core (core/model-resolver.ts): a trailing `:<thinkingLevel>` on a
+// pattern selects a thinking level and is not part of the model match.
+const VALID_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+function stripThinkingLevel(pattern: string): string {
+  const colonIdx = pattern.lastIndexOf(":");
+  if (colonIdx !== -1 && VALID_THINKING_LEVELS.has(pattern.slice(colonIdx + 1))) {
+    return pattern.slice(0, colonIdx);
+  }
+  return pattern;
+}
+
+/**
+ * Filter a models array to only include models matching the `enabledModels`
+ * patterns from `~/.pi/agent/settings.json`. When `enabledModels` is absent or
+ * empty the full list is returned unchanged.
+ *
+ * Matching mirrors pi core's `resolveModelScope`: each pattern is tested with
+ * minimatch (case-insensitive) against both the canonical `provider/id` and the
+ * bare `id`, so exact refs (`anthropic/claude-sonnet-4-6`), provider wildcards
+ * (`anthropic/*`), and bare globs (`*sonnet*`) all work. A trailing
+ * `:<thinkingLevel>` suffix is stripped before matching.
+ */
+export function filterByEnabledModels<T extends { provider: string; id: string }>(models: T[]): T[] {
+  try {
+    const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
+    if (!existsSync(settingsPath)) return models;
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    const rawPatterns: unknown[] | undefined = settings.enabledModels;
+    if (!Array.isArray(rawPatterns) || rawPatterns.length === 0) return models;
+
+    const patterns: string[] = [];
+    for (let i = 0; i < rawPatterns.length; i++) {
+      const entry = rawPatterns[i];
+      if (typeof entry === "string") {
+        patterns.push(stripThinkingLevel(entry));
+      } else {
+        console.warn(
+          `[pi-dashboard] enabledModels[${i}]: expected string, got ${typeof entry}. Skipping.`,
+        );
+      }
+    }
+    if (patterns.length === 0) return models;
+
+    return models.filter((m) => {
+      const fullId = `${m.provider}/${m.id}`;
+      return patterns.some(
+        (p) => minimatch(fullId, p, { nocase: true }) || minimatch(m.id, p, { nocase: true }),
+      );
+    });
+  } catch {
+    return models; // fall back to full list on any error
+  }
+}
 
 /**
  * Send full state sync to the server (session_register, commands, flows, models).
@@ -97,7 +166,7 @@ export function sendStateSync(
 
   if (bc.cachedModelRegistry) {
     try {
-      const models = bc.cachedModelRegistry.getAvailable().map(toModelInfo);
+      const models = filterByEnabledModels(bc.cachedModelRegistry.getAvailable().map(toModelInfo));
       bc.connection.send({ type: "models_list", sessionId: bc.sessionId, models });
       // See change: replace-hardcoded-provider-lists.
       bc.connection.send({ type: "providers_list", sessionId: bc.sessionId, providers: buildProviderCatalogue() });
@@ -157,10 +226,15 @@ export function handleSessionChange(
   // dashboardSpawned from the capture-once boolean (token already scrubbed).
   // See change: fix-spawn-token-env-leak.
   const dashboardSpawned = bc.dashboardSpawned;
+  // ctx.cwd is a guarded getter that throws once the session is replaced
+  // (new/fork/resume). Reading it un-guarded here would abort session_start
+  // before connection.connect() runs — the #393 permanent disconnect.
+  // See change: fix-bridge-resume-disconnect.
+  const cwd = safeCwd(ctx);
   bc.connection.send({
     type: "session_register",
     sessionId: bc.sessionId,
-    cwd: ctx.cwd,
+    cwd,
     name: bc.lastSessionName || undefined,
     source: detectSessionSource(bc.cachedHasUI, bc.lastSessionFile),
     model: bc.lastModel,
@@ -173,14 +247,14 @@ export function handleSessionChange(
     pid: process.pid,
     registerReason: "spawn",
     // See change: gate-session-worktree-button-on-git.
-    isGitRepo: detectIsGitRepo(ctx.cwd),
+    isGitRepo: detectIsGitRepo(cwd),
   });
 
   replaySessionEntries(bc);
   bc.connection.send({ type: "replay_complete", sessionId: bc.sessionId });
 
   // Send git info
-  const gitInfo = gatherGitInfo(ctx.cwd);
+  const gitInfo = gatherGitInfo(cwd);
   if (gitInfo) {
     bc.lastGitBranch = gitInfo.gitBranch;
     bc.lastGitPrNumber = gitInfo.gitPrNumber;
@@ -201,7 +275,7 @@ export function handleSessionChange(
 
   if (bc.cachedModelRegistry) {
     try {
-      const models = bc.cachedModelRegistry.getAvailable().map(toModelInfo);
+      const models = filterByEnabledModels(bc.cachedModelRegistry.getAvailable().map(toModelInfo));
       bc.connection.send({ type: "models_list", sessionId: bc.sessionId, models });
       // See change: replace-hardcoded-provider-lists.
       bc.connection.send({ type: "providers_list", sessionId: bc.sessionId, providers: buildProviderCatalogue() });

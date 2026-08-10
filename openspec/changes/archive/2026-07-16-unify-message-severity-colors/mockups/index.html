@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dashboard Severity / Color Audit</title>
+<style>
+  :root {
+    /* Existing accent tokens from index.css */
+    --accent-blue: #3b82f6;
+    --accent-green: #22c55e;
+    --accent-yellow: #eab308;
+    --accent-red: #ef4444;
+    --accent-purple: #a855f7;
+    --accent-orange: #f97316;
+
+    --bg: #0d0d0d;
+    --bg-card: #161616;
+    --bg-tertiary: #1e1e1e;
+    --border: #252525;
+    --text: #e6e6e6;
+    --text-secondary: #a3a3a3;
+    --text-muted: #6b6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    padding: 32px clamp(16px, 4vw, 56px);
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-secondary); margin: 40px 0 14px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .sub { color: var(--text-muted); margin: 0 0 8px; }
+  .grid { display: grid; gap: 12px; }
+  .cols-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .cols-scale { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+
+  /* Toast rendering */
+  .toast {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 9px 12px; border-radius: 10px; font-size: 13px;
+    border: 1px solid; max-width: 380px; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  }
+  .toast .x { opacity: .6; cursor: default; }
+  .toast .lead { flex: 1; }
+  .toast .badge { font-size: 10px; text-transform: uppercase; letter-spacing:.06em; opacity:.7; display:block; margin-bottom:2px; }
+
+  /* CURRENT toast styles (raw tailwind equivalents) */
+  .t-error   { background: rgba(127,29,29,.9); color:#fecaca; border-color:#991b1b; }
+  .t-success { background: rgba(20,83,45,.9);  color:#bbf7d0; border-color:#166534; }
+  .t-info    { background: var(--bg-tertiary);  color: var(--text-secondary); border-color: var(--border); }
+
+  /* Card row */
+  .card {
+    display:flex; align-items:center; gap:12px; background: var(--bg-card);
+    border:1px solid var(--border); border-radius:12px; padding:12px 14px; position:relative; overflow:hidden;
+  }
+  .rail { position:absolute; left:0; top:8px; bottom:8px; width:4px; border-radius:4px; }
+  .dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .dot.ring { background: transparent; box-shadow: inset 0 0 0 2px currentColor; }
+  .card .title { font-weight:600; }
+  .card .meta { color: var(--text-muted); font-size:12px; }
+  .pad-l { padding-left: 20px; }
+
+  /* Severity scale swatches */
+  .swatch { border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  .swatch .chip { height:56px; display:flex; align-items:center; justify-content:center; font-weight:700; color:#0b0b0b; }
+  .swatch .body { padding:10px 12px; background: var(--bg-card); }
+  .swatch .name { font-weight:700; font-size:13px; }
+  .swatch .hex { font-family: ui-monospace, monospace; font-size:11px; color: var(--text-muted); }
+  .swatch .use { font-size:12px; color: var(--text-secondary); margin-top:4px; }
+
+  .bad  { color: var(--accent-red); font-weight:700; }
+  .good { color: var(--accent-green); font-weight:700; }
+  .note { font-size:12px; color: var(--text-muted); }
+  table { border-collapse: collapse; width:100%; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); vertical-align: top; }
+  th { color: var(--text-secondary); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+  code { background: var(--bg-tertiary); padding:1px 5px; border-radius:4px; font-size:12px; }
+</style>
+</head>
+<body>
+  <h1>pi-dashboard — Severity &amp; Color Audit</h1>
+  <p class="sub">Every message/status surface, its current color, and a proposed unified severity scale.</p>
+
+  <!-- ============ CURRENT STATE ============ -->
+  <h2>1 · Current state (as shipped)</h2>
+
+  <p class="sub">Toast variants — note the default is <code>error</code>, so unmarked toasts turn red.</p>
+  <div class="grid cols-2">
+    <div class="toast t-error">
+      <span class="lead"><span class="badge">variant: error (DEFAULT)</span>Failed to open editor</span><span class="x">×</span>
+    </div>
+    <div class="toast t-error">
+      <span class="lead"><span class="badge">spawn SUCCESS → no variant → red ✗</span>New session started: os/add-auth</span><span class="x">×</span>
+    </div>
+    <div class="toast t-error">
+      <span class="lead"><span class="badge">commit SUCCESS → no variant → red ✗</span>Committed a1b2c3d</span><span class="x">×</span>
+    </div>
+    <div class="toast t-success">
+      <span class="lead"><span class="badge">variant: success</span>Saved settings</span><span class="x">×</span>
+    </div>
+    <div class="toast t-info">
+      <span class="lead"><span class="badge">variant: info (gray, not blue)</span>This session is hidden. Enable “Show hidden”.</span><span class="x">×</span>
+    </div>
+    <div class="toast t-error">
+      <span class="lead"><span class="badge">SpawnErrorToastHost (always red, hardcoded)</span>Spawn failed: worktree init crashed</span><span class="x">×</span>
+    </div>
+  </div>
+
+  <p class="sub pad-l" style="margin-top:24px;">Session-status card tokens — a clean 5-state semantic system (the good part).</p>
+  <div class="grid cols-2">
+    <div class="card pad-l"><span class="rail" style="background:var(--accent-purple)"></span><span class="dot" style="color:var(--accent-purple);background:var(--accent-purple)"></span><span><span class="title">Awaiting your reply</span><br><span class="meta">--status-needs-you · purple</span></span></div>
+    <div class="card pad-l"><span class="rail" style="background:var(--accent-yellow)"></span><span class="dot" style="color:var(--accent-yellow);background:var(--accent-yellow)"></span><span><span class="title">Working…</span><br><span class="meta">--status-working · yellow</span></span></div>
+    <div class="card pad-l"><span class="rail" style="background:var(--accent-green)"></span><span class="dot" style="color:var(--accent-green);background:var(--accent-green)"></span><span><span class="title">Idle / ready</span><br><span class="meta">--status-idle · green</span></span></div>
+    <div class="card pad-l"><span class="rail" style="background:var(--accent-red)"></span><span class="dot" style="color:var(--accent-red);background:var(--accent-red)"></span><span><span class="title">Error</span><br><span class="meta">--status-error · red</span></span></div>
+    <div class="card pad-l"><span class="rail" style="background:var(--accent-blue)"></span><span class="dot ring" style="color:var(--accent-blue)"></span><span><span class="title">Notice (reasoning only)</span><br><span class="meta">--status-notice · blue</span></span></div>
+  </div>
+
+  <table style="margin-top:24px">
+    <tr><th>Mismatch</th><th>Effect</th></tr>
+    <tr><td>Toast default = <code>error</code></td><td class="bad">Unmarked success toasts render red (spawn, commit) — your bug</td></tr>
+    <tr><td>Toast has no <code>warning</code>; banner uses amber</td><td class="bad">No amber toast tier; severity vocabulary differs per surface</td></tr>
+    <tr><td>Toast <code>info</code> = gray; <code>--status-notice</code> = blue</td><td class="bad">"Info" means two different colors</td></tr>
+    <tr><td>Toasts use raw <code>red-900</code>; cards use <code>--status-*</code></td><td class="bad">Two color palettes for the same semantics</td></tr>
+  </table>
+
+  <!-- ============ PROPOSED ============ -->
+  <h2>2 · Proposed — one severity scale, five tiers</h2>
+  <p class="sub">One token vocabulary shared by toasts, banners, and status dots. Severity ⇒ color, always.</p>
+
+  <div class="grid cols-scale">
+    <div class="swatch"><div class="chip" style="background:var(--accent-red)">CRITICAL</div><div class="body"><div class="name">error</div><div class="hex">--accent-red #ef4444</div><div class="use">Operation failed. Needs action. Spawn crash, save failure.</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--accent-orange)">WARNING</div><div class="body"><div class="name">warning</div><div class="hex">--accent-orange #f97316</div><div class="use">Degraded / caution. Retry pending, partial result.</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--accent-green)">SUCCESS</div><div class="body"><div class="name">success</div><div class="hex">--accent-green #22c55e</div><div class="use">Completed. Spawn started, committed, saved.</div></div></div>
+    <div class="swatch"><div class="chip" style="background:var(--accent-blue)">INFO</div><div class="body"><div class="name">info / notice</div><div class="hex">--accent-blue #3b82f6</div><div class="use">Neutral fact. Hidden card, reasoning-only, seek hint.</div></div></div>
+    <div class="swatch"><div class="chip" style="background:#5b5b5b;color:#eee">NEUTRAL</div><div class="body"><div class="name">muted</div><div class="hex">--text-muted #6b6b6b</div><div class="use">Passive / ended. No severity.</div></div></div>
+  </div>
+
+  <p class="sub" style="margin-top:26px">Toasts re-mapped to the scale (same events as section 1):</p>
+  <div class="grid cols-2">
+    <div class="toast" style="background:rgba(127,29,29,.9);color:#fecaca;border-color:#991b1b">
+      <span class="lead"><span class="badge">error</span>Failed to open editor</span><span class="x">×</span></div>
+    <div class="toast" style="background:rgba(20,83,45,.9);color:#bbf7d0;border-color:#166534">
+      <span class="lead"><span class="badge">success ✓ (was red)</span>New session started: os/add-auth</span><span class="x">×</span></div>
+    <div class="toast" style="background:rgba(20,83,45,.9);color:#bbf7d0;border-color:#166534">
+      <span class="lead"><span class="badge">success ✓ (was red)</span>Committed a1b2c3d</span><span class="x">×</span></div>
+    <div class="toast" style="background:rgba(124,45,18,.9);color:#fed7aa;border-color:#9a3412">
+      <span class="lead"><span class="badge">warning (new tier)</span>Retrying spawn (attempt 2 of 3)…</span><span class="x">×</span></div>
+    <div class="toast" style="background:rgba(30,58,138,.85);color:#bfdbfe;border-color:#1e40af">
+      <span class="lead"><span class="badge">info (blue, was gray)</span>This session is hidden. Enable “Show hidden”.</span><span class="x">×</span></div>
+    <div class="toast" style="background:rgba(127,29,29,.9);color:#fecaca;border-color:#991b1b">
+      <span class="lead"><span class="badge">error (spawn host, unchanged)</span>Spawn failed: worktree init crashed</span><span class="x">×</span></div>
+  </div>
+
+  <h2>3 · Migration shape (no code here — explore only)</h2>
+  <table>
+    <tr><th>Step</th><th>Change</th></tr>
+    <tr><td>1</td><td>Extend <code>ToastVariant</code> = <code>error | warning | success | info</code>; add a <code>warning</code> entry to <code>VARIANT_CLASSES</code>.</td></tr>
+    <tr><td>2</td><td class="good">Flip <code>showToast</code> default from <code>error</code> → <code>info</code> (neutral), so unmarked = harmless.</td></tr>
+    <tr><td>3</td><td>Tag success call sites: spawn-success + <code>Committed …</code> ⇒ <code>"success"</code>.</td></tr>
+    <tr><td>4</td><td>Re-point toast <code>info</code> from gray → <code>--status-notice</code> (blue) so "info" is one color.</td></tr>
+    <tr><td>5</td><td>Replace raw <code>red-900/green-900</code> in Toast + SpawnErrorToastHost with the shared <code>--status-*</code> / severity tokens.</td></tr>
+    <tr><td>6</td><td>Introduce a single <code>--severity-{critical,warning,success,info,neutral}</code> token set; map both status + toast to it.</td></tr>
+  </table>
+  <p class="note">Explore-mode mockup — nothing implemented. Section 3 is the shape of a future change, not code.</p>
+</body>
+</html>

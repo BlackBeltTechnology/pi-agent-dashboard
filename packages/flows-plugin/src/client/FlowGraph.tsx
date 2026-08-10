@@ -1,4 +1,4 @@
-import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 // useZoomPan is a HOOK — it cannot go through the registry (Rules of Hooks).
 // Stays as a direct import. See add-plugin-ui-primitive-registry Decision 4.
 import { useZoomPan } from "@blackbelt-technology/pi-dashboard-client-utils/useZoomPan";
@@ -8,8 +8,8 @@ import { mdiCallSplit, mdiCodeTags, mdiRobotOutline, mdiSourceBranch } from "@md
 import { graphlib } from "dagre-d3-es";
 import { layout as dagreLayout } from "dagre-d3-es/src/dagre/index.js";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { deriveFlowEdges, type FlowEdge, type FlowEdgeKind, type FlowEdgeStep } from "./flow-edges.js";
 import { FLOW_SHOW_ERROR_ROUTES_KEY, usePersistedToggle } from "./flow-collapse-storage.js";
+import { deriveFlowEdges, type FlowEdge, type FlowEdgeKind, type FlowEdgeStep } from "./flow-edges.js";
 
 /** Per-kind visual identity for graph nodes, mirroring the FlowAgentCard badges:
  *  code/code-decision = cyan, fork/agent-decision = amber, agent = green/status.
@@ -387,6 +387,7 @@ export function FlowGraph({ steps, fit = false, onExpand, selectedStepId, onSele
     }
   }, [steps, showErrorRoutes]);
 
+  const t = useT();
   const ZoomControls = useUiPrimitive(UI_PRIMITIVE_KEYS.zoomControls);
   const { state: zoom, handlers, zoomIn, zoomOut, reset } = useZoomPan();
   const [hovered, setHovered] = useState(false);
@@ -444,7 +445,7 @@ export function FlowGraph({ steps, fit = false, onExpand, selectedStepId, onSele
         <button
           type="button"
           onClick={onExpand}
-          title="Expand graph"
+          title={t("expandGraph", undefined, "Expand graph")}
           className="absolute bottom-1 right-1 z-10 text-[11px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)]/80 text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
         >
           ⤢ Expand

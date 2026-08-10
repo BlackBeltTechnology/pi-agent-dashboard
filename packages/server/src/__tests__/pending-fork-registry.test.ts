@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createPendingForkRegistry } from "../pending-fork-registry.js";
+import { createPendingForkRegistry } from "../pending/pending-fork-registry.js";
 
 // See change: spawn-correlation-token \u2014 registry is now keyed by spawnToken
 // (UUID minted by the server per spawn invocation) instead of cwd. This

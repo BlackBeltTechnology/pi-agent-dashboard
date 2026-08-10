@@ -3,7 +3,7 @@ import { render, screen, cleanup } from "@testing-library/react";
 import { describe, it, expect, afterEach } from "vitest";
 
 afterEach(() => cleanup());
-import { OpenSpecStepper, deriveStepperState } from "../OpenSpecStepper.js";
+import { OpenSpecStepper, deriveStepperState } from "../openspec/OpenSpecStepper.js";
 import { ChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { OpenSpecChange, OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 

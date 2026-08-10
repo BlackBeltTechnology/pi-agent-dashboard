@@ -3,7 +3,7 @@
  * See change: instrument-session-hydration-timing.
  */
 import { describe, it, expect } from "vitest";
-import { createHydrationMetrics, type HydrationSample } from "../hydration-metrics.js";
+import { createHydrationMetrics, type HydrationSample } from "../metrics/hydration-metrics.js";
 
 function makeSample(overrides: Partial<HydrationSample> = {}): HydrationSample {
   return {

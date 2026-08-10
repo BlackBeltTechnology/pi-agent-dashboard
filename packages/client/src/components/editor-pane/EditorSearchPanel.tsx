@@ -16,7 +16,8 @@ import type { FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.
 import { mdiClose, mdiMagnify, mdiRegex } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { GrepMatch } from "../../lib/grep-api.js";
+import type { GrepMatch } from "../../lib/api/grep-api.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 
 interface EditorSearchPanelProps {
   cwd: string;
@@ -44,6 +45,7 @@ export function EditorSearchPanel({
   onClose,
   minLen = 3,
 }: EditorSearchPanelProps) {
+  const { t } = useI18n();
   const [mode, setMode] = useState<Mode>("file");
   const [regex, setRegex] = useState(false);
   const [query, setQuery] = useState("");
@@ -135,8 +137,8 @@ export function EditorSearchPanel({
     <div className="border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] p-2" data-testid="editor-search-panel">
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1 rounded bg-[var(--bg-tertiary)] p-0.5">
-          {modeBtn("file", "Filenames", "mode-file")}
-          {modeBtn("content", "Contents", "mode-content")}
+          {modeBtn("file", t("editor.filenames", undefined, "Filenames"), "mode-file")}
+          {modeBtn("content", t("editor.contents", undefined, "Contents"), "mode-content")}
         </div>
         <div className="relative flex flex-1 items-center">
           <Icon path={mdiMagnify} size={0.6} className="absolute left-2 text-[var(--text-tertiary)]" />
@@ -146,7 +148,7 @@ export function EditorSearchPanel({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={`Regexp or type-ahead… (min ${minLen} chars)`}
+            placeholder={t("editor.searchPlaceholder", { min: minLen }, "Regexp or type-ahead… (min {min} chars)")}
             className="w-full rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] py-1 pl-7 pr-2 text-sm outline-none focus:border-blue-500/50"
           />
         </div>
@@ -156,7 +158,7 @@ export function EditorSearchPanel({
           aria-pressed={regex}
           onClick={() => setRegex((r) => !r)}
           className={`rounded p-1 ${regex ? "text-blue-400 bg-blue-500/10" : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"}`}
-          title="Regular expression"
+          title={t("editor.regularExpression", undefined, "Regular expression")}
         >
           <Icon path={mdiRegex} size={0.7} />
         </button>
@@ -165,7 +167,7 @@ export function EditorSearchPanel({
           data-testid="editor-search-close"
           onClick={onClose}
           className="rounded p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-          title="Close (Esc)"
+          title={t("editor.closeEsc", undefined, "Close (Esc)")}
         >
           <Icon path={mdiClose} size={0.7} />
         </button>
@@ -174,13 +176,15 @@ export function EditorSearchPanel({
       <div className="mt-1 flex items-center justify-between px-0.5 text-[11px] text-[var(--text-tertiary)]">
         <span>
           {belowMin
-            ? `Type ≥ ${minLen} chars`
+            ? t("editor.typeMinChars", { min: minLen }, "Type ≥ {min} chars")
             : canSearch
-              ? `${items.length} result${items.length === 1 ? "" : "s"}`
+              ? items.length === 1
+                ? t("editor.resultCountOne", { count: items.length }, "{count} result")
+                : t("editor.resultCountMany", { count: items.length }, "{count} results")
               : ""}
         </span>
         <span>
-          <kbd>↑↓</kbd> navigate · <kbd>↵</kbd> open · <kbd>Esc</kbd> close
+          <kbd>↑↓</kbd> {t("editor.navigate", undefined, "navigate")} · <kbd>↵</kbd> {t("editor.open", undefined, "open")} · <kbd>Esc</kbd> {t("editor.close", undefined, "close")}
         </span>
       </div>
 

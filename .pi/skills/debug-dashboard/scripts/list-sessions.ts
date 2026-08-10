@@ -1,43 +1,21 @@
 /**
- * List pi sessions via /api/sessions.
+ * List pi sessions from the dashboard's WebSocket subscription snapshot.
  * Default: only non-ended sessions (active ones).
  * Shows id (truncated), status, model, cwd.
+ *
+ * Reads the SAME `sessions_snapshot` the web client subscribes to (via
+ * `@blackbelt-technology/pi-dashboard-bus-client`), so the list is bus-consistent
+ * — no separate REST fetch that could race a stale read.
+ * See OpenSpec change: add-dashboard-bus-client-scripting.
  *
  * Invoke:
  *   npx tsx ./scripts/list-sessions.ts            # active sessions (table)
  *   npx tsx ./scripts/list-sessions.ts --all      # include ended sessions
- *   npx tsx ./scripts/list-sessions.ts --json     # raw JSON envelope
+ *   npx tsx ./scripts/list-sessions.ts --json     # snapshot sessions as JSON
  *   npx tsx ./scripts/list-sessions.ts --count    # active count only
- *
- * Cross-platform — Node built-ins only.
  */
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-function getDashboardPort(): number {
-  try {
-    const cfg = JSON.parse(
-      readFileSync(join(homedir(), '.pi', 'dashboard', 'config.json'), 'utf8')
-    ) as { port?: number };
-    if (typeof cfg.port === 'number') return cfg.port;
-  } catch {
-    /* default */
-  }
-  return 8000;
-}
-
-interface SessionLike {
-  id?: string;
-  status?: string;
-  model?: string;
-  cwd?: string;
-}
-
-interface SessionsEnvelope {
-  success?: boolean;
-  data?: SessionLike[];
-}
+import { BusClient } from '@blackbelt-technology/pi-dashboard-bus-client';
+import type { DashboardSession } from '@blackbelt-technology/pi-dashboard-shared/types.js';
 
 function formatTable(rows: string[][]): string {
   if (rows.length === 0) return '(empty)';
@@ -49,27 +27,19 @@ function formatTable(rows: string[][]): string {
     .join('\n');
 }
 
-const port = getDashboardPort();
 const mode = process.argv[2];
 const includeEnded = mode === '--all' || mode === '--json';
 
-let allSessions: SessionLike[];
-let raw: unknown;
+const client = new BusClient();
+let allSessions: DashboardSession[];
 try {
-  const resp = await fetch(`http://localhost:${port}/api/sessions`, {
-    signal: AbortSignal.timeout(5000),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  raw = await resp.json();
-  // Server wraps in { success, data: [...] }; tolerate bare array too.
-  if (Array.isArray(raw)) {
-    allSessions = raw as SessionLike[];
-  } else {
-    allSessions = (raw as SessionsEnvelope).data ?? [];
-  }
+  await client.connect();
+  allSessions = client.read.sessions();
 } catch (err) {
-  console.error(`not-running (no response on port ${port}): ${(err as Error).message}`);
+  console.error(`not-running (bus connect failed): ${(err as Error).message}`);
   process.exit(1);
+} finally {
+  client.close();
 }
 
 const sessions = includeEnded
@@ -77,7 +47,7 @@ const sessions = includeEnded
   : allSessions.filter((s) => s.status !== 'ended');
 
 if (mode === '--json') {
-  console.log(JSON.stringify(raw, null, 2));
+  console.log(JSON.stringify(sessions, null, 2));
 } else if (mode === '--count') {
   console.log(sessions.length);
 } else if (!mode || mode === '--all') {

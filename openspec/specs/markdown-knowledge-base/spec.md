@@ -147,11 +147,23 @@ Search SHALL support returning a child hit together with its parent
 section/file (small-to-big), using the stored `parent_chunk_id` and `child_of`
 edges, and SHALL optionally expand results with graph neighbors/backlinks.
 Parent expansion SHALL be on by default; graph expansion SHALL be opt-in.
+The attached parent SHALL carry only `headingPath`, as display/context — NOT a
+refetch key — and SHALL NOT include `root`, `path`, `docType`, `chunkId`, a
+constant `score`, or a `snippet`. The parent chunk is, by construction of the
+indexer's per-file heading stack, in the same file as the child, so the omitted
+location fields are redundant. `KbHit.parent` is consequently non-recursive.
 
 #### Scenario: Parent context returned with a section hit
 
 - **WHEN** `kb search --expand-parent` (or default) returns a subsection hit
 - **THEN** the result SHALL include the parent section/file context
+- **AND** the parent SHALL expose `headingPath` only
+
+#### Scenario: Parent carries no fields duplicated from the child
+
+- **WHEN** parent expansion attaches a parent to a hit
+- **THEN** the parent object SHALL NOT include `root`, `path`, `docType`,
+  `chunkId`, a constant `score`, or a `snippet` field
 
 ### Requirement: Optional cross-encoder reranking and query expansion
 
@@ -266,6 +278,13 @@ explicitly invokes (a SKILL-driven CLI in Phase 1, a registered native tool in
 Phase 2). The system SHALL NOT auto-inject search results into the model context
 via input or pre-tool hooks.
 
+When the KB tools are registered for a cwd whose index has never been built,
+each pull tool (`kb_search`, `kb_neighbors`, `kb_get`) SHALL self-populate the
+index on first invocation before serving results, so an active-but-uninitialized
+KB never returns a false-empty result. Self-population SHALL run only when the
+index is empty (a warm index is not re-walked on the neighbors/get path), and a
+failed population SHALL degrade to the existing store rather than error.
+
 #### Scenario: Agent retrieves on demand via SKILL
 
 - **WHEN** the `kb-search` SKILL is active and the agent encounters an unknown
@@ -278,6 +297,29 @@ via input or pre-tool hooks.
 - **WHEN** a user message or tool call occurs
 - **THEN** the system SHALL NOT automatically run a search and inject its results
   into the model context
+
+#### Scenario: Cold KB self-populates on first neighbors/get
+
+- **WHEN** the KB tools are active for a cwd whose index has never been built
+  (`store.counts().chunks === 0`) and the agent invokes `kb_neighbors` or
+  `kb_get`
+- **THEN** the tool SHALL build the index once before serving results
+- **AND** the invocation SHALL return the populated graph node / section rather
+  than an empty result or "(not found)"
+
+#### Scenario: Warm index is not re-walked on neighbors/get
+
+- **WHEN** the index for a cwd is already populated and the agent invokes
+  `kb_neighbors` or `kb_get`
+- **THEN** the tool SHALL serve results without running a reindex walk
+  (an empty-check `COUNT` only)
+
+#### Scenario: Failed cold-start population degrades, not errors
+
+- **WHEN** the first `kb_neighbors` / `kb_get` on an empty index triggers a build
+  that throws
+- **THEN** the tool SHALL fall back to the existing (empty) store and still
+  return a well-formed result rather than propagating the error
 
 ### Requirement: Index AGENTS.md and source-level markdown
 
@@ -658,4 +700,53 @@ degrade case, and SHALL NOT silently yield an empty index.
 - **WHEN** every configured source directory is absent
 - **THEN** the process SHALL exit non-zero
 - **AND** there SHALL be no file left at `dbPath` (per the atomicity requirement)
+
+### Requirement: Condensed default `kb_search` output with opt-in JSON
+
+The `kb_search` native tool SHALL render results as a condensed, human/LLM-legible
+text format by default, and SHALL accept a `format` parameter with values
+`"condensed"` (default) and `"json"`. The `format` value SHALL be validated
+against that allowlist; an unknown, malformed, or omitted value SHALL fall back
+to `"condensed"` and SHALL NOT raise an error. The condensed format SHALL be
+positional (no repeated field-name keys) and SHALL present a 1-based `rank`
+ordinal in place of the raw BM25 score. The `"json"` format SHALL return compact
+(non-pretty-printed) JSON and SHALL retain the raw `score` field in addition to
+`rank`. The condensed format SHALL surface the `akaPaths` duplicate-count signal
+when present. The tool's own description SHALL accurately describe the default
+output shape. The tool output format SHALL NOT be auto-parsed by any consumer;
+`store.search()` remains the structured programmatic interface.
+
+#### Scenario: Condensed output by default
+
+- **WHEN** `kb_search` is invoked without a `format` argument
+- **THEN** the tool SHALL return condensed text: one entry per hit carrying
+  `rank`, `path`, `headingPath`, a `(+N dup)` marker when `akaPaths` is present,
+  a parent-heading continuation when parent context exists, and a single-line
+  bounded snippet
+- **AND** the tool SHALL NOT emit the raw BM25 `score` in the condensed output
+
+#### Scenario: JSON output on request retains score
+
+- **WHEN** `kb_search` is invoked with `format: "json"`
+- **THEN** the tool SHALL return compact JSON (no pretty-print indentation)
+- **AND** each hit SHALL carry both `score` and `rank`
+- **AND** each hit SHALL carry the collapsed `parent` shape (`headingPath` only)
+
+#### Scenario: Unknown format falls back to condensed
+
+- **WHEN** `kb_search` is invoked with a `format` value outside
+  `{"condensed","json"}` (unknown string, wrong case, or null)
+- **THEN** the tool SHALL render condensed output and SHALL NOT raise an error
+
+#### Scenario: Empty query returns an explicit marker
+
+- **WHEN** `kb_search` is invoked with an empty or whitespace-only `query`
+- **THEN** the tool SHALL return an explicit empty indication (not an ambiguous
+  blank string) consistently for the selected format
+
+#### Scenario: Rank replaces raw score in condensed output
+
+- **WHEN** the tool renders hits in condensed format
+- **THEN** each entry SHALL carry a 1-based `rank` ordinal over the sorted results
+- **AND** the negative unbounded BM25 `score` SHALL NOT appear in the condensed output
 

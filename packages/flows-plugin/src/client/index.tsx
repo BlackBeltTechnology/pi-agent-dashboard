@@ -11,17 +11,13 @@
 
 // Existing presentation components — still used directly by App.tsx
 // during the cutover (Part H removes those call sites).
-export { FlowDashboard } from "./FlowDashboard.js";
+// i18n catalog — merged under `plugin.flows.*` by the shell via the
+// manifest's `i18nCatalog: "catalog"` declaration. See change: make-all-ui-text-i18n.
+export { catalog } from "../i18n.js";
+export { FlowActivityBadge } from "./FlowActivityBadge.js";
 export { FlowAgentCard } from "./FlowAgentCard.js";
 export { FlowAgentDetail } from "./FlowAgentDetail.js";
-
-export { FlowSummary } from "./FlowSummary.js";
-export { FlowGraph, flowStateToGraphSteps, computeLayout } from "./FlowGraph.js";
-export { FlowActivityBadge } from "./FlowActivityBadge.js";
-export { FlowLaunchDialog } from "./FlowLaunchDialog.js";
-export { FlowTabBar } from "./FlowTabBar.js";
-export { SessionFlowActions } from "./SessionFlowActions.js";
-
+export { FlowAgentsToolRenderer } from "./FlowAgentsToolRenderer.js";
 // Slot-claim wrappers — the plugin's manifest references these.
 // Each derives state from the plugin-internal contexts and dispatches
 // via pluginContext.send. See change: pluginize-flows-via-registry.
@@ -29,24 +25,23 @@ export { SessionFlowActions } from "./SessionFlowActions.js";
 // session-card-badge claim was dropped because the badge belongs in the
 // FLOWS subcard, not WORKSPACE. SessionFlowActions now renders the badge
 // directly via the FlowActivityBadge component.
-export { FlowDashboardClaim } from "./FlowDashboard.js";
-
-// Authoring tool-renderers (main-session timeline) — referenced by the
-// manifest's `tool-renderer` claims. See change: rework-flows-plugin-for-new-pi-flows.
-export { FlowWriteToolRenderer } from "./FlowWriteToolRenderer.js";
-export { FlowAgentsToolRenderer } from "./FlowAgentsToolRenderer.js";
-
-// Settings section (global edit-mode default) — manifest `settings-section` claim.
-export { FlowsSettings } from "./FlowsSettings.js";
-export type { FlowsPluginConfig } from "./FlowsSettings.js";
-
+export { FlowDashboard, FlowDashboardClaim } from "./FlowDashboard.js";
+export { computeLayout, FlowGraph, flowStateToGraphSteps } from "./FlowGraph.js";
 // Input-wiring editor claimed into automation-plugin's `automation-action-editor`
 // slot for `flows.run`. See change: wire-flow-inputs-in-automation.
 export { FlowInputWiring, FlowInputWiringClaim } from "./FlowInputWiring.js";
+export { FlowLaunchDialog } from "./FlowLaunchDialog.js";
+export { FlowSummary, FlowSummaryClaim } from "./FlowSummary.js";
+export type { FlowsPluginConfig } from "./FlowsSettings.js";
 
-export { FlowSummaryClaim } from "./FlowSummary.js";
+// Settings section (global edit-mode default) — manifest `settings-section` claim.
+export { FlowsSettings } from "./FlowsSettings.js";
+export { FlowTabBar } from "./FlowTabBar.js";
+// Authoring tool-renderers (main-session timeline) — referenced by the
+// manifest's `tool-renderer` claims. See change: rework-flows-plugin-for-new-pi-flows.
+export { FlowWriteToolRenderer } from "./FlowWriteToolRenderer.js";
 export { FlowYamlPreviewClaim } from "./FlowYamlPreview.js";
-export { SessionFlowActionsClaim } from "./SessionFlowActions.js";
+export { SessionFlowActions, SessionFlowActionsClaim } from "./SessionFlowActions.js";
 
 // Manifest-level shouldRender predicate for the `session-card-flows` claim.
 // See change: add-flows-subcard.
@@ -62,17 +57,17 @@ export { shouldRenderFlowsSubcard } from "./shouldRender.js";
 // Restore the exports here if/when the dashboard re-introduces command-route
 // claims for flows.
 
+export type { FlowsSessionState } from "./FlowsSessionStateContext.js";
 // Plugin-internal state hooks. Components consume these in place of
 // props that previously came from App.tsx. See change:
 // pluginize-flows-via-registry.
 export {
-  useFlowsSessionState,
   reduceFlowsSessionState,
+  useFlowsSessionState,
 } from "./FlowsSessionStateContext.js";
-export type { FlowsSessionState } from "./FlowsSessionStateContext.js";
-import { getFlowsUiStateSnapshot } from "./FlowsUiStateContext.js";
-import { installFlowsAvailabilitySubscriber } from "./flowsAvailability.js";
+
 import { registerPromptComponent } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { getFlowsUiStateSnapshot } from "./FlowsUiStateContext.js";
 
 // Register the `flow-question` prompt component type so the shell knows to
 // route flow-tagged prompts to the widget-bar placement instead of inline
@@ -80,19 +75,11 @@ import { registerPromptComponent } from "@blackbelt-technology/dashboard-plugin-
 // entries without throwing. See change: route-flow-asks-to-upper-slot.
 registerPromptComponent({ type: "flow-question", placement: "widget-bar" });
 
-// Install the per-session flows-availability subscriber once at module
-// load. The subscriber populates the sync cache that
-// `shouldRenderFlowsSubcard` reads. Idempotent (guarded inside the
-// installer). See change: add-flows-subcard (design.md Decision 3 —
-// module-level subscriber breaks the chicken-and-egg cycle between
-// the predicate and the component it gates).
-installFlowsAvailabilitySubscriber();
-export {
-  useFlowsUiState,
+export type { FlowsUiActions, FlowsUiState } from "./FlowsUiStateContext.js";
+export {getFlowsUiStateSnapshot, 
   useFlowsUiActions,
+  useFlowsUiState
 } from "./FlowsUiStateContext.js";
-export { getFlowsUiStateSnapshot } from "./FlowsUiStateContext.js";
-export type { FlowsUiState, FlowsUiActions } from "./FlowsUiStateContext.js";
 
 // hasActiveFlow predicate removed: the manifest no longer references
 // it because FlowActivityBadgeClaim self-gates inside the component

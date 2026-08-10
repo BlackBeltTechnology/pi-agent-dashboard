@@ -1,124 +1,79 @@
 /**
- * Unit tests for the per-session flows availability cache backing
- * `shouldRenderFlowsSubcard`. See change: add-flows-subcard.
+ * Unit tests for `shouldRenderFlowsSubcard`, the manifest-level visibility gate
+ * for the `session-card-flows` claim. The gate reads live per-session-data
+ * (`flowsList`) + plugin config (`editFlow`) + flow events — the same sources
+ * `SessionFlowActionsClaim` uses to decide it renders content. See change:
+ * fix-empty-flows-subcard.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  getFlowsAvailabilitySync,
-  setFlowsAvailability,
-  sessionHasFlowEvents,
-  installFlowsAvailabilitySubscriber,
-  __resetFlowsAvailabilityForTests,
-} from "../client/flowsAvailability.js";
-import { shouldRenderFlowsSubcard } from "../client/shouldRender.js";
-import {
-  publishSessionData,
-  clearSessionData,
-  publishSessionEvent,
-  clearSessionEvents,
   __resetSessionDataStoreForTests,
+  clearSessionEvents,
+  publishSessionData,
+  publishSessionEvent,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { initPluginConfigs } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { __resetFlowsAvailabilityForTests, sessionHasFlowEvents } from "../client/flowsAvailability.js";
+import { shouldRenderFlowsSubcard } from "../client/shouldRender.js";
 
-describe("flows-plugin: flowsAvailability cache", () => {
+const session = (id: string) => ({ id }) as never;
+const setEditMode = (on: boolean) => initPluginConfigs({ flows: { editFlow: on } });
+
+describe("flows-plugin: shouldRenderFlowsSubcard predicate", () => {
   beforeEach(() => {
     __resetFlowsAvailabilityForTests();
     __resetSessionDataStoreForTests();
+    setEditMode(false);
   });
 
   afterEach(() => {
     __resetFlowsAvailabilityForTests();
     __resetSessionDataStoreForTests();
+    setEditMode(false);
   });
 
-  it("returns false for unknown sessions (closed-by-default)", () => {
-    expect(getFlowsAvailabilitySync("unknown-id")).toBe(false);
+  it("returns false for null/undefined session", () => {
+    expect(shouldRenderFlowsSubcard(null)).toBe(false);
+    expect(shouldRenderFlowsSubcard(undefined)).toBe(false);
   });
 
-  it("sessionHasFlowEvents reflects flow events in the session-events store", () => {
-    const sid = "flow-evt-1";
+  it("hidden in the bug state: flowsList empty + edit mode off + no flow events", () => {
+    const sid = "bug-state";
+    publishSessionData(sid, "flowsList", []);
+    // Extension present (a /flows command exists) must NOT open the gate anymore.
+    publishSessionData(sid, "commandsList", [{ name: "flows" }]);
+    expect(shouldRenderFlowsSubcard(session(sid))).toBe(false);
+  });
+
+  it("visible when flowsList is non-empty", () => {
+    const sid = "has-flows";
+    publishSessionData(sid, "flowsList", [{ name: "deploy" }]);
+    expect(shouldRenderFlowsSubcard(session(sid))).toBe(true);
+  });
+
+  it("visible when edit mode is on (author-first, zero flows)", () => {
+    const sid = "edit-mode";
+    publishSessionData(sid, "flowsList", []);
+    setEditMode(true);
+    expect(shouldRenderFlowsSubcard(session(sid))).toBe(true);
+  });
+
+  it("visible when a flow event exists (running/completed, zero listed flows)", () => {
+    const sid = "flow-ran";
+    publishSessionData(sid, "flowsList", []);
+    expect(shouldRenderFlowsSubcard(session(sid))).toBe(false);
+    publishSessionEvent(sid, { eventType: "flow_started", timestamp: 1, data: {} } as never);
+    expect(shouldRenderFlowsSubcard(session(sid))).toBe(true);
+    clearSessionEvents(sid);
+  });
+
+  it("sessionHasFlowEvents ignores non-flow events, reflects flow events", () => {
+    const sid = "flow-evt";
     expect(sessionHasFlowEvents(sid)).toBe(false);
     publishSessionEvent(sid, { eventType: "message_start", timestamp: 1, data: {} } as never);
-    expect(sessionHasFlowEvents(sid)).toBe(false); // non-flow event ignored
+    expect(sessionHasFlowEvents(sid)).toBe(false);
     publishSessionEvent(sid, { eventType: "flow_started", timestamp: 2, data: {} } as never);
     expect(sessionHasFlowEvents(sid)).toBe(true);
     clearSessionEvents(sid);
-  });
-
-  it("shouldRenderFlowsSubcard is true when a flow ran even with availability closed", () => {
-    const sid = "flow-evt-2";
-    const session = { id: sid } as never;
-    expect(shouldRenderFlowsSubcard(session)).toBe(false);
-    publishSessionEvent(sid, { eventType: "flow_started", timestamp: 1, data: {} } as never);
-    expect(shouldRenderFlowsSubcard(session)).toBe(true);
-    clearSessionEvents(sid);
-  });
-
-  it("set then get round-trips", () => {
-    setFlowsAvailability("s1", true);
-    expect(getFlowsAvailabilitySync("s1")).toBe(true);
-
-    setFlowsAvailability("s1", false);
-    expect(getFlowsAvailabilitySync("s1")).toBe(false);
-  });
-
-  it("installFlowsAvailabilitySubscriber is idempotent — same unsubscribe twice", () => {
-    const off1 = installFlowsAvailabilitySubscriber();
-    const off2 = installFlowsAvailabilitySubscriber();
-    expect(off1).toBe(off2);
-    off1();
-  });
-
-  it("subscriber populates cache to `true` when the /flows command is registered", () => {
-    const off = installFlowsAvailabilitySubscriber();
-    expect(getFlowsAvailabilitySync("s1")).toBe(false); // closed-by-default
-
-    // pi-flows registers `/flows` in every session it loads into.
-    publishSessionData("s1", "commandsList", [{ name: "flows" }]);
-    expect(getFlowsAvailabilitySync("s1")).toBe(true);
-    off();
-  });
-
-  it("subscriber populates cache to `true` for any flows-namespaced command", () => {
-    const off = installFlowsAvailabilitySubscriber();
-    publishSessionData("s2", "commandsList", [{ name: "flows:delete" }]);
-    expect(getFlowsAvailabilitySync("s2")).toBe(true);
-    off();
-  });
-
-  it("shows for an active-but-empty flows cwd (presence, not flow count)", () => {
-    const off = installFlowsAvailabilitySubscriber();
-    // Extension active (registered /flows) but zero flows authored yet.
-    publishSessionData("s-empty", "flowsList", []);
-    publishSessionData("s-empty", "commandsList", [{ name: "flows" }]);
-    expect(getFlowsAvailabilitySync("s-empty")).toBe(true);
-    off();
-  });
-
-  it("leaves cache `false` when no flows command is registered (even with flows in the list)", () => {
-    const off = installFlowsAvailabilitySubscriber();
-    // Defensive: presence is gated on the command, not flowsList content.
-    publishSessionData("s3", "flowsList", [{ name: "deploy" }]);
-    publishSessionData("s3", "commandsList", [{ name: "skill:foo" }]);
-    expect(getFlowsAvailabilitySync("s3")).toBe(false);
-    off();
-  });
-
-  it("subscriber drops availability to false when session data is cleared", () => {
-    const off = installFlowsAvailabilitySubscriber();
-    publishSessionData("s4", "commandsList", [{ name: "flows" }]);
-    expect(getFlowsAvailabilitySync("s4")).toBe(true);
-
-    clearSessionData("s4");
-    expect(getFlowsAvailabilitySync("s4")).toBe(false);
-    off();
-  });
-
-  it("subscriber tracks multiple sessions independently", () => {
-    const off = installFlowsAvailabilitySubscriber();
-    publishSessionData("sA", "commandsList", [{ name: "flows" }]);
-    publishSessionData("sB", "commandsList", [{ name: "skill:foo" }]);
-    expect(getFlowsAvailabilitySync("sA")).toBe(true);
-    expect(getFlowsAvailabilitySync("sB")).toBe(false);
-    off();
   });
 });

@@ -1,0 +1,3 @@
+# scroll-to-top.spec.ts — index
+
+Browser E2E gate for `fix-chat-scroll-to-top-estimate-drift` (the ONLY layer that reproduces the scroll-timing / async-image-remeasure race jsdom can't). 2 tests via `[[faux:scroll-top-heavy]]` (biggest rows near top): (1) scroll-to-top button lands `scrollTop<=2` and STAYS after the near-top image loads async; (2) incremental scroll-up converges on `scrollTop<=2` + `[data-index=0]` visible (top does not recede). `test.slow()` (180s) — ~40 real bash tool round-trips exceed the 60s default. Reads scroll metrics off `chatScrollContainer`. See change: fix-chat-scroll-to-top-estimate-drift.

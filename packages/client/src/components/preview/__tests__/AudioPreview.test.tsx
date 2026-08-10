@@ -6,7 +6,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import React from "react";
 
-vi.mock("../../../lib/api-context.js", () => ({ getApiBase: () => "" }));
+vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 
 import { AudioPreview } from "../AudioPreview.js";
 

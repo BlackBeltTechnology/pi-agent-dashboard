@@ -2,8 +2,8 @@
  * Tests for `extractRecentUrls`. See change: render-file-previews.
  */
 import { describe, it, expect } from "vitest";
-import { extractRecentUrls } from "../extract-urls.js";
-import type { ChatMessage } from "../event-reducer.js";
+import { extractRecentUrls } from "../preview/extract-urls.js";
+import type { ChatMessage } from "../chat/event-reducer.js";
 
 function msg(content: string, id = String(Math.random())): ChatMessage {
   return { id, role: "assistant", content, timestamp: 0 } as ChatMessage;

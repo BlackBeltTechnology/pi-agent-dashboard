@@ -1,11 +1,12 @@
 import React, {
-  useEffect,
   useId,
   useRef,
   type ReactNode,
 } from "react";
+import { mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { DialogPortal } from "./DialogPortal.js";
+import { useEscapeDismiss } from "./escape-stack.js";
 import { useFocusTrap } from "./useFocusTrap.js";
 
 export type DialogSize = "sm" | "md" | "lg" | "full";
@@ -62,14 +63,10 @@ export function Dialog({
 
   useFocusTrap(containerRef, open);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  // Escape dismissal routes through the shared escape-stack: onClose fires only
+  // when this dialog is the topmost registered layer, so an overlay opened above
+  // it consumes the Escape first. See change: fix-stacked-escape-closes-layers.
+  useEscapeDismiss(open, onClose);
 
   if (!open) return null;
 
@@ -93,8 +90,20 @@ export function Dialog({
           data-testid={testId}
           className={`relative w-full mx-4 ${SIZE_MAX_W[size]} ${SIZE_MAX_H[size]} ${flush ? "overflow-hidden" : "overflow-y-auto p-5 space-y-4"} bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-xl focus:outline-none`}
         >
+          {/* Standard close affordance on every dialog (Escape + backdrop also
+              close). Absolutely positioned so it works for both headered and
+              `flush` (headerless) dialogs. */}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            data-testid={testId ? `${testId}-close` : undefined}
+            className="absolute top-3 right-3 z-10 flex items-center justify-center w-7 h-7 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors"
+          >
+            <Icon path={mdiClose} size={0.8} />
+          </button>
           {hasHeader && (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 pr-8">
               {icon && (
                 <div className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-md bg-[var(--accent-primary)]/15 text-[var(--accent-primary)]">
                   <Icon path={icon} size={0.85} />

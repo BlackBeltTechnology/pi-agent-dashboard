@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/dashboard-plugin-runtime",
-  "version": "0.5.4",
+  "version": "0.7.0",
   "description": "Plugin loader, slot registry, slot consumers, and context API for pi-dashboard",
   "type": "module",
   "repository": {
@@ -38,22 +38,29 @@
     }
   },
   "files": [
-    "src/"
+    "src/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "peerDependencies": {
+    "fastify": "^5.0.0",
     "react": ">=18.0.0",
+    "vite": "^6.0.0",
     "wouter": "^3.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@mdi/react": "^1.6.1",
+    "ajv": "^8.17.1"
   },
   "devDependencies": {
-    "react": "^19.0.0",
-    "@types/react": "^19.0.0",
-    "vite": "^6.0.0",
-    "@testing-library/react": "^16.1.0",
     "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "ajv": "^8.17.1"
+    "ajv": "^8.17.1",
+    "react": "^19.0.0",
+    "vite": "^6.0.0"
   }
 }

@@ -1,0 +1,3 @@
+# link-origin.ts — index
+
+Pure browser-safe link path resolution. Exports `resolveLinkOrigin(cwd,path,absolute)`, `resolveAgainstCwd(cwd,p)` (moved from FileLink), `stripWorktreeSegment(cwd)`. Relative token → join against cwd. Absolute token in worktree session (`<parentRoot>/.worktrees/<slug>`) rooted under `<parentRoot>` → re-root onto worktree (prefix swap parentRoot→cwd). Non-worktree cwd, already-worktree, foreign absolute → verbatim (fail-open). `stripWorktreeSegment` strips trailing `/.worktrees/<slug>` (POSIX or Windows), normalizes separators + drive-letter case. String ops only, no node:path. See change: fix-worktree-link-origin.

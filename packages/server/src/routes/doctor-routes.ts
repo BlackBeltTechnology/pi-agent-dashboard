@@ -28,7 +28,7 @@ import {
   hasAnyProviderCredential,
   inspectedCredentialFiles,
 } from "@blackbelt-technology/pi-dashboard-shared/credential-detect.js";
-import { getTunnelWatchdogStatus } from "../tunnel-watchdog.js";
+import { getTunnelWatchdogStatus } from "../tunnel/tunnel-watchdog.js";
 
 function getManagedDir(): string {
   return process.env.MANAGED_DIR || path.join(os.homedir(), ".pi-dashboard");
@@ -173,6 +173,7 @@ export function registerDoctorRoutes(fastify: FastifyInstance, deps: DoctorRoute
         section: "diagnostics",
         status: "error",
         message: "Unexpected internal failure",
+        code: "doctor.unexpected_internal_failure", // See change: make-all-ui-text-i18n
         detail: `${e.message}\n${(e.stack || "").split("\n").slice(0, 4).join("\n")}`,
         suggestion:
           "Check `~/.pi-dashboard/doctor.log` on the server, then file an issue with the captured error.",

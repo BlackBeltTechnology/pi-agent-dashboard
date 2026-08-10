@@ -12,9 +12,9 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createHeadlessPidRegistry } from "../headless-pid-registry.js";
-import { createPendingForkRegistry } from "../pending-fork-registry.js";
-import { mintSpawnToken } from "../spawn-token.js";
+import { createHeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
+import { createPendingForkRegistry } from "../pending/pending-fork-registry.js";
+import { mintSpawnToken } from "../auth/spawn-token.js";
 
 function mockProc() {
   return new EventEmitter() as any;

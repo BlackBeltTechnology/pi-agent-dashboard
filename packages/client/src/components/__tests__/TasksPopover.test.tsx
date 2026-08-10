@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
-import { TasksPopover } from "../TasksPopover.js";
+import { TasksPopover } from "../session/TasksPopover.js";
 
 afterEach(() => cleanup());
 

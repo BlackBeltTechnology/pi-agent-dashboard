@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { applyAttachProposal } from "../browser-handlers/session-meta-handler.js";
-import { createPendingAttachRegistry } from "../pending-attach-registry.js";
+import { createPendingAttachRegistry } from "../pending/pending-attach-registry.js";
 
 function makeCtx(initial?: { name?: string }) {
   const session = { id: "s99", cwd: "/p", name: initial?.name ?? "", attachedProposal: null };

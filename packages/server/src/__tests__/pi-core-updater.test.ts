@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PiCoreUpdater } from "../pi-core-updater.js";
+import { PiCoreUpdater } from "../pi/pi-core-updater.js";
 import {
 	PackageManagerWrapper,
 	PackageOperationBusyError,
-} from "../package-manager-wrapper.js";
+} from "../package/package-manager-wrapper.js";
 import type { PiCorePackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 
 // Pi PM is mocked in other tests via vi.mock; we don't need it here because

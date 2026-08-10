@@ -7,6 +7,8 @@
  *     op across the whole client. Multiple components observing this
  *     hook see the same op, even one initiated by a different component.
  *   - `install / remove / update`: thin wrappers over `packageQueue.enqueue`.
+ *   - `coreUpdate`: pi-core wrapper over the same queue (see change:
+ *     unify-pi-core-into-package-queue).
  *   - `clearOperation`: no-op kept for backwards-compat (the queue
  *     auto-clears success after 3 s and clears errors on next enqueue).
  *
@@ -21,16 +23,23 @@
  */
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { type MoveState, moveTracker } from "../lib/nav/move-tracker.js";
 import {
-  packageQueue,
-  type PackageScope,
   type PackageOperationStatus,
+  type PackageScope,
+  packageQueue,
+  piCoreSource,
   type RunningOp,
-} from "../lib/package-queue.js";
-import { moveTracker, type MoveState } from "../lib/move-tracker.js";
-import { movePackage, type PackageEntry, type MoveResponse } from "../lib/packages-api.js";
+} from "../lib/package/package-queue.js";
+import {
+  type MoveResponse,
+  movePackage,
+  type PackageEntry,
+  type ResetResponse,
+  resetToNpm as resetToNpmApi,
+} from "../lib/package/packages-api.js";
 
-export type { PackageOperationStatus } from "../lib/package-queue.js";
+export type { PackageOperationStatus } from "../lib/package/package-queue.js";
 
 export interface OperationState {
   operationId: string | null;
@@ -124,6 +133,23 @@ export function usePackageOperations(
     [enqueue],
   );
 
+  /**
+   * Enqueue a pi-core package update. `name` is the full scoped npm name
+   * from `PiCorePackage.name` (e.g. `@mariozechner/pi-coding-agent`), NOT
+   * a `npm:`-prefixed source. `scope: "global"` is a non-meaningful
+   * placeholder — `/api/pi-core/update` ignores it and resolves the
+   * install location per-package from `PiCorePackage.installSource`.
+   * See change: unify-pi-core-into-package-queue.
+   */
+  const coreUpdate = useCallback((name: string) => {
+    packageQueue.enqueue({
+      source: piCoreSource(name),
+      kind: "pi-core",
+      action: "update",
+      scope: "global",
+    });
+  }, []);
+
   const statusFor = useCallback(
     (source: string): PackageOperationStatus => packageQueue.getStateForSource(source),
     [],
@@ -177,6 +203,32 @@ export function usePackageOperations(
     [],
   );
 
+  // ── Reset-to-npm ───────────────────────────────────────────────────────
+  // Reuses the moveId-keyed move-tracker (kind: "reset") so the composite
+  // install-first / remove-second + partial-success UX is shared with move.
+  // See change: reset-override-to-npm.
+  const resetToNpm = useCallback(
+    async (
+      source: string,
+      args: { scope: PackageScope; cwd?: string },
+    ): Promise<ResetResponse> => {
+      const res = await resetToNpmApi({ source, scope: args.scope, cwd: args.cwd });
+      if (res.ok) {
+        moveTracker.register({
+          moveId: res.resetId,
+          source,
+          fromScope: args.scope,
+          fromCwd: args.cwd,
+          toScope: args.scope,
+          toCwd: args.cwd,
+          kind: "reset",
+        });
+      }
+      return res;
+    },
+    [],
+  );
+
   /** Get the live state of a move by source (most recent only). */
   const moveStateFor = useCallback(
     (source: string): MoveState | undefined => moveTracker.getBySource(source),
@@ -188,7 +240,9 @@ export function usePackageOperations(
     install,
     remove,
     update,
+    coreUpdate,
     move,
+    resetToNpm,
     moveStateFor,
     clearMove: (moveId: string) => moveTracker.clear(moveId),
     clearOperation,
@@ -196,6 +250,8 @@ export function usePackageOperations(
     messageFor,
     queueDepth: snap.depth,
     runningSource: running?.source ?? null,
+    /** True while any op — extension or pi-core — holds the single-flight slot. */
+    isAnyRunning: running !== null,
     /** Backwards-compat: WS messages now flow through the queue's own
      * window listener, so handleMessage is a no-op kept only so existing
      * consumers (if any) don't crash on call. */

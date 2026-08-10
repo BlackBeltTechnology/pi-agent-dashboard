@@ -5,9 +5,11 @@
  * refetches when a pi_core_update_complete WS event arrives, and
  * exposes `refresh(force?)` for manual / force-refresh.
  */
-import { useState, useEffect, useCallback, useRef } from "react";
-import { getApiBase } from "../lib/api-context.js";
+
 import type { PiCoreStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 const POLL_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -35,11 +37,11 @@ export function usePiCoreVersions(): UsePiCoreVersionsResult {
 			if (body.success) {
 				setStatus(body.data as PiCoreStatus);
 			} else {
-				setError(body.error ?? "Failed to fetch pi core versions");
+				setError(body.error ?? t("piCore.fetchVersionsFailed", undefined, "Failed to fetch pi core versions"));
 			}
 		} catch (err: any) {
 			if (!mountedRef.current) return;
-			setError(err?.message ?? "Network error");
+			setError(err?.message ?? t("common.networkError", undefined, "Network error"));
 		} finally {
 			if (mountedRef.current) setIsLoading(false);
 		}

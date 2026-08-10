@@ -2,9 +2,11 @@
 // → global `~/.pi/dashboard/knowledge_base.json` → built-in defaults.
 // Project file is used whole; absent fields fall back to global, then defaults.
 // No file-count cap by default (requirement #1).
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { DEFAULT_FACET_KEYS, DEFAULT_SEARCHABLE_KEYS, type FacetKeyConfig } from "./frontmatter.js";
 
 function expandTilde(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
@@ -41,6 +43,10 @@ export interface DirectoryLevelAgentsConfig {
   mode: "pull" | "push";
   fallbackManifest: boolean;
 }
+export interface FrontmatterConfig {
+  searchableKeys: string[]; // frontmatter values indexed as searchable meta
+  facetKeys: FacetKeyConfig[]; // whitelisted facet keys (+ optional declared type)
+}
 export interface KbConfig {
   sources: SourceConfig[];
   roots?: Array<{ path: string; priority?: number }>; // legacy alias → filesystem sources
@@ -59,6 +65,7 @@ export interface KbConfig {
   dedup: { exactContentCollapse: boolean; preferHigherPriorityRoot: boolean };
   graph: { wikilinks: boolean; headingTree: boolean; frontmatter: boolean };
   directoryLevelAgents: DirectoryLevelAgentsConfig;
+  frontmatter: FrontmatterConfig;
   doxEnforcement: boolean; // opt-in Phase-2 hook Job 2 (default OFF)
   ranking: RankingConfig;
   expand: ExpandConfig;
@@ -101,6 +108,7 @@ export const DEFAULTS: KbConfig = {
   // no per-turn injection. Push mode stays gated behind the context-cost spike
   // (see change migrate-file-index-to-agents-tree design §5).
   directoryLevelAgents: { enabled: true, claudeMd: true, mode: "pull", fallbackManifest: true },
+  frontmatter: { searchableKeys: DEFAULT_SEARCHABLE_KEYS, facetKeys: DEFAULT_FACET_KEYS },
   doxEnforcement: false,
   ranking: { fieldWeights: { headingPath: 10, heading: 3, body: 1 }, proximityBoost: true, diversity: { enabled: true, lambda: 0.7 } },
   expand: { parent: true, graph: false },
@@ -111,7 +119,17 @@ export const DEFAULTS: KbConfig = {
 
 // Nested object keys that need one-level field fill-in (not wholesale replace),
 // so a partial `{ranking:{proximityBoost:false}}` keeps default fieldWeights/diversity.
-const NESTED_KEYS = ["chunking", "dedup", "graph", "directoryLevelAgents", "ranking", "expand", "rerank", "queryExpansion"] as const;
+const NESTED_KEYS = ["chunking", "dedup", "graph", "directoryLevelAgents", "frontmatter", "ranking", "expand", "rerank", "queryExpansion"] as const;
+
+/** Stable hash of the frontmatter routing config. A change forces a full reindex
+ *  (design D6) since existing property rows/meta chunks reflect the old routing. */
+export function frontmatterConfigHash(fm: FrontmatterConfig): string {
+  const norm = {
+    searchableKeys: [...fm.searchableKeys].sort(),
+    facetKeys: [...fm.facetKeys].map((f) => ({ key: f.key, type: f.type ?? "string" })).sort((a, b) => a.key.localeCompare(b.key)),
+  };
+  return createHash("sha256").update(JSON.stringify(norm)).digest("hex").slice(0, 16);
+}
 
 /** Layer configs left→right, deep-merging the known nested object keys. */
 export function mergeConfig(...layers: Array<Partial<KbConfig> | null | undefined>): Partial<KbConfig> {
@@ -142,6 +160,13 @@ export function validateConfig(c: Partial<KbConfig>, origin = "config"): KbConfi
   if (typeof merged.maxFileCount !== "number" && merged.maxFileCount !== null) throw err("maxFileCount must be a number or null");
   if (typeof merged.dbPath !== "string" || !merged.dbPath) throw err("dbPath must be a non-empty string");
   if (!/^(off|prf|synonym|agent)$/.test(merged.queryExpansion.mode)) throw err(`queryExpansion.mode "${merged.queryExpansion.mode}" unknown`);
+  const fm = merged.frontmatter;
+  if (!fm || !Array.isArray(fm.searchableKeys) || fm.searchableKeys.some((k) => typeof k !== "string")) throw err("frontmatter.searchableKeys must be a string array");
+  if (!Array.isArray(fm.facetKeys)) throw err("frontmatter.facetKeys must be an array");
+  for (const f of fm.facetKeys) {
+    if (typeof f !== "object" || f === null || typeof f.key !== "string") throw err("each frontmatter.facetKeys entry needs a string `key`");
+    if (f.type != null && !/^(string|number|date)$/.test(f.type)) throw err(`frontmatter facet key "${f.key}" has unknown type "${f.type}"`);
+  }
   return merged;
 }
 

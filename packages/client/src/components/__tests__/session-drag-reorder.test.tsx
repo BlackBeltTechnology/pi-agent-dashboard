@@ -3,8 +3,8 @@ import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { SessionList } from "../SessionList.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { SessionList } from "../session/SessionList.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {

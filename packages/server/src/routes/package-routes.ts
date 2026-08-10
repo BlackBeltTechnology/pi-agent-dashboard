@@ -1,18 +1,27 @@
 /**
  * REST routes for pi package management: search, readme, installed, install, remove, update, check-updates.
  */
-import type { FastifyInstance } from "fastify";
+
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { PackageManagerWrapper, PackageEntry } from "../package-manager-wrapper.js";
+import type { FastifyInstance } from "fastify";
 import {
-  PackageOperationBusyError,
+  attachPublishedVariants,
+  enrichInstalledRows,
+  resolvePublishedVariant,
+} from "../package/installed-package-enricher.js";
+import { fetchPackageMeta, fetchReadme, PackageNotFoundError, searchPackages } from "../package/npm-search-proxy.js";
+import type { PackageEntry, PackageManagerWrapper } from "../package/package-manager-wrapper.js";
+import {
   AlreadyAtDestinationError,
   InvalidMoveRequestError,
+  InvalidResetRequestError,
+  PackageOperationBusyError,
   UnsupportedSourceForDestinationError,
-} from "../package-manager-wrapper.js";
-import { parseSourceKind } from "../package-source-helpers.js";
-import { searchPackages, fetchReadme, PackageNotFoundError } from "../npm-search-proxy.js";
-import { enrichInstalledRows } from "../installed-package-enricher.js";
+} from "../package/package-manager-wrapper.js";
+import { parseSourceKind } from "../package/package-source-helpers.js";
+
+/** npm-name lookup used for published-variant resolution. Cached in npm-search-proxy. */
+const lookupNpm = (name: string) => fetchPackageMeta(name);
 
 export function registerPackageRoutes(
   fastify: FastifyInstance,
@@ -70,6 +79,10 @@ export function registerPackageRoutes(
       try {
         const packages = await packageManagerWrapper.listInstalled(scope, cwd);
         const enriched = enrichInstalledRows(packages as any);
+        // Attach publishedVariantSource/Version for local/git rows with a
+        // resolvable published variant (recommended → offline; non-recommended
+        // → cached npm lookup). Never blocks the list. See change: reset-override-to-npm.
+        await attachPublishedVariants(enriched, { lookupNpm });
         return { success: true, data: enriched } satisfies ApiResponse;
       } catch (err: any) {
         return { success: false, error: err.message } satisfies ApiResponse;
@@ -225,6 +238,58 @@ export function registerPackageRoutes(
       return { success: false, error: err?.message ?? String(err) } satisfies ApiResponse;
     }
   });
+
+  // Reset a source-override package back to its published npm/git variant
+  // (see change: reset-override-to-npm). Install-first / remove-second, atomic.
+  fastify.post<{ Body: { source?: string; scope?: string; cwd?: string } }>(
+    "/api/packages/reset-to-npm",
+    async (request, reply) => {
+      const { source, cwd } = request.body ?? {};
+      const scope = request.body?.scope === "local" ? "local" as const : "global" as const;
+      if (!source) {
+        reply.code(400);
+        return { success: false, error: "source is required" } satisfies ApiResponse;
+      }
+      // Authoritative server-side resolution: find the installed row and
+      // resolve its published variant. Never trust a client-supplied target.
+      try {
+        const packages = await packageManagerWrapper.listInstalled(scope, cwd);
+        const enriched = enrichInstalledRows(packages as any);
+        const row = enriched.find((p) => p.source === source);
+        if (!row) {
+          reply.code(400);
+          return { success: false, error: `source is not installed in ${scope} scope` } satisfies ApiResponse;
+        }
+        const variant = await resolvePublishedVariant(row, { lookupNpm });
+        if (!variant) {
+          reply.code(400);
+          return { success: false, error: "no published variant resolves for this source" } satisfies ApiResponse;
+        }
+        const resetId = await packageManagerWrapper.reset({
+          source,
+          publishedSource: variant.source,
+          scope,
+          cwd,
+        });
+        reply.code(202);
+        return {
+          success: true,
+          data: { resetId, publishedSource: variant.source, phases: ["install", "remove"] as const },
+        } satisfies ApiResponse;
+      } catch (err: any) {
+        if (err instanceof InvalidResetRequestError) {
+          reply.code(400);
+          return { success: false, error: err.message, code: "invalid_request" } as any;
+        }
+        if (err instanceof PackageOperationBusyError) {
+          reply.code(409);
+          return { success: false, error: err.message, code: "operation_in_flight" } as any;
+        }
+        reply.code(500);
+        return { success: false, error: err?.message ?? String(err) } satisfies ApiResponse;
+      }
+    },
+  );
 
   fastify.post<{ Body: { cwd?: string } }>(
     "/api/packages/check-updates",

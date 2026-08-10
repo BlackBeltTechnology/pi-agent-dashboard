@@ -4,11 +4,15 @@
  * Single contribution at v1: a settings-section that shows peer-probe state
  * across reporting pi sessions and exposes the two env-var toggles.
  */
-import React, { useEffect, useState } from "react";
+
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   usePluginConfig,
   usePluginSend,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import React, { useEffect, useState } from "react";
+
+export { catalog } from "./i18n.js";
 
 export interface FlowsAnthropicBridgeConfig {
   forceCanonical: boolean;
@@ -35,6 +39,7 @@ const PEER_FLOWS = "pi-flows";
  * mapped to the package's env-var gate (PI_ANTHROPIC_MESSAGES_*).
  */
 export function FlowsAnthropicBridgeSettings() {
+  const t = useT();
   const config = usePluginConfig<FlowsAnthropicBridgeConfig>();
   const send = usePluginSend();
 
@@ -72,10 +77,24 @@ export function FlowsAnthropicBridgeSettings() {
   const allActive = sessions.length > 0 && sessions.every((s) => s.status === "active");
   const banner =
     sessions.length === 0
-      ? { tone: "muted", msg: "No pi sessions reporting yet. Start a pi session to see status." }
+      ? {
+          tone: "muted",
+          msg: t(
+            "bannerNoSessions",
+            undefined,
+            "No pi sessions reporting yet. Start a pi session to see status.",
+          ),
+        }
       : allActive
-      ? { tone: "ok", msg: "Bridge active in all pi sessions." }
-      : { tone: "warn", msg: "One or more peers unavailable. See per-session detail below." };
+      ? { tone: "ok", msg: t("bannerActive", undefined, "Bridge active in all pi sessions.") }
+      : {
+          tone: "warn",
+          msg: t(
+            "bannerDegraded",
+            undefined,
+            "One or more peers unavailable. See per-session detail below.",
+          ),
+        };
 
   const tone =
     banner.tone === "ok"
@@ -96,16 +115,20 @@ export function FlowsAnthropicBridgeSettings() {
     >
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "8px" }}>
         <h3 style={{ fontSize: "13px", fontWeight: 600, margin: 0 }}>
-          pi-flows · Anthropic Messages Bridge
+          {t("heading", undefined, "pi-flows · Anthropic Messages Bridge")}
         </h3>
         <span style={{ fontSize: "10px", color: "#71717a" }}>flows-anthropic-bridge</span>
       </div>
 
       <p style={{ fontSize: "11px", color: "#a1a1aa", margin: "0 0 8px 0" }}>
-        Forwards <code>@pi/anthropic-messages</code> hooks into every pi-flows
-        agent subprocess. Activates only when both peers (
-        <code>@pi/anthropic-messages</code> and <code>pi-flows</code>) resolve
-        in the pi process.
+        {t("descForwards", undefined, "Forwards")} <code>@pi/anthropic-messages</code>{" "}
+        {t(
+          "descHooks",
+          undefined,
+          "hooks into every pi-flows agent subprocess. Activates only when both peers (",
+        )}
+        <code>@pi/anthropic-messages</code> {t("descAnd", undefined, "and")}{" "}
+        <code>pi-flows</code>{t("descResolve", undefined, ") resolve in the pi process.")}
       </p>
 
       <div
@@ -137,7 +160,7 @@ export function FlowsAnthropicBridgeSettings() {
             opacity: refreshing ? 0.5 : 1,
           }}
         >
-          {refreshing ? "…" : "Refresh"}
+          {refreshing ? "…" : t("refresh", undefined, "Refresh")}
         </button>
       </div>
 
@@ -153,7 +176,7 @@ export function FlowsAnthropicBridgeSettings() {
           <thead>
             <tr style={{ textAlign: "left", color: "#a1a1aa" }}>
               <th style={{ padding: "2px 4px" }}>PID</th>
-              <th style={{ padding: "2px 4px" }}>Status</th>
+              <th style={{ padding: "2px 4px" }}>{t("colStatus", undefined, "Status")}</th>
               <th style={{ padding: "2px 4px" }}>{PEER_AM}</th>
               <th style={{ padding: "2px 4px" }}>{PEER_FLOWS}</th>
             </tr>
@@ -166,12 +189,12 @@ export function FlowsAnthropicBridgeSettings() {
                 <td style={{ padding: "2px 4px" }}>
                   {s.peers?.[PEER_AM]?.ok
                     ? "✓"
-                    : `✗ ${s.peers?.[PEER_AM]?.reason ?? "missing"}`}
+                    : `✗ ${s.peers?.[PEER_AM]?.reason ?? t("peerMissing", undefined, "missing")}`}
                 </td>
                 <td style={{ padding: "2px 4px" }}>
                   {s.peers?.[PEER_FLOWS]?.ok
                     ? "✓"
-                    : `✗ ${s.peers?.[PEER_FLOWS]?.reason ?? "missing"}`}
+                    : `✗ ${s.peers?.[PEER_FLOWS]?.reason ?? t("peerMissing", undefined, "missing")}`}
                 </td>
               </tr>
             ))}
@@ -180,7 +203,9 @@ export function FlowsAnthropicBridgeSettings() {
       )}
 
       <fieldset style={{ border: "none", padding: 0, margin: 0, fontSize: "11px" }}>
-        <legend style={{ fontSize: "11px", color: "#a1a1aa", padding: 0 }}>Gate overrides</legend>
+        <legend style={{ fontSize: "11px", color: "#a1a1aa", padding: 0 }}>
+          {t("gateOverrides", undefined, "Gate overrides")}
+        </legend>
 
         <label style={{ display: "flex", gap: "6px", alignItems: "center", marginBottom: "4px" }}>
           <input
@@ -189,7 +214,7 @@ export function FlowsAnthropicBridgeSettings() {
             checked={draft.forceCanonical}
             onChange={(e) => setDraft({ ...draft, forceCanonical: e.target.checked })}
           />
-          Force gate open (any anthropic-messages model — sets{" "}
+          {t("forceLabel", undefined, "Force gate open (any anthropic-messages model — sets")}{" "}
           <code>PI_ANTHROPIC_MESSAGES_FORCE_CANONICAL</code>)
         </label>
 
@@ -200,7 +225,8 @@ export function FlowsAnthropicBridgeSettings() {
             checked={draft.disableCanonical}
             onChange={(e) => setDraft({ ...draft, disableCanonical: e.target.checked })}
           />
-          Disable bridge entirely (sets <code>PI_ANTHROPIC_MESSAGES_DISABLE_CANONICAL</code>)
+          {t("disableLabel", undefined, "Disable bridge entirely (sets")}{" "}
+          <code>PI_ANTHROPIC_MESSAGES_DISABLE_CANONICAL</code>)
         </label>
 
         <button
@@ -223,7 +249,7 @@ export function FlowsAnthropicBridgeSettings() {
             cursor: "pointer",
           }}
         >
-          Save
+          {t("save", undefined, "Save")}
         </button>
       </fieldset>
     </section>

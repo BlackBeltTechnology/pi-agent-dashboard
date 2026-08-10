@@ -12,12 +12,15 @@ export default defineConfig({
   test: {
     projects: [
       "packages/shared",
+      "packages/bus-client",
       "packages/document-converter",
       "packages/session-distiller",
       "packages/server",
       "packages/extension",
       "packages/image-fit-extension",
       "packages/mockup-loop",
+      "packages/nano-banana",
+      "packages/video-production",
       "packages/video-transcription",
       "packages/client",
       "packages/client-utils",
@@ -29,6 +32,7 @@ export default defineConfig({
       "packages/flows-anthropic-bridge-plugin",
       "packages/roles-plugin",
       "packages/subagents-plugin",
+      "packages/goal-plugin",
       "scripts",
       // NOTE: packages/electron is intentionally NOT included here — it has
       // pre-existing orphaned tests that depend on ambient PATH/mocks never

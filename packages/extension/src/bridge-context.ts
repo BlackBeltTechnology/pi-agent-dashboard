@@ -92,12 +92,30 @@ export interface BridgeContext {
 // separately by the `__`-prefix rule. See change: fix-extension-slash-commands-in-dashboard.
 export const DASHBOARD_NATIVE_COMMANDS = new Set(["roles"]);
 
-/** Filter out hidden commands (names starting with __) and dashboard-native commands from commands list */
+/**
+ * Filter out hidden commands (names starting with __) and dashboard-native
+ * commands from the commands list, and fill in `CommandInfo.path` from pi's
+ * `sourceInfo.path`.
+ *
+ * The path mapping lives here, not at a sender, because all five
+ * `commands_list` senders pass through this one function (session register,
+ * spawn, flow rediscovery, `session_start` reload, `request_commands`). The
+ * server retains the *latest* list, so a sender that skipped the mapping would
+ * replace a good list with a path-less one and flip every skill to
+ * `not-loaded`. `sourceInfo` is a pi-internal shape, so its absence is
+ * tolerated rather than assumed. See change: fix-skill-discovery-parity.
+ */
 export function filterHiddenCommands(commands: any[]): any[] {
-  return commands.filter((cmd) =>
-    !cmd.name.startsWith("__") &&
-    !DASHBOARD_NATIVE_COMMANDS.has(cmd.name)
-  );
+  return commands
+    .filter((cmd) =>
+      !cmd.name.startsWith("__") &&
+      !DASHBOARD_NATIVE_COMMANDS.has(cmd.name)
+    )
+    .map((cmd) => {
+      const sourcePath = cmd?.sourceInfo?.path;
+      if (cmd?.path !== undefined || typeof sourcePath !== "string") return cmd;
+      return { ...cmd, path: sourcePath };
+    });
 }
 
 /**
@@ -189,6 +207,51 @@ export function extractFirstMessage(ctx: any): string | undefined {
     }
   } catch { /* ignore */ }
   return undefined;
+}
+
+/**
+ * Extract the first assistant reply text from session entries. Used to build
+ * the bounded transcript window fed to the auto-naming summarizer.
+ * See change: add-auto-session-naming.
+ */
+export function extractFirstAssistantReply(ctx: any): string | undefined {
+  try {
+    const entries = ctx?.sessionManager?.getEntries?.();
+    if (!entries || !Array.isArray(entries)) return undefined;
+    for (const entry of entries) {
+      if (entry.role !== "assistant") continue;
+      if (typeof entry.content === "string") return entry.content.slice(0, 2000);
+      if (Array.isArray(entry.content)) {
+        let text = "";
+        for (const part of entry.content) {
+          if (part?.type === "text" && typeof part.text === "string") text += part.text;
+        }
+        if (text) return text.slice(0, 2000);
+      }
+    }
+  } catch { /* ignore */ }
+  return undefined;
+}
+
+/**
+ * Defensive read of pi's `ctx.cwd` guarded getter. That getter throws once the
+ * session is replaced (new/fork/resume/reload). During a `session_start` for a
+ * replacement, `handleSessionChange(ctx)` runs BEFORE `connection.connect()`;
+ * an un-guarded `ctx.cwd` read there throws, the bridge's `safe()` wrapper
+ * swallows it, `connect()` is skipped, and the socket the preceding
+ * `session_shutdown` closed stays terminally down — the #393 permanent
+ * disconnect. Reading through `safeCwd` yields `process.cwd()` on a throw so the
+ * re-registration path always reaches `connect()`. See change:
+ * fix-bridge-resume-disconnect.
+ */
+export function safeCwd(ctx: unknown): string {
+  try {
+    const c = (ctx as { cwd?: unknown } | null | undefined)?.cwd;
+    if (typeof c === "string") return c;
+  } catch {
+    /* guarded getter threw — session was replaced */
+  }
+  return process.cwd();
 }
 
 /** Get current model string (provider/id) from cached context */

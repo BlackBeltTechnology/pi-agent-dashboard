@@ -1,12 +1,12 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { type ChatMessage, createInitialState, type PendingPrompt } from "../../lib/event-reducer.js";
-import { ChatView } from "../ChatView.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { type ChatMessage, createInitialState, type PendingPrompt } from "../../lib/chat/event-reducer.js";
+import { ChatView } from "../chat/ChatView.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
-const defaultToolContext: ToolContext = { editors: [] };
+const defaultToolContext: ToolContext = {};
 
 beforeAll(() => {
   // jsdom doesn't implement scrollTo
@@ -266,9 +266,14 @@ describe("ChatView", () => {
       images: [{ data: "abc123", mimeType: "image/png" }],
     });
     const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
+    // The thumbnail is wrapped in a real <button> so the zoom has a keyboard
+    // path; the affordance moved off the <img> with it.
     const img = container.querySelector("img");
     expect(img).not.toBeNull();
-    expect(img!.className).toContain("cursor-pointer");
+    const trigger = img!.closest("button");
+    expect(trigger).not.toBeNull();
+    expect(trigger!.className).toContain("cursor-pointer");
+    // Clicking the image still opens the lightbox — the event bubbles.
     fireEvent.click(img!);
     const lightbox = document.body.querySelector("[data-testid='lightbox-backdrop']");
     expect(lightbox).not.toBeNull();
@@ -441,7 +446,7 @@ describe("ChatView", () => {
     it("scrollToTurn disables sticky bottom so streaming does not pull the view away", async () => {
       const state = stateWithMessages([{ id: "1", role: "user", content: "Hello" }]);
       state.messages[0] = { ...state.messages[0], turnIndex: 0 };
-      const chatRef = React.createRef<import("../ChatView.js").ChatViewHandle>();
+      const chatRef = React.createRef<import("../chat/ChatView.js").ChatViewHandle>();
       const { container, rerender } = render(
         <ThemeProvider>
           <ChatView ref={chatRef} state={state} toolContext={defaultToolContext} />
@@ -513,7 +518,7 @@ describe("ChatView", () => {
     it("does not render retry-banner when retryState is set", () => {
       const state = {
         ...createInitialState(),
-        retryState: { attempt: 1, maxAttempts: 3, delayMs: 2000, reason: "rate limit", startedAt: 0 },
+        retryState: { attempt: 1, maxAttempts: 3, delayMs: 2000, waiting: false, reason: "rate limit", startedAt: 0 },
       };
       const { container } = render(
         <ThemeProvider>
@@ -585,7 +590,7 @@ describe("ChatView", () => {
     it("chat view stays banner-free even when both retryState and lastError are set", () => {
       const state = {
         ...createInitialState(),
-        retryState: { attempt: 2, maxAttempts: 3, delayMs: 4000, reason: "x", startedAt: 0 },
+        retryState: { attempt: 2, maxAttempts: 3, delayMs: 4000, waiting: false, reason: "x", startedAt: 0 },
         lastError: { message: "boom", timestamp: 0 },
       };
       const { container } = render(

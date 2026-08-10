@@ -1,9 +1,22 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 import { ConfirmRenderer } from "../interactive-renderers/ConfirmRenderer.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 afterEach(cleanup);
+
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(prefers-color-scheme: dark)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  });
+});
 
 const baseProps = {
   requestId: "req-1",
@@ -76,5 +89,35 @@ describe("ConfirmRenderer", () => {
       render(<ConfirmRenderer {...baseProps} status="dismissed" onRespond={vi.fn()} onCancel={vi.fn()} />);
       expect(screen.getByText("Answered in terminal")).toBeTruthy();
     });
+  });
+});
+
+describe("ConfirmRenderer — resolved shows message body (change: fix-ask-user-card-duplication)", () => {
+  const MSG = "Please review carefully.";
+  it("renders params.message in the resolved state", () => {
+    render(
+      <ThemeProvider>
+        <ConfirmRenderer
+        requestId="r" method="confirm"
+        params={{ title: "Initialize git?", message: MSG }}
+        status="resolved" result={{ confirmed: true }}
+        onRespond={vi.fn()} onCancel={vi.fn()}
+      />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText(MSG)).toBeTruthy();
+  });
+  it("renders no message body when params.message is absent", () => {
+    render(
+      <ThemeProvider>
+        <ConfirmRenderer
+        requestId="r" method="confirm"
+        params={{ title: "Initialize git?" }}
+        status="resolved" result={{ confirmed: true }}
+        onRespond={vi.fn()} onCancel={vi.fn()}
+      />
+      </ThemeProvider>,
+    );
+    expect(screen.queryByText(MSG)).toBeNull();
   });
 });

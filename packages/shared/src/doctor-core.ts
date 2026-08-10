@@ -77,6 +77,12 @@ export interface DoctorCheck {
   status: DoctorStatus;
   section: DoctorSection;
   message: string;
+  // See change: make-all-ui-text-i18n — optional code-mapping fields let the
+  // web client translate STABLE check messages via `resolveServerMessage`.
+  // `message` stays the English fallback; `code` maps to `err.<code>` and
+  // `vars` supply interpolation values. Absent on pure data-readout rows.
+  code?: string;
+  vars?: Record<string, string | number>;
   detail?: string;
   suggestion?: string;
   fixable?: boolean;
@@ -119,6 +125,10 @@ export interface SafeExecErr {
   ok: false;
   kind: ExecFailureKind;
   message: string;
+  // See change: make-all-ui-text-i18n — coded classifier + vars propagated
+  // into the consuming DoctorCheck so the message can be translated.
+  code?: string;
+  vars?: Record<string, string | number>;
   detail: string;
   exitCode?: number;
   stderrTail?: string;
@@ -177,6 +187,7 @@ function classifyExecError(err: unknown, cmd: string, timeoutMs: number): SafeEx
       ok: false,
       kind: "not-found",
       message: "Command not found",
+      code: "doctor.command_not_found",
       detail: `${cmd}\n${baseMsg}`,
       stderrTail: stderrTail || undefined,
       timeoutMs,
@@ -188,6 +199,7 @@ function classifyExecError(err: unknown, cmd: string, timeoutMs: number): SafeEx
       ok: false,
       kind: "permission-denied",
       message: "Permission denied",
+      code: "doctor.permission_denied",
       detail: `${cmd}\n${baseMsg}`,
       stderrTail: stderrTail || undefined,
       timeoutMs,
@@ -200,10 +212,13 @@ function classifyExecError(err: unknown, cmd: string, timeoutMs: number): SafeEx
     errno === -2 ||
     /timed?\s*out/i.test(baseMsg)
   ) {
+    const seconds = Math.round(timeoutMs / 1000);
     return {
       ok: false,
       kind: "timeout",
-      message: `Command did not respond within ${Math.round(timeoutMs / 1000)}s`,
+      message: `Command did not respond within ${seconds}s`,
+      code: "doctor.command_timeout",
+      vars: { seconds },
       detail: `${cmd}\nDeadline: ${timeoutMs}ms`,
       stderrTail: stderrTail || undefined,
       timeoutMs,
@@ -215,6 +230,8 @@ function classifyExecError(err: unknown, cmd: string, timeoutMs: number): SafeEx
       ok: false,
       kind: "non-zero-exit",
       message: `Command exited with status ${status}`,
+      code: "doctor.command_exit_status",
+      vars: { status },
       detail: `${cmd}${stdoutRaw ? `\nstdout: ${stripAnsi(stdoutRaw).slice(-200)}` : ""}`,
       exitCode: status,
       stderrTail: stderrTail || undefined,
@@ -226,6 +243,7 @@ function classifyExecError(err: unknown, cmd: string, timeoutMs: number): SafeEx
     ok: false,
     kind: "unknown",
     message: "Command failed",
+    code: "doctor.command_failed",
     detail: `${cmd}\n${baseMsg}`,
     stderrTail: stderrTail || undefined,
     timeoutMs,
@@ -257,6 +275,7 @@ export async function safeCheck(
       section,
       status: "error",
       message: "Check failed to run",
+      code: "doctor.check_failed_to_run",
       detail: `${e.message}\n${stack}`,
       suggestion:
         "This is a doctor-internal failure. Please file an issue with the Markdown export attached.",
@@ -298,6 +317,7 @@ export function assumedMandatory<T>(
         section: "diagnostics",
         status: "error",
         message: "An assumed-safe operation failed",
+        code: "doctor.assumed_safe_operation_failed",
         detail: `${e.message}\n${(e.stack || "").split("\n").slice(0, 4).join("\n")}`,
         suggestion:
           "Open `~/.pi-dashboard/doctor.log` for full context, then file an issue with the Markdown export attached.",
@@ -389,6 +409,7 @@ export const SECTION_OF: Record<string, DoctorSection> = {
   "zrok binary": "tunnel",
   "zrok environment": "tunnel",
   "zrok API reachable": "tunnel",
+  "zrok version compatible": "tunnel",
   "tunnel runtime": "tunnel",
   // diagnostics
   "Legacy install directory": "diagnostics",
@@ -518,7 +539,7 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
   "zrok binary": (status) =>
     status === "ok"
       ? undefined
-      : `\`zrok\` not found on this machine. Install it: on macOS \`brew install zrok\`; on Linux/Windows see [zrok.io/docs/getting-started](https://docs.zrok.io/docs/getting-started/). Restart the dashboard after install so the binary is picked up.`,
+      : `\`zrok\` (or \`zrok2\`) not found on this machine. Install v2: on macOS \`brew install zrok\`; on Linux/Windows download the \`zrok2\` binary — see [docs.zrok.io](https://docs.zrok.io/docs/getting-started/). Restart the dashboard after install so the binary is picked up.`,
   "zrok environment": (status) =>
     status === "ok"
       ? undefined
@@ -526,7 +547,11 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
   "zrok API reachable": (status) =>
     status === "ok"
       ? undefined
-      : "DNS lookup of `api-v1.zrok.io` failed. Check your network connection, DNS resolver, and any VPN or corporate proxy. The tunnel cannot start until this host resolves.",
+      : "DNS lookup of `api-v2.zrok.io` (or the enrolled `api_endpoint`) failed. Check your network connection, DNS resolver, and any VPN or corporate proxy. The tunnel cannot start until this host resolves.",
+  "zrok version compatible": (status) =>
+    status === "ok"
+      ? undefined
+      : "Your zrok client is too old (v1, `0.4.x`) for the hosted `api-v2.zrok.io`, which returns HTTP 500 on enable/share. Upgrade to v2: `brew upgrade zrok` (macOS) or re-download the `zrok2` binary.",
   "tunnel runtime": (status) =>
     status === "ok"
       ? undefined
@@ -572,6 +597,20 @@ export async function defaultDnsLookup(host: string, timeoutMs: number): Promise
   });
 }
 
+/**
+ * Parse the major version from `zrok version` stdout. Accepts an optional
+ * leading `v` and any surrounding text (e.g. `zrok v2.0.4`, `v0.4.51`,
+ * `2.0.0-rc.1`). Returns the integer major, or `null` when no semver-shaped
+ * token is present (garbage → caller warns "unknown"). See change:
+ * support-zrok-v2.
+ */
+export function parseZrokMajor(out: string): number | null {
+  const m = out.match(/\bv?(\d+)\.(\d+)\.(\d+)(?:[-.][0-9A-Za-z.-]+)?\b/);
+  if (!m) return null;
+  const major = parseInt(m[1], 10);
+  return Number.isFinite(major) ? major : null;
+}
+
 // ─── Attached-server version skew (Electron arm only) ────────────
 
 /** Minimal `/api/health` shape the version-skew check consumes. */
@@ -609,6 +648,7 @@ export async function checkAttachedServerVersion(
       section: "setup",
       status: "error",
       message: "Attached dashboard server is unreachable or reports no version",
+      code: "doctor.attached_server_unreachable",
       detail: "GET /api/health returned no response or a body without a `version` field",
       suggestion:
         "Confirm a dashboard server is running on the configured port, then re-run Doctor.",
@@ -620,6 +660,8 @@ export async function checkAttachedServerVersion(
       section: "setup",
       status: "ok",
       message: `Server and app bundle both v${health.version}`,
+      code: "doctor.server_app_version_match",
+      vars: { version: health.version },
     };
   }
   const ls = health.launchSource;
@@ -644,6 +686,8 @@ export async function checkAttachedServerVersion(
     section: "setup",
     status: "warning",
     message: `Dashboard server reports v${health.version}; this app bundle is v${deps.appVersion}`,
+    code: "doctor.server_app_version_skew",
+    vars: { serverVersion: health.version, appVersion: deps.appVersion },
     detail: `launchSource: ${ls ?? "unknown"}`,
     suggestion,
   };
@@ -662,6 +706,13 @@ export interface SharedChecksDeps {
    * which binary will be invoked.
    */
   resolveZrokBinary?: () => { found: boolean; path?: string };
+  /**
+   * Test seam for the `zrok version compatible` check. Given the resolved
+   * binary path, returns the raw `zrok version` stdout. Defaults to
+   * `safeExec("<path>" version)`. Only invoked when `resolveZrokBinary`
+   * reports a found binary — the check NEVER spawns on a missing binary.
+   */
+  runZrokVersion?: (binPath: string) => { ok: boolean; stdout: string };
   /**
    * Test seam for the `zrok API reachable` check. Defaults to
    * `dns.promises.lookup` with a 3000 ms hard cap. Should resolve on
@@ -736,6 +787,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           section: "runtime",
           status: "warning",
           message: "Not found on PATH (bundled Node will be used)",
+          code: "doctor.node_not_on_path",
           detail: "PATH searched without success",
         };
       }
@@ -746,6 +798,8 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           section: "runtime",
           status: "warning",
           message: ver.message,
+          code: ver.code,
+          vars: ver.vars,
           detail: `${ver.detail}${ver.stderrTail ? `\nstderr: ${ver.stderrTail}` : ""}`,
           kind: ver.kind,
         };
@@ -769,6 +823,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           section: "pi-tooling",
           status: "error",
           message: "Library not found — dashboard cannot spawn agent sessions",
+          code: "doctor.lib_not_found_pi",
           detail: "Searched override, bundled (server/node_modules), managed install, and system PATH",
           fixable: true,
         };
@@ -796,6 +851,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
             section: "pi-tooling",
             status: "warning",
             message: "Not on $PATH — `pi` won't run from a fresh terminal",
+            code: "doctor.pi_not_on_path",
             detail: "Dashboard-spawned sessions still work (the dashboard injects PATH for them). Manual `pi` invocation in any other shell does not.",
             fixable: true,
           };
@@ -820,6 +876,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           section: "pi-tooling",
           status: "warning",
           message: "Library not found — dashboard-internal OpenSpec workflows disabled",
+          code: "doctor.lib_not_found_openspec",
           detail: "Searched override, bundled (server/node_modules), managed install, and system PATH",
           fixable: true,
         };
@@ -847,6 +904,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
             section: "pi-tooling",
             status: "warning",
             message: "Not on $PATH — `openspec` won't run from a fresh terminal",
+            code: "doctor.openspec_not_on_path",
             detail: "Optional. Needed only for running `openspec` manually in a terminal; dashboard-internal use already covered by the library row above.",
             fixable: true,
           };
@@ -945,6 +1003,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
         section: "server",
         status: "error",
         message: "Not found — required to run the dashboard server",
+        code: "doctor.ts_loader_not_found",
         detail: `Looked under ${managedJitiPkg}, ${managedTsxPkg}, bundled (server/node_modules), and on PATH`,
         fixable: true,
       };
@@ -960,6 +1019,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           section: "server",
           status: "warning",
           message: "Not probed (no probe configured)",
+          code: "doctor.server_not_probed",
           detail: "deps.probeServer was not provided",
         };
       }
@@ -970,6 +1030,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           section: "server",
           status: "warning",
           message: "Not running — will be started automatically when needed",
+          code: "doctor.server_not_running",
           detail: "GET http://localhost:8000/api/health returned no response",
         };
       }
@@ -1002,6 +1063,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
         section: "server",
         status: "warning",
         message: "Last entries:",
+        code: "doctor.server_log_last_entries",
         detail: result.value,
       });
     }
@@ -1026,6 +1088,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           message: has
             ? "Configured"
             : "Not configured — pi sessions will need a credential to use LLM providers",
+          code: has ? "doctor.api_key_configured" : "doctor.api_key_not_configured",
           detail: has ? undefined : `Inspected: ${files.join(", ")}`,
         };
       }),
@@ -1046,6 +1109,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
             section: "tunnel",
             status: "warning",
             message: "Not found — public tunnel button cannot be used",
+            code: "doctor.zrok_binary_not_found",
             detail: "Searched override, managed install, and system PATH",
           };
         }
@@ -1069,6 +1133,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           section: "tunnel",
           status: "warning",
           message: "Not enrolled — public tunnel cannot start",
+          code: "doctor.zrok_not_enrolled",
           detail: r.reason ?? "No zrok environment file present",
         };
       }
@@ -1081,20 +1146,29 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
     }),
   );
 
-  // zrok API reachable — DNS probe of api-v1.zrok.io with 3s cap.
-  // This is the check that catches transient DNS failures during
-  // `zrok reserve` that are otherwise invisible to the user (the only
-  // signal is a spinning Tunnel button and a buried server.log line).
+  // zrok API reachable — DNS probe of the v2 host (api-v2.zrok.io) with 3s cap,
+  // or the enrolled env's api_endpoint host when present (self-hosted / pinned
+  // controllers). This is a coarse DNS gate; it CANNOT detect the HTTP-500
+  // out-of-date failure mode — the version-compat check below is the actual
+  // root-cause detector. See change: support-zrok-v2.
   checks.push(
     await safeCheck("zrok API reachable", "tunnel", async () => {
       const lookup = deps.dnsLookup ?? defaultDnsLookup;
+      let host = "api-v2.zrok.io";
       try {
-        await lookup("api-v1.zrok.io", 3000);
+        const env = readZrokEnvironment();
+        if (env.found && env.env?.apiEndpoint) {
+          host = new URL(env.env.apiEndpoint).hostname || host;
+        }
+      } catch { /* fall back to the hosted v2 host */ }
+      try {
+        await lookup(host, 3000);
         return {
           name: "zrok API reachable",
           section: "tunnel",
           status: "ok",
-          message: "DNS lookup of api-v1.zrok.io succeeded",
+          message: `DNS lookup of ${host} succeeded`,
+          code: "doctor.zrok_dns_ok",
         };
       } catch (err: any) {
         const reason = err?.message ?? String(err);
@@ -1102,12 +1176,72 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           name: "zrok API reachable",
           section: "tunnel",
           status: "warning",
-          message: "DNS lookup of api-v1.zrok.io failed",
+          message: `DNS lookup of ${host} failed`,
+          code: "doctor.zrok_dns_failed",
           detail: reason,
         };
       }
     }),
   );
+
+  // zrok version compatible — the REAL root-cause detector for the field 500s.
+  // A too-old (major < 2) client hits `api-v2.zrok.io` and gets HTTP 500 on
+  // enable/share. Short-circuits to `unavailable` when no binary resolves
+  // (never spawns ENOENT). See change: support-zrok-v2.
+  if (deps.resolveZrokBinary) {
+    const runZrokVersion = deps.runZrokVersion;
+    const detectZrok = deps.resolveZrokBinary;
+    checks.push(
+      await safeCheck("zrok version compatible", "tunnel", () => {
+        const bin = detectZrok();
+        if (!bin.found || !bin.path) {
+          // Unavailable: no binary resolves, so NEVER spawn (ENOENT). Report a
+          // non-failing informational row that defers to the 'zrok binary' row
+          // (which already warns) rather than double-counting the warning.
+          return {
+            name: "zrok version compatible",
+            section: "tunnel",
+            status: "ok",
+            message: "zrok not installed — version not checked",
+            code: "doctor.zrok_version_unavailable",
+            detail: "Install zrok (see the 'zrok binary' row) — version cannot be checked until it resolves",
+          };
+        }
+        const raw = runZrokVersion
+          ? runZrokVersion(bin.path)
+          : safeExec(`"${bin.path}" version`, { timeoutMs: 5000 });
+        const out = raw.ok ? raw.stdout : "";
+        const parsed = parseZrokMajor(out);
+        if (parsed === null) {
+          return {
+            name: "zrok version compatible",
+            section: "tunnel",
+            status: "warning",
+            message: "Could not parse zrok version",
+            code: "doctor.zrok_version_unknown",
+            detail: out.trim() ? `Unparseable output: ${out.trim().slice(0, 120)}` : "No version output",
+          };
+        }
+        if (parsed < 2) {
+          return {
+            name: "zrok version compatible",
+            section: "tunnel",
+            status: "warning",
+            message: `${out.trim()} is too old (v1) — hosted api-v2.zrok.io returns HTTP 500`,
+            code: "doctor.zrok_version_too_old",
+            detail: "Upgrade: `brew upgrade zrok` (macOS) or re-download zrok2 from the v2 release. v1 (0.4.x) cannot talk to the v2 API.",
+          };
+        }
+        return {
+          name: "zrok version compatible",
+          section: "tunnel",
+          status: "ok",
+          message: `zrok major v${parsed} (\u2265 2) is compatible`,
+          code: "doctor.zrok_version_ok",
+        };
+      }),
+    );
+  }
 
   // tunnel runtime — consumes the watchdog status when available
   checks.push(
@@ -1118,6 +1252,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           section: "tunnel",
           status: "ok",
           message: "No tunnel data available",
+          code: "doctor.tunnel_no_data",
           detail: "The host process does not run an in-process tunnel watchdog",
         };
       }
@@ -1128,6 +1263,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           section: "tunnel",
           status: "ok",
           message: "No tunnel active",
+          code: "doctor.tunnel_none_active",
           detail: "Click the 🌐 Tunnel button to start one",
         };
       }
@@ -1144,6 +1280,10 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           message: failing
             ? `Probe failing (${wd.consecutiveFailures}/${wd.failureThreshold})`
             : "No successful probe in the last 3 intervals",
+          code: failing ? "doctor.tunnel_probe_failing" : "doctor.tunnel_no_recent_probe",
+          vars: (failing
+            ? { failures: wd.consecutiveFailures, threshold: wd.failureThreshold }
+            : undefined) as Record<string, string | number> | undefined,
           detail: [
             `lastFailureReason: ${wd.lastFailureReason ?? "(none yet)"}`,
             `recycleCount: ${wd.recycleCount}`,
@@ -1156,6 +1296,8 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
         section: "tunnel",
         status: "ok",
         message: `Healthy — ${wd.recycleCount} recycle(s) so far`,
+        code: "doctor.tunnel_healthy",
+        vars: { recycles: wd.recycleCount } as Record<string, string | number>,
         detail: `lastSuccessAt: ${new Date(wd.lastSuccessAt!).toISOString()}`,
       };
     }),
@@ -1201,6 +1343,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
         message: wantHostButBundled
           ? "windowsGitSource is 'host' but git/bash are not on PATH; using bundled fallback"
           : `${readout.gitVersion ?? "git"} ${tag}`,
+        code: wantHostButBundled ? "doctor.git_source_host_fallback" : undefined,
         detail: readout.gitPath ?? "git.exe not resolved",
         suggestion: wantHostButBundled
           ? "Install Git for Windows, or set windowsGitSource to 'auto' / 'bundled'."
@@ -1211,6 +1354,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
         section: "runtime",
         status: readout.shellPath ? "ok" : "warning",
         message: readout.shellPath ? `sh ${tag}` : "no POSIX shell resolved",
+        code: readout.shellPath ? undefined : "doctor.no_posix_shell",
         detail: readout.shellPath ?? "sh.exe / bash.exe not resolved",
       });
     }

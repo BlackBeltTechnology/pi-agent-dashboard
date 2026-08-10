@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createIdleTimer } from "../idle-timer.js";
-import type { PiGateway } from "../pi-gateway.js";
+import { createIdleTimer } from "../spawn-process/idle-timer.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
 import type { ServerConfig } from "../server.js";
 
 // See change: fix-terminal-half-height-dual-mount.
@@ -17,7 +17,6 @@ function makeConfig(): ServerConfig {
     shutdownIdleSeconds: 2,
     tunnel: false,
     pingInterval: 0,
-    editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
   } as ServerConfig;
 }
 

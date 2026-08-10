@@ -1,0 +1,3 @@
+# config-api.ts — index
+
+Config REST helpers: `readConfigRedacted` (redacts `auth.secret`/`providers[].clientSecret` + tunnel provider secrets `tunnel.{reservedToken,zrok.reservedToken,ngrok.authtoken,tailscale.authKey}` — change: add-tunnel-providers), `writeConfigPartial` (deep-merge preserving redacted secrets incl. per-provider tunnel secrets, writes `~/.pi/dashboard/config.json`). `RESTART_FIELDS` = `{port,piPort,bindHost}` → `restartRequired`. Merges auth/tunnel/watchdog/memoryLimits/openspec subsections; propagates `bypassHosts`/`bypassUrls`; eager `refreshModelRegistry`; `setWindowsGitSourceSetting` on valid `windowsGitSource`. Returns `WriteConfigResult`.

@@ -13,7 +13,7 @@ import {
   findChangelogPath,
   readPackageJson,
   deriveChangelogUrl,
-} from "../changelog-fs.js";
+} from "../changelog/changelog-fs.js";
 
 describe("findChangelogPath", () => {
   let tmpRoot: string;

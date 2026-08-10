@@ -9,7 +9,7 @@ import {
   fetchUpdateStatus,
   fetchGlobalOpenSpecConfig,
   subscribeOpenSpecConfigChange,
-} from "../openspec-config-api.js";
+} from "../openspec/openspec-config-api.js";
 
 function mockFetchOnce(body: any, ok = true, status = 200) {
   (globalThis.fetch as any) = vi.fn(async () => ({

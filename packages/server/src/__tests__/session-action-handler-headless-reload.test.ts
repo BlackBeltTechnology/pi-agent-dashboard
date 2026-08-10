@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock spawnPiSession BEFORE importing the handler.
-vi.mock("../process-manager.js", () => ({
+vi.mock("../spawn-process/process-manager.js", () => ({
   spawnPiSession: vi.fn(),
 }));
 vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", () => ({
@@ -17,7 +17,7 @@ import {
   handleHeadlessReload,
   handleSendPrompt,
 } from "../browser-handlers/session-action-handler.js";
-import { spawnPiSession } from "../process-manager.js";
+import { spawnPiSession } from "../spawn-process/process-manager.js";
 
 type SentMessage = { type: string; [k: string]: unknown };
 type InsertedEvent = {

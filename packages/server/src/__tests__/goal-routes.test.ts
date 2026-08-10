@@ -7,18 +7,26 @@
  *
  * See change: add-goals-folder-page (tasks 1.2, 1.4).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { decorateGoalsWithSpend } from "../goal/decorate-goals-spend.js";
+import { createGoalStore, type GoalStore } from "../goal/goal-store.js";
 import { registerGoalRoutes } from "../routes/goal-routes.js";
-import { createGoalStore, type GoalStore } from "../goal-store.js";
 
 const PASSTHRU_GUARD = async () => {};
 
-function makeSessionManager(cwd: string): any {
-  return { listAll: () => [{ id: "s1", cwd, source: "tui" }] };
+function makeSessionManager(cwd: string, costs: Record<string, number> = {}): any {
+  const ids = new Set(["s1", ...Object.keys(costs)]);
+  const sessions = [...ids].map((id) => ({ id, cwd, source: "tui", cost: costs[id] }));
+  return {
+    listAll: () => sessions,
+    get: (id: string) => sessions.find((s) => s.id === id),
+  };
 }
 function makePreferencesStore(): any {
   return { getPinnedDirectories: () => [] };
@@ -46,10 +54,10 @@ describe("goal REST routes", () => {
     await fs.rm(dataDir, { recursive: true, force: true });
   });
 
-  async function setup(spawnGoalSession?: any) {
+  async function setup(spawnGoalSession?: any, sessionManager?: any) {
     fastify = Fastify();
     registerGoalRoutes(fastify, {
-      sessionManager: makeSessionManager(cwd),
+      sessionManager: sessionManager ?? makeSessionManager(cwd),
       preferencesStore: makePreferencesStore(),
       networkGuard: PASSTHRU_GUARD,
       store,
@@ -233,6 +241,53 @@ describe("goal REST routes", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(spawnedFor).toBe(g.id);
+  });
+
+  // See change: fix-goal-detail-turns-and-spend.
+  it("X3: GET record carries server-derived totalSpendUsd", async () => {
+    const sm = makeSessionManager(cwd, { s1: 0.29 });
+    await setup(undefined, sm);
+    const g = await store.create(cwd, { objective: "x" });
+    await store.linkSession(cwd, g.id, "s1");
+    const res = await fastify.inject({ method: "GET", url: `/api/folders/goals?${q()}` });
+    const body = JSON.parse(res.payload);
+    expect(body.data[0].totalSpendUsd).toBeCloseTo(0.29, 10);
+  });
+
+  it("X3: goals_update broadcast payload record carries totalSpendUsd", async () => {
+    const sm = makeSessionManager(cwd, { s1: 0.29 });
+    await setup(undefined, sm);
+    const g = await store.create(cwd, { objective: "x" });
+    await store.linkSession(cwd, g.id, "s1");
+    // Mirror the server.ts subscriber: decorate payload.goals before broadcast.
+    const seen = await new Promise<any[]>((resolve) => {
+      const unsub = store.subscribe((_cwd, payload) => {
+        unsub();
+        resolve(decorateGoalsWithSpend(payload.goals, sm));
+      });
+      void store.update(cwd, g.id, { objective: "x2" });
+    });
+    expect(seen.find((r) => r.id === g.id)?.totalSpendUsd).toBeCloseTo(0.29, 10);
+  });
+
+  it("X2: mutation response is decorated but persisted file has NO totalSpendUsd", async () => {
+    const sm = makeSessionManager(cwd, { s1: 0.29 });
+    await setup(undefined, sm);
+    const g = await store.create(cwd, { objective: "x" });
+    // Link via the route so the cache-aliased response path is exercised.
+    const res = await fastify.inject({
+      method: "POST",
+      url: `/api/folders/goals/${g.id}/sessions?${q()}`,
+      payload: { sessionId: "s1" },
+    });
+    expect(JSON.parse(res.payload).data.totalSpendUsd).toBeCloseTo(0.29, 10);
+    // Flush the debounced write, then inspect the on-disk record.
+    await new Promise((r) => setTimeout(r, 30));
+    const hash = createHash("sha256").update(cwd).digest("hex").slice(0, 12);
+    const raw = JSON.parse(await fs.readFile(path.join(dataDir, `${hash}.json`), "utf-8"));
+    const stored = raw.goals.find((r: any) => r.id === g.id);
+    expect(stored).toBeTruthy();
+    expect("totalSpendUsd" in stored).toBe(false);
   });
 
   it("POST sessions spawn:true → 404 for unknown goal", async () => {

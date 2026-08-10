@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PdfPreview — continuous-scroll viewer mockup</title>
+<style>
+  /* Real dashboard tokens (packages/client/src/index.css :root). NOTE: --bg-canvas
+     is NOT defined in the app today — the current PdfPreview references it and gets
+     no themed gutter. This mockup sets it explicitly to prove the dark-theme fix. */
+  :root {
+    --bg-primary: #0a0a0a;
+    --bg-surface: #2a2a2a;
+    --bg-canvas: #141414;      /* the fix: give the PDF gutter a dark themed bg */
+    --text-primary: #e5e5e5;
+    --text-secondary: #a3a3a3;
+    --text-muted: #585858;
+    --border-secondary: #333333;
+    --accent-blue: #3b82f6;
+  }
+  [data-theme="light"] {
+    --bg-primary: #ffffff;
+    --bg-surface: #f1f1f1;
+    --bg-canvas: #e9e9ec;
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-muted: #a1a1aa;
+    --border-secondary: #e4e4e7;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+
+  /* ── mockup control bar (NOT part of the component — review harness only) ── */
+  .harness {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px; border-bottom: 1px solid var(--border-secondary);
+    background: var(--bg-primary); flex: 0 0 auto;
+  }
+  .harness h1 { font-size: 13px; margin: 0; font-weight: 600; color: var(--text-secondary); }
+  .harness .spacer { flex: 1; }
+  .harness button {
+    font: inherit; font-size: 12px; cursor: pointer;
+    padding: 4px 10px; border-radius: 6px;
+    border: 1px solid var(--border-secondary);
+    background: var(--bg-surface); color: var(--text-primary);
+  }
+  .harness button.active { border-color: var(--accent-blue); color: var(--accent-blue); }
+  .harness .note { font-size: 11px; color: var(--text-muted); }
+
+  /* ── the actual PdfPreview frame ── */
+  .preview { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+  /* AFTER (continuous scroll) — the proposed shape.
+     position:relative parent + absolute inset-0 scroll container (pdfjs requirement). */
+  .pdfHost { position: relative; flex: 1 1 auto; min-height: 0; }
+  .pdfViewerContainer {
+    position: absolute; inset: 0; overflow: auto;
+    background: var(--bg-canvas);              /* the dark-theme fix */
+    padding: 20px 0;
+  }
+  .pdfViewer { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .page {
+    width: min(680px, 88%); aspect-ratio: 8.5 / 11;
+    background: #fdfdfb; color: #1a1a1a;       /* pages keep authored light colour */
+    border-radius: 2px; box-shadow: 0 2px 10px rgba(0,0,0,.55);
+    padding: 46px 54px; overflow: hidden;
+    /* text layer is real, selectable text (not an image) */
+    user-select: text;
+  }
+  .page h2 { font-size: 18px; margin: 0 0 14px; }
+  .page p { font-size: 12.5px; line-height: 1.7; margin: 0 0 11px; color: #333; }
+  .page .pageno { color: #999; font-size: 10px; margin-top: 22px; }
+
+  /* BEFORE (paged) — shown for contrast. Single page + Prev/Next toolbar. */
+  .pagedToolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-bottom: 1px solid var(--border-secondary);
+    font-size: 12px; flex: 0 0 auto;
+  }
+  .pagedToolbar button {
+    font: inherit; padding: 2px 8px; border-radius: 4px;
+    border: 1px solid var(--border-secondary); background: var(--bg-surface); color: var(--text-primary);
+  }
+  .pagedToolbar .count { color: var(--text-muted); }
+  .pagedBody { flex: 1 1 auto; min-height: 0; overflow: auto; background: var(--bg-canvas);
+    display: flex; justify-content: center; padding: 20px; }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="harness">
+    <h1>PdfPreview mockup</h1>
+    <span class="note">review harness — the bar below is NOT part of the component</span>
+    <span class="spacer"></span>
+    <button id="btnAfter" class="active" onclick="setMode('after')">AFTER · continuous scroll</button>
+    <button id="btnBefore" onclick="setMode('before')">BEFORE · paged</button>
+    <button id="btnTheme" onclick="toggleTheme()">Toggle theme</button>
+  </div>
+
+  <!-- ══ AFTER: proposed continuous-scroll viewer ══ -->
+  <div class="preview" id="after">
+    <div class="pdfHost">
+      <div class="pdfViewerContainer">
+        <div class="pdfViewer" id="pages"><!-- pages injected --></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ BEFORE: current paged canvas (for contrast) ══ -->
+  <div class="preview" id="before" hidden>
+    <div class="pagedToolbar">
+      <button onclick="paged(-1)">Prev</button>
+      <span class="count" id="pagedCount">Page 1 of 8</span>
+      <button onclick="paged(1)">Next</button>
+    </div>
+    <div class="pagedBody"><div class="page" id="pagedPage"></div></div>
+  </div>
+
+<script>
+  const TITLES = [
+    "Continuous Scroll Design Note",
+    "Virtualized Rendering",
+    "Text Layer & Find",
+    "Container Sizing Contract",
+    "Dark Theme Integration",
+    "Contract Preservation",
+    "Bundle Hygiene",
+    "Rollout & Verification",
+  ];
+  const LOREM = [
+    "The proposed viewer stacks every page in one scroll container so the reader flows through the document without clicking Prev or Next. Rendering stays virtualized — only pages near the viewport are painted onto a canvas, so a two-hundred-page file does not blow up memory.",
+    "Because the pdfjs component viewer owns the scroll, we delete the hand-rolled pageNum state and the second render effect. Selecting this sentence proves the text layer is live: the words are real, selectable glyphs, not a flat raster.",
+    "In-document find works through the same text layer. Try selecting a phrase, or use the browser find to jump between matches across pages while the gutter stays dark and themed.",
+  ];
+  function pageHTML(i){
+    const p = [LOREM[0], LOREM[1], LOREM[2], LOREM[0]].slice(0, 3 + (i%2));
+    return `<h2>${i+1}. ${TITLES[i%TITLES.length]}</h2>` +
+           p.map(t=>`<p>${t}</p>`).join("") +
+           `<div class="pageno">page ${i+1} of 8 · text is selectable</div>`;
+  }
+  // AFTER: inject 8 stacked pages
+  const pagesEl = document.getElementById("pages");
+  for (let i=0;i<8;i++){ const d=document.createElement("div"); d.className="page"; d.innerHTML=pageHTML(i); pagesEl.appendChild(d); }
+
+  // BEFORE: single paged view
+  let cur = 0;
+  const pagedPage = document.getElementById("pagedPage");
+  const pagedCount = document.getElementById("pagedCount");
+  function renderPaged(){ pagedPage.innerHTML = pageHTML(cur); pagedCount.textContent = `Page ${cur+1} of 8`; }
+  function paged(delta){ cur = Math.max(0, Math.min(7, cur+delta)); renderPaged(); }
+  renderPaged();
+
+  function setMode(m){
+    document.getElementById("after").hidden = (m!=="after");
+    document.getElementById("before").hidden = (m!=="before");
+    document.getElementById("btnAfter").classList.toggle("active", m==="after");
+    document.getElementById("btnBefore").classList.toggle("active", m==="before");
+  }
+  function toggleTheme(){
+    const el = document.documentElement;
+    el.dataset.theme = el.dataset.theme === "light" ? "studio" : "light";
+  }
+</script>
+</body>
+</html>

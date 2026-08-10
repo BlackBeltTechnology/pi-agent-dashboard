@@ -5,7 +5,7 @@
  * render-file-previews.
  */
 import React from "react";
-import { t as i18nT } from "../../lib/i18n";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 interface Props {
   target: { kind: "url"; url: string };
@@ -41,7 +41,7 @@ export function YouTubePreview({ target }: Props) {
   if (!id) {
     return (
       <div className="text-[var(--text-muted)] text-sm p-2">
-        {i18nT("auto.couldn_t_extract_a_youtube_video", undefined, "Couldn't extract a YouTube video id from")} <code>{target.url}</code>.
+        {i18nT("common.couldnTExtractAYoutubeVideo", undefined, "Couldn't extract a YouTube video id from")} <code>{target.url}</code>.
       </div>
     );
   }
@@ -52,7 +52,7 @@ export function YouTubePreview({ target }: Props) {
         className="w-full h-full"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowFullScreen
-        title={i18nT("auto.youtube_preview", undefined, "YouTube preview")}
+        title={i18nT("common.youtubePreview", undefined, "YouTube preview")}
       />
     </div>
   );

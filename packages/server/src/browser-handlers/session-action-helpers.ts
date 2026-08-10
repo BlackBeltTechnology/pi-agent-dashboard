@@ -6,7 +6,7 @@
  */
 
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { HeadlessPidRegistry } from "../headless-pid-registry.js";
+import type { HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
 
 type SendPromptMsg = Extract<BrowserToServerMessage, { type: "send_prompt" }>;
 

@@ -1,3 +1,0 @@
-# UnifiedPackagesSection.tsx — index
-
-Exports `UnifiedPackagesSection`. Settings → Packages "Pi Ecosystem" section. Sub-groups Core / Recommended Extensions / Other Packages via `PackageRow`. Installed rows pass `isOverride: isSourceOverride(pkg)` (forwarded through `WhatsNewPackageRow`'s `{...rowProps}` spread) → `override` pill; Update affordance unchanged. Drives core updates (`/api/pi-core/update`), installed-package update checks, `WhatsNewDialog` for pi core changelog. `launchSource === "electron"` hides Core group. Helpers `npmNameFromSource`, `relativeTime`, `isPiCorePkg`, `SubGroupHeader`, `EmptyHint`. See change: flag-package-source-overrides.

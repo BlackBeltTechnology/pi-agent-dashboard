@@ -1,0 +1,3 @@
+# loading-history.ts — index
+
+Exports `clearLoadingHistory(setLoadingHistory, timersRef, id)` + `rearmLoadingHistory(..., ms)` helpers + `SUBSCRIBE_ACK_MS=15000` / `HYDRATE_CEILING_MS=90000` constants. Clears per-session loading flag + safety-net timer (idempotent). Two-stage net: `beginLoadingHistory` arms short `SUBSCRIBE_ACK_MS`; cold-hydration start marker + server heartbeats re-arm long `HYDRATE_CEILING_MS` (no-op unless timer armed). Used by App.tsx (timer callback) + useMessageHandler.ts (exit + re-arm edges). See change: show-chat-history-loading-indicator, fix-history-loading-false-empty-flash.

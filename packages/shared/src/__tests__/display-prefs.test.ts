@@ -98,6 +98,35 @@ describe("mergeDisplayPrefs", () => {
     // missing key inherits the global value
     expect(mergeDisplayPrefs(global, {}).changeSummaryTable).toBe(true);
   });
+
+  it("defaults reserveProcessLineAtIdle off in simple/standard, on in everything", () => {
+    expect(DISPLAY_PRESETS.simple.reserveProcessLineAtIdle).toBe(false);
+    expect(DISPLAY_PRESETS.standard.reserveProcessLineAtIdle).toBe(false);
+    expect(DISPLAY_PRESETS.everything.reserveProcessLineAtIdle).toBe(true);
+  });
+
+  it("applies reserveProcessLineAtIdle override precedence (on beats global off)", () => {
+    expect(mergeDisplayPrefs(global, { reserveProcessLineAtIdle: true }).reserveProcessLineAtIdle).toBe(true);
+    // missing key inherits the global value
+    expect(mergeDisplayPrefs(global, {}).reserveProcessLineAtIdle).toBe(false);
+    // explicit false beats global on
+    expect(
+      mergeDisplayPrefs({ ...global, reserveProcessLineAtIdle: true }, { reserveProcessLineAtIdle: false })
+        .reserveProcessLineAtIdle,
+    ).toBe(false);
+  });
+
+  // opt-in-out-of-cwd-session-diffs (E8): default OFF in every preset.
+  it("defaults showOutOfCwdSessionDiffs off in all presets", () => {
+    expect(DISPLAY_PRESETS.simple.showOutOfCwdSessionDiffs).toBe(false);
+    expect(DISPLAY_PRESETS.standard.showOutOfCwdSessionDiffs).toBe(false);
+    expect(DISPLAY_PRESETS.everything.showOutOfCwdSessionDiffs).toBe(false);
+  });
+
+  it("applies showOutOfCwdSessionDiffs override precedence (on beats global off)", () => {
+    expect(mergeDisplayPrefs(global, { showOutOfCwdSessionDiffs: true }).showOutOfCwdSessionDiffs).toBe(true);
+    expect(mergeDisplayPrefs(global, {}).showOutOfCwdSessionDiffs).toBe(false);
+  });
 });
 
 describe("toolCallPrefKey", () => {

@@ -9,7 +9,7 @@ import {
   PENDING_WORKTREE_BASE_CAP,
   PENDING_WORKTREE_BASE_TTL_MS,
   createPendingWorktreeBaseRegistry,
-} from "../pending-worktree-base-registry.js";
+} from "../pending/pending-worktree-base-registry.js";
 
 function fakeNow() {
   let t = 1_000_000;

@@ -139,7 +139,7 @@ export function readPkgVersionByWalkUp(
  * `ERR_PACKAGE_PATH_NOT_EXPORTED` ("No exports main defined"). `import.meta.resolve`
  * returns a `file://` URL, converted to a path for the walk-up.
  */
-function defaultReadPiVersion(): string | undefined {
+export function defaultReadPiVersion(): string | undefined {
   return readPkgVersionByWalkUp(PI_PKG, (spec) => fileURLToPath(import.meta.resolve(spec)));
 }
 

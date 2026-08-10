@@ -12,7 +12,7 @@ vi.mock("../../hooks/usePackageOperations.js", () => ({
 	usePackageOperations: (...args: any[]) => mockOps(...args),
 }));
 
-import { InstalledPackagesList } from "../InstalledPackagesList.js";
+import { InstalledPackagesList } from "../packages/InstalledPackagesList.js";
 
 const defaultOps = {
 	operation: { operationId: null, status: "idle" as const, message: "", source: "" },

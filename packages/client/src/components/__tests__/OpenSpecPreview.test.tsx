@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { OpenSpecPreview } from "../../App.js";
-import { buildOpenSpecPreviewUrl } from "../../lib/route-builders.js";
+import { buildOpenSpecPreviewUrl } from "../../lib/nav/route-builders.js";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 // Mock the reader hook so the component renders without network/fetch.

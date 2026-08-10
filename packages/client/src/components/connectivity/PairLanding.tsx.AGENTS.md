@@ -1,0 +1,3 @@
+# PairLanding.tsx — index
+
+Browser `/pair` landing — phone-camera counterpart of the Electron shell `PairView`. Exports `PairLanding`. Decodes payload from `location.hash` (`decodePayloadString`); runs challenge (pin `fingerprint == payload.id`, refuse on mismatch) → redeem → shows confirm code on this phone → poll → `storeDeviceBearer` → `window.location.href="/"`. Error+restart affordance on missing/invalid hash, expired/rejected poll. Same-origin `/api/pair/*` (public routes). D12 desktop typed-approval unchanged. Mounted by `main.tsx` when `pathname === "/pair"` (pre-auth, no WS). See change: make-pairing-qr-camera-scannable.

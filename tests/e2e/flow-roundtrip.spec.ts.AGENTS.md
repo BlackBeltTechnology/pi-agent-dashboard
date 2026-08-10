@@ -1,0 +1,3 @@
+# flow-roundtrip.spec.ts — index
+
+L3 spec (change: add-flow-plugin-e2e-tests). Real pi-flows engine + faux agents. Managed container PI_TEST_PEERS=both loads pi-flows from packages[], discovers the synthetic 2-agent flow at `/fixtures/sample-git/.pi/flows/flows/e2e/synthetic.yaml`; agents `model: @coding` resolve to faux/faux-1 via the seeded faux role-preset. Asserts the availability gate (card `Run Flow…` button visible), picks `synthetic` in the `Search flows...` dialog, submits `flow-launch-run`, asserts a FlowAgentCard renders (`faux/faux-1` model line) + the flow reaches terminal `success`/`2/2` on the card. Needs PI_E2E_SEED=1.

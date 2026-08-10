@@ -12,7 +12,7 @@ import {
 	matchRecommendedEntry,
 	computeIsBundled,
 	type RawInstalledRow,
-} from "../installed-package-enricher.js";
+} from "../package/installed-package-enricher.js";
 import type { RecommendedExtension } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 
 const FAKE_MANIFEST: readonly RecommendedExtension[] = [

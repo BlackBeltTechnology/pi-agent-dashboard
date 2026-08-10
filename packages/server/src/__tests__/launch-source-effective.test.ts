@@ -4,7 +4,7 @@
  * See change: electron-attach-ownership-fixes.
  */
 import { describe, it, expect } from "vitest";
-import { computeEffectiveLaunchSource } from "../launch-source-effective.js";
+import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
 
 describe("computeEffectiveLaunchSource", () => {
   it("bridge + 0 bridges + uptime past grace → bridge-orphaned", () => {

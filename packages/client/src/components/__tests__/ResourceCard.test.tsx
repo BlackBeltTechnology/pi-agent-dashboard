@@ -7,7 +7,7 @@ import type { PiResource } from "@blackbelt-technology/pi-dashboard-shared/rest-
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ResourceActivationController } from "../../hooks/useResourceActivation.js";
-import { ResourceCard } from "../ResourceCard.js";
+import { ResourceCard } from "../resource/ResourceCard.js";
 
 afterEach(() => cleanup());
 
@@ -15,9 +15,15 @@ function makeActivation(overrides?: Partial<ResourceActivationController>): Reso
   return {
     isEnabled: (r) => r.enabled,
     toggle: vi.fn(),
+    isFolderControlled: () => false,
     pending: null,
     reload: vi.fn(),
     clearPending: vi.fn(),
+    error: null,
+    clearError: vi.fn(),
+    trustPrompt: null,
+    resolveTrust: vi.fn(),
+    dismissTrust: vi.fn(),
     ...overrides,
   };
 }
@@ -33,7 +39,7 @@ const skill: PiResource = {
 describe("ResourceCard — base", () => {
   it("renders name, description, path, scope + source badges and fires onView", () => {
     const onView = vi.fn();
-    render(<ResourceCard resource={skill} scope="local" onView={onView} />);
+    render(<ResourceCard resource={skill} scope="local" toggleScope="local" onView={onView} />);
     const card = screen.getByTestId("resource-card");
     expect(within(card).getByText("code-review")).toBeTruthy();
     expect(within(card).getByText("Review code before commit.")).toBeTruthy();
@@ -45,18 +51,52 @@ describe("ResourceCard — base", () => {
   });
 
   it("shows a package source badge for a package-contributed resource", () => {
-    render(<ResourceCard resource={skill} scope="local" packageName="opsx" packageSource="npm:opsx" onView={vi.fn()} />);
+    render(<ResourceCard resource={skill} scope="local" toggleScope="local" packageName="opsx" packageSource="npm:opsx" onView={vi.fn()} />);
     expect(screen.getByTestId("badge-source").textContent).toContain("opsx");
   });
 
+  it("toggles at the SURFACE's scope, not the resource's own", () => {
+    // The folder surface lists globally-defined resources and disables them
+    // for that folder only — writing at the resource's own `global` scope
+    // would disable it everywhere. See change:
+    // project-scope-disable-global-resources.
+    const activation = makeActivation();
+    render(
+      <ResourceCard
+        resource={skill}
+        scope="global"
+        toggleScope="local"
+        onView={vi.fn()}
+        activation={activation}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("resource-activation-toggle"));
+    expect(activation.toggle).toHaveBeenCalledWith(skill, "local", undefined);
+  });
+
+  it("marks a folder-controlled global resource without moving its row", () => {
+    const activation = makeActivation({ isFolderControlled: () => true });
+    render(
+      <ResourceCard
+        resource={skill}
+        scope="global"
+        toggleScope="local"
+        onView={vi.fn()}
+        activation={activation}
+      />,
+    );
+    expect(screen.getByTestId("badge-folder-controlled")).toBeTruthy();
+    expect(screen.getByTestId("badge-scope").textContent).toContain("global");
+  });
+
   it("global scope renders the global badge", () => {
-    render(<ResourceCard resource={{ ...skill, enabled: true }} scope="global" onView={vi.fn()} />);
+    render(<ResourceCard resource={{ ...skill, enabled: true }} scope="global" toggleScope="global" onView={vi.fn()} />);
     expect(screen.getByTestId("badge-scope").textContent).toContain("global");
   });
 
   it("toggle fires activation.toggle with the card scope and package source", () => {
     const activation = makeActivation();
-    render(<ResourceCard resource={skill} scope="local" packageSource="npm:opsx" onView={vi.fn()} activation={activation} />);
+    render(<ResourceCard resource={skill} scope="local" toggleScope="local" packageSource="npm:opsx" onView={vi.fn()} activation={activation} />);
     const toggle = screen.getByTestId("resource-activation-toggle");
     fireEvent.click(toggle);
     expect(activation.toggle).toHaveBeenCalledWith(skill, "local", "npm:opsx");
@@ -64,7 +104,7 @@ describe("ResourceCard — base", () => {
 
   it("dims the card when the resource is disabled", () => {
     const activation = makeActivation({ isEnabled: () => false });
-    render(<ResourceCard resource={skill} scope="local" onView={vi.fn()} activation={activation} />);
+    render(<ResourceCard resource={skill} scope="local" toggleScope="local" onView={vi.fn()} activation={activation} />);
     expect(screen.getByTestId("resource-card").className).toContain("opacity-55");
   });
 });
@@ -81,14 +121,14 @@ describe("ResourceCard — agent variant", () => {
   };
 
   it("renders model + tools badges", () => {
-    render(<ResourceCard resource={agent} scope="local" onView={vi.fn()} />);
+    render(<ResourceCard resource={agent} scope="local" toggleScope="local" onView={vi.fn()} />);
     expect(screen.getByTestId("badge-model").textContent).toContain("sonnet");
     expect(screen.getByTestId("badge-tools").textContent).toContain("edit,read");
   });
 
   it("omits the activation toggle (agents have no activation dimension)", () => {
     const activation = makeActivation();
-    render(<ResourceCard resource={agent} scope="local" onView={vi.fn()} activation={activation} />);
+    render(<ResourceCard resource={agent} scope="local" toggleScope="local" onView={vi.fn()} activation={activation} />);
     expect(screen.queryByTestId("resource-activation-toggle")).toBeNull();
   });
 });
@@ -104,7 +144,7 @@ describe("ResourceCard — theme variant", () => {
   };
 
   it("renders a swatch strip in place of the description row", () => {
-    render(<ResourceCard resource={theme} scope="global" onView={vi.fn()} />);
+    render(<ResourceCard resource={theme} scope="global" toggleScope="global" onView={vi.fn()} />);
     const swatch = screen.getByTestId("resource-card-swatch");
     expect(swatch.querySelectorAll("span").length).toBe(4);
     expect(screen.queryByText("Dark theme.")).toBeNull();

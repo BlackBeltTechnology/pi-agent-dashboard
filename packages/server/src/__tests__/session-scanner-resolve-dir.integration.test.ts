@@ -13,9 +13,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { scanAllSessions } from "../session-scanner.js";
+import { scanAllSessions } from "../session/session-scanner.js";
 
-vi.mock("../session-stats-reader.js", () => ({
+vi.mock("../session/session-stats-reader.js", () => ({
   extractSessionStats: vi.fn(() => ({
     tokensIn: 0,
     tokensOut: 0,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { RingBuffer } from "../terminal-manager.js";
+import { RingBuffer } from "../terminal/terminal-manager.js";
 
 describe("RingBuffer", () => {
   it("stores and returns written data", () => {

@@ -22,8 +22,8 @@ import {
   findFlushedAssistantRowIndex,
   type SessionState,
   type ChatMessage,
-} from "../event-reducer.js";
-import { findActiveInteractiveToolResultIds } from "../collapse-retried-errors.js";
+} from "../chat/event-reducer.js";
+import { findActiveInteractiveToolResultIds } from "../chat/collapse-retried-errors.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {

@@ -124,6 +124,14 @@ export interface SessionFlags {
    * See change: constrain-agent-tool-surface.
    */
   loadExtensions?: string[];
+  /**
+   * Optional session name appended as `--name <name>` (pi 0.78.0+). Set the
+   * pi session name AT CREATION so worktree / flow spawns land with an
+   * intended title instead of relying only on post-hoc auto-naming. Composes
+   * with `--session` / `--fork` / `--model`. Empty / absent → no `--name`.
+   * See change: adopt-pi-074-080-features.
+   */
+  name?: string;
 }
 
 /**
@@ -135,12 +143,12 @@ export interface SessionFlags {
 export function sessionFlagsToArgv(flags: SessionFlags): string[] {
   const guard = guardFlagsToArgv(flags);
   if (flags.sessionFile && flags.mode === "continue") {
-    return ["--session", flags.sessionFile, ...guard];
+    return [...nameFlag(flags), "--session", flags.sessionFile, ...guard];
   }
   if (flags.sessionFile && flags.mode === "fork") {
-    return ["--fork", flags.sessionFile, ...modelFlag(flags), ...guard];
+    return [...nameFlag(flags), "--fork", flags.sessionFile, ...modelFlag(flags), ...guard];
   }
-  return [...modelFlag(flags), ...guard];
+  return [...nameFlag(flags), ...modelFlag(flags), ...guard];
 }
 
 function modelFlag(flags: SessionFlags): string[] {
@@ -153,4 +161,14 @@ function guardFlagsToArgv(flags: SessionFlags): string[] {
   if (flags.noBuiltinTools) out.push("--no-builtin-tools");
   for (const ext of flags.loadExtensions ?? []) out.push("-e", ext);
   return out;
+}
+
+/**
+ * `["--name", name]` when `name` is a non-empty string, else `[]`. The name is
+ * a single argv element (never shell-split), so quotes / spaces in the title
+ * pass through verbatim with no injection surface. See change:
+ * adopt-pi-074-080-features.
+ */
+function nameFlag(flags: SessionFlags): string[] {
+  return flags.name ? ["--name", flags.name] : [];
 }

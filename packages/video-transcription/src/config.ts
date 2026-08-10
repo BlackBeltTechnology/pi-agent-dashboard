@@ -3,7 +3,8 @@
  *
  * SONIOX_API_KEY comes from the environment first, falling back to an optional
  * gitignored `.env` (cwd, then the skill dir). No secret is committed. Numeric
- * overrides (MAX_CHUNK_HOURS, MAX_AUDIO_MB) parse from env with safe defaults.
+ * overrides (MAX_CHUNK_HOURS, MAX_AUDIO_MB, TRANSCRIBE_CONCURRENCY) parse from
+ * env with safe defaults.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -11,12 +12,16 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_MAX_CHUNK_HOURS = 4.5;
 const DEFAULT_MAX_AUDIO_MB = 200;
+const DEFAULT_CONCURRENCY = 8;
+/** Soniox async API caps pending transcriptions at 100; never exceed it. */
+const MAX_CONCURRENCY = 100;
 
 export interface Config {
   apiKey: string;
   maxChunkHours: number;
   maxChunkSeconds: number;
   maxAudioMb: number;
+  concurrency: number;
 }
 
 export interface LoadConfigOptions {
@@ -68,6 +73,18 @@ function parseNonNegativeFloat(raw: string | undefined, fallback: number): numbe
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
+/**
+ * Parse a file-level concurrency setting: a positive integer, else `fallback`,
+ * clamped to `[1, MAX_CONCURRENCY]`. Truncates fractional input (e.g. `"3.9"`
+ * -> 3) and rejects zero/negative/non-numeric values back to the fallback.
+ */
+function parseConcurrency(raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(n, MAX_CONCURRENCY);
+}
+
 export function loadConfig(opts: LoadConfigOptions = {}): Config {
   const env = opts.env ?? process.env;
   const cwd = opts.cwd ?? process.cwd();
@@ -89,11 +106,13 @@ export function loadConfig(opts: LoadConfigOptions = {}): Config {
 
   const maxChunkHours = parsePositiveFloat(env.MAX_CHUNK_HOURS, DEFAULT_MAX_CHUNK_HOURS);
   const maxAudioMb = parseNonNegativeFloat(env.MAX_AUDIO_MB, DEFAULT_MAX_AUDIO_MB);
+  const concurrency = parseConcurrency(env.TRANSCRIBE_CONCURRENCY, DEFAULT_CONCURRENCY);
 
   return {
     apiKey,
     maxChunkHours,
     maxChunkSeconds: Math.trunc(maxChunkHours * 3600),
     maxAudioMb,
+    concurrency,
   };
 }

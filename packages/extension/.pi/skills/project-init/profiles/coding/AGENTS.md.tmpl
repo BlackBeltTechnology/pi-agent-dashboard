@@ -4,6 +4,11 @@
 
 <!-- One-paragraph description of what this project is. -->
 
+> Keep this root file lean. It loads into every agent turn — verbose doctrine
+> buries the rules the model must follow (signal dilution). Route per-file and
+> task-specific detail into the directory `AGENTS.md` tree and `docs/`; keep
+> only always-on doctrine here.
+
 ## Code Instructions
 
 Behavioral guidelines to reduce common coding mistakes. Bias toward caution over
@@ -14,8 +19,12 @@ speed. For trivial tasks, use judgment.
 - State assumptions explicitly. If uncertain, ask.
 - If multiple interpretations exist, present them — don't pick silently.
 - If a simpler approach exists, say so. Push back when warranted.
-- Never speculate about code you have not opened. Read the file first.
+- Never speculate about code you have not opened. Consult the doc tree
+  (`kb agents <path>` / `kb_search`) first, then read the specific file.
 - Before any major change, confirm the plan.
+
+See the **Finding docs (READ discipline)** section for the kb-first
+substitution table (which `kb_*` call replaces which raw-search reflex).
 
 ### 2. Simplicity First
 
@@ -40,6 +49,26 @@ speed. For trivial tasks, use judgment.
 ### 5. Communication
 
 - Give a high-level explanation of what changed — don't dump diffs without summary.
+
+## Finding docs (READ discipline)
+
+`kb_*` tools return a one-line purpose + key exports per file, not raw bytes —
+faster and cheaper than raw search. **This fires on the ACTION, not the
+intent**: before you `grep`/`rg` for a symbol, `cat`/read a file to learn what
+it does, or chase an import, the doc lookup goes first — even mid-task when you
+already know the file. When your reflex is the left column, run the right:
+
+| You're about to… | Do this FIRST instead |
+|---|---|
+| `grep -rn "SymbolName" src/` — find where a fn / type / const lives | `kb_search --doc-type agents "SymbolName"` (or read the nearest directory `AGENTS.md` if kb is not wired) |
+| `grep -rn "feature\|topic" src/` — how does X work / where's X handled | `kb_search "feature topic"` (or walk the root→nearest `AGENTS.md` chain) |
+| `cat` / read a file just to learn its purpose before editing | `kb agents <path>` — one-line purpose + exports + change history |
+| chase imports / callers across files | `kb_neighbors <path\|heading>` |
+| read one doc section in full | `kb_get <path> <section>` |
+
+**Fall-through:** if the kb call (or the tree) returns nothing relevant, `rg` /
+source read is allowed — then add the missing directory `AGENTS.md` row per the
+Documentation Update Protocol. The doc lookup does NOT replace grep; it goes first.
 
 ## Commands
 

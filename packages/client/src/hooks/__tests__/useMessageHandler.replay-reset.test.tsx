@@ -11,7 +11,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useMessageHandler } from "../useMessageHandler.js";
-import { createInitialState, type SessionState } from "../../lib/event-reducer.js";
+import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 

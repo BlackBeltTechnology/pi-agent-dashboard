@@ -11,8 +11,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WorktreeInitStatus } from "../../lib/git-api.js";
-import { ProjectInitButton } from "../ProjectInitButton.js";
+import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
+import { ProjectInitButton } from "../packages/ProjectInitButton.js";
 
 afterEach(() => { cleanup(); });
 

@@ -12,7 +12,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createGoalStore, GoalNotFoundError, type GoalStore } from "../goal-store.js";
+import { createGoalStore, GoalNotFoundError, type GoalStore } from "../goal/goal-store.js";
 
 describe("goal-store", () => {
   let dataDir: string;

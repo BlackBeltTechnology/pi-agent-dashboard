@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
-import { DiffFileTree } from "../DiffFileTree.js";
+import { DiffFileTree } from "../diff/DiffFileTree.js";
 import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 
 afterEach(cleanup);

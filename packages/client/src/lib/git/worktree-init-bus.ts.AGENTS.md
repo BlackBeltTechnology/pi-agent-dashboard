@@ -1,0 +1,3 @@
+# worktree-init-bus.ts — index
+
+Module-singleton bus for `worktree_init_*` events. `subscribeInit(requestId,listener)` (legacy) + `subscribeInitByCwd(cwd,listener)` (stable, survives refresh/cross-tab) both send `worktree_init_subscribe`/`_unsubscribe` on first/last listener. `dispatchInitEvent(ev)` fans out by requestId AND cwd. `resendActiveCwdSubscriptions()` re-sends subscribe for all active cwds after ws reconnect (server drops subs on close). `setInitSender(send)` injected from App.tsx. `__resetInitBusForTests()` test hook. See change: generalize-worktree-init-hook, friendlier-worktree-init.

@@ -9,10 +9,12 @@
  *
  * See change: add-subagent-inspector.
  */
-import React, { useEffect } from "react";
-import { Icon } from "@mdi/react";
+
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { mdiArrowLeft, mdiClose } from "@mdi/js";
-import { SubagentDetailView, type SessionStateLike } from "./SubagentDetailView.js";
+import { Icon } from "@mdi/react";
+import React, { useEffect } from "react";
+import { type SessionStateLike, SubagentDetailView } from "./SubagentDetailView.js";
 
 export interface SubagentPopoutPageProps {
   sessionId: string;
@@ -37,6 +39,7 @@ export function SubagentPopoutPage({
   onBack,
   forwardSessionId,
 }: SubagentPopoutPageProps) {
+  const t = useT();
   const sub = session?.subagents.get(agentId);
 
   // Page title: subagent display name · parent · pi
@@ -52,7 +55,7 @@ export function SubagentPopoutPage({
   if (!subscriptionResolved) {
     return (
       <div className="flex flex-col h-full items-center justify-center text-sm text-[var(--text-muted)] gap-2">
-        <div>Loading parent session…</div>
+        <div>{t("loadingParentSession", undefined, "Loading parent session…")}</div>
       </div>
     );
   }
@@ -61,17 +64,19 @@ export function SubagentPopoutPage({
   if (!session) {
     return (
       <div className="flex flex-col h-full items-center justify-center text-sm text-[var(--text-muted)] gap-3 px-6 text-center">
-        <div className="text-base text-[var(--text-primary)]">Parent session not found</div>
+        <div className="text-base text-[var(--text-primary)]">{t("parentSessionNotFound", undefined, "Parent session not found")}</div>
         <div className="max-w-md">
-          It may have been archived or deleted. Close this tab — the session
-          this subagent was launched from is no longer available in the
-          dashboard.
+          {t(
+            "parentSessionNotFoundBody",
+            undefined,
+            "It may have been archived or deleted. Close this tab — the session this subagent was launched from is no longer available in the dashboard.",
+          )}
         </div>
         <button
           onClick={() => window.close()}
           className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] inline-flex items-center gap-1 mt-2 px-3 py-1 border border-[var(--border-primary)] rounded"
         >
-          <Icon path={mdiClose} size={0.5} /> Close tab
+          <Icon path={mdiClose} size={0.5} /> {t("closeTab", undefined, "Close tab")}
         </button>
       </div>
     );
@@ -86,18 +91,21 @@ export function SubagentPopoutPage({
             <button
               onClick={onBack}
               className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
-              title="Back"
+              title={t("back", undefined, "Back")}
             >
               <Icon path={mdiArrowLeft} size={0.7} />
             </button>
           )}
           <span className="text-sm text-[var(--text-primary)]">
-            Subagent · {parentLabel ?? sessionId}
+            {t("subagentBreadcrumb", { label: parentLabel ?? sessionId }, "Subagent · {label}")}
           </span>
         </div>
         <div className="flex-1 flex items-center justify-center text-sm text-[var(--text-muted)] px-6 text-center">
-          Subagent not found — it may have been cleared from the parent
-          session's history.
+          {t(
+            "subagentNotFoundCleared",
+            undefined,
+            "Subagent not found — it may have been cleared from the parent session's history.",
+          )}
         </div>
       </div>
     );
@@ -111,7 +119,7 @@ export function SubagentPopoutPage({
           <button
             onClick={onBack}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
-            title="Back"
+            title={t("back", undefined, "Back")}
           >
             <Icon path={mdiArrowLeft} size={0.7} />
           </button>

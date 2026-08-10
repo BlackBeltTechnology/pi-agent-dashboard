@@ -3,8 +3,8 @@
  * Handles send, abort, resume, spawn, hide, rename, shutdown, terminal, and selection actions.
  */
 import { useCallback } from "react";
-import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
-import { encodePromptAnswer } from "../lib/prompt-answer-encoder.js";
+import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/chat/event-reducer.js";
+import { encodePromptAnswer } from "../lib/chat/prompt-answer-encoder.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -392,6 +392,14 @@ export function useSessionActions(deps: SessionActionDeps) {
     send({ type: "set_session_tags", sessionId, tags });
   }, [send, setSessions]);
 
+  // Global tag delete: strip a tag from every carrying session server-side.
+  // No optimistic write — the server fans out one `session_updated` per changed
+  // session (derived-union tags rebroadcast). See change:
+  // sidebar-tag-collapse-and-delete.
+  const removeTagGlobally = useCallback((tag: string) => {
+    send({ type: "remove_tag_globally", tag });
+  }, [send]);
+
   const handleCreateTerminal = useCallback((cwd: string) => {
     pendingTerminalCwdRef.current = cwd;
     send({ type: "create_terminal", cwd });
@@ -445,7 +453,7 @@ export function useSessionActions(deps: SessionActionDeps) {
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
-    handleHideSession, handleUnhideSession, handleSetSessionTags,
+    handleHideSession, handleUnhideSession, handleSetSessionTags, removeTagGlobally,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
     handleListFiles,

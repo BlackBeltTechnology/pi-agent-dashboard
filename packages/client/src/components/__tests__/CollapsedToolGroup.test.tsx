@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
 import React from "react";
-import { CollapsedToolGroup } from "../CollapsedToolGroup.js";
-import { ThemeProvider } from "../ThemeProvider.js";
-import type { ToolCallGroup } from "../../lib/group-tool-calls.js";
-import type { ChatMessage } from "../../lib/event-reducer.js";
+import { CollapsedToolGroup } from "../chat/CollapsedToolGroup.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
+import type { ChatMessage } from "../../lib/chat/event-reducer.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 vi.mock("../../hooks/useMobile.js", () => ({
@@ -24,7 +24,7 @@ beforeAll(() => {
   });
 });
 
-const ctx: ToolContext = { editors: [] };
+const ctx: ToolContext = {};
 
 function makeMsg(id: string, command: string): ChatMessage {
   return {

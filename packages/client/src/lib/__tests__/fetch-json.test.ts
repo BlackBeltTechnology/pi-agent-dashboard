@@ -8,7 +8,7 @@
  * See change: guard-client-fetch-json.
  */
 import { describe, expect, it, vi } from "vitest";
-import { ApiHttpError, fetchJson } from "../fetch-json.js";
+import { ApiHttpError, fetchJson } from "../api/fetch-json.js";
 
 function jsonResponse(body: unknown, init?: { status?: number }): Response {
   return new Response(JSON.stringify(body), {

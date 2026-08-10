@@ -5,12 +5,12 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import React, { useState } from "react";
-import { PrCombobox } from "../PrCombobox.js";
+import { PrCombobox } from "../worktree/PrCombobox.js";
 import type { PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 
 // Mock the git-api module.
 const mockFetchPullRequests = vi.fn();
-vi.mock("../../lib/git-api.js", () => ({
+vi.mock("../../lib/git/git-api.js", () => ({
   fetchPullRequests: (...args: any[]) => mockFetchPullRequests(...args),
 }));
 

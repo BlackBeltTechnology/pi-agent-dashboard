@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, cleanup, fireEvent } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
-import { ProcessList, computeVisibleRows, KILL_TOOLTIP, type ProcessEntry } from "../ProcessList.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { computeVisibleRows, KILL_TOOLTIP, type ProcessEntry, ProcessList } from "../terminal/ProcessList.js";
 
 function mkProc(pid: number, elapsedMs: number, command = `node script-${pid}.js`): ProcessEntry {
   return { pid, pgid: pid, command, elapsedMs };
@@ -53,55 +53,34 @@ describe("computeVisibleRows (redesign-process-list-activity-bar — skeleton pa
   });
 });
 
-describe("ProcessList drawer (redesign-process-list-activity-bar)", () => {
+describe("ProcessList rows (stable-process-line — rows-only, summary folded into unified line)", () => {
   const noop = vi.fn();
-  const noopToggle = vi.fn();
 
   it("returns null at length 0", () => {
-    const { container } = render(
-      <ProcessList processes={[]} onKill={noop} expanded={true} onToggle={noopToggle} />,
-    );
+    const { container } = render(<ProcessList processes={[]} onKill={noop} />);
     expect(container.firstChild).toBeNull();
   });
 
-  it("collapsed: renders only the summary row, no process rows", () => {
-    const procs = [mkProc(1, 60_000), mkProc(2, 30_000)];
-    const { container, getByTestId } = render(
-      <ProcessList processes={procs} onKill={noop} expanded={false} onToggle={noopToggle} />,
-    );
-    const summary = getByTestId("background-drawer-summary");
-    expect(summary.textContent).toContain("2 background processes");
-    expect(summary.getAttribute("aria-expanded")).toBe("false");
-    // No process rows when collapsed
-    expect(container.textContent).not.toContain("script-1");
-    expect(container.textContent).not.toContain("script-2");
-  });
-
-  it("expanded: renders summary + rows, no skeletons", () => {
+  it("renders rows directly (no standalone summary), no skeletons", () => {
     const procs = [mkProc(1, 60_000)];
-    const { container, getByTestId } = render(
-      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
+    const { container, queryByTestId } = render(
+      <ProcessList processes={procs} onKill={noop} />,
     );
-    const summary = getByTestId("background-drawer-summary");
-    expect(summary.getAttribute("aria-expanded")).toBe("true");
-    expect(container.textContent).toContain("1 background process");
     expect(container.textContent).toContain("script-1");
-    // NO skeleton rows — previous MIN_SLOTS padding removed
+    // The standalone `⚠ N` summary row is gone — folded into the unified line.
+    expect(queryByTestId("background-drawer-summary")).toBeNull();
+    // NO skeleton rows.
     expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
   });
 
-  it("expanded: 1 process renders exactly 1 process row (no skeletons)", () => {
-    const { container } = render(
-      <ProcessList processes={[mkProc(1, 60_000)]} onKill={noop} expanded={true} onToggle={noopToggle} />,
-    );
+  it("1 process renders exactly 1 process row (no skeletons)", () => {
+    const { container } = render(<ProcessList processes={[mkProc(1, 60_000)]} onKill={noop} />);
     expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
   });
 
-  it("expanded: renders 5 real rows + overflow row at length 7", () => {
+  it("renders 5 real rows + overflow row at length 7", () => {
     const seven = Array.from({ length: 7 }, (_, i) => mkProc(i + 1, (i + 1) * 1000, `cmd-${i + 1}`));
-    const { container } = render(
-      <ProcessList processes={seven} onKill={noop} expanded={true} onToggle={noopToggle} />,
-    );
+    const { container } = render(<ProcessList processes={seven} onKill={noop} />);
     expect(container.textContent).toContain("+2 more processes");
   });
 
@@ -115,9 +94,7 @@ describe("ProcessList drawer (redesign-process-list-activity-bar)", () => {
       mkProc(6, 4000, "hidden-f"),
       mkProc(7, 3000, "hidden-g"),
     ];
-    const { container } = render(
-      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
-    );
+    const { container } = render(<ProcessList processes={procs} onKill={noop} />);
     const overflowRow = Array.from(container.querySelectorAll<HTMLElement>("[title]"))
       .find((el) => el.textContent?.includes("more processes"));
     expect(overflowRow).toBeTruthy();
@@ -127,21 +104,10 @@ describe("ProcessList drawer (redesign-process-list-activity-bar)", () => {
     expect(title).not.toContain("long-a");
   });
 
-  it("clicking summary row invokes onToggle", () => {
-    const onToggle = vi.fn();
-    const { getByTestId } = render(
-      <ProcessList processes={[mkProc(1, 60_000)]} onKill={noop} expanded={false} onToggle={onToggle} />,
-    );
-    fireEvent.click(getByTestId("background-drawer-summary"));
-    expect(onToggle).toHaveBeenCalledTimes(1);
-  });
-
   it("per-row ✕ click invokes onKill with the pgid", () => {
     const onKill = vi.fn();
     const procs = [mkProc(48213, 60_000, "vitest --watch")];
-    const { container } = render(
-      <ProcessList processes={procs} onKill={onKill} expanded={true} onToggle={noopToggle} />,
-    );
+    const { container } = render(<ProcessList processes={procs} onKill={onKill} />);
     const killBtn = container.querySelector(`[aria-label="${KILL_TOOLTIP}"]`) as HTMLButtonElement;
     expect(killBtn).toBeTruthy();
     fireEvent.click(killBtn);
@@ -150,9 +116,7 @@ describe("ProcessList drawer (redesign-process-list-activity-bar)", () => {
 
   it("per-row ✕ tooltip is the force-kill string", () => {
     const procs = [mkProc(1, 60_000)];
-    const { container } = render(
-      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
-    );
+    const { container } = render(<ProcessList processes={procs} onKill={noop} />);
     const killBtn = container.querySelector(`[title="${KILL_TOOLTIP}"]`);
     expect(killBtn).toBeTruthy();
   });
@@ -163,9 +127,7 @@ describe("ProcessList drawer (redesign-process-list-activity-bar)", () => {
       mkProc(2, 10_000, "cmd-short"),
       mkProc(3, 120_000, "cmd-long"),
     ];
-    const { container } = render(
-      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
-    );
+    const { container } = render(<ProcessList processes={procs} onKill={noop} />);
     const text = container.textContent ?? "";
     const idxLong = text.indexOf("cmd-long");
     const idxMedium = text.indexOf("cmd-medium");
@@ -175,35 +137,15 @@ describe("ProcessList drawer (redesign-process-list-activity-bar)", () => {
     expect(idxMedium).toBeLessThan(idxShort);
   });
 
-  it("compact layout: collapsed shows only summary", () => {
-    const procs = [mkProc(1, 60_000), mkProc(2, 30_000)];
-    const { container } = render(
-      <ProcessList processes={procs} onKill={noop} expanded={false} onToggle={noopToggle} compact />,
-    );
-    expect(container.textContent).toContain("2 background processes");
-    expect(container.textContent).not.toContain("script-1");
-  });
-
-  it("compact layout: expanded renders rows + overflow tail", () => {
+  it("compact layout: renders rows + overflow tail", () => {
     const six = Array.from({ length: 6 }, (_, i) => mkProc(i + 1, (i + 1) * 1000));
-    const { container } = render(
-      <ProcessList processes={six} onKill={noop} expanded={true} onToggle={noopToggle} compact />,
-    );
+    const { container } = render(<ProcessList processes={six} onKill={noop} compact />);
     expect(container.textContent).toContain("+1 more processes");
-  });
-
-  it("summary row reports singular for 1 process", () => {
-    const { getByTestId } = render(
-      <ProcessList processes={[mkProc(1, 60_000)]} onKill={noop} expanded={false} onToggle={noopToggle} />,
-    );
-    expect(getByTestId("background-drawer-summary").textContent).toContain("1 background process");
-    expect(getByTestId("background-drawer-summary").textContent).not.toContain("processes");
   });
 });
 
 describe("ProcessList classification (classify-process-list-entries)", () => {
   const noop = vi.fn();
-  const noopToggle = vi.fn();
 
   function classified(partial: Partial<ProcessEntry> & { pid: number }): ProcessEntry {
     return { pgid: partial.pid, command: "raw-command", elapsedMs: 60_000, ...partial };
@@ -211,9 +153,7 @@ describe("ProcessList classification (classify-process-list-entries)", () => {
 
   it("renders the friendly label instead of the raw command", () => {
     const procs = [classified({ pid: 1, kind: "task", label: "vitest --watch", command: "node /x/vitest.mjs --watch" })];
-    const { container } = render(
-      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
-    );
+    const { container } = render(<ProcessList processes={procs} onKill={noop} />);
     expect(container.textContent).toContain("vitest --watch");
     expect(container.textContent).not.toContain("/x/vitest.mjs");
   });
@@ -223,12 +163,9 @@ describe("ProcessList classification (classify-process-list-entries)", () => {
       classified({ pid: 1, kind: "plugin", label: "context-mode" }),
       classified({ pid: 2, kind: "task", label: "node vite" }),
     ];
-    const { container } = render(
-      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
-    );
-    // Each row carries a kind icon plus the kill icon → ≥ 3 svgs total
-    // (1 alert summary + 2 kind + 2 kill).
-    expect(container.querySelectorAll("svg").length).toBeGreaterThanOrEqual(5);
+    const { container } = render(<ProcessList processes={procs} onKill={noop} />);
+    // Each row carries a kind icon + a kill icon → ≥ 4 svgs (2 kind + 2 kill).
+    expect(container.querySelectorAll("svg").length).toBeGreaterThanOrEqual(4);
     expect(container.textContent).toContain("context-mode");
   });
 
@@ -236,13 +173,7 @@ describe("ProcessList classification (classify-process-list-entries)", () => {
     const onNavigate = vi.fn();
     const procs = [classified({ pid: 1, kind: "sub-session", label: "build worker", sessionRef: "abc123" })];
     const { getByText } = render(
-      <ProcessList
-        processes={procs}
-        onKill={noop}
-        expanded={true}
-        onToggle={noopToggle}
-        onNavigateToSession={onNavigate}
-      />,
+      <ProcessList processes={procs} onKill={noop} onNavigateToSession={onNavigate} />,
     );
     const link = getByText("build worker");
     expect(link.tagName).toBe("BUTTON");
@@ -252,17 +183,13 @@ describe("ProcessList classification (classify-process-list-entries)", () => {
 
   it("sub-session label is a plain span when no navigate handler is provided", () => {
     const procs = [classified({ pid: 1, kind: "sub-session", label: "worker", sessionRef: "abc123" })];
-    const { getByText } = render(
-      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
-    );
+    const { getByText } = render(<ProcessList processes={procs} onKill={noop} />);
     expect(getByText("worker").tagName).toBe("SPAN");
   });
 
   it("backward-compatible: no kind/label falls back to raw command + kill button", () => {
     const procs = [classified({ pid: 7, command: "legacy-cmd --flag" })];
-    const { container } = render(
-      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
-    );
+    const { container } = render(<ProcessList processes={procs} onKill={noop} />);
     expect(container.textContent).toContain("legacy-cmd --flag");
     expect(container.querySelector(`[aria-label="${KILL_TOOLTIP}"]`)).toBeTruthy();
   });

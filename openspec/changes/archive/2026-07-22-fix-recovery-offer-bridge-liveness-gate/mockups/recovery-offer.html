@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Recovery offer — liveness grace window UX</title>
+<style>
+  /* Real dashboard tokens (packages/client/src/index.css). Studio/dark = :root. */
+  :root{
+    --bg-primary:#0a0a0a; --bg-surface:#2a2a2a; --bg-tertiary:#1e1e1e;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --accent-primary:#3b82f6;
+    --accent-amber:#f59e0b;
+  }
+  [data-theme="light"]{
+    --bg-primary:#f5f5f5; --bg-surface:#e0e0e0; --bg-tertiary:#fff;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-muted:#aaa;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --accent-primary:#2563eb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+       background:var(--bg-primary);color:var(--text-primary);padding:2rem;min-height:100vh}
+  h1{font-size:1.1rem;font-weight:700;margin:0 0 .25rem}
+  p.lede{color:var(--text-secondary);font-size:.85rem;margin:0 0 1.5rem;max-width:60ch}
+  .theme-toggle{position:fixed;top:1rem;right:1rem;z-index:100}
+  .theme-toggle button{background:var(--bg-surface);color:var(--text-primary);
+       border:1px solid var(--border-primary);border-radius:.5rem;padding:.35rem .7rem;
+       font-size:.8rem;cursor:pointer}
+  .grid{display:grid;gap:2rem;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));max-width:1100px}
+  .state{background:var(--bg-tertiary);border:1px solid var(--border-primary);
+       border-radius:.75rem;padding:1.25rem}
+  .state h2{font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+       color:var(--text-muted);margin:0 0 .35rem}
+  .state .desc{font-size:.78rem;color:var(--text-secondary);margin:0 0 1.1rem;min-height:2.4em}
+
+  /* ==== the actual notification (mirrors RecoveryOfferHost.tsx) ==== */
+  .toast{display:flex;align-items:center;gap:.75rem;padding:.5rem .75rem;
+       background:var(--bg-surface);color:var(--text-primary);font-size:.875rem;
+       border-radius:.75rem;box-shadow:0 10px 15px -3px rgba(0,0,0,.4);
+       border:1px solid var(--border-primary);max-width:24rem}
+  .dot{flex:none;width:.5rem;height:.5rem;border-radius:9999px;background:var(--accent-amber)}
+  .dot.spin{background:transparent;border:2px solid var(--accent-amber);
+       border-top-color:transparent;width:.85rem;height:.85rem;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .label{flex:1;white-space:nowrap;font-weight:600}
+  .sub{display:block;font-weight:400;font-size:.72rem;color:var(--text-muted);white-space:nowrap}
+  .btn-reopen{flex:none;padding:.25rem .75rem;border-radius:.5rem;border:none;
+       background:var(--accent-primary);color:#fff;font-weight:600;cursor:pointer;font-size:.875rem}
+  .btn-reopen:hover{opacity:.9}
+  .btn-reopen[disabled]{background:var(--bg-surface);color:var(--text-muted);
+       border:1px solid var(--border-secondary);cursor:not-allowed;opacity:1}
+  .btn-x{flex:none;background:none;border:none;color:var(--text-muted);
+       font-size:1.1rem;line-height:1;cursor:pointer}
+  .btn-x:hover{color:var(--text-primary)}
+  .note{font-size:.72rem;color:var(--text-muted);margin-top:1rem;line-height:1.5}
+  .note code{background:var(--bg-surface);padding:.05rem .3rem;border-radius:.25rem;font-size:.9em}
+</style>
+</head>
+<body>
+  <div class="theme-toggle"><button id="tt" type="button">Toggle light / dark</button></div>
+
+  <h1>Recovery offer — process-liveness grace window</h1>
+  <p class="lede">
+    Cold-start reopen offer, gated by process liveness. Class-1 keeper-alive candidates
+    never appear. Class-2 bridge liveness resolves asynchronously over a
+    <strong>2.5&nbsp;s grace window</strong>, so during that window Reopen is shown but
+    <strong>not actionable</strong> — preventing a double-spawn if a surviving bridge is
+    about to reattach.
+  </p>
+
+  <div class="grid">
+    <!-- STATE 1: verifying (grace window open) -->
+    <section class="state">
+      <h2>1 · Verifying (grace window)</h2>
+      <p class="desc">Offer visible immediately; Reopen disabled while bridge liveness is unresolved. No click can double-spawn a still-alive session.</p>
+      <div role="status" aria-live="polite" class="toast">
+        <span class="dot spin" aria-hidden="true"></span>
+        <span class="label">Reopen 2 sessions?
+          <span class="sub">Checking if still running…</span>
+        </span>
+        <button class="btn-reopen" type="button" disabled aria-disabled="true">Reopen</button>
+        <button class="btn-x" type="button" aria-label="Dismiss" title="Dismiss">×</button>
+      </div>
+      <p class="note">Reopen carries <code>aria-disabled</code>; Dismiss stays available.</p>
+    </section>
+
+    <!-- STATE 2: resolved, genuinely dead -->
+    <section class="state">
+      <h2>2 · Resolved · genuinely lost</h2>
+      <p class="desc">Grace window closed with no reattach → sessions are truly gone. Reopen enables for a single clean spawn.</p>
+      <div role="status" aria-live="polite" class="toast">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="label">Reopen 2 sessions?</span>
+        <button class="btn-reopen" type="button">Reopen</button>
+        <button class="btn-x" type="button" aria-label="Dismiss" title="Dismiss">×</button>
+      </div>
+      <p class="note">Identical to today's offer once liveness is finalized.</p>
+    </section>
+
+    <!-- STATE 3: retracted (a bridge reattached) -->
+    <section class="state">
+      <h2>3 · Retracted · bridge reattached</h2>
+      <p class="desc">One candidate's bridge reattached within the window → it is dropped from the offer (marker consumed); count decrements live. When the last one retracts the toast disappears.</p>
+      <div role="status" aria-live="polite" class="toast">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="label">Reopen 1 session?</span>
+        <button class="btn-reopen" type="button">Reopen</button>
+        <button class="btn-x" type="button" aria-label="Dismiss" title="Dismiss">×</button>
+      </div>
+      <p class="note">Was "2 sessions" → the reattached one silently left.</p>
+    </section>
+  </div>
+
+  <script>
+    const b=document.body,t=document.getElementById('tt');
+    t.addEventListener('click',()=>{b.getAttribute('data-theme')==='light'?b.removeAttribute('data-theme'):b.setAttribute('data-theme','light')});
+  </script>
+</body>
+</html>

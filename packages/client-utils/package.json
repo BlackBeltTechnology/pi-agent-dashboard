@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-client-utils",
-  "version": "0.5.4",
+  "version": "0.7.0",
   "description": "Small reusable React components, hooks, and helpers shared between the pi-dashboard shell and dashboard plugins. Per-subpath exports; no markdown stack.",
   "license": "MIT",
   "publishConfig": {
@@ -24,6 +24,10 @@
     "./DialogPortal": {
       "types": "./src/DialogPortal.tsx",
       "default": "./src/DialogPortal.tsx"
+    },
+    "./escape-stack": {
+      "types": "./src/escape-stack.ts",
+      "default": "./src/escape-stack.ts"
     },
     "./Popover": {
       "types": "./src/Popover.tsx",
@@ -107,14 +111,18 @@
     }
   },
   "files": [
-    "src/"
+    "src/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1"
   },

@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import { activeSessionsUnder, sessionsUnder } from "../active-sessions-in-cwd.js";
-import type { BrowserGateway } from "../browser-gateway.js";
+import { activeSessionsUnder, sessionsUnder } from "../session/active-sessions-in-cwd.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import {
   addWorktree,
   addWorktreeFromPr,
@@ -31,13 +31,13 @@ import {
   resolveConfigRoot,
   stashPop,
   worktreeDiffStat,
-} from "../git-operations.js";
-import type { SessionManager } from "../memory-session-manager.js";
+} from "../git-worktree/git-operations.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import { safeRealpathSync } from "../resolve-path.js";
-import { evaluateGate, type GateResult, hookDefHash, type InitProgress, readInitHook, runInitHook, type WorktreeInitHook } from "../worktree-init.js";
-import { mapInitStderrToHint } from "../worktree-init-errors.js";
-import type { WorktreeInitRegistry } from "../worktree-init-registry.js";
-import { isTrusted, recordTrust } from "../worktree-init-trust.js";
+import { evaluateGate, type GateResult, hookDefHash, type InitProgress, readInitHook, runInitHook, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
+import { mapInitStderrToHint } from "../git-worktree/worktree-init-errors.js";
+import type { WorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
+import { isTrusted, recordTrust } from "../git-worktree/worktree-init-trust.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export interface GitRoutesDeps {
@@ -101,16 +101,16 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       const cwd = request.query.cwd;
       if (!cwd) {
         reply.code(400);
-        return { success: false, error: "cwd parameter required" } satisfies ApiResponse;
+        return { success: false, code: "cwd_required", error: "cwd parameter required" } satisfies ApiResponse;
       }
       if (!isGitRepo(cwd)) {
-        return { success: false, error: "not a git repository" } satisfies ApiResponse;
+        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
       }
       try {
         const data = listBranches(cwd);
         return { success: true, data } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, error: err.message ?? "failed to list branches" } satisfies ApiResponse;
+        return { success: false, code: "list_branches_failed", error: err.message ?? "failed to list branches" } satisfies ApiResponse;
       }
     },
   );
@@ -122,7 +122,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       const { cwd, branch, stash } = request.body ?? {};
       if (!cwd || !branch) {
         reply.code(400);
-        return { success: false, error: "cwd and branch required" } satisfies ApiResponse;
+        return { success: false, code: "cwd_and_branch_required", error: "cwd and branch required" } satisfies ApiResponse;
       }
       try {
         const result = checkoutBranch(cwd, branch, stash ?? false);
@@ -132,7 +132,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         }
         return { success: true, data: { stashed: result.stashed } } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, error: err.message ?? "checkout failed" } satisfies ApiResponse;
+        return { success: false, code: "checkout_failed", error: err.message ?? "checkout failed" } satisfies ApiResponse;
       }
     },
   );
@@ -144,13 +144,13 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       const { cwd } = request.body ?? {};
       if (!cwd) {
         reply.code(400);
-        return { success: false, error: "cwd required" } satisfies ApiResponse;
+        return { success: false, code: "cwd_required", error: "cwd required" } satisfies ApiResponse;
       }
       try {
         gitInit(cwd);
         return { success: true } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, error: err.message ?? "init failed" } satisfies ApiResponse;
+        return { success: false, code: "git_init_failed", error: err.message ?? "init failed" } satisfies ApiResponse;
       }
     },
   );
@@ -393,7 +393,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
   //
   // Runs the declared hook for a checkout. TOFU-gated: an untrusted hook
   // returns `init_untrusted` carrying the def for the client to confirm.
-  fastify.post<{ Body: { cwd?: string; requestId?: string; confirmHash?: string } }>(
+  fastify.post<{ Body: { cwd?: string; requestId?: string; confirmHash?: string; scope?: unknown } }>(
     "/api/git/worktree/init",
     { preHandler: networkGuard },
     async (request, reply) => {
@@ -428,7 +428,17 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       }
       const hash = hookDefHash(hook);
       if (typeof body.confirmHash === "string" && body.confirmHash === hash) {
-        recordTrust(configRoot, hash);
+        // Strict scope validation (no upward coercion): omitted → project
+        // (backward compatible); exactly `session`|`project` honored; any other
+        // present value is rejected WITHOUT recording trust or running, so a
+        // malformed value can never escalate an ephemeral-intent confirm into a
+        // permanent on-disk grant. See change: add-session-scoped-init-trust.
+        const rawScope = body.scope;
+        if (rawScope !== undefined && rawScope !== "session" && rawScope !== "project") {
+          return { success: false, code: "bad_request", error: "invalid scope" } satisfies ApiResponse;
+        }
+        const scope = rawScope === "session" ? "session" : "project";
+        recordTrust(configRoot, hash, scope);
       }
       if (!isTrusted(configRoot, hash)) {
         // Echo the hash so the client confirms with `confirmHash` without
@@ -864,13 +874,13 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       const { cwd } = request.body ?? {};
       if (!cwd) {
         reply.code(400);
-        return { success: false, error: "cwd required" } satisfies ApiResponse;
+        return { success: false, code: "cwd_required", error: "cwd required" } satisfies ApiResponse;
       }
       try {
         const result = stashPop(cwd);
         return { success: true, data: result } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, error: err.message ?? "stash pop failed" } satisfies ApiResponse;
+        return { success: false, code: "stash_pop_failed", error: err.message ?? "stash pop failed" } satisfies ApiResponse;
       }
     },
   );

@@ -1,9 +1,11 @@
 /**
  * Hook to fetch session file diff data from the server.
  */
-import { useState, useCallback, useEffect } from "react";
-import { getApiBase } from "../lib/api-context.js";
+
 import type { SessionDiffResponse } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import { useCallback, useEffect, useState } from "react";
+import { getApiBase } from "../lib/api/api-context.js";
+import { t } from "../lib/i18n/i18n.js";
 
 export interface UseSessionDiffResult {
   data: SessionDiffResponse | null;
@@ -27,10 +29,10 @@ export function useSessionDiff(sessionId: string | undefined): UseSessionDiffRes
       if (body.success) {
         setData(body.data as SessionDiffResponse);
       } else {
-        setError(body.error ?? "Unknown error");
+        setError(body.error ?? t("common.unknownError", undefined, "Unknown error"));
       }
     } catch (err: any) {
-      setError(err.message ?? "Failed to fetch diff data");
+      setError(err.message ?? t("diff.fetchFailed", undefined, "Failed to fetch diff data"));
     } finally {
       setIsLoading(false);
     }

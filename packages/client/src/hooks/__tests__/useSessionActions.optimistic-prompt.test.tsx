@@ -10,7 +10,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useSessionActions } from "../useSessionActions.js";
-import { createInitialState, type SessionState } from "../../lib/event-reducer.js";
+import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
 
 function setup(selectedId: string | undefined, states: Map<string, SessionState>) {
   let sessionStates = states;

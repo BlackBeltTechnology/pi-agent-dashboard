@@ -15,7 +15,7 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearLoadingHistory, HYDRATE_CEILING_MS, SUBSCRIBE_ACK_MS } from "../../lib/loading-history.js";
+import { clearLoadingHistory, HYDRATE_CEILING_MS, SUBSCRIBE_ACK_MS } from "../../lib/replay/loading-history.js";
 import { useMessageHandler } from "../useMessageHandler.js";
 
 function makeEvt(toolCallId: string, ts: number): DashboardEvent {

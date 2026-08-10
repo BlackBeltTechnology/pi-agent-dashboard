@@ -28,7 +28,7 @@ import {
   reduceEvent,
   addInteractiveRequest,
   type SessionState,
-} from "../event-reducer.js";
+} from "../chat/event-reducer.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {

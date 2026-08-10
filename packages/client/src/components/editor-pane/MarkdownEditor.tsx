@@ -13,8 +13,8 @@
  */
 import Editor, { type Monaco } from "@monaco-editor/react";
 import { useEffect, useRef } from "react";
-import { buildMonacoTheme } from "../../lib/monaco-theme.js";
-import { useThemeContext } from "../ThemeProvider.js";
+import { buildMonacoTheme } from "../../lib/theme/monaco-theme.js";
+import { useThemeContext } from "../settings/ThemeProvider.js";
 // Side-effect import: worker wiring + loader.config (shared with MonacoBuffer).
 import "./monaco-setup.js";
 

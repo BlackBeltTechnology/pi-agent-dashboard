@@ -6,7 +6,7 @@ import {
   getTunnelWatchdogStatus,
   _runTickForTest,
   _resetForTest,
-} from "../tunnel-watchdog.js";
+} from "../tunnel/tunnel-watchdog.js";
 
 const URL = "https://abc.share.zrok.io";
 

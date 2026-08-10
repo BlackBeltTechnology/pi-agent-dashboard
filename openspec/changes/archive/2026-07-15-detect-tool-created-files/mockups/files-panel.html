@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Files panel — tool-created origin (mockup)</title>
+<style>
+  /* ── theme-system tokens (mirrored from packages/client/src/index.css) ── */
+  html[data-mode="dark"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+    --border-primary:#252525;
+    --green:#4ade80; --yellow:#facc15; --violet:#a78bfa; --blue:#60a5fa; --red:#f87171;
+  }
+  html[data-mode="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+    --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#777777;
+    --border-primary:#e0e0e0;
+    --green:#16a34a; --yellow:#b45309; --violet:#7c3aed; --blue:#2563eb; --red:#dc2626;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg-primary); color:var(--text-secondary);
+    font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:520px; margin:0 auto; padding:24px 16px 48px; }
+  .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:16px; }
+  .toolbar h1 { font-size:13px; font-weight:600; color:var(--text-primary); margin:0 auto 0 0; }
+  button {
+    font:inherit; font-size:11px; cursor:pointer; border:1px solid var(--border-primary);
+    background:var(--bg-tertiary); color:var(--text-secondary); border-radius:6px; padding:5px 10px;
+  }
+  button[aria-pressed="true"] { color:var(--text-primary); border-color:var(--violet); }
+
+  /* ── panel = DiffFileTree ── */
+  .panel { border:1px solid var(--border-primary); border-radius:8px; overflow:hidden; background:var(--bg-secondary); }
+  .hd {
+    padding:8px 12px; border-bottom:1px solid var(--border-primary);
+    color:var(--text-tertiary); font-size:12px; display:flex; align-items:center; gap:8px;
+  }
+  .adds { color:var(--green); } .dels { color:var(--red); }
+  .tree { padding:4px 0; }
+
+  .row {
+    display:flex; align-items:center; gap:6px; padding:2px 8px; cursor:pointer; min-height:24px;
+  }
+  .row:hover { background:var(--bg-tertiary); }
+  .row.sel { background:var(--bg-tertiary); }
+  .dir { color:var(--text-secondary); }
+  .caret { color:var(--text-tertiary); font-size:11px; width:10px; display:inline-block; }
+  .glyph { font-weight:700; font-size:12px; width:12px; text-align:center; flex:0 0 auto; }
+  .g-add { color:var(--green); } .g-mod { color:var(--yellow); } .g-tool { color:var(--violet); }
+  .name { color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .indent1 { padding-left:24px; } .indent2 { padding-left:40px; }
+  .spacer { flex:1 1 auto; min-width:8px; }
+
+  /* pill — mirrors the existing `summed` badge */
+  .pill {
+    border-radius:4px; background:var(--bg-tertiary); padding:1px 6px;
+    font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-tertiary);
+    border:1px solid var(--border-primary); flex:0 0 auto;
+  }
+  .pill.tool { color:var(--violet); border-color:color-mix(in srgb,var(--violet) 40%, transparent); }
+
+  /* attribution */
+  .by {
+    color:var(--text-tertiary); font-size:11px; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; max-width:200px; flex:0 1 auto;
+  }
+  .by .cmd { color:var(--text-secondary); }
+  .counts { font-size:10px; flex:0 0 auto; } .nx { font-size:10px; color:var(--text-tertiary); flex:0 0 auto; }
+
+  .legend { margin-top:20px; font-size:11px; color:var(--text-tertiary); display:grid; gap:6px; }
+  .legend .row2 { display:flex; align-items:center; gap:8px; }
+  .note { margin-top:16px; font-size:11px; color:var(--text-tertiary); border-left:2px solid var(--violet); padding-left:10px; }
+  .bp { font-size:10px; color:var(--text-tertiary); margin:24px 0 6px; text-transform:uppercase; letter-spacing:.06em; }
+  .narrow { max-width:300px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="toolbar">
+    <h1>Files panel · tool-created origin</h1>
+    <button id="only" aria-pressed="false" title="Hide working-tree changes this session didn't make">this session only</button>
+    <button id="mode" aria-pressed="false">☾ dark</button>
+  </div>
+
+  <!-- ── Full-width panel ── -->
+  <div class="panel">
+    <div class="hd">
+      <span>6 files changed</span><span>·</span>
+      <span class="adds">+58</span><span class="dels">−7</span>
+    </div>
+    <div class="tree">
+      <!-- existing: edit -->
+      <div class="row sel">
+        <span class="glyph g-mod" title="Modified">●</span>
+        <span class="name">packages/server/src/session-diff.ts</span>
+        <span class="spacer"></span>
+        <span class="counts"><span class="adds">+31</span> <span class="dels">−7</span></span>
+        <span class="nx">2×</span>
+      </div>
+      <!-- existing: write (added) -->
+      <div class="row">
+        <span class="glyph g-add" title="Added">+</span>
+        <span class="name">packages/shared/src/diff-types.ts</span>
+        <span class="spacer"></span>
+        <span class="counts"><span class="adds">+9</span></span>
+      </div>
+
+      <!-- NEW: tool, git-detected + attributed -->
+      <div class="row">
+        <span class="glyph g-tool" title="Tool-created">◆</span>
+        <span class="name">report.docx</span>
+        <span class="pill tool">tool</span>
+        <span class="by" title="pandoc spec.md --reference-doc tpl.docx -o report.docx">
+          created by <span class="cmd">pandoc … -o report.docx</span>
+        </span>
+        <span class="spacer"></span>
+        <span class="counts"><span class="adds">+18</span></span>
+      </div>
+
+      <!-- NEW: tool, binary (image) — no counts, no diff -->
+      <div class="row">
+        <span class="glyph g-tool" title="Tool-created (binary)">◆</span>
+        <span class="name">assets/logo.png</span>
+        <span class="pill tool">tool</span>
+        <span class="by" title="npx @the-focus-ai/nano-banana &quot;a minimalist logo&quot; --output assets/logo.png">
+          created by <span class="cmd">nano-banana --output assets/logo.png</span>
+        </span>
+        <span class="spacer"></span>
+        <span class="by" style="max-width:none;color:var(--text-tertiary)">binary</span>
+      </div>
+
+      <!-- NEW: tool, git-detected, NO attribution (no Bash match) -->
+      <div class="row">
+        <span class="glyph g-tool" title="Tool-created">◆</span>
+        <span class="name">build/manifest.json</span>
+        <span class="pill tool">tool</span>
+        <span class="spacer"></span>
+        <span class="counts"><span class="adds">+4</span></span>
+      </div>
+
+      <!-- NEW: mixed — real edit AND on disk -->
+      <div class="row">
+        <span class="glyph g-mod" title="Modified">●</span>
+        <span class="name">db/schema.sql</span>
+        <span class="pill tool">tool</span>
+        <span class="by" title="sqlite3 app.db .dump > db/schema.sql">
+          created by <span class="cmd">sqlite3 … &gt; db/schema.sql</span>
+        </span>
+        <span class="spacer"></span>
+        <span class="counts"><span class="adds">+6</span></span>
+      </div>
+
+      <!-- NEW: other-session changes — collapsed group (B default) -->
+      <div id="otherGroup">
+        <div class="row ogh" id="ogToggle">
+          <span class="caret" id="ogCaret">▸</span>
+          <span class="name" style="color:var(--text-tertiary)">2 other working-tree changes</span>
+          <span class="spacer"></span>
+          <span class="by" style="max-width:none">not from this session</span>
+        </div>
+        <div id="ogBody" style="display:none">
+          <div class="row indent1">
+            <span class="glyph g-mod" title="Modified elsewhere" style="color:var(--text-tertiary)">●</span>
+            <span class="name" style="color:var(--text-tertiary)">packages/web/src/theme.css</span>
+            <span class="spacer"></span>
+            <span class="counts"><span class="adds">+2</span> <span class="dels">−2</span></span>
+          </div>
+          <div class="row indent1">
+            <span class="glyph g-add" title="Added elsewhere" style="color:var(--text-tertiary)">+</span>
+            <span class="name" style="color:var(--text-tertiary)">.env.local</span>
+            <span class="spacer"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>◆ violet</b> = tool-created (git-status detector or non-git bash-artifact).
+    <b>TOOL</b> pill reuses the existing <code>summed</code>-badge pattern.
+    <b>created by</b> shows the redacted, capped <code>producedBy</code>; full command in the tooltip.
+    Rows without a Bash match show the pill but no attribution. Binary rows drop counts + diff.
+  </div>
+
+  <div class="legend">
+    <div class="row2"><span class="glyph g-add">+</span> Write (added file)</div>
+    <div class="row2"><span class="glyph g-mod">●</span> Edit (modified)</div>
+    <div class="row2"><span class="glyph g-tool">◆</span> <span class="pill tool">tool</span> tool-created (converter / image / script)</div>
+    <div class="row2"><span class="glyph g-mod">●</span> <span class="pill tool">tool</span> mixed — edited AND produced on disk</div>
+  </div>
+
+  <!-- ── Narrow / mobile breakpoint ── -->
+  <div class="bp">narrow (≈300px) — attribution truncates, pill + glyph persist</div>
+  <div class="panel narrow">
+    <div class="tree">
+      <div class="row">
+        <span class="glyph g-tool">◆</span>
+        <span class="name">report.docx</span>
+        <span class="pill tool">tool</span>
+        <span class="by" title="pandoc spec.md --reference-doc tpl.docx -o report.docx">created by <span class="cmd">pandoc … -o report.docx</span></span>
+      </div>
+      <div class="row">
+        <span class="glyph g-tool">◆</span>
+        <span class="name">assets/logo.png</span>
+        <span class="pill tool">tool</span>
+        <span class="by">binary</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const btn = document.getElementById('mode');
+  const html = document.documentElement;
+  function sync(){ const d = html.getAttribute('data-mode')==='dark';
+    btn.textContent = d ? '☾ dark' : '☀ light'; btn.setAttribute('aria-pressed', String(!d)); }
+  btn.onclick = () => { html.setAttribute('data-mode', html.getAttribute('data-mode')==='dark'?'light':'dark'); sync(); };
+  sync();
+
+  // collapse/expand the other-changes group (B: collapsed by default)
+  const ogBody = document.getElementById('ogBody'), ogCaret = document.getElementById('ogCaret');
+  document.getElementById('ogToggle').onclick = () => {
+    const open = ogBody.style.display !== 'none';
+    ogBody.style.display = open ? 'none' : 'block'; ogCaret.textContent = open ? '▸' : '▾';
+  };
+  // A toggle: 'this session only' hides the whole other-changes group
+  const only = document.getElementById('only'), og = document.getElementById('otherGroup');
+  only.onclick = () => { const on = only.getAttribute('aria-pressed')==='true';
+    only.setAttribute('aria-pressed', String(!on)); og.style.display = on ? 'block' : 'none'; };
+</script>
+</body>
+</html>

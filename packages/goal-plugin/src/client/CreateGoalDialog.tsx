@@ -14,9 +14,10 @@
  *
  * See change: redesign-goal-create-dialog (tasks 1.1–1.3). Mockup screen A.
  */
-import React from "react";
-import { createGoal } from "./goals-api.js";
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type React from "react";
 import { GoalForm, type GoalFormPayload } from "./GoalForm.js";
+import { createGoal } from "./goals-api.js";
 
 export interface CreateGoalDialogProps {
   /** Folder cwd the goal is created for. */
@@ -27,6 +28,7 @@ export interface CreateGoalDialogProps {
 }
 
 export function CreateGoalDialog({ cwd, onClose, onCreated }: CreateGoalDialogProps): React.ReactElement {
+  const t = useT();
   const folderLeaf = cwd.split("/").pop() || cwd;
 
   const submit = async (payload: GoalFormPayload): Promise<void> => {
@@ -47,13 +49,13 @@ export function CreateGoalDialog({ cwd, onClose, onCreated }: CreateGoalDialogPr
       >
         <div className="flex items-center gap-2">
           <h2 className="text-base font-semibold flex-1 truncate" data-testid="goal-create-dialog-title">
-            New goal · {folderLeaf}
+            {t("newGoalTitle", { folder: folderLeaf }, `New goal · ${folderLeaf}`)}
           </h2>
           <button
             onClick={onClose}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-            title="Close"
-            aria-label="Close dialog"
+            title={t("close", undefined, "Close")}
+            aria-label={t("closeDialog", undefined, "Close dialog")}
             data-testid="goal-create-dialog-close"
           >
             ✕

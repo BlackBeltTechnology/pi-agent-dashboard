@@ -1,12 +1,12 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiCheckCircle, mdiFormTextbox, mdiImageMultiple } from "@mdi/js";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { InteractiveRendererProps } from "./types.js";
+import { mdiCheckCircle, mdiFormTextbox, mdiImageMultiple } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
-import { MarkdownContent } from "../MarkdownContent.js";
 import { InputComposer } from "./InputComposer.js";
-import { t as i18nT } from "../../lib/i18n";
+import type { InteractiveRendererProps } from "./types.js";
 
 export function InputRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
@@ -38,6 +38,9 @@ export function InputRenderer({ params, status, result, onRespond, onCancel }: I
           <Icon path={mdiCheckCircle} size={0.55} className="text-green-400 shrink-0" />
           <span className="text-[var(--text-primary)] font-medium"><InlineMarkdown content={title} /></span>
         </div>
+        {message && (
+          <div className="text-xs text-[var(--text-secondary)] mb-2 ml-6"><MarkdownContent content={message} /></div>
+        )}
         <div
           className={
             isBlank
@@ -81,13 +84,13 @@ export function InputRenderer({ params, status, result, onRespond, onCancel }: I
             onClick={submit}
             className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white transition-colors"
           >
-            {i18nT("auto.submit", undefined, "Submit")}
+            {i18nT("common.submit", undefined, "Submit")}
           </button>
           <button
             onClick={onCancel}
             className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
           >
-            {i18nT("auto.cancel", undefined, "Cancel")}
+            {i18nT("common.cancel", undefined, "Cancel")}
           </button>
         </div>
       </div>

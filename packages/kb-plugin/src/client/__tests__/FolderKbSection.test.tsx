@@ -38,6 +38,14 @@ function renderSlot(hook?: unknown) {
   );
 }
 
+function renderSlotPlacement(placement?: "sidebar" | "card") {
+  return render(
+    <Router>
+      <FolderKbSection folder={{ cwd }} placement={placement} />
+    </Router>,
+  );
+}
+
 describe("deriveKbRowState (ordered)", () => {
   it("error wins over not-indexed even when chunks:0", () => {
     expect(deriveKbRowState(stats({ chunks: 0, indexed: false, jobStatus: "error" }))).toBe("error");
@@ -144,6 +152,77 @@ describe("FolderKbSection render", () => {
     expect(queryByTestId("folder-kb-index-now")).toBeNull();
     fireEvent.click(getByTestId("folder-kb-retry"));
     await waitFor(() => expect(posts).toBeGreaterThanOrEqual(2));
+  });
+
+  it("Index now → spinner synchronously on click, before any /stats resolves (task 2.1)", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockStats(stats({ chunks: 0, indexed: false }));
+    const { getByTestId, findByTestId, container } = renderSlot();
+    await findByTestId("folder-kb-index-now");
+    fireEvent.click(getByTestId("folder-kb-index-now"));
+    // Optimistic: the indexing state + animated spinner render in the SAME commit as the click.
+    expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("indexing");
+    expect(container.querySelector(".animate-spin")).toBeTruthy();
+  });
+
+  it("disabled during pending: the button is replaced by the non-interactive spinner, no second reindexKb (task 2.2)", async () => {
+    const fetchMock = mockStats(stats({ chunks: 0, indexed: false }));
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+    const { getByTestId, findByTestId, queryByTestId } = renderSlot();
+    await findByTestId("folder-kb-index-now");
+    fireEvent.click(getByTestId("folder-kb-index-now"));
+    const posts = () => fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "POST").length;
+    expect(posts()).toBe(1);
+    // The clickable Index now is gone (spinner owns the slot) → no double-submit is possible.
+    expect(queryByTestId("folder-kb-index-now")).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(posts()).toBe(1);
+  });
+
+  it("no-flicker handoff: spinner is continuous through 202 → indexing:true → populated (task 2.3)", async () => {
+    const seq: KbStats[] = [
+      stats({ chunks: 0, indexed: false }),
+      stats({ chunks: 0, indexed: false, indexing: true, jobStatus: "running" }),
+      stats({ chunks: 777, indexed: true }),
+    ];
+    let gi = 0;
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === "POST" ? jsonResp({ status: "running", jobId: "kb-1" }, true, 202) : jsonResp(seq[Math.min(gi++, seq.length - 1)]),
+    );
+    const { getByTestId, findByTestId } = renderSlot();
+    await findByTestId("folder-kb-index-now");
+    const seen = new Set<string>();
+    const rec = () => {
+      const s = getByTestId("folder-kb-section").getAttribute("data-state");
+      if (s) seen.add(s);
+    };
+    fireEvent.click(getByTestId("folder-kb-index-now"));
+    rec();
+    // Continuous: state stays "indexing" across the handoff and lands on the chunk count.
+    await waitFor(() => {
+      rec();
+      expect(getByTestId("folder-kb-count").textContent).toContain("777");
+    }, { timeout: 5000 });
+    // The row NEVER reverts to "not-indexed" (Index now) between click and settle.
+    expect(seen.has("not-indexed")).toBe(false);
+    expect(seen.has("indexing")).toBe(true);
+  });
+
+  it("placement=card forwards the flat surface to SlotPill", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockStats(stats());
+    const { getByTestId } = renderSlotPlacement("card");
+    await waitFor(() => expect(getByTestId("folder-kb-open-settings")).toBeTruthy());
+    const pill = getByTestId("folder-kb-open-settings");
+    expect(pill.className).toContain("bg-[color-mix(in_srgb,var(--bg-surface)_50%,transparent)]");
+    expect(pill.className).not.toMatch(/shadow-/);
+  });
+
+  it("default placement (sidebar) forwards the raised surface", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockStats(stats());
+    const { getByTestId } = renderSlotPlacement();
+    await waitFor(() => expect(getByTestId("folder-kb-open-settings")).toBeTruthy());
+    const pill = getByTestId("folder-kb-open-settings");
+    expect(pill.className).toContain("bg-[var(--bg-secondary)]");
+    expect(pill.className).toContain("shadow-[0_1px_2px_var(--shadow-card)]");
   });
 
   it("count opens the KB settings overlay on click", async () => {

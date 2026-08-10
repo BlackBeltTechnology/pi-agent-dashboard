@@ -10,9 +10,9 @@
  * See change: auto-init-worktree-on-spawn.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { maybeAutoInitWorktreeOnSpawn } from "../auto-init-worktree.js";
-import { initStore } from "../worktree-init-store.js";
-import { __resetInitBusForTests } from "../worktree-init-bus.js";
+import { maybeAutoInitWorktreeOnSpawn } from "../git/auto-init-worktree.js";
+import { initStore } from "../git/worktree-init-store.js";
+import { __resetInitBusForTests } from "../git/worktree-init-bus.js";
 
 const { fetchAutoInitWorktreePref, fetchWorktreeInitStatus, runWorktreeInit } = vi.hoisted(() => ({
   fetchAutoInitWorktreePref: vi.fn(),
@@ -20,8 +20,8 @@ const { fetchAutoInitWorktreePref, fetchWorktreeInitStatus, runWorktreeInit } = 
   runWorktreeInit: vi.fn(),
 }));
 
-vi.mock("../git-api.js", async () => {
-  const actual = await vi.importActual<typeof import("../git-api.js")>("../git-api.js");
+vi.mock("../git/git-api.js", async () => {
+  const actual = await vi.importActual<typeof import("../git/git-api.js")>("../git/git-api.js");
   return { ...actual, fetchAutoInitWorktreePref, fetchWorktreeInitStatus, runWorktreeInit };
 });
 

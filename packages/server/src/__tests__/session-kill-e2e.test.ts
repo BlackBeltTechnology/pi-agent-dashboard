@@ -145,7 +145,6 @@ describe("Session kill e2e (fix-keeper-kill-escalation)", () => {
       autoShutdown: false,
       shutdownIdleSeconds: 999,
       tunnel: false,
-      editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
   });

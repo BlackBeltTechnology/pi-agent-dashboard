@@ -14,6 +14,14 @@ Type `/view <target>` in the composer.
 - `/view @pic.png` — image, capped `max-h-[40vh]`.
 - `/view https://youtu.be/dQw4w9WgXcQ` — YouTube embed iframe.
 - `/view https://example.com/spec.pdf` — URL with PDF extension renders inline pdfjs viewer.
+- `/view @spec.docx` — docx. Two-tier: `document-converter` PDF render when engine available (mounts pdfjs `PdfPreview` via `/api/file/rendered-pdf`), else in-process `mammoth` HTML baseline (hyperlink-guard + DOMPurify + image cap). Any engine error falls through to HTML.
+- `/view @deck.pptx` — pptx (slide deck). On-demand: card shows "Render slides" button, no auto-convert. Activate → `document-converter` renders pptx→PDF (LibreOffice Impress export filter, cached), mounts pdfjs `PdfPreview` via `/api/file/rendered-pdf`. NO in-process fallback — engine absent → Download fallback. Size cap 100 MB → 413. See change: render-pptx-preview.
+- `/view @data.xlsx` — spreadsheet. SheetJS structured JSON via `/api/file/sheet`, frozen-header grid + sheet tabs, no Docker.
+- `/view @export.csv` — spreadsheet. Encoding detected (chardet) + decoded (iconv-lite); charset pill shown.
+
+Bounded preview: server caps rows/images/bytes; truncation banner "Showing first N of M"; download reaches full file. Corrupt / password-protected / oversize degrade to Download fallback.
+
+docx render mode configurable: `docxRender` `"pdf"|"html"|"auto"` (default `"auto"` = fidelity-first). Engine image name from `PI_DOC_ENGINE_IMAGE` env (default `pi-doc-engine`).
 
 Click `⤢` icon on card to expand to full-viewport overlay (`/folder/:cwd/view?path=` or `/pi-view?url=`).
 
@@ -27,6 +35,12 @@ Cross-refs:
 - openspec/changes/render-file-previews/
 - packages/client/src/components/PreviewCard.tsx
 - packages/server/src/routes/file-routes.ts
+- openspec/changes/render-office-previews/
+- packages/server/src/lib/office-preview.ts
+- packages/client/src/components/preview/DocxPreview.tsx
+- packages/client/src/components/preview/SpreadsheetPreview.tsx
+- openspec/changes/render-pptx-preview/
+- packages/client/src/components/preview/PptxPreview.tsx
 
 ## How to build Windows electron zip?
 
@@ -1219,6 +1233,38 @@ Diagnostic: tail `~/.pi/dashboard/sessions/keeper-<sessionId>.log`. `spawn pi EN
 
 See change: `fix-rpc-keeper-pi-resolution`.
 
+## Reopening a big session is slow?
+
+Symptom:
+- Large session reopen replays tens of thousands of events.
+- Slow paint, slow catch-up.
+- Hundreds of React commits before conversation renders.
+
+Root cause (pre-fix):
+- Warm (in-memory) replay shipped raw live stream.
+- Every assistant `message_update` carries full content snapshot, not delta.
+- Large session replayed ~20k events.
+- Cold (on-disk) path (`packages/shared/src/state-replay.ts`) synthesizes ~1k for same conversation.
+
+Fix (change: `compact-warm-replay-stream`):
+- `sendEventBatches` (`packages/server/src/browser-handlers/subscription-handler.ts`) composes `compactEventsForReplay` (`packages/server/src/session/replay-compaction.ts`) before batching.
+- Drops every `message_update` before last `message_end` in window.
+- Exempts thinking updates (`thinking_start|thinking_delta|thinking_end`).
+- Exempts last text update before each `tool_execution_start`.
+- Still-streaming tail kept verbatim.
+- Non-`message_update` events always pass through.
+- `REPLAY_BATCH_SIZE` 50 → 200; each batch = one client React commit.
+- REPLAY ONLY — store keeps full stream for live path, "Show full output", status extraction.
+
+Measured (#399-shaped window, 140 messages × ~150 snapshot updates):
+- Events 21420 → 420 (98.0%).
+- Wire bytes 6.26 MB → 0.10 MB (98.4%).
+- Batches 429 → 3 (99.3%).
+- Compaction wall time 2.2 ms.
+- Cold path unaffected — verified no-op (1428 → 1428).
+
+See change: `compact-warm-replay-stream`. See also `docs/architecture.md` § "Reconnection Flow".
+
 ## Session stuck after Stop or Shutdown — how to recover?
 
 Symptom: Stop / abort / Shutdown clicked. Card stays "running". `ps` shows pi PID alive. Server restart clears it.
@@ -2116,6 +2162,35 @@ Cross-refs:
 - docs/architecture.md \u2014 Plugin Architecture \u2192 Plugin Bridge Registration
 - packages/shared/src/plugin-bridge-register.ts
 
+## I disabled a global skill for this project and it came back — why?
+
+Pre-fix: project-scope toggle wrote relative force-exclude — `-skills/<name>/SKILL.md` — for globally-defined resource.
+pi evaluates relative pattern against resource's OWN base directory.
+Global skill resolves against `~/.pi/agent`.
+Pattern matched nothing.
+Entry inert.
+pi still reported enabled.
+Toggle looked like success.
+
+Fix: disabling global-loose resource re-declares resource's own FILE as `~`-prefixed plain entry plus anchored glob exclusion — `~/.pi/agent/skills/<name>/SKILL.md` + `!**/.pi/agent/skills/<name>/**`.
+pi matches both forms.
+
+- Only NEWLY STARTED sessions see the change.
+- `PackageManager.resolve()` runs at session start.
+- Use the Reload affordance.
+- Untrusted folder: toggle now prompts for trust decision instead of silently succeeding.
+- pi ignores folder's `.pi/settings.json` without recorded trust decision.
+- Unparseable `.pi/settings.json` (e.g. containing comments): toggle now fails loudly (HTTP 409) instead of reporting success.
+- pi's write is whole-file `JSON.parse` → `JSON.stringify` round trip.
+- Comments fail the parse.
+- pi silently skips the write.
+
+See change: project-scope-disable-global-resources.
+
+Cross-refs:
+- packages/server/src/pi/resource-activation-toggle.ts
+- docs/architecture.md — Project-scope disable of global resources
+
 ## Why does abort feel slow on parallel flows?
 
 pi-flows < 0.2.x bug: `Promise.all` over child flows did not race the AbortSignal. Children aborted at iteration boundaries; parent awaited all in-flight branches. Abort latency = slowest child remaining work, not signal-to-unwind time.
@@ -2429,3 +2504,166 @@ Cross-refs:
 - packages/server/src/routes/git-routes.ts
 - packages/client/src/lib/worktree-init-store.ts
 - packages/client/src/components/WorktreeInitChip.tsx
+
+## Why does Directory Initialize fail with `corepack: command not found`?
+
+Hook runs under bundled stripped Node; that Node omits corepack (`download-node.sh` removes `lib/node_modules/corepack`).
+
+Old hook: `corepack enable &&` aborted whole `&&`-chain before `pnpm install`; gate stayed open; run re-fired forever.
+
+Fix: `command -v corepack >/dev/null 2>&1 && corepack enable; pnpm install && …`. Corepack best-effort; absent → falls through to on-PATH `pnpm@11.15.1`; present (Docker/CI) → still runs.
+
+See change: harden-worktree-init-corepack.
+
+Cross-refs:
+- `.pi/settings.json`
+- `packages/electron/scripts/download-node.sh`
+
+## Why does `openspec change new` fail with "unknown command"?
+
+Command order wrong. CLI v1.3.1 takes `openspec new change <name>`, not `openspec change new`.
+
+Fix: `openspec new change <name>` — scaffolds only `.openspec.yaml` (schema:spec-driven).
+
+- Hand-write `openspec/changes/<name>/{proposal,tasks,design}.md` + `specs/<cap>/spec.md`.
+- Validate with `openspec validate <name>`. No `verify` subcommand.
+
+Cross-refs:
+- ~/.pi/agent/projects-memory/pi-agent-dashboard/MEMORY.md
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why does an automation run stay "running" forever with no result.md?
+
+`index.ts` correlated run→session by cwd-FIFO. Action prompt mis-delivered to a pre-existing/busy session at that cwd. Run stuck `status="running"`, no result.md; spawned agent shows empty "Waiting for input" with automation badge.
+
+Fix: correlate by `automationRun.runId` stamp via `engine.pendingForRunId` + `onSessionRegisteredForRun`. Removed cwd fallback. Commit 5009b883.
+
+- Host applies stamp during `session_register`, so spawned session carries its runId when plugin `onEvent` fires.
+- Still-open separate bug: result.md captures injected prompt, not model reply (`extractAssistantText` role-filter).
+
+Cross-refs:
+- ~/.pi/agent/projects-memory/pi-agent-dashboard/MEMORY.md
+- ~/.pi/agent/pi-hermes-memory/failures.md
+- packages/automation-plugin/src/server/engine.ts
+- packages/automation-plugin/src/server/index.ts
+
+## Why do unrelated files leak into my commit in the shared worktree?
+
+Working tree often shared with concurrent pi sessions. Git index reset between separate Bash calls when a concurrent session runs `git add`/`reset`.
+
+Fix: stage + commit atomically in ONE Bash call: `git reset && git add <files> && git commit`. Never split staging and commit across tool calls.
+
+- Default branch `develop`. Repo BlackBeltTechnology/pi-agent-dashboard.
+
+Cross-refs:
+- ~/.pi/agent/projects-memory/pi-agent-dashboard/MEMORY.md
+
+## Why does `npx vitest run` abort with "[test-isolation] process.env.HOME equals the real user home"?
+
+Guard blocks tests reading/mutating ~/.pi/.
+
+Fix: `HOME=$(mktemp -d) npx vitest run …`
+
+- Test prints "[test-isolation] HOME=/var/folders/.../tmp.XXXX (real=/Users/...)" then proceeds.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why does `npx playwright install chromium` time out?
+
+CDN cdn.playwright.dev times out / blocked.
+
+Fix: pin `@playwright/test` to a version whose chromium revision already in ~/Library/Caches/ms-playwright.
+
+- Map version→revision: `curl unpkg.com/playwright-core@<ver>/browsers.json`.
+- pw 1.57.0 → chromium-1200; 1.61.0 → chromium-1228.
+- Complete pair needs BOTH chromium-<rev> AND chromium_headless_shell-<rev> cached. Headless uses the shell.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why do folder routes break on non-ASCII (Unicode) cwd paths?
+
+`encodeFolderPath`/`decodeFolderPath` use bare `btoa`/`atob` → throw "Invalid character" on non-ASCII cwd.
+
+Fix (ASCII output unchanged):
+- encode: `btoa(String.fromCharCode(...new TextEncoder().encode(cwd)))` then +→- /→_ =strip.
+- decode: restore padding/chars, `atob` → `Uint8Array.from(binary, ch => ch.charCodeAt(0))` → `new TextDecoder("utf-8",{fatal:true}).decode(bytes)` in try/catch, return null on failure.
+- automation-plugin keeps a MIRRORED copy at packages/automation-plugin/src/client/folder-encoding.ts — apply fixes to BOTH.
+- Route-param guard: components consuming decoded params reject null decode (render "Invalid folder route"), never fall through to undefined cwd.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+- packages/client/src/lib/folder-encoding.ts
+- packages/automation-plugin/src/client/folder-encoding.ts
+
+## Why are the openspec-* skills missing in my worktree (apply-change stalls)?
+
+Worktree OpenSpec skills gated on `test ! -d node_modules`. node_modules present → init SKIPS, apply-change stalls.
+
+Fix: `npx openspec init --tools pi --force`
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why does agent-browser MCP `eval` echo JS source instead of running it?
+
+MCP `eval` echoes JS source, does not execute.
+
+Fix: use the agent-browser CLI directly, dump output to a file (element.outerHTML → /tmp/card.html), then read it.
+
+- MCP `viewport`/`resize` unrecognized ("Unknown command") — cannot force desktop breakpoints.
+- Query source CSS tokens + grab one real element outerHTML via CLI.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why can't jsdom render mermaid (CSSStyleSheet not defined)?
+
+jsdom cannot render mermaid 11.16 — CSSStyleSheet not defined.
+
+- Real browser (agent-browser mockup server) is the only reliable harness for mermaid rendering.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+
+## Why does a pi session show "stuck in thinking" / only "memory savings"?
+
+NOT a pi-agent-dashboard bug. External pkg pi-hermes-memory spawns child `pi -p` helpers (background-review/session-flush/consolidation) that re-inherit the full parent extension stack. context-mode loads in the child and prints its ctx_stats banner ("tokens saved · N% savings") — that line is context-mode, not hermes.
+
+Fix: edit ~/.pi/agent/hermes-memory-config.json → `flushOnCompact:false`, `flushOnShutdown:false`, `reviewEnabled:false` (all default true) to stop child spawns.
+
+Cross-refs:
+- ~/.pi/agent/pi-hermes-memory/failures.md
+- ~/.pi/agent/hermes-memory-config.json
+
+## How do I reach Apple Calendar / Contacts / Reminders from pi?
+
+macOS ≥ 15.3. iMCP menu-bar app + `pi-mcp-adapter`.
+
+Steps:
+1. `pi install npm:@blackbelt-technology/pi-dashboard-apple-tools`.
+2. `pi-apple-tools-install` — provisions iMCP config (writes `mcp.json` + `settings.json`).
+3. Grant permissions in **iMCP menu-bar app**. Manual, unautomatable.
+
+Provisioning states (`pi-apple-tools-install --check`): `CONFIG_WRITE_FAILED` · `READY_PENDING_GRANTS` · `READY`. `READY_PENDING_GRANTS` = everything wired, permissions still needed. Manual remediation, not re-running installer.
+
+Reached via `pi-mcp-adapter` — loaded as `packages[]` entry in `~/.pi/agent/settings.json`.
+
+See change: add-apple-tools-imcp-plugin.
+
+Cross-refs:
+- packages/apple-tools/README.md
+- packages/apple-tools/.pi/skills/apple-tools/SKILL.md
+
+## Why can't I read Apple Mail through iMCP?
+
+iMCP exposes no Mail service. "Messages" = iMessage/SMS, not email.
+
+Email: use `apple-mail-fast-export` skill — exports `.eml` files.
+
+See change: add-apple-tools-imcp-plugin.
+
+Cross-refs:
+- packages/apple-tools/README.md
+- packages/apple-tools/.pi/skills/apple-tools/SKILL.md

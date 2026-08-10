@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # pi-dashboard all-in-one image.
 #
-# Stage `base`  — Debian Bookworm + Node 24 LTS, system tools, code-server, zrok.
+# Stage `base`  — Debian Bookworm + Node 24 LTS, system tools, zrok.
 # Stage `app`   — non-root `pi` user, global pi agent, built dashboard, cleanup.
 #
 # Debian (glibc), NOT Alpine (musl): node-pty needs glibc for correct PTY
@@ -13,8 +13,7 @@
 FROM node:24-bookworm-slim AS base
 
 # Pinned tool versions — override at build time with --build-arg.
-ARG CODE_SERVER_VERSION=4.96.4
-ARG ZROK_VERSION=1.0.6
+ARG ZROK_VERSION=2.0.4
 ARG GH_VERSION=2.62.0
 ARG JJ_VERSION=0.24.0
 
@@ -39,12 +38,7 @@ RUN apt-get update \
 # fd-find ships the binary as `fdfind` on Debian; expose `fd` too.
 RUN ln -s "$(command -v fdfind)" /usr/local/bin/fd || true
 
-# 1.2 code-server (pinned). Official installer auto-detects arch.
-RUN curl -fsSL https://code-server.dev/install.sh \
-      | sh -s -- --version "${CODE_SERVER_VERSION}" \
- && code-server --version
-
-# 1.3 zrok (pinned). Map Debian arch → zrok release arch.
+# 1.2 zrok (pinned). Map Debian arch → zrok release arch.
 RUN set -eux; \
     deb_arch="$(dpkg --print-architecture)"; \
     case "${deb_arch}" in \
@@ -60,8 +54,12 @@ RUN set -eux; \
     # Verify the downloaded tarball against the published checksum (fail build on mismatch).
     # Checksum lines prefix the asset with `./`; match either a space or slash before it.
     ( cd /tmp && grep -E "[ /]${asset}\$" zrok-checksums.sha256 | sha256sum -c - ); \
-    tar -xzf "/tmp/${asset}" -C /usr/local/bin zrok; \
+    # zrok v2 ships the binary as `zrok2`; extract it and symlink `zrok` so both
+    # names resolve (belt-and-suspenders with the dual-binary runtime resolver).
+    tar -xzf "/tmp/${asset}" -C /usr/local/bin zrok2; \
+    ln -sf zrok2 /usr/local/bin/zrok; \
     rm "/tmp/${asset}" /tmp/zrok-checksums.sha256; \
+    zrok2 version; \
     zrok version
 
 # 1.3b GitHub CLI (pinned). Spawned/probed by the dashboard git panel.
@@ -115,7 +113,7 @@ RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cu
 # 1.4 Global pi coding agent + openspec (spawned/probed by the dashboard).
 # Install must be fatal; the version probes stay non-fatal (grouped so a
 # non-zero `--version` can't mask an `npm install -g` failure).
-RUN npm install -g @earendil-works/pi-coding-agent@0.80.6 openspec \
+RUN npm install -g @earendil-works/pi-coding-agent@0.83.0 openspec \
  && { pi --version || true; } \
  && { openspec --version || true; }
 
@@ -132,11 +130,16 @@ RUN npm install -g \
  && ls -d /usr/local/lib/node_modules/@blackbelt-technology/pi-flows \
          /usr/local/lib/node_modules/@blackbelt-technology/pi-anthropic-messages
 
+# Enable corepack so `pnpm` resolves to the version pinned by the root
+# package.json `packageManager` field (pnpm@11.15.1). The global `npm install
+# -g` tool installs above stay npm (Column C-style user installs).
+RUN corepack enable
+
 WORKDIR /app
 
 # 1.5 Install deps + build the web client. Copy package manifests first for
 # layer caching, then the full source.
-COPY package.json package-lock.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # Root tsconfigs that every package extends (../../tsconfig.base.json).
 COPY tsconfig.base.json tsconfig.json ./
 # Root scripts/ (postinstall: maybe-patch-package + fix-pty-permissions) and
@@ -151,16 +154,11 @@ COPY qa/fixtures ./qa/fixtures
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/scripts ./docker/scripts
 
-# Drop the committed lockfile before install: npm bug #4828 makes both
-# `npm install` and `npm ci` skip platform-matching optional deps when resolving
-# against a lockfile generated on another platform (here: the macOS lock omits
-# the install of `@rollup/rollup-linux-x64-gnu`, breaking the linux web-client
-# build with `Cannot find module .../rollup/dist/native.js`). Removing the lock
-# lets npm resolve the correct native binary for the build platform — the fix
-# the error itself prescribes. Scoped to this build image only.
-RUN rm -f package-lock.json \
- && npm install \
- && npm run build \
+# pnpm re-resolves the full platform optional-dep tree from pnpm-lock.yaml
+# (so the npm/cli#4828 lockfile-nuke hack — which dropped
+# @rollup/rollup-linux-x64-gnu on the linux build — is no longer needed).
+RUN pnpm install --frozen-lockfile \
+ && pnpm run build \
  # Link the root package so `pi-dashboard` is on PATH.
  && npm link \
  # 1.5 Drop build toolchain — not needed at runtime (~200 MB saved).

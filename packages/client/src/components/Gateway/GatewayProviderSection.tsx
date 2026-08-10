@@ -15,7 +15,8 @@ import {
   type GatewayProviderId,
   providerMeta,
   supportsMode,
-} from "../../lib/gateway-providers.js";
+} from "../../lib/gateway/gateway-providers.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 
 interface Props {
   provider: GatewayProviderId;
@@ -24,13 +25,13 @@ interface Props {
   disabled?: boolean;
 }
 
-const MODE_SUB: Record<TunnelMode, string> = {
-  public: "funnel · internet",
-  private: "tailnet / mesh only",
-};
-
 export function GatewayProviderSection({ provider, mode, onChange, disabled }: Props) {
+  const { t } = useI18n();
   const meta = providerMeta(provider);
+  const MODE_SUB: Record<TunnelMode, string> = {
+    public: t("gateway.mode.publicSub", undefined, "funnel · internet"),
+    private: t("gateway.mode.privateSub", undefined, "tailnet / mesh only"),
+  };
 
   const selectProvider = (id: GatewayProviderId) => {
     // Keep the mode if the new provider supports it, else pick its first mode.
@@ -41,9 +42,9 @@ export function GatewayProviderSection({ provider, mode, onChange, disabled }: P
   return (
     <div data-testid="gateway-provider-section">
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-        Provider
+        {t("gateway.provider", undefined, "Provider")}
       </p>
-      <div className="mb-4 flex flex-wrap gap-1.5" role="group" aria-label="Gateway provider">
+      <div className="mb-4 flex flex-wrap gap-1.5" role="group" aria-label={t("gateway.aria.provider", undefined, "Gateway provider")}>
         {GATEWAY_PROVIDERS.map((p) => (
           <button
             key={p.id}
@@ -64,9 +65,9 @@ export function GatewayProviderSection({ provider, mode, onChange, disabled }: P
       </div>
 
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-        Mode
+        {t("gateway.mode", undefined, "Mode")}
       </p>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Gateway mode">
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("gateway.aria.mode", undefined, "Gateway mode")}>
         {(["public", "private"] as TunnelMode[]).map((m) => {
           const ok = meta.modes.includes(m);
           return (
@@ -75,7 +76,7 @@ export function GatewayProviderSection({ provider, mode, onChange, disabled }: P
               type="button"
               disabled={disabled || !ok}
               aria-pressed={m === mode}
-              title={ok ? undefined : `${meta.label} does not support ${m} mode`}
+              title={ok ? undefined : t("gateway.modeUnsupported", { provider: meta.label, mode: m }, `${meta.label} does not support ${m} mode`)}
               data-testid={`gateway-mode-${m}`}
               onClick={() => onChange({ provider, mode: m })}
               className={`rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
@@ -84,7 +85,7 @@ export function GatewayProviderSection({ provider, mode, onChange, disabled }: P
                   : "border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
               }`}
             >
-              {m === "public" ? "Public" : "Private"}
+              {m === "public" ? t("gateway.mode.public", undefined, "Public") : t("gateway.mode.private", undefined, "Private")}
               <span className="ml-1.5 text-[10.5px] text-[var(--text-muted)]">{MODE_SUB[m]}</span>
             </button>
           );

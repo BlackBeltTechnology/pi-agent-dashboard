@@ -17,7 +17,7 @@ import React, { useState, useCallback } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { CommandInput } from "../components/CommandInput.js";
+import { CommandInput } from "../components/chat/CommandInput.js";
 
 const EMPTY_IMAGES: readonly ImageContent[] = Object.freeze([]);
 

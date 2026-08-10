@@ -1,0 +1,6 @@
+schema: spec-driven
+
+# E2E fixture OpenSpec project. Exists so the dashboard's openspec poll
+# (`openspec list --json`) returns a change with all four artifacts, which
+# renders the P/D/S/T badges the non-mobile artifact-dialog E2E specs drive.
+# See change: openspec-artifact-dialog-desktop.

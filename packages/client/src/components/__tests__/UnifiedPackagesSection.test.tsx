@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
-import { UnifiedPackagesSection } from "../UnifiedPackagesSection.js";
+import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import type {
 	InstalledPackage,
 	PiCoreStatus,
@@ -37,6 +37,7 @@ vi.mock("../../hooks/usePackageOperations.js", () => ({
 		install: vi.fn(),
 		remove: vi.fn(),
 		update: vi.fn(),
+		coreUpdate: vi.fn(),
 		move: vi.fn(),
 		moveStateFor: () => undefined,
 		clearMove: vi.fn(),
@@ -45,15 +46,16 @@ vi.mock("../../hooks/usePackageOperations.js", () => ({
 		clearOperation: vi.fn(),
 		queueDepth: 0,
 		runningSource: null,
+		isAnyRunning: false,
 		handleMessage: vi.fn(),
 	}),
 }));
 
-vi.mock("../../lib/api-context.js", () => ({
+vi.mock("../../lib/api/api-context.js", () => ({
 	getApiBase: () => "",
 }));
 
-vi.mock("../PackageReadmeDialog.js", () => ({
+vi.mock("../packages/PackageReadmeDialog.js", () => ({
 	PackageReadmeDialog: () => null,
 }));
 

@@ -1,8 +1,7 @@
 ---
 description: Expert in TypeScript specializing in type safety, async patterns, and modern ES features. Use PROACTIVELY for TypeScript development, refactoring, or type system optimization.
-display_name: Typescript-Expert
-tools: read, bash, grep, find, ls, edit, write
-prompt_mode: replace
+model: "@coding"
+tools: [read, bash, edit, write, kb_search, kb_neighbors, kb_get, memory_search, session_search, memory, skill_manage, ask_user]
 ---
 
 ## Focus Areas

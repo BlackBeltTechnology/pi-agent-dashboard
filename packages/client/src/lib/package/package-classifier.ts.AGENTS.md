@@ -1,0 +1,3 @@
+# package-classifier.ts — index
+
+Pure helpers for unified packages settings UI. Exports `SourceType` (`npm`\|`git`\|`local`\|`global`), `classifySource(source)` (buckets `git:`-prefixed sources as `git`, aligned with `parseSourceKey`), `npmNameFromSource(source)`, `isSourceOverride(pkg)` → `pkg.isRecommended === true && classifySource(pkg.source) !== "npm"` (recommended npm identity installed from local/git; drives the `override` pill only, never Update gating), `groupInstalledPackages(installed, coreNpmNames)` → splits enriched rows into Recommended/Other, dropping Core-whitelist duplicates. See change: consolidate-packages-settings-ui. See change: flag-package-source-overrides.

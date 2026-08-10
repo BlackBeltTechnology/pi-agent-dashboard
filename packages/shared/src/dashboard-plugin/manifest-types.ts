@@ -1,4 +1,4 @@
-import type { SlotId, SettingsTab } from "./slot-types.js";
+import type { SettingsTab, SlotId } from "./slot-types.js";
 
 /**
  * A single slot claim in a plugin manifest.
@@ -95,6 +95,20 @@ export interface PluginRequirements {
   binaries?: string[];
   /** Named service probes (closed built-in registry; "pi-model-proxy" only in V1). */
   services?: string[];
+  /**
+   * Absolute filesystem paths that must exist — the "where does this live"
+   * question for a `.app`-bundled or otherwise non-PATH binary (e.g. iMCP's
+   * `/Applications/iMCP.app/Contents/MacOS/imcp-server`, which the `binaries`
+   * PATH probe cannot see). An entry MAY be a single `${<configKey>}`
+   * placeholder resolved from the declaring plugin's own validated config
+   * before probing; the key must exist in `configSchema` and resolve to an
+   * absolute path, else the requirement is unsatisfied (never a throw). This
+   * is a config read and an existence check only — never a shell expansion,
+   * never an execution of the path.
+   *
+   * See change: add-apple-tools-imcp-plugin.
+   */
+  paths?: string[];
 }
 
 /**
@@ -143,4 +157,21 @@ export interface PluginManifest {
    * production bundles (NODE_ENV=production).
    */
   fixture?: boolean;
+  /**
+   * Optional named export in the plugin's client entry holding this plugin's
+   * i18n catalog (a {@link PluginI18nCatalog}). When set, the generated
+   * registry imports it and the shell merges it under the `plugin.<id>.*`
+   * namespace via `registerPluginCatalog`, exposing it through the plugin
+   * context `t`. Keys are authored UNPREFIXED by the plugin.
+   * See change: make-all-ui-text-i18n.
+   */
+  i18nCatalog?: string;
 }
+
+/**
+ * A plugin's translation catalog: language code -> (unprefixed key -> value).
+ * The runtime prefixes every key with `plugin.<id>.` on merge, so plugin keys
+ * cannot collide with core keys or another plugin's keys. `en` is optional and
+ * usually omitted (English lives at the call-site fallback).
+ */
+export type PluginI18nCatalog = Partial<Record<string, Record<string, string>>>;

@@ -1,0 +1,3 @@
+# provider-probe.ts — index
+
+Provider probe — pings custom LLM provider base URL + API key to verify reachability/auth. Exports `buildProbeRequest`, `resolveProbeApiKey`, `probeProvider`, `listProviderModelIds` (full model-id list, not capped; reuses `buildProbeRequest`; [] on failure — used by server custom-provider discovery), `readProvidersFromDisk`, `ProbeApi` (`openai-completions`/`openai-responses`/`anthropic-messages`/`google-generative-ai`), `ProbeInput`, `ProbeResult`, `ProvidersReader`. Used by `POST /api/providers/test`. Responses scrubbed (never echo api key). See change: add-agent-role-model-tools.

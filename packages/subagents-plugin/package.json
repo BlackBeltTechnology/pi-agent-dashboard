@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-subagents-plugin",
-  "version": "0.5.4",
+  "version": "0.7.0",
   "description": "Subagent inspector plugin for pi-dashboard — SubagentDetailView, SubagentPopoutPage, timeline-entry types. Consumes the wire contract emitted by pi-dashboard-subagents.",
   "license": "MIT",
   "publishConfig": {
@@ -27,11 +27,15 @@
     }
   },
   "files": [
-    "src/"
+    "src/",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
   ],
   "pi-dashboard-plugin": {
     "id": "subagents",
     "displayName": "Subagent Inspector",
+    "i18nCatalog": "catalog",
     "priority": 100,
     "targetPackage": "@blackbelt-technology/pi-dashboard-subagents",
     "client": "./src/client/index.tsx",
@@ -57,12 +61,13 @@
     }
   },
   "peerDependencies": {
+    "fastify": "^5.0.0",
     "react": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.5.4",
-    "@blackbelt-technology/pi-dashboard-client-utils": "^0.5.4",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-client-utils": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1"
   },

@@ -5,7 +5,7 @@
  * See change: harden-worktree-spawn.
  */
 import { describe, it, expect } from "vitest";
-import { isVisibleCwd } from "../cwd-visibility.js";
+import { isVisibleCwd } from "../util/cwd-visibility.js";
 
 describe("isVisibleCwd", () => {
   it("returns false for empty cwd", () => {

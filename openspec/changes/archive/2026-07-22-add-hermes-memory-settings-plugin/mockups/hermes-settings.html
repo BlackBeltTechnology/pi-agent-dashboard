@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings → Hermes Memory (mockup)</title>
+<style>
+  /* ---- studio theme tokens (from packages/client/src/index.css) ---- */
+  :root, [data-theme="studio"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444;
+    --accent-purple:#a855f7; --accent-primary:#3b82f6;
+  }
+  :root, [data-theme="studio"]{ --bg-code:#1a1a1a; }
+  [data-theme="light"]{
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#6a6a6a; --text-muted:#aaa;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+    --accent-primary:#2563eb;
+  }
+  :focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px;border-radius:4px;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg-primary);color:var(--text-secondary);font-size:14px;line-height:1.45;}
+  .topbar{max-width:760px;margin:0 auto;padding:14px 20px 0;display:flex;justify-content:space-between;align-items:center;}
+  .topbar h1{font-size:13px;font-weight:600;color:var(--text-tertiary);margin:0;letter-spacing:.02em;text-transform:uppercase;}
+  .tbtn{font-size:12px;color:var(--text-secondary);background:var(--bg-tertiary);border:1px solid var(--border-secondary);
+    border-radius:6px;padding:5px 10px;cursor:pointer;}
+  .tbtn:hover{background:var(--bg-hover);}
+
+  .panel{max-width:760px;margin:0 auto;padding:16px 20px 96px;}
+
+  /* section header — matches SettingsPanel h2 pattern */
+  .sec-title{font-size:14px;font-weight:600;color:var(--text-primary);margin:0 0 4px;padding-bottom:6px;
+    border-bottom:1px solid var(--border-secondary);display:flex;align-items:center;gap:8px;}
+  .sec-sub{font-size:12px;color:var(--text-secondary);margin:0 0 14px;}
+
+  /* notice banner */
+  .notice{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text-secondary);
+    background:color-mix(in srgb,var(--accent-yellow) 12%, transparent);
+    border:1px solid color-mix(in srgb,var(--accent-yellow) 40%, transparent);
+    border-radius:8px;padding:8px 10px;margin:0 0 16px;}
+  .notice svg{flex:0 0 auto;margin-top:1px;}
+  .notice code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--text-primary);
+    background:var(--bg-tertiary);padding:1px 5px;border-radius:4px;}
+
+  /* accordion group */
+  .group{border:1px solid var(--border-secondary);border-radius:10px;overflow:hidden;margin-bottom:10px;background:var(--bg-secondary);}
+  .group > summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;
+    padding:11px 14px;font-size:13px;font-weight:600;color:var(--text-primary);user-select:none;}
+  .group > summary::-webkit-details-marker{display:none;}
+  .group > summary:hover{background:var(--bg-hover);}
+  .chev{transition:transform .15s;color:var(--text-tertiary);flex:0 0 auto;}
+  .group[open] .chev{transform:rotate(90deg);}
+  .group .count{margin-left:auto;font-size:11px;color:var(--text-tertiary);font-weight:500;}
+  .group .badge-dot{width:7px;height:7px;border-radius:50%;background:var(--accent-blue);flex:0 0 auto;}
+  .group-body{padding:4px 14px 12px;border-top:1px solid var(--border-subtle);}
+
+  /* field row */
+  .field{padding:12px 0;border-bottom:1px solid var(--border-subtle);}
+  .field:last-child{border-bottom:none;}
+  .field-head{display:flex;align-items:baseline;gap:8px;}
+  .field-label{font-size:13px;color:var(--text-primary);font-weight:500;}
+  .field-key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--text-tertiary);}
+  .default-badge{font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;
+    color:var(--text-tertiary);border:1px solid var(--border-secondary);border-radius:4px;padding:1px 5px;}
+  .reset{margin-left:auto;font-size:11px;color:var(--accent-blue);background:none;border:none;cursor:pointer;
+    padding:2px 4px;visibility:hidden;}
+  .field.dirty .reset{visibility:visible;}
+  .field.dirty .default-badge{display:none;}
+  .field.dirty .field-label{color:var(--text-primary);}
+  .field.dirty::before{content:"";position:absolute;}
+  .field{position:relative;}
+  .field.dirty{}
+  .field.dirty .field-head::before{content:"";width:0;}
+  .field-help{font-size:11.5px;color:var(--text-tertiary);margin:5px 0 0;}
+  .field-ctl{margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+
+  input[type=text],input[type=number],select,textarea{
+    font:inherit;font-size:12.5px;color:var(--text-primary);background:var(--bg-tertiary);
+    border:1px solid var(--border-secondary);border-radius:6px;padding:6px 9px;outline:none;width:100%;max-width:340px;}
+  input[type=number]{max-width:150px;}
+  textarea{max-width:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;resize:vertical;min-height:64px;}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent-primary) 25%,transparent);}
+  .is-default input,.is-default select,.is-default textarea{color:var(--text-secondary);}
+  .unit{font-size:11px;color:var(--text-tertiary);}
+
+  /* toggle */
+  /* toggle — visual 34×19, hit target padded to ~44px (WCAG 2.5.8) */
+  .switch{position:relative;display:inline-block;width:34px;height:19px;flex:0 0 auto;padding:12px 6px;margin:-12px -6px;}
+  .switch input{position:absolute;opacity:0;width:0;height:0;}
+  .track{position:absolute;top:12px;left:6px;width:34px;height:19px;background:var(--bg-surface);
+    border:1px solid var(--border-secondary);border-radius:999px;transition:.15s;pointer-events:none;}
+  .knob{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--text-tertiary);transition:.15s;}
+  .switch input:checked + .track{background:color-mix(in srgb,var(--accent-green) 55%,transparent);border-color:transparent;}
+  .switch input:checked + .track .knob{transform:translateX(15px);background:#fff;}
+  .switch-label{font-size:12px;color:var(--text-secondary);margin-left:6px;}
+
+  /* sticky save bar */
+  .savebar{position:fixed;left:0;right:0;bottom:0;background:var(--bg-secondary);border-top:1px solid var(--border-secondary);}
+  .savebar-in{max-width:760px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:10px;}
+  .savebar .status{font-size:12px;color:var(--text-tertiary);}
+  .savebar .status.changed{color:var(--accent-yellow);}
+  .spacer{margin-left:auto;}
+  .btn{font-size:12.5px;padding:7px 14px;border-radius:6px;border:1px solid var(--border-secondary);
+    background:var(--bg-tertiary);color:var(--text-primary);cursor:pointer;}
+  .btn:hover{background:var(--bg-hover);}
+  .btn.primary{background:var(--accent-primary);border-color:transparent;color:#fff;font-weight:600;}
+  .btn.primary:disabled{opacity:.45;cursor:not-allowed;}
+  .btn.ghost{background:none;}
+
+  .path-line{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--text-tertiary);
+    display:flex;align-items:center;gap:6px;margin:2px 0 16px;}
+  .path-line .pill{border:1px solid var(--border-secondary);border-radius:4px;padding:1px 6px;color:var(--accent-green);}
+
+  /* raw json */
+  dialog{border:1px solid var(--border-secondary);border-radius:12px;background:var(--bg-secondary);color:var(--text-primary);
+    max-width:640px;width:92vw;padding:0;}
+  dialog::backdrop{background:rgba(0,0,0,.55);}
+  .dlg-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border-secondary);font-size:13px;font-weight:600;}
+  .dlg-body{padding:14px 16px;}
+  pre{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--text-secondary);
+    background:var(--bg-code);border:1px solid var(--border-subtle);border-radius:8px;padding:12px;max-height:52vh;overflow:auto;white-space:pre;}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>Settings · Hermes Memory</h1>
+    <button class="tbtn" id="themeBtn">◐ Light</button>
+  </div>
+
+  <div class="panel">
+    <h2 class="sec-title">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 4v6c0 4-3 6.5-7 8-4-1.5-7-4-7-8V7l7-4z"/></svg>
+      Hermes Memory
+    </h2>
+    <p class="sec-sub">Configuration for the <code style="font-family:ui-monospace;font-size:11px">pi-hermes-memory</code> extension. Fields left at their default track the extension's built-in value.</p>
+
+    <div class="path-line">
+      <span>File:</span><span class="pill">~/.pi/agent/hermes-memory-config.json</span><span>· exists</span>
+    </div>
+
+    <div class="notice">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-yellow)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+      <span>Changes apply to <strong>newly started sessions</strong>. Hermes reads its config once at extension load, so running sessions keep their current settings until restarted.</span>
+    </div>
+
+    <!-- ── Prompt mode ── -->
+    <details class="group" open>
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Prompt &amp; policy <span class="count">3 fields</span></summary>
+      <div class="group-body">
+        <div class="field is-default">
+          <div class="field-head"><span class="field-label">Memory mode</span><span class="field-key">memoryMode</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help">How memory reaches the prompt. <code>policy-only</code> injects a policy prompt; <code>legacy-inject</code> pastes raw memory.</p>
+          <div class="field-ctl"><select><option>policy-only</option><option>legacy-inject</option></select></div>
+        </div>
+        <div class="field is-default">
+          <div class="field-head"><span class="field-label">Policy style</span><span class="field-key">memoryPolicyStyle</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help">Verbosity of the policy prompt when mode is <code>policy-only</code>.</p>
+          <div class="field-ctl"><select><option>full</option><option>compact</option><option>custom</option><option>none</option></select></div>
+        </div>
+        <div class="field is-default">
+          <div class="field-head"><span class="field-label">Custom policy text</span><span class="field-key">memoryPolicyCustomText</span><span class="default-badge">default</span><button class="reset">Reset</button></div>
+          <p class="field-help">Used only when policy style is <code>custom</code>.</p>
+          <div class="field-ctl"><textarea placeholder="(empty — uses built-in policy)"></textarea></div>
+        </div>
+      </div>
+    </details>
+
+    <!-- ── Char limits ── -->
+    <details class="group">
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Store size limits <span class="count">3 fields</span></summary>
+      <div class="group-body">
+        <div class="field is-default"><div class="field-head"><span class="field-label">MEMORY.md limit</span><span class="field-key">memoryCharLimit</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Max characters of agent notes before overflow strategy fires.</p><div class="field-ctl"><input type="number" value="5000"><span class="unit">chars</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">USER.md limit</span><span class="field-key">userCharLimit</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Max characters of the user profile.</p><div class="field-ctl"><input type="number" value="5000"><span class="unit">chars</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Project MEMORY.md limit</span><span class="field-key">projectCharLimit</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Max characters of project-scoped memory.</p><div class="field-ctl"><input type="number" value="5000"><span class="unit">chars</span></div></div>
+      </div>
+    </details>
+
+    <!-- ── Background review ── -->
+    <details class="group">
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Background review <span class="count">5 fields</span></summary>
+      <div class="group-body">
+        <div class="field is-default"><div class="field-head"><span class="field-label">Enable background learning</span><span class="field-key">reviewEnabled</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Periodically review the conversation and extract durable memories.</p><div class="field-ctl"><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label><span class="switch-label">On</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Review transport</span><span class="field-key">reviewTransport</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">How the review calls the model — inline (<code>direct</code>) or a child <code>pi&nbsp;-p</code> (<code>subprocess</code>).</p><div class="field-ctl"><select><option>direct</option><option>subprocess</option></select></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Turns between reviews</span><span class="field-key">nudgeInterval</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">User turns before a background review triggers.</p><div class="field-ctl"><input type="number" value="10"><span class="unit">turns</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Tool calls between reviews</span><span class="field-key">nudgeToolCalls</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Tool calls (in addition to turns) before a review triggers.</p><div class="field-ctl"><input type="number" value="15"><span class="unit">calls</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Recent messages in review</span><span class="field-key">reviewRecentMessages</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help"><code>0</code> = include the whole conversation.</p><div class="field-ctl"><input type="number" value="0"><span class="unit">msgs (0 = all)</span></div></div>
+      </div>
+    </details>
+
+    <!-- ── Flush ── -->
+    <details class="group">
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Flush on compact / shutdown <span class="count">4 fields</span></summary>
+      <div class="group-body">
+        <div class="field is-default"><div class="field-head"><span class="field-label">Flush before compaction</span><span class="field-key">flushOnCompact</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Persist memories before the context is compacted.</p><div class="field-ctl"><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label><span class="switch-label">On</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Flush on shutdown</span><span class="field-key">flushOnShutdown</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Persist memories when a session ends.</p><div class="field-ctl"><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label><span class="switch-label">On</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Minimum turns before flush</span><span class="field-key">flushMinTurns</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Skip flush for very short sessions.</p><div class="field-ctl"><input type="number" value="6"><span class="unit">turns</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Recent messages in flush</span><span class="field-key">flushRecentMessages</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help"><code>0</code> = include the whole conversation.</p><div class="field-ctl"><input type="number" value="0"><span class="unit">msgs (0 = all)</span></div></div>
+      </div>
+    </details>
+
+    <!-- ── Overflow ── -->
+    <details class="group">
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Overflow &amp; consolidation <span class="count">3 fields</span></summary>
+      <div class="group-body">
+        <div class="field is-default"><div class="field-head"><span class="field-label">Overflow strategy</span><span class="field-key">memoryOverflowStrategy</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">What happens when a store hits its char limit.</p><div class="field-ctl"><select><option>auto-consolidate</option><option>reject</option><option>fifo-evict</option></select></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Auto-consolidate</span><span class="field-key">autoConsolidate</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Legacy alias for the overflow strategy.</p><div class="field-ctl"><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label><span class="switch-label">On</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Consolidation timeout</span><span class="field-key">consolidationTimeoutMs</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Max time for an auto-consolidation to complete.</p><div class="field-ctl"><input type="number" value="60000"><span class="unit">ms</span></div></div>
+      </div>
+    </details>
+
+    <!-- ── Correction detection ── -->
+    <details class="group">
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Correction detection <span class="count">5 fields · advanced</span></summary>
+      <div class="group-body">
+        <div class="field is-default"><div class="field-head"><span class="field-label">Detect corrections</span><span class="field-key">correctionDetection</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Watch for user corrections and save a memory immediately.</p><div class="field-ctl"><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label><span class="switch-label">On</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Strong patterns</span><span class="field-key">correctionStrongPatterns</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">One regex per line. Empty box = use built-in defaults; blank-but-saved = none.</p><div class="field-ctl"><textarea placeholder="(built-in defaults)&#10;/that's wrong/i&#10;/don't do that/i"></textarea></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Weak patterns</span><span class="field-key">correctionWeakPatterns</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">One regex per line.</p><div class="field-ctl"><textarea placeholder="(built-in defaults)"></textarea></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Negative patterns</span><span class="field-key">correctionNegativePatterns</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Suppress a trigger even when a positive pattern matched.</p><div class="field-ctl"><textarea placeholder="(built-in defaults)"></textarea></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Directive words</span><span class="field-key">correctionDirectiveWords</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">One word per line; used after a weak pattern.</p><div class="field-ctl"><textarea placeholder="(built-in defaults)"></textarea></div></div>
+      </div>
+    </details>
+
+    <!-- ── Failure injection ── -->
+    <details class="group">
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Failure injection <span class="count">3 fields</span></summary>
+      <div class="group-body">
+        <div class="field is-default"><div class="field-head"><span class="field-label">Inject failure memories</span><span class="field-key">failureInjectionEnabled</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Surface recent failures in the system prompt.</p><div class="field-ctl"><label class="switch"><input type="checkbox" checked><span class="track"><span class="knob"></span></span></label><span class="switch-label">On</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Max age</span><span class="field-key">failureInjectionMaxAgeDays</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Only inject failures newer than this.</p><div class="field-ctl"><input type="number" value="7"><span class="unit">days</span></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Max entries</span><span class="field-key">failureInjectionMaxEntries</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Cap on injected failure memories.</p><div class="field-ctl"><input type="number" value="5"><span class="unit">entries</span></div></div>
+      </div>
+    </details>
+
+    <!-- ── Child LLM ── -->
+    <details class="group" open>
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Child LLM (background subprocess) <span class="badge-dot" title="has a user-set value"></span><span class="count">3 fields</span></summary>
+      <div class="group-body">
+        <div class="field dirty"><div class="field-head"><span class="field-label">Model override</span><span class="field-key">llmModelOverride</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Model for background consolidation / review subprocesses. Empty = inherit the session's model.</p><div class="field-ctl"><input type="text" value="anthropic/claude-haiku-4-5" placeholder="inherit session model"></div></div>
+        <div class="field dirty"><div class="field-head"><span class="field-label">Thinking override</span><span class="field-key">llmThinkingOverride</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Thinking level for the child subprocess.</p><div class="field-ctl"><select><option>(unset — inherit)</option><option selected>off</option><option>minimal</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option></select></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Extra extension paths</span><span class="field-key">childExtensionPaths</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">One path per line — e.g. a provider-auth adapter the child pi must load.</p><div class="field-ctl"><textarea placeholder="(none)"></textarea></div></div>
+      </div>
+    </details>
+
+    <!-- ── Storage / search ── -->
+    <details class="group">
+      <summary><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg> Storage &amp; search <span class="count">3 fields</span></summary>
+      <div class="group-body">
+        <div class="field is-default"><div class="field-head"><span class="field-label">Memory directory</span><span class="field-key">memoryDir</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Override the extension storage directory.</p><div class="field-ctl"><input type="text" value="~/.pi/agent/pi-hermes-memory"></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Projects memory directory</span><span class="field-key">projectsMemoryDir</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Relative to <code>~/.pi/agent</code>.</p><div class="field-ctl"><input type="text" value="projects-memory"></div></div>
+        <div class="field is-default"><div class="field-head"><span class="field-label">Session search variant</span><span class="field-key">sessionSearch.variant</span><span class="default-badge">default</span><button class="reset">Reset</button></div><p class="field-help">Search implementation.</p><div class="field-ctl"><select><option>legacy</option><option>anchors</option></select></div></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="savebar">
+    <div class="savebar-in">
+      <span class="status" id="status">2 fields changed · not yet saved</span>
+      <span class="spacer"></span>
+      <button class="btn ghost" id="rawBtn">View raw JSON</button>
+      <button class="btn" id="revertBtn">Revert</button>
+      <button class="btn primary" id="saveBtn">Save</button>
+    </div>
+  </div>
+
+  <dialog id="rawDlg">
+    <div class="dlg-head"><span>hermes-memory-config.json (resolved)</span><button class="btn ghost" id="rawClose">Close</button></div>
+    <div class="dlg-body">
+      <pre id="rawPre"></pre>
+    </div>
+  </dialog>
+
+<script>
+  // theme toggle
+  const html=document.documentElement, tb=document.getElementById('themeBtn');
+  tb.onclick=()=>{const light=html.getAttribute('data-theme')==='light';
+    html.setAttribute('data-theme',light?'studio':'light');tb.textContent=light?'◐ Light':'◑ Dark';};
+
+  // dirty tracking: any field whose control changes flips to .dirty
+  function recount(){
+    const n=document.querySelectorAll('.field.dirty').length;
+    const s=document.getElementById('status');
+    s.textContent=n?`${n} field${n>1?'s':''} changed · not yet saved`:'No changes';
+    s.classList.toggle('changed',!!n);
+    document.getElementById('saveBtn').disabled=!n;
+  }
+  document.querySelectorAll('.field').forEach(f=>{
+    f.addEventListener('input',()=>{f.classList.add('dirty');f.classList.remove('is-default');recount();});
+    f.addEventListener('change',()=>{f.classList.add('dirty');f.classList.remove('is-default');recount();});
+    const r=f.querySelector('.reset');
+    if(r)r.addEventListener('click',()=>{f.classList.remove('dirty');f.classList.add('is-default');recount();});
+  });
+  recount();
+
+  // raw json
+  const dlg=document.getElementById('rawDlg');
+  const sample={memoryMode:"policy-only",memoryPolicyStyle:"full",memoryCharLimit:5000,userCharLimit:5000,
+    projectCharLimit:5000,reviewEnabled:true,nudgeInterval:10,nudgeToolCalls:15,flushOnCompact:true,
+    flushOnShutdown:true,flushMinTurns:6,memoryOverflowStrategy:"auto-consolidate",autoConsolidate:true,
+    consolidationTimeoutMs:60000,correctionDetection:true,failureInjectionEnabled:true,
+    failureInjectionMaxAgeDays:7,failureInjectionMaxEntries:5,llmModelOverride:"anthropic/claude-haiku-4-5",
+    llmThinkingOverride:"off",projectsMemoryDir:"projects-memory",sessionSearch:{variant:"legacy"}};
+  document.getElementById('rawBtn').onclick=()=>{document.getElementById('rawPre').textContent=JSON.stringify(sample,null,2);dlg.showModal();};
+  document.getElementById('rawClose').onclick=()=>dlg.close();
+  document.getElementById('revertBtn').onclick=()=>location.reload();
+  document.getElementById('saveBtn').onclick=()=>{document.querySelectorAll('.field.dirty').forEach(f=>f.classList.remove('dirty'));recount();};
+</script>
+</body>
+</html>

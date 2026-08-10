@@ -2,8 +2,12 @@
  * Tests for `dispatchPreview` and `RENDERER_BY_EXT`. See change:
  * render-file-previews.
  */
-import { describe, it, expect } from "vitest";
-import { dispatchPreview, RENDERER_BY_EXT } from "../preview-dispatch.js";
+import {
+  rendererKindForPath,
+  RENDERER_BY_EXT as SHARED_RENDERER_BY_EXT,
+} from "@blackbelt-technology/pi-dashboard-shared/renderer-by-ext.js";
+import { describe, expect, it } from "vitest";
+import { dispatchPreview, RENDERER_BY_EXT } from "../preview/preview-dispatch.js";
 
 const f = (path: string) => ({ kind: "file" as const, cwd: "/x", path });
 const u = (url: string) => ({ kind: "url" as const, url });
@@ -23,6 +27,21 @@ describe("dispatchPreview — file targets", () => {
 
   it("maps PDF", () => {
     expect(dispatchPreview(f("paper.pdf"))).toBe("pdf");
+  });
+
+  it("maps docx (test-plan #1, #2)", () => {
+    expect(dispatchPreview(f("spec.docx"))).toBe("docx");
+    expect(dispatchPreview(f("SPEC.DOCX"))).toBe("docx"); // ext lowercased
+  });
+
+  it("maps pptx (test-plan #1, #2)", () => {
+    expect(dispatchPreview(f("deck.pptx"))).toBe("pptx");
+    expect(dispatchPreview(f("DECK.PPTX"))).toBe("pptx"); // ext lowercased
+  });
+
+  it("maps spreadsheets: xlsx + csv (test-plan #3, #4)", () => {
+    expect(dispatchPreview(f("data.xlsx"))).toBe("spreadsheet");
+    expect(dispatchPreview(f("export.csv"))).toBe("spreadsheet");
   });
 
   it("maps video extensions", () => {
@@ -48,15 +67,64 @@ describe("dispatchPreview — file targets", () => {
     expect(dispatchPreview(f("x.htm"))).toBe("html");
   });
 
-  it("falls back on unknown file extension", () => {
+  // test-plan #1 / #2 — .eml dispatches to the email renderer, ext lowercased.
+  it("maps .eml to email (test-plan #1)", () => {
+    expect(dispatchPreview(f("mail.eml"))).toBe("email");
+  });
+
+  it("maps upper-case .EML to email via lowercased ext (test-plan #2)", () => {
+    expect(dispatchPreview(f("Mail.EML"))).toBe("email");
+  });
+
+  // test-plan #4 — unknown extension stays fallback (regression guard).
+  it("maps .dat to fallback (test-plan #4)", () => {
+    expect(dispatchPreview(f("blob.dat"))).toBe("fallback");
+  });
+
+  it("falls back on unknown file extension (test-plan #5)", () => {
     expect(dispatchPreview(f("x.dat"))).toBe("fallback");
     expect(dispatchPreview(f("noext"))).toBe("fallback");
+  });
+
+  it("a URL target ending .pptx dispatches by extension (test-plan #6.3)", () => {
+    // dispatch is shape-based; PreviewBody guards kind !== "file" → FallbackPreview.
+    expect(dispatchPreview(u("https://example.com/slides.pptx"))).toBe("pptx");
+  });
+
+  it("a URL target ending .docx dispatches by extension (test-plan #6)", () => {
+    // dispatch itself is shape-based; a URL .docx maps to "docx", but PreviewBody
+    // guards kind on target.kind !== "file" and falls back (covered there).
+    expect(dispatchPreview(u("https://example.com/report.docx"))).toBe("docx");
   });
 
   it("covers every entry of RENDERER_BY_EXT", () => {
     for (const [ext, kind] of Object.entries(RENDERER_BY_EXT)) {
       expect(dispatchPreview(f(`x${ext}`))).toBe(kind);
     }
+  });
+});
+
+// S6 (test-plan): the client dispatch and the shared detector table are ONE
+// source of truth — same table object, identical kind per extension, and the
+// client consumes the shared module (no parallel copy, no cross-package import
+// of client code into shared).
+describe("S6 — shared RENDERER_BY_EXT is the single source of truth", () => {
+  it("client re-exports the very same shared table object", () => {
+    expect(RENDERER_BY_EXT).toBe(SHARED_RENDERER_BY_EXT);
+  });
+
+  it("client dispatchPreview and shared rendererKindForPath agree for every ext", () => {
+    for (const [ext, kind] of Object.entries(SHARED_RENDERER_BY_EXT)) {
+      const path = `report${ext}`;
+      expect(rendererKindForPath(path)).toBe(kind);
+      expect(dispatchPreview(f(path))).toBe(kind);
+      expect(dispatchPreview(f(path))).toBe(rendererKindForPath(path));
+    }
+  });
+
+  it("both classifiers fall back identically on an unknown extension", () => {
+    expect(rendererKindForPath("x.dat")).toBe("fallback");
+    expect(dispatchPreview(f("x.dat"))).toBe("fallback");
   });
 });
 

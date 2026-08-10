@@ -1,9 +1,22 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 import { InputRenderer } from "../interactive-renderers/InputRenderer.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 afterEach(cleanup);
+
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(prefers-color-scheme: dark)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  });
+});
 
 const baseProps = {
   requestId: "req-1",
@@ -254,5 +267,35 @@ describe("InputRenderer", () => {
 
       expect(screen.getByText("Answered in terminal")).toBeTruthy();
     });
+  });
+});
+
+describe("InputRenderer — resolved shows message body (change: fix-ask-user-card-duplication)", () => {
+  const MSG = "Your full legal name.";
+  it("renders params.message in the resolved state", () => {
+    render(
+      <ThemeProvider>
+        <InputRenderer
+        requestId="r" method="input"
+        params={{ title: "Enter your name", message: MSG }}
+        status="resolved" result={{ value: "Ada" }}
+        onRespond={vi.fn()} onCancel={vi.fn()}
+      />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText(MSG)).toBeTruthy();
+  });
+  it("renders no message body when params.message is absent", () => {
+    render(
+      <ThemeProvider>
+        <InputRenderer
+        requestId="r" method="input"
+        params={{ title: "Enter your name" }}
+        status="resolved" result={{ value: "Ada" }}
+        onRespond={vi.fn()} onCancel={vi.fn()}
+      />
+      </ThemeProvider>,
+    );
+    expect(screen.queryByText(MSG)).toBeNull();
   });
 });
