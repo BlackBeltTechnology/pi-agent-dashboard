@@ -131,6 +131,7 @@ The fail-closed line is drawn at *ambiguity*, not at *residue*.
 | reconcile outcome | run |
 |---|---|
 | nothing to do (empty/absent journal) | proceeds silently |
+| entry owned by a live process (D4b) | **proceeds**, entry untouched |
 | every entry cleanly restored (D3 rows 1-2) | **proceeds**, reporting each restored path loudly |
 | any conflict (D3 rows 3-4, or an unreadable entry) | **fails non-zero, nothing runs** |
 
@@ -173,6 +174,37 @@ point — residue in `prompt-bus.ts` makes the extension's own suite lie, and a
 suite that lies is worse than a suite that refuses. The blast radius is bounded
 by restricting it to conflicts (the table above), which a human can always clear
 via D3a.
+
+### D4b: An entry owned by a LIVE process is in-flight, not residue
+
+Discovered during implementation, and it invalidates D4 as first written.
+
+`runTestFile` shells out to `npx vitest run <testFile>`. That child is itself a
+vitest run, so it loads the **root** config — `globalSetup` included. With
+reconciliation wired there, the child reconciled the mutation its own parent had
+just applied, ran the target test against **restored** code, saw it pass, and
+the harness concluded every mutation had survived. The crash-safety fix silently
+removed the harness's teeth; its own X15 checks caught it.
+
+An env flag telling the child to skip would fix that one path and miss the
+general case: a developer running a plain `npm test` in another terminal while a
+harness run is mid-mutation would restore the mutation just the same, and the
+harness would report a false survivor with nothing to indicate why.
+
+So entries carry the **owning pid**, and reconciliation *skips* — neither
+restores nor conflicts — any entry whose owner is still alive. Residue is by
+definition what a process left behind when it *stopped* existing; a live owner's
+mutation is work in progress and belongs to that process.
+
+`process.kill(pid, 0)` is the liveness probe (`EPERM` counts as alive: the pid
+exists, it just belongs to another user). Pid reuse can make a dead owner look
+alive; the entry is then skipped for that run and reconciled on a later one.
+That asymmetry is deliberate — the error this direction avoids is destroying a
+live mutation, which is the worse of the two.
+
+Note this narrows D7's collision guard rather than replacing it: a second run
+still *refuses* on an existing entry (it is about to mutate the same file), and
+reconciliation still declines to clean up after a run that is still going.
 
 ### D4a: The signal handler restores and then dies — it does not resume
 
@@ -243,6 +275,13 @@ grain, by spawning a real child harness process and killing it.
   refuses it and the operator restores by hand from the reported entry. Outside
   the incident set, and the alternative — writing the source atomically too —
   buys little for a file that is about to be overwritten again anyway.
+- **The ownership check (D4b) is invisible to the harness's own mutation sweep.**
+  Mutating it away is self-erasing: with ownership disabled, the child vitest's
+  `globalSetup` reconciles the parent's mutation of `mutation-harness.mjs`
+  itself, so the tests run against restored code and the mutation reports as
+  survived. Verified instead by disabling the check directly and observing
+  test-plan #X13 go red. Any future mutation targeting the journal's own
+  machinery inherits this blind spot and must be checked the same way.
 - **`reconcile()` now runs on every `npm test`**, not only on a mutation run,
   because the `globalSetup` is root-level (D4). It is a directory `stat` on the
   clean path.

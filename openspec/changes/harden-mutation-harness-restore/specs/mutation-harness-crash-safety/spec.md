@@ -144,6 +144,27 @@ mutation check resumed against a restored file reports a false result.
 - **AND** it SHALL terminate non-zero without reporting a result for the
   in-flight mutation
 
+### Requirement: Reconciliation SHALL NOT disturb an in-flight mutation
+
+A journal entry records the process that created it. An entry whose owning
+process is still running describes work in progress, not residue, and
+reconciliation SHALL leave it entirely alone. Without this the harness's own
+child test-runner process — which loads the same reconciliation — would restore
+the mutation its parent just applied and report every mutation as survived.
+
+#### Scenario: The owning process is still running
+
+- **WHEN** reconciliation finds a journal entry whose owning process is alive
+- **THEN** it SHALL NOT restore, remove, or report that entry as a conflict
+- **AND** the source file SHALL be left byte-unchanged
+- **AND** the run SHALL proceed
+
+#### Scenario: The owning process is gone
+
+- **WHEN** reconciliation finds a journal entry whose owning process no longer
+  exists
+- **THEN** it SHALL treat the entry as residue and reconcile it normally
+
 ### Requirement: A second concurrent run SHALL be refused
 
 The harness assumes a single writer per working tree. A second run that finds an

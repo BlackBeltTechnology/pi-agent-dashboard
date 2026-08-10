@@ -70,6 +70,7 @@ journal reads no source file), not by a latency threshold.
 | X10 | R3 / reconcile precedes every project fork | state-transition (ordering) | L1 | automated | a recoverable entry for a source file that another vitest project imports | a full run starts | the restore completes before any project fork loads that module — the importing project observes the restored bytes, never the mutated ones |
 | X11 | R4 / SIGINT restores and stops | fault-injection (signal) | L1 | automated | a child harness process against a temp repoRoot, mid-mutation | child receives `SIGINT` | the source file is restored, its journal entry is gone, the child exits non-zero, and it reports NO result for the in-flight mutation |
 | X12 | R1 / the existing `finally` still restores on a throw | state-transition (legal edge) | L1 | automated | temp repoRoot; the test runner stubbed to throw | `verifyTeeth` is called | the throw propagates AND the source file is restored AND the journal entry is removed — the journal is proven additive, not a replacement |
+| X13 | R6 / a live owner's mutation is untouchable | state-transition (illegal edge) | L1 | automated | a child harness process holding a mutation on disk, still running | `reconcile()` runs in a different process | the entry is skipped — not restored, not conflicted — the file keeps its mutated bytes, the entry remains, and `globalSetup` does not throw |
 
 ### Manual-only
 
@@ -82,12 +83,19 @@ journal reads no source file), not by a latency threshold.
 
 ## Coverage summary
 
-- Requirements covered: 5/5 (R1 recoverable-after-death, R2 non-destructive
+- Requirements covered: 6/6 (R1 recoverable-after-death, R2 non-destructive
   reconciliation, R3 fail-closed, R4 interrupt-restores-and-stops, R5
-  concurrent-run-refused)
-- Scenarios by class: edge 8 · perf 0 · frontend 0 · error 12 · manual 2
-- Scenarios by level: L1 20 · L2 0 · L3 0 · manual-only 2
-- Scenarios by disposition: automated 20 · manual-only 2
+  concurrent-run-refused, R6 in-flight-mutation-untouched)
+- Scenarios by class: edge 8 · perf 0 · frontend 0 · error 13 · manual 2
+- Scenarios by level: L1 21 · L2 0 · L3 0 · manual-only 2
+- Scenarios by disposition: automated 21 · manual-only 2
+
+> **X13 was added during implementation, not planning.** The harness's own X15
+> teeth checks failed once reconciliation was wired into the root `globalSetup`:
+> `runTestFile` spawns `npx vitest`, that child inherits the global setup, and it
+> reconciled away the mutation its parent had just applied. Planning missed it
+> because D4 reasoned about *other* projects racing the reconcile and not about
+> the harness's own child being a vitest run too. See design D4b.
 
 ## New infra needed
 
