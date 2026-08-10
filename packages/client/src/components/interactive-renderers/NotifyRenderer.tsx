@@ -71,8 +71,11 @@ export function NotifyRenderer({ params }: InteractiveRendererProps) {
       : typeof params.title === "string"
         ? params.title
         : "";
+  // OWN-property check: a bare `in` also matches `Object.prototype` names, so a
+  // level of "toString" would destructure a FUNCTION and crash InlineMessage on
+  // `tone.bg`. See CodeRabbit review, PR #453.
   const level =
-    typeof params.level === "string" && params.level in LEVEL_PRESENTATION
+    typeof params.level === "string" && Object.hasOwn(LEVEL_PRESENTATION, params.level)
       ? (params.level as keyof typeof LEVEL_PRESENTATION)
       : "info";
 

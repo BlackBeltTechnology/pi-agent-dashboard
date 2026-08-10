@@ -199,7 +199,16 @@ describe("isNotifyRowVisible — ladder", () => {
 
 describe("isNotifyRowVisible — fail-open", () => {
   // 2.3 / test-plan #E3
-  it.each([[undefined], [null], [42], ["critical"], [""]])(
+  it.each([
+    [undefined],
+    [null],
+    [42],
+    ["critical"],
+    [""],
+    ["toString"],
+    ["constructor"],
+    ["__proto__"],
+  ])(
     "ranks an unrecognized level (%p) as info",
     (level) => {
       expect(isNotifyRowVisible(notifyRow(level), "success")).toBe(false);
@@ -208,7 +217,24 @@ describe("isNotifyRowVisible — fail-open", () => {
   );
 
   // 2.4 / test-plan #E4 — the floor itself fails open.
-  it.each([["oops"], [""], [undefined], [null], [42], ["warning"], ["error"], ["ALL"]])(
+  it.each([
+    ["oops"],
+    [""],
+    [undefined],
+    [null],
+    [42],
+    ["warning"],
+    ["error"],
+    ["ALL"],
+    // Inherited Object.prototype names: a bare `in` check passes for these, so
+    // the floor would resolve to a FUNCTION and every comparison would go
+    // false — silently hiding even `error`. See CodeRabbit review, PR #453.
+    ["toString"],
+    ["constructor"],
+    ["valueOf"],
+    ["hasOwnProperty"],
+    ["__proto__"],
+  ])(
     "treats an unrecognized floor (%p) as 'all' so nothing is suppressed",
     (floor) => {
       for (const level of LEVELS) {
@@ -326,4 +352,16 @@ describe("notifyMinLevel — unvalidated override (test-plan #X2)", () => {
     // Global is untouched.
     expect(globalPrefs.notifyMinLevel).toBe("all");
   });
+});
+
+describe("isNotifyRowVisible — prototype-chain floors never hide an error", () => {
+  // The axis makes exactly one hard promise: `error` always renders. A floor
+  // resolved through Object.prototype broke it (rank became a function, so
+  // every `>=` went false). See CodeRabbit review, PR #453.
+  it.each([["toString"], ["constructor"], ["valueOf"], ["hasOwnProperty"], ["__proto__"]])(
+    "still renders an error notify at floor %p",
+    (floor) => {
+      expect(isNotifyRowVisible(notifyRow("error"), floor)).toBe(true);
+    },
+  );
 });

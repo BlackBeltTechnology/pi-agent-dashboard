@@ -164,6 +164,17 @@ describe("NotifyRenderer — behaviour preserved through the migration", () => {
     const { getByTestId } = renderNotify({ message: "hello", level: "critical" });
     expect(getByTestId("inline-message").outerHTML).toContain("--severity-info-bg");
   });
+
+  // A bare `in` check matches Object.prototype names, so these destructured a
+  // FUNCTION and crashed InlineMessage on `tone.bg`. See CodeRabbit, PR #453.
+  it.each([["toString"], ["constructor"], ["valueOf"], ["hasOwnProperty"], ["__proto__"]])(
+    "renders an inherited-property level (%p) as info instead of crashing",
+    (level) => {
+      const { getByTestId, container } = renderNotify({ message: "hello", level });
+      expect(getByTestId("inline-message").outerHTML).toContain("--severity-info-bg");
+      expect(container.textContent).toContain("hello");
+    },
+  );
 });
 
 describe("InlineMessage success member (test-plan #F13, #F14)", () => {

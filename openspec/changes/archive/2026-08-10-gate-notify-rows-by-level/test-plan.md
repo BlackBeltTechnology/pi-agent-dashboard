@@ -1,6 +1,6 @@
 # Test Plan — gate-notify-rows-by-level
 
-Stage: design   Generated: 2026-08-14
+Stage: design   Generated: 2026-08-10
 
 HARD gate cleared — both unfillable slots were resolved by the requester:
 
@@ -70,7 +70,7 @@ HARD gate cleared — both unfillable slots were resolved by the requester:
 
 - Requirements covered: 7/7 (all `SHALL` blocks across the 5 spec deltas)
 - Scenarios by class: edge 12 · perf 0 · frontend 19 · error 3
-- Scenarios by level: L1 30 · L2 0 · L3 2 · manual-only 1
+- Scenarios by level: L1 31 · L2 0 · L3 2 · manual-only 1
 - Scenarios by disposition: automated 33 · manual-only 1
 
 No L2 rows: this change adds no install, spawn, process or multi-OS runtime

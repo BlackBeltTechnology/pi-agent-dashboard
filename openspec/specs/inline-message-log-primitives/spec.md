@@ -5,7 +5,7 @@ TBD - created by archiving change redesign-directory-card. Update Purpose after 
 ## Requirements
 ### Requirement: Shared InlineMessage primitive
 
-The client SHALL provide a single `InlineMessage` component that renders a severity-styled inline surface with: a leading severity accent bar, an icon, a title, optional sub/body content, an optional row of action pills, and an optional `mdiClose` dismiss control. Its colors (background, border, foreground) SHALL be derived exclusively from `--severity-{error,warning,info}-*` theme tokens — no raw Tailwind color literals. It SHALL support a `compact` one-line variant and an `animate` mode that renders a thin top accent-bar sweep to convey an in-flight state. The dismiss control SHALL invoke `onDismiss` only and SHALL NOT perform any other side effect (e.g. it never aborts a session).
+The client SHALL provide a single `InlineMessage` component that renders a severity-styled inline surface with: a leading severity accent bar, an icon, a title, optional sub/body content, an optional row of action pills, and an optional `mdiClose` dismiss control. Its colors (background, border, foreground) SHALL be derived exclusively from the `--severity-*` theme token family (`error`, `warning`, `info`, `success`) — no raw Tailwind color literals. It SHALL support a `compact` one-line variant and an `animate` mode that renders a thin top accent-bar sweep to convey an in-flight state. The dismiss control SHALL invoke `onDismiss` only and SHALL NOT perform any other side effect (e.g. it never aborts a session).
 
 #### Scenario: Severity drives tokens
 - **WHEN** `InlineMessage` is rendered with `severity="warning"`

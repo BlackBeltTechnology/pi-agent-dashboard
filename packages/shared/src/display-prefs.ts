@@ -68,9 +68,18 @@ export interface NotifyRowDescriptor {
   level: unknown;
 }
 
-/** Unrecognized floor → `"all"`. Neither write path validates the value. */
+/**
+ * Unrecognized floor → `"all"`. Neither write path validates the value.
+ *
+ * OWN-property check, deliberately: a bare `value in FLOOR_RANK` also matches
+ * every `Object.prototype` name, so a floor of `"toString"` resolved to a
+ * FUNCTION and made every `>=` comparison false — silently hiding even `error`,
+ * the one thing this axis promises never to hide.
+ */
 function normalizeNotifyMinLevel(value: unknown): NotifyMinLevel {
-  return typeof value === "string" && value in FLOOR_RANK ? (value as NotifyMinLevel) : "all";
+  return typeof value === "string" && Object.hasOwn(FLOOR_RANK, value)
+    ? (value as NotifyMinLevel)
+    : "all";
 }
 
 /**

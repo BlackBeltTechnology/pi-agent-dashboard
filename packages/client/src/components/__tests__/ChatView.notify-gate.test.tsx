@@ -226,6 +226,7 @@ describe("notify gate — reversibility and scope (test-plan #F4, #F5)", () => {
     const fetchSpy = vi.fn();
     const realFetch = globalThis.fetch;
     globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch;
+    try {
     prefsRef.current = { ...prefsRef.current, notifyMinLevel: "errors" };
     const state = stateWith([...LEVELS.map(notifyRow)]);
     const { container, rerender } = renderChat(state);
@@ -252,8 +253,12 @@ describe("notify gate — reversibility and scope (test-plan #F4, #F5)", () => {
     const positions = LEVELS.map((l) => text.indexOf(`notify-body-${l}`));
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     // …and nothing was refetched to get them.
-    expect(fetchSpy).not.toHaveBeenCalled();
-    globalThis.fetch = realFetch;
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      // Restore even if an assertion above throws, so later tests do not
+      // inherit the mock. See CodeRabbit, PR #453.
+      globalThis.fetch = realFetch;
+    }
   });
 
   // 2.20 — the override is per-session; the gate reads effective prefs only.
