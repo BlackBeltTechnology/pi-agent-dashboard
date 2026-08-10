@@ -2,6 +2,7 @@ import { mdiHeadLightbulb } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useId, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 
 // Canonical render order. `max` is opt-in: it only renders when the model's
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Props) {
+  const { t } = useI18n();
   const levelsToRender = supportedLevels?.length
     ? THINKING_LEVELS.filter((l) => supportedLevels.includes(l))
     : FALLBACK_LEVELS;
@@ -58,7 +60,7 @@ export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Pr
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1 text-xs px-2 py-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
         data-testid="thinking-level-button"
-        aria-label="Thinking level"
+        aria-label={t("thinking.level", undefined, "Thinking level")}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? dropdownId : undefined}

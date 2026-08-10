@@ -6,6 +6,7 @@
  * See change: sidebar-tag-collapse-and-delete.
  */
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { useI18n } from "../../lib/i18n/i18n.js";
 
 interface Props {
   tag: string;
@@ -16,8 +17,15 @@ interface Props {
 }
 
 export function TagDeleteConfirmDialog({ tag, count, onConfirm, onClose }: Props) {
+  const { t } = useI18n();
   return (
-    <Dialog open onClose={onClose} title="Remove tag from all sessions" size="sm" testId="tag-delete-confirm">
+    <Dialog
+      open
+      onClose={onClose}
+      title={t("tags.removeFromAllSessions", undefined, "Remove tag from all sessions")}
+      size="sm"
+      testId="tag-delete-confirm"
+    >
       <p className="text-sm text-[var(--text-secondary)]">
         Remove <span className="font-semibold text-[var(--text-primary)]">#{tag}</span> from{" "}
         <span className="font-semibold text-[var(--text-primary)]">

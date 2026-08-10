@@ -1,0 +1,3 @@
+# helpers/openspec-board.ts — index
+
+OpenSpec-board drop-targeting E2E helpers. Fixture `/fixtures/openspec-board` (64 generated `board-card-NN` changes); `openBoard`, `setBoardLayout` (groups/assignments/order via REST from inside the page — never by dragging, since drag is what's under test), `orderOf`, `persisted`, `filterBoard`, `beginCardDrag`/`beginColumnDrag`, `headerGrabPoint` (scrolls into view + clamps — the board scrolls HORIZONTALLY, so a column header midpoint is routinely off-viewport and `mouse.move` there silently no-ops), `columnKeys`, `resolvedSlot`. See change: fix-openspec-board-drop-targeting.
