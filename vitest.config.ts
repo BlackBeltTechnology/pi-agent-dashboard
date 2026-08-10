@@ -32,6 +32,7 @@ export default defineConfig({
       "packages/roles-plugin",
       "packages/subagents-plugin",
       "packages/goal-plugin",
+      "packages/blackhole-plugin",
       "scripts",
       // ship-it's pure decision helpers. Added by wire-local-review-gate: they
       // gate real ship decisions but were collected by no project before.

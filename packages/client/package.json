@@ -27,6 +27,7 @@
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-apple-tools": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-automation-plugin": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-blackhole-plugin": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-client-utils": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-flows-plugin": "^0.7.0",

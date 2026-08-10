@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
 
 // Browser E2E — `/dashboard:*` executable-mode slash commands.

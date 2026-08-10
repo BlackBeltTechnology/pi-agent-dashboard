@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { spawnFreshGitSession } from "./helpers/index.js";
 
 // L3 regression for change: fix-builtin-role-names-relay.

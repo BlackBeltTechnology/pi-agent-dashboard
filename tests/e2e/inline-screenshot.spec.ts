@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
 import { SCREENSHOT_INLINE } from "../../qa/fixtures/faux-scenarios.js";
 

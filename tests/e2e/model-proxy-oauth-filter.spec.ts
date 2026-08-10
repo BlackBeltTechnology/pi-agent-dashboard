@@ -12,7 +12,7 @@
  * API-level assertions via Playwright's `request` fixture (no page) — the filter
  * never calls upstream, so the fake OAuth token's invalidity is irrelevant.
  */
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 
 // Fixed proxy key, shared verbatim with docker/test-entrypoint.sh (E2E_PROXY_KEY).
 // The harness stores sha256(this) in config.json#modelProxy.apiKeys[].hash.

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { gotoDashboard, spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
 
 // Faux round-trip — interactive ask_user renderer.

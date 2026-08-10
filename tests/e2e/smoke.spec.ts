@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { byTestId, gotoDashboard } from "./helpers/index.js";
 
 // Wiring proof only — NOT real coverage. Asserts the browser reaches the

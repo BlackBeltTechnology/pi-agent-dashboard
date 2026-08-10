@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isNotifyRowVisible } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { createPreferencesStore } from "../persistence/preferences-store.js";
 
 // Mock resolve-path to be a no-op (no symlink resolution in tests)
@@ -620,6 +621,92 @@ describe("preferences-store", () => {
       const store = createPreferencesStore(filePath);
       expect(store.getDisplayPrefs()?.showOutOfCwdSessionDiffs).toBe(false);
       store.dispose();
+    });
+
+    // ── gate-notify-rows-by-level ────────────────────────────────────────
+    const LEGACY_DISPLAY_PREFS = {
+      tokenStatsBar: true,
+      contextUsageBar: true,
+      reasoning: false,
+      toolResults: true,
+      turnMetadata: true,
+      debugTools: false,
+      toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+    };
+
+    // 2.11 / test-plan #E7
+    it("backfills notifyMinLevel to 'all' for a legacy displayPrefs file", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ displayPrefs: LEGACY_DISPLAY_PREFS }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getDisplayPrefs()?.notifyMinLevel).toBe("all");
+      store.dispose();
+    });
+
+    // 2.12 / test-plan #E8 — a PATCH of an unrelated field must not drop it.
+    it("preserves a stored notifyMinLevel across a partial PATCH", () => {
+      fs.writeFileSync(filePath, JSON.stringify({
+        displayPrefs: { ...LEGACY_DISPLAY_PREFS, notifyMinLevel: "warnings" },
+      }));
+      const store = createPreferencesStore(filePath);
+      const returned = store.setDisplayPrefs({ reasoning: true });
+      // Returned (broadcast) value AND the stored value both survive.
+      expect(returned.notifyMinLevel).toBe("warnings");
+      expect(store.getDisplayPrefs()?.notifyMinLevel).toBe("warnings");
+      expect(returned.reasoning).toBe(true);
+      store.dispose();
+    });
+
+    // 2.12 / test-plan #E8 — the seedless `base` literal path.
+    it("carries notifyMinLevel through setDisplayPrefs with no prior prefs", () => {
+      const store = createPreferencesStore(filePath);
+      const returned = store.setDisplayPrefs({ notifyMinLevel: "errors" });
+      expect(returned.notifyMinLevel).toBe("errors");
+      expect(store.getDisplayPrefs()?.notifyMinLevel).toBe("errors");
+      // …and a later unrelated PATCH still preserves it.
+      expect(store.setDisplayPrefs({ debugTools: true }).notifyMinLevel).toBe("errors");
+      store.dispose();
+    });
+
+    // 2.13 / test-plan #X1 — a hand-edited garbage floor must not suppress.
+    it("does not let a corrupt persisted notifyMinLevel suppress an error notify", () => {
+      fs.writeFileSync(filePath, JSON.stringify({
+        displayPrefs: { ...LEGACY_DISPLAY_PREFS, notifyMinLevel: "oops" },
+      }));
+      const store = createPreferencesStore(filePath);
+      const stored = store.getDisplayPrefs()?.notifyMinLevel;
+      // The store round-trips whatever is on disk; the predicate is what must
+      // fail open. Assert the end-to-end guarantee, not the storage shape.
+      for (const level of ["info", "success", "warning", "error"]) {
+        expect(
+          isNotifyRowVisible({ content: "notify", method: "notify", level }, stored),
+          `level=${level}`,
+        ).toBe(true);
+      }
+      store.dispose();
+    });
+
+    // 2.15 / test-plan #X3 — absent parent key, and absent file entirely.
+    // Names what it actually asserts: an ABSENT floor (no displayPrefs key, or
+    // no file at all) still fails open at the predicate. It does not claim the
+    // store never yields `undefined` — that guarantee is not tested here.
+    it("fails open when the store yields no notifyMinLevel at all", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ someOtherKey: 1 }));
+      const store1 = createPreferencesStore(filePath);
+      // No displayPrefs at all → nothing to backfill; the predicate still must
+      // not suppress anything when handed the resulting undefined floor.
+      const floor1 = store1.getDisplayPrefs()?.notifyMinLevel;
+      expect(isNotifyRowVisible({ content: "notify", method: "notify", level: "error" }, floor1))
+        .toBe(true);
+      expect(isNotifyRowVisible({ content: "notify", method: "notify", level: "info" }, floor1))
+        .toBe(true);
+      store1.dispose();
+
+      fs.rmSync(filePath, { force: true });
+      const store2 = createPreferencesStore(filePath);
+      const floor2 = store2.getDisplayPrefs()?.notifyMinLevel;
+      expect(isNotifyRowVisible({ content: "notify", method: "notify", level: "info" }, floor2))
+        .toBe(true);
+      store2.dispose();
     });
   });
 

@@ -43,6 +43,9 @@ importers:
       '@biomejs/biome':
         specifier: 2.5.1
         version: 2.5.1
+      '@blackbelt-technology/pi-dashboard-bus-client':
+        specifier: ^0.7.0
+        version: link:packages/bus-client
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.7.0
         version: link:packages/shared
@@ -153,6 +156,34 @@ importers:
         specifier: ^3.9.0
         version: 3.10.0(react@19.2.7)
 
+  packages/blackhole-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.7.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.7.0
+        version: link:../shared
+      fastify:
+        specifier: ^5.0.0
+        version: 5.10.0
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.17)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.7(react@19.2.7)
+      wouter:
+        specifier: ^3.9.0
+        version: 3.10.0(react@19.2.7)
+
   packages/bus-client:
     dependencies:
       '@blackbelt-technology/pi-dashboard-shared':
@@ -180,6 +211,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-automation-plugin':
         specifier: ^0.7.0
         version: link:../automation-plugin
+      '@blackbelt-technology/pi-dashboard-blackhole-plugin':
+        specifier: ^0.7.0
+        version: link:../blackhole-plugin
       '@blackbelt-technology/pi-dashboard-client-utils':
         specifier: ^0.7.0
         version: link:../client-utils

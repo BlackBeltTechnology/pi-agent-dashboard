@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 // Scenario 5.3 (change: add-flow-plugin-e2e-tests) — the subagents plugin render

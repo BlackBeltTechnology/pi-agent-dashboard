@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { byTestId, ensureGitSession } from "./helpers/index.js";
 
 // Level-1 E2E for the polymorphic Initialize button (change: project-init-skill-and-profiles).

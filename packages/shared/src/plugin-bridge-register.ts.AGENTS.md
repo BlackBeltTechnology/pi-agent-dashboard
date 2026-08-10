@@ -1,0 +1,3 @@
+# plugin-bridge-register.ts — index
+
+Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND `packages[]` + `_dashboardManagedPackages` ownership map. pi-coding-agent reads only `packages[]`; legacy key kept for forward compat. New exports: `ensurePackageEntry`, `removePackageEntry`, `reconcilePluginBridgePackages` (one-shot at server start, replays manifests + drops dangling managed entries, atomic write), `classifyBridgeSource(settings, id)` (returns load source for `/api/health`), `listManagedPackageOwnership(settings)`. Env `PI_DASHBOARD_DISABLE_PLUGIN_BRIDGE_PACKAGES_WRITE=1` skips `packages[]` write (legacy key still written). See change: fix-pi-flows-end-to-end.

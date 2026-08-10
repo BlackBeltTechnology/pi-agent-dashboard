@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { byTestId, ensureGitSession } from "./helpers/index.js";
 
 // Scenario 5.4 — inline terminal mounts a live xterm.

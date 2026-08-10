@@ -9,3 +9,10 @@ See change: fix-popover-container-clip — reads `usePopoverBoundary()`, passes 
 ## fix-popover-pane-bounded-height
 
 - Applies BOTH `minHeight` and `maxHeight` (`style={{ maxHeight, minHeight, maxWidth }}`). Keeps the default 120 floor — its ~20-row content always exceeds it, so the floor is a no-op here.
+
+## gate-notify-rows-by-level
+
+- Adds the popover's FIRST non-boolean control: `SelectRow` for `notifyMinLevel` (4 stops from `NOTIFY_MIN_LEVELS`, `data-testid="notify-min-level"`, row `data-testid="notify-min-level-row"` + `data-overridden`).
+- Reuses the existing override plumbing unchanged — same `patch()` / `clearOverride()` / `isOverridden()`, so it accumulates with sibling overrides and participates in "Use global settings".
+- Selecting the global's own value still RECORDS an explicit override (a later global change must not move the session).
+- `min-h-[44px]` hit area (matches `ThinkingLevelSelector`) rather than the ~26px `py-1` boolean rows; restyling those siblings is deliberately out of scope.

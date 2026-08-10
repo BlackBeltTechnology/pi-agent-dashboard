@@ -15,7 +15,7 @@
  * Two actors, one flow: the `page` fixture is the PHONE (challenge/redeem/poll);
  * the `request` fixture is the OPERATOR at the authenticated desktop (approve).
  */
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 
 const BEARER_KEY = "pi-dashboard:device-bearer";
 

@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures.js";
 import { ANCHOR_PROSE, ANCHOR_ROW_GROWTH_TAIL } from "../../qa/fixtures/faux-scenarios.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 

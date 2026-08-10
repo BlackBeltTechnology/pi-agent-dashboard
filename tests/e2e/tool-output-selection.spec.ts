@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "./fixtures.js";
 import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
 
 // Faux round-trip — selectable tool-output links (task 3.2, change: selectable-tool-output-links).

@@ -36,9 +36,8 @@ import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
 import { TunnelButton } from "../connectivity/TunnelButton.js";
 import { FolderActionBar } from "../folder/FolderActionBar.js";
 import { FolderActionsMenu, type FolderMenuItem } from "../folder/FolderActionsMenu.js";
-import { FolderNeedsYouPill } from "../folder/FolderNeedsYouPill.js";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
-import { FolderStatusRollup } from "../folder/FolderStatusRollup.js";
+import { FolderStatusCapsule } from "../folder/FolderStatusCapsule.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { InstallButton } from "../packages/InstallButton.js";
 import { PiLogo } from "../primitives/PiLogo.js";
@@ -48,9 +47,9 @@ import { ThemeToggle } from "../settings/ThemeToggle.js";
 import { allTagsInUse } from "../tags/all-tags.js";
 import { TagDeleteConfirmDialog } from "../tags/TagDeleteConfirmDialog.js";
 import { TagFilterGroup } from "../tags/TagFilterGroup.js";
+import { AddFoldersDialog } from "../workspace/AddFoldersDialog.js";
 import { AddToWorkspaceMenu } from "../workspace/AddToWorkspaceMenu.js";
 import { NewWorkspaceDialog } from "../workspace/NewWorkspaceDialog.js";
-import { AddFoldersDialog } from "../workspace/AddFoldersDialog.js";
 import { PinnedTierDropZone } from "../workspace/PinnedTierDropZone.js";
 import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
 import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
@@ -1180,7 +1179,6 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 {lastSegment}
               </span>
             </span>
-            <span className="text-[10px] text-[var(--text-muted)] shrink-0">({group.sessions.length})</span>
             {/* Pinned state is an INERT indicator, not a control — the pin/unpin
                 action lives in the folder actions menu. It sits in the name
                 region, not the cluster, so the cluster stays exactly one
@@ -1194,29 +1192,33 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 <Icon path={mdiPin} size={0.5} />
               </span>
             )}
-            {/* Needs-you rollup: count of chat-routed ask_user children.
-                Pill resolves the target id (widget-bar excluded) and passes it
-                up; we select + scroll it into view.
-                See change: improve-dashboard-attention-routing. */}
-            <FolderNeedsYouPill
+            {/* The folder's ONE liveness surface: severity-ordered segment
+                counts, unconditional on collapse state. Replaces the raw (N)
+                count, the needs-you pill and the collapsed-only status rollup.
+                Activation routes through the EXISTING reveal machinery
+                (`onSeekToCard` -> `revealRequest`), which already owns guarded
+                ancestor expand, layout-settled detection, the give-up backstop
+                and the hidden/filtered degrade notices — a bespoke
+                expand-then-rAF would no-op against a body that has not mounted.
+                See change: unify-folder-status-capsule. */}
+            <FolderStatusCapsule
+              cwd={group.cwd}
               sessions={group.sessions}
+              errorSessionIds={errorSessionIds}
+              retrySessionIds={retrySessionIds}
+              noticeSessionIds={noticeSessionIds}
               onActivate={(sessionId) => {
                 if (!sessionId) return;
+                if (onSeekToCard) {
+                  onSeekToCard(sessionId);
+                  return;
+                }
+                // No reveal wiring (standalone render): fall back to the
+                // guarded expand + select the pill used.
                 if (isCollapsed) handleToggleCollapse(group.cwd);
                 onSelect(sessionId);
-                const escaped = cssEscapeId(sessionId);
-                requestAnimationFrame(() => {
-                  document
-                    .querySelector(`[data-session-id="${escaped}"]`)
-                    ?.scrollIntoView({ behavior: "smooth", block: "center" });
-                });
               }}
             />
-            {/* Collapsed status rollup (variant B): working/idle dot-counts so a
-                collapsed folder still shows liveness at a glance. Needs-you is
-                covered by the pill above. See change:
-                condense-collapsed-folder-header. */}
-            {isCollapsed && <FolderStatusRollup sessions={group.sessions} />}
             {/* Trailing action cluster — `flex-none` + `whitespace-nowrap` pins
                 it to the top-right at any sidebar width; it never wraps to a
                 second row and never leaves the card. It now holds EXACTLY ONE
