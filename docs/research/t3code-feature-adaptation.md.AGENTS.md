@@ -1,0 +1,3 @@
+# research/t3code-feature-adaptation.md — index
+
+Research artifact. t3code (multi-provider web GUI wrapping Codex/Claude/Cursor/OpenCode) → pi-dashboard adaptation. Explore-mode output. 6 candidates: ① per-turn checkpoint/revert (shadow-git-ref, flagship), ② supervised approval [captured as add-supervised-tool-approval], ③ configurable keybindings (command registry), ④ multi-host SCM + AI PR text, ⑤ project scripts as commands (depends ③), ⑥ SSH remote [defer]. pi-dashboard edge = mid-turn queueing (t3code TODO), flows/goals, 4 themes, QR pairing, Docker all-in-one. Not-adaptable = multi-provider wrapping (pi-native identity). Source: github.com/pingdotgg/t3code.

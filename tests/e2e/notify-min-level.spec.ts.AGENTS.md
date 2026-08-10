@@ -1,0 +1,3 @@
+# notify-min-level.spec.ts — index
+
+L3 spec (change: gate-notify-rows-by-level). Drives `[[faux:notify-levels]]` (four notifies, one per `NotifyLevel`, through the real `ctx.ui.notify` path) and sets the floor from the ⚙ View popover (`[data-testid="notify-min-level"]`) — the surface a user actually reaches. Asserts the ladder end to end: `warnings` hides info+success and keeps warning+error with the transcript tail intact, `errors` never hides an error and lowering the floor restores the rest with no reload (#F15), and a blocking `ask-select` still renders + answers + clears "Needs you" at the strictest floor (#F16). Needs `PI_E2E_SEED=1`.

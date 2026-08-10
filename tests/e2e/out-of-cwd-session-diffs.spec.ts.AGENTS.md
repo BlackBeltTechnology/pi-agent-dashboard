@@ -1,0 +1,3 @@
+# out-of-cwd-session-diffs.spec.ts — index
+
+L3 spec (change: opt-in-out-of-cwd-session-diffs). Faux `tool-write-out-of-cwd` (writes `/tmp/e2e-out-of-cwd/index.html`). Test 1: `setViewPref` opens the `chat-view-popover`, toggles `Per-turn change summary` on + `Show out-of-workspace diffs`; pref OFF → `change-summary-block` omits `index.html` (F1); pref ON → row opens a `diff:` tab rendering `change.content` (F2), no `file-view-toggle` (F5). Test 2: API-level F3 — polls `/api/session-diff` for the >4 KB `tool-write-out-of-cwd-large` entry (`previewable:false`, full content, no cap) + `/api/session-change/:sessionId/:toolCallId` serves the full payload. Chip is client-event-derived (diverges for large writes) so F3 asserts at the API boundary.

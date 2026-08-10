@@ -2,20 +2,14 @@
 
 Stage: apply   Generated: 2026-08-10
 
-## ⚠ Clarifications needed (3 open, 1 resolved)
+## ✅ Clarifications resolved (4/4)
 
-- [ ] **C1** — Reviewer timeout has no value. D10 requires a deadline per reviewer
-  invocation but names no number, so X4 cannot assert a boundary. Candidates:
-  120s, 300s, 600s, or "inherit the harness step timeout". Blocks **X4**.
-- [ ] **C2** — "Diff scoped to the change's own work, excluding what step 2.5
-  merged from `develop`" names no command. Candidates: `git diff
-  origin/develop...HEAD` (three-dot, merge-base), `git diff origin/develop HEAD`
-  (two-dot), or merge-base computed before the 2.5 merge. These differ exactly
-  when `develop` moved. Blocks **E9**.
-- [ ] **C3** — The `@review` bootstrap prompt's non-interactive behaviour is
-  stated ("hard fail stands") but its interactive trigger is not: does it fire on
-  every hard-fail or genuinely once (and where is "once" persisted)? Blocks
-  **X2**.
+- [x] **C1** — Reviewer timeout = **300s** per invocation (D10).
+- [x] **C2** — Reviewed diff = **`git diff origin/develop...HEAD`** (three-dot,
+  merge-base) plus uncommitted working-tree edits.
+- [x] **C3** — The `@review` bootstrap prompt fires on **every interactive
+  hard-fail**, no persisted state; it is self-extinguishing because accepting it
+  removes the hard-fail.
 - [x] **C4** — RESOLVED: extract a pure `reviewRoundDecision(state) → review |
   fix | escape` helper into `scripts/`, per the `scripts/manifest.ts` /
   `scripts/no-weakening.ts` precedent, so the two-round cap is unit-testable.
@@ -39,7 +33,7 @@ Stage: apply   Generated: 2026-08-10
 | E6 | root-index detector | decision-table | L1 | automated | root `AGENTS.md` with a table of \`file\` → purpose rows | run `check-conventions.mjs` | violation reported; exit non-zero |
 | E7 | root-index detector — negative | decision-table | L1 | automated | current root `AGENTS.md` (`## Key Files` = pointer prose only) | run `check-conventions.mjs` | zero violations |
 | E8 | browser-scenario detector | EP | L1 | automated | `qa/tests/` as it stands (03-websocket.sh, 04-ws-ticket-auth.sh, 10-faux-model.sh) | run `check-conventions.mjs` | zero violations — WS/health/display-server are not rendered-UI |
-| E9 | reviewer diff scope | state-transition | L1 | automated | worktree with 2 own commits + a 2.5 merge of 3 develop commits | compute the reviewed diff | diff contains only the 2 own commits' changes `[NEEDS CLARIFICATION: input — which git range, see C2]` |
+| E9 | reviewer diff scope | state-transition | L1 | automated | worktree with 2 own commits + a 2.5 merge of 3 develop commits | compute `git diff origin/develop...HEAD` | diff contains only the 2 own commits' changes; none of the 3 merged develop commits |
 | E10 | touched-set: added | EP | L1 | automated | new `proposal.md` without `## Discipline Skills`, `--base <ref>` | run check | file reported; exit non-zero |
 | E11 | touched-set: untouched | EP | L1 | automated | pre-existing non-conforming `proposal.md`, not in diff | run check with `--base` | not reported; rule contributes exit 0 |
 | E12 | touched-set: pure rename | EP | L1 | automated | non-conforming `proposal.md` moved, content byte-identical | run check with `--base` | not reported (filtered as `R`) |
@@ -72,9 +66,9 @@ Stage: apply   Generated: 2026-08-10
 | id | requirement | technique | level | disposition | fault | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
 | X1 | `@review` required | fault-injection (missing config) | L1 | automated | `@review` unset in the role map | resolve reviewer | hard failure; error names `update_roles` + `@propose-review-N` seed; session default model NOT used |
-| X2 | bootstrap onboarding | fault-injection (missing config) | L1 | automated | `@review` unset, non-interactive run | resolve reviewer | hard fail stands, no prompt emitted `[NEEDS CLARIFICATION: trigger — once-only semantics, see C3]` |
+| X2 | bootstrap onboarding | fault-injection (missing config) | L1 | automated | `@review` unset, non-interactive run | resolve reviewer | hard fail stands, no prompt emitted, no persisted "asked" state written |
 | X3 | reviewer is not inline | fault-injection | L1 | automated | step 4.5 definition | inspect invocation contract | an `Agent` spawn with `model: "@review"`; never an in-context self-review |
-| X4 | reviewer timeout | fault-injection (delay) | L1 | automated | reviewer stalls past the deadline | invoke checkpoint | invocation terminated, timeout reported, run does not hang `[NEEDS CLARIFICATION: expected observable — deadline value, see C1]` |
+| X4 | reviewer timeout | fault-injection (delay) | L1 | automated | reviewer stalls past 300s | invoke checkpoint | invocation terminated at the 300s deadline, timeout reported as a checkpoint failure, run does not hang |
 | X5 | timeout is not a pass | fault-injection (delay) | L1 | automated | reviewer times out | evaluate gate verdict | `ship-change` is NOT entered; verdict ≠ pass |
 | X6 | non-terminating reviewer | fault-injection (adversarial) | L1 | automated | stub reviewer returning a *different* blocking finding every round | drive the review loop | terminates after round 2; escape hatch taken; not dependent on a no-change cycle |
 | X7 | unsatisfiable finding | fault-injection | L1 | automated | blocking finding satisfiable only by weakening a test; `assertNoWeakening` rejects every candidate | drive the loop | escape hatch; report names BOTH the finding and the guardrail; guardrail not relaxed |
@@ -103,14 +97,15 @@ theatre.
 
 ## New infra needed
 
-- **A testable seam for the review-round bound (C4).** The two-round cap is the
-  invariant this change exists to guarantee, and as Markdown prose it is
-  unverifiable. The repo already has the pattern — `scripts/manifest.ts`
-  (`deferDecision`) and `scripts/no-weakening.ts` (`assertNoWeakening`) are pure
-  decision helpers that `ship-it` consults and vitest covers. The review bound
-  should follow: a pure `reviewRoundDecision(state) → review | fix | escape`
-  helper in `scripts/`, unit-tested by E1–E3 and X6. Without it those four rows
-  become `manual-only` and the change's headline safety property ships untested.
+- **A testable seam for the review-round bound (C4, resolved → D12).** The
+  two-round cap is the invariant this change exists to guarantee, and as Markdown
+  prose it is unverifiable. `ship-it` already has the placement pattern:
+  `.pi/skills/ship-it/scripts/manifest.ts` (`deferDecision`) and
+  `no-weakening.ts` (`assertNoWeakening`) are pure decision helpers the skill
+  consults. **But they are covered by zero tests** — `vitest.config.ts` lists only
+  `packages/*` and `scripts/`, so nothing under `.pi/skills/` is collected. The
+  bound lands beside them as `reviewRoundDecision`, **and `.pi/skills/ship-it`
+  joins the vitest project list**, which retro-covers the two existing helpers.
 - **A stub reviewer** for X6/X7 (a fake returning scripted findings per round).
   No such fixture exists; it is small and belongs beside the helper above.
 - No new harness, no new level, no new dependency.

@@ -17,14 +17,17 @@ Composes existing skills — `openspec-apply-change`, the docker harness, and
 flowchart LR
   P["plan-proposal (develop)"] -->|"boundary: spawn worktree"| S
   subgraph Worktree ["IMPLEMENTATION — worktree (this skill)"]
-    S["ship-it"] --> A["apply"] --> M["merge develop (2.5)"] --> T["docker-harness test"] --> C["ship-change"]
+    S["ship-it"] --> A["apply"] --> M["merge develop (2.5)"] --> T["docker-harness test"] --> E["enforcers (4.4)"] --> R["local review (4.5)"] --> C["ship-change"]
   end
   S -.->|"reverse: SHIP_IT_BLOCKED.md on design issue"| P
 ```
 
-Pure decision logic lives in `scripts/` and is unit-tested:
-`scripts/manifest.ts` (`parseManifest`, `deferDecision`, `filesystemRealityCheck`)
-and `scripts/no-weakening.ts` (`assertNoWeakening`).
+Pure decision logic lives in this skill's own `scripts/` directory and is
+unit-tested (`.pi/skills/ship-it` is a vitest project):
+`scripts/manifest.ts` (`parseManifest`, `deferDecision`, `filesystemRealityCheck`),
+`scripts/no-weakening.ts` (`assertNoWeakening`), and
+`scripts/review-gate.ts` (`reviewRoundDecision`, `resolveReviewer`,
+`classifyFindings`, `REVIEW_TIMEOUT_MS`).
 
 ## Preconditions
 
@@ -131,6 +134,63 @@ change to a test file, run `assertNoWeakening` on its diff
 deleted assertion, or a strong→permissive matcher swap), **REJECT** the change —
 you may not reach green by degrading the test. Fix the code instead.
 
+### 4.4. Deterministic enforcers — cheap, offline, before any model call
+
+Run the enforcers from the worktree root. Each is already the sole owner of its
+rule; this step only *invokes* them:
+
+```bash
+node scripts/check-conventions.mjs --base origin/develop
+node scripts/dox-byte-gate.mjs
+node scripts/i18n-lint.mjs --strict     # --strict, else it exits 0 regardless
+node scripts/i18n-parity.mjs
+```
+
+They are placed here, after the harness and before the review, because they are
+deterministic, offline and near-instant: a mechanically-failing tree must never
+spend a model call. A non-zero exit routes to the step-4 fix loop; **step 4.5
+does not run**.
+
+`--base` is mandatory for gating: without it the touched set is undefined and
+the Discipline-Skills and Mermaid rules report without gating. The touched set
+unions the committed diff with the working tree, so fixes still uncommitted in
+the fix loop are inspected.
+
+These do NOT move into `quality:changed`. That script is the dev-loop oracle and
+has no automated caller; the ship gate is here.
+
+### 4.5. Local review checkpoint — the semantic half
+
+Runs on **every** invocation. There is no triviality escape: no diff-size, path,
+or changed-file-count condition skips it.
+
+1. **Resolve the reviewer** with `resolveReviewer` from `scripts/review-gate.ts`.
+   `@review` is REQUIRED. Unconfigured → hard fail naming `update_roles` / the
+   dashboard Roles panel. There is deliberately **no fallback to the session
+   default model**: that model is the author, so falling back turns the gate into
+   self-review. Interactive runs may offer the bootstrap prompt; a headless run
+   fails.
+2. **Spawn it as an isolated subagent** — an `Agent` call with `model: "@review"`
+   carrying `review-code`'s rubric. Never an in-context self-review, never the
+   CodeRabbit CLI (that is `ship-change`'s remote gate, later and different).
+3. **Feed it diff + intent**: `git diff origin/develop...HEAD` (three-dot, so the
+   step-2.5 merge is not attributed to this change) plus uncommitted worktree
+   edits, plus `proposal.md` and the task text.
+4. **Bound the call** by `REVIEW_TIMEOUT_MS` (300s). A timeout is neither a pass
+   nor a blocking finding — it is a checkpoint failure.
+5. **Route findings** with `classifyFindings`: only `issue(blocking)` re-enters
+   the fix loop. Everything else is reported and shipped.
+6. **Bound the loop** with `reviewRoundDecision`: review, fix, re-review —
+   **never a third round**. This is a hard numeric cap, NOT step 4's no-progress
+   rule, because a reviewer can emit a fresh finding every round and each fix
+   changes the worktree, so a no-progress bound would never fire.
+7. `assertNoWeakening` still governs every test edit a review fix makes. A
+   finding that can only be satisfied by weakening a test is **unsatisfiable** →
+   escape hatch (step 5), naming both the finding and the guardrail. The
+   guardrail is never relaxed to reach green.
+
+Every `escape` decision carries a `reason`; write it into `SHIP_IT_BLOCKED.md`.
+
 ### 5. Boundary-reverse escape hatch
 
 The worktree boundary is **not one-way**. Trigger the reverse path when EITHER:
@@ -182,6 +242,12 @@ CI → CodeRabbit → (archive+sync gate) → squash-merge → remove worktree.
   test file must exist and pass in the harness.
 - **ship-it owns the fix loop** — never re-invoke `apply` on a checked task.
 - **Never weaken a test to reach green** — `assertNoWeakening` rejects it.
+- **Enforcers (4.4) before the reviewer (4.5)** — never spend a model call on a
+  mechanically-failing tree.
+- **The review is unconditional** — no triviality escape, and `@review` is
+  required; never fall back to the session default model (that is self-review).
+- **Two review rounds, hard cap** — review, fix, re-review, then escape. Not a
+  no-progress bound: a model always makes "progress".
 - **Merge `develop` before the harness (step 2.5)** — the strong gate validates
   the integrated tree `T1`; merge `origin/develop` (remote ref), never rebase.
   Conflict → abort + STOP, never enter the harness on a half-merged tree.
@@ -195,5 +261,6 @@ CI → CodeRabbit → (archive+sync gate) → squash-merge → remove worktree.
 ## Composed skills
 
 `openspec-apply-change` · `docker/test-up.sh` + `lib-ports.sh` + `test-down.sh` ·
+`review-code` (its rubric is what the step-4.5 reviewer applies) ·
 `ship-change` (driven inline, manifest-aware defer). Handoff back to
 `plan-proposal` via `SHIP_IT_BLOCKED.md`.

@@ -1,5 +1,8 @@
-## ADDED Requirements
+# local-review-gate Specification
 
+## Purpose
+TBD - created by archiving change wire-local-review-gate. Update Purpose after archive.
+## Requirements
 ### Requirement: A semantic review runs before push, on the integrated green tree
 
 `ship-it` SHALL invoke a semantic review checkpoint (step 4.5) after the docker
@@ -32,7 +35,9 @@ The checkpoint SHALL supply the reviewer with both the change diff and the
 change's intent — `proposal.md` plus the task text — so findings can be judged
 against what the change set out to do, not against the diff alone. The diff
 SHALL be scoped to the change's own commits and working-tree edits, not to
-everything the step-2.5 merge introduced from `develop`.
+everything the step-2.5 merge introduced from `develop`. The scoping SHALL use
+the three-dot range `git diff origin/develop...HEAD` (merge-base), which yields
+only commits authored on this branch, plus uncommitted working-tree edits.
 
 #### Scenario: Intent accompanies the diff
 
@@ -184,3 +189,4 @@ attempted, and exit non-zero. No new exit path or artifact SHALL be introduced.
 - **WHEN** a review-driven halt occurs
 - **THEN** it uses the same escape hatch as a red-test halt
 - **AND** no additional blocked-state file or exit code is defined
+
