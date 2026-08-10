@@ -1,3 +1,5 @@
 # flow-event-wiring.ts — index
 
 Register pi-flows + pi-subagents event listeners on `pi.events`. Exports `FLOW_EVENT_MAP`, `SUBAGENT_EVENT_MAP`, `registerFlowEventListeners`. Maps `flow:flow-started` etc. to dashboard protocol; re-sends commands/flows list on discovery; flow/agent output rides in event `data` verbatim.
+
+Also owns EventBus FORWARDING: `forwardBusEvent`, `forwardedBusChannels`, `registerEventBusForwarding`, `EventBusForwardingDeps`. Forwarding = ONE `pi.events.on` subscription per channel in `FLOW_EVENT_MAP`+`SUBAGENT_EVENT_MAP` (+`extraMaps`); returns a dispose releasing them. MUST NOT wrap `pi.events.emit`: pi gives every extension its OWN `events` facade over the shared bus (`createExtensionAPI` -> `events:{emit,on}`), so an emit patch saw only the bridge's own emissions -- pi-flows `flow:complete` never forwarded, automation runs hung until the max-age reaper. `forwardBusEvent` keeps the gates: subagent channels forward only when ready+active+connected else `subagentFrameBuffer.buffer` (latest-wins); other channels forward when ready+active; forwarding never throws into the emitter. See change: fix-automation-run-lifecycle.
