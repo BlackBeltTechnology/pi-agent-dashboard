@@ -33,6 +33,9 @@ export default defineConfig({
       "packages/subagents-plugin",
       "packages/goal-plugin",
       "scripts",
+      // ship-it's pure decision helpers. Added by wire-local-review-gate: they
+      // gate real ship decisions but were collected by no project before.
+      ".pi/skills/ship-it",
       // NOTE: packages/electron is intentionally NOT included here — it has
       // pre-existing orphaned tests that depend on ambient PATH/mocks never
       // wired up. Offline-packages tests are runnable via
