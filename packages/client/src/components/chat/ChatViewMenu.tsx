@@ -8,8 +8,10 @@
 
 import type {
   DisplayPrefs,
+  NotifyMinLevel,
   PartialDisplayPrefs,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { NOTIFY_MIN_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { mdiCircleSmall, mdiCog } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
@@ -144,6 +146,12 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
           <Row label={i18nT("common.showOutOfCwdSessionDiffs", undefined, "Show out-of-workspace diffs")} value={prefs.showOutOfCwdSessionDiffs} marked={isOverridden("showOutOfCwdSessionDiffs")} onChange={(v) => patch({ showOutOfCwdSessionDiffs: v })} />
           <Row label={i18nT("common.reserveProcessLineAtIdle", undefined, "Reserve process line at idle")} value={prefs.reserveProcessLineAtIdle} marked={isOverridden("reserveProcessLineAtIdle")} onChange={(v) => patch({ reserveProcessLineAtIdle: v })} />
           <Row label={i18nT("common.debugEvents", undefined, "Debug events")} value={prefs.debugTools} marked={isOverridden("debugTools")} onChange={(v) => patch({ debugTools: v })} />
+          <SelectRow
+            label={i18nT("common.notifications", undefined, "Notifications")}
+            value={prefs.notifyMinLevel}
+            marked={isOverridden("notifyMinLevel")}
+            onChange={(v) => patch({ notifyMinLevel: v })}
+          />
           <div className="my-2 border-t border-[var(--border-subtle)]" />
           <div className="text-[var(--text-tertiary)] mb-1">{i18nT("common.toolCalls", undefined, "Tool calls")}</div>
           <Row label={i18nT("common.read", undefined, "Read")} value={prefs.toolCalls.read} marked={isToolCallOverridden("read")} onChange={(v) => patch({ toolCalls: { read: v } })} />
@@ -163,6 +171,70 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
         </div>
       )}
     </div>
+  );
+}
+
+/** i18n label for one `notifyMinLevel` stop. */
+function notifyMinLevelLabel(value: NotifyMinLevel): string {
+  switch (value) {
+    case "all":
+      return i18nT("common.notifyMinLevel.all", undefined, "All");
+    case "success":
+      return i18nT("common.notifyMinLevel.success", undefined, "Outcomes and problems");
+    case "warnings":
+      return i18nT("common.notifyMinLevel.warnings", undefined, "Problems only");
+    case "errors":
+      return i18nT("common.notifyMinLevel.errors", undefined, "Failures only");
+  }
+}
+
+/**
+ * Value-selecting popover row — the first non-boolean control here.
+ *
+ * Keeps the label-left / control-right rhythm of its boolean siblings and
+ * yields the platform picker on mobile. Lands at `min-h-[44px]` (matching
+ * `ThinkingLevelSelector`) rather than copying the ~26px `py-1` sibling rows;
+ * restyling those siblings is deliberately out of scope (design D8).
+ * See change: gate-notify-rows-by-level.
+ */
+function SelectRow({
+  label,
+  value,
+  marked,
+  onChange,
+}: {
+  label: string;
+  value: NotifyMinLevel;
+  marked: boolean;
+  onChange: (v: NotifyMinLevel) => void;
+}) {
+  return (
+    <label
+      data-testid="notify-min-level-row"
+      data-overridden={marked ? "true" : "false"}
+      className="flex items-center justify-between gap-2 px-2 py-1 min-h-[44px] rounded hover:bg-[var(--bg-hover)] cursor-pointer"
+    >
+      <span className="flex items-center gap-1 text-[var(--text-secondary)]">
+        {marked && (
+          <span title={i18nT("common.overridesGlobal", undefined, "Overrides global")} className="text-amber-400 inline-flex">
+            <Icon path={mdiCircleSmall} size={0.7} />
+          </span>
+        )}
+        {label}
+      </span>
+      <select
+        data-testid="notify-min-level"
+        value={value}
+        onChange={(e) => onChange(e.target.value as NotifyMinLevel)}
+        className="bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded px-1.5 py-1 text-xs text-[var(--text-primary)]"
+      >
+        {NOTIFY_MIN_LEVELS.map((stop) => (
+          <option key={stop} value={stop}>
+            {notifyMinLevelLabel(stop)}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

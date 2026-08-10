@@ -7,6 +7,92 @@
  *
  * See change: configurable-chat-display.
  */
+import { normalizeNotifyLevel } from "./notify.js";
+import type { NotifyLevel } from "./protocol.js";
+
+/**
+ * Minimum `ctx.ui.notify` level that renders as a chat row.
+ *
+ * The ladder is `info < success < warning < error`. `success` deliberately
+ * ranks ABOVE `info`: a success notify reports an outcome, whereas info is
+ * chatter — so `"success"` reads as "outcomes and problems, no chatter". That
+ * ordering is a product decision, NOT a property of the level; do not "fix" it
+ * into alphabetical or emission order.
+ *
+ * There is deliberately no `"off"` value. `"errors"` is the floor of the axis,
+ * so a failing extension can always say so.
+ *
+ * See change: gate-notify-rows-by-level.
+ */
+export type NotifyMinLevel = "all" | "success" | "warnings" | "errors";
+
+/** The four stops, in ladder order — for rendering the settings controls. */
+export const NOTIFY_MIN_LEVELS: readonly NotifyMinLevel[] = [
+  "all",
+  "success",
+  "warnings",
+  "errors",
+];
+
+// Two SEPARATE rank maps, keyed by two different vocabularies. The row's level
+// is singular (`warning`/`error`); the floor is plural (`warnings`/`errors`)
+// and adds `all`. Only `success` is spelled the same in both. A single shared
+// map keyed by a union of both would typo-pass. See design D2.
+const LEVEL_RANK: Record<NotifyLevel, number> = {
+  info: 0,
+  success: 1,
+  warning: 2,
+  error: 3,
+};
+const FLOOR_RANK: Record<NotifyMinLevel, number> = {
+  all: 0,
+  success: 1,
+  warnings: 2,
+  errors: 3,
+};
+
+/**
+ * The minimum shape both chat-view gate sites can supply.
+ *
+ * `shared` cannot import the client's `ChatMessage`, and the two sites do not
+ * hold the same object — `isRowVisible` reads `msg.args.method` while the
+ * render branch reads the built `request.method`. Each site adapts its local
+ * object to this descriptor so the two can never drift.
+ */
+export interface NotifyRowDescriptor {
+  /** `ChatMessage.content` — `"notify"` for a notify row. */
+  content: unknown;
+  /** `args.method` / `request.method` — `"notify"` for a notify row. */
+  method: unknown;
+  /** `params.level`; may legitimately be absent. */
+  level: unknown;
+}
+
+/** Unrecognized floor → `"all"`. Neither write path validates the value. */
+function normalizeNotifyMinLevel(value: unknown): NotifyMinLevel {
+  return typeof value === "string" && value in FLOOR_RANK ? (value as NotifyMinLevel) : "all";
+}
+
+/**
+ * Decide whether ONE row renders under ONE `notifyMinLevel`.
+ *
+ * Fail-open on BOTH inputs:
+ * - A row not positively identified as a notify renders. An ask misclassified
+ *   as a notify would deadlock the session with no visible cause; a notify
+ *   misclassified as an ask is a cosmetic miss. The discriminator therefore
+ *   requires BOTH markers `addNotify` stamps, never `role === "interactiveUi"`
+ *   and never the mere presence of a level.
+ * - An unrecognized floor is treated as `"all"`. Without that clause a garbage
+ *   persisted value would make every comparison `NaN` and hide even `error`,
+ *   breaking the one guarantee this axis makes.
+ *
+ * See change: gate-notify-rows-by-level.
+ */
+export function isNotifyRowVisible(row: NotifyRowDescriptor, minLevel: unknown): boolean {
+  const isNotify = row.content === "notify" && row.method === "notify";
+  if (!isNotify) return true;
+  return LEVEL_RANK[normalizeNotifyLevel(row.level)] >= FLOOR_RANK[normalizeNotifyMinLevel(minLevel)];
+}
 
 export interface ToolCallPrefs {
   read: boolean;
@@ -85,6 +171,14 @@ export interface DisplayPrefs {
    * See change: opt-in-out-of-cwd-session-diffs.
    */
   showOutOfCwdSessionDiffs: boolean;
+  /**
+   * Minimum `ctx.ui.notify` level that renders as a chat row. `"all"` (default)
+   * preserves today's behavior. `error` is never suppressed at any value.
+   * Blocking asks are unaffected at every value — the gate keys on the notify
+   * discriminator, never on the row's role.
+   * See change: gate-notify-rows-by-level.
+   */
+  notifyMinLevel: NotifyMinLevel;
 }
 
 /**
@@ -112,6 +206,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     changeSummaryTable: false,
     reserveProcessLineAtIdle: false,
     showOutOfCwdSessionDiffs: false,
+    notifyMinLevel: "all",
   },
   standard: {
     tokenStatsBar: true,
@@ -127,6 +222,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     changeSummaryTable: true,
     reserveProcessLineAtIdle: false,
     showOutOfCwdSessionDiffs: false,
+    notifyMinLevel: "all",
   },
   everything: {
     tokenStatsBar: true,
@@ -142,6 +238,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     changeSummaryTable: true,
     reserveProcessLineAtIdle: true,
     showOutOfCwdSessionDiffs: false,
+    notifyMinLevel: "all",
   },
 };
 
@@ -178,6 +275,7 @@ export function mergeDisplayPrefs(
       override.reserveProcessLineAtIdle ?? global.reserveProcessLineAtIdle,
     showOutOfCwdSessionDiffs:
       override.showOutOfCwdSessionDiffs ?? global.showOutOfCwdSessionDiffs,
+    notifyMinLevel: override.notifyMinLevel ?? global.notifyMinLevel,
   };
 }
 
