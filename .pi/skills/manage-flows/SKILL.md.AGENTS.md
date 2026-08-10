@@ -1,0 +1,3 @@
+# manage-flows/SKILL.md — index
+
+Skill: create/edit pi-flows flows + agents (`disable-model-invocation: true`). Active only when edit mode on (`flows.editFlow: true` / `/flows:edit-mode`). Execution model: DAG segments, parallel agent waves (`max_concurrent` default 4), sequential decision nodes. 10 authoring principles (wire `on_error`, verify/fix loops, prefer `code`/`code-decision` for mechanics, explicit typed outputs, least privilege). 6 step types (agent, fork, agent-decision, code, code-decision, flow-ref). Code-handler generation (`<id>.ts.default` scaffold, never overwrites `<id>.ts`). Failure model success/soft/hard.
