@@ -19,8 +19,11 @@ import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 /** Bump on any persisted-shape change → all entries invalidate (full replay).
  *  v2 (fix-replay-cache-partial-payload-cursor): v1 entries may carry a cursor
  *  with no provenance (a high `maxSeq` over one stray broadcast row) and are
- *  indistinguishable from healthy ones — the bump purges them once. */
-export const REPLAY_CACHE_SCHEMA_VERSION = 2;
+ *  indistinguishable from healthy ones — the bump purges them once.
+ *  v3 (purge-replay-cache-on-reset-paths): entries gain `serverKey`. v2 entries
+ *  carry no server identity, so they are UNATTRIBUTABLE and must not be served
+ *  to anyone — the bump purges them once. */
+export const REPLAY_CACHE_SCHEMA_VERSION = 3;
 
 const DB_NAME = "pi-dashboard-replay-cache";
 const STORE = "sessions";
@@ -36,9 +39,45 @@ export interface CachedEvent {
 export interface ReplayCacheEntry {
   sessionId: string;
   schemaVersion: number;
+  /** Server this entry was written against (`host:port`). An entry is only ever
+   *  served back to the same key — `sessionId` is not unique across servers. */
+  serverKey: string;
   maxSeq: number;
   payload: CachedEvent[];
   lastAccess: number;
+}
+
+/**
+ * Derive the durable-cache server identity from a WebSocket URL.
+ *
+ * `host:port`, with the protocol default port substituted when the URL omits it
+ * (`ws:` → 80, `wss:` → 443). Normalizing is load-bearing: if `ws://box/ws` and
+ * `ws://box:80/ws` produced different keys, the SAME live connection could be
+ * attributed two ways across mount vs. switch and every cache hit would break.
+ *
+ * The scheme is deliberately excluded — `ws:` and `wss:` on the same host AND
+ * port would require one port serving two different backends, so including it
+ * buys no correctness and only fragments a server reachable both ways.
+ *
+ * Shape matches the `host:port` identity `App.tsx` already uses for
+ * `LAST_SERVER_KEY`, keeping one server-identity format in the client.
+ *
+ * NOTE: this identifies a server by network LOCATION, not by instance. A reused
+ * port, a repointed tunnel, or a replaced container is not distinguished — see
+ * the change's design D2 for why that residual is accepted.
+ */
+export function deriveServerKey(wsUrl: string): string {
+  try {
+    const secure = wsUrl.startsWith("wss://");
+    const u = new URL(wsUrl.replace(/^ws:\/\//, "http://").replace(/^wss:\/\//, "https://"));
+    // `URL` blanks the port when it equals the scheme default, so re-substitute.
+    const port = u.port || (secure ? "443" : "80");
+    return `${u.hostname}:${port}`;
+  } catch {
+    // Unparseable input: return it verbatim. Deterministic, and it can never
+    // alias a real `host:port` key.
+    return wsUrl;
+  }
 }
 
 export interface ReplayCachePut {
@@ -58,8 +97,11 @@ export interface ReplayCacheOptions {
 }
 
 export interface ReplayCache {
-  get(sessionId: string): Promise<ReplayCacheEntry | null>;
-  put(sessionId: string, value: ReplayCachePut): Promise<void>;
+  /** Returns the entry only when it was written against `serverKey`. */
+  get(sessionId: string, serverKey: string): Promise<ReplayCacheEntry | null>;
+  put(sessionId: string, value: ReplayCachePut, serverKey: string): Promise<void>;
+  /** Unkeyed by design: the schema purge, the over-cap branch, the poisoned-entry
+   *  catch, and `session_state_reset` all delete without a current-server notion. */
   delete(sessionId: string): Promise<void>;
 }
 
@@ -127,7 +169,7 @@ export function createReplayCache(opts: ReplayCacheOptions = {}): ReplayCache {
     }
   }
 
-  async function get(sessionId: string): Promise<ReplayCacheEntry | null> {
+  async function get(sessionId: string, serverKey: string): Promise<ReplayCacheEntry | null> {
     return safe(async () => {
       const db = await openDb();
       const tx = db.transaction(STORE, "readonly");
@@ -136,11 +178,19 @@ export function createReplayCache(opts: ReplayCacheOptions = {}): ReplayCache {
         | undefined;
       await txDone(tx).catch(() => {});
       if (!entry) return null;
-      // Schema drift → drop the entry and miss.
+      // Schema drift → drop the entry and miss. MUST stay ahead of the serverKey
+      // check: a pre-v3 entry has no `serverKey`, so a key-first ordering would
+      // classify it as foreign, decline to delete it (below), and strand it as an
+      // unattributable zombie until the LRU reclaims it.
       if (entry.schemaVersion !== schemaVersion) {
         await del(sessionId);
         return null;
       }
+      // Written by a different server → miss. Deliberately does NOT delete, and
+      // deliberately does NOT touch(): the entry is valuable to the server that
+      // wrote it (the user may switch back), but must not hold an LRU slot warm
+      // for a server they never return to.
+      if (entry.serverKey !== serverKey) return null;
       // Touch last-access for LRU ordering.
       await touch(sessionId);
       return entry;
@@ -162,9 +212,11 @@ export function createReplayCache(opts: ReplayCacheOptions = {}): ReplayCache {
     }, undefined);
   }
 
-  async function put(sessionId: string, value: ReplayCachePut): Promise<void> {
+  async function put(sessionId: string, value: ReplayCachePut, serverKey: string): Promise<void> {
     await safe(async () => {
       // Over-cap payload: skip persist and drop any stale entry → full replay.
+      // The delete stays UNKEYED — an over-cap write must not leave a stale entry
+      // behind just because the existing one belongs to another server.
       if (JSON.stringify(value.payload).length > maxBytesPerSession) {
         await del(sessionId);
         return;
@@ -173,6 +225,7 @@ export function createReplayCache(opts: ReplayCacheOptions = {}): ReplayCache {
       const entry: ReplayCacheEntry = {
         sessionId,
         schemaVersion,
+        serverKey,
         maxSeq: value.maxSeq,
         payload: value.payload,
         lastAccess: nextStamp(),

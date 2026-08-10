@@ -92,8 +92,9 @@ import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
 // Strategy A (reduce-session-replay-traffic): durable replay cursor.
-import { replayCache } from "./lib/replay/replay-cache.js";
+import { deriveServerKey, replayCache } from "./lib/replay/replay-cache.js";
 import { createReplayPersister } from "./lib/replay/replay-persist.js";
+import { refreshChat } from "./lib/chat/refresh-chat.js";
 import {
   buildFolderSettingsUrl,
   buildOpenSpecArchiveUrl,
@@ -584,7 +585,17 @@ export default function App() {
   // Strategy A (reduce-session-replay-traffic): durable replay-cache writer +
   // "already rehydrated from IndexedDB" guard so reconnect re-subscribes don't
   // re-read (and clobber) live state. See change: reduce-session-replay-traffic.
-  const replayPersisterRef = useRef(createReplayPersister());
+  // Durable entries are scoped to the server that wrote them (`host:port`), so a
+  // colliding sessionId can never serve another server's history. The ref mirrors
+  // the derived key every render, so it is never stale relative to `wsUrl`; the
+  // persister reads it at FLUSH time and rehydrate at read time.
+  // See change: purge-replay-cache-on-reset-paths.
+  const serverKey = useMemo(() => deriveServerKey(wsUrl), [wsUrl]);
+  const serverKeyRef = useRef(serverKey);
+  serverKeyRef.current = serverKey;
+  const replayPersisterRef = useRef(
+    createReplayPersister(replayCache, undefined, () => serverKeyRef.current),
+  );
   const rehydratedRef = useRef(new Set<string>());
   // Per-session "history loading" flag: true between sending `subscribe`
   // and the first content / terminal / failure / timeout. Drives the
@@ -642,6 +653,13 @@ export default function App() {
           // with a stale maxSeq against the now-empty sessionStates map.
           maxSeqMapRef.current.clear();
           rehydratedRef.current.clear();
+          // Drop the replay buffers accumulated against the PREVIOUS server.
+          // `flush()` stamps entries with the key current at flush time, so a
+          // surviving buffer would be persisted under the new server's identity.
+          // Purely in-memory: the durable store is deliberately NOT purged, since
+          // entries are server-scoped and stay valid for a switch back.
+          // See change: purge-replay-cache-on-reset-paths.
+          replayPersisterRef.current.resetBuffers();
           // A recovery offer is scoped to one server boot; drop it so a
           // stale offer from server A can't reopen IDs on server B.
           // See change: reopen-sessions-after-shutdown.
@@ -748,6 +766,7 @@ export default function App() {
 
   // Sibling of `beginLoadingHistory` for the in-flight flag. Not a reuse:
   // `beginLoadingHistory` hard-codes its own setter and timers ref.
+  // Declared BEFORE `handleRefreshChat`, which lists it as a dependency.
   // See change: show-replay-in-flight-indicator.
   const beginReplayInFlight = useCallback((id: string) => {
     const existingTimer = replayInFlightTimersRef.current.get(id);
@@ -762,6 +781,33 @@ export default function App() {
       setTimeout(() => clearLoadingHistory(setReplayInFlight, replayInFlightTimersRef, id), SUBSCRIBE_ACK_MS),
     );
   }, []);
+
+  // Chat refresh: invalidate the durable entry BEFORE resetting in-memory state,
+  // so an interrupted refresh can't leave a reset view paired with a surviving
+  // cache entry (which rehydrates as authoritative on the next load). One shared
+  // callback for the header + mobile actions so the two cannot drift.
+  // See change: purge-replay-cache-on-reset-paths.
+  const handleRefreshChat = useCallback((sid: string) => {
+    void refreshChat(sid, {
+      dropPersisted: (id) => replayPersisterRef.current.drop(id),
+      resetSessionState: (id) =>
+        setSessionStates((prev) => {
+          const next = new Map(prev);
+          next.set(id, createInitialState());
+          return next;
+        }),
+      resetCursor: (id) => {
+        maxSeqMapRef.current.set(id, 0);
+      },
+      markSubscribed: (id) => {
+        subscribedRef.current.delete(id);
+        subscribedRef.current.add(id);
+      },
+      subscribe: (id) => send({ type: "subscribe", sessionId: id, lastSeq: 0 }),
+      beginLoadingHistory: (id) => beginLoadingHistory(id),
+      beginReplayInFlight: (id) => beginReplayInFlight(id),
+    }).catch(logRejection("App.handleRefreshChat"));
+  }, [send, beginLoadingHistory, beginReplayInFlight]);
 
   const handleMessage = useMessageHandler(
     { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap },
@@ -950,7 +996,7 @@ export default function App() {
       // Reconnect re-subscribes already hold a live cursor → skip the cache read.
       if (!maxSeqMapRef.current.has(sid) && !rehydratedRef.current.has(sid)) {
         rehydratedRef.current.add(sid);
-        void rehydrateSession(sid, replayCache)
+        void rehydrateSession(sid, replayCache, serverKeyRef.current)
           .then((r) => {
             if (r) {
               setSessionStates((prev) => {
@@ -1586,19 +1632,7 @@ export default function App() {
           onDetachProposal: () => handleDetachProposal(selectedId),
           onSendPrompt: (text) => wrappedHandleSend(text),
           onReadArtifact: (changeName, artifactId) => openArtifact(selectedCwd!, changeName, artifactId),
-          onRefresh: () => {
-            setSessionStates((prev) => {
-              const next = new Map(prev);
-              next.set(selectedId, createInitialState());
-              return next;
-            });
-            maxSeqMapRef.current.set(selectedId, 0);
-            subscribedRef.current.delete(selectedId);
-            subscribedRef.current.add(selectedId);
-            send({ type: "subscribe", sessionId: selectedId, lastSeq: 0 });
-            beginLoadingHistory(selectedId);
-            beginReplayInFlight(selectedId);
-          },
+          onRefresh: () => handleRefreshChat(selectedId),
         } : undefined}
         commands={selectedCommands}
         onSendPrompt={wrappedHandleSend}
@@ -1609,19 +1643,7 @@ export default function App() {
         hasFileChanges={selectedState.hasFileChanges}
         onOpenDiffView={() => navigate(buildSessionDiffUrl(selectedId))}
         onOpenExtensionModulePicker={() => setExtensionModulePickerOpen(true)}
-        onRefresh={() => {
-          setSessionStates((prev) => {
-            const next = new Map(prev);
-            next.set(selectedId, createInitialState());
-            return next;
-          });
-          maxSeqMapRef.current.set(selectedId, 0);
-          subscribedRef.current.delete(selectedId);
-          subscribedRef.current.add(selectedId);
-          send({ type: "subscribe", sessionId: selectedId, lastSeq: 0 });
-          beginLoadingHistory(selectedId);
-          beginReplayInFlight(selectedId);
-        }}
+        onRefresh={() => handleRefreshChat(selectedId)}
       />
       {/* Mobile info strip */}
       {isMobile && selectedSession && (
