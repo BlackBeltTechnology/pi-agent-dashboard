@@ -4,7 +4,10 @@ See change: configurable-chat-display, fix-first-launch-display-modal-stuck-on-m
 
 ## What
 
-Global + per-session `DisplayPrefs` gate chat-view chrome (thinking blocks, tool-call cards per kind, tool-result bodies, turn separators, debug tools, token-stats bar, context-usage bar, notify rows by severity floor, etc.). Users edit globals in Settings ▸ General ▸ Chat display; per-session overrides via ⚙ View popover in chat toolbar.
+- Global + per-session `DisplayPrefs` gate chat-view chrome.
+- Chrome kinds: thinking blocks, tool-call cards per kind, tool-result bodies, turn separators, debug tools, token-stats bar, context-usage bar, notify rows by severity floor, etc.
+- Globals: edit in Settings ▸ General ▸ Chat display.
+- Per-session overrides: ⚙ View popover in chat toolbar.
 
 ## Storage
 

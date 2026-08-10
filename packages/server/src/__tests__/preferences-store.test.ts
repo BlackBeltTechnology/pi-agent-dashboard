@@ -686,7 +686,10 @@ describe("preferences-store", () => {
     });
 
     // 2.15 / test-plan #X3 — absent parent key, and absent file entirely.
-    it("never yields an undefined notifyMinLevel to the predicate", () => {
+    // Names what it actually asserts: an ABSENT floor (no displayPrefs key, or
+    // no file at all) still fails open at the predicate. It does not claim the
+    // store never yields `undefined` — that guarantee is not tested here.
+    it("fails open when the store yields no notifyMinLevel at all", () => {
       fs.writeFileSync(filePath, JSON.stringify({ someOtherKey: 1 }));
       const store1 = createPreferencesStore(filePath);
       // No displayPrefs at all → nothing to backfill; the predicate still must

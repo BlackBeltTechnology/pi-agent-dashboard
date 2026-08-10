@@ -71,10 +71,12 @@ export interface NotifyRowDescriptor {
 /**
  * Unrecognized floor → `"all"`. Neither write path validates the value.
  *
- * OWN-property check, deliberately: a bare `Object.hasOwn(FLOOR_RANK, value)` also matches
- * every `Object.prototype` name, so a floor of `"toString"` resolved to a
- * FUNCTION and made every `>=` comparison false — silently hiding even `error`,
- * the one thing this axis promises never to hide.
+ * OWN-property check, deliberately. The earlier `value in FLOOR_RANK` also
+ * matched every inherited `Object.prototype` name, so a floor of `"toString"`
+ * resolved its rank to a FUNCTION and made every `>=` comparison false —
+ * silently hiding even `error`, the one thing this axis promises never to hide.
+ * `Object.hasOwn` consults own properties only, so those names now fall through
+ * to the `"all"` fallback.
  *
  * Exported so the two SELECT controls render the EFFECTIVE floor. Persistence
  * deliberately round-trips arbitrary strings (validation lives here, not in the
