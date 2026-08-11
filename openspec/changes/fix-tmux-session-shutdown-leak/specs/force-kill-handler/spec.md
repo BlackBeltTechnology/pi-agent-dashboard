@@ -142,3 +142,21 @@ addresses the wrong process.
 
 - **WHEN** several tmux windows are spawned in sequence
 - **THEN** each SHALL carry a distinct correlation token in its environment
+
+### Requirement: Ending a session SHALL have one implementation
+
+The browser `shutdown` message and `POST /api/session/:id/shutdown` SHALL end a
+session through the same code path.
+
+They were parallel implementations and drifted: the REST route omitted the
+`closedReason:"manual"` liveness write, so a REST-closed session returned as a
+cold-start recovery candidate, and it terminated only through the headless PID
+registry, so it leaked a tmux-spawned process after the browser path had been
+fixed. Re-synchronising two bodies leaves a third divergence to be found later.
+
+#### Scenario: REST shutdown terminates the process
+
+- **WHEN** a session is ended over `POST /api/session/:id/shutdown`
+- **THEN** its process SHALL be terminated for any spawn strategy
+- **AND** its liveness marker SHALL record a manual close, so it is not offered
+  as a recovery candidate on the next cold start

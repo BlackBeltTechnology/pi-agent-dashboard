@@ -175,11 +175,20 @@ record, so unreachable by shutdown, reap AND idle-reclaim.
 
 ## 7. Close the loop
 
-- [ ] 7.1 Comment on #452 with the fix and the re-measured evidence.
-- [ ] 7.2 Comment on #433 stating the harness is now survivable and parts 1 and 2
-      are unblocked.
-- [ ] 7.3 Update the measurements record in the archived
-      `fix-e2e-harness-memory-exhaustion` change (or link forward from it), so the
-      retracted Group 2 numbers are not the last word in the repo.
-- [ ] 7.4 Consider whether #449 (REST shutdown omits the liveness write) should be
-      folded in while this code is open, or stay separate.
+- [x] 7.1 Comment on #452 with the fix and the re-measured evidence.
+- [x] 7.2 Comment on #433 stating the harness is now survivable, with the caveat
+      that the full-suite acceptance run still needs the VM (#451), so the
+      verbatim spec-level results part 1 wants are not in hand yet.
+- [x] 7.3 The archived `fix-e2e-harness-memory-exhaustion` measurements now carry
+      `README-superseded.md`: those Group 2 numbers were taken while the leak was
+      live, so they are not a baseline for anything, and it links forward to the
+      re-measured evidence.
+- [x] 7.4 **FOLDED IN.** `POST /api/session/:id/shutdown` was a parallel
+      implementation of the same action, and this change had just WIDENED the
+      divergence: the WS path terminated any spawn strategy while REST still
+      killed headless-only — leaking a tmux `pi` exactly as the WS path used to —
+      and still omitted the `closedReason:"manual"` liveness write (#449, so a
+      REST-closed session returned as a cold-start recovery candidate). Both
+      entry points now call one `shutdownSession()`; the duplicate is gone rather
+      than re-synchronised, so there is no third divergence to find later.
+      Pinned by a real-process test (verified fails-on-revert). Closes #449.

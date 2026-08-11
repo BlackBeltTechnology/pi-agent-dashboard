@@ -646,11 +646,41 @@ async function waitForExit(pid: number, graceMs: number): Promise<boolean> {
   return !isProcessAlive(pid);
 }
 
+/** Everything ending a session needs. Deliberately narrower than the handler context. */
+export interface ShutdownSessionDeps {
+  sessionManager: BrowserHandlerContext["sessionManager"];
+  piGateway: BrowserHandlerContext["piGateway"];
+  headlessPidRegistry: BrowserHandlerContext["headlessPidRegistry"];
+  broadcast: BrowserHandlerContext["broadcast"];
+  metaPersistence?: BrowserHandlerContext["metaPersistence"];
+}
+
 export async function handleShutdown(
   msg: Extract<BrowserToServerMessage, { type: "shutdown" }>,
   ctx: BrowserHandlerContext,
 ): Promise<void> {
-  const { sessionManager, piGateway, headlessPidRegistry, broadcast, metaPersistence } = ctx;
+  await shutdownSession(msg.sessionId, ctx);
+}
+
+/**
+ * End a session: ask politely, then make sure, then report.
+ *
+ * Shared because there are TWO entry points — the browser `shutdown` message
+ * and `POST /api/session/:id/shutdown` — and they were parallel
+ * implementations that drifted. REST omitted the liveness write (#449, so a
+ * REST-closed session came back as a cold-start recovery candidate) and, once
+ * the WS path learned to terminate any spawn strategy, it kept leaking a
+ * tmux-spawned `pi` exactly as the WS path used to (#452). One body, two
+ * callers, no third divergence.
+ *
+ * See change: fix-tmux-session-shutdown-leak (task 7.4).
+ */
+export async function shutdownSession(
+  sessionId: string,
+  deps: ShutdownSessionDeps,
+): Promise<void> {
+  const msg = { sessionId };
+  const { sessionManager, piGateway, headlessPidRegistry, broadcast, metaPersistence } = deps;
   const session = sessionManager.get(msg.sessionId);
   // Durably clear the liveness marker with a manual reason so cold start does
   // NOT treat this intentional close as an interrupted-session recovery

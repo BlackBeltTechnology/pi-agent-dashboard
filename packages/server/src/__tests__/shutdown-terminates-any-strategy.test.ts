@@ -21,9 +21,9 @@
  * See change: fix-tmux-session-shutdown-leak (test-plan #T1, #T2, #T5, #T6, #C2).
  */
 import { spawn } from "node:child_process";
-import { WebSocket } from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type DashboardServer, createServer } from "../server.js";
+import { WebSocket } from "ws";
+import { createServer, type DashboardServer } from "../server.js";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -243,6 +243,28 @@ describe("shutdown terminates the session process for any spawn strategy (#452)"
     );
     expect(removedCount, "session_removed was not broadcast exactly once").toBe(1);
   }, 30_000);
+
+  it("7.4 — the REST shutdown route terminates the process too, not just the WS one", async () => {
+    // `POST /api/session/:id/shutdown` used to be a PARALLEL implementation:
+    // headless-only kill, unconditional unregister + broadcast, and no
+    // `closedReason:"manual"` liveness write (#449). Once the WS path learned to
+    // terminate any spawn strategy, REST kept leaking a tmux-spawned pi exactly
+    // as the WS path used to. It now delegates to the same body.
+    const pid = spawnDetachedDummy();
+    const bridge = await registerSession("rest-shutdown", "/test/rest", pid);
+    bridge.close();
+    await delay(200);
+
+    const res = await fetch(`http://127.0.0.1:${httpPort}/api/session/rest-shutdown/shutdown`, {
+      method: "POST",
+    });
+    expect(res.ok).toBe(true);
+
+    expect(
+      await waitForDeath(pid),
+      "the REST route reported success while the session's process kept running",
+    ).toBe(true);
+  }, 20_000);
 
   it("C2 — a session with no known PID is still removed, without claiming a kill", async () => {
     const bridge = await registerSession("no-pid-session", "/test/no-pid");
