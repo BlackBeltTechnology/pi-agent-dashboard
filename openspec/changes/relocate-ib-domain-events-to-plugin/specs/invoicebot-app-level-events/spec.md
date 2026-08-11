@@ -42,6 +42,15 @@ events.
 - **THEN** the frame SHALL be byte-compatible:
   `{ type: "ib_domain_event", sessionId, event: { eventType, data } }`
 
+#### Scenario: Per-session stream preserved
+
+- **WHEN** the prior core implementation's per-session `event_forward` path is
+  replaced by plugin-owned domain-event delivery
+- **THEN** the app-level `ib_domain_event` frame SHALL remain the sole
+  browser-facing delivery path for InvoiceBot domain events
+- **AND** no consumer-visible behavior SHALL depend on the retired per-session
+  duplicate, which had no in-repo browser consumer
+
 ### Requirement: App-level broadcast is headless-safe and non-blocking
 
 The app-level broadcast SHALL be a no-op when no browser is connected and
