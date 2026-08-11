@@ -77,6 +77,23 @@ describe("R1 — a session that is ended always has an end timestamp", () => {
     expect(mgr.get("s1")?.endedAt).toBe(4_242);
   });
 
+  it("a duplicate unregister does not move an existing timestamp", () => {
+    const mgr = createMemorySessionManager();
+    live(mgr, { lastActivityAt: 5_000 });
+    mgr.unregister("s1");
+    const first = mgr.get("s1")?.endedAt;
+    expect(typeof first).toBe("number");
+
+    // A second termination signal is not a new ending. Moving the stamp would
+    // break the same preservation rule `ensureEndedAt` honours, and could
+    // reshuffle the ended-tier order seed.
+    mgr.unregister("s1");
+    expect(mgr.get("s1")?.endedAt).toBe(first);
+
+    mgr.unregister("s1", { witnessed: false });
+    expect(mgr.get("s1")?.endedAt).toBe(first);
+  });
+
   it("E4: restore() — the bare sessions.set path — is covered by the invariant", () => {
     const mgr = createMemorySessionManager();
 

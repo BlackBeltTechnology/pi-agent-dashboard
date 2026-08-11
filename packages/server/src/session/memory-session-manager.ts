@@ -202,7 +202,15 @@ export function createMemorySessionManager(
         // Witnessed (the default) keeps the observed instant. An inferred
         // ending — heartbeat/grace expiry, or history registered then
         // immediately unregistered — must not record detection time.
-        session.endedAt = opts?.witnessed === false ? derive(session) : Date.now();
+        //
+        // Only stamp when the record does not already carry one: a duplicate
+        // termination signal for an already-ended session is not a new ending,
+        // and moving the timestamp would violate the same "an explicit value is
+        // preserved" rule `ensureEndedAt` honours (and could reshuffle the
+        // ended-tier order seed). See change: fix-ended-session-missing-endedat.
+        if (session.endedAt === undefined) {
+          session.endedAt = opts?.witnessed === false ? derive(session) : Date.now();
+        }
         mgr.onChange?.(sessionId);
         mgr.onUnregister?.(sessionId);
       }

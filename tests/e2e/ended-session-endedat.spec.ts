@@ -33,7 +33,9 @@ const STARTED_AGE_DAYS = 200;
  * `.pi-test-harness.json`. `docker compose exec` would need the -f file set;
  * the project label is enough to find the container directly.
  */
+let containerId: string | undefined;
 function harnessContainer(): string {
+  if (containerId) return containerId;
   const state = JSON.parse(
     fs.readFileSync(path.join(REPO_ROOT, ".pi-test-harness.json"), "utf8"),
   ) as { project?: string };
@@ -41,15 +43,19 @@ function harnessContainer(): string {
   const id = execFileSync(
     "docker",
     ["ps", "-q", "--filter", `label=com.docker.compose.project=${state.project}`],
-    { encoding: "utf8" },
+    { encoding: "utf8", timeout: 30_000 },
   ).trim().split("\n")[0];
   if (!id) throw new Error(`no running container for compose project ${state.project}`);
+  containerId = id;
   return id;
 }
 
 function inContainer(script: string): string {
+  // Bounded: an unbounded `docker` call would hang the single worker until the
+  // Playwright timeout fires, hiding the real cause.
   return execFileSync("docker", ["exec", harnessContainer(), "sh", "-c", script], {
     encoding: "utf8",
+    timeout: 60_000,
   }).trim();
 }
 
@@ -249,6 +255,10 @@ test.describe("evidence-based endedAt across a real boot (L3)", () => {
   });
 
   test("F2: the boot restore loop does not churn stored ended-tier order", async () => {
+    // Self-contained: bootstrap only discovers the fixture directory when it is
+    // pinned, so F2 must not depend on F1 having run (`--grep`, retry, reset).
+    // The helper is idempotent.
+    await ensurePinned();
     const priorCompletedFirst = readCompletedFirst();
     setCompletedFirst(true); // arm the hazard — see setCompletedFirst
     try {
@@ -266,7 +276,12 @@ test.describe("evidence-based endedAt across a real boot (L3)", () => {
       ).toBe(2);
 
       // Boot 2 replays the whole restore path over an ALREADY-stored order.
-      const restarted = restartDashboard();
+      // Capture instead of leaving a floating rejection: if the `withBus` call
+      // below throws, an un-awaited rejection here would mask the real failure.
+      let restartError: unknown;
+      const restarted = restartDashboard().catch((err) => {
+        restartError = err;
+      });
 
       // Two observables. The comparison is over the WHOLE stored array, not
       // just the two planted ids: a moveToFront of any restored record
@@ -290,6 +305,7 @@ test.describe("evidence-based endedAt across a real boot (L3)", () => {
         { retryForMs: 120_000 },
       );
       await restarted;
+      if (restartError) throw restartError;
 
       const orderAfter = storedOrder(FIXTURE_GIT);
 
