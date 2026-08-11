@@ -11,6 +11,11 @@ refused newcomer pid, so a duplicate is identifiable from `server.log` alone.
 - **THEN** the server SHALL log a contention line to stderr carrying the session
   id, the incumbent pid, and the newcomer pid
 
+#### Scenario: Missing pid renders as unknown
+- **WHEN** a refusal is logged and the incumbent or newcomer has no recorded pid
+- **THEN** the contention line SHALL still be emitted with an explicit unknown
+  placeholder in place of the missing pid
+
 #### Scenario: Refusal is not logged as a registration
 - **WHEN** a `session_register` is refused
 - **THEN** the server SHALL NOT log

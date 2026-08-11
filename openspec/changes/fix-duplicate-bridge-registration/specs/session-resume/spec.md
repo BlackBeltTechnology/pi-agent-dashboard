@@ -9,6 +9,10 @@ session's own id is live. The refusal SHALL be a hard error naming the
 already-live session; the server SHALL NOT silently reuse or focus the existing
 session, and SHALL NOT spawn a second pi against that session file.
 
+The guard SHALL apply on every resume entry point, and SHALL determine liveness
+by the same definition the gateway's contention rule uses — a bridge whose peer
+no longer answers SHALL NOT count as live and SHALL NOT block a resume.
+
 #### Scenario: Resume ended session
 - **WHEN** the user clicks "Resume" on an ended session that has a `sessionFile` stored
 - **THEN** the server SHALL spawn pi with `pi --session <session-file-path>` in the session's cwd via tmux
@@ -30,11 +34,32 @@ session, and SHALL NOT spawn a second pi against that session file.
   session file as already live
 - **AND** SHALL NOT spawn a pi process for session `A`
 
+#### Scenario: Guard applies on the WebSocket resume path too
+- **WHEN** the resume is requested over the WebSocket session-action path rather
+  than the REST endpoint
+- **THEN** the same session-file refusal SHALL apply
+
 #### Scenario: Zombie owner does not block resume
 - **WHEN** the target `sessionFile` is recorded against a session whose bridge
   is gone
 - **THEN** the resume SHALL proceed, preserving the existing zombie-resume
   behaviour
+
+#### Scenario: A dead owner does not block resume
+- **WHEN** the target `sessionFile` is served by a bridge that neither answers a
+  probe nor has a writable TCP socket
+- **THEN** that bridge SHALL NOT count as live
+- **AND** the resume SHALL NOT be refused on the grounds that the file is live
+
+#### Scenario: A busy owner does block resume
+- **WHEN** the target `sessionFile` is served by a bridge that does not answer a
+  probe but whose TCP socket is still writable
+- **THEN** the bridge SHALL count as live and the resume SHALL be refused,
+  consistent with the gateway's contention rule
+
+#### Scenario: A session with no recorded session file cannot match
+- **WHEN** a live session has no `sessionFile` recorded
+- **THEN** it SHALL NOT cause any resume to be refused
 
 #### Scenario: Fork is unaffected by the session-file guard
 - **WHEN** the user forks a session whose `sessionFile` is served by a live

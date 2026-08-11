@@ -42,11 +42,18 @@ indistinguishable from a legitimate re-register after `/reload` or reconnect.
 
 ### Root cause
 
-`packages/server/src/pi/pi-gateway.ts:301` (`session_register` handler):
+`packages/server/src/pi/pi-gateway.ts:262` — the *first-message identity block*,
+which runs before the `session_register` dispatch at `:279` and is the real
+claim point (`session_register` is itself the first message carrying a
+`sessionId`):
 
 ```js
-currentSessionId = msg.sessionId;
-connections.set(msg.sessionId, ws);   // ← unconditional overwrite
+if (!currentSessionId && "sessionId" in msg && msg.sessionId) {
+  currentSessionId = sid;
+  connections.set(sid, ws);          // ← unconditional overwrite, the real claim
+}
+…
+connections.set(msg.sessionId, ws);  // :300 — re-assert, already ours
 ```
 
 `connections` is a `Map<sessionId, WebSocket>`. The incumbent socket for that id
@@ -82,7 +89,18 @@ claim one id. Keeping them separate keeps each falsifiable.
 - **Registration is contention-aware.** A `session_register` for an id already
   held by a *different, live* socket SHALL be resolved by an explicit rule
   rather than silent overwrite, and the displaced socket SHALL be closed rather
-  than leaked.
+  than leaked. The rule SHALL be enforced at the claim point (`:262`), and no
+  register side effect — watchdog clear, placeholder cleanup, `onEvent` — SHALL
+  run before the contention decision.
+- **Contention is resolved by demonstrated liveness.** The incumbent keeps the
+  id only if it answers a bounded probe; an incumbent whose peer is gone SHALL
+  NOT be able to hold a session id hostage. Neither existing reaper clears a
+  half-open socket (the ping reaper keeps on `socketAlive`, the heartbeat
+  reschedules while `readyState === OPEN`), so the register path cannot delegate
+  this.
+- **Refusal is terminal.** The refused bridge SHALL be told it lost, so it stops
+  reconnecting for that id instead of looping forever while its pi keeps writing
+  into the incumbent's `.jsonl`.
 - **The event is loud.** A displacement SHALL be logged distinctly from an
   ordinary re-register (reconnect / `/reload`, where the incumbent socket is the
   same or already closed), naming both pids so the duplicate is identifiable
@@ -97,8 +115,10 @@ claim one id. Keeping them separate keeps each falsifiable.
 - **Close is socket-identity–scoped.** A closing socket SHALL only remove a
   connection-map entry that still points at itself.
 - **Resume refuses to duplicate.** Resuming a session file already served by a
-  live bridge SHALL be rejected or SHALL reuse the existing session, never
-  spawn a second pi against the same session id.
+  live bridge SHALL be rejected, never spawn a second pi against the same
+  session file — at **both** guard sites (REST `/api/session/:id/resume` and the
+  WebSocket drag-to-resume path), using the same liveness definition as the
+  contention rule.
 - **Health exposes the condition.** `/api/health` SHALL surface duplicate/
   displaced bridges so this state is visible without reading `server.log`.
 - **NOT in scope, and why:**
@@ -139,8 +159,16 @@ claim one id. Keeping them separate keeps each falsifiable.
   `packages/server/src/rpc-keeper/` — resume-time guard against a second pi for
   a live session file.
 - `packages/server/src/health/` — duplicate/displaced bridge surface.
-- No wire-protocol change: `session_register` already carries `pid` and
-  `sessionFile`, which is everything the contention rule needs.
+- `packages/shared/src/protocol.ts` — a **new server→extension rejection
+  message**. The register direction needs nothing new (`session_register`
+  already carries `pid` and `sessionFile`), but the refusal direction has no
+  carrier today, and without one a refused bridge reconnects forever.
+- `packages/extension/src/connection.ts` — on receiving the rejection, stop
+  retrying for that session id and surface the reason.
+- `packages/server/src/browser-handlers/session-action-handler.ts` — the second
+  copy of the resume guard.
+- `packages/server/src/event-wiring.ts` — the register-time `sessionFile` steal
+  (`:1172`) must not run for a refused register.
 
 ## Discipline Skills
 
