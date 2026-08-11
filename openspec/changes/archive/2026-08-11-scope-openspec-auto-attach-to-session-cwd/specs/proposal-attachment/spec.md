@@ -252,7 +252,12 @@ the detected activity has `isActive: true`:
    same candidate roots as the locality gate (session `cwd` plus
    worktree main path), and SHALL retain its permissive disposition on
    an unknown cache — an unknown root means the attachment is treated as
-   still existing.
+   still existing. The roots consulted are the CONCRETE ones only (session
+   `cwd` plus worktree main path when present); the unknown root that the
+   locality gate adds for a session whose worktree state is unresolved SHALL
+   NOT participate here, because it would make the attachment permanently
+   "still existing" for every unreported session and suppress this branch
+   entirely.
 
 Read-only operations (`isActive: false`) SHALL update tracking fields
 but SHALL NOT trigger any of the above branches. Read-only operations

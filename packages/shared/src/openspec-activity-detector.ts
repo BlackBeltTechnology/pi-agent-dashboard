@@ -2,6 +2,7 @@
  * Detects OpenSpec activity from tool execution events.
  * Returns partial activity info (phase and/or changeName) or null if not openspec-related.
  */
+import { isPathInside } from "./path-containment.js";
 import type { OpenSpecPhase } from "./types.js";
 
 export interface DetectedActivity {
@@ -9,6 +10,54 @@ export interface DetectedActivity {
   changeName?: string;
   /** True for write/CLI operations (active work), false for reads (passive browsing) */
   isActive?: boolean;
+  /**
+   * True when the evidence that produced `changeName` looked LOCAL to the
+   * session: a path contained by the session cwd, or a change-creating CLI
+   * invocation. Consumed by the auto-attach locality gate to suppress a
+   * misleading "outside this folder" notice on the create-then-write flow.
+   * See change: scope-openspec-auto-attach-to-session-cwd (design D4a).
+   */
+  localEvidence?: boolean;
+}
+
+/**
+ * Matches a `cd`/`pushd` relocation target in a command string. Used by the
+ * conservative CLI guard: any relocation to a path OUTSIDE the session cwd —
+ * anywhere in the command, before or after the openspec invocation — disables
+ * CLI-pattern detection for that command entirely.
+ * See change: scope-openspec-auto-attach-to-session-cwd (design D3).
+ */
+const CD_TARGET_RE = /(?:^|[;&|(]|\s)(?:cd|pushd)\s+([^\s;&|)]+)/g;
+
+/** True when `p` looks absolute on either POSIX or Windows. */
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith("/") || p.startsWith("\\") || /^[a-zA-Z]:[\\/]/.test(p);
+}
+
+/** Resolve `p` against `cwd` when relative, then test containment by `cwd`. */
+function isWithinCwd(p: string, cwd: string): boolean {
+  if (!cwd) return false;
+  const abs = isAbsolutePath(p) ? p : `${cwd.replace(/[\\/]+$/, "")}/${p}`;
+  return isPathInside(cwd, abs);
+}
+
+/**
+ * True when the command relocates to a directory that is provably outside the
+ * session cwd. Quotes are stripped; `~`/variable/`-` targets are unknowable
+ * and therefore NOT treated as outside (the gate in `event-wiring.ts` is the
+ * load-bearing guard — this is defence in depth).
+ */
+function relocatesOutsideCwd(command: string, cwd: string): boolean {
+  CD_TARGET_RE.lastIndex = 0;
+  let m: RegExpExecArray | null = CD_TARGET_RE.exec(command);
+  while (m !== null) {
+    const raw = m[1].replace(/^["']|["']$/g, "");
+    if (raw && raw !== "-" && !raw.startsWith("$") && !raw.startsWith("~")) {
+      if (!isWithinCwd(raw, cwd)) return true;
+    }
+    m = CD_TARGET_RE.exec(command);
+  }
+  return false;
 }
 
 /** Map from skill directory name suffix to phase */
@@ -59,6 +108,12 @@ export function isValidOpenSpecChangeSlug(name: string): boolean {
 export function detectOpenSpecActivity(
   toolName: string,
   args: Record<string, unknown> | undefined,
+  /**
+   * Session cwd from SERVER state, never from model-supplied arguments
+   * (anti-traversal). Required so TypeScript fails closed at every call site.
+   * See change: scope-openspec-auto-attach-to-session-cwd.
+   */
+  cwd: string,
 ): DetectedActivity | null {
   if (!args) return null;
 
@@ -79,8 +134,8 @@ export function detectOpenSpecActivity(
 
     // Check for openspec change file read → change name detection (passive)
     const changeMatch = path.match(CHANGE_PATH_RE);
-    if (changeMatch && isValidOpenSpecChangeSlug(changeMatch[1])) {
-      return { changeName: changeMatch[1], isActive: false };
+    if (changeMatch && isValidOpenSpecChangeSlug(changeMatch[1]) && isWithinCwd(path, cwd)) {
+      return { changeName: changeMatch[1], isActive: false, localEvidence: true };
     }
 
     return null;
@@ -91,8 +146,8 @@ export function detectOpenSpecActivity(
     if (!path) return null;
 
     const changeMatch = path.match(CHANGE_PATH_RE);
-    if (changeMatch && isValidOpenSpecChangeSlug(changeMatch[1])) {
-      return { changeName: changeMatch[1], isActive: true };
+    if (changeMatch && isValidOpenSpecChangeSlug(changeMatch[1]) && isWithinCwd(path, cwd)) {
+      return { changeName: changeMatch[1], isActive: true, localEvidence: true };
     }
 
     return null;
@@ -102,11 +157,16 @@ export function detectOpenSpecActivity(
       const command = args.command as string | undefined;
       if (!command || !command.includes("openspec")) return null;
 
+      // Conservative cwd guard (D3): a relocation out of the session cwd
+      // anywhere in the command disables ALL CLI-pattern detection for it.
+      if (relocatesOutsideCwd(command, cwd)) return null;
+
       // Try each CLI regex in order; first match wins.
+      const newChangeMatch = command.match(CLI_NEW_CHANGE_RE);
       const match =
         command.match(CLI_CHANGE_FLAG_RE) ??
         command.match(CLI_ARCHIVE_RE) ??
-        command.match(CLI_NEW_CHANGE_RE);
+        newChangeMatch;
       if (!match) return null;
 
       const name = match[1];
@@ -118,7 +178,15 @@ export function detectOpenSpecActivity(
       // See changes: fix-openspec-flag-rename-bug, fix-uuid-rename-bug.
       if (!isValidOpenSpecChangeSlug(name)) return null;
 
-      return { changeName: name, isActive: true };
+      // A change-CREATING invocation is local evidence by construction: the
+      // change is being created here, the poll cache just does not list it
+      // yet. See design D4a.
+      const createdHere = newChangeMatch !== null && newChangeMatch[1] === name;
+      return {
+        changeName: name,
+        isActive: true,
+        ...(createdHere ? { localEvidence: true } : {}),
+      };
     }
 
   return null;

@@ -203,6 +203,16 @@ export interface DashboardSession {
    */
   isGitRepo?: boolean;
   /**
+   * Server-internal: the bridge has reported worktree state at least once,
+   * INCLUDING the cleared (`null`) case for a non-worktree session. Makes
+   * "not a worktree" distinguishable from "not yet reported", which the
+   * OpenSpec auto-attach locality gate needs to be reject-capable. In-memory
+   * only — NEVER persisted to `.meta.json` and NEVER included in a
+   * `broadcastSessionUpdated` payload.
+   * See change: scope-openspec-auto-attach-to-session-cwd (design D8).
+   */
+  gitWorktreeReported?: boolean;
+  /**
    * Server-managed flag set by any of three probe sites: (1) the bridge's
    * 30 s VCS tick (`existsSync(cwd) === false`), (2) the server's session
    * scanner re-probing ended sessions on boot, (3) the `worktree/remove`

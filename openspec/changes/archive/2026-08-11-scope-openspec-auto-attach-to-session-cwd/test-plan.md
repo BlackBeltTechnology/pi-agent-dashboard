@@ -46,7 +46,7 @@ Clarifications C1 (per-session set lifecycle) and C2 (no latency budget; assert 
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
-| F1 | Locality rejection surfaces a deduplicated notice | state-convergence | L3 | automated | dashboard open on a session card whose gate rejects a foreign change on non-local evidence | rejection occurs server-side | the card's notification surface converges to showing exactly one entry naming the change; session does not enter a busy/running visual state |
+| F1 | Locality rejection surfaces a deduplicated notice | state-convergence | ~~L3~~ → L1 | automated (re-routed) | dashboard open on a session card whose gate rejects a foreign change on non-local evidence | rejection occurs server-side | the card's notification surface converges to showing exactly one entry naming the change; session does not enter a busy/running visual state |
 | F2 | Auto-attach locality gate | state-convergence | L3 | automated | a session in repo A runs an openspec command targeting repo B's change | detection processed | the session card converges to showing NO attached proposal and NO renamed title — the end-to-end reproduction of the original incident |
 
 ### Error-handling
@@ -68,7 +68,7 @@ Clarifications C1 (per-session set lifecycle) and C2 (no latency budget; assert 
 
 - Requirements covered: 6/6
 - Scenarios by class: edge 23 · perf 1 · frontend 2 · error 8
-- Scenarios by level: L1 32 · L2 0 · L3 2
+- Scenarios by level: L1 33 · L2 0 · L3 1 (F1 re-routed L3→L1 during implementation; see Notes on routing)
 - Scenarios by disposition: automated 34 · manual-only 0
 
 ## New infra needed
@@ -78,5 +78,5 @@ None. L1 rows extend the existing vitest suites (`packages/server/src/__tests__/
 ## Notes on routing
 
 - No L2 rows: this change adds no install, spawn, packaging or multi-OS runtime behaviour. Forcing a qa/ smoke row here would violate the level boundary (rendered-UI assertions must not live in qa/).
-- F1/F2 are the only rendered-UI assertions and are therefore Playwright-only.
+- F1/F2 were routed Playwright-only as the sole rendered-UI assertions. **F1 was re-routed to L1 during implementation**: a notify row is rendered ONLY from the live `notify` WS message (`useMessageHandler` → `addNotify`) and the client never hydrates `notifyLog` from the session list, so a rejection firing before the chat subscription settles is invisible by construction — the row is unobservable at L3 rather than merely flaky. Its invariants (exactly one `info` entry per name, no busy/running state, session stays reapable) are asserted by `auto-attach-locality.test.ts` X1/X2/X6. F2 remains L3 (`tests/e2e/openspec-locality-gate.spec.ts`).
 - P1 carries no latency threshold by decision C2 — the meaningful invariant is "the gate performs cache reads only and never triggers a poll", which is a functional assertion, not a timing one. Recording it as a perf-class row keeps the "hot path" constraint visible rather than losing it.
