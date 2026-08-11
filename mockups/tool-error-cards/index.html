@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tool-result error cards — severity on the chrome, neutral on the content</title>
+
+<!--
+  FIDELITY CONTRACT
+  =================
+  Loads the RUNNING dashboard's own compiled stylesheet. Every "BEFORE" class
+  string is copied VERBATIM from source at the cited line. Nothing is re-declared
+  locally, so BEFORE renders exactly what ships today.
+
+  Sources:
+    CtxToolRenderer.tsx:187-189    AskUserToolRenderer.tsx:220-221
+    ToolBurstGroup.tsx:383         AgentToolRenderer.tsx:346
+    BashOutputCard.tsx:44-48       ToolCallStep.tsx:148-151
+  Requires the dashboard up on :8000. Refresh the href if the bundle hash rotates.
+-->
+<link rel="stylesheet" href="http://localhost:8000/assets/index-DzXLxU36.css">
+
+<style>
+  /* Mock chrome ONLY — never touches the cloned surfaces. */
+  body{background:var(--bg-primary);color:var(--text-secondary);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:24px 16px 80px}
+  .page{max-width:900px;margin:0 auto}
+  h1{color:var(--text-primary);font-size:17px;margin:0 0 4px}
+  .lead{color:var(--text-tertiary);font-size:12.5px;margin:0 0 6px;line-height:1.55}
+  .cap{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--text-muted);
+    font-weight:600;margin:30px 0 8px}
+  .desc{font-size:11.5px;color:var(--text-tertiary);margin:8px 0 0;line-height:1.6}
+  .desc b{color:var(--text-secondary);font-weight:600}
+  .kbd{font-family:'SF Mono',Menlo,Monaco,monospace;font-size:11px;background:var(--bg-code);
+    padding:1px 4px;border-radius:3px;color:var(--text-secondary)}
+  hr{border:0;border-top:1px solid var(--border-primary);margin:32px 0 0}
+  .themebar{position:fixed;top:12px;right:14px;display:flex;gap:6px;z-index:20}
+  .themebar button{font:inherit;font-size:11px;padding:5px 11px;border-radius:7px;cursor:pointer;
+    background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary)}
+  .themebar button[aria-pressed=true]{background:var(--accent-blue);border-color:var(--accent-blue);color:#fff}
+  .ba{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:10px}
+  @media (max-width:720px){.ba{grid-template-columns:1fr}}
+  .ba h4{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 7px;font-weight:600}
+  .ba .bad h4{color:var(--status-error)} .ba .good h4{color:var(--status-idle)}
+  /* chat-surface stand-in: the tool step chrome, verbatim from ToolCallStep.tsx:140 */
+  .chatpane{background:var(--bg-primary);border:1px solid var(--border-primary);border-radius:10px;padding:12px 10px}
+  table{border-collapse:collapse;width:100%;font-size:11.5px;margin-top:10px}
+  th,td{border:1px solid var(--border-primary);padding:5px 8px;text-align:left}
+  th{color:var(--text-tertiary);font-weight:600;background:var(--bg-secondary)}
+  td.n{font-family:'SF Mono',Menlo,monospace;text-align:right}
+  .fail{color:var(--status-error);font-weight:600} .pass{color:var(--status-idle);font-weight:600}
+</style>
+</head>
+<body>
+<div class="themebar">
+  <button id="tL" aria-pressed="true">light</button>
+  <button id="tD" aria-pressed="false">dark</button>
+</div>
+
+<div class="page">
+<h1>Tool-result error cards</h1>
+<p class="lead">
+  Six error surfaces in the chat transcript still use raw Tailwind red literals instead of the
+  <span class="kbd">--severity-*</span> tokens. Those literals are dark-mode-tuned, so
+  <b>all six fail in light mode and all six pass in dark</b> — the signature of a palette that was
+  only ever eyeballed against a dark background. Toggle the theme and watch the left column
+  disappear.
+</p>
+
+<!-- ══════════ 1 · THE HEADLINE CASE ══════════ -->
+<div class="cap">1 · ctx_execute runtime error — the card you screenshotted</div>
+<div class="ba">
+  <div class="bad">
+    <h4>Before — ships today · body 1.24:1</h4>
+    <div class="chatpane">
+      <!-- VERBATIM CtxToolRenderer.tsx:187-189 -->
+      <div class="rounded border border-red-500/40 bg-red-950/20 p-2 space-y-2">
+        <div class="text-[11px] font-medium text-red-400 uppercase">runtime error</div>
+        <pre class="whitespace-pre-wrap text-code text-red-300">```shell
+set -o pipefail
+npm run test:e2e &gt; /tmp/full-e2e-run1.log 2&gt;&amp;1
+code=$?
+echo "FULL_E2E_EXIT=$code"
+```
+
+Exit code: 1
+
+stdout:
+
+stderr:</pre>
+      </div>
+    </div>
+  </div>
+  <div class="good">
+    <h4>After — severity chrome, structure split into sections</h4>
+    <div class="chatpane">
+      <div class="rounded border border-[var(--severity-error-border)] bg-[var(--severity-error-bg)] p-2 space-y-2">
+        <div class="flex items-center gap-2">
+          <div class="text-[11px] font-medium text-[var(--severity-error-fg)] uppercase flex-1">runtime error</div>
+          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border border-[var(--severity-error-border)]">exit 1</span>
+        </div>
+        <!-- fenced ```shell rendered as a real CodeBlock (SyntaxHighlighter in-app) -->
+        <div class="text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wide">command</div>
+        <div class="text-code p-2 bg-[var(--bg-code)] rounded font-mono" style="font-size:12px;line-height:1.5;white-space:pre-wrap"><span style="color:var(--accent-purple)">set</span> -o pipefail
+<span style="color:var(--accent-blue)">npm</span> run test:e2e &gt; <span style="color:var(--accent-green)">/tmp/full-e2e-run1.log</span> 2&gt;&amp;1
+code=$?
+<span style="color:var(--accent-blue)">echo</span> <span style="color:var(--accent-orange)">"FULL_E2E_EXIT=$code"</span></div>
+        <div class="text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wide">stdout</div>
+        <pre class="whitespace-pre-wrap text-code text-[var(--text-muted)] italic p-2 bg-[var(--bg-code)] rounded" style="margin:0">(empty)</pre>
+        <div class="text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wide">stderr</div>
+        <pre class="whitespace-pre-wrap text-code text-[var(--text-muted)] italic p-2 bg-[var(--bg-code)] rounded" style="margin:0">(empty)</pre>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="desc">
+  <b>Three defects, one card.</b> (1) contrast — the measurable one; (2) the body is a
+  <b>flat red wash</b> even where it passes; (3) <b>the markdown is never rendered</b>. The body
+  is emitted through <span class="kbd">LinkifiedText</span>, which linkifies URLs/paths only — so
+  the <span class="kbd">```shell</span> fence and the <span class="kbd">Exit code / stdout /
+  stderr</span> structure show as <b>raw text</b>.
+</p>
+<p class="desc">
+  The fix is not invented — it is what the <b>success</b> path of the same component already does.
+  <span class="kbd">CtxToolRenderer.tsx:239</span> renders fenced code through
+  <span class="kbd">CodeBlock</span> → <span class="kbd">SyntaxHighlighter</span>, and
+  <span class="kbd">splitHeadingBlocks</span> splits the body into sections. The error path throws
+  all of it away and dumps <span class="kbd">parsed.message</span> into one flat
+  <span class="kbd">&lt;pre&gt;</span>. So a <b>passing</b> ctx call is syntax-highlighted and
+  sectioned; a <b>failing</b> one — the case you most need to read — is a raw wall. The “after”
+  column runs the error body through the same machinery: fence → highlighted command block, then
+  <span class="kbd">exit</span> / <span class="kbd">stdout</span> / <span class="kbd">stderr</span>
+  as their own sections.
+</p>
+
+<hr>
+
+<!-- ══════════ 2 · THE OTHER FIVE ══════════ -->
+<div class="cap">2 · The other five surfaces</div>
+
+<div class="ba">
+  <div class="bad"><h4>Before</h4><div class="chatpane" style="display:flex;flex-direction:column;gap:12px">
+    <div><div class="desc" style="margin:0 0 5px">ToolBurstGroup.tsx:383</div>
+      <span class="text-xs text-[var(--text-tertiary)]">3 tool calls · 17s</span>
+      <span class="ml-1 px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30 text-[10px] font-semibold">1 failed</span></div>
+    <div><div class="desc" style="margin:0 0 5px">BashOutputCard.tsx:46</div>
+      <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">exit 1</span></div>
+    <div><div class="desc" style="margin:0 0 5px">ToolCallStep.tsx:149</div>
+      <span class="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
+        <span class="inline-flex text-red-400">✕</span> ctx_execute shell</span></div>
+    <div><div class="desc" style="margin:0 0 5px">AskUserToolRenderer.tsx:221</div>
+      <div class="flex items-start gap-1.5 text-xs"><span class="text-red-400 shrink-0 mt-0.5">⚠</span>
+      <pre class="whitespace-pre-wrap text-red-400/80">prompt was cancelled by the user</pre></div></div>
+    <div><div class="desc" style="margin:0 0 5px">AgentToolRenderer.tsx:346</div>
+      <div class="text-[11px] text-red-400 mt-1">Error: subagent exceeded max turns</div></div>
+  </div></div>
+
+  <div class="good"><h4>After</h4><div class="chatpane" style="display:flex;flex-direction:column;gap:12px">
+    <div><div class="desc" style="margin:0 0 5px">ToolBurstGroup.tsx:383</div>
+      <span class="text-xs text-[var(--text-tertiary)]">3 tool calls · 17s</span>
+      <span class="ml-1 px-1.5 py-0.5 rounded-full bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border border-[var(--severity-error-border)] text-[10px] font-semibold">1 failed</span></div>
+    <div><div class="desc" style="margin:0 0 5px">BashOutputCard.tsx:46</div>
+      <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)]">exit 1</span></div>
+    <div><div class="desc" style="margin:0 0 5px">ToolCallStep.tsx:149</div>
+      <span class="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
+        <span class="inline-flex text-[var(--severity-error-fg)]">✕</span> ctx_execute shell</span></div>
+    <div><div class="desc" style="margin:0 0 5px">AskUserToolRenderer.tsx:221</div>
+      <div class="flex items-start gap-1.5 text-xs"><span class="text-[var(--severity-error-fg)] shrink-0 mt-0.5">⚠</span>
+      <pre class="whitespace-pre-wrap text-[var(--text-secondary)]">prompt was cancelled by the user</pre></div></div>
+    <div><div class="desc" style="margin:0 0 5px">AgentToolRenderer.tsx:346</div>
+      <div class="text-[11px] mt-1"><span class="text-[var(--severity-error-fg)]">Error:</span>
+      <span class="text-[var(--text-secondary)]">subagent exceeded max turns</span></div></div>
+  </div></div>
+</div>
+<p class="desc">
+  Same rule throughout: the <b>marker</b> carries severity, the <b>message</b> stays readable.
+  Note <span class="kbd">text-red-400/80</span> in AskUser — an 80% alpha on an already
+  low-contrast literal, the worst cell of the five.
+</p>
+
+<hr>
+
+<!-- ══════════ 3 · MEASURED ══════════ -->
+<div class="cap">3 · Measured — computed, not eyeballed</div>
+<table id="matrix"></table>
+<p class="desc">
+  Ratios computed by compositing each declared alpha over the chat surface
+  (<span class="kbd">--bg-primary</span>: <span class="kbd">#ffffff</span> light /
+  <span class="kbd">#0a0a0a</span> dark), then WCAG 2.x relative luminance. The floor is
+  <b>3:1</b>, the same one <span class="kbd">tests/e2e/severity-contrast.spec.ts</span> already
+  enforces for every other severity surface.
+</p>
+
+<hr>
+<div class="cap">4 · Why this keeps happening</div>
+<p class="desc">
+  The <span class="kbd">--severity-*</span> triples are <span class="kbd">color-mix()</span>-derived
+  against the theme's own <span class="kbd">--text-primary</span> /
+  <span class="kbd">--bg-tertiary</span>, so they re-derive per theme automatically. A raw
+  <span class="kbd">red-400</span> cannot: it is one fixed value, and it was chosen while looking
+  at a dark background. Every future raw literal will reproduce this bug, which is why the
+  spec's requirement is a <b>ban on raw literals in error surfaces</b>, not a list of six fixes.
+</p>
+</div>
+
+<script>
+(function(){
+var d=document;
+var hex=function(h){h=h.replace("#","");return [0,2,4].map(function(i){return parseInt(h.substr(i,2),16)})};
+var over=function(f,a,b){return f.map(function(v,i){return v*a+b[i]*(1-a)})};
+var lum=function(c){var s=c.map(function(v){v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)});
+  return .2126*s[0]+.7152*s[1]+.0722*s[2]};
+var ratio=function(f,b){var A=lum(f),B=lum(b);var x=Math.max(A,B),y=Math.min(A,B);return (x+.05)/(y+.05)};
+var C={r300:hex("#fca5a5"),r400:hex("#f87171"),r500:hex("#ef4444"),r950:hex("#450a0a"),acc:hex("#ef4444")};
+var SUR={light:hex("#ffffff"),dark:hex("#0a0a0a")};
+var TOK={light:{tp:hex("#1a1a1a"),bt:hex("#f0f0f0")},dark:{tp:hex("#e5e5e5"),bt:hex("#1e1e1e")}};
+
+function cell(fg,fa,bg,ba,mode){
+  var base=SUR[mode]; var b= bg? over(bg,ba,base) : base; var f=over(fg,fa,b); return ratio(f,b);
+}
+function tok(mode){ var t=TOK[mode];
+  var fg=C.acc.map(function(v,i){return v*.46+t.tp[i]*.54});
+  var bg=C.acc.map(function(v,i){return v*.10+t.bt[i]*.90});
+  return ratio(fg,bg);
+}
+var ROWS=[
+ ["Ctx error body","CtxToolRenderer:189",C.r300,1,C.r950,.20],
+ ["Ctx error label","CtxToolRenderer:188",C.r400,1,C.r950,.20],
+ ["Burst “N failed”","ToolBurstGroup:383",C.r400,1,C.r500,.15],
+ ["Bash exit badge","BashOutputCard:46",C.r400,1,C.r500,.20],
+ ["AskUser error text","AskUserToolRenderer:221",C.r400,.80,null,0],
+ ["Agent error text","AgentToolRenderer:346",C.r400,1,null,0],
+ ["ToolCallStep icon","ToolCallStep:149",C.r400,1,null,0]
+];
+var h='<tr><th>Surface</th><th>Source</th><th>light now</th><th>dark now</th><th>tokenised</th></tr>';
+ROWS.forEach(function(r){
+  var L=cell(r[2],r[3],r[4],r[5],"light"), D=cell(r[2],r[3],r[4],r[5],"dark");
+  h+='<tr><td>'+r[0]+'</td><td><span class="kbd">'+r[1]+'</span></td>'
+   + '<td class="n '+(L<3?"fail":"pass")+'">'+L.toFixed(2)+':1</td>'
+   + '<td class="n '+(D<3?"fail":"pass")+'">'+D.toFixed(2)+':1</td>'
+   + '<td class="n pass">'+tok("light").toFixed(2)+' / '+tok("dark").toFixed(2)+'</td></tr>';
+});
+h+='<tr><td colspan="5" style="background:var(--bg-secondary)"><b>7 of 7 surfaces fail the 3:1 floor in light mode. 0 of 7 fail in dark.</b></td></tr>';
+d.getElementById("matrix").innerHTML=h;
+
+var tD=d.getElementById("tD"),tL=d.getElementById("tL");
+function theme(t){d.documentElement.setAttribute("data-theme",t);
+  tD.setAttribute("aria-pressed",t==="dark");tL.setAttribute("aria-pressed",t==="light");}
+tD.onclick=function(){theme("dark")};tL.onclick=function(){theme("light")};
+})();
+</script>
+</body>
+</html>
