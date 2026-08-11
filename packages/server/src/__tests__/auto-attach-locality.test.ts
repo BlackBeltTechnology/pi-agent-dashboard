@@ -282,8 +282,14 @@ describe("rejection notice", () => {
     const s = server.sessionManager.get("s1");
     const c = server.sessionManager.get("s2");
     expect(notices("s1").length).toBe(1);
-    expect(s?.hasPendingAsk).toBeFalsy();
-    expect(s?.hasPendingPromptRequests).toBeFalsy();
+    // `hasPendingAsk` / `hasPendingPromptRequests` are NOT fields of
+    // `DashboardSession` — reading them off the session failed `tsc --noEmit`
+    // and, being `undefined`, made both assertions vacuously true. The pending
+    // prompt-request state lives on the browser gateway, so assert it there,
+    // where the check can actually fail. There is no session-level pending-ask
+    // observable; the notice path is covered by the notice count above and by
+    // the status/currentTool parity against the control session below.
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(false);
     expect(s?.status).toBe(c?.status);
     expect(s?.currentTool).toBe(c?.currentTool);
     control.close();
