@@ -9,9 +9,14 @@ backing that session, regardless of the strategy that spawned it
 
 Termination SHALL use one shared escalation ladder (SIGTERM → grace → SIGKILL),
 not a per-strategy reimplementation. A strategy whose processes are not tracked
-in the headless PID registry SHALL still be terminated through its own handle —
-for tmux, the window/pane hosting the session — and the session's process
-identity SHALL be recorded at spawn time so it is recoverable at shutdown.
+in the headless PID registry SHALL still be terminated, keyed on the process
+identity the server already holds for the session, so termination is
+strategy-agnostic by construction rather than by enumerating strategies.
+
+Every `session_register` SHALL therefore carry the registering process's pid.
+For a non-headless spawn this is the ONLY channel by which the server learns
+which process is the session: `tmux new-window` returns tmux's pid, not pi's,
+and the pane's command line carries nothing identifying.
 
 Sending an advisory in-session message asking the agent to exit SHALL NOT by
 itself be considered termination. It MAY be attempted first, but the outcome
@@ -75,3 +80,65 @@ the session list.
 - **THEN** a process with no corresponding live session SHALL be reportable as
   orphaned
 - **AND** this comparison SHALL be available to the E2E harness's memory guard
+
+### Requirement: A spawn that never registers SHALL be reclaimed, not merely reported
+
+When a spawned pi session does not send `session_register` within the
+spawn-register timeout, the server SHALL terminate the spawned process, in
+addition to emitting the existing timeout diagnostic.
+
+Such a process is unreachable by every other teardown path: with no session
+record there is no shutdown, no reap and no idle-reclaim, so it survives until
+the host is restarted. The measured case is a tmux pane blocked indefinitely on
+pi's interactive "Trust project folder?" prompt for an untrusted directory,
+holding ~127 MB with no open sockets.
+
+Reclamation SHALL target only the leaf `pi` process. The spawn correlation token
+is an ordinary environment variable and is therefore inherited by the tmux
+server, by the dashboard's own process and by intervening shells; a lookup that
+does not narrow to `pi` names processes whose termination is catastrophic.
+
+#### Scenario: A pi that never registers is terminated
+
+- **WHEN** a spawned session has not registered within the spawn-register timeout
+- **THEN** its process SHALL be terminated with the shared escalation ladder
+- **AND** the timeout diagnostic SHALL still be emitted
+
+#### Scenario: A session that registers in time is never targeted
+
+- **WHEN** a spawned session registers before its watchdog fires
+- **THEN** no termination SHALL be attempted for that spawn
+
+#### Scenario: Reclamation never targets the dashboard itself
+
+- **WHEN** the correlation lookup returns a process that merely INHERITED the
+  spawn token — the tmux server, the dashboard process, an intervening shell
+- **THEN** that process SHALL NOT be terminated
+
+#### Scenario: A diagnostic is emitted even with no browser listening
+
+- **WHEN** the originating browser socket has closed before the watchdog fires
+- **THEN** the process SHALL still be reclaimed
+
+### Requirement: Each spawn SHALL be individually correlatable
+
+Every spawn SHALL carry a distinct correlation token into the spawned process's
+environment, and the session's first `session_register` SHALL echo it back.
+
+`tmux new-window` inherits the environment of the tmux SERVER, not of the client
+that invoked it, so passing the token through the invoking process's environment
+gave every window after the first the FIRST spawn's token. A shared token
+collapses concurrent spawns onto one identity: the spawn watchdog then watches
+one of them, reports one timeout for several leaks, and any token-keyed action
+addresses the wrong process.
+
+#### Scenario: Concurrent spawns into one directory are each watched
+
+- **WHEN** several sessions are spawned into the same directory and none registers
+- **THEN** each spawn SHALL produce its own register-timeout
+- **AND** each spawned process SHALL be reclaimed
+
+#### Scenario: Tokens are unique per spawned window
+
+- **WHEN** several tmux windows are spawned in sequence
+- **THEN** each SHALL carry a distinct correlation token in its environment

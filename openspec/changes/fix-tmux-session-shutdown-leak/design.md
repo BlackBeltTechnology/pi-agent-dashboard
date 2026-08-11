@@ -73,15 +73,32 @@ by `fix-e2e-harness-memory-exhaustion`) already compute this out-of-band; test
 P3 becomes meaningful only once divergence is supposed to be zero. This is what
 makes a regression of this fix loud instead of silent.
 
-## D5 — SUPERSEDED by D6. Kept as the record of a wrong turn.
+## D5 — first declared superseded by D6, then REINSTATED by the harness
 
-> **This section is obsolete.** It solves a problem that does not exist: it
-> assumes the server needs a *tmux handle* to terminate a tmux session. It does
-> not — it already stores the session's PID, and `handleForceKill` already kills
-> by it. D6 is the actual fix. Retained because the reasoning below is still the
-> correct answer to the question it asks, and because the wrong turn is worth
-> seeing: the design invented a new correlation mechanism before checking what
-> the sibling handler 140 lines away already did.
+> **Status: partly wrong, then needed after all.** D6 is correct that shutdown
+> does not need a *tmux handle*: it terminates by the session's PID. So the
+> window-naming half of this section stays rejected. But the premise underneath
+> it — that a spawn needs an identity the server can act on before any session
+> exists — turned out to be exactly right, for a case D6 does not reach: a pi
+> that NEVER registers. It has no session record and therefore no PID, no
+> shutdown, no reap. The spawn token is the only handle that exists for it.
+>
+> Two things were wrong with the token as it stood, both found by measurement,
+> neither visible at L1:
+>
+> 1. **It was not unique.** `execSync(cmd, { env })` sets the tmux CLIENT's env;
+>    once a `pi-dashboard` server is running, `new-window` inherits the tmux
+>    SERVER's environment. Three concurrently spawned panes were measured
+>    carrying one token. Fixed by passing it per-window with `tmux -e`.
+> 2. **It was never echoed on a fresh session's first register.** `bridge.ts`'s
+>    inline `session_start` register omitted both `spawnToken` and `pid` — the
+>    two fields `session-sync.ts`'s registers do send. Tier-1 correlation
+>    therefore never fired for a dashboard spawn.
+>
+> The lesson the original note drew still holds, just pointed the other way: the
+> design reasoned about a mechanism instead of measuring whether it worked. The
+> token existed, was plumbed through tmux, had tests — and was inherited,
+> shared, and never echoed.
 
 Task 1.1 read the spawn path. Both options this section originally offered are
 wrong, for the same reason.
@@ -200,3 +217,43 @@ stops that class of bug from recurring.
   Reuse its reasoning rather than inventing a second policy.
 - A session with no stored PID (bridge never registered) must degrade to today's
   behaviour and report, not claim success.
+
+## D7 — Reclaim what never registered (added during implementation)
+
+**Decision:** when the spawn-register watchdog fires, terminate the spawned
+process; do not merely report it.
+
+The harness forced this. After D6 landed, the memory gate still failed (+29 %),
+and the survivors were three tmux panes sitting on pi's interactive
+"Trust project folder?" prompt for an untrusted cwd — zero open sockets, no
+`session_register`, so no session record, so no shutdown, no reap, no
+idle-reclaim. ~127 MB each, until the host restarts. The watchdog SAW every one
+of them and did nothing.
+
+Constraints discovered while building it, each of which broke a working-looking
+implementation:
+
+- **Narrow to leaf `pi`.** The token is an ordinary env var, so the tmux server,
+  the dashboard's own node process and intervening shells all inherit it. An
+  un-narrowed lookup returned five pids for one token; handing that set to the
+  kill path took the container down. The probe filters on `comm == "pi"`, and
+  the watchdog additionally refuses `process.pid` / `process.ppid`.
+- **Force a zero exit on the /proc scan.** A shell `for` loop's status is the
+  last iteration's, and the last `/proc` entry never matches, so `grep -q` left
+  status 1 → `execSync` threw → the catch returned `[]` for every lookup. The
+  watchdog fired and reclaimed nothing, silently.
+- **Do not disarm a sibling spawn.** `arm()` replaced the prior entry for the
+  same cwd, so three spawns into one directory produced one timeout for three
+  leaks. An entry with its own token now keeps its timer; its own
+  `clearByToken` cancels it when it registers.
+
+Measured after: three deadlocked panes → three diagnostics → three reclaims →
+panes 0, resident pi 0, container healthy. The memory gate then passed with
+divergence 0 (P1 935→1020 MiB, P3 3 resident pi vs 3 live sessions).
+
+**Risk accepted:** a dashboard-spawned session a human intended to answer
+interactively (the trust prompt) is killed after `spawnRegisterTimeoutMs`
+(default 30 s). This is the right trade for a *dashboard-owned* spawn — the
+dashboard is where that session was supposed to appear, and it never did — and
+the timeout is already operator-configurable. A pi the user starts themselves is
+never armed and never touched.

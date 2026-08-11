@@ -53,7 +53,11 @@ curl -sf "http://localhost:$PORT/api/health" >/dev/null \
 
 echo "== E2E memory-bound smoke (port $PORT, chunk $CHUNK_SIZE) =="
 
-mapfile -t ALL_SPECS < <(ls tests/e2e/*.spec.ts | sort)
+# NOT `mapfile`: it is bash 4+, and this script also runs from a macOS host
+# (bash 3.2), where `mapfile: command not found` aborted the whole gate.
+# See change: fix-tmux-session-shutdown-leak.
+ALL_SPECS=()
+while IFS= read -r spec; do ALL_SPECS+=("$spec"); done < <(ls tests/e2e/*.spec.ts | sort)
 [ "${#ALL_SPECS[@]}" -gt 0 ] || fail "no specs found"
 
 json_field() { node -e "console.log(JSON.parse(require('fs').readFileSync('$1','utf8')).$2)"; }
@@ -62,7 +66,7 @@ json_field() { node -e "console.log(JSON.parse(require('fs').readFileSync('$1','
 # the out-of-band resident process count against.
 live_sessions() {
   curl -s "http://localhost:$PORT/api/sessions" \
-    | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);console.log((j.data?.sessions??[]).filter(x=>x.live!==false).length)}catch{console.log(0)}})"
+    | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);const arr=Array.isArray(j.data)?j.data:(j.data?.sessions??[]);console.log(arr.filter(x=>x.live!==false&&x.status!=='ended').length)}catch{console.log(0)}})"
 }
 
 run_chunk() { # $1=label  $2..=spec files

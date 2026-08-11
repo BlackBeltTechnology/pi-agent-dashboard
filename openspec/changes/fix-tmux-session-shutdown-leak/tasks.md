@@ -108,24 +108,70 @@ flag, no window registry, no tmux CLI, no new correlation mechanism.
 
 ## 5. Prove it against the harness
 
-- [ ] 5.1 L3: a tmux-spawned session's process and window are both gone after
-      shutdown (test-plan #T2). This is the scenario the whole change exists for.
-- [ ] 5.2 Re-run the instant-in-time evidence capture that diagnosed the bug
-      (`measurements/tmux-leak-evidence.txt` shape): panes, resident `pi`, and
-      server records SHALL agree instead of reading 21 / 21 / 0.
+- [x] 5.1 L3: a tmux-spawned session's process and window are both gone after
+      shutdown (test-plan #T2) — `tests/e2e/tmux-session-shutdown.spec.ts`.
+      **This gate earned its keep.** It was RED while every L1 test was green:
+      the server had NO `pid` for a tmux session, because `bridge.ts`'s inline
+      `session_start` register omitted `pid` (the two registers in
+      `session-sync.ts` send it). Every L1 test hand-fed `session_register` a pid
+      the real bridge never sent, so D6's escalation could never fire in
+      production. Fixed + pinned by `session-register-carries-pid.test.ts`
+      (verified fails-on-revert).
+- [x] 5.2 Re-run the instant-in-time evidence capture that diagnosed the bug —
+      `measurements/tmux-leak-evidence.txt`. Panes / resident `pi` / server
+      records now agree at every step: 0/0/0 → 5/5/5 → 0/0/0, memory back to
+      baseline. Pre-fix: 21 / 21 / 0.
 
 ## 6. The memory guarantee this unblocks
 
-- [ ] 6.1 L2: memory does not climb across an early vs late chunk
-      (test-plan #P1), via `qa/tests/16-e2e-memory-bound.sh`.
-- [ ] 6.2 L2: resident count tracks session count with no persistent divergence
-      (test-plan #P3).
+- [x] 6.1 L2: memory does not climb across an early vs late chunk
+      (test-plan #P1), via `qa/tests/16-e2e-memory-bound.sh`. **PASS: 935 → 1020
+      MiB (limit 1029).** The first run FAILED at +29 %, which is how the
+      never-registered-pi leak (D7) was found; it passes now that the leak is
+      closed. Two gate bugs fixed to get here: `mapfile` (bash 4+) aborted the
+      script on a macOS host, and `live_sessions()` read `j.data?.sessions` while
+      `/api/sessions` returns `data` as an ARRAY — so P3 always compared against
+      0 and structurally could not observe this fix.
+- [x] 6.2 L2: resident count tracks session count with no persistent divergence
+      (test-plan #P3). **PASS: divergence 0** (3 resident `pi` vs 3 live
+      sessions). The pre-fix reading was 21 vs 0.
 - [ ] 6.3 L2 acceptance: the full suite in one container with `globalTimeout`
       overridden reaches the final spec, container still healthy
-      (test-plan #P4). Needs exclusive use of the Docker VM — see #451.
-- [ ] 6.4 Record the acceptance run's spec-level results verbatim. This is the
-      input #433 part 1 (red-spec triage) has been waiting for since before
-      `fix-e2e-harness-memory-exhaustion`.
+      (test-plan #P4). **DEFERRED — needs exclusive use of the Docker VM (#451),
+      which this host cannot give.** Partial evidence in hand: P4 passed on both
+      2x15-spec chunk runs (container healthy, no unexplained daemon restart).
+- [ ] 6.4 Record the acceptance run's spec-level results verbatim. **DEFERRED
+      with 6.3** — it is that run's output. Unblocked the moment #451 frees the
+      VM; #433 part 1 has been waiting on it.
+
+## 6b. Reclaim what never registered (added during implementation — design D7)
+
+Found by the memory gate, not by the plan: the L2 run stayed +29 % after the
+shutdown fix. The survivors were tmux panes deadlocked on pi's interactive
+"Trust project folder?" prompt — no sockets, no `session_register`, no session
+record, so unreachable by shutdown, reap AND idle-reclaim.
+
+- [x] 6b.1 The spawn-register watchdog terminates the spawn it reports, keyed on
+      the correlation token in the process environment. L1 in
+      `spawn-register-watchdog.test.ts`.
+- [x] 6b.2 Narrow the token lookup to leaf `pi` — the token is INHERITED by the
+      tmux server, the dashboard's own node process and intervening shells. An
+      un-narrowed lookup returned 5 pids for one token and took the container
+      down when the kill path used it. Second net: never `process.pid`/`ppid`.
+- [x] 6b.3 Force a zero exit on the `/proc` scan: a shell `for` loop's status is
+      the last iteration's, so `grep -q` left status 1, `execSync` threw and the
+      catch returned `[]` for EVERY lookup — a watchdog that fired and reclaimed
+      nothing, silently.
+- [x] 6b.4 Per-window spawn token: `tmux new-window` inherits the tmux SERVER's
+      env, so every window after the first carried the FIRST spawn's token (3
+      panes, 1 token, measured). Passed with `-e` now; 3 panes, 3 distinct tokens.
+- [x] 6b.5 Echo `spawnToken` on a fresh session's first register (it was omitted,
+      like `pid`), so tier-1 correlation fires and a registered session is never
+      a reclaim target. Verified: 3 concurrent spawns into one cwd → 3 registers,
+      0 false timeouts; the same 3 into an untrusted cwd → 3 diagnostics, 3
+      reclaims, panes 0 / pi 0, container healthy.
+- [x] 6b.6 Sibling spawns into one cwd stay individually watched — `arm()` used
+      to disarm the prior entry for the same cwd, so 3 leaks produced 1 timeout.
 
 ## 7. Close the loop
 
