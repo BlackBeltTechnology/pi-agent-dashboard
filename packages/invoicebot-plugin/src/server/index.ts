@@ -12,16 +12,42 @@
  * add-invoicebot-rest-plugin.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { IB_DOMAIN_EVENT_MESSAGE } from "../shared/ib-events.js";
 import { createCanonicalSessionStore, defaultCanonicalStorePath } from "./canonical-session-store.js";
 import { selectEngine } from "./engine/select.js";
 import { mountInvoiceBotRoutes } from "./routes.js";
 import { createSessionLink, recordedSessionIdsFromDetails } from "./session-link.js";
+import { resolveSpawnModel } from "./spawn-model.js";
 
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("invoicebot-plugin server entry activated");
 
   const { engine, binding } = await selectEngine((m) => ctx.logger.info(m));
+
+  // Model pinned on EVERY invoicebot-owned spawn. Read per spawn (not snapshotted
+  // at boot) so a config edit applies to the next spawn. Precedence: this
+  // plugin's own trusted config → dashboard `config.json#defaultModel` →
+  // `IB_MODEL` → host default. Config values only — never a credential.
+  // See change: pin-invoicebot-spawn-model.
+  const spawnModel = (): string | undefined => {
+    const cfg = ctx.getPluginConfig<{ model?: unknown; defaultModel?: unknown }>() ?? {};
+    let dashboardDefaultModel: unknown;
+    try {
+      dashboardDefaultModel = loadConfig().defaultModel;
+    } catch {
+      dashboardDefaultModel = undefined; // unreadable config must never block a spawn
+    }
+    return resolveSpawnModel(
+      {
+        pluginConfigModel: cfg.model,
+        pluginConfigDefaultModel: cfg.defaultModel,
+        dashboardDefaultModel,
+        envModel: process.env.IB_MODEL,
+      },
+      { warn: (m) => ctx.logger.warn(m) },
+    );
+  };
 
   // Flow-dispatch + invoice_id ↔ sessionId linkage. `spawnSession` /
   // `emitEventToSession` are trust-gated to first-party plugins (untrusted get
@@ -41,7 +67,10 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     // make-invoice-session-canonical.
     canonicalStore: createCanonicalSessionStore(defaultCanonicalStorePath()),
     logger: { info: (m) => ctx.logger.info(m), warn: (m) => ctx.logger.warn(m) },
+    resolveSpawnModel: spawnModel,
   });
+
+  ctx.logger.info(`invoicebot spawn model: ${spawnModel() ?? "(host default — none configured)"}`);
 
   // §5.4: expose the reverse sessionId → { IB_TOOLSET, IB_INVOICE_ID } lookup so
   // the host's auto-resume re-applies the bound scope on a continue-spawn (a

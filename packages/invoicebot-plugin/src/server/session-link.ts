@@ -57,6 +57,11 @@ export interface SessionLinkDeps {
   logger: { info: (m: string) => void; warn: (m: string) => void };
   /** Max wait (ms) for a spawned run session to register + correlate. */
   spawnBindTimeoutMs?: number;
+  /** Resolve the model to pin on EVERY invoicebot-owned spawn (scoped detail
+   *  session AND processing run). Called per spawn so a config edit applies to
+   *  the next spawn without a restart; `undefined` (or an absent dep) omits the
+   *  option and keeps the host default. See change: pin-invoicebot-spawn-model. */
+  resolveSpawnModel?: () => string | undefined;
 }
 
 export interface DispatchArgs {
@@ -175,6 +180,16 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
   // for the same invoice joins the first instead of racing a duplicate spawn.
   const inFlightByKey = new Map<string, Promise<string | undefined>>();
 
+  /**
+   * The ONE model-pinning helper both spawn paths use. Spreads `{ model }` only
+   * when a valid model resolved, so the no-configuration case produces the exact
+   * options object it produced before. See change: pin-invoicebot-spawn-model.
+   */
+  function spawnModelOption(): { model?: string } {
+    const model = deps.resolveSpawnModel?.();
+    return model ? { model } : {};
+  }
+
   // §7.1: one structured line per resolution outcome, carrying invoice + session.
   // Outcomes: reuse | resume | spawn | dedup-collapse | repoint. (finalize is the
   // gateway's lifecycle event — §4 — not observable from this seam.)
@@ -289,6 +304,10 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
       spawn = await deps.spawnSession({
         cwd,
         guard: true,
+        // Pin the configured model — an unpinned spawn inherited the host's
+        // built-in default provider and died on its OAuth refresh.
+        // See change: pin-invoicebot-spawn-model.
+        ...spawnModelOption(),
         ...(scopeEnv ? { env: scopeEnv } : {}),
         ...(resumeSessionFile ? { resumeSessionFile } : {}),
         // §1c.5: a spawn that carries a bound invoice IS the invoice's scoped
@@ -336,6 +355,9 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
       const spawn = await deps.spawnSession({
         cwd,
         guard: true,
+        // Same pinned model as the processing path (one helper, both paths).
+        // See change: pin-invoicebot-spawn-model.
+        ...spawnModelOption(),
         env: { IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: invoiceId },
         automationRun: {
           name: scopedAutomationName(invoiceId),
