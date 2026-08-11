@@ -13,33 +13,16 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { isPathInside } from "@blackbelt-technology/pi-dashboard-shared/path-containment.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 /**
- * True when `child` is `parent` itself or any descendant. Operates on
- * normalised paths so separator drift between `\` and `/` on Windows
- * is tolerated. Case-folding matches `samePath` semantics.
+ * Boundary-correct containment predicate. The implementation now lives in
+ * `packages/shared/src/path-containment.ts` so the shared OpenSpec activity
+ * detector can reuse it; re-exported here so existing server callers keep
+ * their import path. See change: scope-openspec-auto-attach-to-session-cwd.
  */
-export function isPathInside(
-  parent: string,
-  child: string,
-  platform: NodeJS.Platform = process.platform,
-): boolean {
-  if (!parent || !child) return false;
-  const np = normalizePath(parent, platform);
-  const nc = normalizePath(child, platform);
-  if (!np || !nc) return false;
-  // Choose the platform-correct separator for the boundary check.
-  const sep = platform === "win32" ? "\\" : "/";
-  // Strip a trailing separator from `parent` so "/foo/" + "/foo" still match.
-  const parentTrimmed = np.endsWith(sep) && np.length > 1 ? np.slice(0, -1) : np;
-  const caseFold = platform !== "linux";
-  const a = caseFold ? parentTrimmed.toLowerCase() : parentTrimmed;
-  const b = caseFold ? nc.toLowerCase() : nc;
-  if (a === b) return true;
-  return b.startsWith(a + sep);
-}
+export { isPathInside };
 
 /**
  * Active sessions whose `cwd` is at `targetPath` or a descendant.

@@ -29,6 +29,10 @@ import type { PiGateway } from "./pi/pi-gateway.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
 import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
+import {
+  attachedStillExistsInCandidateRoots,
+  localityGateAllows,
+} from "./session/openspec-locality.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
 import type { SessionManager } from "./session/memory-session-manager.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
@@ -672,6 +676,56 @@ export function wireEvents(deps: EventWiringDeps): void {
   // session. The client's local `now` ticker handles label refreshes between
   // broadcasts. See change: session-card-last-activity-badge.
   const lastActivityBroadcastAt = new Map<string, number>();
+
+  /**
+   * Per-session locality-rejection bookkeeping.
+   * `localityNoticesSent` tracks notices ACTUALLY EMITTED (never rejections
+   * seen) so a suppressed rejection cannot swallow a later meaningful one.
+   * `locallyEvidencedChanges` tracks change names whose detection evidence
+   * looked local in this session — their rejections stay silent.
+   * Both are cleared on unregister.
+   * See change: scope-openspec-auto-attach-to-session-cwd (design D4a/D5).
+   */
+  const localityNoticesSent = new Map<string, Set<string>>();
+  const locallyEvidencedChanges = new Map<string, Set<string>>();
+
+  /**
+   * Locality gate (design D1/D2/D6/D7/D8): `false` when the detected change
+   * name is positively absent from EVERY candidate root of this session's own
+   * project. Unknown (cold cache / unresolved worktree state) allows. On a
+   * rejection, emits at most one `info` notice per (session, change name),
+   * suppressed entirely when the evidence looked local (D4a).
+   */
+  function passesLocalityGate(sessionId: string, detected: { changeName?: string; localEvidence?: boolean }): boolean {
+    const name = detected.changeName;
+    const session = sessionManager.get(sessionId);
+    if (!name || !session) return true;
+    if (detected.localEvidence) {
+      let seen = locallyEvidencedChanges.get(sessionId);
+      if (!seen) {
+        seen = new Set();
+        locallyEvidencedChanges.set(sessionId, seen);
+      }
+      seen.add(name);
+    }
+    if (localityGateAllows(directoryService, session, name)) return true;
+    if (locallyEvidencedChanges.get(sessionId)?.has(name) !== true) {
+      let sent = localityNoticesSent.get(sessionId);
+      if (!sent) {
+        sent = new Set();
+        localityNoticesSent.set(sessionId, sent);
+      }
+      if (!sent.has(name)) {
+        sent.add(name);
+        handleNotify(sessionId, {
+          notifyId: crypto.randomUUID(),
+          level: "info",
+          message: `Detected OpenSpec change "${name}" outside this folder — not attached.`,
+        });
+      }
+    }
+    return false;
+  }
   const LAST_ACTIVITY_BROADCAST_INTERVAL_MS = 30_000;
 
   piGateway.onEvent = (sessionId, msg) => {
@@ -877,9 +931,12 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Server-side OpenSpec activity detection from forwarded events
       // Skip during replay — replayed events from a forked session would set stale phase/change
       if (msg.event.eventType === "tool_execution_start" && !replayingSessions.has(sessionId)) {
+        // cwd comes from server session state, never the model (anti-traversal).
+        // See change: scope-openspec-auto-attach-to-session-cwd.
         const detectedRaw = detectOpenSpecActivity(
           msg.event.data.toolName as string,
           msg.event.data.args as Record<string, unknown> | undefined,
+          sessionManager.get(sessionId)?.cwd ?? "",
         );
         // Defense-in-depth (see change: fix-uuid-rename-bug). Even if a future
         // detector regression returns a junk-shaped `changeName` (UUID, mixed
@@ -890,7 +947,9 @@ export function wireEvents(deps: EventWiringDeps): void {
           detectedRaw && (!detectedRaw.changeName || isValidOpenSpecChangeSlug(detectedRaw.changeName))
             ? detectedRaw
             : null;
-        if (detected) {
+        // The locality gate runs BEFORE the `openspecChange` stamp so the
+        // activity badge and the attach share one precondition (design D2).
+        if (detected && passesLocalityGate(sessionId, detected)) {
           const session = sessionManager.get(sessionId);
           const activityUpdates: Partial<DashboardSession> = {};
           let changed = false;
@@ -925,9 +984,12 @@ export function wireEvents(deps: EventWiringDeps): void {
               // changeName auto-attaches directly (no dialog). Reuses the
               // in-memory poll cache; never triggers a fresh poll.
               // See change: replace-proposal-dialog-with-race-handling.
+              // Candidate-root resolution (design D9): consult the session cwd
+              // AND its worktree main path, so a main-only change is not read
+              // as deleted. Fail-open on unknown, as before.
               const attachedStillExists =
                 isManualAttachment &&
-                openSpecChangeExistsInCache(directoryService, updatedSession.cwd, attached!);
+                attachedStillExistsInCandidateRoots(directoryService, updatedSession, attached!);
               const attachmentWasAutoTracked =
                 !attached ||
                 isNameAutoSetFromAttachment(updatedSession) ||
@@ -1434,6 +1496,10 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Drop the per-session debounce entry so a future re-register with the
       // same id does not silently suppress its first activity broadcast.
       lastActivityBroadcastAt.delete(sessionId);
+      // Locality bookkeeping is per-session-life: a re-registered id must be
+      // able to notify again. See change: scope-openspec-auto-attach-to-session-cwd.
+      localityNoticesSent.delete(sessionId);
+      locallyEvidencedChanges.delete(sessionId);
       sessionCommandRegistry.remove(sessionId);
       browserGateway.broadcastSessionRemoved(sessionId);
     }
@@ -1515,12 +1581,21 @@ export function wireEvents(deps: EventWiringDeps): void {
         // cleanly on the DashboardSession.
         gitUpdates.gitWorktree = composedWorktree ?? undefined;
       }
+      // Server-internal resolution signal: the bridge has reported worktree
+      // state at least once — INCLUDING the cleared-`null` case, which is what
+      // makes a non-worktree session reject-capable. Store-only: applied via a
+      // separate `update` so it never enters the broadcast payload.
+      // See change: scope-openspec-auto-attach-to-session-cwd (design D8).
+      const worktreeReported = composedWorktree !== undefined;
       // Capture the resolved order key BEFORE applying the update — at this
       // point `gitWorktree` is not yet set, so the key is the raw worktree
       // cwd the id was inserted under at register time.
       const beforeWtSession = sessionManager.get(sessionId);
       const oldOrderKey = beforeWtSession ? resolveOrderKey(beforeWtSession, preferencesStore.getPinnedDirectories()) : undefined;
       sessionManager.update(sessionId, gitUpdates);
+      if (worktreeReported) {
+        sessionManager.update(sessionId, { gitWorktreeReported: true } as Partial<DashboardSession>);
+      }
       browserGateway.broadcastSessionUpdated(sessionId, gitUpdates);
       maybeRekeyOrder(sessionId, oldOrderKey);
     }
