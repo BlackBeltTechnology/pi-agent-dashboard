@@ -1,0 +1,126 @@
+Re-measured evidence — fix-tmux-session-shutdown-leak (task 5.2)
+================================================================
+
+The number that opened this change, sampled mid-run in the E2E harness BEFORE
+the fix (proposal.md, design.md):
+
+    tmux panes:      21
+    resident pi:     21      (~127 MB RSS each)
+    server records:  0
+    memory.current:  2550 MiB / 4096 MiB, climbing
+
+The requirement was that panes / resident pi / server records AGREE instead of
+reading 21 / 21 / 0.
+
+A. Instant-in-time capture, spawn-and-shutdown cycle (after the fix)
+-------------------------------------------------------------------
+Harness: docker/test-up.sh, PI_SPAWN_STRATEGY=tmux (the default), 5 sessions
+spawned over the browser gateway and shut down over the same `shutdown` message
+the UI sends.
+
+    baseline               panes=0  resident pi=0  server records=0  memory.current=1033 MiB
+    after 5 spawns         panes=5  resident pi=5  server records=5  memory.current=1597 MiB
+    after shutdown         panes=0  resident pi=0  server records=0  memory.current=1044 MiB
+
+All three columns agree at every step, and memory returns to baseline. Pre-fix
+the third column was 0 while the first two climbed without bound.
+
+B. What the fix actually turned out to be
+-----------------------------------------
+`handleShutdown` escalating to `session.pid` (design D6) was necessary but NOT
+sufficient: the L3 gate showed the server had **no `pid` at all** for a
+tmux-spawned session. The two `session_register` sends in `session-sync.ts`
+carry `pid: process.pid`, but the FIRST register of a fresh session — inline in
+the `session_start` handler in `bridge.ts` — did not, and for a non-headless
+spawn that message is the only channel by which the server ever learns pi's pid
+(`tmux new-window` returns tmux's pid, not pi's).
+
+So every L1 test passed while the product stayed broken, because each one handed
+`session_register` a `pid` the real bridge never sent. Only the L3 harness
+scenario (`tests/e2e/tmux-session-shutdown.spec.ts`, #T2) could see it. That
+spec was RED before the bridge change and GREEN after.
+
+C. Memory-bound gate — a SEPARATE leak remains (2x15-spec chunks)
+------------------------------------------------------------------
+`qa/tests/16-e2e-memory-bound.sh`, chunk size 15:
+
+    early chunk after:  memory.current 1119 MiB   resident pi 0   live sessions 0
+    late  chunk after:  memory.current 1443 MiB   resident pi 3   live sessions 0
+
+P4 PASS  — container healthy, no unexplained daemon restart.
+P1 FAIL  — 1119 -> 1443 MiB (+29 %), over the +10 % allowance.
+P3       — divergence 3 (3 resident pi, 0 live sessions).
+
+The 3 survivors account for the growth almost exactly (3 x ~127 MB = ~380 MB vs
+324 MB measured). They are NOT the defect this change fixed:
+
+  - all 3 are panes under `/fixtures/kb-parent`, parented to the tmux server
+    (pid 18001), each `cd /fixtures/kb-parent && pi`;
+  - the dashboard holds exactly ONE session record for that cwd, `ended`, whose
+    pid (18002) is NOT resident — i.e. shutdown terminated its process correctly;
+  - the server logged ZERO `ORPHANED` diagnostics, so `handleShutdown` was never
+    asked to end these three. They never registered as sessions at all.
+
+That is the "resident process with no live session" class — design D4's open
+question and requirement C3 — a pi that is spawned but never registers, so the
+server has no record, the reap has nothing to reap, and no code path owns it.
+It is a different defect from "shutdown forgets the PID it already has", and the
+early chunk (0 resident pi) shows it is not systematic.
+
+D. A measurement bug found while running the gate
+--------------------------------------------------
+`16-e2e-memory-bound.sh`'s `live_sessions()` read `j.data?.sessions`, but
+`/api/sessions` returns `data` as an ARRAY. It therefore reported 0 live sessions
+unconditionally — P3's divergence was always `resident - 0`, i.e. the gate
+structurally could not observe this fix. Fixed alongside a `mapfile` (bash 4+)
+call that aborted the whole script on a macOS host.
+
+
+E. The residual leak, root-caused and closed (design D7)
+--------------------------------------------------------
+The three survivors in section C were captured directly:
+
+    Trust project folder?
+    /fixtures/kb-parent
+     → Trust
+       Trust parent folder (/fixtures)
+       ...
+
+All three sat on pi's interactive trust prompt, each with ZERO open sockets —
+the bridge never connected, so no `session_register`, no session record, and
+therefore no shutdown, no reap and no idle-reclaim could ever reach them.
+`SpawnRegisterWatchdog` saw it (`spawn-failures.log`) and only reported.
+
+Three further defects surfaced while making the reclaim work, none of them
+visible at L1:
+
+  1. `tmux new-window` inherits the tmux SERVER's environment, not the invoking
+     client's, so every window after the first carried the FIRST spawn's token —
+     3 panes, 1 token, measured. Now passed per-window with `-e`: 3 panes,
+     3 DISTINCT tokens.
+  2. `bridge.ts`'s first register omitted `spawnToken` as well as `pid`, so
+     tier-1 correlation never fired and registered sessions produced FALSE
+     register-timeouts (2 of 3 concurrent spawns).
+  3. The `/proc` scan exited 1 whenever the last entry did not match, so
+     `execSync` threw and the lookup returned [] every time: a watchdog that
+     fired and reclaimed nothing. Also: an un-narrowed token lookup returned
+     FIVE pids for one token (tmux server + dashboard + shells inherit the env)
+     and killing that set took the whole container down. Narrowed to leaf `pi`
+     plus a never-self/parent guard.
+
+Verified in the harness after the fixes:
+
+    untrusted cwd, 3 spawns   panes=3 pi=3 records=0  → 3 diagnostics
+                              t+30s   panes=0 pi=0    → all three reclaimed
+    trusted cwd,   3 spawns   panes=3 pi=3 records=3  → 0 timeouts, 0 kills
+    container                 Up, healthy
+
+F. The memory gate, re-run (test-plan #P1, #P3, #P4)
+----------------------------------------------------
+    early chunk after:  memory.current 935 MiB
+    late  chunk after:  memory.current 1020 MiB   (limit 1029 MiB)
+    P3: resident pi 3   reported live sessions 3   divergence 0
+
+    PASS: E2E harness memory stays bounded across the run
+
+Divergence 0 is the number this change was written to produce. It was 21 vs 0.

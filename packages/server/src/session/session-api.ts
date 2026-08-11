@@ -114,10 +114,13 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         reply.code(404);
         return result.error;
       }
-      piGateway.sendToSession(id, { type: "shutdown", sessionId: id });
-      await browserGateway.headlessPidRegistry.killBySessionId(id);
-      sessionManager.unregister(id);
-      browserGateway.broadcastSessionRemoved(id);
+      // Delegate rather than re-implement. As a parallel implementation this
+      // route omitted the `closedReason:"manual"` liveness write (#449, so a
+      // REST-closed session came back as a cold-start recovery candidate) and
+      // killed only through the headless registry — leaking a tmux-spawned `pi`
+      // exactly as the WS path used to (#452).
+      // See change: fix-tmux-session-shutdown-leak (task 7.4).
+      await browserGateway.shutdownSession(id);
       return { success: true } satisfies ApiResponse;
     },
   );
