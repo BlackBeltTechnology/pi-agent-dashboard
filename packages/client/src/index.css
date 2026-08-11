@@ -52,6 +52,12 @@
   --border-secondary: #333333; /* subtle dividers */
   --border-subtle: rgba(255, 255, 255, 0.06);
 
+  /* Sidebar directory rail: the gray vertical line that represents the folder
+     owning a session list, + the drag-grip dots that ride it in an opaque
+     bead. See change: session-card-directory-rail. */
+  --rail-directory: rgba(255, 255, 255, 0.22);
+  --grip-dot: #7a7a7a;
+
   /* Accents */
   --accent-blue: #3b82f6;
   --accent-green: #22c55e;
@@ -149,6 +155,8 @@
   --border-primary: #e0e0e0;
   --border-secondary: #cccccc;
   --border-subtle: rgba(0, 0, 0, 0.06);
+  --rail-directory: rgba(0, 0, 0, 0.18);
+  --grip-dot: #8a8a8a;
 
   /* Accents stay the same */
   --accent-primary: #2563eb;
@@ -688,6 +696,15 @@ mark.markdown-search-highlight-active {
 .card-ring-fx,
 .card-glow-fx {
   position: absolute;
+}
+/* Same trap for the drag bead: it is a DIRECT child of the card root, so on a
+   selected card `.card-selected-ring > *` re-declared it `position: relative`
+   and dropped the 26px pill into normal flow — the card grew a blank band.
+   Keep it absolutely parked in the directory-rail band, above card content.
+   See change: session-card-directory-rail. */
+.card-drag-bead {
+  position: absolute;
+  z-index: 20;
 }
 .card-stripes-fx,
 .card-ring-fx { z-index: -1; }
