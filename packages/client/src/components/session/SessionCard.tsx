@@ -5,7 +5,6 @@ import { getApiBase } from "../../lib/api/api-context.js";
 import {
   deriveDotColorWithFlags,
   deriveIconStatusColor,
-  deriveRailBgColor,
   deriveStatusShape,
   getCardPulseClass,
   getCardStripeFxClass,
@@ -550,7 +549,6 @@ export function SessionCard({
   // mosaic shape is carved by an SVG mask asset; the gutter element's
   // background-color supplies the colour. Selected cards use the brighter
   // -400 shade. See change: add-session-card-status-mosaic-rail.
-  const railBgClass = deriveRailBgColor(session, { hasError, isRetrying, hasWidgetBarPrompt, hasNotice }, isSelected);
 
   function handleConfirmRename(name: string) {
     setIsRenaming(false);
@@ -565,7 +563,7 @@ export function SessionCard({
         data-session-id={session.id}
         onClick={() => onSelect(session.id)}
         className={`relative isolate px-4 py-3 cursor-pointer rounded-xl shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)] border hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)] transition-all duration-200 ${
-          isSelected ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30" : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
+          isSelected ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30" : "border-[var(--border-subtle)] bg-[var(--bg-primary)]"
         } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${pulseClass}`}
       >
         {stripeFxClass ? <div className={`card-stripes-fx ${stripeFxClass}`} aria-hidden="true" /> : null}
@@ -685,10 +683,14 @@ export function SessionCard({
       ref={hasAnimatedFx ? cardFxRef : undefined}
       data-session-id={session.id}
       onClick={() => onSelect(session.id)}
-      className={`relative isolate px-2 py-2 cursor-pointer rounded-xl shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)] border hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)] hover:-translate-y-0.5 transition-all duration-200 ${
+      /* `group/card` drives the hover-revealed drag bead. The `before:` tick is
+         the 9px connector from the folder's directory rail (drawn by
+         SessionList on the list container) into this card.
+         See change: session-card-directory-rail. */
+      className={`group/card relative isolate pl-1.5 pr-2 py-2 cursor-pointer rounded-xl shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)] border hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)] hover:-translate-y-0.5 transition-all duration-200 before:content-[''] before:absolute before:-left-[11px] before:top-[19px] before:w-[9px] before:h-0.5 before:rounded-full before:bg-[var(--rail-directory)] ${
         isSelected
           ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30 card-selected-ring"
-          : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
+          : "border-[var(--border-subtle)] bg-[var(--bg-primary)]"
       } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${pulseClass}`}
       data-testid="session-card-desktop"
     >
@@ -696,43 +698,47 @@ export function SessionCard({
       {isSelected ? <div className="card-glow-fx" aria-hidden="true" /> : null}
       {stripeFxClass ? <div className={`card-stripes-fx ${stripeFxClass}`} aria-hidden="true" /> : null}
       {isSelected ? <div className="card-ring-fx" aria-hidden="true" /> : null}
+      {/* Drag bead: an opaque 15x26 pill parked in the directory-rail band to
+          the LEFT of the card, revealed on card hover. Opaque `--bg-primary`
+          + border MASKS the 2px rail behind it, so the grip dots never mush
+          into the line. Replaces the deleted 20px status gutter as the drag
+          zone — keeps `drag-handle-session` for session-drag-reorder tests.
+          See change: session-card-directory-rail. */}
+      {dragHandleProps && (
+        <span
+          {...dragHandleProps}
+          // `card-drag-bead` re-asserts position:absolute AFTER
+          // `.card-selected-ring > *` (index.css) forces relative on every
+          // direct child of a SELECTED card — without it the bead falls into
+          // normal flow and the selected card grows a blank 26px band.
+          className="card-drag-bead absolute -left-[19px] top-1/2 -translate-y-1/2 z-20 flex items-center justify-center w-[15px] h-[26px] rounded-lg bg-[var(--bg-primary)] border border-[var(--border-subtle)] opacity-0 group-hover/card:opacity-100 focus-visible:opacity-100 transition-opacity cursor-grab active:cursor-grabbing hover:bg-[var(--bg-tertiary)]"
+          onClick={(e) => e.stopPropagation()}
+          title={i18nT("session.dragToReorder", undefined, "Drag to reorder")}
+          data-testid="drag-handle-session"
+        >
+          {/* Exact 7x13 canvas so flex centering centers the GLYPH. A 3px seed
+              dot + box-shadow would center the seed, not the 6-dot cluster. */}
+          <svg viewBox="0 0 7 13" width="7" height="13" fill="var(--grip-dot)" aria-hidden="true">
+            <circle cx="1.5" cy="1.5" r="1.5" /><circle cx="1.5" cy="6.5" r="1.5" /><circle cx="1.5" cy="11.5" r="1.5" />
+            <circle cx="5.5" cy="1.5" r="1.5" /><circle cx="5.5" cy="6.5" r="1.5" /><circle cx="5.5" cy="11.5" r="1.5" />
+          </svg>
+        </span>
+      )}
       <div className="flex gap-1.5">
-      {/* Left gutter: a status-tinted capsule rail with a circular icon chip
-          at the top. The rail is a 6px-wide rounded vertical bar centered in
-          a 20px-wide gutter, capped above and below the chip. The icon sits
-          in its own circular chip with an opaque dark backing so it reads
-          clearly. Doubles as drag handle when dragHandleProps is provided.
-          See change: add-session-card-status-mosaic-rail. */}
-      <div
-        {...(dragHandleProps ?? {})}
-        className={`relative flex flex-col items-center flex-shrink-0 w-5 pt-2 pb-2 ${dragHandleProps ? "cursor-grab active:cursor-grabbing" : ""}`}
-        onClick={(e) => { if (dragHandleProps) e.stopPropagation(); }}
-        title={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
-        data-testid={dragHandleProps ? "drag-handle-session" : undefined}
-        data-rail-bg={railBgClass}
-      >
-        {/* Capsule rail: 6 px wide, centered, rounded-full both ends. Starts
-            below the icon chip (top-7 = 28 px = pt-2 + chip h-4 + ~4 px
-            gap) so the chip and the bar do not visually run into each other. */}
+      {/* Card content */}
+      <div className="flex-1 min-w-0">
+      {/* Line 1: status chip + name + time. The chip is the ONLY status
+          carrier now that the gutter capsule is gone. */}
+      <div className="flex items-center gap-2">
         <span
-          aria-hidden="true"
-          className={`pointer-events-none absolute left-1/2 top-7 bottom-2 -translate-x-1/2 w-1.5 rounded-full ${railBgClass}`}
-        />
-        {/* Icon chip: opaque tertiary surface so the icon stays clear of the
-            colored rail behind it. */}
-        <span
-          className={`relative z-10 inline-flex items-center justify-center w-4 h-4 rounded-full bg-[var(--bg-tertiary)] shadow-sm ${iconStatusColor}`}
+          className={`relative inline-flex flex-shrink-0 items-center justify-center w-4 h-4 rounded-full bg-[var(--bg-tertiary)] shadow-sm ${iconStatusColor}`}
           data-testid="session-status-icon"
           data-status-shape={statusShape}
+          title={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
         >
           <Icon path={sourceIcons[session.source] ?? mdiConsoleLine} size={0.45} />
           <StatusShapeBadge shape={statusShape} colorClass={iconStatusColor} />
         </span>
-      </div>
-      {/* Card content */}
-      <div className="flex-1 min-w-0">
-      {/* Line 1: name + time */}
-      <div className="flex items-center gap-2">
         {isRenaming ? (
           <InlineRenameInput
             currentName={getSessionDisplayName(session)}
@@ -968,9 +974,15 @@ export function SessionCard({
           sessions, scoped to the worktree's OWN cwd. A worktree groups under
           its `gitWorktree.mainPath` and never gets its own sidebar folder
           card, so this is the only surface that reaches the worktree's KB.
+          The plugin claim renders a bare `SlotPill` with no outer margin, so
+          the wrapper supplies the same `mt-1.5` every `SessionSubcard` carries
+          — without it the KB row butts flush against the OPENSPEC subcard
+          above while GIT below still gets its gap.
           See change: kb-row-on-worktree-session-card. */}
       {session.gitWorktree && (
-        <WorktreeCardSectionSlot folder={{ cwd: session.cwd }} />
+        <div className="mt-1.5" data-testid="worktree-card-section-gap">
+          <WorktreeCardSectionSlot folder={{ cwd: session.cwd }} />
+        </div>
       )}
 
       {/* GIT subcard. See change: redesign-session-card-and-composer (5.1–5.3). */}
