@@ -53,7 +53,9 @@ describe("R1 — a session that is ended always has an end timestamp", () => {
 
     mgr.update("s1", { status: "ended" });
 
-    expect(typeof mgr.get("s1")?.endedAt).toBe("number");
+    // The exact evidence value, not merely "a number" — a derivation that
+    // always returned `startedAt` would satisfy a typeof check.
+    expect(mgr.get("s1")?.endedAt).toBe(5_000);
   });
 
   it("E2: an explicitly supplied timestamp is preserved", () => {
@@ -78,9 +80,9 @@ describe("R1 — a session that is ended always has an end timestamp", () => {
   it("E4: restore() — the bare sessions.set path — is covered by the invariant", () => {
     const mgr = createMemorySessionManager();
 
-    mgr.restore(session({ status: "ended", lastActivityAt: 9_000 }));
+    mgr.restore(session({ status: "ended", lastActivityAt: 9_000, startedAt: 1_000 }));
 
-    expect(typeof mgr.get("s1")?.endedAt).toBe("number");
+    expect(mgr.get("s1")?.endedAt).toBe(9_000);
   });
 
   it("E12: no filesystem work when the timestamp is already present", () => {
@@ -232,6 +234,11 @@ describe("R2 — end timestamps are derived from evidence", () => {
   });
 });
 
+/**
+ * `reconcileSessionOrder` already sorted by `endedAt ?? startedAt` before this
+ * change — these rows guard the contract the derivation now feeds, rather than
+ * exercising changed code.
+ */
 describe("R3 — ended-tier seeding uses the best known end time", () => {
   const key = () => "/repo";
 
