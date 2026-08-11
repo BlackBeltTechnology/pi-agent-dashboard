@@ -1,6 +1,6 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { addInteractiveRequest, applyPromptReceived, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, humanizeProviderError, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
+import { addInteractiveRequest, applyPromptReceived, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, humanizeProviderError, isCleanAgentEnd, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
@@ -2669,6 +2669,101 @@ describe("humanizeProviderError", () => {
   it("passes an envelope without error.message through unchanged", () => {
     const raw = '{"type":"error","error":{"type":"overloaded_error"}}';
     expect(humanizeProviderError(raw)).toBe(raw);
+  });
+});
+
+describe("agent_end disposition keys off the last ASSISTANT message (regression)", () => {
+  // A turn can end with a trailing non-assistant entry (e.g. a `toolResult`).
+  // Keying off `messages[length-1]` made a SUCCESSFUL retry look non-clean, so
+  // the error card never disappeared. See change: unify-retry-visibility.
+  it("extracts the error when a toolResult trails the failed assistant message", () => {
+    expect(extractAgentEndError({
+      messages: [
+        { role: "assistant", stopReason: "error", errorMessage: "Overloaded" },
+        { role: "toolResult" },
+      ],
+    })).toBe("Overloaded");
+  });
+
+  it("is clean when a toolResult trails a successful assistant stop", () => {
+    expect(isCleanAgentEnd({
+      messages: [{ role: "assistant", stopReason: "stop" }, { role: "toolResult" }],
+    })).toBe(true);
+  });
+
+  it("is NOT clean when the last assistant message is an error", () => {
+    expect(isCleanAgentEnd({
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: "x" }, { role: "toolResult" }],
+    })).toBe(false);
+  });
+
+  it("is NOT clean for an agent_end with no messages (bare abort)", () => {
+    expect(isCleanAgentEnd({})).toBe(false);
+    expect(isCleanAgentEnd({ messages: [] })).toBe(false);
+  });
+
+  it("a successful turn trailed by a toolResult clears lastError end-to-end", () => {
+    const errored = applyEvents([
+      { eventType: "agent_end", timestamp: 1, data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "Overloaded" }, { role: "toolResult" }] } } as unknown as DashboardEvent,
+    ]);
+    expect(errored.lastError).toBeTruthy();
+    const recovered = reduceEvent(errored, {
+      eventType: "agent_end",
+      timestamp: 2,
+      data: { messages: [{ role: "assistant", stopReason: "stop" }, { role: "toolResult" }] },
+    } as unknown as DashboardEvent);
+    expect(recovered.lastError).toBeUndefined();
+    // No error anchor and no retry sub-status → the surface is not rendered.
+    expect(deriveBannerState(recovered)).toEqual({ variant: "hidden" });
+  });
+
+  it("a payload with NO assistant entry synthesizes nothing and is not clean", () => {
+    // Spec: "No assistant message present" — a trailing toolResult must never
+    // decide the turn's disposition, in either direction. This mirrors the
+    // tracker, which arms nothing for the same input.
+    const erroredTrailer = { messages: [{ role: "toolResult", stopReason: "error", errorMessage: "boom" }] };
+    expect(extractAgentEndError(erroredTrailer)).toBeUndefined();
+    expect(isCleanAgentEnd(erroredTrailer)).toBe(false);
+    const goodTrailer = { messages: [{ role: "toolResult", stopReason: "stop" }, { role: "user" }] };
+    expect(extractAgentEndError(goodTrailer)).toBeUndefined();
+    expect(isCleanAgentEnd(goodTrailer)).toBe(false);
+  });
+
+  it("a live lastError survives an agent_end with no assistant entry", () => {
+    const errored = applyEvents([
+      { eventType: "agent_end", timestamp: 1, data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "Overloaded" }] } } as unknown as DashboardEvent,
+    ]);
+    expect(errored.lastError).toBeTruthy();
+    const after = reduceEvent(errored, {
+      eventType: "agent_end",
+      timestamp: 2,
+      data: { messages: [{ role: "toolResult", stopReason: "stop" }] },
+    } as unknown as DashboardEvent);
+    expect(after.lastError).toEqual(errored.lastError);
+  });
+
+  it("isCleanAgentEnd and extractAgentEndError agree on every head × trailer cell", () => {
+    const trailers = [[], [{ role: "toolResult" }], [{ role: "toolResult" }, { role: "user" }]];
+    const heads = [
+      { head: { role: "assistant", stopReason: "error", errorMessage: "boom" }, clean: false, err: true },
+      { head: { role: "assistant", stopReason: "stop" }, clean: true, err: false },
+      { head: { role: "assistant", stopReason: "end_turn" }, clean: true, err: false },
+      { head: { role: "assistant", stopReason: "toolUse" }, clean: false, err: false },
+      { head: { role: "assistant", stopReason: "aborted" }, clean: false, err: false },
+      { head: { role: "user" }, clean: false, err: false },
+    ];
+    for (const { head, clean, err } of heads) {
+      for (const trailer of trailers) {
+        const data = { messages: [head, ...trailer] };
+        const label = JSON.stringify(data);
+        // Each cell's disposition is pinned in BOTH directions, so the table is
+        // load-bearing rather than a tautology over a single shared read.
+        expect(isCleanAgentEnd(data), `clean: ${label}`).toBe(clean);
+        expect(extractAgentEndError(data) !== undefined, `err: ${label}`).toBe(err);
+        // A clean turn can never also carry an error.
+        expect(clean && err).toBe(false);
+      }
+    }
   });
 });
 

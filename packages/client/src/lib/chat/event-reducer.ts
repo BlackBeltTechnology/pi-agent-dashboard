@@ -1093,11 +1093,35 @@ export function humanizeProviderError(raw: string): string {
   }
 }
 
+/**
+ * The last ASSISTANT message in an `agent_end` payload, located by its
+ * structured `role` — never merely the final array element. A turn can end with
+ * a trailing non-assistant entry (e.g. a `toolResult`), so keying off
+ * `messages[length-1]` misreads the turn's disposition: an error goes unnoticed
+ * (no error anchor) and — the visible bug — a SUCCESSFUL retry is not recognized
+ * as confirmed-good, so the error card never clears. Mirrors pi's own
+ * `_willRetryAfterAgentEnd`, which scans backward for `role === "assistant"`.
+ *
+ * Returns `undefined` when NO entry carries an assistant role — deliberately no
+ * fallback to the final element. Falling back would let a `toolResult` decide
+ * the turn's disposition, synthesizing an error (or clearing a live one) off a
+ * message pi never used to make that decision, and would put this helper back
+ * out of step with `retry-tracker.ts`, which also arms nothing in that case.
+ * See change: unify-retry-visibility.
+ */
+function lastAssistantMessage(data: Record<string, unknown>): Record<string, unknown> | undefined {
+  const messages = data.messages;
+  if (!Array.isArray(messages)) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as Record<string, unknown> | undefined;
+    if (m && m.role === "assistant") return m;
+  }
+  return undefined;
+}
+
 /** Extract error info from agent_end event's messages array. */
 export function extractAgentEndError(data: Record<string, unknown>): string | undefined {
-  const messages = data.messages;
-  if (!Array.isArray(messages) || messages.length === 0) return undefined;
-  const last = messages[messages.length - 1] as Record<string, unknown> | undefined;
+  const last = lastAssistantMessage(data);
   if (!last || last.stopReason !== "error") return undefined;
   return humanizeProviderError((last.errorMessage as string) || "An unknown error occurred");
 }
@@ -1126,9 +1150,7 @@ const CONFIRMED_GOOD_STOP_REASONS: ReadonlySet<string> = new Set(["stop", "end_t
  * See change: unify-error-retry-lifecycle.
  */
 export function isCleanAgentEnd(data: Record<string, unknown>): boolean {
-  const messages = data.messages;
-  if (!Array.isArray(messages) || messages.length === 0) return false;
-  const last = messages[messages.length - 1] as Record<string, unknown> | undefined;
+  const last = lastAssistantMessage(data);
   return !!last && CONFIRMED_GOOD_STOP_REASONS.has(last.stopReason as string);
 }
 

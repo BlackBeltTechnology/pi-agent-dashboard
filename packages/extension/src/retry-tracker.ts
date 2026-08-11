@@ -158,10 +158,23 @@ export class RetryTracker {
     agentEndData: { messages?: unknown } | undefined | null,
   ): SyntheticRetryEvent | null {
     const messages = agentEndData?.messages;
-    const lastMsg =
-      Array.isArray(messages) && messages.length > 0
-        ? (messages[messages.length - 1] as ObservedAssistantMessage)
-        : undefined;
+    // Match pi's own `_willRetryAfterAgentEnd`: the retry decision keys off the
+    // last ASSISTANT message (found by its structured `role`), NOT merely the
+    // final array element. A turn can end with a `toolResult` (or other
+    // non-assistant entry) after the failed assistant message, so a bare
+    // `messages[length-1]` check would miss the error and never arm the chain —
+    // yielding no retry counting even though pi is retrying. Scan backward for
+    // `role === "assistant"`. See change: unify-retry-visibility.
+    let lastMsg: ObservedAssistantMessage | undefined;
+    if (Array.isArray(messages)) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i] as ObservedAssistantMessage;
+        if (m?.role === "assistant") {
+          lastMsg = m;
+          break;
+        }
+      }
+    }
     const isError = lastMsg?.stopReason === "error";
     if (!isError) {
       // A non-error agent_end closes an active chain SUCCESSFULLY, but the

@@ -99,6 +99,98 @@ function readTiers(page: Page, tiers: readonly string[]) {
   }, tiers as string[]);
 }
 
+/**
+ * The session card's retry label (`↻ Retry N`) is `--severity-warning-fg` text
+ * directly on the card surface (`--bg-tertiary`) — NOT on `--severity-warning-bg`.
+ * Probe that exact pairing, plus the raw `--status-working` alternative the
+ * design rejected, so the 1.68:1 light-mode defect can never be reintroduced.
+ * See change: unify-retry-visibility (design D4), task 5.8.
+ */
+function readCardLabelContrast(page: Page) {
+  return page.evaluate(() => {
+    const parse = (s: string): [number, number, number] => {
+      let m = s.match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+      if (m) return [+m[1], +m[2], +m[3]];
+      m = s.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/);
+      if (m) return [+m[1] / 255, +m[2] / 255, +m[3] / 255];
+      return [0, 0, 0];
+    };
+    const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    const L = ([r, g, b]: number[]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    const contrast = (a: number[], b: number[]) => {
+      const l1 = L(a), l2 = L(b), hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    // The card surface the label actually sits on.
+    const surface = document.createElement("div");
+    surface.style.backgroundColor = "var(--bg-tertiary)";
+    document.body.appendChild(surface);
+    const rawSurface = getComputedStyle(surface).backgroundColor;
+    const bg = parse(rawSurface);
+    const probe = (token: string) => {
+      const el = document.createElement("span");
+      el.style.color = `var(${token})`;
+      el.textContent = "Retry 2";
+      surface.appendChild(el);
+      const c = contrast(parse(getComputedStyle(el).color), bg);
+      el.remove();
+      return c;
+    };
+    const out = {
+      // Surfaced so the spec can prove the token RESOLVED — an unresolvable
+      // var() computes to `rgba(0, 0, 0, 0)`, which would silently score as
+      // high contrast against black and pass the gate green.
+      rawSurface,
+      severityWarning: probe("--severity-warning-fg"),
+      rawWorking: probe("--status-working"),
+    };
+    surface.remove();
+    return out;
+  });
+}
+
+test.describe("session-card retry label — contrast on the card surface (unify-retry-visibility)", () => {
+  test.setTimeout(180_000);
+
+  test("--severity-warning-fg clears the floor on the card surface in every theme × mode", async ({ page }) => {
+    await gotoDashboard(page);
+
+    const belowFloor: string[] = [];
+    const unresolved: string[] = [];
+    const rawWorking: Record<string, number> = {};
+
+    for (const theme of THEMES) {
+      for (const mode of MODES) {
+        await applyTheme(page, theme, mode);
+        const r = await readCardLabelContrast(page);
+        const key = `${theme}/${mode}`;
+        // A transparent surface means --bg-tertiary did not resolve; without
+        // this the probe would score against black and pass vacuously.
+        if (/^rgba\(0,\s*0,\s*0,\s*0\)$/.test(r.rawSurface)) unresolved.push(key);
+        if (r.severityWarning + 0.01 < FLOOR) {
+          belowFloor.push(`${key}=${r.severityWarning.toFixed(2)}`);
+        }
+        rawWorking[key] = r.rawWorking;
+      }
+    }
+
+    expect(unresolved, `--bg-tertiary did not resolve for: ${unresolved.join(", ")}`).toEqual([]);
+    // Hard gate: the token the label actually uses is legible everywhere.
+    expect(belowFloor, `retry label under the ${FLOOR}:1 floor: ${belowFloor.join(", ")}`).toEqual([]);
+    // Records WHY raw --status-working was rejected (design D4: 1.68:1 on the
+    // light card surface) WITHOUT gating on the defect's survival — fixing
+    // --status-working is U2's scope and must not turn this spec red.
+    const worstRawWorking = Math.min(...Object.values(rawWorking));
+    if (worstRawWorking >= FLOOR) {
+      console.info(
+        `[unify-retry-visibility] raw --status-working now clears ${FLOOR}:1 everywhere ` +
+          `(worst ${worstRawWorking.toFixed(2)}) — design D4's rejection rationale may be revisitable.`,
+      );
+    }
+    expect(worstRawWorking).toBeGreaterThan(0);
+  });
+});
+
 test.describe("severity tokens — derived-triple contrast (unify-message-severity-colors)", () => {
   test.setTimeout(180_000);
 

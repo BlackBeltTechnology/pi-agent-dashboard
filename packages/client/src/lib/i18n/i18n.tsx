@@ -672,6 +672,7 @@ const zhCN: Record<string, string> = {
   "session.resumeContinueSession": "恢复 / 继续会话",
   "session.resumeFailed": "恢复失败：",
   "session.resumeSessionContinueSameSession": "恢复会话（继续同一会话）",
+  "session.retryAttempt": "重试 {attempt}",
   "session.retryContinueSession": "重试（继续会话）",
   "session.session": "会话",
   "session.session2": "+会话 →",

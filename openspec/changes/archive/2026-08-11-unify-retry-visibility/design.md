@@ -39,9 +39,19 @@ what happened: pi retried, the dashboard did not believe it had.
 | Trust `agent_end` to always terminate with the assistant message | Empirically false — trailing `toolResult` entries are common and are the whole bug. |
 | Read only `messages[0]` of the failed turn | The turn can contain several assistant messages; only the last carries the terminal `stopReason`. |
 
-**Consequence.** The two call sites now share one structural rule. Extracting a
-single exported helper (`lastAssistantMessage()`) keeps them from drifting apart
-a third time.
+**Consequence.** The two reducer call sites now share one module-private helper,
+`lastAssistantMessage()`, so they cannot drift apart a third time. The tracker
+lives in a different package (`packages/extension`) and keeps its own inline
+scan; the two copies are kept in step by their shared, tested contract rather
+than by a shared import.
+
+Neither copy falls back to the final array element when no entry carries an
+assistant role: both return "no disposition". A fallback would let a trailing
+`toolResult` decide the turn — synthesizing an error, or clearing a live one,
+off a message pi never consulted — and would reintroduce exactly the divergence
+this decision exists to remove. Pinned by the *No assistant message present*
+scenario in `specs/provider-retry-state/spec.md` and by the tracker's
+*arms nothing* test.
 
 ## D2 — The ✕ is clear-only, never an abort
 
@@ -154,6 +164,22 @@ the number a direct lookup.
 forwarded to `ActivityIndicator`. When absent (folder pills, and any caller that
 does not track retries) the retry branch is simply not taken and the chain falls
 through to its existing behavior — no undefined-state to handle.
+
+## D6 — Lineage for the overlapping `event-reducer.ts` edit
+
+**Decision.** This change's lineage wins: `event-reducer.ts` as of `develop`
+(`816a0bc3`, 2389 lines) plus the `lastAssistantMessage()` extraction.
+
+**Why.** The competing uncommitted edit lives in worktree
+`os/fix-error-anchor-backoff-persistence`, whose base predates `develop` by 204
+lines (2185). It does **not** contain the last-assistant fix at all — both
+`extractAgentEndError` and `isCleanAgentEnd` there still read
+`messages[messages.length - 1]`. Adopting that lineage would mean reverting 204
+lines of already-merged work to re-apply this fix on top.
+
+**Consequence.** `os/fix-error-anchor-backoff-persistence` must rebase onto
+`develop` after this change lands, and re-apply its error-anchor edits against
+the shared `lastAssistantMessage()` helper rather than a raw last-element read.
 
 ## Open question
 

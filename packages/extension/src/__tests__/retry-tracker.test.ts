@@ -238,3 +238,71 @@ describe("RetryTracker — pi's real event order (regression: zero-events defect
     }
   });
 });
+
+describe("RetryTracker — arms on the last ASSISTANT message, not the last array element", () => {
+  // Regression: a turn can end with a non-assistant entry (e.g. a toolResult)
+  // after the failed assistant message. The tracker must scan backward for the
+  // last `role === "assistant"` message (matching pi's `_willRetryAfterAgentEnd`)
+  // rather than inspecting only `messages[length-1]`, or it never arms and no
+  // retry counting shows. See change: unify-retry-visibility.
+  const errAssistantMsg = { role: "assistant", stopReason: "error", errorMessage: ERR };
+
+  it("arms when the assistant error is followed by a toolResult entry", () => {
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    const ev = t.observeAgentEnd("s1", {
+      messages: [{ ...errAssistantMsg }, { role: "toolResult" }],
+    });
+    expect(ev).not.toBeNull();
+    expect(ev!.eventType).toBe("auto_retry_waiting");
+    expect(ev!.data.attempt).toBe(1);
+    // The next agent_start then goes in-flight.
+    const start = t.observeAgentStart("s1");
+    expect(start!.eventType).toBe("auto_retry_start");
+  });
+
+  it("still treats a clean last assistant message as success (no arming)", () => {
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    const ev = t.observeAgentEnd("s1", {
+      messages: [{ role: "assistant", stopReason: "end_turn" }, { role: "toolResult" }],
+    });
+    expect(ev).toBeNull();
+  });
+
+  it("counts attempts 1 → 2 → 3 across three toolResult-trailed failures", () => {
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    const trailed = () => ({ messages: [{ ...errAssistantMsg }, { role: "toolResult" }] });
+    const attempts: unknown[] = [];
+    for (let i = 0; i < 3; i++) {
+      if (i > 0) t.observeAgentStart("s1");
+      attempts.push(t.observeAgentEnd("s1", trailed())!.data.attempt);
+    }
+    expect(attempts).toEqual([1, 2, 3]);
+  });
+
+  it("a clean toolResult-trailed turn closes an ARMED chain successfully", () => {
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    // Arm the chain with a trailed failure, then succeed with a trailed success.
+    t.observeAgentEnd("s1", { messages: [{ ...errAssistantMsg }, { role: "toolResult" }] });
+    t.observeAgentStart("s1");
+    expect(
+      t.observeAgentEnd("s1", {
+        messages: [{ role: "assistant", stopReason: "stop" }, { role: "toolResult" }],
+      }),
+    ).toBeNull();
+    const end = t.observeAgentSettled("s1");
+    expect(end!.eventType).toBe("auto_retry_end");
+    expect(end!.data.success).toBe(true);
+    expect(t.isRetrying("s1")).toBe(false);
+  });
+
+  it("arms nothing when no entry carries an assistant role", () => {
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    expect(
+      t.observeAgentEnd("s1", {
+        messages: [{ role: "toolResult", stopReason: "error" }, { role: "user" }],
+      }),
+    ).toBeNull();
+    expect(t.isRetrying("s1")).toBe(false);
+    expect(t.observeAgentStart("s1")).toBeNull();
+  });
+});

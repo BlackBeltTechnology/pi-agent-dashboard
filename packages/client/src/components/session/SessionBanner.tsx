@@ -11,9 +11,9 @@ export type { BannerState } from "../../lib/chat/event-reducer.js";
 interface Props {
   state: BannerState;
   /**
-   * Clears the settled-error banner. Fires ONLY when no retry is pending; while
-   * a retry runs, no dismiss control is rendered (the surface clears itself on
-   * a confirmed-good resume).
+   * Clears the banner. Always available (retrying or settled) and clear-only —
+   * it never aborts. While retrying, the next attempt's signal re-opens the
+   * surface; a confirmed-good resume clears it on its own.
    */
   onDismiss?: () => void;
   /** Override clock for tests. Defaults to Date.now. */
@@ -100,11 +100,12 @@ function ExpandedActions({
  * Observe-only: pi owns the retry loop; the banner only renders it.
  *   - No "Stop retrying" control — the always-present session Stop is the sole
  *     abort entry point.
- *   - While a retry is pending the surface shows the status + Copy only; there
- *     is no dismiss and no collapse. It clears itself on a confirmed-good
- *     resume (retryState + lastError both clear).
- *   - On a settled error (no retry) the dismiss control (`error-banner-dismiss`,
- *     mdiClose) clears via `onDismiss`. There is NO Retry control.
+ *   - The dismiss control (`error-banner-dismiss`, mdiClose) is ALWAYS present
+ *     and clear-only (never aborts) — including while a retry is pending, where
+ *     it hides the current failure while pi keeps retrying; the next attempt's
+ *     signal re-opens the surface. There is no collapse control.
+ *   - The surface also clears itself on a confirmed-good resume (retryState +
+ *     lastError both clear). There is NO Retry control.
  *
  * Mounted sticky above the command input.
  */
@@ -163,9 +164,11 @@ export function SessionBanner({
             {displayText}
           </span>
         }
-        // Dismiss clears ONLY on a settled error. While retrying, no dismiss
-        // control is rendered — the surface clears itself on a good resume.
-        onDismiss={retrying ? undefined : onDismiss}
+        // The ✕ is ALWAYS available — while retrying too. It clears the card
+        // (it never aborts); pi keeps retrying underneath and the next attempt's
+        // waiting/in-flight signal re-opens the surface with the fresh attempt.
+        // See change: unify-retry-visibility.
+        onDismiss={onDismiss}
         testId="error-banner"
         dismissTestId="error-banner-dismiss"
         actions={actions}

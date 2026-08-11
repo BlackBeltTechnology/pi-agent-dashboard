@@ -1095,6 +1095,7 @@ export const huCatalog: Record<string, string> = {
   "session.resumeContinueSession": "Munkamenet folytatása",
   "session.resumeFailed": "A folytatás sikertelen:",
   "session.resumeSessionContinueSameSession": "Munkamenet folytatása (ugyanazon munkamenet folytatása)",
+  "session.retryAttempt": "{attempt}. újrapróbálkozás",
   "session.retryContinueSession": "Munkamenet folytatásának újrapróbálása",
   "session.session": "Munkamenet",
   "session.session2": "+Munkamenet →",
