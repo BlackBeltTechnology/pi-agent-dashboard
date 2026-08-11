@@ -12,6 +12,7 @@
  * add-invoicebot-rest-plugin.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { IB_DOMAIN_EVENT_MESSAGE } from "../shared/ib-events.js";
 import { createCanonicalSessionStore, defaultCanonicalStorePath } from "./canonical-session-store.js";
 import { selectEngine } from "./engine/select.js";
 import { mountInvoiceBotRoutes } from "./routes.js";
@@ -47,6 +48,38 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   // resumed scoped session must not boot on the full "ask" surface). Consumed by
   // the server via pluginServiceRegistry. See change: make-invoice-session-canonical.
   ctx.provide("invoicebot:resumeScopeEnv", sessionLink.resumeScopeEnv);
+
+  // App-level InvoiceBot domain-event rebroadcast. The plugin BRIDGE entry
+  // observes the declared `ib:*` bus channels in-session and forwards each as
+  // a generic `plugin_pi_message` with messageType "ib_domain_event"; this
+  // handler pushes the UNCHANGED wire frame
+  // `{ type:"ib_domain_event", sessionId, event:{ eventType, data } }` to
+  // every connected browser (broadcastToSubscribers fans out to all browser
+  // sockets), independent of per-session subscription. Malformed frames
+  // (missing sessionId / eventType, null-ish data) are skipped with a
+  // rate-limited warn, never fatal. Live-delta only — no replay.
+  // See change: relocate-ib-domain-events-to-plugin.
+  let ibSkipped = 0;
+  ctx.registerPiHandler(IB_DOMAIN_EVENT_MESSAGE, (msg) => {
+    const m = msg as {
+      sessionId?: unknown;
+      payload?: { eventType?: unknown; data?: unknown } | null;
+    };
+    const eventType = m.payload?.eventType;
+    const data = m.payload?.data;
+    if (typeof m.sessionId !== "string" || typeof eventType !== "string" || data === undefined || data === null) {
+      ibSkipped++;
+      if (ibSkipped % 100 === 1) {
+        ctx.logger.warn(`skipped ${ibSkipped} malformed ib domain event frame(s) (last type=${String(eventType)})`);
+      }
+      return;
+    }
+    ctx.broadcastToSubscribers({
+      type: "ib_domain_event",
+      sessionId: m.sessionId,
+      event: { eventType, data },
+    });
+  });
 
   mountInvoiceBotRoutes(ctx.fastify, {
     engine,

@@ -54,9 +54,9 @@ describe("session-guard registry + resolution (origin ∪ cwd)", () => {
 
   it("overlays an origin policy over the cwd policy", () => {
     registerGuardedDir(CWD, { noBuiltinTools: true });
-    const policy = resolveGuardForSpawn({ cwd: CWD, origin: { deniedTools: ["ib_danger"] } });
+    const policy = resolveGuardForSpawn({ cwd: CWD, origin: { deniedTools: ["xx_danger"] } });
     expect(policy!.noBuiltinTools).toBe(true);
-    expect(policy!.deniedTools).toEqual(["ib_danger"]);
+    expect(policy!.deniedTools).toEqual(["xx_danger"]);
   });
 });
 

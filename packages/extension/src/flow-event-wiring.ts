@@ -92,39 +92,6 @@ export const SUBAGENT_EVENT_MAP: Record<string, string> = {
   "subagents:failed": "subagent_failed",
 };
 
-/** Map of InvoiceBot domain (`ib:*`) event names to dashboard protocol event
- *  types, giving each consumed domain event a stable renamed protocol type —
- *  mirroring FLOW_EVENT_MAP — so a client subscribes to a fixed name rather
- *  than the raw channel. Covers the full lifecycle set (invoice-state,
- *  approval, connector, intake, automation, source); payloads ride inside
- *  `data` and forward verbatim, so no per-field remapping is needed.
- *
- *  This map is a DECLARATION, not documentation: forwarding subscribes only to
- *  declared channels, so an `ib:*` channel absent here is NOT forwarded. It is
- *  passed to `registerEventBusForwarding` as an extra map by the bridge. (The
- *  former blanket "unknown channels pass through as-is" catch-all is gone — it
- *  relied on intercepting `emit`, which never observed foreign extensions at
- *  all, so these engine-emitted events were in fact never forwarded before.)
- *  See changes: surface-invoice-domain-events-bridge, fix-automation-run-lifecycle. */
-export const IB_EVENT_MAP: Record<string, string> = {
-  "ib:invoice-state-changed": "ib_invoice_state_changed",
-  "ib:invoice-cost-updated": "ib_invoice_cost_updated",
-  "ib:approval-requested": "ib_approval_requested",
-  "ib:approval-decided": "ib_approval_decided",
-  "ib:connector-registered": "ib_connector_registered",
-  "ib:connector-health": "ib_connector_health",
-  "ib:connector-needs-auth": "ib_connector_needs_auth",
-  "ib:intake-paused": "ib_intake_paused",
-  "ib:intake-resumed": "ib_intake_resumed",
-  "ib:intake-poll-complete": "ib_intake_poll_complete",
-  "ib:automation-toggled": "ib_automation_toggled",
-  "ib:automation-cadence-set": "ib_automation_cadence_set",
-  "ib:source-item-detected": "ib_source_item_detected",
-  "ib:source-item-dispatched": "ib_source_item_dispatched",
-  "ib:source-item-skipped": "ib_source_item_skipped",
-  "ib:source-error": "ib_source_error",
-};
-
 /** Minimal shape of the host event surface this module uses. */
 interface PiEventsLike {
   emit: (channel: string, data: unknown) => void;

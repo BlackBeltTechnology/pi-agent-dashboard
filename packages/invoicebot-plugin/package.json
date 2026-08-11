@@ -26,6 +26,7 @@
     "displayName": "InvoiceBot",
     "priority": 100,
     "server": "./src/server/index.ts",
+    "bridge": "./src/bridge/index.ts",
     "claims": []
   },
   "dependencies": {

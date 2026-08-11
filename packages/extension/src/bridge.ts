@@ -42,7 +42,6 @@ import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { mapEventToProtocol } from "./event-forwarder.js";
 import {
   FLOW_EVENT_MAP,
-  IB_EVENT_MAP,
   registerEventBusForwarding,
   registerFlowEventListeners,
   SUBAGENT_EVENT_MAP,
@@ -2029,11 +2028,9 @@ function initBridge(pi: ExtensionAPI) {
         buffer: (channel, data) => subagentFrameBuffer.buffer(channel, data),
       },
     },
-    // InvoiceBot domain channels are declared, not wildcarded: forwarding
-    // subscribes per channel, so `ib:*` must be an explicit extra map or the
-    // engine's domain events never reach the browser.
-    // See change: surface-invoice-domain-events-bridge.
-    [IB_EVENT_MAP],
+    // No extra maps: plugin-owned domain channels ride each plugin's own
+    // bridge entry over the generic `dashboard:plugin-message` channel,
+    // never core forwarding. See change: relocate-ib-domain-events-to-plugin.
   );
 
   pi.on("session_start", safe(async (_event: any, ctx: any) => {

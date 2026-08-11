@@ -242,13 +242,6 @@ export function wireEvents(deps: EventWiringDeps): void {
   // See change: reopen-sessions-after-shutdown.
   const stampedLiveEpoch = new Map<string, number>();
 
-  // App-level InvoiceBot domain-event rebroadcast counters (observability).
-  // Bounded, throttled logging makes a misfire (skipped malformed frames) or
-  // a flood (high rebroadcast volume) visible without per-event log spam.
-  // See change: surface-invoice-domain-events-app-level.
-  let ibRebroadcastCount = 0;
-  let ibRebroadcastSkipped = 0;
-
   /**
    * Deferred order-key re-resolution. A worktree session registers BEFORE
    * its group identity (`gitWorktree.mainPath`)
@@ -738,41 +731,6 @@ export function wireEvents(deps: EventWiringDeps): void {
         void resolvePendingAttachments(sessionId, prepared.pending).catch((err) => {
           console.error(`[attachments] resolve failed for session ${sessionId}:`, err);
         });
-      }
-
-      // App-level InvoiceBot domain-event rebroadcast. A lifecycle `ib_*`
-      // domain event (stable renamed name) fans out to EVERY connected
-      // browser on a dedicated app-level channel, in ADDITION to (never
-      // replacing) the per-session `broadcastEvent` above — so a
-      // many-invoice view receives it on one connection without a
-      // per-session subscribe. Live-only (same replay gate as the
-      // per-session broadcast): a (re)connecting client resumes the live
-      // stream, no historical replay. Headless-safe + defensive:
-      // `broadcastToAll` is a no-op when no browser is connected, and a
-      // malformed / payload-less frame is skipped, never fatal.
-      // See change: surface-invoice-domain-events-app-level.
-      if (!replayingSessions.has(sessionId) && msg.event.eventType?.startsWith("ib_")) {
-        const data = msg.event.data;
-        if (data === undefined || data === null) {
-          ibRebroadcastSkipped++;
-          if (ibRebroadcastSkipped % 100 === 1) {
-            console.warn(
-              `[event-wiring] skipped ${ibRebroadcastSkipped} malformed ib_* domain event(s) (last type=${msg.event.eventType})`,
-            );
-          }
-        } else {
-          browserGateway.broadcastToAll({
-            type: "ib_domain_event",
-            sessionId,
-            event: { eventType: msg.event.eventType, data },
-          });
-          ibRebroadcastCount++;
-          if (ibRebroadcastCount % 500 === 1) {
-            console.log(
-              `[event-wiring] app-level ib_* rebroadcast count=${ibRebroadcastCount} (last type=${msg.event.eventType})`,
-            );
-          }
-        }
       }
 
       // Spawned-session turn-outcome surfacing to server.log (live only).
