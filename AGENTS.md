@@ -130,7 +130,7 @@ Context inheritance: this repo ships `pi-dashboard-subagents` (default `inheritC
 
 ## OpenSpec Conventions
 
-In a worktree, resolve OpenSpec skills from the main repo root, not the checkout. Place change artifacts at `openspec/changes/<name>/` (never under `active/`/`archive/`); prefer `openspec change new <name>`. In `proposal.md`, add a `## Discipline Skills` line naming the `eng-disciplines` skills its tasks trigger (per the checkpoint tables above); omit only when none apply. Use `ask_user` (batch for multi-question) for any needed input.
+In a worktree, resolve OpenSpec skills from the main repo root, not the checkout. Place change artifacts at `openspec/changes/<name>/` (never under `active/`/`archive/`); prefer `openspec change new <name>`. In `proposal.md`, add a `## Discipline Skills` section naming the `eng-disciplines` skills its tasks trigger (per the checkpoint tables above); when none apply, say so under the heading rather than omitting it. **Gating** on any `proposal.md` a change touches (`ship-it` step 4.4 via `scripts/check-conventions.mjs`); untouched proposals are not backfilled. Use `ask_user` (batch for multi-question) for any needed input.
 
 ## Key Files
 

@@ -236,6 +236,20 @@ export const LONG_TRANSCRIPT_TAIL = "long-transcript complete";
 export const NOTIFY_PROBE_MESSAGE = "e2e notify probe";
 
 /**
+ * Per-level notification texts the `notify-levels` scenario emits, one per
+ * `NotifyLevel`. Distinguishable on purpose: the notifyMinLevel e2e asserts
+ * which SUBSET of them survives a given floor, so each must be independently
+ * greppable in the rendered transcript.
+ * See change: gate-notify-rows-by-level.
+ */
+export const NOTIFY_LEVEL_MESSAGES = {
+  info: "e2e notify level info",
+  success: "e2e notify level success",
+  warning: "e2e notify level warning",
+  error: "e2e notify level error",
+} as const;
+
+/**
  * Build a deliberately LONG, heterogeneous transcript (Step B e2e fixture).
  *
  * Each turn streams a thinking block + an assistant text reply + one DISTINCT
@@ -1062,6 +1076,53 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText("notify sent")]),
+    ],
+    expect: { toolName: "e2e_notify" },
+  },
+  /**
+   * Four notifies, one per level, through the REAL `ctx.ui.notify` path (the
+   * `e2e_notify` fixture tool already accepts `{message, level}`). Drives the
+   * notifyMinLevel ladder end to end. See change: gate-notify-rows-by-level.
+   */
+  "notify-levels": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.info,
+            level: "info",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.success,
+            level: "success",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.warning,
+            level: "warning",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.error,
+            level: "error",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("all notify levels sent")]),
     ],
     expect: { toolName: "e2e_notify" },
   },

@@ -121,6 +121,19 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- Live flow and subagent events never reached the dashboard, and every automation
+  whose action is `flows.run` hung until the stale-run reaper wrote
+  `run exceeded max age` — a failure that never happened. The bridge forwarded
+  EventBus traffic by monkey-patching `pi.events.emit`, but pi gives every
+  extension its OWN `events` facade over the shared bus, so the patch only ever
+  observed the bridge's own emissions: pi-flows' `flow:complete` (and every
+  `flow_*`/`subagent_*` channel) was silently dropped, and flow cards were being
+  rebuilt from persisted transcript replay rather than live events. Forwarding is
+  now one `pi.events.on` subscription per declared channel, which observes every
+  emitter. A `flows.run` run now finalizes in seconds from the forwarded
+  completion event; the reaper is a backstop again. Each finalize now logs the
+  path it took (`completion-event` / `agent_end` / `session-death` / `reaper`) so
+  a delivery outage can no longer masquerade as many independent timeouts.
 - `/api/health` could report the wrong running pi version and raise a spurious
   "upgrade recommended" hint. Several workspaces declare a broad `>=0.80.10` pi
   range while the server pins an exact one, which under pnpm's hoisted linker

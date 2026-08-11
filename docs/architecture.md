@@ -11,17 +11,11 @@
 
 PI Dashboard: web-based dashboard for monitoring + interacting with pi agent sessions. Three components:
 
-```
-┌─────────────┐     WebSocket      ┌──────────────┐     WebSocket     ┌─────────────┐
-│   Bridge    │ ◄─────────────────► │  Dashboard   │ ◄───────────────► │  Web Client  │
-│  Extension  │    (port 9999)      │   Server     │    (port 8000)    │  (React)     │
-│  (per pi)   │                     │  (Node.js)   │                   │  (Browser)   │
-└─────────────┘                     └──────────────┘                   └─────────────┘
-                                          │
-                                    ┌─────┴─────┐
-                                    │  In-Memory │
-                                    │  + JSON    │
-                                    └───────────┘
+```mermaid
+flowchart LR
+    Bridge["Bridge Extension (per pi)"] <-->|"WebSocket (port 9999)"| Server["Dashboard Server (Node.js)"]
+    Server <-->|"WebSocket (port 8000)"| Client["Web Client (React)"]
+    Server --> Storage["In-Memory + JSON"]
 ```
 
 ## Components
@@ -138,6 +132,48 @@ TypeScript type definitions shared across all components:
 - **Label split.** `ActivityIndicator`: ask_user → "Needs you" (`--status-needs-you`); idle/active → "Idle" (muted). "Waiting for input" retired.
 - **Folder status capsule** (change: unify-folder-status-capsule). `FolderStatusCapsule` = folder header's ONLY liveness surface. Renders in BOTH collapse states. Replaces `FolderNeedsYouPill` + collapsed-only `FolderStatusRollup` + raw `(N)` count — all DELETED, incl. `countStatusRollup`. Segments by `countStatusCapsule(sessions, flags)` (`packages/client/src/lib/session/session-status-visuals.ts`). Fixed severity order `CAPSULE_SEGMENT_ORDER` = needs-you > error > working > idle; magnitude never reorders. Zero-count segments absent; no countable sessions → no capsule at all (all-ended folder shows none; its `N ended` disclosure row still reports size). Excludes `ended` + `hidden` before shape derivation. `flags.widgetBar` tri-state `(id) => boolean | undefined`; `true` or `undefined` excludes that ask_user session from EVERY bucket. Still per-session `WidgetBarProbe` + `useHasWidgetBarPrompt`, now capsule-owned. needs-you uses explicit predicate, not `deriveStatusShape`; re-adds `!hasError` guard — errored ask_user counts once, as error. `notice` shape folds into `idle` bucket; retrying counts as `working`. Counts cap at `999+`. Non-idle segments = `<button>`s → first session of that state via `firstIds[bucket]`; idle = inert `<span>` + aria-label. Activation `stopPropagation()` → SessionList reveal path (`onSeekToCard` / `revealRequest`): inherits guarded expand, layout-settled scroll, hidden/filtered degrade toasts. Colors from `--status-*` family only, never `--severity-*`; no new CSS custom property. Capsule `flex-none` + `whitespace-nowrap`; sheds nothing; folder name absorbs width pressure. Test ids: `folder-status-capsule-<cwd>`, `folder-capsule-seg-{needs-you,error,working,idle}-<cwd>`.
 - **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle = folder actions menu item `urgency-sort` (`mdiSortVariant`), `aria-pressed` bound to `urgencySort.isOn(cwd)`. Per-folder persisted preference unchanged.
+
+### EventBus Forwarding Mechanism (subscription-based, change: fix-automation-run-lifecycle)
+
+**Host topology.**
+
+- `EventBus` = `node:events` wrapper. `pi-coding-agent/dist/core/event-bus.js`. Methods: `emit` / `on` / `clear`. NO wildcard channel.
+- One bus per pi process. Shared by all extensions.
+- `pi.events` = PER-EXTENSION facade over that bus. `createExtensionAPI` -> `events: { emit, on }`. `pi-coding-agent/dist/core/extensions/loader.js`.
+
+**Why NOT an emit intercept.**
+
+- Patching `pi.events.emit` mutates only the patching extension's facade.
+- Foreign emissions bypass the patch. Emitters affected: pi-flows, pi-subagents.
+- Old bridge patched `emit`. Consequence: zero live `flow_*` / `subagent_*` `event_forward` ever left the bridge.
+- Flow cards rebuilt from persisted `custom/flow-event` JSONL. `packages/shared/src/state-replay.ts`.
+- Automation runs with a `flows.run` action stayed `status: "running"`.
+- Stale-run reaper finalized them `error: "run exceeded max age"` ~30 min later.
+- Measured: 101 runs, 0 reached `done`.
+- Proof: bridge `pi.events.on("flow:complete")` fired; patched `emit` never entered for that channel.
+
+**Current mechanism.**
+
+- `registerEventBusForwarding`. `packages/extension/src/flow-event-wiring.ts`.
+- ONE `pi.events.on(channel, ...)` subscription per declared channel.
+- `on()` observes every emitter.
+- Declared set = keys of `FLOW_EVENT_MAP` + `SUBAGENT_EVENT_MAP` + optional `extraMaps` (currently none passed).
+- Channel list IS the contract. Undeclared channel -> never forwarded.
+- New channel -> new map entry. Identity entry when no rename wanted.
+- Retired: wildcard forwarding of any unknown channel. Unimplementable without an emit intercept.
+
+**Forward gates.** `forwardBusEvent`, same file.
+
+- Subagent channel -> forward only when `sessionReady && isActive() && connection.isConnected`.
+- Else buffer latest-wins per agent in `SubagentFrameBuffer`. Flushed on re-register / reconnect.
+- Other declared channel -> forward when `sessionReady && isActive()`.
+- Forwarding failure never propagates to the emitter.
+- Forwarding failure drops that live frame. Nothing re-sends it. Subagent frames are the exception (buffered).
+
+**Teardown.** dispose returned by `registerEventBusForwarding`.
+
+- Removes only the bridge's own subscriptions.
+- Restores nothing. Bridge never replaces a host function.
 
 ### Retry Lifecycle (change: retry-forever-with-stop-control)
 
@@ -2268,29 +2304,16 @@ Both `pi-dashboard start` (CLI) and the bridge extension's `launchServer` write 
 
 When `autoStart` is `true` (default), the bridge extension automatically starts the dashboard server:
 
-```
-pi session_start
-       │
-       ▼
-  ensureConfig() → create ~/.pi/dashboard/config.json if missing
-  loadConfig()   → read piPort, port, autoStart
-       │
-       ▼
-  TCP probe localhost:{piPort}
-       │
-  ┌────┴────┐
-  │ open    │ closed & autoStart=true
-  │         │
-  ▼         ▼
-connect   spawn server (detached)
-silently  pass --port & --pi-port
-               │
-               ▼
-          notify user:
-          "🌐 Dashboard started at http://localhost:{port}"
-               │
-               ▼
-            connect
+```mermaid
+flowchart TD
+    Start["pi session_start"] --> Config["ensureConfig() → create ~/.pi/dashboard/config.json if missing"]
+    Config --> Load["loadConfig() → read piPort, port, autoStart"]
+    Load --> Probe['TCP probe localhost:{piPort}']
+    Probe --> Open{port open?}
+    Open -->|"open"| Connect["connect (silently)"]
+    Open -->|"closed & autoStart=true"| Spawn["spawn server (detached), pass --port & --pi-port"]
+    Spawn --> Notify['notify user: "🌐 Dashboard started at http://localhost:{port}"']
+    Notify --> Connect2["connect"]
 ```
 
 The server is spawned detached (`child_process.spawn` with `detached: true`, stdout/stderr redirected to `~/.pi/dashboard/server.log`), so it outlives the pi session. If multiple pi sessions start simultaneously, duplicate spawn attempts fail harmlessly with EADDRINUSE. After a failed launch, the bridge re-probes the port — if another agent started the server concurrently, the warning is suppressed. The auto-start logic is extracted into `server-auto-start.ts` for testability.
@@ -2404,14 +2427,25 @@ The dashboard includes a browser-based terminal emulator for direct shell access
 
 ### Architecture
 
-```
-Browser                              Server
-┌────────────────┐            ┌──────────────────┐
-│  xterm.js      │            │ TerminalManager   │
-│  (per terminal)│◄──binary──►│  ├─ node-pty      │
-│  FitAddon      │    WS      │  ├─ RingBuffer    │
-│  AttachAddon   │            │  └─ clients Set   │
-└────────────────┘            └──────────────────┘
+```mermaid
+flowchart LR
+    subgraph Browser["Browser"]
+        X["xterm.js (per terminal)"]
+        Fit["FitAddon"]
+        Att["AttachAddon"]
+    end
+    subgraph ServerSide["Server"]
+        TM["TerminalManager"]
+        PTY["node-pty"]
+        RB["RingBuffer"]
+        CS["clients Set"]
+    end
+    X --- Fit
+    X --- Att
+    TM --- PTY
+    TM --- RB
+    TM --- CS
+    X <-->|"binary WS"| TM
 ```
 
 ### WebSocket Protocol
@@ -2714,27 +2748,14 @@ MSYS exists for legitimate reasons (porting GCC, Autotools, git itself — softw
 
 ### The four-cell failure-mode matrix
 
-```
-                          HOST OS
-                       ┌─────────────┬─────────────────┐
-                       │  POSIX      │  Windows        │
-        ───────────────┼─────────────┼─────────────────┤
-        argv-position  │  works      │  works          │
-        path           │             │  (MSYS converts)│
-        ───────────────┼─────────────┼─────────────────┤
-        EMBEDDED       │  works      │  ❌ broken      │
-        in JS source   │             │  MSYS can't     │
-        passed via     │             │  see inside     │
-        node -e "..."  │             │  string         │
-        ───────────────┼─────────────┼─────────────────┤
-        --import URL   │  works      │  ❌ broken      │
-        as raw path    │             │  Node parses B: │
-        (no file://)   │             │  as URL scheme  │
-        ───────────────┼─────────────┼─────────────────┤
-        inside .mjs    │  works      │  works          │
-        path.resolve   │             │                 │
-        ───────────────┴─────────────┴─────────────────┘
-```
+Host OS across, path form down.
+
+| Path form | POSIX | Windows |
+|---|---|---|
+| argv-position path | works | works (MSYS converts) |
+| EMBEDDED in JS source, passed via `node -e "..."` | works | ❌ broken — MSYS can't see inside string |
+| `--import` URL as raw path (no `file://`) | works | ❌ broken — Node parses `B:` as URL scheme |
+| inside `.mjs`, `path.resolve` | works | works |
 
 The two broken cells map to existing repo invariants:
 
@@ -2879,23 +2900,18 @@ History source is **derived**, not stored: `extractUserPromptHistory(state.messa
 
 Inside `CommandInput`, history navigation uses a small state machine:
 
-```
-historyIndex: number | null    — null = not in history mode
-savedDraftRef: useRef<string>  — in-progress draft captured when history mode is first entered
+`historyIndex: number | null` — `null` = not in history mode.
+`savedDraftRef: useRef<string>` — in-progress draft captured when history mode first entered.
 
-  ArrowUp  (caret on first line, no dropdown, no pending, history.length > 0)
-    null  ─────────────────────────────────────────▶  0         (save current text first)
-    k     ─────────────────────────────────────────▶  min(k+1, len-1)
-  ArrowDown (caret on last line, no dropdown, historyIndex != null)
-    k > 0 ─────────────────────────────────────────▶  k - 1
-    0     ─────────────────────────────────────────▶  null      (restore savedDraftRef)
-  Escape  (historyIndex != null)
-    k     ─────────────────────────────────────────▶  null      (restore savedDraftRef)
-  any text edit while historyIndex != null
-    k     ─────────────────────────────────────────▶  null      (user now editing; no restore)
-  sessionId change
-                                                      null, savedDraftRef = ""
-```
+| Event (guard) | From | To | Note |
+|---|---|---|---|
+| ArrowUp (caret on first line, no dropdown, no pending, `history.length > 0`) | `null` | `0` | save current text first |
+| ArrowUp (same guard) | `k` | `min(k+1, len-1)` | |
+| ArrowDown (caret on last line, no dropdown, `historyIndex != null`) | `k > 0` | `k - 1` | |
+| ArrowDown (same guard) | `0` | `null` | restore `savedDraftRef` |
+| Escape (`historyIndex != null`) | `k` | `null` | restore `savedDraftRef` |
+| any text edit while `historyIndex != null` | `k` | `null` | user now editing; no restore |
+| sessionId change | any | `null` | `savedDraftRef = ""` |
 
 **Bash-style caret gating** is critical: `ArrowUp` only triggers history when `selectionStart` is at or before the first `\n` (the textarea's native "ArrowUp" would have nowhere to go); `ArrowDown` only when `selectionStart` is at or after the last `\n`. Non-empty selections are excluded. This guarantees multiline editing (moving between rows with arrow keys) is never broken.
 

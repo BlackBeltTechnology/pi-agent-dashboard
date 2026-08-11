@@ -1,0 +1,3 @@
+# InlineMessage.tsx — index
+
+Shared severity-styled inline surface. Exports `InlineMessage`, `Severity`. Left accent bar + icon + title + optional body/actions + `mdiClose` dismiss; colors from `--severity-{error,warning,info,success}-*` tokens only. `variant="compact"` (one-line), `animate` (amber top sweep). Backs `SpawnErrorBanner`/`SessionBanner`/`MissingToolInlineError`/`NotifyRenderer`. `Severity` gained `"success"`, resolving the pre-existing `--severity-success-*` triple already consumed by `Toast.tsx`/`ToastSlot.tsx` (this is NOT that triple's first consumer). See changes: redesign-directory-card, gate-notify-rows-by-level.

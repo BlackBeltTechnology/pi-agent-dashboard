@@ -40,7 +40,12 @@ import { provisionOpenspecCli } from "./openspec-cli-shim.js";
 import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { mapEventToProtocol } from "./event-forwarder.js";
-import { FLOW_EVENT_MAP, registerFlowEventListeners, SUBAGENT_EVENT_MAP } from "./flow-event-wiring.js";
+import {
+  FLOW_EVENT_MAP,
+  registerEventBusForwarding,
+  registerFlowEventListeners,
+  SUBAGENT_EVENT_MAP,
+} from "./flow-event-wiring.js";
 import { runGitPollTick } from "./git-poll.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
@@ -2003,41 +2008,27 @@ function initBridge(pi: ExtensionAPI) {
     );
   }
 
-  // EventBus catch-all: intercept pi.events.emit to forward all EventBus
-  // traffic (flow events, subagent events, custom extension events).
-  // Known channels get renamed via EVENT_BUS_MAP; unknown channels use the
-  // channel name directly as the eventType.
-  let origEventsEmit: ((channel: string, data: unknown) => void) | undefined;
-  if (pi.events) {
-    origEventsEmit = pi.events.emit.bind(pi.events);
-    pi.events.emit = (channel: string, data: unknown) => {
-      try {
-        const eventData = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
-        if (SubagentFrameBuffer.isSubagentChannel(channel)) {
-          // Subagent frames are reconcilable state, not fire-and-forget. Forward
-          // live only when the session is ready AND the transport is actually
-          // open; otherwise buffer the latest frame per agent (latest-wins,
-          // bounded) instead of letting it fall into the shared FIFO ring.
-          // `sessionReady` stays true across a transient WS drop, so gating on
-          // `connection.isConnected` routes reconnect-window frames into the
-          // per-agent buffer (flushed on session_start AND onReconnect) rather
-          // than risking eviction from the shared ring.
-          // See change: fix-subagent-live-detail-reliability (D1/D2).
-          if (sessionReady && isActive() && connection.isConnected) {
-            sendEventForward(channel, eventData);
-            subagentFrameBuffer.markForwarded(channel, eventData);
-          } else if (!subagentFrameBuffer.buffer(channel, eventData)) {
-            console.warn(
-              `[dashboard] subagent frame dropped (no agentId) channel=${channel} while not ready`,
-            );
-          }
-        } else if (sessionReady && isActive()) {
-          sendEventForward(channel, eventData);
-        }
-      } catch { /* forwarding failure must never break the original emit */ }
-      origEventsEmit!(channel, data);
-    };
-  }
+  // EventBus forwarding: ONE `pi.events.on` subscription per declared channel
+  // (every key of EVENT_BUS_MAP). NOT an `emit` intercept — pi hands each
+  // extension its own `events` facade, so patching OUR `emit` never observed
+  // pi-flows' or pi-subagents' emissions, and every live flow_*/subagent_*
+  // event was silently dropped (automation runs then hung until the max-age
+  // reaper). The gating + subagent-buffer semantics live in `forwardBusEvent`.
+  // See change: fix-automation-run-lifecycle.
+  const disposeEventBusForwarding = registerEventBusForwarding(
+    pi.events,
+    {
+      sendEventForward,
+      isSessionReady: () => sessionReady,
+      isActive,
+      isConnected: () => connection.isConnected,
+      subagent: {
+        isSubagentChannel: (channel) => SubagentFrameBuffer.isSubagentChannel(channel),
+        markForwarded: (channel, data) => subagentFrameBuffer.markForwarded(channel, data),
+        buffer: (channel, data) => subagentFrameBuffer.buffer(channel, data),
+      },
+    },
+  );
 
   pi.on("session_start", safe(async (_event: any, ctx: any) => {
 
@@ -2821,10 +2812,9 @@ function initBridge(pi: ExtensionAPI) {
       runDevBuild({ packageRoot, serverPort: config.port });
     }
 
-    // Restore original pi.events.emit (EventBus catch-all cleanup)
-    if (origEventsEmit && pi.events) {
-      pi.events.emit = origEventsEmit;
-    }
+    // Release our EventBus subscriptions. Nothing to "restore": the bridge no
+    // longer replaces any host function. See change: fix-automation-run-lifecycle.
+    disposeEventBusForwarding();
     connection.disconnect();
   };
 

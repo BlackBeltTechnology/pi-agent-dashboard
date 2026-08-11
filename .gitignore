@@ -46,3 +46,7 @@ doc-example/
 
 # ship-it escape-hatch handoff note — local working state, never a deliverable
 SHIP_IT_BLOCKED.md
+
+# mutation-harness crash-safety journal — transient per-worktree recovery state.
+# A committed journal would itself be residue.
+.mutation-journal/

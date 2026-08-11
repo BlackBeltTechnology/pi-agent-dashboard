@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 // change: fix-subagent-live-detail-reliability (D4) — the subagent detail
@@ -53,7 +53,12 @@ test.describe("subagent detail dialog (D4)", () => {
 
     // Arm a popup watcher: the retired window.open path would fire a `popup`
     // event and add a second context page.
-    const popupPromise = context.waitForEvent("popup", { timeout: 3_000 }).catch(() => null);
+    //
+    // `popup` is a PAGE event, not a BrowserContext one. This previously read
+    // `context.waitForEvent("popup", …)`, which could never fire — the watcher
+    // was dead and the guard below rested on the page-count check alone. Fixed
+    // when tests/ was first typechecked (change: fix-e2e-harness-memory-exhaustion).
+    const popupPromise = page.waitForEvent("popup", { timeout: 3_000 }).catch(() => null);
     const pagesBefore = context.pages().length;
 
     if (await popout.isEnabled()) {

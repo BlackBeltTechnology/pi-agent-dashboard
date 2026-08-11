@@ -2,7 +2,7 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { handleSubscribe, replaySessionAssets } from "../browser-handlers/subscription-handler.js";
+import { handleSubscribe, replaySessionAssets, sendEventBatches } from "../browser-handlers/subscription-handler.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
@@ -487,5 +487,95 @@ describe("handleSubscribe — asset replay precedes events", () => {
     expect(firstAssetIdx).toBeGreaterThanOrEqual(0);
     expect(firstEventIdx).toBeGreaterThanOrEqual(0);
     expect(firstAssetIdx).toBeLessThan(firstEventIdx);
+  });
+});
+
+// See change: show-replay-in-flight-indicator (test-plan #E5, #E6, #E7, #E8, #E9)
+//
+// R2: EVERY replay must terminate with exactly one `isLast: true` frame — an
+// empty payload included, so the client's in-flight flag always has a clearing
+// edge. E7/E9 are the falsification rows for Decision 6: a naive "always append
+// a terminal batch" implementation double-terminates on an exact batch multiple.
+describe("sendEventBatches — every replay terminates exactly once", () => {
+  const REPLAY_BATCH_SIZE = 200;
+  const openWs = () => ({ readyState: 1, OPEN: 1, bufferedAmount: 0 }) as any;
+
+  // Non-compactable events so batch maths is not confounded by compaction.
+  function window(n: number): Array<{ seq: number; event: DashboardEvent }> {
+    return Array.from({ length: n }, (_, i) => ({ seq: i + 1, event: makeEvent("turn_start") }));
+  }
+
+  async function sendAll(n: number) {
+    const sent: ServerToBrowserMessage[] = [];
+    await sendEventBatches(openWs(), "s1", window(n), (_w, m) => sent.push(m));
+    return sent.filter((m): m is Extract<ServerToBrowserMessage, { type: "event_replay" }> => m.type === "event_replay");
+  }
+
+  async function flush() {
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  }
+
+  const replayFrames = (ctx: BrowserHandlerContext) =>
+    ((ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>)
+      .map(([, m]) => m)
+      .filter((m): m is Extract<ServerToBrowserMessage, { type: "event_replay" }> => m.type === "event_replay");
+
+  it("E5 warm subscribe with an empty delta sends exactly one terminal frame", async () => {
+    const ctx = createMockContext();
+    for (let i = 0; i < 5; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+
+    // lastSeq === maxSeq → delta is [] → the empty branch.
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 5 }, new Set(), ctx);
+    await flush();
+
+    const frames = replayFrames(ctx);
+    expect(frames).toHaveLength(1);
+    expect(frames[0].events).toEqual([]);
+    expect(frames[0].isLast).toBe(true);
+  });
+
+  it("E6 cold subscribe for a session with zero events terminates on the success path", async () => {
+    const loadSessionEvents = vi.fn(async () => ({ success: true, events: [] }));
+    const ctx = createMockContext({ directoryService: { loadSessionEvents } as any });
+    ctx.getSubscribers = () => [ctx.ws];
+    ctx.sessionManager.restore({
+      id: "s-cold", cwd: "/test", source: "tui", status: "ended",
+      startedAt: 1000, endedAt: 2000, tokensIn: 0, tokensOut: 0, cost: 0,
+      contextWindow: 200000, sessionFile: "/sessions/s-cold.jsonl",
+      sessionDir: "/sessions", hidden: false,
+    } as any);
+
+    handleSubscribe({ type: "subscribe", sessionId: "s-cold" }, new Set(), ctx);
+    await flush();
+
+    const frames = replayFrames(ctx);
+    // The pre-parse start marker (isLast:false) plus exactly one terminal frame.
+    expect(frames.filter((f) => f.isLast === true)).toHaveLength(1);
+    expect(frames.filter((f) => f.isLast === false)).toHaveLength(1);
+    const terminal = frames.find((f) => f.isLast === true);
+    expect(terminal?.events).toEqual([]);
+  });
+
+  it("E7 a payload of exactly REPLAY_BATCH_SIZE sends 1 frame and no trailing terminal", async () => {
+    const frames = await sendAll(REPLAY_BATCH_SIZE);
+    expect(frames).toHaveLength(1);
+    expect(frames[0].events).toHaveLength(200);
+    expect(frames[0].isLast).toBe(true);
+  });
+
+  it("E8 a payload of 201 events sends exactly 2 frames", async () => {
+    const frames = await sendAll(201);
+    expect(frames).toHaveLength(2);
+    expect(frames[0].events).toHaveLength(200);
+    expect(frames[0].isLast).toBe(false);
+    expect(frames[1].events).toHaveLength(1);
+    expect(frames[1].isLast).toBe(true);
+  });
+
+  it("E9 a payload of exactly 400 events sends 2 frames and no trailing terminal", async () => {
+    const frames = await sendAll(400);
+    expect(frames).toHaveLength(2);
+    expect(frames[1].events).toHaveLength(200);
+    expect(frames[1].isLast).toBe(true);
   });
 });

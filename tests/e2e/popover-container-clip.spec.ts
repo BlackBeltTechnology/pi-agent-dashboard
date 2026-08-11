@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { spawnFreshGitSession } from "./helpers/index.js";
 
 /**

@@ -18,9 +18,9 @@ function keysFromObjectLiteral(src, startNeedle) {
 }
 
 // --- Core client catalogs ---------------------------------------------------
-const i18n = fs.readFileSync(path.join(ROOT, "packages/client/src/lib/i18n.tsx"), "utf8");
+const i18n = fs.readFileSync(path.join(ROOT, "packages/client/src/lib/i18n/i18n.tsx"), "utf8");
 const zh = keysFromObjectLiteral(i18n, "const zhCN");
-const huSrc = fs.readFileSync(path.join(ROOT, "packages/client/src/lib/i18n-hu.ts"), "utf8");
+const huSrc = fs.readFileSync(path.join(ROOT, "packages/client/src/lib/i18n/i18n-hu.ts"), "utf8");
 const hu = keysFromObjectLiteral(huSrc, "huCatalog");
 
 // --- Plugin catalogs (plugin.<id>.* authored unprefixed) -------------------

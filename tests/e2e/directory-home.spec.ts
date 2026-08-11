@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { ensureGitSession, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
 
 // Mirror of packages/client/src/lib/folder-encoding.ts::encodeFolderPath — the
