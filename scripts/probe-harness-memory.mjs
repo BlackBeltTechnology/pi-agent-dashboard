@@ -88,7 +88,7 @@ export function sample(container, label = "") {
       [ -r "$d/status" ] || continue
       n=$(awk '/^Name:/{print $2; exit}' "$d/status" 2>/dev/null)
       r=$(awk '/^VmRSS:/{print $2; exit}' "$d/status" 2>/dev/null)
-      [ -n "$n" ] && printf '%s %s\\n' "$n" "\${r:-0}"
+      [ -n "$n" ] && printf '%s %s %s\\n' "$n" "\${r:-0}" "\${d#/proc/}"
     done
   `;
   const procOut = exec(container, procScript);
@@ -96,8 +96,9 @@ export function sample(container, label = "") {
   let piCount = 0;
   let piRssKb = 0;
   let totalRssKb = 0;
+  const piPids = [];
   for (const line of procOut.split("\n")) {
-    const [name, rss] = line.trim().split(/\s+/);
+    const [name, rss, pid] = line.trim().split(/\s+/);
     if (!name) continue;
     const kb = Number.parseInt(rss ?? "0", 10) || 0;
     totalRssKb += kb;
@@ -105,6 +106,8 @@ export function sample(container, label = "") {
     if (name === "pi") {
       piCount += 1;
       piRssKb += kb;
+      const n = Number.parseInt(pid ?? "", 10);
+      if (Number.isInteger(n)) piPids.push(n);
     }
   }
 
@@ -120,7 +123,36 @@ export function sample(container, label = "") {
     pidsCurrent: Number.parseInt(pidsCurrent, 10) || null,
     residentPiCount: piCount,
     residentPiRssKb: piRssKb,
+    residentPiPids: piPids,
     totalRssKb,
+  };
+}
+
+/**
+ * Compare the resident session processes against the dashboard's live-session
+ * records — the comparison a human previously had to eyeball via `docker exec`.
+ *
+ * `orphaned` is the number this change exists to drive to zero: a process with
+ * no live session record is a leak (measured pre-fix: 21 resident pi vs 0
+ * session records). `unaccounted` is the mirror image — a session record whose
+ * process is not resident — which is a bookkeeping bug rather than a leak.
+ *
+ * Pure and set-based so the disjoint / overlapping / equal cases are assertable
+ * without a container. See change: fix-tmux-session-shutdown-leak
+ * (design D4, test-plan #C3).
+ */
+export function compareResidentToSessions(residentPids, liveSessionPids) {
+  const resident = [...new Set(residentPids)];
+  const live = new Set(liveSessionPids);
+  const orphaned = resident.filter((pid) => !live.has(pid));
+  const matched = resident.filter((pid) => live.has(pid));
+  const unaccounted = [...live].filter((pid) => !resident.includes(pid));
+  return {
+    orphaned,
+    matched,
+    unaccounted,
+    orphanedCount: orphaned.length,
+    clean: orphaned.length === 0,
   };
 }
 
