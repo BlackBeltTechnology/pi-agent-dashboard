@@ -37,9 +37,9 @@
 
 ## 5. Ship
 
-- [ ] 5.1 Commit the implementation on `private/invoicebot`.
-- [ ] 5.2 Archive the change + sync specs in a separate `docs(openspec)` commit.
-- [ ] 5.3 Push `private/invoicebot` only; verify local/remote parity `0 0`.
+- [x] 5.1 Commit the implementation on `private/invoicebot`.
+- [x] 5.2 Archive the change + sync specs in a separate `docs(openspec)` commit.
+- [x] 5.3 Push `private/invoicebot` only; verify local/remote parity `0 0`.
 
 ## 6. E2E (runs outside this repo, after the push)
 
