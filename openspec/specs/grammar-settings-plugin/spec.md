@@ -39,20 +39,6 @@ composer surface, and config all live in the plugin.
 - **THEN** no `GrammarSettings` section AND no `GrammarPanel` SHALL render
 - **AND** the `/api/grammar/*` routes SHALL NOT be registered
 
-### Requirement: LanguageTool reachability indicator reuses GET /api/grammar/health
-
-When `backend` is `languagetool`, the component SHALL surface whether the configured
-`languagetool.url` is reachable, using the existing `GET /api/grammar/health`
-(`{ languagetool: { url, reachable } }`). It SHALL NOT introduce a new health endpoint.
-
-#### Scenario: Reachable server shows a healthy indicator
-- **WHEN** `GET /api/grammar/health` reports `languagetool.reachable === true`
-- **THEN** the section SHALL show a reachable/healthy indicator for the configured URL
-
-#### Scenario: Unreachable server shows an unhealthy indicator
-- **WHEN** `GET /api/grammar/health` reports `languagetool.reachable === false`
-- **THEN** the section SHALL show an unreachable/unhealthy indicator for the configured URL
-
 ### Requirement: All user-facing strings are localized (en + hu)
 
 Every user-facing string in the section SHALL be provided via the plugin's i18n catalog with
@@ -63,50 +49,63 @@ hook. No hard-coded display strings SHALL remain in the component.
 - **WHEN** the dashboard locale is `hu`
 - **THEN** the section labels SHALL render from the `hu` catalog, not English fallbacks
 
-### Requirement: Settings controls read/write the plugin config namespace `plugins.grammar`
+### Requirement: LLM-only settings controls read/write the plugin config namespace `plugins.grammar`
 
-The `GrammarSettings` component SHALL expose controls for the full grammar config shape
-(`enabled`, `autoCheck`, `backend` (`languagetool` | `llm`), `debounceMs`, `minChars`, `maxChars`,
-`language`, `languagetool.url`, a SINGLE model picker when `backend === "llm"`, and
-`correctionView` (`redline` | `list`, default `redline`) as a segmented **Correction view**
-control). Values SHALL be read from and written to the plugin config namespace
-`plugins.grammar.*` (validated by the plugin `configSchema`), NOT the core `config.grammar`
-block.
+The `GrammarSettings` component SHALL expose controls for the LLM-only grammar
+config shape (`enabled`, `autoCheck`, `debounceMs`, `minChars`, `maxChars`,
+`language`, a SINGLE model picker, `capitalizeFirstWord`, and `correctionView`
+(`redline` | `list`, default `redline`) as a segmented **Correction view**
+control). It SHALL NOT render a backend selector or a LanguageTool URL field.
+Values SHALL be read from and written to the plugin config namespace
+`plugins.grammar.*` (validated by the plugin `configSchema`), NOT the core
+`config.grammar` block.
 
 #### Scenario: Current values load from the plugin config
 - **WHEN** the section mounts
-- **THEN** it SHALL issue `GET /api/config` and populate every control from `data.plugins.grammar`
+- **THEN** it SHALL issue `GET /api/config` and populate every control from
+  `data.plugins.grammar`
 - **AND** if absent it SHALL show the disabled defaults (`enabled: false`,
-  `backend: "languagetool"`, `autoCheck: true`, `debounceMs: 1200`, `minChars: 12`,
-  `maxChars: 4000`, `language: "auto"`, `languagetool.url: "http://localhost:8081"`,
-  `correctionView: "redline"`)
+  `autoCheck: true`, `debounceMs: 1200`, `minChars: 12`, `maxChars: 4000`,
+  `language: "auto"`, `correctionView: "redline"`, `capitalizeFirstWord: false`,
+  and no configured model)
 
-#### Scenario: A single model selector is used for the llm backend
-- **WHEN** `backend` is `languagetool`
-- **THEN** no model selector SHALL be shown
-- **WHEN** `backend` is `llm`
-- **THEN** a single model picker SHALL be shown (the `ui:model-selector` primitive fed by
-  `GET /api/models`), with NO separate free-text `provider`/`model` fields
+#### Scenario: The model picker is always shown and required
+- **WHEN** the section renders
+- **THEN** a single model picker SHALL be shown (the `ui:model-selector`
+  primitive fed by `GET /api/models`), with NO separate free-text
+  `provider`/`model` fields and NO backend selector
+- **WHEN** `plugins.grammar.llm` is unset
+- **THEN** the section SHALL show a "pick a model" prompt indicating the feature
+  cannot run until a model is chosen
+
+#### Scenario: A persisted LanguageTool config renders as LLM-only
+- **WHEN** `data.plugins.grammar` contains a legacy `backend`/`languagetool.url`
+- **THEN** the section SHALL ignore both and render the LLM-only controls
+- **AND** SHALL NOT surface a backend selector or a URL field
 
 #### Scenario: Correction view control persists redline vs list
-- **WHEN** the user sets **Correction view** to `list` (or `redline`) and clicks Save
+- **WHEN** the user sets **Correction view** to `list` (or `redline`) and clicks
+  Save
 - **THEN** the value SHALL be written as `plugins.grammar.correctionView` via
   `POST /api/config/plugins/grammar`
-- **AND** a subsequent `GET /api/grammar/health` SHALL report the saved `correctionView`
+- **AND** a subsequent `GET /api/grammar/health` SHALL report the saved
+  `correctionView`
 
 #### Scenario: Save persists via the plugin config endpoint
 - **WHEN** the user edits controls and clicks Save
-- **THEN** the config SHALL be written via `POST /api/config/plugins/grammar` (auth-gated),
-  NOT `PUT /api/config`
-- **AND** an `llm` model pick SHALL persist as `llm: { provider, model }` within the plugin config
+- **THEN** the config SHALL be written via `POST /api/config/plugins/grammar`
+  (auth-gated), NOT `PUT /api/config`
+- **AND** a model pick SHALL persist as `llm: { provider, model }` within the
+  plugin config
 
 #### Scenario: Legacy core config is migrated in once
-- **WHEN** the plugin server entry loads AND `plugins.grammar` is empty AND a legacy
-  `config.grammar` block exists
-- **THEN** the plugin SHALL copy it into `plugins.grammar` once (non-destructive read-through)
+- **WHEN** the plugin server entry loads AND `plugins.grammar` is empty AND a
+  legacy `config.grammar` block exists
+- **THEN** the plugin SHALL copy it into `plugins.grammar` once (non-destructive
+  read-through), dropping any `backend`/`languagetool` fields
 - **AND** subsequent loads SHALL NOT re-migrate
 
-### Requirement: Settings section renders from theme tokens with accessible controls
+### Requirement: Settings section renders from theme tokens with accessible controls (LLM-only)
 
 The `GrammarSettings` section SHALL derive every color from the dashboard theme CSS custom
 properties (e.g. `--text-muted`, `--text-secondary`, `--severity-success-fg`,
@@ -129,14 +128,32 @@ contrast in every theme.
   update to the active theme's token values with no stale hardcoded color
 
 #### Scenario: Interactive controls have a visible focus indicator
-- **WHEN** the user tabs through the section's checkboxes, selects, inputs, and Save/Reload/Test
+- **WHEN** the user tabs through the section's checkboxes, selects, inputs, and Save/Reload
   buttons
 - **THEN** each focused control SHALL show a visible focus indicator (the shared `focus-ring`
   affordance or equivalent)
 
-#### Scenario: Status colors are semantic and theme-aware
-- **WHEN** the LanguageTool health probe reports reachable vs unreachable, or the draft is dirty
-- **THEN** the reachable marker SHALL use `--severity-success-fg`, and the unreachable and
-  "unsaved" markers SHALL use `--severity-warning-fg`
-- **AND** these SHALL meet WCAG-AA contrast against the section background in every theme
+#### Scenario: The unsaved status marker is semantic and theme-aware
+- **WHEN** the draft has unsaved changes
+- **THEN** the "unsaved" marker SHALL use `--severity-warning-fg`
+- **AND** it SHALL meet WCAG-AA contrast against the section background in every theme
+- **AND** there SHALL be no LanguageTool reachability marker (the backend and its health probe
+  are removed)
+
+### Requirement: Model-candidate guidance is documented and linked
+
+The settings section SHALL surface a short inline hint next to the model picker
+explaining that model choice affects grammar quality, latency, and cost, and
+SHALL link to a documentation page describing recommended models and their
+tradeoffs. The linked guidance SHALL live under `docs/`.
+
+#### Scenario: Hint and link render by the model picker
+- **WHEN** the section renders the model picker
+- **THEN** a localized inline hint SHALL be shown
+- **AND** a link to the model-guidance documentation SHALL be present
+
+#### Scenario: The linked guidance target resolves
+- **WHEN** the doc link rendered next to the model picker is resolved against the repository
+- **THEN** it SHALL point at an existing `docs/` page describing recommended grammar models and
+  their latency/quality/cost tradeoffs (a repo-lint file-existence check on the link target)
 

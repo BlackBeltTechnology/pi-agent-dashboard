@@ -17,26 +17,27 @@ the plugin config namespace `plugins.grammar`" below).
 **Reason**: The prior requirement mandated a `backend` (`languagetool` | `llm`)
 control, a `languagetool.url` field, and a "single model selector … WHEN
 `backend` is `languagetool` … no model selector" scenario — all unreachable once
-the LanguageTool backend is removed. Re-added below (same name) with the
-LLM-only control set, an unconditional model picker, and a model-required prompt
-— an explicit wholesale replacement rather than a silent MODIFIED scenario drop.
+the LanguageTool backend is removed. Replaced wholesale by the ADDED "LLM-only
+settings controls read/write the plugin config namespace `plugins.grammar`"
+(renamed so the delta is an explicit remove+add, not a silent scenario drop).
 
-**Migration**: See the ADDED "Settings controls read/write the plugin config
-namespace `plugins.grammar`" below.
+**Migration**: See the ADDED "LLM-only settings controls read/write the plugin
+config namespace `plugins.grammar`" below.
 
 ### Requirement: Settings section renders from theme tokens with accessible controls
 
 **Reason**: The prior requirement's "Status colors are semantic and theme-aware"
 scenario keyed the success/warning markers off a LanguageTool reachability
-probe, gone with the backend. Re-added below (same name) with the status marker
-scoped to the unsaved/dirty state only.
+probe, gone with the backend. Replaced wholesale by the ADDED "Settings section
+renders from theme tokens with accessible controls (LLM-only)" with the status
+marker scoped to the unsaved/dirty state only.
 
 **Migration**: See the ADDED "Settings section renders from theme tokens with
-accessible controls" below.
+accessible controls (LLM-only)" below.
 
 ## ADDED Requirements
 
-### Requirement: Settings controls read/write the plugin config namespace `plugins.grammar`
+### Requirement: LLM-only settings controls read/write the plugin config namespace `plugins.grammar`
 
 The `GrammarSettings` component SHALL expose controls for the LLM-only grammar
 config shape (`enabled`, `autoCheck`, `debounceMs`, `minChars`, `maxChars`,
@@ -92,7 +93,7 @@ Values SHALL be read from and written to the plugin config namespace
   read-through), dropping any `backend`/`languagetool` fields
 - **AND** subsequent loads SHALL NOT re-migrate
 
-### Requirement: Settings section renders from theme tokens with accessible controls
+### Requirement: Settings section renders from theme tokens with accessible controls (LLM-only)
 
 The `GrammarSettings` section SHALL derive every color from the dashboard theme CSS custom
 properties (e.g. `--text-muted`, `--text-secondary`, `--severity-success-fg`,

@@ -18,20 +18,19 @@ namespace `plugins.grammar`").
 ### Requirement: Backend failures are typed and non-leaky
 
 **Reason**: The prior requirement's "LanguageTool server down" scenario is
-unreachable once the LanguageTool backend is removed. The requirement is
-re-added below (same name) with the LanguageTool scenario replaced by the LLM
-equivalent + the `backend_unconfigured` code — an explicit wholesale replacement
-rather than a silent MODIFIED scenario drop.
+unreachable once the LanguageTool backend is removed. Replaced wholesale by the
+ADDED "LLM backend failures are typed and non-leaky" (renamed so the delta is an
+explicit remove+add, not a silent MODIFIED scenario drop).
 
-**Migration**: See the ADDED "Backend failures are typed and non-leaky" below.
+**Migration**: See the ADDED "LLM backend failures are typed and non-leaky" below.
 
 ### Requirement: Grammar health probe
 
 **Reason**: The prior requirement's "Health reports active backend" scenario
 asserted a LanguageTool reachability probe in the payload, gone with the
-backend. Re-added below (same name) with the LLM-only payload shape.
+backend. Replaced wholesale by the ADDED "LLM grammar health probe".
 
-**Migration**: See the ADDED "Grammar health probe" below.
+**Migration**: See the ADDED "LLM grammar health probe" below.
 
 ## ADDED Requirements
 
@@ -73,7 +72,7 @@ persisted config (graceful migration, never throwing).
 - **THEN** the write/migrate path SHALL prune the legacy key(s) before validation
 - **AND** validation SHALL NOT throw an `additionalProperties` error
 
-### Requirement: Backend failures are typed and non-leaky
+### Requirement: LLM backend failures are typed and non-leaky
 
 The endpoint SHALL respond with a typed error code (`backend_unreachable`,
 `backend_timeout`, `backend_bad_response`, `backend_unconfigured`) when the LLM
@@ -93,7 +92,7 @@ or credentials. The failure SHALL be logged to the structured logger.
   `correctedText`) or `{ error: "backend_bad_response" }`, never a 500 with a raw
   body
 
-### Requirement: Grammar health probe
+### Requirement: LLM grammar health probe
 
 The server SHALL expose `GET /api/grammar/health` behind the auth chain returning
 the non-secret client config (`enabled`, `backend`, `autoCheck`, `debounceMs`,
