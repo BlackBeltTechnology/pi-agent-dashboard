@@ -950,35 +950,35 @@ Reference: `--status-*` tokens defined once in `index.css` (owned by change impr
 
 ### Composer grammar check
 
-Opt-in grammar + spell check for composer draft. Gate: `~/.pi/dashboard/config.json` `grammar.enabled` (default `false`). Change: `add-composer-grammar-check`.
+Opt-in grammar + spell + writing-improvement check for composer draft. LLM-only backend. Gate: `~/.pi/dashboard/config.json` `plugins.grammar.enabled` (default `false`). Change: `add-composer-grammar-check`, `grammar-llm-only-with-explore`.
 
-**Configuration.** `DashboardConfig.grammar` in `packages/shared/src/config.ts`. `parseGrammarConfig` validates + clamps values:
+**Configuration.** Owned by grammar plugin. Config namespace `plugins.grammar.*` in `packages/shared/src/config.ts`. `parseGrammarConfig` validates + clamps; drops any legacy persisted keys (`backend`, `languagetool.url`). Values:
 - `enabled` (boolean, default `false`)
-- `backend` (`"llm" | "languagetool"`, default `"languagetool"`)
+- `llm.provider` (string) — model provider (Anthropic/Google)
+- `llm.model` (string) — model ID. See `docs/grammar-model-guidance.md` for recommendations
 - `autoCheck` (boolean, default `true`) — debounced auto-check on keystroke
 - `debounceMs` (integer, default 1200, clamp 300–10000)
 - `minChars` (integer, default 12, clamp 1–500) — skip check below this length
 - `maxChars` (integer, default 4000, clamp 100–20000) — truncate draft if longer
 - `language` (`"auto"`, default `"auto"`)
-- `languagetool.url` (string, default `"http://localhost:8081"`)
-- `llm?` object with `{ provider, model }` — optional; used when `backend === "llm"`
+
+**Legacy config coercion.** Pre-LLM configs persisted `backend="languagetool"` + `languagetool.url`. Server-side `migrateLegacyConfig()` prunes on first request (no-throw, silent). Schema `additionalProperties:false` rejects unknown keys on write.
 
 **Wire contract.** `packages/shared/src/grammar-types.ts`:
 - `GrammarSuggestion` — `{ offset, length, original, replacement, kind, message }`. `original` source-of-truth for apply.
-- `GrammarCheckResult` — `{ backend, correctedText, suggestions[], summary, language, truncated }`.
-- `GrammarHealth` — config probe response.
-- `GrammarErrorCode` — error discriminant.
+- `GrammarCheckResult` — `{ correctedText, suggestions[], summary, language, truncated }`. No `backend` field (LLM-only).
+- `GrammarHealth` — config probe response. No `languagetool` block.
+- `GrammarErrorCode` — error discriminant. `GrammarBackendKind` = `"llm"` (1-member enum).
 
-**Server.** `packages/server/src/grammar/`:
-- `grammar-service.ts` `checkGrammar()` — gate `enabled → grammar_disabled`; empty text → `empty_text`; clip to `maxChars` → `truncated` flag; dispatch by backend; never throws.
-- `getGrammarHealth()` — config + backend availability.
-- `backends/languagetool.ts` — POST `<url>/v2/check`. Offline. Draft on LT host.
-- `backends/llm.ts` — resolve provider creds from `~/.pi/agent/providers.json`. OpenAI `/chat/completions` or Anthropic `/v1/messages`. Temperature 0. Offsets relocated by `original` token, never trusted.
+**Server.** Grammar plugin: `packages/grammar-plugin/src/server/`:
+- `grammar-service.ts` `checkGrammar()` — gate `enabled → grammar_disabled`; empty text → `empty_text`; clip to `maxChars` → `truncated` flag; never throws.
+- `getGrammarHealth()` — config + LLM model availability probe.
+- `backends/llm.ts` — resolve provider creds via `InternalRegistry.getModelRegistry()` + `getStreamSimpleFn()`. Model dispatch via pi-ai `streamSimple`. Temperature 0. Offsets relocated by `original` token, never trusted. Prompt hardens against injection: `<text>…</text>` wrapper, "proofread only" directive. System prompt asks for corrections + writing improvement. Output cap 8192 tokens, timeout 45 s.
 - `abort.ts` `withTimeoutSignal` — abort in-flight requests.
-- Routes: `packages/server/src/routes/grammar-routes.ts`, registered in `server.ts`:
-  - `POST /api/grammar/check { text, language? }` — auth-gated (`networkGuard`).
+- Routes: `packages/grammar-plugin/src/server/routes/grammar-routes.ts`, registered in dashboard server:
+  - `POST /api/grammar/check { text, language? }` — auth-gated (`networkGuard`). Route opt-out of Fastify `connectionTimeout` (relaxes for long-running models).
   - `GET /api/grammar/health` — auth-gated.
-- Config re-read per request → backend switch needs no restart.
+- Config re-read per request → model switch needs no restart.
 - Error → HTTP: `grammar_disabled` 409, `empty_text` 400, `backend_unconfigured` 400, `backend_unreachable` / `backend_bad_response` 502, `backend_timeout` 504.
 - One structured `[grammar]` log line per call. NO draft text logged.
 
@@ -989,14 +989,15 @@ Opt-in grammar + spell check for composer draft. Gate: `~/.pi/dashboard/config.j
 - Skip auto-check while streaming, below `minChars`, or on `/` · `!` · `!!` prefixed drafts.
 - Offset-safe `applyAll()` / `accept()` / `dismiss()`.
 
-**UI.** `packages/client/src/components/chat/GrammarPanel.tsx`:
-- Renders above composer (sibling to `QueuePanel` in `App.tsx`).
-- Diff-highlighted corrections + summary.
-- Per-suggestion Accept/Dismiss + Apply-all button.
-- `CommandInput.tsx` gains Check toolbar button + ⌘G shortcut (`onGrammarCheck` prop).
-- `<textarea>` cannot style substrings → highlighting in panel, not inline.
+**UI.** Grammar panel mounts in two places:
+- Composer draft (main chat): `packages/client/src/components/chat/GrammarPanel.tsx` renders above composer (sibling to `QueuePanel` in `App.tsx`).
+- Explore/New Change dialogs: `ComposerPanelSlot` in draft editors (explorers, change filer).
+- Diff-highlighted corrections + summary. Per-suggestion Accept/Dismiss + Apply-all button.
+- `CommandInput.tsx` Check toolbar button + ⌘G shortcut (`onGrammarCheck` prop). Same panel renders both surfaces.
 
-**Privacy.** `llm` backend: draft leaves machine to provider. `languagetool` backend: on-box. Provider credentials resolved server-side, never reach browser.
+**Privacy.** LLM backend: draft leaves machine to provider. Provider credentials resolved server-side, never reach browser.
+
+**Model recommendations.** See `docs/grammar-model-guidance.md`: latency/quality/cost tradeoffs, recommended defaults (claude-haiku-4-5), weak-model warnings.
 
 **Data flow:**
 
@@ -1006,15 +1007,13 @@ flowchart LR
     B --> C["useGrammarCheck"]
     C --> D["POST /api/grammar/check"]
     D --> E["grammar-service"]
-    E --> F{"Backend"}
-    F -->|LanguageTool| G["LT host"]
-    F -->|LLM| H["Provider API"]
-    G --> I["GrammarCheckResult"]
-    H --> I
-    I --> J["GrammarPanel"]
-    J --> K{"User action"}
-    K -->|Apply-all| L["onDraftChange updates draft"]
-    K -->|Accept/Dismiss| L
+    E --> F["LLM backend"]
+    F --> G["Provider API"]
+    G --> H["GrammarCheckResult"]
+    H --> I["GrammarPanel"]
+    I --> J{"User action"}
+    J -->|Apply-all| K["onDraftChange updates draft"]
+    J -->|Accept/Dismiss| K
 ```
 
 ### Auto-Resume on Prompt

@@ -78,9 +78,9 @@ export function mountGrammarRoutes(fastify: FastifyInstance, deps: GrammarRouteD
         typeof request.body?.language === "string" ? request.body.language : undefined;
       const started = Date.now();
 
-      // Resolve the model runtime only for the llm backend (cheap for LT).
+      // Resolve the model runtime for the (only) llm backend.
       let registry: LlmModelRegistry | null = null;
-      if (config.backend === "llm" && deps.getModelRegistry) {
+      if (deps.getModelRegistry) {
         try {
           registry = await deps.getModelRegistry();
         } catch {
@@ -113,7 +113,7 @@ export function mountGrammarRoutes(fastify: FastifyInstance, deps: GrammarRouteD
 
       console.warn(
         "[grammar]",
-        JSON.stringify({ backend: config.backend, length: text.length, ms, code: outcome.code }),
+        JSON.stringify({ backend: "llm", length: text.length, ms, code: outcome.code }),
       );
       reply.code(STATUS_BY_CODE[outcome.code] ?? 500);
       return { success: false, error: outcome.message, code: outcome.code } satisfies ApiResponse;

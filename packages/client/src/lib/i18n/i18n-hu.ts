@@ -1375,7 +1375,7 @@ export const huCatalog: Record<string, string> = {
   "grammar.noIssues": "Nincs hiba",
   "grammar.truncated": "Csak a piszkozat eleje lett ellenőrizve.",
   "grammar.staleHint": "Ez a javaslat már nem illik a piszkozathoz.",
-  "grammar.err.unreachable": "A nyelvtani háttérszolgáltatás nem elérhető. Ellenőrizd a LanguageTool szervert vagy a szolgáltatót.",
+  "grammar.err.unreachable": "A nyelvtani háttérszolgáltatás nem elérhető. Ellenőrizd a beállított modell szolgáltatót.",
   "grammar.err.timeout": "A nyelvtani ellenőrzés időtúllépés miatt megszakadt.",
   "grammar.err.unconfigured": "A nyelvtani háttérszolgáltatás nincs beállítva.",
   "grammar.err.badResponse": "A nyelvtani háttérszolgáltatás váratlan választ adott.",

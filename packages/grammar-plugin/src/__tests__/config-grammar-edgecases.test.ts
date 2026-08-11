@@ -57,16 +57,18 @@ describe("parseGrammarConfig — numeric clamping boundaries", () => {
   });
 });
 
-describe("parseGrammarConfig — backend selection", () => {
-  it("accepts the two valid backends", () => {
-    expect(parseGrammarConfig({ backend: "llm" }).backend).toBe("llm");
-    expect(parseGrammarConfig({ backend: "languagetool" }).backend).toBe("languagetool");
+describe("parseGrammarConfig — legacy LanguageTool keys are dropped", () => {
+  it("drops a persisted backend key regardless of value", () => {
+    for (const backend of ["llm", "languagetool", "LLM", "wizard", null, 3]) {
+      const g = parseGrammarConfig({ backend });
+      expect((g as unknown as Record<string, unknown>).backend).toBeUndefined();
+    }
   });
-  it("rejects wrong-case and unknown backends", () => {
-    expect(parseGrammarConfig({ backend: "LLM" }).backend).toBe("languagetool");
-    expect(parseGrammarConfig({ backend: "wizard" }).backend).toBe("languagetool");
-    expect(parseGrammarConfig({ backend: null }).backend).toBe("languagetool");
-    expect(parseGrammarConfig({ backend: 3 }).backend).toBe("languagetool");
+  it("drops a persisted languagetool block regardless of shape", () => {
+    for (const languagetool of [{ url: "http://lt:9000" }, "nope", {}, { url: 123 }]) {
+      const g = parseGrammarConfig({ languagetool });
+      expect((g as unknown as Record<string, unknown>).languagetool).toBeUndefined();
+    }
   });
 });
 
@@ -78,30 +80,6 @@ describe("parseGrammarConfig — language", () => {
     expect(parseGrammarConfig({ language: "   " }).language).toBe("auto");
     expect(parseGrammarConfig({ language: "" }).language).toBe("auto");
     expect(parseGrammarConfig({ language: 42 }).language).toBe("auto");
-  });
-});
-
-describe("parseGrammarConfig — languagetool url", () => {
-  it("keeps a non-blank url", () => {
-    expect(parseGrammarConfig({ languagetool: { url: "http://lt:9000" } }).languagetool.url).toBe(
-      "http://lt:9000",
-    );
-  });
-  it("defaults a blank url", () => {
-    expect(parseGrammarConfig({ languagetool: { url: "   " } }).languagetool.url).toBe(
-      DEFAULT_GRAMMAR.languagetool.url,
-    );
-  });
-  it("defaults when languagetool is not an object or url is missing", () => {
-    expect(parseGrammarConfig({ languagetool: "nope" }).languagetool.url).toBe(
-      DEFAULT_GRAMMAR.languagetool.url,
-    );
-    expect(parseGrammarConfig({ languagetool: {} }).languagetool.url).toBe(
-      DEFAULT_GRAMMAR.languagetool.url,
-    );
-    expect(parseGrammarConfig({ languagetool: { url: 123 } }).languagetool.url).toBe(
-      DEFAULT_GRAMMAR.languagetool.url,
-    );
   });
 });
 
@@ -135,12 +113,6 @@ describe("parseGrammarConfig — llm sub-block", () => {
 });
 
 describe("parseGrammarConfig — structural safety", () => {
-  it("returns a fresh languagetool object (not the shared default reference)", () => {
-    const g = parseGrammarConfig({});
-    expect(g.languagetool).not.toBe(DEFAULT_GRAMMAR.languagetool);
-    g.languagetool.url = "mutated";
-    expect(DEFAULT_GRAMMAR.languagetool.url).toBe("http://localhost:8081");
-  });
   it("never leaks unknown top-level keys onto the result", () => {
     const g = parseGrammarConfig({ enabled: true, secret: "x", nonsense: 42 });
     expect((g as unknown as Record<string, unknown>).secret).toBeUndefined();
@@ -154,14 +126,12 @@ describe("parseGrammarConfig — structural safety", () => {
   it("is idempotent across a full valid config", () => {
     const full = parseGrammarConfig({
       enabled: true,
-      backend: "llm",
       autoCheck: false,
       debounceMs: 1500,
       minChars: 25,
       maxChars: 12000,
       language: "en-GB",
       capitalizeFirstWord: true,
-      languagetool: { url: "http://lt:8100" },
       llm: { provider: "anthropic", model: "claude-haiku" },
     });
     expect(parseGrammarConfig(full)).toEqual(full);

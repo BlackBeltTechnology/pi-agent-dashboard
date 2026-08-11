@@ -10,7 +10,13 @@
  * corrupt the draft. See change: add-composer-grammar-check.
  */
 
-export type GrammarBackendKind = "llm" | "languagetool";
+/**
+ * The grammar backend. Collapsed to a single member after the LanguageTool
+ * backend was removed (change: grammar-llm-only-with-explore) — retained as a
+ * one-member type because `GrammarCheckResult.backend` is on the wire and
+ * clients/tests read it. Always `"llm"`.
+ */
+export type GrammarBackendKind = "llm";
 
 /**
  * Which presentation the composer corrections panel uses: the default inline
@@ -58,9 +64,8 @@ export interface GrammarCheckRequest {
 
 /**
  * Response body for `GET /api/grammar/health`. Carries the non-secret client
- * config (so the composer can drive its UI from one fetch) plus, for the
- * LanguageTool backend, a reachability flag for the settings surface. Provider
- * credentials / the LLM model are intentionally NOT included.
+ * config so the composer can drive its UI from one fetch. Provider credentials
+ * and the configured LLM model are intentionally NOT included.
  */
 export interface GrammarHealth {
   enabled: boolean;
@@ -71,7 +76,6 @@ export interface GrammarHealth {
   language: string;
   /** Which corrections presentation the composer should render. */
   correctionView: GrammarCorrectionView;
-  languagetool?: { url: string; reachable: boolean };
 }
 
 /** Typed error codes returned by the grammar endpoints. */

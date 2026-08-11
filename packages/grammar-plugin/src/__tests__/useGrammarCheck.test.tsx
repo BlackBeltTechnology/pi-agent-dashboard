@@ -5,7 +5,7 @@ import { useGrammarCheck } from "../useGrammarCheck.js";
 
 const HEALTH: GrammarHealth = {
   enabled: true,
-  backend: "languagetool",
+  backend: "llm",
   autoCheck: true,
   debounceMs: 20,
   minChars: 5,
@@ -14,7 +14,7 @@ const HEALTH: GrammarHealth = {
 };
 
 const RESULT: GrammarCheckResult = {
-  backend: "languagetool",
+  backend: "llm",
   correctedText: "I have an apple",
   suggestions: [
     { id: "2:3:0", offset: 2, length: 3, original: "has", replacement: "have", kind: "grammar", message: "Agreement" },

@@ -5,16 +5,11 @@
  * `parseGrammarConfig` stays the clamp/validation authority the server route +
  * settings UI both use. See change: make-grammar-fully-plugin-contained.
  */
-import type {
-  GrammarBackendKind,
-  GrammarCorrectionView,
-} from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
+import type { GrammarCorrectionView } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 
 export interface GrammarConfig {
   /** Master gate. Default `false` — feature is fully invisible when off. */
   enabled: boolean;
-  /** Which backend performs the check. Default `"languagetool"`. */
-  backend: GrammarBackendKind;
   /** Run a debounced check as the user types. Default `true`. */
   autoCheck: boolean;
   /** Idle debounce before an auto-check. Default 1200. Clamped [300, 10000]. */
@@ -37,15 +32,13 @@ export interface GrammarConfig {
    * `UPPERCASE_SENTENCE_START` rule). See change: add-grammar-capitalize-toggle.
    */
   capitalizeFirstWord: boolean;
-  /** LanguageTool backend server. Default `http://localhost:8081`. */
-  languagetool: { url: string };
-  /** LLM backend provider/model. Only set when configured. */
+  /** LLM provider/model. Only set when configured; the check errors
+   * `backend_unconfigured` until a model is picked. */
   llm?: { provider: string; model: string };
 }
 
 export const DEFAULT_GRAMMAR: GrammarConfig = {
   enabled: false,
-  backend: "languagetool",
   autoCheck: true,
   debounceMs: 1200,
   minChars: 12,
@@ -53,7 +46,6 @@ export const DEFAULT_GRAMMAR: GrammarConfig = {
   language: "auto",
   correctionView: "redline",
   capitalizeFirstWord: false,
-  languagetool: { url: "http://localhost:8081" },
 };
 
 function clampNumber(raw: unknown, fallback: number, min: number, max: number): number {
@@ -63,19 +55,21 @@ function clampNumber(raw: unknown, fallback: number, min: number, max: number): 
   return n;
 }
 
-/** Validate + clamp a raw config object into a full {@link GrammarConfig}. */
+/**
+ * Validate + clamp a raw config object into a full {@link GrammarConfig}.
+ *
+ * A persisted legacy `backend` / `languagetool` key (from the removed
+ * LanguageTool backend) is simply not read — it drops out here like any unknown
+ * key, so an old config parses cleanly to the LLM-only shape and never throws.
+ * See change: grammar-llm-only-with-explore.
+ */
 export function parseGrammarConfig(raw: unknown): GrammarConfig {
   const d = DEFAULT_GRAMMAR;
   if (!raw || typeof raw !== "object") {
-    return { ...d, languagetool: { ...d.languagetool } };
+    return { ...d };
   }
   const r = raw as Record<string, unknown>;
-  const backend: GrammarBackendKind =
-    r.backend === "llm" || r.backend === "languagetool" ? r.backend : d.backend;
   const correctionView: GrammarCorrectionView = r.correctionView === "list" ? "list" : d.correctionView;
-  const lt = r.languagetool as { url?: unknown } | undefined;
-  const url =
-    typeof lt?.url === "string" && lt.url.trim() ? (lt.url as string) : d.languagetool.url;
   let llm: { provider: string; model: string } | undefined;
   const rl = r.llm as { provider?: unknown; model?: unknown } | undefined;
   if (
@@ -90,7 +84,6 @@ export function parseGrammarConfig(raw: unknown): GrammarConfig {
   }
   return {
     enabled: typeof r.enabled === "boolean" ? r.enabled : d.enabled,
-    backend,
     autoCheck: typeof r.autoCheck === "boolean" ? r.autoCheck : d.autoCheck,
     debounceMs: clampNumber(r.debounceMs, d.debounceMs, 300, 10000),
     minChars: clampNumber(r.minChars, d.minChars, 1, 500),
@@ -99,7 +92,6 @@ export function parseGrammarConfig(raw: unknown): GrammarConfig {
     correctionView,
     capitalizeFirstWord:
       typeof r.capitalizeFirstWord === "boolean" ? r.capitalizeFirstWord : d.capitalizeFirstWord,
-    languagetool: { url },
     ...(llm ? { llm } : {}),
   };
 }

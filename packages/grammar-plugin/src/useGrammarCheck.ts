@@ -50,7 +50,7 @@ export interface UseGrammarCheck {
 
 const DEFAULT_HEALTH: GrammarHealth = {
   enabled: false,
-  backend: "languagetool",
+  backend: "llm",
   autoCheck: true,
   debounceMs: 1200,
   minChars: 12,

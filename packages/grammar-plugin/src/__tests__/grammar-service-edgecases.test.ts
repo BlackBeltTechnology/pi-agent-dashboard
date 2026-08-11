@@ -6,7 +6,7 @@
  * the service), and `getGrammarHealth`. Complements `grammar-service.test.ts`.
  * See: grammar LLM "no issues despite a clear error" bugfix + edge-case hardening.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { GrammarConfig } from "../grammar-config.js";
 import { DEFAULT_GRAMMAR } from "../grammar-config.js";
 import type { LlmModelRegistry, LlmStreamFn } from "../server/backends/llm.js";
@@ -15,7 +15,6 @@ import { checkGrammar, getGrammarHealth } from "../server/grammar-service.js";
 function cfg(overrides: Partial<GrammarConfig> = {}): GrammarConfig {
   return {
     ...DEFAULT_GRAMMAR,
-    languagetool: { ...DEFAULT_GRAMMAR.languagetool },
     enabled: true,
     ...overrides,
   };
@@ -43,7 +42,7 @@ function captureStream(json: string): {
 }
 
 const llmCfg = (over: Partial<GrammarConfig> = {}) =>
-  cfg({ backend: "llm", llm: { provider: "anthropic", model: "claude-x" }, ...over });
+  cfg({ llm: { provider: "anthropic", model: "claude-x" }, ...over });
 
 // ── Gating ───────────────────────────────────────────────────────────────────
 
@@ -98,7 +97,7 @@ describe("checkGrammar — llm dispatch", () => {
   });
 
   it("returns backend_unconfigured when llm config is absent", async () => {
-    const out = await checkGrammar({ text: "hello there", config: cfg({ backend: "llm" }) });
+    const out = await checkGrammar({ text: "hello there", config: cfg() });
     expect(out).toMatchObject({ ok: false, code: "backend_unconfigured" });
   });
 
@@ -134,22 +133,6 @@ describe("checkGrammar — llm dispatch", () => {
       registry: throwing,
       streamSimple: captureStream("{}").fn,
     });
-    expect(out).toMatchObject({ ok: false, code: "backend_unreachable" });
-  });
-});
-
-describe("checkGrammar — languagetool dispatch", () => {
-  let originalFetch: typeof globalThis.fetch;
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-  });
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  it("maps a non-OK HTTP status to backend_unreachable", async () => {
-    globalThis.fetch = vi.fn(async () => new Response("bad", { status: 503 })) as never;
-    const out = await checkGrammar({ text: "hello there", config: cfg() });
     expect(out).toMatchObject({ ok: false, code: "backend_unreachable" });
   });
 });
@@ -234,38 +217,13 @@ describe("checkGrammar — capitalizeFirstWord passthrough", () => {
     await checkGrammar({ text: "hello there", config: llmCfg({ capitalizeFirstWord: true }), registry, streamSimple: on.fn });
     expect(on.captured.system).not.toContain("Do NOT change the capitalization");
   });
-
-  it("reaches the languagetool request body", async () => {
-    const orig = globalThis.fetch;
-    const bodies: string[] = [];
-    globalThis.fetch = vi.fn(async (_url: unknown, init: { body?: unknown }) => {
-      bodies.push(String(init.body));
-      return new Response(JSON.stringify({ matches: [] }), { status: 200 });
-    }) as never;
-    try {
-      await checkGrammar({ text: "hello there", config: cfg({ capitalizeFirstWord: false }) });
-      await checkGrammar({ text: "hello there", config: cfg({ capitalizeFirstWord: true }) });
-      expect(bodies[0]).toContain("disabledRules=UPPERCASE_SENTENCE_START");
-      expect(bodies[1]).not.toContain("disabledRules");
-    } finally {
-      globalThis.fetch = orig;
-    }
-  });
 });
 
 // ── Health ───────────────────────────────────────────────────────────────────
 
 describe("getGrammarHealth", () => {
-  let originalFetch: typeof globalThis.fetch;
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-  });
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  it("mirrors the client-facing config fields", async () => {
-    const h = await getGrammarHealth(
+  it("mirrors the client-facing config fields", () => {
+    const h = getGrammarHealth(
       llmCfg({ autoCheck: false, debounceMs: 900, minChars: 30, language: "en-GB" }),
     );
     expect(h).toMatchObject({
@@ -279,36 +237,13 @@ describe("getGrammarHealth", () => {
     });
   });
 
-  it("mirrors correctionView from config", async () => {
-    const h = await getGrammarHealth(llmCfg({ correctionView: "list" }));
+  it("mirrors correctionView from config", () => {
+    const h = getGrammarHealth(llmCfg({ correctionView: "list" }));
     expect(h.correctionView).toBe("list");
   });
 
-  it("omits the languagetool probe for the llm backend", async () => {
-    const probe = vi.fn();
-    globalThis.fetch = probe as never;
-    const h = await getGrammarHealth(llmCfg());
-    expect(h.languagetool).toBeUndefined();
-    expect(probe).not.toHaveBeenCalled();
-  });
-
-  it("reports reachable:true when the LT probe succeeds", async () => {
-    globalThis.fetch = vi.fn(async () => new Response("[]", { status: 200 })) as never;
-    const h = await getGrammarHealth(cfg({ backend: "languagetool" }));
-    expect(h.languagetool).toEqual({ url: "http://localhost:8081", reachable: true });
-  });
-
-  it("reports reachable:false on a non-OK probe", async () => {
-    globalThis.fetch = vi.fn(async () => new Response("nope", { status: 500 })) as never;
-    const h = await getGrammarHealth(cfg({ backend: "languagetool" }));
-    expect(h.languagetool?.reachable).toBe(false);
-  });
-
-  it("reports reachable:false when the probe throws", async () => {
-    globalThis.fetch = vi.fn(async () => {
-      throw new Error("ECONNREFUSED");
-    }) as never;
-    const h = await getGrammarHealth(cfg({ backend: "languagetool" }));
-    expect(h.languagetool?.reachable).toBe(false);
+  it("never exposes a languagetool block", () => {
+    const h = getGrammarHealth(llmCfg());
+    expect((h as unknown as Record<string, unknown>).languagetool).toBeUndefined();
   });
 });

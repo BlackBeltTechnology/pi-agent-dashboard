@@ -4,7 +4,6 @@
   "additionalProperties": false,
   "properties": {
     "enabled": { "type": "boolean", "default": false },
-    "backend": { "enum": ["languagetool", "llm"], "default": "languagetool" },
     "autoCheck": { "type": "boolean", "default": true },
     "debounceMs": { "type": "integer", "minimum": 300, "maximum": 10000, "default": 1200 },
     "minChars": { "type": "integer", "minimum": 1, "maximum": 500, "default": 12 },
@@ -12,11 +11,6 @@
     "language": { "type": "string", "default": "auto" },
     "correctionView": { "enum": ["redline", "list"], "default": "redline" },
     "capitalizeFirstWord": { "type": "boolean", "default": false },
-    "languagetool": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": { "url": { "type": "string", "default": "http://localhost:8081" } }
-    },
     "llm": {
       "type": "object",
       "additionalProperties": false,

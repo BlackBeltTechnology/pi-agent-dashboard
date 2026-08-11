@@ -5,7 +5,7 @@ import { DEFAULT_GRAMMAR } from "../grammar-config.js";
 import { mountGrammarRoutes } from "../server/routes.js";
 
 const okResult: GrammarCheckResult = {
-  backend: "languagetool",
+  backend: "llm",
   correctedText: "I have an apple",
   suggestions: [
     { id: "2:3:0", offset: 2, length: 3, original: "has", replacement: "have", kind: "grammar", message: "Agreement" },
@@ -18,17 +18,16 @@ const okResult: GrammarCheckResult = {
 function makeApp(over: Partial<Parameters<typeof mountGrammarRoutes>[1]> = {}) {
   const app = Fastify();
   mountGrammarRoutes(app, {
-    getGrammarConfig: () => ({ ...DEFAULT_GRAMMAR, languagetool: { ...DEFAULT_GRAMMAR.languagetool }, enabled: true }),
+    getGrammarConfig: () => ({ ...DEFAULT_GRAMMAR, enabled: true }),
     check: async () => ({ ok: true, result: okResult }),
-    health: async () => ({
+    health: () => ({
       enabled: true,
-      backend: "languagetool",
+      backend: "llm",
       autoCheck: true,
       debounceMs: 1200,
       minChars: 12,
       language: "auto",
       correctionView: "redline",
-      languagetool: { url: "http://localhost:8081", reachable: true },
     }),
     ...over,
   });
@@ -85,15 +84,15 @@ describe("POST /api/grammar/check", () => {
 });
 
 describe("GET /api/grammar/health", () => {
-  it("returns the active backend and LT reachability", async () => {
+  it("returns the llm backend config and no languagetool block", async () => {
     const app = makeApp();
     await app.ready();
     const res = await app.inject({ method: "GET", url: "/api/grammar/health" });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.payload);
     expect(body.success).toBe(true);
-    expect(body.data.backend).toBe("languagetool");
-    expect(body.data.languagetool.reachable).toBe(true);
+    expect(body.data.backend).toBe("llm");
+    expect(body.data.languagetool).toBeUndefined();
     await app.close();
   });
 });

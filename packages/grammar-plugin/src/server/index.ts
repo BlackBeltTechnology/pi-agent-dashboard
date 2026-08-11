@@ -20,9 +20,21 @@ import type { LlmModelRegistry, LlmStreamFn } from "./backends/llm.js";
 import { mountGrammarRoutes } from "./routes.js";
 
 /**
- * One-time migration: if the plugin has no `plugins.grammar` config yet but a
- * legacy core `config.grammar` block exists, copy it into the plugin namespace
- * so existing users keep their settings. Idempotent (skips once migrated).
+ * One-time migration + legacy-key prune. Two cases:
+ *
+ * 1. No `plugins.grammar` yet but a legacy core `config.grammar` block exists →
+ *    copy it into the plugin namespace (through `parseGrammarConfig`, which
+ *    drops the removed `backend`/`languagetool` keys) so existing users keep
+ *    their settings.
+ * 2. `plugins.grammar` already exists AND still carries a `backend` or
+ *    `languagetool` key from the LanguageTool era → re-write it through
+ *    `parseGrammarConfig` to strip them. The plugin config schema is
+ *    `additionalProperties:false`, so leaving the stale keys on disk both
+ *    re-persists them forever and risks an Ajv throw if that config is ever
+ *    validated directly. Idempotent: once pruned, `already` has no legacy key
+ *    and the block is skipped.
+ *
+ * See changes: make-grammar-fully-plugin-contained, grammar-llm-only-with-explore.
  */
 async function migrateLegacyConfig(ctx: ServerPluginContext): Promise<void> {
   try {
@@ -30,11 +42,21 @@ async function migrateLegacyConfig(ctx: ServerPluginContext): Promise<void> {
       plugins?: Record<string, unknown>;
       grammar?: unknown;
     };
-    const already = raw?.plugins?.grammar;
+    const already = raw?.plugins?.grammar as Record<string, unknown> | undefined;
     const legacy = raw?.grammar;
     if (!already && legacy && typeof legacy === "object") {
       await ctx.updatePluginConfig(parseGrammarConfig(legacy));
       ctx.logger.info?.("migrated legacy config.grammar → plugins.grammar");
+    } else if (already && ("backend" in already || "languagetool" in already)) {
+      // `updatePluginConfig` shallow-merges (`{...current, ...partial}`), so a
+      // clean partial cannot REMOVE an on-disk key. Set the two legacy keys to
+      // `undefined` in the partial — JSON.stringify drops them on write.
+      await ctx.updatePluginConfig({
+        ...parseGrammarConfig(already),
+        backend: undefined,
+        languagetool: undefined,
+      } as Record<string, unknown>);
+      ctx.logger.info?.("pruned legacy backend/languagetool keys from plugins.grammar");
     }
   } catch {
     /* no config file yet — nothing to migrate */

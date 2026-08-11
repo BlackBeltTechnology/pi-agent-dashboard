@@ -28,14 +28,13 @@ function makeApp(over: Partial<GrammarRouteDeps> = {}, config?: Partial<GrammarC
   mountGrammarRoutes(app, {
     getGrammarConfig: () => ({
       ...DEFAULT_GRAMMAR,
-      languagetool: { ...DEFAULT_GRAMMAR.languagetool },
       enabled: true,
       ...config,
     }),
     check: async () => ({ ok: true, result: okResult }),
-    health: async () => ({
+    health: () => ({
       enabled: true,
-      backend: config?.backend ?? "languagetool",
+      backend: "llm",
       autoCheck: true,
       debounceMs: 1200,
       minChars: 12,
@@ -82,20 +81,13 @@ describe("POST /api/grammar/check — plumbing", () => {
     await app.close();
   });
 
-  it("resolves the model registry ONLY for the llm backend", async () => {
+  it("resolves the model registry for every check (llm is the only backend)", async () => {
     const getModelRegistry = vi.fn(async () => null);
-    const ltApp = makeApp({ getModelRegistry }, { backend: "languagetool" });
-    await ltApp.ready();
-    await ltApp.inject({ method: "POST", url: "/api/grammar/check", payload: { text: "hi there" } });
-    expect(getModelRegistry).not.toHaveBeenCalled();
-    await ltApp.close();
-
-    getModelRegistry.mockClear();
-    const llmApp = makeApp({ getModelRegistry }, { backend: "llm" });
-    await llmApp.ready();
-    await llmApp.inject({ method: "POST", url: "/api/grammar/check", payload: { text: "hi there" } });
+    const app = makeApp({ getModelRegistry });
+    await app.ready();
+    await app.inject({ method: "POST", url: "/api/grammar/check", payload: { text: "hi there" } });
     expect(getModelRegistry).toHaveBeenCalledTimes(1);
-    await llmApp.close();
+    await app.close();
   });
 
   it("passes the resolved registry + streamSimple into the service for llm", async () => {
@@ -112,7 +104,6 @@ describe("POST /api/grammar/check — plumbing", () => {
           return { ok: true, result: okResult };
         },
       },
-      { backend: "llm" },
     );
     await app.ready();
     await app.inject({ method: "POST", url: "/api/grammar/check", payload: { text: "hi there" } });
@@ -133,7 +124,6 @@ describe("POST /api/grammar/check — plumbing", () => {
           return { ok: true, result: okResult };
         },
       },
-      { backend: "llm" },
     );
     await app.ready();
     const res = await app.inject({ method: "POST", url: "/api/grammar/check", payload: { text: "hi there" } });
@@ -190,7 +180,7 @@ describe("POST /api/grammar/check — error-code → HTTP mapping", () => {
 
 describe("GET /api/grammar/health", () => {
   it("returns the llm backend without a languagetool block", async () => {
-    const app = makeApp({}, { backend: "llm" });
+    const app = makeApp();
     await app.ready();
     const res = await app.inject({ method: "GET", url: "/api/grammar/health" });
     expect(res.statusCode).toBe(200);

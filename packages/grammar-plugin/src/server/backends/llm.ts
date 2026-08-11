@@ -21,7 +21,26 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import { withTimeoutSignal } from "../abort.js";
 import { GrammarBackendError } from "../grammar-errors.js";
-import { summarize } from "./languagetool.js";
+
+const KIND_LABELS: Record<GrammarIssueKind, string> = {
+  spelling: "spelling",
+  grammar: "grammar",
+  style: "style",
+  punctuation: "punctuation",
+};
+
+/** Build the short `"2 spelling · 1 grammar"` summary from the suggestions. */
+export function summarize(suggestions: GrammarSuggestion[]): string {
+  if (suggestions.length === 0) return "No issues found";
+  const counts = new Map<GrammarIssueKind, number>();
+  for (const s of suggestions) counts.set(s.kind, (counts.get(s.kind) ?? 0) + 1);
+  const parts: string[] = [];
+  for (const kind of ["spelling", "grammar", "punctuation", "style"] as GrammarIssueKind[]) {
+    const n = counts.get(kind);
+    if (n) parts.push(`${n} ${KIND_LABELS[kind]}`);
+  }
+  return parts.join(" · ");
+}
 
 /** OAuth/api_key-aware model resolver (subset of the model-proxy InternalRegistry). */
 export interface LlmModelRegistry {

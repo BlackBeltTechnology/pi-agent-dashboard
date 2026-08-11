@@ -18,11 +18,12 @@
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiCircle } from "@mdi/js";
-import Icon from "@mdi/react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import type { GrammarConfig } from "./grammar-config.js";
+
+/** Docs page describing which models are good grammar-check candidates. */
+const MODEL_GUIDANCE_DOC = "/docs/grammar-model-guidance.md";
 
 /**
  * Disabled-default fallback, used only before the first GET resolves or when the
@@ -33,7 +34,6 @@ import type { GrammarConfig } from "./grammar-config.js";
  */
 const FALLBACK_GRAMMAR: GrammarConfig = {
   enabled: false,
-  backend: "languagetool",
   autoCheck: true,
   debounceMs: 1200,
   minChars: 12,
@@ -41,13 +41,7 @@ const FALLBACK_GRAMMAR: GrammarConfig = {
   language: "auto",
   correctionView: "redline",
   capitalizeFirstWord: false,
-  languagetool: { url: "http://localhost:8081" },
 };
-
-interface Health {
-  url?: string;
-  reachable?: boolean;
-}
 
 /** `/api/models` row shape (only the fields consumed). `id` is `provider/id`. */
 interface ModelRow {
@@ -71,7 +65,6 @@ function normalize(raw: Partial<GrammarConfig> | undefined): GrammarConfig {
   return {
     ...FALLBACK_GRAMMAR,
     ...(raw ?? {}),
-    languagetool: { ...FALLBACK_GRAMMAR.languagetool, ...(raw?.languagetool ?? {}) },
     ...(raw?.llm ? { llm: { provider: raw.llm.provider, model: raw.llm.model } } : {}),
   };
 }
@@ -80,21 +73,10 @@ export function GrammarSettings(): React.ReactElement {
   const t = useT();
   const [config, setConfig] = useState<GrammarConfig>(FALLBACK_GRAMMAR);
   const [draft, setDraft] = useState<GrammarConfig>(FALLBACK_GRAMMAR);
-  const [health, setHealth] = useState<Health | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const ModelSelector = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
-
-  const probeHealth = useCallback(async () => {
-    try {
-      const res = await fetch("/api/grammar/health");
-      const json = (await res.json()) as { data?: { languagetool?: Health } };
-      setHealth(json.data?.languagetool ?? null);
-    } catch {
-      setHealth(null);
-    }
-  }, []);
 
   const loadModels = useCallback(async () => {
     try {
@@ -123,9 +105,8 @@ export function GrammarSettings(): React.ReactElement {
     } finally {
       setLoading(false);
     }
-    void probeHealth();
     void loadModels();
-  }, [probeHealth, loadModels]);
+  }, [loadModels]);
 
   useEffect(() => {
     void load();
@@ -181,7 +162,7 @@ export function GrammarSettings(): React.ReactElement {
         {t(
           "desc",
           undefined,
-          "Composer grammar/spell-check behaviour. The check runs server-side against the selected backend.",
+          "Composer grammar/spell-check behaviour. The check runs server-side via the configured LLM model.",
         )}
       </p>
 
@@ -240,23 +221,6 @@ export function GrammarSettings(): React.ReactElement {
         </label>
 
         <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-          {t("backend", undefined, "Backend")}
-          <select
-            className="focus-ring"
-            data-testid="grammar-backend"
-            value={draft.backend}
-            onChange={(e) =>
-              setDraft({ ...draft, backend: e.target.value as GrammarConfig["backend"] })
-            }
-          >
-            <option value="languagetool">
-              {t("backendLanguagetool", undefined, "LanguageTool (local, offline)")}
-            </option>
-            <option value="llm">{t("backendLlm", undefined, "LLM (configured provider)")}</option>
-          </select>
-        </label>
-
-        <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
           {t("debounceMs", undefined, "Debounce (ms)")}
           <input
             type="number"
@@ -306,73 +270,58 @@ export function GrammarSettings(): React.ReactElement {
           />
         </label>
 
-        {draft.backend === "languagetool" && (
-          <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-            <span style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-              {t("ltUrl", undefined, "LanguageTool server URL")}
-              <span
-                data-testid="grammar-lt-health"
-                data-reachable={String(health?.reachable === true)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "3px",
-                  fontSize: "10px",
-                  color: health?.reachable
-                    ? "var(--severity-success-fg)"
-                    : "var(--severity-warning-fg)",
+        <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+          {t("llmModel", undefined, "Model")}
+          <span
+            data-testid="grammar-model-hint"
+            style={{ fontSize: "10px", color: "var(--text-muted)" }}
+          >
+            {t(
+              "modelHint",
+              undefined,
+              "Model choice drives grammar quality, latency, and cost.",
+            )}{" "}
+            <a
+              data-testid="grammar-model-guidance-link"
+              href={MODEL_GUIDANCE_DOC}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: "var(--text-secondary)", textDecoration: "underline" }}
+            >
+              {t("modelHintLink", undefined, "Which models are good?")}
+            </a>
+          </span>
+          {ModelSelector ? (
+            <div data-testid="grammar-llm-model-selector">
+              <ModelSelector
+                current={draft.llm ? `${draft.llm.provider}/${draft.llm.model}` : undefined}
+                models={models}
+                onSelect={(label: string) => {
+                  const i = label.indexOf("/");
+                  const provider = i >= 0 ? label.slice(0, i) : label;
+                  const model = i >= 0 ? label.slice(i + 1) : "";
+                  setDraft({ ...draft, llm: { provider, model } });
                 }}
-              >
-                <Icon path={mdiCircle} size={0.35} />
-                {health?.reachable
-                  ? t("ltReachable", undefined, "reachable")
-                  : t("ltUnreachable", undefined, "unreachable")}
-              </span>
-              <button
-                type="button"
-                className="focus-ring"
-                data-testid="grammar-lt-test"
-                onClick={() => void probeHealth()}
-                style={{ fontSize: "10px", padding: "1px 8px" }}
-              >
-                {t("ltTest", undefined, "Test")}
-              </button>
+              />
+            </div>
+          ) : (
+            <span data-testid="grammar-llm-model-selector-unavailable" style={{ color: "var(--text-secondary)" }}>
+              {t("modelSelectorUnavailable", undefined, "Model selector unavailable")}
             </span>
-            <input
-              type="text"
-              className="focus-ring"
-              data-testid="grammar-lt-url"
-              value={draft.languagetool.url}
-              onChange={(e) =>
-                setDraft({ ...draft, languagetool: { ...draft.languagetool, url: e.target.value } })
-              }
-            />
-          </label>
-        )}
-
-        {draft.backend === "llm" && (
-          <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-            {t("llmModel", undefined, "Model")}
-            {ModelSelector ? (
-              <div data-testid="grammar-llm-model-selector">
-                <ModelSelector
-                  current={draft.llm ? `${draft.llm.provider}/${draft.llm.model}` : undefined}
-                  models={models}
-                  onSelect={(label: string) => {
-                    const i = label.indexOf("/");
-                    const provider = i >= 0 ? label.slice(0, i) : label;
-                    const model = i >= 0 ? label.slice(i + 1) : "";
-                    setDraft({ ...draft, llm: { provider, model } });
-                  }}
-                />
-              </div>
-            ) : (
-              <span data-testid="grammar-llm-model-selector-unavailable" style={{ color: "var(--text-secondary)" }}>
-                {t("modelSelectorUnavailable", undefined, "Model selector unavailable")}
-              </span>
-            )}
-          </label>
-        )}
+          )}
+          {!draft.llm && (
+            <span
+              data-testid="grammar-model-required"
+              style={{ fontSize: "10px", color: "var(--severity-warning-fg)" }}
+            >
+              {t(
+                "modelRequired",
+                undefined,
+                "Pick a model — the grammar check cannot run until one is set.",
+              )}
+            </span>
+          )}
+        </label>
       </div>
 
       <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "10px" }}>

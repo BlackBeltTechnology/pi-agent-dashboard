@@ -1,13 +1,16 @@
 /**
- * Tests for GrammarSettings — see change: add-grammar-settings-plugin.
+ * Tests for GrammarSettings (LLM-only). See changes: add-grammar-settings-plugin,
+ * grammar-llm-only-with-explore.
  *
- * The plugin edits the CORE `config.grammar` block via GET/PUT /api/config
- * (NOT the plugins.<id>.* namespace), and reads LanguageTool reachability from
- * GET /api/grammar/health. These tests mock `fetch` and assert the read →
- * edit → save (with server-clamp re-sync) contract plus the reachability
- * indicator and backend-conditional LLM fields.
+ * The plugin reads/persists `plugins.grammar.*` via GET /api/config +
+ * POST /api/config/plugins/grammar. After the LanguageTool backend was removed
+ * there is NO backend selector, NO LanguageTool URL field, and NO health probe;
+ * the LLM model picker is unconditional and shows a "pick a model" prompt when
+ * unset, with an inline model-guidance hint + doc link.
  */
 
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   CurrentPluginLayer,
@@ -53,7 +56,6 @@ function wrap(children: React.ReactNode) {
 function baseGrammar(overrides: Partial<GrammarConfig> = {}): GrammarConfig {
   return {
     enabled: true,
-    backend: "languagetool",
     autoCheck: true,
     debounceMs: 1200,
     minChars: 12,
@@ -61,7 +63,6 @@ function baseGrammar(overrides: Partial<GrammarConfig> = {}): GrammarConfig {
     language: "auto",
     correctionView: "redline",
     capitalizeFirstWord: false,
-    languagetool: { url: "http://localhost:8081" },
     ...overrides,
   };
 }
@@ -72,24 +73,15 @@ function jsonResponse(body: unknown) {
 
 /**
  * Install a routing fetch mock. `state.grammar` is the server-side truth;
- * `clamp` mutates a PUT'd block to emulate server clamping; `reachable`
- * drives the health probe.
+ * `clamp` mutates a POST'd block to emulate server clamping. The settings
+ * section no longer probes /api/grammar/health.
  */
 function installFetch(opts: {
-  grammar: GrammarConfig;
-  reachable?: boolean;
+  grammar: GrammarConfig | Record<string, unknown>;
   clamp?: (g: GrammarConfig) => GrammarConfig;
 }) {
-  const state = { grammar: opts.grammar };
+  const state: { grammar: GrammarConfig | Record<string, unknown> } = { grammar: opts.grammar };
   const putBodies: any[] = [];
-  const health = () =>
-    jsonResponse({
-      success: true,
-      data: {
-        ...state.grammar,
-        languagetool: { url: state.grammar.languagetool.url, reachable: opts.reachable ?? true },
-      },
-    });
   const models = () =>
     jsonResponse({
       object: "list",
@@ -98,8 +90,6 @@ function installFetch(opts: {
         { id: "openai/gpt-4o", provider: "openai" },
       ],
     });
-  // Plugin config write: POST /api/config/plugins/grammar with the config as the
-  // body (no `{ grammar }` wrapper). See change: make-grammar-fully-plugin-contained.
   const postPluginConfig = (init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? "{}")) as GrammarConfig;
     putBodies.push(body);
@@ -113,7 +103,6 @@ function installFetch(opts: {
     if (url.endsWith("/api/config")) {
       return jsonResponse({ success: true, data: { plugins: { grammar: state.grammar } } });
     }
-    if (url.endsWith("/api/grammar/health")) return health();
     if (url.endsWith("/api/models")) return models();
     throw new Error(`unexpected fetch ${method} ${url}`);
   });
@@ -137,12 +126,8 @@ describe("GrammarSettings", () => {
     await waitFor(() => {
       expect((getByTestId("grammar-enabled") as HTMLInputElement).checked).toBe(true);
     });
-    expect((getByTestId("grammar-backend") as HTMLSelectElement).value).toBe("languagetool");
     expect((getByTestId("grammar-debounce") as HTMLInputElement).value).toBe("1500");
     expect((getByTestId("grammar-language") as HTMLInputElement).value).toBe("en-US");
-    expect((getByTestId("grammar-lt-url") as HTMLInputElement).value).toBe(
-      "http://localhost:8081",
-    );
   });
 
   it("shows the disabled defaults when the config has no grammar block", async () => {
@@ -151,9 +136,6 @@ describe("GrammarSettings", () => {
       const method = (init?.method ?? "GET").toUpperCase();
       if (url.endsWith("/api/config") && method === "GET") {
         return jsonResponse({ success: true, data: {} });
-      }
-      if (url.endsWith("/api/grammar/health")) {
-        return jsonResponse({ success: true, data: { languagetool: { reachable: false } } });
       }
       if (url.endsWith("/api/models")) {
         return jsonResponse({ object: "list", data: [] });
@@ -166,30 +148,71 @@ describe("GrammarSettings", () => {
     await waitFor(() => {
       expect((getByTestId("grammar-enabled") as HTMLInputElement).checked).toBe(false);
     });
-    expect((getByTestId("grammar-backend") as HTMLSelectElement).value).toBe("languagetool");
     expect((getByTestId("grammar-debounce") as HTMLInputElement).value).toBe("1200");
     expect((getByTestId("grammar-maxchars") as HTMLInputElement).value).toBe("4000");
   });
 
-  it("uses ONE model selector for the llm backend (not two provider/model fields)", async () => {
-    installFetch({ grammar: baseGrammar({ backend: "languagetool" }) });
+  it("renders no backend selector and no LanguageTool URL field (E6)", async () => {
+    installFetch({ grammar: baseGrammar() });
     const { getByTestId, queryByTestId } = render(wrap(<GrammarSettings />));
-
-    await waitFor(() => expect(getByTestId("grammar-backend")).toBeTruthy());
-    expect(queryByTestId("grammar-llm-model-selector")).toBeNull();
-    // The old two-field shape must be gone.
-    expect(queryByTestId("grammar-llm-provider")).toBeNull();
-    expect(queryByTestId("grammar-llm-model")).toBeNull();
-
-    fireEvent.change(getByTestId("grammar-backend"), { target: { value: "llm" } });
+    await waitFor(() => expect(getByTestId("grammar-debounce")).toBeTruthy());
+    expect(queryByTestId("grammar-backend")).toBeNull();
+    expect(queryByTestId("grammar-lt-url")).toBeNull();
+    expect(queryByTestId("grammar-lt-health")).toBeNull();
+    // The model picker is unconditional (no backend gate).
     expect(getByTestId("grammar-llm-model-selector")).toBeTruthy();
-    // Still no separate provider field — one selection.
-    expect(queryByTestId("grammar-llm-provider")).toBeNull();
+  });
+
+  it("shows a 'pick a model' prompt when unset and hides it once a model is set (E6)", async () => {
+    const { rerender } = { rerender: undefined as unknown as (u: React.ReactElement) => void };
+    void rerender;
+    installFetch({ grammar: baseGrammar() });
+    const view = render(wrap(<GrammarSettings />));
+    await waitFor(() => expect(view.getByTestId("grammar-model-required")).toBeTruthy());
+    view.unmount();
+
+    installFetch({ grammar: baseGrammar({ llm: { provider: "anthropic", model: "claude-opus-4" } }) });
+    const view2 = render(wrap(<GrammarSettings />));
+    await waitFor(() => expect(view2.getByTestId("grammar-llm-model-selector")).toBeTruthy());
+    expect(view2.queryByTestId("grammar-model-required")).toBeNull();
+  });
+
+  it("renders a persisted LanguageTool config as LLM-only (E7)", async () => {
+    // Simulate a legacy on-disk block that still carries backend + languagetool.
+    installFetch({
+      grammar: { ...baseGrammar(), backend: "languagetool", languagetool: { url: "http://lt:8081" } },
+    });
+    const { getByTestId, queryByTestId } = render(wrap(<GrammarSettings />));
+    await waitFor(() => expect(getByTestId("grammar-debounce")).toBeTruthy());
+    expect(queryByTestId("grammar-backend")).toBeNull();
+    expect(queryByTestId("grammar-lt-url")).toBeNull();
+    expect(getByTestId("grammar-llm-model-selector")).toBeTruthy();
+  });
+
+  it("shows the model-guidance hint + doc link by the picker (F6)", async () => {
+    installFetch({ grammar: baseGrammar() });
+    const { getByTestId } = render(wrap(<GrammarSettings />));
+    await waitFor(() => expect(getByTestId("grammar-model-hint")).toBeTruthy());
+    const link = getByTestId("grammar-model-guidance-link") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBeTruthy();
+    expect(link.tagName).toBe("A");
+  });
+
+  it("links a model-guidance doc that exists in the repo (E10)", async () => {
+    installFetch({ grammar: baseGrammar() });
+    const { getByTestId } = render(wrap(<GrammarSettings />));
+    await waitFor(() => expect(getByTestId("grammar-model-guidance-link")).toBeTruthy());
+    const href = getByTestId("grammar-model-guidance-link").getAttribute("href") ?? "";
+    // The link target resolves to a real docs/ page (repo-lint file-existence).
+    const relPath = href.replace(/^\//, "");
+    expect(relPath).toMatch(/^docs\/.+\.md$/);
+    // vitest cwd is the repo root.
+    expect(existsSync(resolve(process.cwd(), relPath))).toBe(true);
   });
 
   it("persists a model pick as grammar.llm = { provider, model } (one param, split on save)", async () => {
     const { putBodies } = installFetch({
-      grammar: baseGrammar({ backend: "llm", llm: { provider: "", model: "" } }),
+      grammar: baseGrammar({ llm: { provider: "", model: "" } }),
     });
     const { getByTestId } = render(wrap(<GrammarSettings />));
 
@@ -201,7 +224,7 @@ describe("GrammarSettings", () => {
     expect(putBodies[0].llm).toEqual({ provider: "anthropic", model: "claude-opus-4" });
   });
 
-  it("Save POSTs the grammar config to /api/config/plugins/grammar", async () => {
+  it("Save POSTs the grammar config to /api/config/plugins/grammar (E8)", async () => {
     const { putBodies } = installFetch({ grammar: baseGrammar() });
     const { getByTestId } = render(wrap(<GrammarSettings />));
 
@@ -210,15 +233,14 @@ describe("GrammarSettings", () => {
     fireEvent.click(getByTestId("grammar-save"));
 
     await waitFor(() => expect(putBodies.length).toBe(1));
-    // Body is the plugin config object itself (no `{ grammar }` wrapper).
     const body = putBodies[0];
     expect(body.debounceMs).toBe(2000);
-    // Nested objects survive the write.
-    expect(body.languagetool.url).toBe("http://localhost:8081");
+    // No LanguageTool keys are ever written.
+    expect(body.backend).toBeUndefined();
+    expect(body.languagetool).toBeUndefined();
   });
 
   it("re-syncs the form to the server-clamped value after Save", async () => {
-    // Server clamps debounceMs up to a 300 floor.
     installFetch({
       grammar: baseGrammar(),
       clamp: (g) => ({ ...g, debounceMs: Math.max(300, g.debounceMs) }),
@@ -234,7 +256,7 @@ describe("GrammarSettings", () => {
     );
   });
 
-  it("loads and saves the correction view (redline | list)", async () => {
+  it("loads and saves the correction view (redline | list) (E8)", async () => {
     const { putBodies } = installFetch({ grammar: baseGrammar({ correctionView: "redline" }) });
     const { getByTestId } = render(wrap(<GrammarSettings />));
     await waitFor(() =>
@@ -246,27 +268,10 @@ describe("GrammarSettings", () => {
     expect(putBodies[0].correctionView).toBe("list");
   });
 
-  it("shows a reachable indicator when LanguageTool health is reachable", async () => {
-    installFetch({ grammar: baseGrammar(), reachable: true });
-    const { getByTestId } = render(wrap(<GrammarSettings />));
-    await waitFor(() =>
-      expect(getByTestId("grammar-lt-health").getAttribute("data-reachable")).toBe("true"),
-    );
-  });
-
-  it("shows an unreachable indicator when LanguageTool health is unreachable", async () => {
-    installFetch({ grammar: baseGrammar(), reachable: false });
-    const { getByTestId } = render(wrap(<GrammarSettings />));
-    await waitFor(() =>
-      expect(getByTestId("grammar-lt-health").getAttribute("data-reachable")).toBe("false"),
-    );
-  });
-
-  it("uses theme tokens for every color (no hardcoded hex/rgba/hsl literals)", async () => {
-    installFetch({ grammar: baseGrammar(), reachable: true });
-    const { getByTestId } = render(wrap(<GrammarSettings />));
-    await waitFor(() => expect(getByTestId("grammar-lt-health")).toBeTruthy());
-    // Make the form dirty so the "unsaved" marker also renders and is scanned.
+  it("uses theme tokens for every color; unsaved marker is the warning token; no LT marker (F5)", async () => {
+    installFetch({ grammar: baseGrammar() });
+    const { getByTestId, queryByTestId } = render(wrap(<GrammarSettings />));
+    await waitFor(() => expect(getByTestId("grammar-debounce")).toBeTruthy());
     fireEvent.change(getByTestId("grammar-debounce"), { target: { value: "2000" } });
     await waitFor(() => expect(getByTestId("grammar-dirty")).toBeTruthy());
 
@@ -277,13 +282,11 @@ describe("GrammarSettings", () => {
       .filter((s) => literal.test(s));
     expect(offenders).toEqual([]);
 
-    // Status + unsaved markers read from the semantic severity tokens.
-    expect(getByTestId("grammar-lt-health").getAttribute("style")).toContain(
-      "var(--severity-success-fg)",
-    );
     expect(getByTestId("grammar-dirty").getAttribute("style")).toContain(
       "var(--severity-warning-fg)",
     );
+    // No LanguageTool reachability marker exists any more.
+    expect(queryByTestId("grammar-lt-health")).toBeNull();
   });
 
   it("gives every interactive control the shared focus-ring affordance", async () => {
@@ -295,13 +298,10 @@ describe("GrammarSettings", () => {
       "grammar-autocheck",
       "grammar-capitalize",
       "grammar-correction-view",
-      "grammar-backend",
       "grammar-debounce",
       "grammar-minchars",
       "grammar-maxchars",
       "grammar-language",
-      "grammar-lt-url",
-      "grammar-lt-test",
       "grammar-save",
       "grammar-reload",
     ]) {

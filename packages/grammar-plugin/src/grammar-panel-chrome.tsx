@@ -43,7 +43,7 @@ export const KIND_COLOR_VAR: Record<GrammarIssueKind, string> = {
 export function errorMessage(t: ReturnType<typeof useT>, code: GrammarErrorCode): string {
   switch (code) {
     case "backend_unreachable":
-      return t("grammar.err.unreachable", undefined, "Grammar backend unreachable. Check the LanguageTool server or provider.");
+      return t("grammar.err.unreachable", undefined, "Grammar backend unreachable. Check the configured model provider.");
     case "backend_timeout":
       return t("grammar.err.timeout", undefined, "Grammar check timed out.");
     case "backend_unconfigured":

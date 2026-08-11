@@ -15,7 +15,6 @@ import type {
   GrammarHealth,
 } from "@blackbelt-technology/pi-dashboard-shared/grammar-types.js";
 import type { GrammarConfig } from "../grammar-config.js";
-import { checkWithLanguageTool } from "./backends/languagetool.js";
 import { checkWithLlm, type LlmModelRegistry, type LlmStreamFn } from "./backends/llm.js";
 import { GrammarBackendError } from "./grammar-errors.js";
 
@@ -53,25 +52,15 @@ export async function checkGrammar(args: CheckGrammarArgs): Promise<GrammarCheck
   const language = (args.language ?? config.language) || "auto";
 
   try {
-    let result: GrammarCheckResult;
-    if (config.backend === "llm") {
-      result = await checkWithLlm(text, {
-        provider: config.llm?.provider,
-        model: config.llm?.model,
-        language,
-        capitalizeFirstWord: config.capitalizeFirstWord,
-        registry: args.registry,
-        streamSimple: args.streamSimple,
-        signal: args.signal,
-      });
-    } else {
-      result = await checkWithLanguageTool(text, {
-        url: config.languagetool.url,
-        language,
-        capitalizeFirstWord: config.capitalizeFirstWord,
-        signal: args.signal,
-      });
-    }
+    const result = await checkWithLlm(text, {
+      provider: config.llm?.provider,
+      model: config.llm?.model,
+      language,
+      capitalizeFirstWord: config.capitalizeFirstWord,
+      registry: args.registry,
+      streamSimple: args.streamSimple,
+      signal: args.signal,
+    });
     return { ok: true, result: { ...result, truncated } };
   } catch (err) {
     if (err instanceof GrammarBackendError) {
@@ -82,43 +71,17 @@ export async function checkGrammar(args: CheckGrammarArgs): Promise<GrammarCheck
 }
 
 /**
- * Lightweight health snapshot for the settings UI. For the LanguageTool
- * backend it performs a short connectivity probe against `<url>/v2/languages`.
- * Never throws.
+ * Lightweight health snapshot for the settings UI — the non-secret client
+ * config only (the LLM model + credentials are never exposed). Never throws.
  */
-export async function getGrammarHealth(
-  config: GrammarConfig,
-  opts: { timeoutMs?: number } = {},
-): Promise<GrammarHealth> {
-  const health: GrammarHealth = {
+export function getGrammarHealth(config: GrammarConfig): GrammarHealth {
+  return {
     enabled: config.enabled,
-    backend: config.backend,
+    backend: "llm",
     autoCheck: config.autoCheck,
     debounceMs: config.debounceMs,
     minChars: config.minChars,
     language: config.language,
     correctionView: config.correctionView,
   };
-  if (config.backend === "languagetool") {
-    const url = config.languagetool.url;
-    health.languagetool = { url, reachable: await probeLanguageTool(url, opts.timeoutMs ?? 3000) };
-  }
-  return health;
-}
-
-async function probeLanguageTool(url: string, timeoutMs: number): Promise<boolean> {
-  const base = url.replace(/\/+$/, "");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${base}/v2/languages`, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    return response.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
-  }
 }
