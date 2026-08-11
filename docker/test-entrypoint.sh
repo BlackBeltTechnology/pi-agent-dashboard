@@ -400,6 +400,7 @@ JSON
   if [ -n "${PI_TEST_PEERS:-}" ]; then
     PF_GLOBAL="/usr/local/lib/node_modules/@blackbelt-technology/pi-flows"
     AM_GLOBAL="/usr/local/lib/node_modules/@blackbelt-technology/pi-anthropic-messages"
+    SA_GLOBAL="/usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-subagents"
     SESSION_CWD="/fixtures/sample-git"
     NM="${SESSION_CWD}/node_modules"
     SETTINGS="${PI_DIR}/agent/settings.json"
@@ -443,6 +444,29 @@ JSON
         fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
       ' "${SETTINGS}" "${PF_GLOBAL}" "/app/packages/extension"
     }
+
+    # The `tool_execution_update` producer. Registered unconditionally (not under
+    # a PI_TEST_PEERS arm) because the collapse scenarios need it in every peer
+    # shape, and it registers no `ask_user`, so it cannot disturb the
+    # first-registration-wins tool precedence `register_flows` guards.
+    # See change: collapse-superseded-tool-execution-updates.
+    register_subagents() {
+      ln -sfn "${SA_GLOBAL}" "${NM}/@blackbelt-technology/pi-dashboard-subagents"
+      node -e '
+        const fs = require("node:fs");
+        const path = require("node:path");
+        const [p, dir, bridge] = process.argv.slice(1);
+        let s = {};
+        try { s = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+        if (!Array.isArray(s.packages)) s.packages = [];
+        if (!s.packages.includes(dir)) s.packages.push(dir);
+        s.packages = [bridge, ...s.packages.filter((e) => e !== bridge)];
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
+      ' "${SETTINGS}" "${SA_GLOBAL}" "/app/packages/extension" \
+        && echo "[test-entrypoint] registered pi-dashboard-subagents (tool_execution_update producer)"
+    }
+    register_subagents
 
     case "${PI_TEST_PEERS}" in
       both)

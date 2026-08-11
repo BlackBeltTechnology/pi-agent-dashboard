@@ -33,9 +33,18 @@ export interface EventStore {
   /**
    * Cumulative store-shed telemetry (process lifetime, never reset on read).
    * `trimmedEvents` counts per-session-cap drops; `evictedSessions` counts
-   * whole-session LRU evictions. See change: instrument-event-store-trim.
+   * whole-session LRU evictions; `collapsedUpdates` counts superseded
+   * `tool_execution_update` events dropped at retention.
+   * See change: instrument-event-store-trim, collapse-superseded-tool-execution-updates.
    */
   getTrimStats(): TrimStats;
+  /**
+   * TEST-ONLY instrumentation for the collapse find-cost bound (D6). Distinct
+   * from the `collapsedUpdates` telemetry counter: this answers "how many
+   * buffer entries did the predecessor lookup examine", not "how many events
+   * were shed". See change: collapse-superseded-tool-execution-updates (P1).
+   */
+  getCollapseProbe(): CollapseProbe;
 }
 
 export interface TrimStats {
@@ -45,12 +54,63 @@ export interface TrimStats {
     bySession: Record<string, number>;
   };
   evictedSessions: number;
+  /**
+   * Cumulative count of superseded `tool_execution_update` events removed by
+   * the retention collapse. ADDITIVE `/api/health` field.
+   * See change: collapse-superseded-tool-execution-updates (D9).
+   */
+  collapsedUpdates: number;
+}
+
+/**
+ * All-zero `TrimStats`, used as `/api/health`'s fallback when no event store is
+ * wired. Exported (rather than written as a literal at the call site) because
+ * TypeScript types `a ?? b` as `NonNullable<A> | B` and does NOT check `b`
+ * against `A` — an inline literal would silently omit a newly-required field
+ * while still typechecking. Naming the type here makes the omission a compile
+ * error and gives the shape test something to assert against.
+ * See change: collapse-superseded-tool-execution-updates (D9).
+ */
+export const EMPTY_TRIM_STATS: TrimStats = {
+  trimmedEvents: { total: 0, toolExecutionEnd: 0, bySession: {} },
+  evictedSessions: 0,
+  collapsedUpdates: 0,
+};
+
+export interface CollapseProbe {
+  /** Buffer entries examined by the most recent insert's predecessor lookup. */
+  lastEntriesExamined: number;
+  /** High-water mark of `lastEntriesExamined` over the store's lifetime. */
+  maxEntriesExamined: number;
+  /** Live total of indexed `toolCallId`s across every resident buffer. */
+  indexedToolCalls: number;
+}
+
+/**
+ * Two INDEPENDENT seq pointers per `toolCallId` (D7). `creatingSeq` pins the
+ * first update carrying `details.agentId` (first-wins `type`/`description`);
+ * `newestSeq` tracks the current retained tail update. A single-seq index
+ * would collapse the creating tick whenever it happened to be the indexed
+ * predecessor, silently voiding the pin.
+ */
+interface CollapseIndexEntry {
+  creatingSeq: number | undefined;
+  newestSeq: number | undefined;
 }
 
 interface SessionBuffer {
   events: StoredEvent[];
   nextSeq: number;
   lastAccess: number;
+  /**
+   * Per-buffer collapse index, keyed by `toolCallId` and holding SEQ values —
+   * never array positions (`trimBufferToLimit` rebuilds the array wholesale,
+   * invalidating any position). Lives on the buffer so it is released with it
+   * on LRU evict / `deleteEventsForSession`; a process-wide map would
+   * accumulate an entry per `toolCallId` of every evicted session — an
+   * unbounded leak inside a memory-bounding change (D6.4).
+   */
+  collapseIndex: Map<string, CollapseIndexEntry>;
 }
 
 export const DEFAULT_MAX_CACHED_SESSIONS = 100;
@@ -116,6 +176,101 @@ function trimBufferToLimit(
   }
   buf.events = kept;
   return { dropped, toolEndDropped };
+}
+
+// ---- Superseded `tool_execution_update` collapse (D5/D6/D7) ----
+// See change: collapse-superseded-tool-execution-updates.
+
+/**
+ * Resolve an update's subagent `details` as `data.partialResult.details` ONLY.
+ * Mirrors the client reducer exactly: its `tool_execution_update` branch gates
+ * on `if (partialResult)` and reads `structured.details`; it NEVER falls back
+ * to a top-level `data.details` for an update (that path belongs to
+ * `tool_execution_end`). A gate resolving `data.details` would compare keys the
+ * consumer never reads, and could drop a predecessor on the strength of a field
+ * that has no effect (D7.1).
+ */
+function resolveUpdateDetails(event: DashboardEvent): Record<string, unknown> | undefined {
+  const data = event.data as Record<string, unknown> | undefined;
+  const pr = data?.partialResult as Record<string, unknown> | undefined;
+  if (!pr || typeof pr !== "object") return undefined;
+  const details = pr.details;
+  if (!details || typeof details !== "object") return undefined;
+  return details as Record<string, unknown>;
+}
+
+/**
+ * Does this update set the consumer's rendered `result`? `result` has TWO
+ * sources, not one: the plain-string `partialResult` branch, and the structured
+ * branch's text extracted from `partialResult.content` (a SIBLING of `details`,
+ * assigned only `if (text != null)`). Expressed over the OUTCOME using the
+ * reducer's own predicate rather than over the presence of a `content` key,
+ * so the mixed plain-string → structured-without-`content` case is caught (D7).
+ */
+function setsRenderedResult(event: DashboardEvent): boolean {
+  const data = event.data as Record<string, unknown> | undefined;
+  const pr = data?.partialResult;
+  if (pr == null) return false;
+  if (typeof pr !== "object") return true; // plain-string overwrite branch
+  const content = (pr as Record<string, unknown>).content;
+  // Reducer: array-with-text → that text; else `content != null` → String(content).
+  return content != null;
+}
+
+/** Coarse JS value type, distinguishing null and array from plain objects. */
+function valueType(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "array";
+  return typeof v;
+}
+
+/**
+ * D7 superset gate: may predecessor `p` be dropped in favour of successor `s`?
+ *
+ * The reducer's `subagents` merge is ACCUMULATIVE — every field is extracted
+ * conditionally, so a field present in `p` and absent from `s` survives the
+ * full fold and would be lost by a naive keep-newest. Require ALL of:
+ *   - every key of `p`'s details is present in `s`'s details AND holds the same
+ *     JS type (`readSubagentDetails` extracts type-conditionally, so a key that
+ *     is present-but-type-downgraded is "absent" to the consumer);
+ *   - a non-empty `entries` is not replaced by an empty/absent one (the
+ *     reducer's empty-array overwrite guard exists because initial and
+ *     late/reordered frames legitimately arrive empty);
+ *   - if `p` sets the rendered `result`, `s` sets it too.
+ * Neither carrying details ⇒ the plain-string overwrite branch ⇒ unconditional.
+ * On failure BOTH are retained; the index advances to `s`, so the non-subsumed
+ * `p` is shed only by the ordinary trim/evict policies.
+ */
+/** Is every key of `pd` present in `sd` holding a value of the SAME JS type? */
+function keysSurvive(pd: Record<string, unknown>, sd: Record<string, unknown>): boolean {
+  for (const k of Object.keys(pd)) {
+    if (!(k in sd)) return false;
+    if (valueType(pd[k]) !== valueType(sd[k])) return false;
+  }
+  return true;
+}
+
+/** Is a non-empty `entries` array preserved (never replaced by an empty one)? */
+function entriesSurvive(pd: Record<string, unknown>, sd: Record<string, unknown>): boolean {
+  if (!Array.isArray(pd.entries) || pd.entries.length === 0) return true;
+  return Array.isArray(sd.entries) && sd.entries.length > 0;
+}
+
+function subsumes(p: DashboardEvent, s: DashboardEvent): boolean {
+  const dp = resolveUpdateDetails(p);
+  const ds = resolveUpdateDetails(s);
+  if (!dp && !ds) return true;
+  const pd = dp ?? {};
+  const sd = ds ?? {};
+  if (!keysSurvive(pd, sd)) return false;
+  if (!entriesSurvive(pd, sd)) return false;
+  return !setsRenderedResult(p) || setsRenderedResult(s);
+}
+
+/** `data.toolCallId` when it is a string — else undefined (D5 fail-open). */
+function readToolCallId(event: DashboardEvent): string | undefined {
+  const id = (event.data as Record<string, unknown> | undefined)?.toolCallId;
+  return typeof id === "string" ? id : undefined;
 }
 
 /**
@@ -729,11 +884,15 @@ export function createMemoryEventStore(
   // counters above are the lifetime record. See change: instrument-event-store-trim.
   const trimmedEventsBySession = new Map<string, number>();
   let evictedSessionsTotal = 0;
+  let collapsedUpdatesTotal = 0;
+  // P1 find-cost probe. Reset per insert; distinct from collapsedUpdatesTotal.
+  let lastEntriesExamined = 0;
+  let maxEntriesExamined = 0;
 
   function getOrCreate(sessionId: string): SessionBuffer {
     let buf = buffers.get(sessionId);
     if (!buf) {
-      buf = { events: [], nextSeq: 1, lastAccess: Date.now() };
+      buf = { events: [], nextSeq: 1, lastAccess: Date.now(), collapseIndex: new Map() };
       buffers.set(sessionId, buf);
     }
     buf.lastAccess = Date.now();
@@ -765,11 +924,137 @@ export function createMemoryEventStore(
     return evicted;
   }
 
+  /**
+   * Locate `seq` in the seq-sorted `buf.events` by scanning BACKWARD from the
+   * tail (D6.1). The superseded predecessor sits near the tail, so the scan is
+   * bounded by the number of concurrently-streaming tool calls, not by buffer
+   * length. A FORWARD scan (the shape `getEvent` uses) would make collapse
+   * O(buffer length) per insert — precisely what D6 forbids. Returns -1 on a
+   * miss (e.g. trim already dropped the entry); the caller must never let a
+   * negative index reach `splice`.
+   */
+  function findIndexBySeq(buf: SessionBuffer, seq: number): number {
+    let examined = 0;
+    for (let i = buf.events.length - 1; i >= 0; i--) {
+      examined++;
+      const s = buf.events[i].seq;
+      if (s === seq) {
+        lastEntriesExamined = examined;
+        if (examined > maxEntriesExamined) maxEntriesExamined = examined;
+        return i;
+      }
+      // Array is seq-ascending: once we are below the target it is absent.
+      if (s < seq) break;
+    }
+    lastEntriesExamined = examined;
+    if (examined > maxEntriesExamined) maxEntriesExamined = examined;
+    return -1;
+  }
+
+  /**
+   * D6.2 VERIFIED removal: resolve `prevSeq`, confirm the located entry is
+   * still a `tool_execution_update` carrying `toolCallId`, and only then test
+   * subsumption and splice. An unresolved lookup (trim already dropped it) is a
+   * no-op — a negative index must NEVER reach `splice`, which would delete the
+   * buffer's LAST element (the max-seq event).
+   */
+  function dropIfSuperseded(
+    buf: SessionBuffer,
+    prevSeq: number,
+    toolCallId: string,
+    successor: DashboardEvent,
+  ): void {
+    const i = findIndexBySeq(buf, prevSeq);
+    if (i === -1) return;
+    const candidate = buf.events[i];
+    if (candidate.event.eventType !== "tool_execution_update") return;
+    if (readToolCallId(candidate.event) !== toolCallId) return;
+    if (!subsumes(candidate.event, successor)) return;
+    buf.events.splice(i, 1);
+    collapsedUpdatesTotal++;
+  }
+
+  /**
+   * Drop index entries whose events the trim has already discarded.
+   *
+   * The buffer's EVENTS are capped, but the index is keyed by `toolCallId`, so
+   * without this a long-lived session gains one PERMANENT entry per distinct
+   * tool call — an uncapped map inside a change whose purpose is to bound
+   * memory. This is the D6.4 leak argument applied WITHIN a session rather than
+   * across them: buffer-scoping alone only bounds it at eviction, which a
+   * long-lived session never reaches.
+   *
+   * Called only after a trim actually dropped events, so the O(index) scan is
+   * amortized against the trim's own hysteresis, not paid per insert.
+   * See change: collapse-superseded-tool-execution-updates.
+   */
+  function pruneCollapseIndex(buf: SessionBuffer): void {
+    const minSeq = buf.events[0]?.seq;
+    if (minSeq === undefined) {
+      buf.collapseIndex.clear();
+      return;
+    }
+    for (const [toolCallId, entry] of buf.collapseIndex) {
+      // `newestSeq` below the surviving floor ⇒ every event for this call is
+      // gone ⇒ the entry can never resolve again.
+      if (entry.newestSeq === undefined || entry.newestSeq < minSeq) {
+        buf.collapseIndex.delete(toolCallId);
+        continue;
+      }
+      // The pinned creating tick was trimmed away: the first-wins fields it
+      // carried are already out of the buffer, so the pin protects nothing and
+      // would only block a legitimate collapse. Release it.
+      if (entry.creatingSeq !== undefined && entry.creatingSeq < minSeq) {
+        entry.creatingSeq = undefined;
+      }
+    }
+  }
+
+  /**
+   * Drop the previously-retained `tool_execution_update` for this call when the
+   * just-inserted `stored` subsumes it (D7), then advance the index. Fail-open
+   * on a missing `toolCallId` (D5) and on any unverified lookup (D6.2).
+   */
+  function collapseSuperseded(buf: SessionBuffer, stored: StoredEvent): void {
+    if (stored.event.eventType !== "tool_execution_update") return;
+    const toolCallId = readToolCallId(stored.event);
+    // D5: an update we cannot key (including a `{__truncated}` placeholder,
+    // whose data carries no toolCallId) is retained and collapses nothing.
+    if (toolCallId === undefined) return;
+
+    let entry = buf.collapseIndex.get(toolCallId);
+    if (!entry) {
+      entry = { creatingSeq: undefined, newestSeq: undefined };
+      buf.collapseIndex.set(toolCallId, entry);
+    }
+
+    const prevSeq = entry.newestSeq;
+    // D7: skip removal when the predecessor IS the pinned creating tick.
+    if (prevSeq !== undefined && prevSeq !== entry.creatingSeq) {
+      dropIfSuperseded(buf, prevSeq, toolCallId, stored.event);
+    }
+
+    entry.newestSeq = stored.seq;
+    if (entry.creatingSeq === undefined) {
+      const details = resolveUpdateDetails(stored.event);
+      // Structural pin: the FIRST update carrying `details.agentId` supplies the
+      // reducer's first-wins `type`/`description` and is never collapsed away.
+      if (details && typeof details.agentId === "string") entry.creatingSeq = stored.seq;
+    }
+  }
+
   return {
     insertEvent(sessionId: string, event: DashboardEvent): number {
       const buf = getOrCreate(sessionId);
       const seq = buf.nextSeq++;
-      buf.events.push({ seq, event: truncateEventData(event) });
+      lastEntriesExamined = 0;
+      const stored: StoredEvent = { seq, event: truncateEventData(event) };
+      buf.events.push(stored);
+      // Collapse superseded updates AFTER truncation (so the `{__truncated}`
+      // placeholder is already resolved) and BEFORE trim/evict, so the shed
+      // policies see the already-collapsed buffer.
+      // See change: collapse-superseded-tool-execution-updates (D1, task 2.3).
+      collapseSuperseded(buf, stored);
       // Trim over the per-session limit (0 = unlimited). Hysteresis: only
       // reclaim once the buffer overshoots the cap by TRIM_SLACK, then trim
       // back to the cap in one O(n) pass. This amortizes the trim cost to O(1)
@@ -791,6 +1076,10 @@ export function createMemoryEventStore(
             sessionId,
             (trimmedEventsBySession.get(sessionId) ?? 0) + dropped,
           );
+          // The trim just raised the buffer's seq floor; release index entries
+          // it orphaned so the map tracks RESIDENT calls, not every call ever
+          // seen. See change: collapse-superseded-tool-execution-updates.
+          pruneCollapseIndex(buf);
         }
       }
       evictedSessionsTotal += evictIfNeeded();
@@ -833,6 +1122,7 @@ export function createMemoryEventStore(
       const buf = buffers.get(sessionId);
       if (!buf) return 0;
       const count = buf.events.length;
+      // The collapse index rides on `buf`, so dropping the buffer releases it.
       buffers.delete(sessionId);
       trimmedEventsBySession.delete(sessionId);
       return count;
@@ -861,7 +1151,14 @@ export function createMemoryEventStore(
           bySession: Object.fromEntries(trimmedEventsBySession),
         },
         evictedSessions: evictedSessionsTotal,
+        collapsedUpdates: collapsedUpdatesTotal,
       };
+    },
+
+    getCollapseProbe(): CollapseProbe {
+      let indexedToolCalls = 0;
+      for (const buf of buffers.values()) indexedToolCalls += buf.collapseIndex.size;
+      return { lastEntriesExamined, maxEntriesExamined, indexedToolCalls };
     },
   };
 }

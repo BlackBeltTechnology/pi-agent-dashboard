@@ -540,6 +540,8 @@ describe("memory-event-store", () => {
       expect(store.getTrimStats()).toEqual({
         trimmedEvents: { total: 0, toolExecutionEnd: 0, bySession: {} },
         evictedSessions: 0,
+        // Additive. See change: collapse-superseded-tool-execution-updates.
+        collapsedUpdates: 0,
       });
     });
 
@@ -961,5 +963,404 @@ describe("memory-event-store", () => {
         Buffer.byteLength(JSON.stringify(pair)),
       );
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Superseded `tool_execution_update` collapse.
+// See change: collapse-superseded-tool-execution-updates.
+// ---------------------------------------------------------------------------
+
+/**
+ * Default subagent `details` — deliberately a SUBSUMING shape: every key
+ * present, `entries` non-empty, and a sibling `content` that sets the rendered
+ * result. Individual scenarios perturb exactly one axis so a failure names the
+ * gate condition it broke.
+ */
+function baseDetails(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    agentId: "a1",
+    agentSessionId: "as1",
+    subagentType: "Explore",
+    description: "d1",
+    activity: "thinking",
+    entries: [{ kind: "text", text: "step", ts: 1 }],
+    ...over,
+  };
+}
+
+/** A `tool_execution_update` with a structured `partialResult`. */
+function mkUpdate(
+  toolCallId: string | undefined,
+  details: Record<string, unknown> | undefined = baseDetails(),
+  opts: { content?: unknown; extra?: Record<string, unknown> } = {},
+): DashboardEvent {
+  const partialResult: Record<string, unknown> = {
+    content: "content" in opts ? opts.content : [{ text: "running…" }],
+  };
+  if (details) partialResult.details = details;
+  return {
+    eventType: "tool_execution_update",
+    timestamp: Date.now(),
+    data: {
+      ...(toolCallId !== undefined ? { toolCallId } : {}),
+      toolName: "Agent",
+      partialResult,
+      ...opts.extra,
+    },
+  };
+}
+
+/** A `tool_execution_update` whose `partialResult` is a plain string. */
+function mkPlainUpdate(toolCallId: string, text: string): DashboardEvent {
+  return {
+    eventType: "tool_execution_update",
+    timestamp: Date.now(),
+    data: { toolCallId, toolName: "Agent", partialResult: text },
+  };
+}
+
+function mkTyped(type: string, toolCallId?: string): DashboardEvent {
+  return {
+    eventType: type,
+    timestamp: Date.now(),
+    data: toolCallId ? { toolCallId } : {},
+  };
+}
+
+const neverPinnedFn = () => false;
+
+/** Every stored `tool_execution_update` for `toolCallId`, oldest first. */
+function updatesFor(store: ReturnType<typeof createMemoryEventStore>, sessionId: string, toolCallId: string) {
+  return store
+    .getEvents(sessionId, 1)
+    .filter(
+      (e) =>
+        e.event.eventType === "tool_execution_update" &&
+        (e.event.data as Record<string, unknown>)?.toolCallId === toolCallId,
+    );
+}
+
+describe("collapse of superseded tool_execution_update events", () => {
+  it("E1: retains the newest update per toolCallId plus the pinned creating tick", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    const s1 = store.insertEvent("s", mkTyped("tool_execution_start", "t1")); // seq1
+    store.insertEvent("s", mkUpdate("t1")); // seq2 — creating tick (pinned)
+    store.insertEvent("s", mkUpdate("t1")); // seq3
+    store.insertEvent("s", mkUpdate("t1")); // seq4
+    const s5 = store.insertEvent("s", mkUpdate("t1")); // seq5
+
+    const kept = updatesFor(store, "s", "t1");
+    // Creating tick (seq2) is pinned; exactly ONE non-pinned update survives.
+    const nonPinned = kept.filter((e) => e.seq !== 2);
+    expect(nonPinned).toHaveLength(1);
+    expect(nonPinned[0].seq).toBe(s5);
+    // The tool_execution_start is untouched by the collapse policy.
+    expect(store.getEvent("s", s1)?.eventType).toBe("tool_execution_start");
+    expect(store.getTrimStats().collapsedUpdates).toBe(2); // seq3, seq4
+  });
+
+  it("E2: does not subsume when a details key is missing from the successor", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("t1")); // creating (pinned)
+    store.insertEvent("s", mkUpdate("t1")); // retained newest
+    const details = baseDetails();
+    delete details.agentSessionId;
+    store.insertEvent("s", mkUpdate("t1", details));
+
+    expect(updatesFor(store, "s", "t1")).toHaveLength(3);
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("E3: does not subsume when non-empty entries are replaced by an empty array", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("t1")); // creating (pinned)
+    store.insertEvent(
+      "s",
+      mkUpdate("t1", baseDetails({ entries: [{ ts: 1 }, { ts: 2 }, { ts: 3 }] })),
+    );
+    store.insertEvent("s", mkUpdate("t1", baseDetails({ entries: [] })));
+
+    expect(updatesFor(store, "s", "t1")).toHaveLength(3);
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("E4: does not subsume on a type downgrade of a present key", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("t1")); // creating (pinned)
+    store.insertEvent("s", mkUpdate("t1", baseDetails({ activity: "thinking" })));
+    store.insertEvent("s", mkUpdate("t1", baseDetails({ activity: 123 })));
+
+    expect(updatesFor(store, "s", "t1")).toHaveLength(3);
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("E5: does not subsume when the successor sets no rendered result", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    // Plain-string predecessor SETS the rendered result…
+    store.insertEvent("s", mkPlainUpdate("t1", "running…"));
+    // …the structured successor carries details but NO content, so it does not.
+    store.insertEvent("s", mkUpdate("t1", baseDetails(), { content: undefined }));
+
+    expect(updatesFor(store, "s", "t1")).toHaveLength(2);
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("E6: collapses per toolCallId in isolation", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("t1")); // t1 creating
+    store.insertEvent("s", mkUpdate("t2")); // t2 creating
+    store.insertEvent("s", mkUpdate("t1"));
+    store.insertEvent("s", mkUpdate("t2"));
+    const lastT1 = store.insertEvent("s", mkUpdate("t1"));
+    const lastT2 = store.insertEvent("s", mkUpdate("t2"));
+
+    const t1 = updatesFor(store, "s", "t1");
+    const t2 = updatesFor(store, "s", "t2");
+    // creating + newest each; neither call collapsed the other's events.
+    expect(t1.map((e) => e.seq)).toEqual([1, lastT1]);
+    expect(t2.map((e) => e.seq)).toEqual([2, lastT2]);
+  });
+
+  it("E7: fails open on an update with no toolCallId", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("t1"));
+    store.insertEvent("s", mkUpdate("t1"));
+    const before = store.getEvents("s", 1).length;
+
+    const seq = store.insertEvent("s", mkUpdate(undefined));
+    const after = store.getEvents("s", 1);
+    // The keyless update is retained and removed nothing.
+    expect(after).toHaveLength(before + 1);
+    expect(store.getEvent("s", seq)).toBeDefined();
+  });
+
+  it("E8: a {__truncated} placeholder escapes collapse entirely", () => {
+    // Ceiling low enough that the (entries-free) payload is unreducible.
+    const store = createMemoryEventStore(neverPinnedFn, 100, 20_000, 4_000, 500);
+    for (let i = 0; i < 5; i++) {
+      store.insertEvent("s", {
+        eventType: "tool_execution_update",
+        timestamp: Date.now(),
+        data: { toolCallId: "t1", partialResult: { text: "x".repeat(50_000) } },
+      });
+    }
+    const stored = store.getEvents("s", 1);
+    expect(stored).toHaveLength(5);
+    for (const e of stored) {
+      expect((e.event.data as Record<string, unknown>).__truncated).toBe(true);
+      expect((e.event.data as Record<string, unknown>).toolCallId).toBeUndefined();
+    }
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("E9: the pinned creating tick is never collapsed by a subsuming successor", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    const creating = store.insertEvent("s", mkUpdate("t1")); // only retained update
+    const successor = store.insertEvent("s", mkUpdate("t1")); // fully subsuming
+
+    // BOTH retained — the two-pointer index keeps the pin from being the
+    // collapse target even when it IS the current newest.
+    expect(updatesFor(store, "s", "t1").map((e) => e.seq)).toEqual([creating, successor]);
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("E11: leaves non-update event types untouched", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkTyped("message_start"));
+    store.insertEvent("s", mkTyped("message_end"));
+    store.insertEvent("s", mkTyped("tool_execution_start", "t1"));
+    store.insertEvent("s", mkTyped("tool_execution_end", "t1"));
+    for (let i = 0; i < 10; i++) store.insertEvent("s", mkUpdate("t1"));
+
+    const types = store.getEvents("s", 1).map((e) => e.event.eventType);
+    expect(types).toContain("message_start");
+    expect(types).toContain("message_end");
+    expect(types).toContain("tool_execution_start");
+    expect(types).toContain("tool_execution_end");
+  });
+
+  it("E12: resolves details from partialResult.details only, never data.details", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("t1")); // creating (pinned)
+    const predecessor = store.insertEvent("s", mkUpdate("t1")); // retained newest
+    // Successor carries a SUPERSET at the top level but no partialResult at all.
+    store.insertEvent("s", {
+      eventType: "tool_execution_update",
+      timestamp: Date.now(),
+      data: { toolCallId: "t1", toolName: "Agent", details: baseDetails() },
+    });
+
+    // The predecessor is NOT dropped on the strength of `data.details`.
+    expect(store.getEvent("s", predecessor)).toBeDefined();
+    expect(store.getTrimStats().collapsedUpdates).toBe(0);
+  });
+
+  it("E13: never drops the buffer's highest-seq event", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("t1"));
+    store.insertEvent("s", mkUpdate("t1"));
+    const last = store.insertEvent("s", mkUpdate("t1"));
+    expect(store.getMaxSeq("s")).toBe(last);
+  });
+
+  it("E14: the seq insertEvent returned is re-readable after collapse", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("t1"));
+    store.insertEvent("s", mkUpdate("t1"));
+    const seq = store.insertEvent("s", mkUpdate("t1"));
+    // Mirrors the broadcast path: insert, then re-read by the returned seq.
+    expect(store.getEvent("s", seq)?.eventType).toBe("tool_execution_update");
+  });
+
+  it("E15: preserves the essential head under a subagent flood", () => {
+    const cap = 50;
+    const store = createMemoryEventStore(neverPinnedFn, 100, cap);
+    store.insertEvent("s", mkTyped("message_start"));
+    store.insertEvent("s", mkTyped("message_end"));
+    for (let i = 0; i < 500; i++) store.insertEvent("s", mkUpdate(`t${i % 7}`));
+
+    const events = store.getEvents("s", 1);
+    expect(events.map((e) => e.event.eventType)).toEqual(
+      expect.arrayContaining(["message_start", "message_end"]),
+    );
+    // trimSlack is 0 at this cap.
+    expect(events.length).toBeLessThanOrEqual(cap);
+  });
+
+  it("P1: predecessor lookup cost is bounded, not O(buffer length)", () => {
+    const probeAt = (tailSize: number): number => {
+      const store = createMemoryEventStore(neverPinnedFn, 100, 0); // trim disabled
+      for (let i = 0; i < tailSize; i++) store.insertEvent("s", mkTyped("message_end"));
+      // 50 distinct toolCallIds, interleaved, on top of the non-update tail.
+      for (let round = 0; round < 20; round++) {
+        for (let c = 0; c < 50; c++) store.insertEvent("s", mkUpdate(`t${c}`));
+      }
+      return store.getCollapseProbe().maxEntriesExamined;
+    };
+    const small = probeAt(100);
+    const large = probeAt(20_000);
+    // Bounded by concurrent call count, NOT by buffer length: growing the
+    // buffer 200x must not grow the examined-entry high-water mark.
+    expect(small).toBeLessThanOrEqual(200);
+    expect(large).toBeLessThanOrEqual(200);
+    expect(large).toBeLessThanOrEqual(small * 2);
+  });
+
+  it("P3: the buffer stays bounded under a 10 000-update soak", () => {
+    const cap = 200;
+    const store = createMemoryEventStore(neverPinnedFn, 100, cap);
+    const slack = Math.min(256, Math.floor(cap * 0.05));
+    for (let i = 0; i < 10_000; i++) {
+      store.insertEvent("s", mkUpdate(`t${i % 40}`));
+      if (i % 250 === 0) {
+        expect(store.getEvents("s", 1).length).toBeLessThanOrEqual(cap + slack);
+      }
+    }
+    expect(store.getEvents("s", 1).length).toBeLessThanOrEqual(cap + slack);
+  });
+
+  it("X1: a trim-removed retained update makes the next collapse a no-op", () => {
+    // cap 20 → trimSlack 1: the two updates are the only non-essential events,
+    // so the trim at length 22 sheds exactly them and leaves the buffer at 20 —
+    // one below the reclaim threshold, so the final insert triggers no trim and
+    // the assertion isolates the COLLAPSE path.
+    const cap = 20;
+    const store = createMemoryEventStore(neverPinnedFn, 100, cap);
+    store.insertEvent("s", mkUpdate("t1")); // creating (pinned)
+    store.insertEvent("s", mkUpdate("t1")); // retained newest
+    for (let i = 0; i < 20; i++) store.insertEvent("s", mkTyped("message_end"));
+    const before = store.getEvents("s", 1);
+    const maxBefore = store.getMaxSeq("s");
+    expect(before.some((e) => e.event.eventType === "tool_execution_update")).toBe(false);
+
+    const seq = store.insertEvent("s", mkUpdate("t1"));
+    const after = store.getEvents("s", 1);
+    // The stale index entry resolved to nothing: no OTHER event was removed…
+    expect(after.filter((e) => e.seq !== seq).map((e) => e.seq)).toEqual(
+      before.map((e) => e.seq),
+    );
+    // …and the max-seq event advanced only by the insert itself.
+    expect(store.getMaxSeq("s")).toBe(seq);
+    expect(seq).toBeGreaterThan(maxBefore);
+  });
+
+  it("X2: an unresolved index lookup never deletes the buffer's last element", () => {
+    const cap = 20;
+    const store = createMemoryEventStore(neverPinnedFn, 100, cap);
+    store.insertEvent("s", mkUpdate("t1")); // creating
+    store.insertEvent("s", mkUpdate("t1")); // newest → indexed seq
+    // Trim evaporates both updates, leaving the index naming absent seqs.
+    for (let i = 0; i < 20; i++) store.insertEvent("s", mkTyped("message_start"));
+    const tailBefore = store.getEvents("s", 1).at(-1);
+
+    store.insertEvent("s", mkUpdate("t1"));
+    const events = store.getEvents("s", 1);
+    // `splice(-1, 1)` on an indexOf miss would have deleted this element.
+    expect(events.some((e) => e.seq === tailBefore?.seq)).toBe(true);
+  });
+
+  it("X3: the collapse index is released with its buffer on evict and delete", () => {
+    const maxSessions = 3;
+    const store = createMemoryEventStore(neverPinnedFn, maxSessions);
+    for (let s = 0; s < 30; s++) {
+      for (let c = 0; c < 5; c++) store.insertEvent(`sess${s}`, mkUpdate(`t${c}`));
+    }
+    // Only `maxSessions` buffers survive LRU eviction → at most 5 keys each.
+    expect(store.sessionCount()).toBeLessThanOrEqual(maxSessions);
+    expect(store.getCollapseProbe().indexedToolCalls).toBeLessThanOrEqual(maxSessions * 5);
+
+    for (let s = 0; s < 30; s++) store.deleteEventsForSession(`sess${s}`);
+    expect(store.getCollapseProbe().indexedToolCalls).toBe(0);
+  });
+
+  it("X8: the collapse index does not grow unboundedly within ONE long-lived session", () => {
+    // The buffer's EVENTS are capped by `trimBufferToLimit`, but the collapse
+    // index is keyed by `toolCallId`. Without pruning it gains one permanent
+    // entry per distinct tool call for the life of the session — an uncapped
+    // map introduced by a change whose whole purpose is to bound memory (the
+    // D6.4 leak argument, applied within a session rather than across them).
+    const cap = 20;
+    const store = createMemoryEventStore(neverPinnedFn, 100, cap);
+    const distinctCalls = 500;
+    for (let c = 0; c < distinctCalls; c++) {
+      store.insertEvent("long-lived", mkUpdate(`call${c}`));
+      store.insertEvent("long-lived", mkUpdate(`call${c}`));
+    }
+    // Every tool call but the most recent few has been trimmed out of the
+    // buffer entirely, so its index entry names seqs that no longer exist.
+    // trimSlack = min(256, floor(cap * 0.05)) = 1 at this cap.
+    const bound = cap + 1;
+    expect(store.getEvents("long-lived", 1).length).toBeLessThanOrEqual(bound);
+    // The index must track the RESIDENT calls, not every call ever seen.
+    expect(store.getCollapseProbe().indexedToolCalls).toBeLessThanOrEqual(bound);
+  });
+
+  it("X4: a re-ingested session takes no action on the previous residency's index", () => {
+    const store = createMemoryEventStore(neverPinnedFn, 1);
+    store.insertEvent("victim", mkUpdate("t1"));
+    store.insertEvent("victim", mkUpdate("t1"));
+    // Evict `victim` by exceeding the 1-session cap.
+    store.insertEvent("other", mkTyped("message_start"));
+    expect(store.hasEvents("victim")).toBe(false);
+
+    const seq = store.insertEvent("victim", mkUpdate("t1"));
+    const events = store.getEvents("victim", 1);
+    // Fresh buffer, fresh index: the update is simply the first of a new run.
+    expect(events).toHaveLength(1);
+    expect(events[0].seq).toBe(seq);
+  });
+
+  it("X7: a late update after tool_execution_end applies the policy unchanged", () => {
+    const store = createMemoryEventStore(neverPinnedFn);
+    store.insertEvent("s", mkUpdate("t1")); // creating (pinned)
+    store.insertEvent("s", mkUpdate("t1")); // retained newest
+    const endSeq = store.insertEvent("s", mkTyped("tool_execution_end", "t1"));
+    const lateSeq = store.insertEvent("s", mkUpdate("t1"));
+
+    // The superseded predecessor collapsed; the terminal end is untouched.
+    expect(store.getEvent("s", endSeq)?.eventType).toBe("tool_execution_end");
+    expect(updatesFor(store, "s", "t1").map((e) => e.seq)).toEqual([1, lateSeq]);
+    expect(store.getMaxSeq("s")).toBe(lateSeq);
   });
 });
