@@ -135,12 +135,12 @@ flag, no window registry, no tmux CLI, no new correlation mechanism.
 - [x] 6.2 L2: resident count tracks session count with no persistent divergence
       (test-plan #P3). **PASS: divergence 0** (3 resident `pi` vs 3 live
       sessions). The pre-fix reading was 21 vs 0.
-- [ ] 6.3 L2 acceptance: the full suite in one container with `globalTimeout`
+- [~] 6.3 DEFERRED TO #451 — L2 acceptance: the full suite in one container with `globalTimeout`
       overridden reaches the final spec, container still healthy
       (test-plan #P4). **DEFERRED — needs exclusive use of the Docker VM (#451),
       which this host cannot give.** Partial evidence in hand: P4 passed on both
       2x15-spec chunk runs (container healthy, no unexplained daemon restart).
-- [ ] 6.4 Record the acceptance run's spec-level results verbatim. **DEFERRED
+- [~] 6.4 DEFERRED TO #451 — record the acceptance run's spec-level results verbatim. **DEFERRED
       with 6.3** — it is that run's output. Unblocked the moment #451 frees the
       VM; #433 part 1 has been waiting on it.
 
