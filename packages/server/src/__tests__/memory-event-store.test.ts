@@ -1321,10 +1321,10 @@ describe("collapse of superseded tool_execution_update events", () => {
     // reducer's unconditional overwrite branch — it SETS `result`), while the
     // successor is structured with neither `details` nor `content` (it sets
     // nothing). Collapsing the former into the latter LOSES the rendered result.
-    const mkPlainString = (toolCallId: string): DashboardEvent => ({
+    const mkPlainString = (toolCallId: string, text: string): DashboardEvent => ({
       eventType: "tool_execution_update",
       timestamp: Date.now(),
-      data: { toolCallId, toolName: "Agent", partialResult: "rendered output" },
+      data: { toolCallId, toolName: "Agent", partialResult: text },
     });
     const mkStructuredNoContent = (toolCallId: string): DashboardEvent => ({
       eventType: "tool_execution_update",
@@ -1333,18 +1333,17 @@ describe("collapse of superseded tool_execution_update events", () => {
     });
 
     const store = createMemoryEventStore(neverPinnedFn, 100);
-    store.insertEvent("s", mkPlainString("t1")); // creating-tick slot
-    store.insertEvent("s", mkPlainString("t1")); // the result-setting tail
+    store.insertEvent("s", mkPlainString("t1", "older output"));
+    // Bind the assertion to THIS event specifically. Asserting "some update
+    // still sets a result" would pass on a surviving earlier tick even when the
+    // one under test was wrongly collapsed, so the test must name its subject.
+    const tailSeq = store.insertEvent("s", mkPlainString("t1", "rendered output"));
     store.insertEvent("s", mkStructuredNoContent("t1")); // sets nothing
 
-    const updates = store
-      .getEvents("s", 1)
-      .filter((e) => e.event.eventType === "tool_execution_update");
-    // The result-setting predecessor must NOT have been collapsed away.
-    const stillSetsResult = updates.some(
-      (e) => (e.event.data as Record<string, unknown>).partialResult === "rendered output",
-    );
-    expect(stillSetsResult).toBe(true);
+    const events = store.getEvents("s", 1);
+    const tail = events.find((e) => e.seq === tailSeq);
+    expect(tail).toBeDefined();
+    expect((tail?.event.data as Record<string, unknown>).partialResult).toBe("rendered output");
   });
 
   it("X8: the collapse index does not grow unboundedly within ONE long-lived session", () => {
