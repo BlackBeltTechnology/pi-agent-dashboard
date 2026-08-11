@@ -88,3 +88,12 @@ raw-name passthrough is retired). The core `packages/extension` and
 - **THEN** it SHALL be forwarded with `payload.eventType`
   `ib_approval_requested` / `ib_approval_decided` respectively, payload
   preserved
+
+#### Scenario: Boot-window emissions are buffered, not dropped (startup race)
+
+- **WHEN** a declared `ib:*` event is emitted after the plugin bridge entry
+  activated but BEFORE the host's generic plugin-message listener is
+  registered (announced via `dashboard:plugin-listener-ready`)
+- **THEN** the event SHALL be buffered (bounded) and forwarded in order when
+  the listener-ready announcement arrives
+- **AND** a repeated announcement SHALL NOT cause duplicate forwarding

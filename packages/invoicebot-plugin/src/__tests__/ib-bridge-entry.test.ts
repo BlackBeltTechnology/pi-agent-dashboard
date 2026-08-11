@@ -34,10 +34,13 @@ function makeSharedBus() {
   return { facade, emissions };
 }
 
-function activateBridge(bus: ReturnType<typeof makeSharedBus>) {
+function activateBridge(bus: ReturnType<typeof makeSharedBus>, opts: { ready?: boolean } = {}) {
   const pluginFacade = bus.facade();
   // goal-plugin bridge shape: activate(ctx) where ctx is/carries `pi`.
   activate({ pi: { on: () => {}, events: pluginFacade } });
+  // The MAIN bridge announces its plugin-message listener from its
+  // session_start handler — AFTER extension load. Default: announced.
+  if (opts.ready !== false) bus.facade().emit("dashboard:plugin-listener-ready", {});
   return pluginFacade;
 }
 
@@ -123,5 +126,55 @@ describe("invoicebot bridge entry — foreign emissions over the shared bus", ()
   it("activation is a no-op without an events surface (never throws)", () => {
     expect(() => activate({ pi: {} })).not.toThrow();
     expect(() => activate({})).not.toThrow();
+  });
+});
+
+describe("startup-ordering race — the hop the unit suite previously missed", () => {
+  // Measured live: entry activates at extension load; the main bridge
+  // registers its dashboard:plugin-message listener ~tens of ms later inside
+  // session_start. Emissions in that window MUST be buffered, not dropped.
+
+  it("an emission BEFORE listener-ready is buffered and flushed ON ready (nothing lost, order kept)", () => {
+    const bus = makeSharedBus();
+    activateBridge(bus, { ready: false }); // listener not yet announced
+    const foreign = bus.facade();
+
+    foreign.emit("ib:connector-registered", { connector: "boot-time" });
+    foreign.emit("ib:invoice-state-changed", { invoice_id: "inv-1", state: "new" });
+    expect(pluginMessages(bus)).toHaveLength(0); // held, not emitted into a listenerless channel
+
+    bus.facade().emit("dashboard:plugin-listener-ready", {});
+
+    const msgs = pluginMessages(bus);
+    expect(msgs).toHaveLength(2);
+    expect(msgs.map((m) => m.payload.eventType)).toEqual([
+      "ib_connector_registered",
+      "ib_invoice_state_changed",
+    ]);
+  });
+
+  it("emissions AFTER ready forward immediately; a re-announce is an idempotent no-op", () => {
+    const bus = makeSharedBus();
+    activateBridge(bus); // ready announced
+    const foreign = bus.facade();
+
+    foreign.emit("ib:invoice-state-changed", { invoice_id: "inv-2", state: "approved" });
+    expect(pluginMessages(bus)).toHaveLength(1);
+
+    bus.facade().emit("dashboard:plugin-listener-ready", {}); // reload / re-init
+    expect(pluginMessages(bus)).toHaveLength(1); // no duplicates
+  });
+
+  it("the pre-ready buffer is bounded (never-ready session cannot leak unboundedly)", () => {
+    const bus = makeSharedBus();
+    activateBridge(bus, { ready: false });
+    const foreign = bus.facade();
+
+    for (let i = 0; i < 200; i++) foreign.emit("ib:source-item-detected", { i });
+    bus.facade().emit("dashboard:plugin-listener-ready", {});
+
+    const msgs = pluginMessages(bus);
+    expect(msgs.length).toBeLessThanOrEqual(64);
+    expect(msgs.length).toBeGreaterThan(0);
   });
 });

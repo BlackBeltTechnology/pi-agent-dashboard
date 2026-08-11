@@ -2397,6 +2397,14 @@ function initBridge(pi: ExtensionAPI) {
           });
         }
       });
+
+      // Announce that the plugin-message listener now exists. Plugin bridge
+      // entries activate at extension LOAD (before this session_start-scoped
+      // registration), so anything they emit in that window lands on a
+      // listenerless channel and is silently dropped. Entries buffer until
+      // this signal and flush on it. Generic — carries no plugin knowledge.
+      // See change: relocate-ib-domain-events-to-plugin (startup race).
+      pi.events.emit("dashboard:plugin-listener-ready", {});
     }
 
     // Connect first, then auto-start if needed.

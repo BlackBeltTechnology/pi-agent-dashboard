@@ -91,3 +91,16 @@ the plugin-boundary principle already applied to goal-plugin.
   ported (no coverage loss): `surface-invoice-domain-events-bridge.test.ts`,
   `event-wiring-ib-app-level.test.ts`, IB half of
   `add-inline-consent-ui.test.ts`.
+
+## Decision 6 — startup-race buffer (live-probe finding)
+
+Live hop-probe timeline: bridge-entry activate at T+0ms, the main bridge's
+`dashboard:plugin-message` listener registration at T+78ms (it is
+session_start-scoped). Any `ib:*` emission in that window re-emitted into the
+listenerless channel is silently dropped — engine init emissions (e.g.
+`ib:connector-registered`) fire exactly there. Fix: the main bridge announces
+`dashboard:plugin-listener-ready` (generic, no plugin knowledge) right after
+registering; the entry buffers (bounded, 64) until the announcement and
+flushes in order; re-announce is an idempotent empty flush. The unit suite
+previously modeled the listener as always-present — that gap is closed by the
+three ordering tests in `ib-bridge-entry.test.ts`.
