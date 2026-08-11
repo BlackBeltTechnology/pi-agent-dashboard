@@ -172,24 +172,24 @@ SHALL be verified and escalated when the process survives.
 - **AND** a strategy without one SHALL fail a test rather than silently orphan
   its processes
 
-### Requirement: A session SHALL NOT be reported removed until its termination is confirmed
+### Requirement: A removal SHALL never imply a termination the server did not verify
 
-The server SHALL attempt to confirm the session's process is gone before
-broadcasting `session_removed`. When termination cannot be confirmed, the server
-SHALL surface a diagnostic identifying the session and its surviving process,
-AND SHALL emit an explicit orphan signal to clients alongside `session_removed`,
-rather than reporting a clean removal.
+`session_removed` means the SESSION RECORD was released. It does NOT assert that
+the process was terminated, and clients SHALL NOT read it as that assertion.
+
+The server SHALL attempt to confirm the session's process is gone. When
+termination cannot be confirmed, the server SHALL surface a diagnostic
+identifying the session and its surviving process, AND SHALL emit an explicit
+orphan signal to clients alongside `session_removed`. An unconfirmed termination
+is therefore distinguishable from a confirmed one by the presence of that signal
+— which is the whole point, since their indistinguishability is what hid the
+leak.
 
 The record is still released. Retaining it would wedge the session in the UI
 with no way to clear it but force-kill, and stall consumers that await
 `session_removed` per session (notably the E2E reap), so a failed termination is
 deliberately non-blocking. What must never happen is the SILENT case: a kill that
 never happened being indistinguishable from one that succeeded.
-
-This closes the failure mode that hid the tmux leak: the record was released
-unconditionally, so a kill that never happened was indistinguishable from one
-that succeeded, and the orphaned process became invisible to every consumer of
-the session list.
 
 #### Scenario: Failed termination is visible rather than silent
 
@@ -199,6 +199,12 @@ the session list.
 - **AND** SHALL broadcast an orphan signal carrying the session id and the
   surviving pid, alongside `session_removed` rather than instead of it
 - **AND** SHALL NOT report the shutdown as a clean success
+
+#### Scenario: The client surfaces an unconfirmed termination
+
+- **WHEN** a client receives the orphan signal
+- **THEN** it SHALL surface the surviving pid to the user rather than presenting
+  an ordinary successful close
 
 #### Scenario: Successful termination reports removal exactly once
 

@@ -24,12 +24,14 @@ import { describe, expect, it, vi } from "vitest";
 // `process.kill(1, 0)` throws EPERM, which `isProcessAlive` reports as "gone" —
 // the opposite of the condition under test. So the two primitives the branch
 // reads are pinned directly, and `shutdownSession` runs for real.
+const killProcess = vi.fn(async () => ({ ok: true, forced: true }));
+
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/process.js", async (orig) => {
   const actual = await orig<Record<string, unknown>>();
   return {
     ...actual,
     isProcessAlive: (pid: number) => pid === SURVIVING_PID,
-    killProcess: async () => ({ ok: true, forced: true }),
+    killProcess: (...args: unknown[]) => killProcess(...(args as [])),
   };
 });
 
@@ -39,11 +41,13 @@ const SURVIVING_PID = 424_242;
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { type ShutdownSessionDeps, shutdownSession } from "../browser-handlers/session-action-handler.js";
 
+const unregister = vi.fn();
+
 function makeDeps(broadcast: (m: ServerToBrowserMessage) => void): ShutdownSessionDeps {
   return {
     sessionManager: {
       get: () => ({ id: "orphan-session", pid: SURVIVING_PID, sessionFile: undefined }),
-      unregister: vi.fn(),
+      unregister,
     } as unknown as ShutdownSessionDeps["sessionManager"],
     piGateway: {
       sendToSession: vi.fn(),
@@ -59,9 +63,18 @@ describe("a process that outlives the ladder is announced, not just logged (C2)"
   it("broadcasts session_orphaned with the surviving pid, alongside session_removed", async () => {
     const sent: ServerToBrowserMessage[] = [];
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    killProcess.mockClear();
+    unregister.mockClear();
 
     await shutdownSession("orphan-session", makeDeps((m) => sent.push(m)));
     errors.mockRestore();
+
+    // The escalation really ran: same ladder force-kill uses. Without this the
+    // test would pass on a shutdown that never tried to kill anything.
+    expect(killProcess).toHaveBeenCalledWith(SURVIVING_PID, { timeoutMs: 2000 });
+    // And the record really was released — `session_removed` on the wire is the
+    // announcement, `unregister` is the act.
+    expect(unregister).toHaveBeenCalledWith("orphan-session");
 
     const orphaned = sent.find((m) => m.type === "session_orphaned");
     expect(
