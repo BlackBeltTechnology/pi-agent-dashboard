@@ -1,3 +1,12 @@
+# force-kill-handler Specification
+
+## Purpose
+
+Ending a session — force-kill, the browser `shutdown` message, or the REST
+shutdown route — SHALL terminate the operating-system process backing it,
+for every spawn strategy, and SHALL NOT report a removal it has not
+confirmed.
+
 ## Requirements
 
 ### Requirement: Force kill message type
