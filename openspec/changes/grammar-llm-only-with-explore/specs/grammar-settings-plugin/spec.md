@@ -9,10 +9,32 @@ unreachable UI.
 
 **Migration**: None. The health endpoint's LLM-only shape is specified by
 `grammar-check-service` → "Grammar health probe". The settings section renders no
-backend picker and no LT-URL field (see the MODIFIED "Settings controls
-read/write the plugin config namespace `plugins.grammar`" below).
+backend picker and no LT-URL field (see the ADDED "Settings controls read/write
+the plugin config namespace `plugins.grammar`" below).
 
-## MODIFIED Requirements
+### Requirement: Settings controls read/write the plugin config namespace `plugins.grammar`
+
+**Reason**: The prior requirement mandated a `backend` (`languagetool` | `llm`)
+control, a `languagetool.url` field, and a "single model selector … WHEN
+`backend` is `languagetool` … no model selector" scenario — all unreachable once
+the LanguageTool backend is removed. Re-added below (same name) with the
+LLM-only control set, an unconditional model picker, and a model-required prompt
+— an explicit wholesale replacement rather than a silent MODIFIED scenario drop.
+
+**Migration**: See the ADDED "Settings controls read/write the plugin config
+namespace `plugins.grammar`" below.
+
+### Requirement: Settings section renders from theme tokens with accessible controls
+
+**Reason**: The prior requirement's "Status colors are semantic and theme-aware"
+scenario keyed the success/warning markers off a LanguageTool reachability
+probe, gone with the backend. Re-added below (same name) with the status marker
+scoped to the unsaved/dirty state only.
+
+**Migration**: See the ADDED "Settings section renders from theme tokens with
+accessible controls" below.
+
+## ADDED Requirements
 
 ### Requirement: Settings controls read/write the plugin config namespace `plugins.grammar`
 
@@ -70,8 +92,6 @@ Values SHALL be read from and written to the plugin config namespace
   read-through), dropping any `backend`/`languagetool` fields
 - **AND** subsequent loads SHALL NOT re-migrate
 
-## MODIFIED Requirements
-
 ### Requirement: Settings section renders from theme tokens with accessible controls
 
 The `GrammarSettings` section SHALL derive every color from the dashboard theme CSS custom
@@ -106,8 +126,6 @@ contrast in every theme.
 - **AND** it SHALL meet WCAG-AA contrast against the section background in every theme
 - **AND** there SHALL be no LanguageTool reachability marker (the backend and its health probe
   are removed)
-
-## ADDED Requirements
 
 ### Requirement: Model-candidate guidance is documented and linked
 

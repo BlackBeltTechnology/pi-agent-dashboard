@@ -15,6 +15,24 @@ are deleted; `parseGrammarConfig` drops any persisted values on read (see
 `grammar-settings-plugin` → "Settings controls read/write the plugin config
 namespace `plugins.grammar`").
 
+### Requirement: Backend failures are typed and non-leaky
+
+**Reason**: The prior requirement's "LanguageTool server down" scenario is
+unreachable once the LanguageTool backend is removed. The requirement is
+re-added below (same name) with the LanguageTool scenario replaced by the LLM
+equivalent + the `backend_unconfigured` code — an explicit wholesale replacement
+rather than a silent MODIFIED scenario drop.
+
+**Migration**: See the ADDED "Backend failures are typed and non-leaky" below.
+
+### Requirement: Grammar health probe
+
+**Reason**: The prior requirement's "Health reports active backend" scenario
+asserted a LanguageTool reachability probe in the payload, gone with the
+backend. Re-added below (same name) with the LLM-only payload shape.
+
+**Migration**: See the ADDED "Grammar health probe" below.
+
 ## ADDED Requirements
 
 ### Requirement: Single LLM grammar backend
@@ -54,8 +72,6 @@ persisted config (graceful migration, never throwing).
   config schema is `additionalProperties: false`)
 - **THEN** the write/migrate path SHALL prune the legacy key(s) before validation
 - **AND** validation SHALL NOT throw an `additionalProperties` error
-
-## MODIFIED Requirements
 
 ### Requirement: Backend failures are typed and non-leaky
 
