@@ -130,7 +130,9 @@ describe("findPidsBySpawnToken", () => {
   const TOKEN = "fe487887-9973-4805-ab90-17f3d889ef68";
 
   it("linux: returns the pids the /proc scan printed", () => {
-    const exec = vi.fn(() => "18163\n18674\n18830\n");
+    // Typed params, so `exec.mock.calls[0][0]` is the command string rather
+    // than an empty tuple.
+    const exec = vi.fn((_cmd: string, _opts: { encoding: "utf-8" }) => "18163\n18674\n18830\n");
     expect(findPidsBySpawnToken(TOKEN, { platform: "linux", exec })).toEqual([
       18163, 18674, 18830,
     ]);
@@ -151,7 +153,7 @@ describe("findPidsBySpawnToken", () => {
     // never matches. Without a forced zero exit, `grep -q` left the shell at
     // status 1, execSync threw, the catch swallowed it, and EVERY lookup
     // silently returned [] — a watchdog that fired but reclaimed nothing.
-    const exec = vi.fn(() => "18163\n");
+    const exec = vi.fn((_cmd: string, _opts: { encoding: "utf-8" }) => "18163\n");
     findPidsBySpawnToken(TOKEN, { platform: "linux", exec });
     expect(exec.mock.calls[0]?.[0]).toMatch(/exit 0\s*$/);
   });
