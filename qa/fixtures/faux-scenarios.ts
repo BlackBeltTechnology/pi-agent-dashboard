@@ -949,6 +949,7 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText("sustained subagent complete")]),
     ],
     expect: { text: "sustained subagent complete" },
+  },
 
   // ── OpenSpec auto-attach locality gate (change:
   // scope-openspec-auto-attach-to-session-cwd) ───────────────────────────────
