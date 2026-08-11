@@ -38,7 +38,7 @@ import {
   flipAutomationDisabled,
   listInvoicebotAutomations,
 } from "./automation-toggle.js";
-import { contentTypeFor, resolveBlobPath } from "./blob.js";
+import { contentDispositionFor, contentTypeFor, resolveBlobPath } from "./blob.js";
 import type { EngineResult, FlowRunSpec, IngestFile, IngestOutcome, InvoiceEngine } from "./engine/port.js";
 
 /** Per-file cap (bytes) enforced at the multipart boundary — matches the engine's 20 MB cap. */
@@ -223,7 +223,10 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
     const name = basename(abs);
     reply
       .header("Content-Type", contentTypeFor(abs))
-      .header("Content-Disposition", `inline; filename="${name.replace(/"/g, "")}"`)
+      // Header-safe: a non-Latin-1 filename (e.g. Hungarian `ő`) used to make
+      // Node reject the response with ERR_INVALID_CHAR → 500. See change:
+      // fix-blob-content-disposition-encoding.
+      .header("Content-Disposition", contentDispositionFor(name))
       .header("Accept-Ranges", "bytes")
       .header("X-Content-Type-Options", "nosniff");
 

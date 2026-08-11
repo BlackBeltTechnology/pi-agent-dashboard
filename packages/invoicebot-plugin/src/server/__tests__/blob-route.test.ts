@@ -22,6 +22,10 @@ let cwd: string;
 let outside: string;
 let blobsDir: string;
 const PDF_BYTES = "%PDF-1.4\n".padEnd(300, "x");
+/** Real-world shape: the Hungarian filename that produced 500 ERR_INVALID_CHAR. */
+const ACCENTED = "h_Zrt_527_2018_EVOCOM_SzoftverfejlesztőÉsSzolgáltatóBt.pdf";
+/** Header-injection probe: quote + CR/LF + backslash inside a legal filename. */
+const INJECTION = 'h_ev"il\r\nX-Injected: yes\\slash.pdf';
 
 beforeEach(async () => {
   ensureCalls.length = 0;
@@ -35,6 +39,8 @@ beforeEach(async () => {
   writeFileSync(join(blobsDir, "h_invoice.pdf"), PDF_BYTES);
   writeFileSync(join(blobsDir, "h_scan.png"), "PNGDATA");
   writeFileSync(join(blobsDir, "h_notes.bin"), "RAWBYTES");
+  writeFileSync(join(blobsDir, ACCENTED), PDF_BYTES);
+  writeFileSync(join(blobsDir, INJECTION), PDF_BYTES);
   writeFileSync(join(outside, "secret.txt"), "top secret");
 });
 afterEach(async () => {
@@ -82,6 +88,53 @@ describe("blob route — content types + headers (3.1)", () => {
   it("accepts a full `blobs/<name>` handle", async () => {
     const res = await get("blobs/h_invoice.pdf");
     expect(res.statusCode).toBe(200);
+  });
+});
+
+describe("blob route — Content-Disposition encoding (fix-blob-content-disposition-encoding)", () => {
+  it("an accented filename is served 200 with an ASCII filename AND filename*=UTF-8''", async () => {
+    const res = await get(ACCENTED);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/pdf");
+    expect(res.body).toBe(PDF_BYTES);
+
+    const cd = String(res.headers["content-disposition"]);
+    // No byte outside printable US-ASCII may reach a header value.
+    expect(/^[\x20-\x7e]*$/.test(cd)).toBe(true);
+    expect(cd.startsWith("inline;")).toBe(true);
+    expect(cd).toContain('filename="');
+    expect(cd).toContain("filename*=UTF-8''");
+    // The accented original survives in the RFC 5987 parameter.
+    expect(cd).toContain(encodeURIComponent("ő"));
+    expect(cd).toContain(encodeURIComponent("É"));
+  });
+
+  it("a plain ASCII filename keeps its verbatim, unchanged form", async () => {
+    const res = await get("h_invoice.pdf");
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-disposition"]).toBe('inline; filename="h_invoice.pdf"');
+  });
+
+  it("a header-injection filename is neutralised (no quote/CR/LF/backslash literal)", async () => {
+    const res = await get(INJECTION);
+
+    expect(res.statusCode).toBe(200);
+    const cd = String(res.headers["content-disposition"]);
+    // The value must not be splittable or quote-escapable.
+    expect(cd).not.toContain("\r");
+    expect(cd).not.toContain("\n");
+    expect(cd).not.toContain("\\");
+    expect(cd.match(/"/g)?.length).toBe(2); // exactly the fallback's own quotes
+    expect(res.headers["x-injected"]).toBeUndefined();
+  });
+
+  it("range delivery is unaffected by the encoding", async () => {
+    const res = await get(ACCENTED, { range: "bytes=0-99" });
+    expect(res.statusCode).toBe(206);
+    expect(res.headers["content-range"]).toBe(`bytes 0-99/${PDF_BYTES.length}`);
+    expect(res.rawPayload.length).toBe(100);
+    expect(String(res.headers["content-disposition"])).toContain("filename*=UTF-8''");
   });
 });
 

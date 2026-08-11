@@ -69,6 +69,53 @@ export function resolveBlobPath(cwd: unknown, handle: unknown): BlobResolution {
   return { ok: true, abs: real };
 }
 
+/**
+ * Build a header-safe `Content-Disposition` value for an inline blob response.
+ *
+ * HTTP header values are Latin-1, so interpolating a filename raw makes Node
+ * reject the whole response with `ERR_INVALID_CHAR` (→ 500) the moment the name
+ * carries a non-Latin-1 character such as `ő`. The filename is also untrusted
+ * input, so it must never be able to inject a quote, a CR/LF or an extra header.
+ *
+ * Emits the RFC 6266 §4.3 pairing whenever sanitisation loses information:
+ *   `inline; filename="<ascii fallback>"; filename*=UTF-8''<percent-encoded>`
+ * — old clients read the sanitised fallback, modern clients prefer `filename*`
+ * and recover the exact original name. A filename that is already header-safe
+ * ASCII yields the plain `inline; filename="<name>"` form unchanged, so the
+ * existing success contract for ordinary documents is byte-identical.
+ *
+ * The fallback is built by ALLOW-list (printable US-ASCII minus `"`, `\`, `/`),
+ * because a missed deny-list entry would be header injection whereas a missed
+ * allow-list entry is only an underscore. The result is ASCII by construction,
+ * so it cannot re-introduce the defect. See change:
+ * fix-blob-content-disposition-encoding.
+ */
+export function contentDispositionFor(filename: string): string {
+  // Allow-list: printable US-ASCII except the quote, backslash and path
+  // separator. Control chars (incl. CR/LF/TAB/NUL) and every non-ASCII byte are
+  // outside the range and therefore replaced.
+  let fallback = "";
+  for (const ch of filename) {
+    const code = ch.codePointAt(0) ?? 0;
+    fallback += code >= 0x20 && code <= 0x7e && ch !== '"' && ch !== "\\" && ch !== "/" ? ch : "_";
+  }
+  // Never emit an empty parameter (a fully non-ASCII name sanitises to `___`,
+  // but a genuinely empty input would produce `filename=""`).
+  if (fallback.trim() === "") fallback = "document";
+
+  // RFC 5987 `attr-char` is stricter than encodeURIComponent, which leaves
+  // !'()* raw — percent-encode those five explicitly.
+  const encoded = encodeURIComponent(filename).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+
+  // Already header-safe ASCII: keep the plain, unchanged form.
+  if (fallback === filename) return `inline; filename="${fallback}"`;
+
+  return `inline; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
 /** Map a filename/extension to a Content-Type; unknown → octet-stream (design D3). */
 export function contentTypeFor(pathOrExt: string): string {
   switch (extname(pathOrExt).toLowerCase()) {
