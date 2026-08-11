@@ -97,3 +97,54 @@ raw-name passthrough is retired). The core `packages/extension` and
 - **THEN** the event SHALL be buffered (bounded) and forwarded in order when
   the listener-ready announcement arrives
 - **AND** a repeated announcement SHALL NOT cause duplicate forwarding
+
+#### Scenario: Invoice-state-changed reaches the browser with a stable name
+
+- **WHEN** `ib:invoice-state-changed` is emitted on a subscribed session's bus
+  with `{ invoice_id, state, hold_reason? }`
+- **THEN** a protocol event SHALL be forwarded to the browser
+- **AND** its type SHALL be the stable renamed type `ib_invoice_state_changed`
+- **AND** its payload SHALL be preserved verbatim
+
+#### Scenario: Invoice-cost-updated reaches the browser with its full payload
+
+- **WHEN** `ib:invoice-cost-updated` is emitted on a subscribed session's bus
+  with `{ invoice_id, currency, total, tokens, perStep, updatedAt, final }`
+- **AND** `perStep` contains
+  `{ stepId, agent?, provider?, model?, tokensIn, tokensOut, cost }`
+- **THEN** a protocol event SHALL be forwarded to the browser
+- **AND** its type SHALL be the stable renamed type `ib_invoice_cost_updated`
+- **AND** every payload field SHALL be preserved verbatim
+
+#### Scenario: Sub-cent precision and final discriminator are preserved
+
+- **WHEN** `ib:invoice-cost-updated` carries `currency:"USD"`, a sub-cent
+  `total` and `perStep[].cost`, and `final:false` or `final:true`
+- **THEN** the bridge SHALL forward those numeric values without rounding
+- **AND** it SHALL preserve the `final` value unchanged
+
+#### Scenario: Cost event step with no model is preserved, not dropped
+
+- **WHEN** `ib:invoice-cost-updated` is emitted with a `perStep` entry whose
+  `model` field is absent
+- **THEN** the event SHALL still be forwarded as `ib_invoice_cost_updated`
+- **AND** that step SHALL be forwarded verbatim with its `model` value absent
+  (`undefined`), never dropped, defaulted, or reshaped
+
+#### Scenario: Lifecycle set is renamed
+
+- **WHEN** any lifecycle `ib:*` event in the rename map is emitted on a
+  subscribed session's bus
+- **THEN** it SHALL be forwarded under its mapped `ib_*` protocol type with its
+  payload preserved
+
+#### Scenario: No subscriber is a no-op
+
+- **WHEN** an `ib:*` event is emitted and no browser is subscribed
+- **THEN** forwarding SHALL be a no-op and SHALL NOT error
+
+#### Scenario: Events only forwarded after session ready
+
+- **WHEN** an `ib:*` event fires before the main bridge announces `dashboard:plugin-listener-ready`
+- **THEN** the plugin bridge SHALL buffer the event instead of forwarding it into a listenerless channel
+- **AND** it SHALL flush the buffered event in order after readiness is announced

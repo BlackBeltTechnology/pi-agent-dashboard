@@ -74,6 +74,12 @@ events SHALL still be broadcast.
 
 ## REMOVED Requirements
 
+#### Scenario: Malformed event does not crash the gateway
+
+- **WHEN** a forwarded domain event is malformed or missing its payload
+- **THEN** the app-level rebroadcast SHALL skip it without throwing
+- **AND** subsequent well-formed domain events SHALL still be broadcast
+
 ### Requirement: Processing-cost updates use the app-level domain-event channel
 
 **Reason**: Folded into the modified "App-level domain-event channel"
@@ -82,3 +88,28 @@ the identical path; payload-verbatim preservation is specified at the bridge
 (`invoicebot-event-bridge`, cost-payload scenario) and the frame shape here.
 No behavioural change: `ib_invoice_cost_updated` still reaches every connected
 browser through `ib_domain_event` with the full producer payload verbatim.
+
+#### Scenario: Cost update reaches a browser without a session subscription
+
+- **WHEN** `ib_invoice_cost_updated` is forwarded for a session
+- **AND** a browser is connected but not subscribed to that session
+- **THEN** the browser SHALL receive the event through `ib_domain_event`
+- **AND** the frame SHALL identify the originating `sessionId`
+
+#### Scenario: Full live-accrual payload reaches the app-level consumer
+
+- **WHEN** a live cost event carries `currency:"USD"`, sub-cent `total` and
+  `perStep[].cost` values, optional `provider`/`model` fields, and `final:false`
+- **THEN** the app-level frame SHALL preserve every field and numeric value
+  verbatim
+
+#### Scenario: Terminal freeze discriminator reaches the app-level consumer
+
+- **WHEN** a terminal cost event carries `final:true`
+- **THEN** the app-level frame SHALL preserve `final:true` unchanged
+
+#### Scenario: Per-session delivery remains additive
+
+- **WHEN** `ib_invoice_cost_updated` is delivered after the plugin-owned migration
+- **THEN** every connected browser SHALL receive the unchanged app-level frame
+- **AND** no consumer-visible behavior SHALL depend on the retired per-session duplicate, which had no in-repo browser consumer
