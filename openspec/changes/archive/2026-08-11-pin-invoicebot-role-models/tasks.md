@@ -39,9 +39,9 @@
 
 ## 5. Ship
 
-- [ ] 5.1 Implementation commit on `private/invoicebot`.
-- [ ] 5.2 Archive + spec sync in a separate `docs(openspec)` commit.
-- [ ] 5.3 Push `private/invoicebot` only; verify parity `0 0`.
+- [x] 5.1 Implementation commit on `private/invoicebot`.
+- [x] 5.2 Archive + spec sync in a separate `docs(openspec)` commit.
+- [x] 5.3 Push `private/invoicebot` only; verify parity `0 0`.
 
 ## 6. Live gate
 
