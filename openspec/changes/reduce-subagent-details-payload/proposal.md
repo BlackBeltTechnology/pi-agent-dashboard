@@ -9,7 +9,8 @@ population). It deliberately did NOT touch how FAT each event is.
 The fat is the `subagent_*` `details` payload. Each `tool_execution_update` from
 `pi-dashboard-subagents` carries the **cumulative** subagent timeline — every
 entry re-sent on every tick. A ~55 MB buffer was measured in the field, and the
-collapse's own A/B (`openspec/changes/collapse-superseded-tool-execution-updates/heap-evidence.md`)
+collapse's own A/B
+(`openspec/changes/archive/2026-08-11-collapse-superseded-tool-execution-updates/heap-evidence.md`)
 shows why retention alone cannot reach it: average bytes/event actually ROSE
 (1240 → 1350 B) once the small ticks were shed, because the cost is concentrated
 in the surviving payloads, not in their count.

@@ -1314,6 +1314,39 @@ describe("collapse of superseded tool_execution_update events", () => {
     expect(store.getCollapseProbe().indexedToolCalls).toBe(0);
   });
 
+  it("X9: a plain-string predecessor that SETS the result survives a successor that does not", () => {
+    // The `!dp && !ds` early return skipped the rendered-result rule entirely.
+    // Neither event resolves `partialResult.details` here, but for DIFFERENT
+    // reasons: the predecessor's `partialResult` is a plain string (the
+    // reducer's unconditional overwrite branch — it SETS `result`), while the
+    // successor is structured with neither `details` nor `content` (it sets
+    // nothing). Collapsing the former into the latter LOSES the rendered result.
+    const mkPlainString = (toolCallId: string): DashboardEvent => ({
+      eventType: "tool_execution_update",
+      timestamp: Date.now(),
+      data: { toolCallId, toolName: "Agent", partialResult: "rendered output" },
+    });
+    const mkStructuredNoContent = (toolCallId: string): DashboardEvent => ({
+      eventType: "tool_execution_update",
+      timestamp: Date.now(),
+      data: { toolCallId, toolName: "Agent", partialResult: {} },
+    });
+
+    const store = createMemoryEventStore(neverPinnedFn, 100);
+    store.insertEvent("s", mkPlainString("t1")); // creating-tick slot
+    store.insertEvent("s", mkPlainString("t1")); // the result-setting tail
+    store.insertEvent("s", mkStructuredNoContent("t1")); // sets nothing
+
+    const updates = store
+      .getEvents("s", 1)
+      .filter((e) => e.event.eventType === "tool_execution_update");
+    // The result-setting predecessor must NOT have been collapsed away.
+    const stillSetsResult = updates.some(
+      (e) => (e.event.data as Record<string, unknown>).partialResult === "rendered output",
+    );
+    expect(stillSetsResult).toBe(true);
+  });
+
   it("X8: the collapse index does not grow unboundedly within ONE long-lived session", () => {
     // The buffer's EVENTS are capped by `trimBufferToLimit`, but the collapse
     // index is keyed by `toolCallId`. Without pruning it gains one permanent

@@ -13,10 +13,12 @@ concentrated in the surviving payloads. Count and size are independent levers.
 
 #### Scenario: A long-running subagent's tick size stays flat
 
-- **GIVEN** a subagent that has accumulated many timeline entries
-- **WHEN** it emits successive progress ticks
-- **THEN** tick payload size SHALL NOT grow in proportion to the accumulated
-  entry count
+- **GIVEN** a subagent whose accumulated timeline grows from 10 to 100 entries
+- **WHEN** it emits successive progress ticks across that growth
+- **THEN** serialized tick payload size SHALL grow by no more than **2x**
+  across that 10x growth in entry count
+- **AND** the bound SHALL be asserted against the serialized bytes actually
+  broadcast, not against the in-memory object
 
 #### Scenario: A reduced payload folds to the same state as a full payload
 
@@ -26,6 +28,16 @@ concentrated in the surviving payloads. Count and size are independent levers.
 - **THEN** both SHALL yield the same rendered subagent state, preserving the
   accumulative merge, the `entries` empty-array overwrite guard, and first-wins
   `type`/`description`
+
+#### Scenario: A late joiner folds correctly from EMPTY state
+
+- **GIVEN** a consumer holding NO prior state for a subagent already mid-run
+  (a reconnect, a replay, or a browser opened after the run started)
+- **WHEN** it folds the reduced-payload stream from empty
+- **THEN** it SHALL reach the same rendered state as a consumer that folded the
+  full-payload stream from the beginning
+- **AND** a delta that references state the consumer never received SHALL be
+  recoverable, not silently dropped
 
 #### Scenario: The dashboard stays correct against an old producer
 

@@ -237,7 +237,16 @@ function valueType(v: unknown): string {
  *     reducer's empty-array overwrite guard exists because initial and
  *     late/reordered frames legitimately arrive empty);
  *   - if `p` sets the rendered `result`, `s` sets it too.
- * Neither carrying details ⇒ the plain-string overwrite branch ⇒ unconditional.
+ *
+ * The rendered-result rule applies even when NEITHER event resolves details —
+ * they can reach that state for different reasons: a plain-string
+ * `partialResult` (the reducer's unconditional overwrite branch, which SETS
+ * `result`) resolves no details, and so does a structured `partialResult`
+ * carrying neither `details` nor `content` (which sets nothing). An earlier
+ * `if (!dp && !ds) return true` short-circuit skipped the rule on that path and
+ * dropped a result-setting predecessor in favour of a successor that set
+ * nothing. See test X9.
+ *
  * On failure BOTH are retained; the index advances to `s`, so the non-subsumed
  * `p` is shed only by the ordinary trim/evict policies.
  */
@@ -259,7 +268,6 @@ function entriesSurvive(pd: Record<string, unknown>, sd: Record<string, unknown>
 function subsumes(p: DashboardEvent, s: DashboardEvent): boolean {
   const dp = resolveUpdateDetails(p);
   const ds = resolveUpdateDetails(s);
-  if (!dp && !ds) return true;
   const pd = dp ?? {};
   const sd = ds ?? {};
   if (!keysSurvive(pd, sd)) return false;

@@ -153,7 +153,10 @@ function valueType(v: unknown): string {
 function subsumes(p: DashboardEvent, s: DashboardEvent): boolean {
   const dp = detailsOf(p);
   const ds = detailsOf(s);
-  if (!dp && !ds) return true;
+  // No `!dp && !ds` short-circuit: both a plain-string `partialResult` (SETS
+  // result) and a structured one with neither `details` nor `content` (sets
+  // nothing) resolve no details, so the rendered-result rule below must still
+  // run. Mirrors the store exactly — see store `subsumes()` and test X9.
   const pd = dp ?? {};
   const sd = ds ?? {};
   for (const k of Object.keys(pd)) {

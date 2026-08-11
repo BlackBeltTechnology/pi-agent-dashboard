@@ -34,6 +34,21 @@ function arg(name, fallback) {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
+/**
+ * Positive-integer CLI arg. A bare `Number()` turns `--top all` into NaN, and
+ * `slice(0, NaN)` returns an EMPTY array — the probe would then print "no
+ * event-store-shaped buffers found" on a heap full of buffers and send the
+ * investigation the wrong way. Fail loudly instead of reporting a false empty.
+ */
+function intArg(name, fallback) {
+  const raw = arg(name, fallback);
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`--${name} must be a positive integer (got ${JSON.stringify(raw)})`);
+  }
+  return n;
+}
+
 async function resolvePid() {
   const explicit = arg("pid");
   if (explicit) return Number(explicit);
@@ -96,7 +111,7 @@ const ANALYZE = `(function (arrays) {
     });
   }
   out.sort((a, b) => b.estBytes - a.estBytes);
-  return JSON.stringify(out.slice(0, ${Number(arg("top", "10"))}));
+  return JSON.stringify(out.slice(0, ${intArg("top", "10")}));
 })`;
 
 async function main() {
@@ -123,10 +138,29 @@ async function main() {
       msg.error ? p.reject(new Error(JSON.stringify(msg.error))) : p.resolve(msg.result);
     }
   });
+  // A request settles ONLY on a matching reply, so without these the probe
+  // hangs silently and forever when the inspector session drops or when
+  // `Runtime.queryObjects` never answers on a large heap. Fail loudly instead.
+  const failAllPending = (reason) => {
+    for (const [, p] of pending) p.reject(new Error(reason));
+    pending.clear();
+  };
+  ws.addEventListener("close", () => failAllPending("inspector socket closed"));
+  ws.addEventListener("error", () => failAllPending("inspector socket error"));
+
+  const requestTimeoutMs = intArg("request-timeout-ms", "60000");
   const send = (method, params) =>
     new Promise((resolve, reject) => {
       const mid = ++id;
-      pending.set(mid, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(mid);
+        reject(new Error(`${method} timed out after ${requestTimeoutMs}ms`));
+      }, requestTimeoutMs);
+      const settle = (fn) => (v) => {
+        clearTimeout(timer);
+        fn(v);
+      };
+      pending.set(mid, { resolve: settle(resolve), reject: settle(reject) });
       ws.send(JSON.stringify({ id: mid, method, params }));
     });
 
