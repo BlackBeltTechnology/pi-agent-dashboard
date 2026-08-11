@@ -1364,7 +1364,9 @@ export function wireEvents(deps: EventWiringDeps): void {
                 firstMessage: hist.firstMessage,
                 startedAt: hist.startedAt,
               });
-              sessionManager.unregister(hist.id);
+              // Not a witnessed ending — these are history records seeded into
+              // the map. See change: fix-ended-session-missing-endedat.
+              sessionManager.unregister(hist.id, { witnessed: false });
               sessionManager.update(hist.id, { hidden: true });
               const s = sessionManager.get(hist.id);
               if (s) browserGateway.broadcastSessionAdded(s);
@@ -1873,7 +1875,9 @@ export function wireEvents(deps: EventWiringDeps): void {
             sessionDir: piSession.cwd,
             firstMessage: piSession.firstMessage,
           });
-          sessionManager.unregister(piSession.id);
+          // Historical sessions pi reported; their endings were never observed.
+          // See change: fix-ended-session-missing-endedat.
+          sessionManager.unregister(piSession.id, { witnessed: false });
         } else if (existing.sessionFile !== piSession.path) {
           sessionManager.update(piSession.id, {
             sessionFile: piSession.path,
