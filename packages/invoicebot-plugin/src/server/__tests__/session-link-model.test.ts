@@ -104,6 +104,23 @@ describe("invoicebot spawns pin the configured model (pin-invoicebot-spawn-model
     expect(ctx.spawns[0].env).toEqual({ IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: "inv1" });
   });
 
+  it("never resolves an Anthropic or DeepSeek fallback when a model IS configured", async () => {
+    // The live failure was an Anthropic spawn default; a DeepSeek role fallback
+    // was the sibling symptom. With a configured model neither may appear.
+    writeDashboardConfig({ defaultModel: CONFIGURED });
+    const { resolve } = makeResolver();
+    const ctx = makeDeps(resolve);
+
+    await createSessionLink(ctx.deps).ensureScopedSession(CWD, "inv-guard");
+    await createSessionLink(ctx.deps).dispatchFlow({ cwd: CWD, flow: FLOW, invoiceId: "inv-guard" });
+
+    expect(ctx.spawns).toHaveLength(2);
+    for (const s of ctx.spawns) {
+      expect(s.model).toBe(CONFIGURED);
+      expect(String(s.model)).not.toMatch(/anthropic|claude|deepseek/i);
+    }
+  });
+
   it("the PROCESSING/flow spawn carries the identical model", async () => {
     writeDashboardConfig({ defaultModel: CONFIGURED });
     const { resolve } = makeResolver();

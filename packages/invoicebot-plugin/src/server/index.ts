@@ -11,12 +11,14 @@
  * routes are registered before the server listens. See change:
  * add-invoicebot-rest-plugin.
  */
+import { homedir } from "node:os";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { IB_DOMAIN_EVENT_MESSAGE } from "../shared/ib-events.js";
 import { createCanonicalSessionStore, defaultCanonicalStorePath } from "./canonical-session-store.js";
 import { selectEngine } from "./engine/select.js";
 import { mountInvoiceBotRoutes } from "./routes.js";
+import { auditRoleModels, describeRoleAudit, readRoleMap } from "./role-models.js";
 import { createSessionLink, recordedSessionIdsFromDetails } from "./session-link.js";
 import { resolveSpawnModel } from "./spawn-model.js";
 
@@ -71,6 +73,21 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   });
 
   ctx.logger.info(`invoicebot spawn model: ${spawnModel() ?? "(host default — none configured)"}`);
+
+  // Role plane: the in-session agents resolve their model through role aliases,
+  // NOT through the spawn option, so a role can point at a different provider
+  // than the pin. Audit and report (never rewrite — the role map is
+  // operator-owned). Defensive: cannot throw, cannot block activation.
+  // See change: pin-invoicebot-role-models.
+  try {
+    const pin = spawnModel();
+    const audit = auditRoleModels(readRoleMap(homedir()), pin);
+    const line = describeRoleAudit(audit, pin);
+    if (audit.ok) ctx.logger.info(line);
+    else ctx.logger.warn(line);
+  } catch (err) {
+    ctx.logger.warn(`invoicebot role audit failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // §5.4: expose the reverse sessionId → { IB_TOOLSET, IB_INVOICE_ID } lookup so
   // the host's auto-resume re-applies the bound scope on a continue-spawn (a
