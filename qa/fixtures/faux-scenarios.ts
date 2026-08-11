@@ -949,6 +949,23 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText("sustained subagent complete")]),
     ],
     expect: { text: "sustained subagent complete" },
+
+  // ── OpenSpec auto-attach locality gate (change:
+  // scope-openspec-auto-attach-to-session-cwd) ───────────────────────────────
+  // The verbatim incident shape: an openspec CLI invocation prefixed with a
+  // `cd` into ANOTHER repository. The detector must drop the match entirely,
+  // so the card never attaches and never auto-renames. The bash tool runs for
+  // real; detection happens on `tool_execution_start` regardless of its exit
+  // code.
+  "openspec-foreign-cd": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("bash", { command: "cd /tmp && openspec new change repo-b-change || true" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("foreign openspec command done")]),
+    ],
+    expect: { toolName: "bash" },
   },
 
   // ── auto-canvas driver scenarios (change: auto-canvas, Sections 6–8) ────

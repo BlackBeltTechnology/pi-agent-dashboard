@@ -32,10 +32,11 @@ Files in this directory. One row per source file.
 | `models-json-reader.ts` | ONE shared pure reader for user-authored `~/.pi/agent/models.json`, consumed by BOTH registry paths… → see `models-json-reader.ts.AGENTS.md` |
 | `node-version.ts` | Single source of truth for Node-version predicates. `isAffectedNode(version)` flags nodejs/node#58515… → see `node-version.ts.AGENTS.md` |
 | `notify.ts` | `normalizeNotifyLevel(level)` — maps an unrecognized notify level to `"info"`. → see `notify.ts.AGENTS.md` |
-| `openspec-activity-detector.ts` | Detects OpenSpec activity from tool-execution events. `detectOpenSpecActivity(toolName, args)` returns `{… → see `openspec-activity-detector.ts.AGENTS.md` |
+| `openspec-activity-detector.ts` | Detects OpenSpec activity from tool-execution events. `detectOpenSpecActivity(toolName, args, cwd)` — `cwd` REQUIRED, from server state — returns `{… → see `openspec-activity-detector.ts.AGENTS.md` |
 | `openspec-design-evidence.ts` | Local-evidence override for OpenSpec `design` artifact. `evaluateLocalDesignSatisfaction(changeDir, probe)`… → see `openspec-design-evidence.ts.AGENTS.md` |
 | `openspec-poller.ts` | Aggregates `openspec list`+`status` into `OpenSpecData`. `pollOpenSpec(cwd)` sync (bridge),… → see `openspec-poller.ts.AGENTS.md` |
 | `openspec-specs-evidence.ts` | Local-evidence override for OpenSpec `specs` artifact. `evaluateLocalSpecsSatisfaction(changeDir, probe)` =… → see `openspec-specs-evidence.ts.AGENTS.md` |
+| `path-containment.ts` | Boundary-correct `isPathInside(parent, child, platform?)` (sibling prefix `/repo-other` is NOT inside `/repo`). Relocated from `packages/server/src/session/active-sessions-in-cwd.ts` so the shared OpenSpec detector can cwd-scope. See change: scope-openspec-auto-attach-to-session-cwd. |
 | `pi-package-resolver.ts` | Walks `~/.pi/agent/settings.json#packages[]` + per-workspace `<cwd>/.pi/settings.json`. → see `pi-package-resolver.ts.AGENTS.md` |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
 | `protocol.ts` | Extension↔Server WebSocket protocol. `ExtensionToServerMessage` + `ServerToExtensionMessage` unions. → see `protocol.ts.AGENTS.md` |
