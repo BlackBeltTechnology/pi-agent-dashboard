@@ -77,4 +77,60 @@ test.describe("subagent detail dialog (D4)", () => {
     expect(await popupPromise).toBeNull();
     expect(context.pages().length).toBe(pagesBefore);
   });
+
+  // F4 (change: collapse-superseded-tool-execution-updates) — collapse is
+  // RETENTION-only: it removes superseded events from the store buffer and never
+  // suppresses a live broadcast. The live view must therefore keep advancing at
+  // the producer's cadence while a subagent runs.
+  //
+  // `subagent-sustained` keeps the subagent alive ~6 s across three sleeping
+  // bash calls, so the parent's Agent tool emits ticks throughout. Sampling the
+  // rendered card over a 10 s window must observe ≥ 2 DISTINCT states; a
+  // collapse that (wrongly) suppressed broadcast would freeze it at one.
+  test("the live subagent timeline keeps advancing while collapse is active", async ({ page }) => {
+    // F4 asserts collapse is RETENTION-ONLY: it bounds what the store keeps and
+    // never suppresses a live broadcast. That claim is about the wire, not the
+    // DOM — so it is asserted on the /ws frames the browser actually receives.
+    //
+    // An earlier revision sampled `body.innerText()` for "≥ 2 distinct states".
+    // That was VACUOUS: a probe showed the only text changing during a
+    // sustained run is the elapsed-time counter ("2s" -> "13s") and the sidebar
+    // token counters — so it passed off a ticking clock even with zero subagent
+    // ticks on the wire. Counting real `tool_execution_update` frames cannot.
+    // See change: collapse-superseded-tool-execution-updates (test-plan F4).
+    const updateFrames: string[] = [];
+    page.on("websocket", (ws) => {
+      ws.on("framereceived", (frame) => {
+        const payload = typeof frame.payload === "string" ? frame.payload : "";
+        if (payload.includes("tool_execution_update")) updateFrames.push(payload);
+      });
+    });
+
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+
+    const before = await page.request.get("/api/health");
+    const beforeBody = (await before.json()) as { storeTrim: { collapsedUpdates: number } };
+
+    await sendPrompt(page, "[[faux:subagent-sustained]] go");
+
+    const agentCard = page.getByText(/faux sustained subagent/i).first();
+    await expect(agentCard).toBeVisible({ timeout: 60_000 });
+
+    // Let the sustained run produce its tick stream.
+    await expect
+      .poll(() => updateFrames.length, { timeout: 30_000, intervals: [500] })
+      .toBeGreaterThanOrEqual(2);
+
+    const after = await page.request.get("/api/health");
+    const afterBody = (await after.json()) as { storeTrim: { collapsedUpdates: number } };
+
+    // Both halves must hold in the SAME window, else the test proves nothing:
+    //   - collapse actually engaged (retention bounded), AND
+    //   - the browser still received a live tick stream (nothing suppressed).
+    expect(afterBody.storeTrim.collapsedUpdates).toBeGreaterThan(
+      beforeBody.storeTrim.collapsedUpdates,
+    );
+    expect(updateFrames.length).toBeGreaterThanOrEqual(2);
+  });
 });

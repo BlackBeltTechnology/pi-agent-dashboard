@@ -100,6 +100,12 @@ export interface MessageHandlerSetters {
    */
   setLoadingHistory: React.Dispatch<React.SetStateAction<Map<string, boolean>>>;
   /**
+   * Second per-session replay flag. Diverges from `loadingHistory`: it clears
+   * only on the TERMINAL batch, the failure edge, or a safety-net timeout.
+   * See change: show-replay-in-flight-indicator.
+   */
+  setReplayInFlight: React.Dispatch<React.SetStateAction<Map<string, boolean>>>;
+  /**
    * Per-session auto-canvas state, folded from `canvas_intent` /
    * `canvas_server_chip` broadcasts. Coexists with the URL-driven preview
    * routes. See change: auto-canvas (Section 6).
@@ -130,6 +136,8 @@ export interface MessageHandlerDeps {
    * See change: show-chat-history-loading-indicator.
    */
   loadingHistoryTimersRef: React.MutableRefObject<Map<string, ReturnType<typeof setTimeout>>>;
+  /** Safety-net timers for `replayInFlight`. See change: show-replay-in-flight-indicator. */
+  replayInFlightTimersRef: React.MutableRefObject<Map<string, ReturnType<typeof setTimeout>>>;
   /**
    * Live snapshot of pinned dirs + workspaces + sessions for the
    * `isVisibleCwd` check that gates the off-screen spawn_error toast.
@@ -164,9 +172,9 @@ export function useMessageHandler(
     setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
     setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
-    setDisplayPrefs, setLoadingHistory, setCanvasMap,
+    setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap,
   } = setters;
-  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayPersister, showToast } = deps;
+  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
   // session id. See change: add-auto-session-naming.
   const autoNameToastedRef = useRef<Set<string>>(new Set());
@@ -322,6 +330,10 @@ export function useMessageHandler(
         // See change: show-chat-history-loading-indicator.
         if ((msg.updates as Partial<DashboardSession>).dataUnavailable === true) {
           clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId);
+          // Same failure edge for the in-flight flag: no terminal batch is
+          // coming, so the pill must not hang.
+          // See change: show-replay-in-flight-indicator.
+          clearLoadingHistory(setReplayInFlight, replayInFlightTimersRef, msg.sessionId);
         }
         // Mirror model/thinkingLevel into sessionStates so the bottom StatusBar
         // (which reads selectedState.thinkingLevel ?? selectedSession.thinkingLevel)
@@ -693,6 +705,21 @@ export function useMessageHandler(
           clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId);
         } else {
           rearmLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId, HYDRATE_CEILING_MS);
+        }
+        // `replayInFlight` deliberately diverges from `loadingHistory` above:
+        // first content clears the skeleton but the transcript is still
+        // filling, so only the TERMINAL batch clears the in-flight flag. Every
+        // NON-terminal batch — content batches included, not just the empty
+        // heartbeat — is a liveness signal that re-arms the ceiling; without
+        // that the ceiling would expire mid-transfer and drop the pill while
+        // the tail is still missing. `rearmLoadingHistory` touches only the
+        // timers ref (never the setter), so a multi-batch replay does not
+        // re-render the transcript once per batch.
+        // See change: show-replay-in-flight-indicator.
+        if (msg.isLast === true) {
+          clearLoadingHistory(setReplayInFlight, replayInFlightTimersRef, msg.sessionId);
+        } else {
+          rearmLoadingHistory(setReplayInFlight, replayInFlightTimersRef, msg.sessionId, HYDRATE_CEILING_MS);
         }
         break;
       }
@@ -1132,5 +1159,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
 }

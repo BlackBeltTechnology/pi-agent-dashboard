@@ -39,6 +39,7 @@ function makeMainAppHarness() {
     selectedSessionIdRef: { current: undefined },
     pendingSpawnsRef: { current: new Map() },
     loadingHistoryTimersRef: { current: new Map() },
+    replayInFlightTimersRef: { current: new Map() },
   } as MessageHandlerDeps;
 
   const { result } = renderHook(() => useMessageHandler(setters, deps));

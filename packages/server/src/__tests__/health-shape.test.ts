@@ -13,7 +13,11 @@
  * of truth for arm-aware client gating (e.g. hiding pi-core update UI
  * under Electron, since bundled node_modules/ is read-only there).
  */
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  createMemoryEventStore,
+  EMPTY_TRIM_STATS,
+} from "../persistence/memory-event-store.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 let handle: TestServerHandle | undefined;
@@ -113,6 +117,44 @@ describe("GET /api/health — shape", () => {
     expect(storeTrim.trimmedEvents.total).toBe(0);
     expect(storeTrim.trimmedEvents.toolExecutionEnd).toBe(0);
     expect(storeTrim.evictedSessions).toBe(0);
+  });
+
+  // X5: adding `collapsedUpdates` is ADDITIVE — the new counter is present AND
+  // every pre-existing storeTrim field keeps its original name and type.
+  // See change: collapse-superseded-tool-execution-updates.
+  it("storeTrim gains collapsedUpdates additively (collapse-superseded-tool-execution-updates)", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = await res.json() as Record<string, unknown>;
+    const storeTrim = body.storeTrim as Record<string, unknown>;
+    // New counter present…
+    expect(typeof storeTrim.collapsedUpdates).toBe("number");
+    expect(storeTrim.collapsedUpdates).toBe(0);
+    // …and NOTHING pre-existing moved, renamed, or changed type.
+    const trimmed = storeTrim.trimmedEvents as Record<string, unknown>;
+    expect(typeof trimmed.total).toBe("number");
+    expect(typeof trimmed.toolExecutionEnd).toBe("number");
+    expect(typeof trimmed.bySession).toBe("object");
+    expect(typeof storeTrim.evictedSessions).toBe("number");
+  });
+
+  // X6: the `??` fallback the route takes when no event store is wired. It is
+  // the store's explicitly-typed EMPTY_TRIM_STATS, not an inline literal —
+  // `a ?? b` does not check `b` against `A`, so an inline literal could silently
+  // omit a newly-required field. Assert the fallback's shape MATCHES a live
+  // store's, so a future field cannot land on one side only.
+  it("the /api/health storeTrim fallback satisfies the live store's TrimStats shape", () => {
+    const live = createMemoryEventStore(() => false).getTrimStats();
+    expect(Object.keys(EMPTY_TRIM_STATS).sort()).toEqual(Object.keys(live).sort());
+    expect(Object.keys(EMPTY_TRIM_STATS.trimmedEvents).sort()).toEqual(
+      Object.keys(live.trimmedEvents).sort(),
+    );
+    // Same value types on every key, not merely the same key names.
+    for (const k of Object.keys(live) as Array<keyof typeof live>) {
+      expect(typeof EMPTY_TRIM_STATS[k]).toBe(typeof live[k]);
+    }
+    expect(EMPTY_TRIM_STATS).toEqual(live); // a fresh store is all-zero
   });
 
   it("launchSource is 'bridge' when DASHBOARD_STARTER=Bridge", async () => {

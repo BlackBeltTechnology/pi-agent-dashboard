@@ -49,6 +49,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `mermaid-colorize.spec.ts` | Playwright spec. Mermaid default-node colorization end-to-end via faux model. → see `mermaid-colorize.spec.ts.AGENTS.md` |
 | `navigation.spec.ts` | Scenario 5.6 spec. Registers `page.on(pageerror)`. `gotoDashboard`, clicks `settings-btn`, asserts… → see `navigation.spec.ts.AGENTS.md` |
 | `oauth-redirect-base.spec.ts` | L3 spec (change: config-override-oauth-redirect-base, review of PR #409). → see `oauth-redirect-base.spec.ts.AGENTS.md` |
+| `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). Faux `openspec-foreign-cd` proves a `cd`-into-another-repo openspec command never attaches or renames the card (F2). F1 stays L1 — the client never hydrates `notifyLog`. |
 | `openspec-artifact-dialog.spec.ts` | L3 spec (change: openspec-artifact-dialog-desktop). Drives the non-mobile artifact dialog off the board… → see `openspec-artifact-dialog.spec.ts.AGENTS.md` |
 | `openspec-board-drop-contrast.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Marker + active-rail contrast on the LIVE drag… → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drag-time indication + cost:… → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
@@ -67,6 +68,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `recommended-requires.spec.ts` | Playwright E2E for recommended-extension `requires` probe (change:… → see `recommended-requires.spec.ts.AGENTS.md` |
 | `reducer-poisoned-cache-heal.spec.ts` | Playwright E2E for `fix-reducer-crash-undefined-toolname` (manual tasks 5.1+5.2). 2 tests, faux model. → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of seen session resubscribes lastSeq>0 (delta replay). → see `replay-delta-on-reload.spec.ts.AGENTS.md` |
+| `replay-in-flight-pill.spec.ts` | Playwright spec. Replay-in-flight pill: visible over a slowed multi-batch cold replay (F9/X6), overlays without reflow (F11), never paints on the warm empty-delta reload (F10). Delays server→client WS frames via `page.routeWebSocket`. See change: show-replay-in-flight-indicator. |
 | `replay-truncate.spec.ts` | Playwright spec. Strategy B: full replay in fresh browser context pre-truncates heavy (>200-line) tool result… → see `replay-truncate.spec.ts.AGENTS.md` |
 | `resource-activation-trust.spec.ts` | L3 spec (change: project-scope-disable-global-resources). → see `resource-activation-trust.spec.ts.AGENTS.md` |
 | `session-context-injection.spec.ts` | Playwright spec. Spawns session, sends `[[faux:echo-system-context]]`, asserts rendered text contains… → see `session-context-injection.spec.ts.AGENTS.md` |
@@ -74,8 +76,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Asserts the flows-anthropic-bridge regression via… → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
 | `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Real pi-flows engine + faux agents. → see `flow-roundtrip.spec.ts.AGENTS.md` |
 | `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
-| `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-live-detail-reliability D4). → see `subagent-detail-dialog.spec.ts.AGENTS.md` |
-| `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Drives `[[faux:subagent-spawn]]` — parent emits an `Agent` tool… → see `subagent-inspector.spec.ts.AGENTS.md` |
+| `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-live-detail-reliability D4). → see `subagent-detail-dialog.spec.ts.AGENTS.md` Also carries F4 (the live subagent timeline advances ≥ 2 distinct states in a 10 s window — collapse is retention-only and never suppresses a broadcast). See change: collapse-superseded-tool-execution-updates. |
+| `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Drives `[[faux:subagent-spawn]]` — parent emits an `Agent` tool… → see `subagent-inspector.spec.ts.AGENTS.md` Also carries F3 (a completed subagent still renders after a page reload — the replay re-folds the COLLAPSED buffer) and P2 (collapse fires on a real sustained subagent run, asserted via `/api/health` `storeTrim.collapsedUpdates`; port comes from `baseURL`, never a hardcoded `:18000`). See change: collapse-superseded-tool-execution-updates. |
 | `session-tags.spec.ts` | E2E for change add-session-tags (task 7.2). Spawns a fresh git session (`spawnFreshGitSession`), selects it,… → see `session-tags.spec.ts.AGENTS.md` |
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears onboarding gate, clicks `onboarding-step-2-cta` opens… → see `session-spawn.spec.ts.AGENTS.md` |
 | `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only or enforce) present on `/` with… → see `csp.spec.ts.AGENTS.md` |
