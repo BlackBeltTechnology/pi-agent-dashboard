@@ -72,13 +72,13 @@ events SHALL still be broadcast.
 - **THEN** the handler SHALL skip it without throwing
 - **AND** a subsequent well-formed event SHALL still be broadcast
 
-## REMOVED Requirements
-
 #### Scenario: Malformed event does not crash the gateway
 
 - **WHEN** a forwarded domain event is malformed or missing its payload
-- **THEN** the app-level rebroadcast SHALL skip it without throwing
+- **THEN** the plugin-owned app-level rebroadcast SHALL skip it without throwing
 - **AND** subsequent well-formed domain events SHALL still be broadcast
+
+## REMOVED Requirements
 
 ### Requirement: Processing-cost updates use the app-level domain-event channel
 
