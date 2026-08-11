@@ -154,6 +154,17 @@ SHALL be verified and escalated when the process survives.
 - **THEN** the second attempt SHALL be treated as success
 - **AND** SHALL NOT report an error or leave the session listed
 
+#### Scenario: A session whose PID was never recorded
+
+- **WHEN** a session is ended and the server holds no pid for it (the bridge
+  never registered)
+- **THEN** the universal-termination guarantee SHALL NOT apply, because there is
+  no process identity to act on
+- **AND** the server SHALL degrade to closing the bridge connection and
+  releasing the record, reporting that rather than claiming a kill
+- **AND** the spawn-register watchdog SHALL be the mechanism that reclaims such
+  a process, since it holds the correlation token the session record lacks
+
 #### Scenario: No spawn strategy is left without a teardown path
 
 - **WHEN** the server's session-termination code is inspected
@@ -163,10 +174,17 @@ SHALL be verified and escalated when the process survives.
 
 ### Requirement: A session SHALL NOT be reported removed until its termination is confirmed
 
-The server SHALL confirm the session's process is gone before broadcasting
-`session_removed` and unregistering the session. When termination cannot be
-confirmed, the server SHALL surface a diagnostic identifying the session and its
-surviving process, rather than reporting a clean removal.
+The server SHALL attempt to confirm the session's process is gone before
+broadcasting `session_removed`. When termination cannot be confirmed, the server
+SHALL surface a diagnostic identifying the session and its surviving process,
+AND SHALL emit an explicit orphan signal to clients alongside `session_removed`,
+rather than reporting a clean removal.
+
+The record is still released. Retaining it would wedge the session in the UI
+with no way to clear it but force-kill, and stall consumers that await
+`session_removed` per session (notably the E2E reap), so a failed termination is
+deliberately non-blocking. What must never happen is the SILENT case: a kill that
+never happened being indistinguishable from one that succeeded.
 
 This closes the failure mode that hid the tmux leak: the record was released
 unconditionally, so a kill that never happened was indistinguishable from one
@@ -178,6 +196,8 @@ the session list.
 - **WHEN** a session's process survives the full escalation ladder
 - **THEN** the server SHALL log a diagnostic naming the session id and the
   surviving process
+- **AND** SHALL broadcast an orphan signal carrying the session id and the
+  surviving pid, alongside `session_removed` rather than instead of it
 - **AND** SHALL NOT report the shutdown as a clean success
 
 #### Scenario: Successful termination reports removal exactly once

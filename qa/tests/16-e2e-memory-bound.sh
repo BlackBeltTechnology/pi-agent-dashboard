@@ -64,9 +64,15 @@ json_field() { node -e "console.log(JSON.parse(require('fs').readFileSync('$1','
 
 # Live session count as the SERVER reports it — the in-band figure P3 compares
 # the out-of-band resident process count against.
+# A failed request or malformed body must NOT read as "0 live sessions": that is
+# indistinguishable from a clean container and would record a false P3
+# divergence — the exact class of silent-zero bug this gate exists to catch.
+# `curl -fsS` fails on HTTP errors, and the parser exits non-zero rather than
+# printing a number it did not derive from a real session array.
+# See change: fix-tmux-session-shutdown-leak.
 live_sessions() {
-  curl -s "http://localhost:$PORT/api/sessions" \
-    | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);const arr=Array.isArray(j.data)?j.data:(j.data?.sessions??[]);console.log(arr.filter(x=>x.live!==false&&x.status!=='ended').length)}catch{console.log(0)}})"
+  curl -fsS "http://localhost:$PORT/api/sessions" \
+    | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{console.error('live_sessions: /api/sessions returned invalid JSON');process.exit(1)}const arr=Array.isArray(j.data)?j.data:j.data?.sessions;if(!Array.isArray(arr)){console.error('live_sessions: no session array in /api/sessions response');process.exit(1)}console.log(arr.filter(x=>x.live!==false&&x.status!=='ended').length)})"
 }
 
 run_chunk() { # $1=label  $2..=spec files
@@ -119,7 +125,7 @@ info "P1 OK: memory.current is flat run-over-run"
 
 # ---- P3: resident process count tracks session count -----------------------
 RESIDENT="$(json_field "/tmp/qa-mem-$LATE-after.json" residentPiCount)"
-REPORTED="$(live_sessions)"
+REPORTED="$(live_sessions)" || fail "P3: could not read the live-session count (see above)"
 DIVERGENCE=$(( RESIDENT - REPORTED ))
 info "P3: resident pi=$RESIDENT reported live sessions=$REPORTED divergence=$DIVERGENCE"
 # A persistent POSITIVE divergence means pi processes exist that never registered

@@ -723,11 +723,19 @@ export async function shutdownSession(
       // C2 — never report a clean removal for a process that outlived its
       // shutdown. Reporting success we have not verified is what let this bug
       // hide for so long.
+      //
+      // The record is still released: retaining it would wedge the session in
+      // the UI with no way to clear it but force-kill, and stall the E2E reap,
+      // which awaits `session_removed` per session (design D3 — failure must be
+      // non-blocking). But a log line only reaches whoever reads the server log,
+      // so clients are told explicitly too, ALONGSIDE `session_removed` rather
+      // than instead of it.
       console.error(
         `[dashboard] shutdown(${msg.sessionId}): process ${pid} survived SIGTERM→SIGKILL; ` +
           `the session record is being released but the process is ORPHANED. ` +
           `See openspec change fix-tmux-session-shutdown-leak.`,
       );
+      broadcast({ type: "session_orphaned", sessionId: msg.sessionId, pid });
     }
   }
 

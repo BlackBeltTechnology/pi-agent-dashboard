@@ -118,6 +118,24 @@ export interface SessionRemovedMessage {
   sessionId: string;
 }
 
+/**
+ * A session's process outlived its shutdown.
+ *
+ * Emitted alongside `session_removed`, never instead of it: the record IS
+ * released (retaining it would wedge the session in the UI and stall the E2E
+ * reap, which awaits `session_removed` per session), but the client must not be
+ * told the shutdown was clean when a ~127 MB `pi` is still resident. Only
+ * reachable when a process survives SIGTERM → SIGKILL.
+ *
+ * See change: fix-tmux-session-shutdown-leak.
+ */
+export interface SessionOrphanedMessage {
+  type: "session_orphaned";
+  sessionId: string;
+  /** The process still resident after the full escalation ladder. */
+  pid: number;
+}
+
 export interface EventMessage {
   type: "event";
   sessionId: string;
@@ -839,6 +857,7 @@ export type ServerToBrowserMessage =
   | SessionAddedMessage
   | SessionUpdatedMessage
   | SessionRemovedMessage
+  | SessionOrphanedMessage
   | EventMessage
   | EventReplayMessage
   | BrowserCommandsListMessage

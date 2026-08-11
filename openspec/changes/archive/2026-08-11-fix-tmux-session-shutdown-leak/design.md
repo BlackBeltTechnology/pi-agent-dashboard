@@ -4,7 +4,7 @@
 
 Sampled at one instant inside the E2E harness, mid-run:
 
-```
+```text
 tmux panes:      21
 resident pi:     21      (~127 MB RSS each)
 server records:  0
