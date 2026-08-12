@@ -2,7 +2,7 @@
 
 ## REMOVED Requirements
 
-### Requirement: Humanize provider error JSON envelopes
+### Requirement: Provider error message humanization
 
 **Reason.** `errorMessage` is typed `Type.TOptional<Type.TString>` in pi's
 protocol — a bare string with no structure — and providers populate it from

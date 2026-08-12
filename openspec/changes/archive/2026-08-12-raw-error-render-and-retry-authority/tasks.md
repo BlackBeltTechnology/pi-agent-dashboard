@@ -45,17 +45,17 @@
 
 - [x] 5.1 `npm test` — no NEW failures vs the pre-change baseline.
 - [x] 5.2 Biome + `tsc --noEmit` clean on every touched file.
-- [ ] 5.3 `review-code` pass on the full diff.
+- [x] 5.3 `review-code` pass on the full diff.
 
 ## 6. Manual QA (needs a provider that actually fails)
 
-- [ ] 6.1 Manual QA: trigger a real retry; confirm the spinner runs and the label
+- [x] 6.1 Manual QA: trigger a real retry; confirm the spinner runs and the label
       reads `Retry 2` then `Retry 3`.
-- [ ] 6.2 Manual QA: collapse mid-retry; confirm the composer Stop stays on
+- [x] 6.2 Manual QA: collapse mid-retry; confirm the composer Stop stays on
       screen and the card keeps its retry label.
-- [ ] 6.3 Manual QA: press Stop while collapsed; confirm the chain ends and the
+- [x] 6.3 Manual QA: press Stop while collapsed; confirm the chain ends and the
       surface re-expands with a real ✕.
-- [ ] 6.4 Manual QA: let a retry succeed; confirm the surface disappears with no
+- [x] 6.4 Manual QA: let a retry succeed; confirm the surface disappears with no
       user action.
-- [ ] 6.5 Manual QA: verify the raw error string prints in full behind Show more
+- [x] 6.5 Manual QA: verify the raw error string prints in full behind Show more
       and that Copy yields it verbatim.

@@ -137,15 +137,19 @@ state.
 Surface states:
 
 - **retry pending** (one card): `retryState` set with `waiting: true`. Header shows the error
-  text (or `retryState.reason`); the same card shows the waiting sub-line — bare attempt
-  number, countdown or elapsed — plus Copy. The surface renders no Stop and no collapse control.
+  text (or `retryState.reason`); the same card shows the waiting sub-line — a spinner plus the
+  attempt number and a countdown or elapsed suffix — plus Copy. The surface renders no Stop.
 - **retry in flight** (one card): `retryState` set with `waiting: false`. As above with the
-  animated indicator and an in-flight sub-line.
+  animated indicator; the spinner carries the in-flight signal and the suffix is omitted.
+- **retry collapsed** (one compact row): the user collapsed the surface while a retry is
+  pending. Shows the spinner and attempt status only, plus a control to re-expand.
 - **error only** (one card, settled): `lastError` set, `retryState` undefined. Shows message +
   Copy + state-clearing dismiss.
 - **hidden**: neither field set → nothing rendered.
 
-There SHALL be NO collapsed one-line pill state.
+A collapsed one-line row SHALL exist ONLY while a retry is pending, and SHALL be entered only
+by explicit user action. It is component-local view state; see *Trailing control states its own
+action*.
 
 The error anchor SHALL persist while a retry runs on top of it; the surface SHALL clear only
 when `lastError` clears and `retryState` is undefined.
@@ -162,7 +166,7 @@ when `lastError` clears and `retryState` is undefined.
 
 - **WHEN** `retryState.waiting` is `true`
 - **THEN** the card SHALL render the waiting sub-line
-- **AND** the card SHALL NOT render a Stop retrying control or a collapse control
+- **AND** the card SHALL NOT render a Stop retrying control
 
 #### Scenario: Surface uses severity tokens via InlineMessage
 
@@ -183,7 +187,7 @@ when `lastError` clears and `retryState` is undefined.
 - **WHEN** `SessionState.retryState` is undefined AND `SessionState.lastError` is undefined
 - **THEN** the `SessionBanner` SHALL render nothing (no DOM)
 
-### Requirement: Banner is observe-only: no abort control, no collapse
+### Requirement: Banner is observe-only: no abort control
 
 The banner SHALL NOT render any session-abort control. The always-present session Stop (outside
 the banner) is the sole abort entry point, and it ends pi's retry chain. There SHALL be NO
@@ -193,7 +197,9 @@ A state-clearing dismiss (`error-banner-dismiss`, `mdiClose`, invoking the clear
 `onDismiss`) SHALL be offered in EVERY visible state, including while a `retry` sub-status is
 carried — see *Dismiss control is always present and clear-only*. The surface ALSO clears via
 its own lifecycle: when `retryState` clears and `lastError` clears (a confirmed-good resume).
-There SHALL be NO collapse control and NO collapsed pill.
+While a retry is pending the trailing control collapses the surface rather than closing it;
+see *Trailing control states its own action*. Collapse is view-only and SHALL NOT influence the
+retry loop.
 
 This requirement previously withheld the dismiss control while a retry was pending. Combined
 with the removal of the collapse pill that left the surface with NEITHER affordance, so a
@@ -207,8 +213,7 @@ dashboard has no mechanism to re-run a settled turn without appending input.
 
 - **GIVEN** the surface carries a `retry` sub-status
 - **THEN** the banner SHALL NOT render a Stop retrying control
-- **AND** the banner SHALL NOT render a collapse control
-- **AND** the banner SHALL render the retry status sub-line, Copy, and the clear-only dismiss
+- **AND** the banner SHALL render the retry status sub-line, Copy, and a collapse control
 
 #### Scenario: Session Stop ends a pending retry
 
@@ -223,47 +228,92 @@ dashboard has no mechanism to re-run a settled turn without appending input.
 - **THEN** `onDismiss` SHALL fire, clearing `lastError`
 - **AND** NO `abort` message SHALL be dispatched
 
-### Requirement: Dismiss control is always present and clear-only
+### Requirement: Trailing control states its own action
 
-The banner SHALL render its dismiss (✕) control in every visible state,
-including while a retry is waiting and while an attempt is in flight. The
-control SHALL be clear-only: it removes the banner from view and SHALL NOT
-abort, cancel or otherwise influence the retry loop, which pi owns.
+The surface's trailing control SHALL be present in every visible state, and its icon, accessible
+label and test id SHALL identify the action it actually performs. A control that does not close
+the surface SHALL NOT be rendered as a close (✕) affordance.
 
-Dismissal SHALL be transient, not sticky — a subsequent retry signal for the
-same session SHALL re-open the banner carrying the current attempt number.
+| Phase | Icon | Label | Test id | Effect |
+|---|---|---|---|---|
+| retry pending, expanded | `mdiChevronUp` | Collapse | `error-banner-collapse` | collapse to the compact row |
+| retry pending, collapsed | `mdiChevronDown` | Show error | `error-banner-expand` | restore the full card |
+| settled (no retry) | `mdiClose` | Dismiss | `error-banner-dismiss` | clear the surface |
 
-The banner SHALL NOT offer any control that purports to stop retrying.
+While a retry is pending the control SHALL collapse the surface using component-local state. It
+SHALL NOT invoke the dismiss callback and SHALL NOT mutate `SessionState` — in particular it
+SHALL NOT clear `retryState`, on which the session abort control's visibility depends.
 
-#### Scenario: Dismiss renders while retrying
+Once retrying stops, the surface SHALL re-expand automatically if it was collapsed, and the
+control SHALL become a real dismiss that clears the surface.
+
+The surface SHALL clear itself with no user action on a confirmed-good resume. The banner SHALL
+NOT offer any control that purports to stop retrying; the session abort already ends the chain.
+
+#### Scenario: Collapse control while a retry is waiting
+- **GIVEN** `retryState` is set with `waiting: true`
+- **THEN** the surface SHALL render `error-banner-collapse`
+- **AND** it SHALL NOT render `error-banner-dismiss`
+
+#### Scenario: Collapse control while an attempt is in flight
 - **GIVEN** `retryState` is set with `waiting: false`
-- **THEN** the banner SHALL render its dismiss control
-- **AND** the banner SHALL NOT render a collapse control
+- **THEN** the surface SHALL render `error-banner-collapse`
+- **AND** it SHALL NOT render `error-banner-dismiss`
 
-#### Scenario: Dismiss renders while waiting
-- **GIVEN** `retryState` is set with `waiting: true` and a `nextAttemptAt`
-- **THEN** the banner SHALL render its dismiss control
-- **AND** the countdown SHALL remain visible alongside it
+#### Scenario: Collapsing does not clear retry state
+- **GIVEN** a retry is pending
+- **WHEN** the user activates the collapse control
+- **THEN** the dismiss callback SHALL NOT be invoked
+- **AND** no abort, cancel or stop command SHALL be dispatched
 
-#### Scenario: Dismiss does not abort the retry
-- **GIVEN** a retry chain is in flight
-- **WHEN** the user activates the dismiss control
-- **THEN** the banner SHALL be removed from view
-- **AND** no abort, cancel or stop command SHALL be dispatched for that session
+#### Scenario: Collapsed row keeps the attempt status and can be re-expanded
+- **GIVEN** the surface was collapsed while retrying attempt 2
+- **THEN** the collapsed row SHALL show the attempt status
+- **AND** it SHALL render `error-banner-expand`
+- **WHEN** a waiting signal for attempt 3 arrives
+- **THEN** the row SHALL remain collapsed
+- **AND** the attempt status SHALL read attempt 3
 
-#### Scenario: Next attempt re-opens a dismissed banner
-- **GIVEN** the user dismissed the banner during attempt 2
-- **WHEN** a waiting or in-flight signal arrives for attempt 3
-- **THEN** the banner SHALL render again
-- **AND** it SHALL display attempt `3`
+#### Scenario: Dismiss control on a settled error
+- **GIVEN** `lastError` is set AND `retryState` is undefined
+- **THEN** the surface SHALL render `error-banner-dismiss`
+- **AND** it SHALL NOT render `error-banner-collapse`
+- **WHEN** the user activates it
+- **THEN** the dismiss callback SHALL be invoked
 
-#### Scenario: Success clears the banner permanently
-- **GIVEN** the banner is visible for a retrying session
-- **WHEN** a turn completes whose last assistant message is not an error
-- **THEN** `lastError` and `retryState` SHALL both be cleared
-- **AND** the banner SHALL be hidden without user action
+#### Scenario: A collapsed surface re-expands when retrying stops
+- **GIVEN** the surface is collapsed while a retry is pending
+- **WHEN** `retryState` clears while `lastError` remains
+- **THEN** the surface SHALL render expanded
+- **AND** it SHALL render `error-banner-dismiss`
 
 #### Scenario: No stop-retrying affordance exists
-- **WHEN** the banner is rendered in any state
+- **WHEN** the surface is rendered in any state
 - **THEN** no control labelled or acting as "stop retrying" SHALL be present
+
+### Requirement: Retry status is a spinner plus a short label
+
+The retry sub-line SHALL lead with an animated spinner (`mdiLoading`) coloured from
+`--severity-warning-fg`, followed by a short label.
+
+The label SHALL read `Retry {attempt}` with a countdown or elapsed suffix while waiting, and
+`Retry {attempt}` with no suffix while an attempt is in flight — the spinner carries the
+in-flight signal. It SHALL NOT spell out "attempt", "next attempt in" or "retrying now".
+
+The attempt number SHALL be conveyed as text, never by motion or colour alone, so the state
+survives `prefers-reduced-motion` and greyscale.
+
+#### Scenario: Waiting shows the spinner, attempt and countdown
+- **GIVEN** `retryState` is set with `waiting: true` and a `nextAttemptAt` 12 seconds away
+- **THEN** the sub-line SHALL render a spinner
+- **AND** it SHALL read the attempt number and a 12-second suffix
+
+#### Scenario: In flight shows the spinner and attempt only
+- **GIVEN** `retryState` is set with `waiting: false`
+- **THEN** the sub-line SHALL render a spinner
+- **AND** it SHALL NOT render a countdown suffix
+
+#### Scenario: Attempt number survives without motion
+- **GIVEN** the user has `prefers-reduced-motion: reduce` set
+- **THEN** the attempt number SHALL remain readable as text
 
