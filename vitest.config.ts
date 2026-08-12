@@ -39,6 +39,7 @@ export default defineConfig({
       "packages/subagents-plugin",
       "packages/goal-plugin",
       "packages/blackhole-plugin",
+      "packages/mcp-server-plugin",
       "scripts",
       // ship-it's pure decision helpers. Added by wire-local-review-gate: they
       // gate real ship decisions but were collected by no project before.
