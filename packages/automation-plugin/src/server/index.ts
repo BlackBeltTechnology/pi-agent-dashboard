@@ -62,6 +62,12 @@ interface AutomationPluginConfig {
    * <= 0 disables. See change: fix-automation-stamp-correlation.
    */
   undeliveredRunTimeoutMs?: number;
+  /**
+   * Max quiet time (ms) a DELIVERED event-dispatched run may go without any
+   * observed session activity before it is finalized `error` + its slot freed.
+   * Default 120 s; <= 0 disables. See change: bound-stalled-event-run-settle.
+   */
+  stalledRunTimeoutMs?: number;
 }
 
 /** Shared holder so the synchronously-mounted run route can reach the engine
@@ -188,6 +194,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       scanGlobal: cfg.scanGlobalScope !== false,
       maxRunAgeMs: cfg.maxRunAgeMs ?? 30 * 60 * 1000,
       undeliveredRunTimeoutMs: cfg.undeliveredRunTimeoutMs ?? 60_000,
+      stalledRunTimeoutMs: cfg.stalledRunTimeoutMs ?? 120_000,
     };
   }
 
@@ -307,6 +314,10 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
 
     // Buffer assistant text + flush on agent_end for tracked run sessions.
     if (runText.has(sessionId)) {
+      // Any observed frame is liveness evidence for this run — reset its stall
+      // clock so only a genuinely silent run is reaped.
+      // See change: bound-stalled-event-run-settle.
+      engine.noteRunActivity(sessionId);
       const text = extractAssistantText(event, runPrompt.get(sessionId));
       if (text) runText.get(sessionId)!.push(text);
       // Generic finalize. An event-dispatched run with an action-declared

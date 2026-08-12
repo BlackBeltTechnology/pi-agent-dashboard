@@ -166,6 +166,18 @@ export interface EngineConfig {
    * the schedule. <= 0 disables. See change: fix-automation-stamp-correlation.
    */
   undeliveredRunTimeoutMs?: number;
+  /**
+   * Max quiet time (ms) a DELIVERED event-dispatched run (its action declared
+   * an `ActionEvent.completion`) may go without any observed session activity
+   * before it is finalized `error` and its concurrency slot freed. Such a run
+   * emits no `agent_end` and its session is only terminated by the completion
+   * event, so a dropped completion frame otherwise wedges it `running` until
+   * `maxRunAgeMs`. Silence IS the stall signal: a live flow run keeps
+   * forwarding events. Prompt-dispatch runs are never subject to this bound —
+   * a long think is legitimate. <= 0 disables.
+   * See change: bound-stalled-event-run-settle.
+   */
+  stalledRunTimeoutMs?: number;
 }
 
 export interface EngineDeps {
@@ -227,6 +239,12 @@ export interface RunContext {
    */
   spawnToken?: string;
   delivered: boolean;
+  /**
+   * Last observed session activity for this run (set at delivery, refreshed by
+   * `noteRunActivity`). Drives the stalled-event-run bound.
+   * See change: bound-stalled-event-run-settle.
+   */
+  lastActivityAt?: number;
 }
 
 export interface Engine {
@@ -258,6 +276,13 @@ export interface Engine {
    * `onSessionRegistered` is subject to. Preferred correlation path.
    */
   onSessionRegisteredForRun(sessionId: string, runId: string): void;
+  /**
+   * Record observed activity for a tracked run session, resetting its stall
+   * clock. Called for every forwarded event of a tracked run session, so a
+   * genuinely live event-dispatched run is never reaped by the stall bound.
+   * Unknown sessions are a no-op. See change: bound-stalled-event-run-settle.
+   */
+  noteRunActivity(sessionId: string): void;
   /** Capture result.md + transition status when a run session ends. */
   onSessionEnded(sessionId: string, result: string): void;
   /**
@@ -383,8 +408,37 @@ export function createEngine(deps: EngineDeps): Engine {
     }
   }
 
+  /**
+   * Sweep DELIVERED event-dispatched runs that went silent. Such a run
+   * declared a completion event, produces no `agent_end`, and its session is
+   * only terminated on that completion — so a dropped completion frame leaves
+   * it `running` (and its `concurrency: skip` slot held) until the 30-minute
+   * max-age backstop. A live run keeps forwarding events, so quiet past the
+   * bound is the stall signal. See change: bound-stalled-event-run-settle.
+   */
+  function reapStalledEventRuns(): void {
+    const timeoutMs = deps.config().stalledRunTimeoutMs ?? 0;
+    if (timeoutMs <= 0) return;
+    const now = deps.now?.() ?? Date.now();
+    for (const q of [...pending.values()]) {
+      for (const ctx of [...q]) {
+        if (!ctx.delivered) continue; // the undelivered bound owns these
+        if (!ctx.emitEvent?.completion) continue; // prompt runs may think long
+        if (now - (ctx.lastActivityAt ?? ctx.startedAt) <= timeoutMs) continue;
+        warn(`[finalize] path=stalled-reap run ${ctx.runId} (quiet > ${timeoutMs}ms)`);
+        finishAndRelease(ctx, {
+          status: "error",
+          error: "run stalled: completion event never observed",
+          result: "_(run stalled: completion event never observed)_",
+        });
+        terminate(ctx);
+      }
+    }
+  }
+
   function reapStaleRuns(): void {
     reapUndeliveredRuns();
+    reapStalledEventRuns();
     const cfg = deps.config();
     const maxAgeMs = cfg.maxRunAgeMs;
     if (!maxAgeMs || maxAgeMs <= 0) return;
@@ -591,6 +645,7 @@ export function createEngine(deps: EngineDeps): Engine {
       if (!ctx) return;
       ctx.sessionId = sessionId;
       ctx.delivered = true;
+      ctx.lastActivityAt = deps.now?.() ?? Date.now();
       log(`[engine] delivering action to run ${ctx.runId} (session ${sessionId})`);
     },
 
@@ -599,7 +654,14 @@ export function createEngine(deps: EngineDeps): Engine {
       if (!ctx) return;
       ctx.sessionId = sessionId;
       ctx.delivered = true;
+      ctx.lastActivityAt = deps.now?.() ?? Date.now();
       log(`[engine] delivering action to run ${ctx.runId} (session ${sessionId})`);
+    },
+
+    noteRunActivity(sessionId: string): void {
+      const ctx = findBySession(sessionId);
+      if (!ctx) return;
+      ctx.lastActivityAt = deps.now?.() ?? Date.now();
     },
 
     async stopRun(runId: string): Promise<boolean> {
