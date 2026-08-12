@@ -129,6 +129,11 @@ async function handleListen(
     "cache-control": "no-store",
     connection: "keep-alive",
   });
+  // Flush now, rather than letting the headers ride out with the first event.
+  // A subscription on an idle session may emit nothing for minutes, and a
+  // client that waits for the status line before proceeding would block until
+  // then — or time out waiting for headers on a stream that is working fine.
+  raw.flushHeaders();
   reply.hijack();
 
   const sink: StreamSink = {
