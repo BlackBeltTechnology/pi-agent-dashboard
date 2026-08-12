@@ -866,7 +866,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // createContext block below); consumed by wireEvents — `plugin_pi_message`
   // envelopes route to handlers by messageType; every `event_forward` fans
   // out to raw-event subscribers. See change: add-goal-continuation-plugin.
-  const pluginPiHandlers = new Map<string, Array<(msg: unknown) => void>>();
+  const pluginPiHandlers = new Map<string, Array<(msg: unknown, sessionId: string) => void>>();
   const pluginRawEventSubs = new Set<(sessionId: string, event: unknown) => void>();
   // Plugin session-end subscribers (ServerPluginContext.onSessionEnded). Fired
   // from sessionManager.onUnregister via wireEvents — the transport-independent
@@ -891,11 +891,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const d of preferencesStore.getPinnedDirectories()) set.add(d);
     return [...set];
   });
-  function dispatchPluginPiMessage(messageType: string, msg: unknown): void {
+  // `sessionId` comes from the gateway's socket key, never from `msg`. A
+  // plugin that attributes a message to a session (e.g. minting a session-
+  // scoped credential) depends on that being unspoofable.
+  // See change: add-dashboard-mcp-server.
+  function dispatchPluginPiMessage(messageType: string, msg: unknown, sessionId: string): void {
     const arr = pluginPiHandlers.get(messageType);
     if (!arr) return;
     for (const h of arr) {
-      try { h(msg); } catch (err) { console.error("[plugin-pi-handler]", messageType, err); }
+      try { h(msg, sessionId); } catch (err) { console.error("[plugin-pi-handler]", messageType, err); }
     }
   }
   function dispatchPluginRawEvent(sessionId: string, event: unknown): void {

@@ -112,7 +112,10 @@ describe("E25 — abort maps to the general session primitive", () => {
 
   it("abortSpawnedRun is denied and backs nothing (Decision 13 — no kill ladder)", () => {
     expect(DENIED_CONTEXT_MEMBERS).toContain("abortSpawnedRun");
-    expect(MCP_TOOLS.some((t) => t.contextMember === "abortSpawnedRun")).toBe(false);
+    // Compared as a plain string: the type of `contextMember` is narrowed to
+    // the allowlist, so a direct comparison is a compile error rather than a
+    // runtime assertion — and would stop expressing the guarantee.
+    expect(MCP_TOOLS.some((t) => (t.contextMember as string) === "abortSpawnedRun")).toBe(false);
   });
 
   it("documents the soft-only limit so a false success is not implied", () => {

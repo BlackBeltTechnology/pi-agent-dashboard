@@ -57,7 +57,24 @@ function send(reply: FastifyReply, res: RpcHttpResponse): void {
   reply.code(res.status).type("application/json").send(res.body);
 }
 
-export function mountMcpRoutes(fastify: FastifyInstance, deps: McpRouteDeps): void {
+/**
+ * Mount the `/mcp` routes.
+ *
+ * Everything is registered inside an ENCAPSULATED Fastify scope. That is
+ * load-bearing, not stylistic: `setErrorHandler` is global on the instance it
+ * is called on, so calling it directly on the shared `ctx.fastify` would
+ * replace the DASHBOARD'S error handler and break the SPA fallback for every
+ * other route. Encapsulating confines our handler to this plugin's routes.
+ *
+ * Returns the registration promise so a caller can await readiness.
+ */
+export function mountMcpRoutes(fastify: FastifyInstance, deps: McpRouteDeps): Promise<void> {
+  return fastify.register(async (scope) => {
+    mountMcpRoutesInScope(scope, deps);
+  });
+}
+
+function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): void {
   for (const method of EXPLICITLY_REGISTERED_METHODS) {
     fastify.route({
       method,
@@ -126,9 +143,13 @@ export function mountMcpRoutes(fastify: FastifyInstance, deps: McpRouteDeps): vo
    * Without this, malformed JSON yields Fastify's generic 400 envelope — not a
    * JSON-RPC error object — and a client parsing strictly would choke on the
    * error itself (E17).
+   *
+   * Scoped to this encapsulated instance (see `mountMcpRoutes`), so a non-/mcp
+   * route keeps the dashboard's own error handling. The `request.url` check
+   * below is belt-and-braces for a nested registration.
    */
-  fastify.setErrorHandler((error, request, reply) => {
-    if (request.url !== "/mcp") throw error;
+  fastify.setErrorHandler((error: { statusCode?: number }, request, reply) => {
+    if (!request.url.startsWith("/mcp")) throw error;
     const status = error.statusCode ?? 500;
     if (status === 413) {
       send(reply, rpcError(413, null, RPC_PARSE_ERROR, "Request body too large"));

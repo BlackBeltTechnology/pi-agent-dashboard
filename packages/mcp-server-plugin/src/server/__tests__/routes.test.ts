@@ -57,9 +57,9 @@ async function harness(opts: { withAuth?: boolean } = {}): Promise<Harness> {
   if (opts.withAuth === false) {
     // A8's negative control: the same routes with the credential check
     // removed. Used to prove the auth assertions actually bite.
-    mountMcpRoutes(app, { ...deps, verifyDeviceToken: () => "anyone", tokens: { resolve: () => ({ kind: "device", deviceId: "anyone" }) } });
+    await mountMcpRoutes(app, { ...deps, verifyDeviceToken: () => "anyone", tokens: { resolve: () => ({ kind: "device", deviceId: "anyone" }) } });
   } else {
-    mountMcpRoutes(app, deps);
+    await mountMcpRoutes(app, deps);
   }
 
   await app.ready();
@@ -123,6 +123,39 @@ describe("E1/E2/E4 — non-POST methods return 405, never the SPA", () => {
     // no fallback at all, making them vacuous.
     const { app } = await harness();
     const res = await app.inject({ method: "GET", url: "/some/other/path" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("dashboard SPA");
+  });
+
+  it("REGRESSION — mounting /mcp does not hijack the host's error handling", async () => {
+    // `setErrorHandler` is global on the instance it is called on. Registering
+    // ours directly on the shared ctx.fastify replaced the DASHBOARD's handler
+    // and turned every SPA route into a 500 (caught by spa-fallback.test.ts).
+    // The routes now live in an encapsulated scope; this asserts the isolation
+    // rather than trusting it.
+    const app = Fastify();
+    open.push(app);
+    let hostHandlerRan = false;
+    app.setErrorHandler((_err, _req, reply) => {
+      hostHandlerRan = true;
+      reply.code(200).type("text/html").send(SPA_HTML);
+    });
+    app.get("/host-route", async () => {
+      throw new Error("host route exploded");
+    });
+
+    await mountMcpRoutes(app, {
+      tokens: new McpTokenRegistry(),
+      verifyDeviceToken: () => null,
+      invokeTool: async () => ({}),
+      serverInfo: { name: "pi-dashboard", version: "0.7.0" },
+      log: { info: () => {}, warn: () => {}, error: () => {} },
+    });
+    await app.ready();
+
+    const res = await app.inject({ method: "GET", url: "/host-route" });
+
+    expect(hostHandlerRan).toBe(true);
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain("dashboard SPA");
   });
@@ -340,7 +373,7 @@ describe("E17/X11 — malformed and oversized bodies", () => {
     const app = Fastify();
     open.push(app);
     const tokens = new McpTokenRegistry();
-    mountMcpRoutes(app, {
+    await mountMcpRoutes(app, {
       tokens,
       verifyDeviceToken: () => null,
       invokeTool: async () => {

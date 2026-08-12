@@ -173,7 +173,7 @@ export interface EventWiringDeps {
    * `ServerPluginContext.registerPiHandler(messageType, handler)`.
    * See change: add-goal-continuation-plugin.
    */
-  dispatchPluginPiMessage?: (messageType: string, msg: unknown) => void;
+  dispatchPluginPiMessage?: (messageType: string, msg: unknown, sessionId: string) => void;
   /**
    * Optional raw pi-event fan-out. When provided, every forwarded
    * `event_forward` event is delivered to plugin-server subscribers
@@ -733,7 +733,10 @@ export function wireEvents(deps: EventWiringDeps): void {
     // handlers by messageType; never touches core session state.
     // See change: add-goal-continuation-plugin.
     if (msg.type === "plugin_pi_message") {
-      dispatchPluginPiMessage?.(msg.messageType, msg);
+      // `sessionId` is the gateway's own socket key, passed through so a
+      // plugin can attribute the message without trusting its body.
+      // See change: add-dashboard-mcp-server.
+      dispatchPluginPiMessage?.(msg.messageType, msg, sessionId);
       return;
     }
 
