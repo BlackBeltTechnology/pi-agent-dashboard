@@ -1,0 +1,11 @@
+{
+  "_comment": "Debt ceiling, not a target. Per-class so a drop in one class cannot mask a regression in another. Lower it as cleanup lands; raising it is rejected by `node scripts/knip-ratchet.mjs --check-baseline-diff`. See change: add-knip-dead-code-oracle.",
+  "measuredAt": "2026-08-13",
+  "counts": {
+    "files": 10,
+    "exports": 227,
+    "types": 189,
+    "duplicates": 11,
+    "enumMembers": 0
+  }
+}

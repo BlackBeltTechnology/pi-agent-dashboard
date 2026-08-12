@@ -89,7 +89,10 @@
     "test:e2e:reconnect": "PI_E2E_INDEPENDENT_SESSION=1 playwright test faux-ask",
     "test:e2e:perf": "PW_PERF=1 PW_CHANNEL=chrome playwright test chat-render-perf",
     "pretest:e2e:electron": "node -e \"const fs=require('fs');if(process.env.PW_ELECTRON_BINARY||fs.existsSync('packages/electron/out')){process.exit(0)}require('child_process').execSync('npm run -w packages/electron package',{stdio:'inherit'})\"",
-    "test:e2e:electron": "playwright test --config playwright.electron.config.ts"
+    "test:e2e:electron": "playwright test --config playwright.electron.config.ts",
+    "knip": "knip --no-progress",
+    "knip:ratchet": "node scripts/knip-ratchet.mjs",
+    "knip:config": "node scripts/knip-config.mjs"
   },
   "engines": {
     "node": ">=22.19.0 <27"
@@ -111,6 +114,7 @@
     "jiti": "^2.7.0",
     "jsdom": "^29.0.2",
     "jsqr": "^1.4.0",
+    "knip": "^6.32.2",
     "patch-package": "^8.0.1",
     "semver": "^7.7.1",
     "tsx": "^4.21.0",

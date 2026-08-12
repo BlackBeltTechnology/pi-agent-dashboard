@@ -144,7 +144,16 @@ node scripts/check-conventions.mjs --base origin/develop
 node scripts/dox-byte-gate.mjs
 node scripts/i18n-lint.mjs --strict     # --strict, else it exits 0 regardless
 node scripts/i18n-parity.mjs
+node scripts/knip-config.mjs            # knip.json still roots every manifest entry
+node scripts/knip-ratchet.mjs           # per-class dead-code ratchet (~8s)
 ```
+
+The knip pair is the **preventive** half of the dead-code oracle: the nightly
+job runs after merge and can only report. Order matters — `knip-config.mjs`
+first, because an unrooted graph reports live files as dead, and a ratchet over
+that number gates noise (measured: unrooted 723 findings / 90 unused files vs
+rooted 437 / 10). Fix a ratchet failure by deleting the dead code; raising a
+baseline is rejected by `knip-ratchet.mjs --check-baseline-diff`.
 
 They are placed here, after the harness and before the review, because they are
 deterministic, offline and near-instant: a mechanically-failing tree must never
