@@ -1,21 +1,21 @@
 /**
- * GrammarSettings — settings-section slot contribution that edits the CORE
- * `config.grammar` block (NOT the plugins.<id>.* namespace).
+ * GrammarSettings — settings-section slot contribution for the grammar plugin.
  *
- * The composer grammar/spell CHECK is core (change: add-composer-grammar-check);
- * the composer has no plugin slot, so only the SETTINGS live here. This section
- * reads/persists via the existing auth-gated GET/PUT /api/config — the same path
- * the core SettingsPanel uses — so `config.grammar` stays the single source of
- * truth the running feature reads. LanguageTool reachability comes from the
- * existing GET /api/grammar/health.
+ * Reads/writes the plugin config namespace `plugins.grammar.*` via
+ * `GET /api/config` (`data.plugins.grammar`) + `POST /api/config/plugins/grammar`.
+ * Persistence flows through the host's unified Save Bar via
+ * `useSettingsDraftSource` (id `plugin:grammar`) — the section renders NO own
+ * Save/Reload buttons and no "unsaved" chip; `commit` POSTs (rejecting on a
+ * non-OK response so the host keeps it dirty + retryable) then re-GETs to
+ * surface server clamping; `reset` re-GETs. Fields are grouped into `<details>`
+ * accordions; presentation is theme-token utility classes only (no inline
+ * styles on plugin-owned elements). LLM-only: no backend selector, no
+ * LanguageTool URL/health marker.
  *
- * Persistence UX = local Save/Reload with a dirty marker (design Decision 3A,
- * mirroring roles-plugin), NOT the shared settings-draft context. PUT /api/config
- * does not echo the reloaded config, so Save re-GETs to surface server clamping.
- *
- * See change: add-grammar-settings-plugin.
+ * See changes: add-grammar-settings-plugin, grammar-llm-only-with-explore,
+ * align-grammar-settings-design.
  */
-import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
@@ -25,12 +25,18 @@ import type { GrammarConfig } from "./grammar-config.js";
 /** Docs page describing which models are good grammar-check candidates. */
 const MODEL_GUIDANCE_DOC = "/docs/grammar-model-guidance.md";
 
+/** Short curated recommended-model set (full tradeoff table lives in the doc). */
+const RECOMMENDED_MODELS: Array<{ id: string; recommended?: boolean; noteKey: string; note: string }> = [
+  { id: "claude-haiku-4-5", recommended: true, noteKey: "recHaiku", note: "fast, cheap, keeps style — ~2–4 s" },
+  { id: "claude-sonnet-4-5", noteKey: "recSonnet", note: "thorough, slower — ~8 s" },
+  { id: "claude-opus-4-5", noteKey: "recOpus", note: "most thorough, pricier — ~7 s" },
+  { id: "gemini-flash-latest", noteKey: "recGemini", note: "capable non-Anthropic option" },
+];
+
 /**
  * Disabled-default fallback, used only before the first GET resolves or when the
- * config file has no `grammar` block. Mirrors `DEFAULT_GRAMMAR` in
- * `packages/shared/src/config.ts` — the runtime const is NOT imported here
- * because `config.ts` pulls `node:fs` (unsafe in a browser bundle). The server
- * (`parseGrammarConfig`) remains the clamp/validation authority.
+ * config file has no `grammar` block. The server (`parseGrammarConfig`) remains
+ * the clamp/validation authority.
  */
 const FALLBACK_GRAMMAR: GrammarConfig = {
   enabled: false,
@@ -69,13 +75,22 @@ function normalize(raw: Partial<GrammarConfig> | undefined): GrammarConfig {
   };
 }
 
+// Shared theme-token utility classes (the blackhole/hermes idiom).
+const GROUP = "border border-[var(--border-secondary)] rounded-[10px] overflow-hidden mb-2.5 bg-[var(--bg-secondary)]";
+const SUMMARY =
+  "focus-ring cursor-pointer flex items-center gap-2 px-3.5 py-2.5 text-[13px] font-semibold text-[var(--text-primary)] select-none list-none";
+const CARET = "text-[var(--text-tertiary)] motion-safe:transition-transform";
+const BODY = "px-3.5 pb-3 pt-1 border-t border-[var(--border-subtle)] flex flex-col gap-2.5";
+const FIELD = "flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]";
+const CHECK = "flex gap-1.5 items-center text-[12px] text-[var(--text-secondary)]";
+const CONTROL =
+  "focus-ring bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-[12px] text-[var(--text-primary)]";
+
 export function GrammarSettings(): React.ReactElement {
   const t = useT();
   const [config, setConfig] = useState<GrammarConfig>(FALLBACK_GRAMMAR);
   const [draft, setDraft] = useState<GrammarConfig>(FALLBACK_GRAMMAR);
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const ModelSelector = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
 
   const loadModels = useCallback(async () => {
@@ -93,18 +108,13 @@ export function GrammarSettings(): React.ReactElement {
   }, []);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/config");
-      const json = (await res.json()) as {
-        data?: { plugins?: { grammar?: Partial<GrammarConfig> } };
-      };
-      const next = normalize(json.data?.plugins?.grammar);
-      setConfig(next);
-      setDraft(next);
-    } finally {
-      setLoading(false);
-    }
+    const res = await fetch("/api/config");
+    const json = (await res.json()) as {
+      data?: { plugins?: { grammar?: Partial<GrammarConfig> } };
+    };
+    const next = normalize(json.data?.plugins?.grammar);
+    setConfig(next);
+    setDraft(next);
     void loadModels();
   }, [loadModels]);
 
@@ -112,53 +122,47 @@ export function GrammarSettings(): React.ReactElement {
     void load();
   }, [load]);
 
-  const save = useCallback(async () => {
-    setSaving(true);
-    try {
-      await fetch("/api/config/plugins/grammar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
-      });
-      // POST does not echo the reloaded config; re-GET to surface server clamping.
-      await load();
-    } finally {
-      setSaving(false);
+  const isDirty = JSON.stringify(draft) !== JSON.stringify(config);
+
+  // Persist through the host's unified Save Bar. `commit` MUST reject on a
+  // non-OK response so the host keeps the source dirty + retryable.
+  const commit = useCallback(async () => {
+    const res = await fetch("/api/config/plugins/grammar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(draft),
+    });
+    if (!res.ok) {
+      throw new Error(`grammar config save failed (${res.status})`);
     }
+    // POST does not echo the reloaded config; re-GET to surface server clamping.
+    await load();
   }, [draft, load]);
 
-  const dirty = JSON.stringify(draft) !== JSON.stringify(config);
+  useSettingsDraftSource({
+    id: "plugin:grammar",
+    isDirty,
+    commit,
+    reset: () => {
+      void load();
+    },
+  });
+
   const num = (v: string, fallback: number): number => {
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
   };
 
   return (
-    <section
-      data-testid="grammar-settings"
-      style={{
-        padding: "12px",
-        border: "1px solid var(--border-primary)",
-        borderRadius: "6px",
-        marginBottom: "12px",
-        fontSize: "12px",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          marginBottom: "8px",
-        }}
-      >
-        <h3 style={{ fontSize: "13px", fontWeight: 600, margin: 0 }}>
+    <section data-testid="grammar-settings" className="text-[13px] text-[var(--text-secondary)] pb-4">
+      <div className="flex items-baseline justify-between mb-2">
+        <h3 className="text-[15px] font-semibold text-[var(--text-primary)] m-0">
           {t("heading", undefined, "Grammar & Spelling")}
         </h3>
-        <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>grammar</span>
+        <span className="text-[10px] text-[var(--text-muted)] font-mono">grammar</span>
       </div>
 
-      <p style={{ fontSize: "11px", color: "var(--text-secondary)", margin: "0 0 10px 0" }}>
+      <p className="text-[11px] text-[var(--text-secondary)] mt-0 mb-3">
         {t(
           "desc",
           undefined,
@@ -166,131 +170,87 @@ export function GrammarSettings(): React.ReactElement {
         )}
       </p>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-        <label style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          <input
-            type="checkbox"
-            className="focus-ring"
-            data-testid="grammar-enabled"
-            checked={draft.enabled}
-            onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
-          />
-          {t("enabled", undefined, "Enabled")}
-        </label>
+      {/* General */}
+      <details className={GROUP} open>
+        <summary className={SUMMARY}>
+          <span className={CARET}>▸</span>
+          {t("groupGeneral", undefined, "General")}
+        </summary>
+        <div className={BODY}>
+          <label className={CHECK}>
+            <input
+              type="checkbox"
+              className="focus-ring"
+              data-testid="grammar-enabled"
+              checked={draft.enabled}
+              onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
+            />
+            {t("enabled", undefined, "Enabled")}
+          </label>
 
-        <label style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          <input
-            type="checkbox"
-            className="focus-ring"
-            data-testid="grammar-autocheck"
-            checked={draft.autoCheck}
-            onChange={(e) => setDraft({ ...draft, autoCheck: e.target.checked })}
-          />
-          {t("autoCheck", undefined, "Auto-check while typing")}
-        </label>
+          <label className={CHECK}>
+            <input
+              type="checkbox"
+              className="focus-ring"
+              data-testid="grammar-autocheck"
+              checked={draft.autoCheck}
+              onChange={(e) => setDraft({ ...draft, autoCheck: e.target.checked })}
+            />
+            {t("autoCheck", undefined, "Auto-check while typing")}
+          </label>
 
-        <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-          {t("correctionView", undefined, "Correction view")}
-          <select
-            className="focus-ring"
-            data-testid="grammar-correction-view"
-            value={draft.correctionView}
-            onChange={(e) =>
-              setDraft({
-                ...draft,
-                correctionView: e.target.value as GrammarConfig["correctionView"],
-              })
-            }
-          >
-            <option value="redline">
-              {t("correctionViewRedline", undefined, "Redline (inline)")}
-            </option>
-            <option value="list">{t("correctionViewList", undefined, "List")}</option>
-          </select>
-        </label>
+          <label className={FIELD}>
+            {t("correctionView", undefined, "Correction view")}
+            <select
+              className={CONTROL}
+              data-testid="grammar-correction-view"
+              value={draft.correctionView}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  correctionView: e.target.value as GrammarConfig["correctionView"],
+                })
+              }
+            >
+              <option value="redline">{t("correctionViewRedline", undefined, "Redline (inline)")}</option>
+              <option value="list">{t("correctionViewList", undefined, "List")}</option>
+            </select>
+          </label>
 
-        <label style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          <input
-            type="checkbox"
-            className="focus-ring"
-            data-testid="grammar-capitalize"
-            checked={draft.capitalizeFirstWord}
-            onChange={(e) => setDraft({ ...draft, capitalizeFirstWord: e.target.checked })}
-          />
-          {t("capitalizeFirstWord", undefined, "Capitalize sentence starts")}
-        </label>
+          <label className={CHECK}>
+            <input
+              type="checkbox"
+              className="focus-ring"
+              data-testid="grammar-capitalize"
+              checked={draft.capitalizeFirstWord}
+              onChange={(e) => setDraft({ ...draft, capitalizeFirstWord: e.target.checked })}
+            />
+            {t("capitalizeFirstWord", undefined, "Capitalize sentence starts")}
+          </label>
+        </div>
+      </details>
 
-        <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-          {t("debounceMs", undefined, "Debounce (ms)")}
-          <input
-            type="number"
-            className="focus-ring"
-            data-testid="grammar-debounce"
-            min={300}
-            max={10000}
-            value={String(draft.debounceMs)}
-            onChange={(e) => setDraft({ ...draft, debounceMs: num(e.target.value, draft.debounceMs) })}
-          />
-        </label>
-
-        <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-          {t("minChars", undefined, "Minimum characters")}
-          <input
-            type="number"
-            className="focus-ring"
-            data-testid="grammar-minchars"
-            min={1}
-            max={500}
-            value={String(draft.minChars)}
-            onChange={(e) => setDraft({ ...draft, minChars: num(e.target.value, draft.minChars) })}
-          />
-        </label>
-
-        <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-          {t("maxChars", undefined, "Maximum characters")}
-          <input
-            type="number"
-            className="focus-ring"
-            data-testid="grammar-maxchars"
-            min={100}
-            max={20000}
-            value={String(draft.maxChars)}
-            onChange={(e) => setDraft({ ...draft, maxChars: num(e.target.value, draft.maxChars) })}
-          />
-        </label>
-
-        <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-          {t("language", undefined, "Language")}
-          <input
-            type="text"
-            className="focus-ring"
-            data-testid="grammar-language"
-            value={draft.language}
-            onChange={(e) => setDraft({ ...draft, language: e.target.value })}
-          />
-        </label>
-
-        <label style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-          {t("llmModel", undefined, "Model")}
-          <span
-            data-testid="grammar-model-hint"
-            style={{ fontSize: "10px", color: "var(--text-muted)" }}
-          >
-            {t(
-              "modelHint",
-              undefined,
-              "Model choice drives grammar quality, latency, and cost.",
-            )}{" "}
+      {/* Model */}
+      <details className={GROUP} open>
+        <summary className={SUMMARY}>
+          <span className={CARET}>▸</span>
+          {t("groupModel", undefined, "Model")}
+        </summary>
+        <div className={BODY}>
+          <span className="text-[12px] text-[var(--text-secondary)]">{t("llmModel", undefined, "Model")}</span>
+          <span data-testid="grammar-model-hint" className="text-[10px] text-[var(--text-muted)]">
+            {t("modelHint", undefined, "Model choice drives grammar quality, latency, and cost.")}{" "}
             <a
               data-testid="grammar-model-guidance-link"
               href={MODEL_GUIDANCE_DOC}
               target="_blank"
               rel="noreferrer"
-              style={{ color: "var(--text-secondary)", textDecoration: "underline" }}
+              className="text-[var(--text-secondary)] underline"
             >
               {t("modelHintLink", undefined, "Which models are good?")}
             </a>
           </span>
+
           {ModelSelector ? (
             <div data-testid="grammar-llm-model-selector">
               <ModelSelector
@@ -305,52 +265,103 @@ export function GrammarSettings(): React.ReactElement {
               />
             </div>
           ) : (
-            <span data-testid="grammar-llm-model-selector-unavailable" style={{ color: "var(--text-secondary)" }}>
+            <span data-testid="grammar-llm-model-selector-unavailable" className="text-[var(--text-secondary)]">
               {t("modelSelectorUnavailable", undefined, "Model selector unavailable")}
             </span>
           )}
+
           {!draft.llm && (
-            <span
-              data-testid="grammar-model-required"
-              style={{ fontSize: "10px", color: "var(--severity-warning-fg)" }}
-            >
-              {t(
-                "modelRequired",
-                undefined,
-                "Pick a model — the grammar check cannot run until one is set.",
-              )}
+            <span data-testid="grammar-model-required" className="text-[10px] text-[var(--severity-warning-fg)]">
+              {t("modelRequired", undefined, "Pick a model — the grammar check cannot run until one is set.")}
             </span>
           )}
-        </label>
-      </div>
 
-      <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "10px" }}>
-        <button
-          type="button"
-          className="focus-ring"
-          data-testid="grammar-save"
-          onClick={() => void save()}
-          disabled={saving || loading || !dirty}
-          style={{ fontSize: "11px", padding: "3px 10px" }}
-        >
-          {saving ? t("saving", undefined, "Saving…") : t("save", undefined, "Save")}
-        </button>
-        <button
-          type="button"
-          className="focus-ring"
-          data-testid="grammar-reload"
-          onClick={() => void load()}
-          disabled={saving || loading}
-          style={{ fontSize: "11px", padding: "3px 10px" }}
-        >
-          {t("reload", undefined, "Reload")}
-        </button>
-        {dirty && (
-          <span data-testid="grammar-dirty" style={{ fontSize: "10px", color: "var(--severity-warning-fg)" }}>
-            {t("unsaved", undefined, "unsaved")}
-          </span>
-        )}
-      </div>
+          {/* Recommended-models disclosure — sibling of the picker (NOT nested in
+              a <label>), collapsed by default; a short curated list, full table
+              lives in the linked doc. */}
+          <details data-testid="grammar-recommended-models" className="mt-0.5 rounded border border-[var(--border-subtle)]">
+            <summary className={`${SUMMARY} py-1.5 text-[11px] font-medium`}>
+              <span className={CARET}>▸</span>
+              {t("recommendedModels", undefined, "Recommended models")}
+            </summary>
+            <ul className="px-3.5 pb-2 pt-1 m-0 list-none flex flex-col gap-1">
+              {RECOMMENDED_MODELS.map((m) => (
+                <li key={m.id} className="text-[11px] text-[var(--text-secondary)] flex items-baseline gap-1.5">
+                  <code className="font-mono text-[10.5px] text-[var(--text-primary)]">{m.id}</code>
+                  {m.recommended && (
+                    <span className="text-[9.5px] uppercase tracking-wide text-[var(--severity-success-fg)]">
+                      {t("recBadge", undefined, "recommended")}
+                    </span>
+                  )}
+                  <span className="text-[var(--text-tertiary)]">— {t(m.noteKey, undefined, m.note)}</span>
+                </li>
+              ))}
+              <li className="text-[10.5px] text-[var(--text-tertiary)] mt-0.5">
+                {t("recAvoid", undefined, "Avoid weak/lite models (e.g. gemini-flash-lite-latest) — they leave typos uncorrected.")}
+              </li>
+            </ul>
+          </details>
+        </div>
+      </details>
+
+      {/* Advanced */}
+      <details className={GROUP}>
+        <summary className={SUMMARY}>
+          <span className={CARET}>▸</span>
+          {t("groupAdvanced", undefined, "Advanced")}
+        </summary>
+        <div className={BODY}>
+          <label className={FIELD}>
+            {t("debounceMs", undefined, "Debounce (ms)")}
+            <input
+              type="number"
+              className={CONTROL}
+              data-testid="grammar-debounce"
+              min={300}
+              max={10000}
+              value={String(draft.debounceMs)}
+              onChange={(e) => setDraft({ ...draft, debounceMs: num(e.target.value, draft.debounceMs) })}
+            />
+          </label>
+
+          <label className={FIELD}>
+            {t("minChars", undefined, "Minimum characters")}
+            <input
+              type="number"
+              className={CONTROL}
+              data-testid="grammar-minchars"
+              min={1}
+              max={500}
+              value={String(draft.minChars)}
+              onChange={(e) => setDraft({ ...draft, minChars: num(e.target.value, draft.minChars) })}
+            />
+          </label>
+
+          <label className={FIELD}>
+            {t("maxChars", undefined, "Maximum characters")}
+            <input
+              type="number"
+              className={CONTROL}
+              data-testid="grammar-maxchars"
+              min={100}
+              max={20000}
+              value={String(draft.maxChars)}
+              onChange={(e) => setDraft({ ...draft, maxChars: num(e.target.value, draft.maxChars) })}
+            />
+          </label>
+
+          <label className={FIELD}>
+            {t("language", undefined, "Language")}
+            <input
+              type="text"
+              className={CONTROL}
+              data-testid="grammar-language"
+              value={draft.language}
+              onChange={(e) => setDraft({ ...draft, language: e.target.value })}
+            />
+          </label>
+        </div>
+      </details>
     </section>
   );
 }
