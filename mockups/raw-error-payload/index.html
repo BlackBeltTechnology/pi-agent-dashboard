@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>errorMessage — opaque string collapsed, any JSON expanded</title>
+
+<!--
+  FIDELITY CONTRACT
+  =================
+  Loads the RUNNING dashboard's compiled stylesheet. Card class strings copied
+  VERBATIM from primitives/InlineMessage.tsx. Tree colours use theme tokens only.
+
+  PAYLOAD FIDELITY
+  ================
+  Every sample below is taken from pi's OWN DOCS, not invented:
+    docs/rpc.md:1079  auto_retry_start.errorMessage  "529 {json}"   ← NOT valid JSON
+    docs/rpc.md:1100  auto_retry_end.finalError      "529 overloaded_error: Overloaded"
+    docs/rpc.md:1111  summarization_retry.errorMessage "terminated"
+    docs/custom-provider.md:471  errorMessage = String(error)  ← unconstrained
+  Protocol schema: errorMessage is Type.TOptional<Type.TString>. A STRING. No structure.
+-->
+<link rel="stylesheet" href="http://localhost:8000/assets/index-DzXLxU36.css">
+
+<style>
+  body{background:var(--bg-primary);color:var(--text-secondary);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    margin:0;padding:24px 16px 80px}
+  .page{max-width:880px;margin:0 auto}
+  h1{color:var(--text-primary);font-size:17px;margin:0 0 4px}
+  .lead{color:var(--text-tertiary);font-size:12.5px;margin:0 0 6px;line-height:1.55}
+  .cap{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;
+    color:var(--text-muted);font-weight:600;margin:30px 0 8px}
+  .desc{font-size:11.5px;color:var(--text-tertiary);margin:8px 0 0;line-height:1.6}
+  .desc b{color:var(--text-secondary);font-weight:600}
+  .bad{color:var(--severity-error-fg);font-weight:600}
+  .good{color:var(--severity-success-fg,var(--status-ok,#3fb950));font-weight:600}
+  .kbd{font-family:'SF Mono',Menlo,Monaco,monospace;font-size:11px;
+    background:var(--bg-code);padding:1px 4px;border-radius:3px;color:var(--text-secondary)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .row button{font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;
+    background:var(--bg-tertiary);color:var(--text-secondary);
+    border:1px solid var(--border-subtle,rgba(128,128,128,.3))}
+  .row button[aria-pressed=true]{background:var(--bg-surface);color:var(--text-primary);
+    border-color:var(--severity-error-border)}
+  hr{border:0;border-top:1px solid var(--border-subtle,rgba(128,128,128,.2));margin:34px 0}
+  .themeToggle{position:fixed;top:12px;right:12px;display:flex;gap:6px}
+  .themeToggle button{font-size:11px;padding:3px 9px;border-radius:6px;cursor:pointer;
+    background:var(--bg-tertiary);color:var(--text-secondary);
+    border:1px solid var(--border-subtle,rgba(128,128,128,.3))}
+  table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:10px}
+  th,td{border:1px solid var(--border-subtle,rgba(128,128,128,.25));padding:6px 8px;
+    text-align:left;vertical-align:top;color:var(--text-tertiary)}
+  th{color:var(--text-secondary);font-weight:600;background:var(--bg-tertiary)}
+  .src{font-size:10.5px;color:var(--text-muted);margin-top:6px;font-style:italic}
+
+  .mono{font-family:'SF Mono',Menlo,Monaco,monospace;font-size:10.5px;line-height:1.6;
+    background:var(--bg-code);border-radius:8px;padding:8px 10px;margin-top:8px;
+    overflow:auto;max-height:200px;white-space:pre-wrap;word-break:break-all;
+    color:var(--text-secondary)}
+  .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--text-muted);font-weight:600;margin-top:10px}
+  .jt{font-family:'SF Mono',Menlo,Monaco,monospace;font-size:10.5px;line-height:1.65;
+    background:var(--bg-code);border-radius:8px;padding:8px 10px;margin-top:6px;
+    overflow:auto;max-height:340px}
+  .jt-row{white-space:pre}
+  .jt-kids[hidden]{display:none}
+  .jt-tw{cursor:pointer;user-select:none;color:var(--text-muted);
+    display:inline-block;width:11px;text-align:center}
+  .jt-tw:hover{color:var(--text-primary)}
+  .jt-k{color:var(--text-primary)}
+  .jt-s{color:var(--severity-success-fg,var(--status-ok,#3fb950))}
+  .jt-n{color:var(--severity-warning-fg)}
+  .jt-b{color:var(--severity-info-fg,var(--status-notice))}
+  .jt-null{color:var(--text-muted)}
+  .jt-p{color:var(--text-muted)}
+  .jt-sum{color:var(--text-muted);font-style:italic}
+</style>
+</head>
+<body>
+<div class="themeToggle">
+  <button onclick="document.documentElement.setAttribute('data-theme','light')">light</button>
+  <button onclick="document.documentElement.setAttribute('data-theme','dark')">dark</button>
+</div>
+
+<div class="page">
+<h1><span class="kbd">errorMessage</span> is an opaque string — show it, then any JSON inside it</h1>
+<p class="lead">
+  pi's protocol types <span class="kbd">errorMessage</span> as
+  <span class="kbd">Type.TOptional&lt;Type.TString&gt;</span> — <b>a string, with no structure at all</b>.
+  Providers set it from <span class="kbd">String(error)</span>, so its content is unconstrained.
+  <b>Humanizing is dropped.</b> What we keep is the <b>structured output of JSON parsing</b>: a
+  collapsible tree of whatever shape is there, and — when the payload happens to carry one —
+  <span class="kbd">error.message</span> as a readable collapsed headline. Nothing is invented,
+  nothing is concatenated, and <span class="kbd">raw</span> is always preserved.
+</p>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<p class="cap">1 · the value pi actually sends is <span class="bad">not valid JSON</span></p>
+<p class="desc">
+  Straight from <span class="kbd">docs/rpc.md</span>. Note the <span class="kbd">529</span> and the
+  space <b>before</b> the brace — <span class="kbd">JSON.parse()</span> throws on this.
+</p>
+<div class="mono" id="realVal"></div>
+<p class="desc">
+  So <span class="kbd">humanizeProviderError</span> — which bails unless the string
+  <span class="kbd">startsWith("{")</span> — <b class="bad">does nothing at all on the common case</b>.
+  It only fires on a pure-JSON payload. It is simultaneously lossy <em>and</em> mostly inert.
+</p>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<p class="cap">2 · collapsed — <span class="good">readable, without inventing anything</span></p>
+<p class="desc">
+  If the string contains JSON carrying a <span class="kbd">error.message</span> string, that is the
+  headline — a <b>runtime check</b>, not an assumed schema. Otherwise the first line of the raw
+  string. <b>Never</b> concatenated with <span class="kbd">type</span>, never prefixed, never
+  reworded — and <span class="kbd">raw</span> is never destroyed.
+</p>
+<div id="collapsed"></div>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<p class="cap">3 · expanded — full string, then any JSON found inside it</p>
+<p class="desc">
+  <b>Raw</b> is always shown first and always complete. <b>Parsed</b> appears only when a JSON value
+  could be located — here by scanning to the first <span class="kbd">{</span> or
+  <span class="kbd">[</span> and balance-matching to its close. The tree assumes
+  <b>no keys whatsoever</b>; it renders whatever is there.
+</p>
+<div id="expanded"></div>
+
+<!-- ─────────────────────────────────────────────────────────────── -->
+<p class="cap">4 · every documented shape, one code path</p>
+<p class="desc">
+  All five are real values from pi's docs or a plausible <span class="kbd">String(error)</span>.
+  Same renderer, zero provider-awareness, zero assumed keys.
+</p>
+<div class="row" id="picker"></div>
+<div id="variance" style="margin-top:12px"></div>
+<p class="desc" id="varianceNote"></p>
+
+<hr>
+
+<p class="cap">5 · what changes</p>
+<table>
+  <tr><th>&nbsp;</th><th>today</th><th>proposed</th></tr>
+  <tr><td><span class="kbd">lastError</span></td>
+      <td><span class="kbd">{ message }</span> — humanized, raw gone</td>
+      <td><span class="kbd">{ raw, timestamp }</span> — the string, untouched</td></tr>
+  <tr><td>collapsed</td>
+      <td>humanized <span class="kbd">"type: message"</span>; dumps <b class="bad">raw JSON inline</b> when <span class="kbd">message</span> is missing</td>
+      <td><span class="kbd">error.message</span> when present, else first line — never a JSON blob</td></tr>
+  <tr><td>expanded</td>
+      <td>more of the same string</td>
+      <td>full raw <b>+</b> collapsible tree of any embedded JSON</td></tr>
+  <tr><td>copy</td><td>the humanized string</td><td>the raw string</td></tr>
+  <tr><td>structure</td>
+      <td><b>assumed</b>: <span class="kbd">error.type</span> + <span class="kbd">error.message</span>, and the payload is discarded either way</td>
+      <td><b>checked at runtime</b>: <span class="kbd">error.message</span> is used <em>if present</em>, purely for the headline. Nothing is required; nothing is discarded.</td></tr>
+  <tr><td>if the guess misses</td>
+      <td class="bad">headline becomes the raw JSON string</td>
+      <td class="good">headline falls back to the first line; tree still renders</td></tr>
+</table>
+
+</div>
+
+<script>
+var d=document;
+var P={
+  alert:'M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z',
+  close:'M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z',
+  copy :'M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z'
+};
+function svg(p,s){var px=Math.round(24*s);
+  return '<svg viewBox="0 0 24 24" width="'+px+'" height="'+px+'" style="vertical-align:-2px"><path fill="currentColor" d="'+p+'"/></svg>';}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+/* ── real values, from pi's own docs ── */
+var SAMPLES = {
+  retryStart:{ label:'auto_retry_start', src:'docs/rpc.md:1079',
+    raw:'529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+    note:'Status code, a space, then JSON. <b class="bad">Not parseable as-is.</b> The scanner finds the brace and parses from there; the <span class="kbd">529</span> stays visible in Raw.'},
+  finalError:{ label:'auto_retry_end.finalError', src:'docs/rpc.md:1100',
+    raw:'529 overloaded_error: Overloaded',
+    note:'<b>pi already flattened this one itself.</b> There is no JSON to recover — proof that the payload is gone by the time some events carry it. Raw only.'},
+  terminated:{ label:'summarization_retry', src:'docs/rpc.md:1111',
+    raw:'terminated',
+    note:'A single bare word. No JSON, no name, no structure. Raw only.'},
+  bigJson:{ label:'pure JSON (Google-ish)', src:'plausible String(error)',
+    raw:JSON.stringify({error:{code:429,message:"Resource has been exhausted (e.g. check quota).",
+      status:"RESOURCE_EXHAUSTED",details:[{"@type":"type.googleapis.com/google.rpc.QuotaFailure",
+      violations:[{subject:"project:1234",description:"Quota 'GenerateRequestsPerMinute' exhausted"}]}]}}),
+    note:'Arbitrary depth, arrays inside objects inside arrays, a key literally named <span class="kbd">@type</span>. The tree makes no assumption about any of it.'},
+  stack:{ label:'a thrown Error', src:'custom-provider.md:471',
+    raw:'fetch failed\n    at node:internal/deps/undici/undici:13502:13\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n  cause: Error: connect ETIMEDOUT 104.18.7.1:443',
+    note:'<span class="kbd">String(error)</span> on a network failure — multi-line, no JSON. Collapsed shows the <b>first line only</b>; Raw keeps the whole stack.'}
+};
+
+/* ── locate a JSON value inside an arbitrary string. No key assumptions. ── */
+function findJson(raw){
+  var s=String(raw);
+  for(var i=0;i<s.length;i++){
+    var ch=s[i];
+    if(ch!=='{' && ch!=='[') continue;
+    var open=ch, close=(ch==='{'?'}':']'), depth=0, inStr=false, escd=false;
+    for(var j=i;j<s.length;j++){
+      var c=s[j];
+      if(inStr){
+        if(escd){escd=false;}
+        else if(c==='\\'){escd=true;}
+        else if(c==='"'){inStr=false;}
+        continue;
+      }
+      if(c==='"'){inStr=true;continue;}
+      if(c===open)depth++;
+      else if(c===close){
+        depth--;
+        if(depth===0){
+          var cand=s.slice(i,j+1);
+          try{ return {value:JSON.parse(cand), start:i, end:j+1}; }catch(e){ break; }
+        }
+      }
+    }
+  }
+  return undefined;
+}
+function firstLine(raw,max){
+  var l=String(raw).split('\n')[0];
+  return l.length>max ? l.slice(0,max).trimEnd()+'…' : l;
+}
+
+/* ── collapsed headline ──────────────────────────────────────────────────────
+   Runtime CHECK, not an assumed schema, and not a text match:
+     if a JSON value is present AND it happens to carry a string at
+     error.message  →  show that (pretty in the common case)
+     otherwise      →  first line of the raw string
+   NEVER concatenates `type`. NEVER invents a prefix. NEVER destroys `raw`:
+   the full string stays one click away and is what Copy yields. This is the
+   whole difference from humanizeProviderError, which returned a lossy string
+   and dumped raw JSON inline whenever its assumption missed.
+──────────────────────────────────────────────────────────────────────────── */
+function headlineOf(raw,max){
+  var f=findJson(raw);
+  var v=f&&f.value;
+  if(v&&typeof v==='object'&&v.error&&typeof v.error.message==='string'&&v.error.message.trim()){
+    return firstLine(v.error.message.trim(),max);
+  }
+  return firstLine(raw,max);
+}
+
+/* ── collapsible tree — renders ANY JSON, assumes no keys ── */
+var uid=0;
+function tree(v,key,last,depth){
+  var pad='  '.repeat(depth), comma=last?'':',';
+  var kq = key===null?'':'<span class="jt-k">"'+esc(key)+'"</span><span class="jt-p">: </span>';
+  if(v===null) return '<div class="jt-row">'+pad+kq+'<span class="jt-null">null</span>'+comma+'</div>';
+  var t=typeof v;
+  if(t==='string')  return '<div class="jt-row">'+pad+kq+'<span class="jt-s">"'+esc(v)+'"</span>'+comma+'</div>';
+  if(t==='number')  return '<div class="jt-row">'+pad+kq+'<span class="jt-n">'+esc(String(v))+'</span>'+comma+'</div>';
+  if(t==='boolean') return '<div class="jt-row">'+pad+kq+'<span class="jt-b">'+v+'</span>'+comma+'</div>';
+  if(t!=='object')  return '<div class="jt-row">'+pad+kq+'<span class="jt-null">'+esc(String(v))+'</span>'+comma+'</div>';
+  var arr=Array.isArray(v), ks=arr?null:Object.keys(v), n=arr?v.length:ks.length;
+  var o=arr?'[':'{', c=arr?']':'}', id='jt'+(++uid);
+  if(n===0) return '<div class="jt-row">'+pad+kq+'<span class="jt-p">'+o+c+'</span>'+comma+'</div>';
+  var head='<div class="jt-row">'+pad
+    +'<span class="jt-tw" onclick="jtog(\''+id+'\',this)">\u25be</span>'
+    +kq+'<span class="jt-p">'+o+'</span>'
+    +'<span class="jt-sum" id="'+id+'s" hidden> … '+n+' '+(arr?'items':'keys')+' '+c+comma+'</span></div>';
+  var kids='<span class="jt-kids" id="'+id+'">';
+  for(var i=0;i<n;i++) kids += arr?tree(v[i],null,i===n-1,depth+1):tree(v[ks[i]],ks[i],i===n-1,depth+1);
+  kids+='<div class="jt-row">'+pad+'<span class="jt-p">'+c+comma+'</span></div></span>';
+  return head+kids;
+}
+function jtog(id,tw){
+  var k=d.getElementById(id), s=d.getElementById(id+'s'), open=!k.hidden;
+  k.hidden=open; s.hidden=!open; tw.textContent=open?'\u25b8':'\u25be';
+}
+
+/* ── card, verbatim InlineMessage classes ── */
+function card(o){
+  var found = o.raw!==undefined ? findJson(o.raw) : undefined;
+  var body = '<div class="lbl">Raw \u00b7 errorMessage</div>'
+           + '<div class="mono">'+esc(o.raw)+'</div>'
+           + (found
+              ? '<div class="lbl">Parsed \u00b7 JSON found at offset '+found.start+'</div><div class="jt">'+tree(found.value,null,true,0)+'</div>'
+              : '<div class="lbl">Parsed</div><div class="mono" style="color:var(--text-muted)">no JSON value found in this string \u2014 nothing to expand</div>');
+  return '<div data-testid="inline-message" class="relative overflow-hidden rounded-xl border pl-3.5 pr-3 py-2 flex gap-2.5 items-start bg-[var(--severity-error-bg)] border-[var(--severity-error-border)] text-[var(--severity-error-fg)]">'
+   + '<span data-testid="inline-message-accent" class="absolute inset-y-0 left-0 w-[3px] bg-[var(--severity-error-fg)]" aria-hidden="true"></span>'
+   + '<span class="shrink-0 mt-0.5">'+svg(P.alert,0.7)+'</span>'
+   + '<div class="flex-1 min-w-0">'
+   +   '<div class="flex items-center gap-2 flex-wrap">'
+   +     '<button type="button" data-testid="error-banner-toggle" class="shrink-0 opacity-70 hover:opacity-100" onclick="ctog(\''+o.id+'\',this)" aria-expanded="'+(o.open?'true':'false')+'">'+(o.open?'\u25be':'\u25b8')+'</button>'
+   +     '<span data-testid="error-banner-text" class="text-[12.5px] font-bold break-words">'+esc(headlineOf(o.raw,96))+'</span>'
+   +     (o.sub?'<span data-testid="retry-banner" class="text-[11px] opacity-80">'+o.sub+'</span>':'')
+   +   '</div>'
+   +   '<div id="'+o.id+'" '+(o.open?'':'hidden')+'>'+body+'</div>'
+   +   '<div class="mt-1.5 text-[11px] opacity-70">'+svg(P.copy,0.55)+' Copy raw errorMessage</div>'
+   + '</div>'
+   + '<button type="button" data-testid="inline-message-dismiss" class="shrink-0 opacity-70 hover:opacity-100" title="Dismiss" aria-label="Dismiss">'+svg(P.close,0.6)+'</button>'
+   + '</div>';
+}
+function ctog(id,btn){
+  var el=d.getElementById(id), open=!el.hidden;
+  el.hidden=open; btn.textContent=open?'\u25b8':'\u25be'; btn.setAttribute('aria-expanded',String(!open));
+}
+
+var REAL = SAMPLES.retryStart.raw;
+d.getElementById('realVal').textContent = REAL;
+d.getElementById('collapsed').innerHTML = card({id:'c1',raw:REAL,open:false,sub:'attempt 3 \u00b7 next attempt in 12s'});
+d.getElementById('expanded').innerHTML  = card({id:'c2',raw:REAL,open:true, sub:'attempt 3 \u00b7 next attempt in 12s'});
+
+var keys=Object.keys(SAMPLES);
+d.getElementById('picker').innerHTML = keys.map(function(k){
+  return '<button data-k="'+k+'" aria-pressed="'+(k==='retryStart')+'" onclick="pick(\''+k+'\')">'+SAMPLES[k].label+'</button>';
+}).join('');
+function pick(k){
+  [].forEach.call(d.querySelectorAll('#picker button'),function(b){
+    b.setAttribute('aria-pressed',String(b.getAttribute('data-k')===k));
+  });
+  var s=SAMPLES[k], f=findJson(s.raw);
+  d.getElementById('variance').innerHTML = card({id:'cv',raw:s.raw,open:true});
+  d.getElementById('varianceNote').innerHTML = s.note
+    + '<div class="src">source: '+s.src+' \u2014 '
+    + (f?('JSON located at offset '+f.start):'no JSON in this string')+'</div>';
+}
+pick('retryStart');
+</script>
+</body>
+</html>
