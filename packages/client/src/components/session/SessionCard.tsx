@@ -1,4 +1,4 @@
-import { mdiAlertOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
+import { mdiAlertOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiRefresh, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
@@ -57,7 +57,18 @@ import { useSessionCardDragHandle } from "./SortableSessionCard.js";
 import { TagStrip } from "../tags/TagStrip.js";
 import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
 
-export function ActivityIndicator({ session }: { session: DashboardSession }) {
+/**
+ * The card's single activity slot. Precedence:
+ * `resuming → ended → ask_user → retry → currentTool → streaming → idle`.
+ *
+ * `retryAttempt` outranks `currentTool` and `streaming` because during a
+ * backoff no tool is executing — printing "Thinking…" while pi sits in a retry
+ * wait is the lie this branch removes. `ask_user` still wins: blocked-on-you is
+ * the more urgent signal. The label takes `--severity-warning-fg`, NOT raw
+ * `--status-working` (1.68:1 on the light card surface).
+ * See change: unify-retry-visibility (design D3/D4).
+ */
+export function ActivityIndicator({ session, retryAttempt }: { session: DashboardSession; retryAttempt?: number }) {
   // Suppress chat-routed indicators when a widget-bar slot owns the prompt.
   // Plugin-agnostic via the `placement` primitive. See change:
   // fix-flows-plugin-polish (B1).
@@ -73,6 +84,10 @@ export function ActivityIndicator({ session }: { session: DashboardSession }) {
     // Blocked-on-you: distinct "Needs you" label + needs-you color + icon.
     // See change: improve-dashboard-attention-routing.
     return <span className="text-[var(--status-needs-you)] truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> {i18nT("common.needsYou", undefined, "Needs you")}</span>;
+  }
+
+  if (retryAttempt !== undefined) {
+    return <span className="text-[var(--severity-warning-fg)] truncate inline-flex items-center gap-0.5"><Icon path={mdiRefresh} size={0.5} /> {i18nT("session.retryAttempt", { attempt: retryAttempt }, "Retry {attempt}")}</span>;
   }
 
   if (session.currentTool) {
@@ -406,6 +421,7 @@ export function SessionCard({
   onAbortTool,
   hasError,
   isRetrying,
+  retryAttempt,
   hasNotice,
 }: {
   session: DashboardSession;
@@ -500,8 +516,12 @@ export function SessionCard({
    */
   onSetProcessDrawerCollapsed?: (collapsed: boolean) => void;
   hasError?: boolean;
-  /** True iff a synthesized provider retry is in flight (retryState set, no error yet). */
+  /** True iff a synthesized provider retry is in flight (`retryState` set). */
   isRetrying?: boolean;
+  /** Attempt number of the in-flight provider retry, rendered in the activity
+   *  slot as `↻ Retry N`. Absent → the retry branch is not taken.
+   *  See change: unify-retry-visibility. */
+  retryAttempt?: number;
   /** True iff the model returned only reasoning, no answer (non-error notice). */
   hasNotice?: boolean;
 }) {
@@ -596,7 +616,7 @@ export function SessionCard({
               {session.model}
             </span>
           )}
-          <ActivityIndicator session={session} />
+          <ActivityIndicator session={session} retryAttempt={retryAttempt} />
           {/* Pi-native queue count badge — sum of steering + follow-up depth.
               Hidden when both queues empty. See change: add-followup-edit-and-steer-cancel. */}
           {(() => {
@@ -889,7 +909,7 @@ export function SessionCard({
 
       {/* Line 3: activity (left) | context bar + cost (right) */}
       <div className="flex items-center mt-0.5 text-[11px] gap-2">
-        <ActivityIndicator session={session} />
+        <ActivityIndicator session={session} retryAttempt={retryAttempt} />
         <span className="flex-1" />
         {prefs.contextUsageBar && (
           <ContextUsageBar

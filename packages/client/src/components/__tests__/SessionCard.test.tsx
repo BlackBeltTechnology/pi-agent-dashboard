@@ -1405,3 +1405,54 @@ describe("SessionCard — widget-bar-placed prompt (test-plan #F7)", () => {
     expect(screen.queryByText("Idle")).toBeNull();
   });
 });
+
+/**
+ * Defect 4 — the card could not express a retry at all. The retry branch is one
+ * additional case in the existing `ActivityIndicator` precedence chain; the
+ * dot / shape / rail / capsule channels are deliberately untouched.
+ * See change: unify-retry-visibility (design D3/D4).
+ */
+describe("SessionCard — retry in the activity slot", () => {
+  it("renders '↻ Retry N' when retryAttempt is set", () => {
+    render(<SessionCard session={makeSession({ status: "idle" })} {...defaultProps} retryAttempt={2} />);
+    expect(screen.getAllByText(/Retry 2/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Idle")).toBeNull();
+  });
+
+  it("renders NO retry label when retryAttempt is absent", () => {
+    render(<SessionCard session={makeSession({ status: "idle" })} {...defaultProps} />);
+    expect(screen.queryByText(/Retry \d/)).toBeNull();
+    expect(screen.getAllByText("Idle").length).toBeGreaterThan(0);
+  });
+
+  it("retry BEATS currentTool and streaming (no 'Thinking…' during a backoff)", () => {
+    const { unmount } = render(
+      <SessionCard session={makeSession({ status: "streaming", currentTool: "bash" })} {...defaultProps} retryAttempt={3} />,
+    );
+    expect(screen.getAllByText(/Retry 3/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("bash")).toBeNull();
+    expect(screen.queryByText("Thinking…")).toBeNull();
+    unmount();
+  });
+
+  it("ask_user BEATS retry — blocked-on-you stays the most urgent signal", () => {
+    render(<SessionCard session={makeSession({ status: "idle", currentTool: "ask_user" })} {...defaultProps} retryAttempt={4} />);
+    expect(screen.getAllByText("Needs you").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Retry 4/)).toBeNull();
+  });
+
+  it("an ENDED session still renders no activity label, retry or not", () => {
+    render(<SessionCard session={makeSession({ status: "ended" })} {...defaultProps} retryAttempt={2} />);
+    expect(screen.queryByText(/Retry 2/)).toBeNull();
+  });
+
+  it("the retry label uses --severity-warning-fg, never raw --status-working", () => {
+    const { container } = render(
+      <SessionCard session={makeSession({ status: "idle" })} {...defaultProps} retryAttempt={2} />,
+    );
+    const label = [...container.querySelectorAll("span")].find((s) => /Retry 2/.test(s.textContent ?? ""));
+    expect(label).toBeTruthy();
+    expect(label!.className).toContain("text-[var(--severity-warning-fg)]");
+    expect(label!.className).not.toContain("--status-working");
+  });
+});

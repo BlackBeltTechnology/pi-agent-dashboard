@@ -1,5 +1,47 @@
 # session-status-banner delta
 
+## MODIFIED Requirements
+
+### Requirement: Banner is observe-only: no abort control, no collapse
+
+The banner SHALL NOT render any session-abort control. The always-present session Stop (outside
+the banner) is the sole abort entry point, and it ends pi's retry chain. There SHALL be NO
+"Stop retrying" control in the banner.
+
+A state-clearing dismiss (`error-banner-dismiss`, `mdiClose`, invoking the clear-only
+`onDismiss`) SHALL be offered in EVERY visible state, including while a `retry` sub-status is
+carried — see *Dismiss control is always present and clear-only*. The surface ALSO clears via
+its own lifecycle: when `retryState` clears and `lastError` clears (a confirmed-good resume).
+There SHALL be NO collapse control and NO collapsed pill.
+
+This requirement previously withheld the dismiss control while a retry was pending. Combined
+with the removal of the collapse pill that left the surface with NEITHER affordance, so a
+persistent error card could not be cleared during a retry at all.
+
+The settled surface SHALL NOT render a Retry control. The removed `findLastUserPrompt` →
+`send_prompt` re-send SHALL NOT return, and no replacement re-drive SHALL be introduced: the
+dashboard has no mechanism to re-run a settled turn without appending input.
+
+#### Scenario: No abort control in the banner while retrying
+
+- **GIVEN** the surface carries a `retry` sub-status
+- **THEN** the banner SHALL NOT render a Stop retrying control
+- **AND** the banner SHALL NOT render a collapse control
+- **AND** the banner SHALL render the retry status sub-line, Copy, and the clear-only dismiss
+
+#### Scenario: Session Stop ends a pending retry
+
+- **GIVEN** a retry is pending
+- **WHEN** the user activates the always-present session Stop (outside the banner)
+- **THEN** pi's retry chain SHALL be ended
+
+#### Scenario: Settled error offers a state-clearing dismiss
+
+- **GIVEN** `lastError` is set AND `retryState` is undefined
+- **WHEN** the user activates the dismiss control
+- **THEN** `onDismiss` SHALL fire, clearing `lastError`
+- **AND** NO `abort` message SHALL be dispatched
+
 ## ADDED Requirements
 
 ### Requirement: Dismiss control is always present and clear-only
