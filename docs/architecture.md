@@ -1892,6 +1892,163 @@ When the bridge extension is loaded multiple times (e.g., local project + global
 - **Pi gateway**: When a `session_register` changes the connection's session ID, the old session is cleaned up if it has `source: "unknown"` or no `sessionFile`
 - **Event wiring**: When `session_register` arrives, any active sessions in the same cwd that have no sessionFile, no events, aren't connected, and were created within 30s are removed as ghosts
 
+### Bridge Connection Contention (one live bridge per session id)
+
+Change: `fix-duplicate-bridge-registration`. Two live bridges once claimed one
+`sessionId`; gateway map resolved last-writer-wins. Newcomer silently displaced
+incumbent. Every server→extension message — prompts included — delivered to the
+displaced socket. Session looked healthy everywhere; prompts vanished. Fix:
+gateway now enforces **one live bridge per session id** as an invariant.
+
+Decision logic in `packages/server/src/pi/bridge-contention.ts`. Kept out of
+`pi-gateway.ts` so the two-factor rule tests against synthetic sockets — the
+decisive "OPEN but not writable" state is not constructible from a real client
+socket. See change: `fix-duplicate-bridge-registration` (D1, D2, D4, D6).
+
+#### Claim point (D0)
+
+Real claim is the first-message identity block in `pi-gateway.ts` — NOT the
+`session_register` dispatch. `session_register` is itself that first message.
+`session_register` branch keeps `connections.set` as a no-op re-assert for the
+socket that already owns the id, and as the id-change path claim.
+
+Contention decision runs BEFORE every register side effect: watchdog clear,
+placeholder cleanup, `resetHeartbeat`, callbacks, `onEvent`. Refused newcomer
+reaching any would strip the incumbent's `sessionFile`, consume its spawn token,
+or reset its reconnect-grace timer. Refusal path short-circuits before all.
+
+Ownership gate after register: `session_heartbeat` and `model_update` keyed on
+`msg.sessionId` with no ownership check. In-flight frames from a refused socket
+could reset incumbent heartbeat or overwrite `processMetrics`. Messages from a
+socket that does not own the id are dropped.
+
+Id-change contention decision hoisted above the watchdog clear. `clearByCwd`
+would disarm a pending spawn watchdog before the register is refused.
+
+#### Two-factor contention rule (D1)
+
+On `session_register` for an id whose entry holds a different `OPEN` socket, the
+gateway probes the incumbent (WebSocket ping) and waits a bounded window
+(`CONTENTION_PROBE_WINDOW` = 5 s). Same two-factor rule the ping reaper already
+encodes:
+
+- **pong** → alive and serving → incumbent keeps; newcomer refused.
+- **no pong but TCP socket writable** → busy, not dead → incumbent keeps;
+  newcomer refused.
+- **neither** → dead → gateway terminates incumbent, clears entry, accepts
+  newcomer.
+
+Pong-only rule would be wrong. Pongs processed on same event loop the bridge
+blocks while running a tool; a busy bridge does not answer. Pong-only rule
+terminates the live working incumbent. Both factors demanded, not observed —
+rule deterministic, testable.
+
+**Same-pid reconnect exemption**: registering socket reporting same pid gateway
+recorded for incumbent = same pi reconnecting (previous close frame lost or in
+flight), not a duplicate. Gateway replaces the entry, never refuses. Self-reported
+pid used ONLY to AVOID a permanent refusal, never to justify one.
+
+**Placeholder incumbent** (`source: "unknown"`) never carries a recorded pid, so
+never satisfies same-pid exemption. Never a protected incumbent: a real register
+always displaces one. Closes the window.
+
+**Accepted residual — half-open incumbent undetectable.** Peer dead without a FIN
+leaves socket `OPEN` and writable, reads identical to busy, keeps the id.
+Neither reaper clears it (ping reaper keeps on `socketAlive`; heartbeat
+reschedules while `OPEN`). Id stranded until OS TCP timeout. Recovery: kill the
+losing keeper by verified pid, let survivor re-register. TCP keepalive on bridge
+sockets is the named follow-up. Known cost of never sacrificing a
+busy-but-live session, chosen deliberately.
+
+#### Terminal refusal (D2)
+
+Closing a refused socket is not enough. Bridge treats any close as transient and
+reconnects with backoff. No rejection message existed. Refused duplicate would
+loop forever, pi process alive writing into the same `.jsonl` as incumbent.
+
+New server→extension message `register_rejected` in
+`packages/shared/src/protocol.ts`. Sent BEFORE the close. Bridge stops retrying
+for that session id on receipt; surfaces the reason instead of dying silently.
+
+Refused register leaves the spawn-register watchdog armed. Watchdog reclaims the
+refused duplicate's pi by server-minted spawn token (`findPidsBySpawnToken`) —
+only processes this server spawned. Stops refused duplicate's pi writing into
+incumbent's `.jsonl`. `armSpawnWatchdog` arms EVERY spawn entry point (REST
+resume, WebSocket drag-to-resume, zombie reopen, headless reload), not just the
+WebSocket one. Browser transport optional — absent browser must not block the
+reclaim.
+
+Killing the refused newcomer by the pid it reports on the register message is
+rejected: server executing a kill on the word of an untrusted socket message.
+
+#### Identity-scoped teardown (D3)
+
+Every id-keyed cleanup fired by a closing socket — map delete, `onDisconnect`,
+`sessionManager.unregister`, automation finalize, `heartbeatTimers`/
+`heartbeatMeta` deletes — first confirms `connections.get(id) === ws`. Displaced
+or refused socket closing cannot raise a spurious disconnect on a live session,
+clear the incumbent's reconnect-grace timer, or finalize an automation run
+another socket serves.
+
+`stop()` terminates `wss.clients`, NOT `connections.values()`. `wss.close()` does
+not terminate clients; a socket outside the map would survive teardown and
+re-register against the fresh server. This is the half that made the incident
+survive two restarts.
+
+#### Prompt reporting (D4)
+
+With D0/D1 the map cannot hold a usurper; at prompt time exactly one owner, send
+is honest. "Contended" is a recorded event, not a live routing state. Record
+has explicit lifecycle, cleared by whichever comes first: refused spawn
+reclaimed, TTL expiry, incumbent disconnect, or session end. Incumbent alone
+insufficient trigger — healthy, may never disconnect, and D3 makes the refused
+socket's close a no-op for that id.
+
+`POST /api/session/:id/prompt` SHALL NOT return plain success while a contention
+record is live. Annotates the reason, distinguishable from the existing "no
+bridge" failure. Reports `delivered: true` — contended-but-delivered is the
+normal case. Annotates, does not fail.
+
+`sendToSession` returns `true` only for the socket the map holds for that id.
+
+#### Resume session-file guard (D5)
+
+Existing 409 (`session-api.ts`) keyed on session id only; did not prevent the
+incident — second keeper resumed the same session *file* under a different id.
+
+Both guard sites refuse a `continue` whose target `sessionFile` a live bridge
+already serves under ANY session id:
+- `packages/server/src/session/session-api.ts` (REST)
+- `packages/server/src/browser-handlers/session-action-handler.ts` (WebSocket
+drag-to-resume)
+
+Both call `piGateway.findLiveSessionBySessionFile`. Uses D1's two-factor
+liveness definition (`isSocketAlive`), NOT raw `readyState` — a half-open
+incumbent must not lock out a resume. Fork exempt. Sessions with no
+`sessionFile` never match (placeholders store `undefined`). Lookup runs before
+the register-time `sessionFile` mutation (`event-wiring.ts`), which would
+already have nulled the key.
+
+#### Observability (D6)
+
+`/api/health` exposes:
+- `bridgeContentionCount` — cumulative, process lifetime; never reset by expiry.
+- `contendedSessionIds` — record lifecycle: reclaim / 60 s expiry / incumbent
+disconnect / session end.
+- `piGatewayPort`.
+
+Refusal log line `[gateway] contention refused: <id> incumbentPid=…
+newcomerPid=…`. Distinct from `[gateway] session registered:` so it is greppable
+as its own signal. Unknown pid renders `unknown`, never omitted.
+
+Refusal log line + health entry rate-limited to 1 per session id per 5 s
+(`CONTENTION_RATE_LIMIT`). Older bridge that ignores `register_rejected` keeps
+reconnecting; rate limit stops either surface flooding.
+
+Constants: probe window 5 s (`CONTENTION_PROBE_WINDOW`), contention record
+expiry 60 s (`CONTENTION_RECORD_TTL`), refusal rate limit 1/id/5 s
+(`CONTENTION_RATE_LIMIT`).
+
 ### On-Demand Session Loading (Server-Side)
 When a browser subscribes to a session whose events have been evicted from memory:
 1. Server sends empty `event_replay` with `isLast: false` to indicate loading

@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `bridge-contention.ts` | Pure decision logic + record tracker for the one-live-bridge-per-session-id invariant. Exports `decideClaim`, `resolveProbe`, `isSocketAlive`,… → see `bridge-contention.ts.AGENTS.md` |
 | `pi-core-checker.ts` | Discovers installed pi-ecosystem CORE packages (global `npm list -g` + `~/.pi-dashboard/node_modules`… → see `pi-core-checker.ts.AGENTS.md` |
 | `pi-core-updater.ts` | Runs `npm install -g <pkg>@latest` (global) or `npm install <pkg>@latest` in `~/.pi-dashboard/` (managed) for… → see `pi-core-updater.ts.AGENTS.md` |
 | `pi-dev-version-check.ts` | pi.dev version-check client. Queries `https://pi.dev/api/latest-version`; returns `{version, packageName?}`… → see `pi-dev-version-check.ts.AGENTS.md` |

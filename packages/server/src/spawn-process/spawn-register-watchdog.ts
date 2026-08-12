@@ -373,15 +373,24 @@ export function armSpawnWatchdog(
   ws?: WebSocket,
 ): void {
   if (result.success === false) return;
-  getSpawnRegisterWatchdog().arm({
-    cwd,
-    mechanism,
-    pid: result.pid,
-    logPath: result.logPath,
-    spawnToken: result.spawnToken,
-    timeoutMs: loadConfig().spawnRegisterTimeoutMs,
-    ...(ws ? { ws } : {}),
-  });
+  // Never throws: the watchdog is a diagnostic + reclaim safety net layered on
+  // top of the spawn. Failing to arm it must not abort the spawn it is
+  // watching — that would turn a missing safety net into a broken feature.
+  try {
+    getSpawnRegisterWatchdog().arm({
+      cwd,
+      mechanism,
+      pid: result.pid,
+      logPath: result.logPath,
+      spawnToken: result.spawnToken,
+      timeoutMs: loadConfig().spawnRegisterTimeoutMs,
+      ...(ws ? { ws } : {}),
+    });
+  } catch (err) {
+    console.error(
+      `[watchdog] failed to arm for ${cwd}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

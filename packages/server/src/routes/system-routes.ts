@@ -493,6 +493,10 @@ export function registerSystemRoutes(
       // See change: fix-duplicate-bridge-registration (D6).
       bridgeContentionCount: piGateway?.contention.count() ?? 0,
       contendedSessionIds: piGateway?.contention.contendedIds() ?? [],
+      // The bound gateway port. Diagnosing "my bridge cannot register" needs
+      // the port the gateway actually bound, which is not the file-config
+      // value when it was allocated dynamically.
+      piGatewayPort: piGateway?.address() ?? null,
       // Derived label: promotes a stale `bridge` (no live session, past the
       // 30 s grace window) to `bridge-orphaned`. Static `launchSource` above
       // is left untouched for the `decideShutdownOnQuit` back-compat rule.
