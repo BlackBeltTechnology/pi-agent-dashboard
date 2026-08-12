@@ -3,25 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Retry authority — what ✕ does, and dropping humanize</title>
+<title>Retry surface — spinner, short text, and what ✕ does</title>
 
 <!--
   FIDELITY CONTRACT
   =================
   Loads the RUNNING dashboard's compiled stylesheet. Card class strings copied
-  VERBATIM from primitives/InlineMessage.tsx as it exists on origin/develop.
+  VERBATIM from primitives/InlineMessage.tsx on origin/develop, including its
+  existing `variant="compact"` one-liner (reused for the collapsed row — not a
+  new layout). mdi paths taken from @mdi/js at the versions the app imports.
+  `animate-spin` is present in the shipped bundle (verified).
 
-  SCOPE NOTE
-  ==========
-  Error PRINTING is already fine on develop and is NOT redesigned here:
-  SessionBanner renders headerText with `whitespace-pre-wrap break-words`,
-  truncates at collapseThreshold (240) behind Show more / Show less, and offers
-  Copy. No JSON tree, no per-node collapse, no RAW/PARSED headings — all of that
-  was unnecessary. The only printing change is WHAT string arrives:
-  humanizeProviderError is dropped, so it is the raw errorMessage.
+  SCOPE
+  =====
+  Error PRINTING is unchanged from develop: whitespace-pre-wrap, Show more /
+  Show less past 240 chars, Copy. The only printing change is that the RAW
+  errorMessage arrives (humanizeProviderError dropped).
 
-  The real change is the retry surface: what ✕ does, and keeping the user's
-  authority to stop a retry.
+  NO new Stop control anywhere. The `Stop` drawn in the composer is the EXISTING
+  session Stop — shown only to make its presence/absence visible. Session abort
+  already stops the retry (bridge.ts:1216 abortLatch.request → cachedCtx.abort,
+  re-armed every 200ms for 2s, plus abort-on-sight when the turn wakes).
+  The bug is that ✕ deletes retryState, which unmounts that existing Stop.
 -->
 <link rel="stylesheet" href="http://localhost:8000/assets/index-DzXLxU36.css">
 
@@ -29,11 +32,11 @@
   body{background:var(--bg-primary);color:var(--text-secondary);
     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
     margin:0;padding:24px 16px 80px}
-  .page{max-width:820px;margin:0 auto}
+  .page{max-width:800px;margin:0 auto}
   h1{color:var(--text-primary);font-size:17px;margin:0 0 4px}
   .lead{color:var(--text-tertiary);font-size:12.5px;margin:0 0 6px;line-height:1.55}
   .cap{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;
-    color:var(--text-muted);font-weight:600;margin:30px 0 8px}
+    color:var(--text-muted);font-weight:600;margin:28px 0 8px}
   .desc{font-size:11.5px;color:var(--text-tertiary);margin:8px 0 0;line-height:1.6}
   .desc b{color:var(--text-secondary);font-weight:600}
   .bad{color:var(--severity-error-fg);font-weight:600}
@@ -46,7 +49,7 @@
     border:1px solid var(--border-subtle,rgba(128,128,128,.3))}
   .row button[aria-pressed=true]{background:var(--bg-surface);color:var(--text-primary);
     border-color:var(--severity-error-border)}
-  hr{border:0;border-top:1px solid var(--border-subtle,rgba(128,128,128,.2));margin:32px 0}
+  hr{border:0;border-top:1px solid var(--border-subtle,rgba(128,128,128,.2));margin:30px 0}
   .themeToggle{position:fixed;top:12px;right:12px;display:flex;gap:6px}
   .themeToggle button{font-size:11px;padding:3px 9px;border-radius:6px;cursor:pointer;
     background:var(--bg-tertiary);color:var(--text-secondary);
@@ -57,7 +60,7 @@
   th{color:var(--text-secondary);font-weight:600;background:var(--bg-tertiary)}
   .log{font-family:'SF Mono',Menlo,Monaco,monospace;font-size:10.5px;line-height:1.6;
     background:var(--bg-code);border-radius:8px;padding:8px 10px;margin-top:10px;
-    color:var(--text-muted);white-space:pre-wrap;max-height:130px;overflow:auto}
+    color:var(--text-muted);white-space:pre-wrap;max-height:120px;overflow:auto}
   .composer{display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;
     border-radius:10px;background:var(--bg-tertiary);
     border:1px solid var(--border-subtle,rgba(128,128,128,.3))}
@@ -67,6 +70,9 @@
   .noStop{font-size:11px;color:var(--text-muted);font-style:italic}
   .cardline{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:10px;
     background:var(--bg-tertiary);font-size:11.5px;margin-bottom:8px}
+  .stack{display:flex;flex-direction:column;gap:8px}
+  .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--text-muted);font-weight:600;margin:14px 0 4px}
 </style>
 </head>
 <body>
@@ -76,81 +82,79 @@
 </div>
 
 <div class="page">
-<h1>Retry authority — what ✕ does</h1>
+<h1>Retry surface — spinner, short text, and what ✕ does</h1>
 <p class="lead">
-  Error <em>printing</em> is already fine on <span class="kbd">origin/develop</span> and is not
-  redesigned here. The change is: drop <span class="kbd">humanizeProviderError</span> so the raw
-  string reaches the existing printer, and fix what <b>✕</b> does — because today it takes the
-  user's Stop button away.
+  Session <b>Stop already stops the retry</b> (<span class="kbd">abortLatch.request</span> →
+  <span class="kbd">cachedCtx.abort()</span>, re-armed for 2 s, plus abort-on-sight when the turn
+  wakes). <b>No new control is added anywhere.</b> The one bug: ✕ deletes
+  <span class="kbd">retryState</span>, which unmounts that existing Stop.
 </p>
 
 <!-- ───────────────────────────────────────────────────────────── -->
-<p class="cap">1 · printing — <span class="good">already fine, unchanged</span></p>
+<p class="cap">1 · the three states</p>
+<div class="lbl">retrying · expanded — spinner, short status, ✕ collapses</div>
+<div id="s1"></div>
+<div class="lbl">retrying · collapsed — one line (InlineMessage <span class="kbd">variant="compact"</span>)</div>
+<div id="s2"></div>
+<div class="lbl">stopped / settled — no spinner, ✕ closes for good</div>
+<div id="s3"></div>
 <p class="desc">
-  <span class="kbd">SessionBanner</span> renders the string with
-  <span class="kbd">whitespace-pre-wrap break-words</span>, truncates past
-  <span class="kbd">collapseThreshold</span> (240) behind <b>Show more / Show less</b>, and offers
-  <b>Copy</b>. That is the whole printer, and it stays. The only difference is that the string is
-  now the <b>raw</b> <span class="kbd">errorMessage</span> instead of a humanized one.
-</p>
-<div id="printing"></div>
-<div class="row">
-  <button onclick="setPay('short')" aria-pressed="true" data-p="short">529 + json</button>
-  <button onclick="setPay('long')"  aria-pressed="false" data-p="long">long payload (Show more)</button>
-  <button onclick="setPay('plain')" aria-pressed="false" data-p="plain">terminated</button>
-  <button onclick="setPay('stack')" aria-pressed="false" data-p="stack">stack trace</button>
-</div>
-<p class="desc">
-  No JSON tree, no per-node collapse, no <span class="kbd">RAW</span>/<span class="kbd">PARSED</span>
-  headings. <b>Show more</b> already reveals the entire string, and
-  <span class="kbd">whitespace-pre-wrap</span> already keeps a stack trace readable.
+  Status text is short: <span class="kbd">Retry 3 · 12s</span> while waiting,
+  <span class="kbd">Retry 3</span> while in flight. No "attempt", no "next attempt in", no
+  <b>Copy</b> word — the copy affordance is the icon alone, as everywhere else in the app.
 </p>
 
 <hr>
 
 <!-- ───────────────────────────────────────────────────────────── -->
-<p class="cap">2 · the defect — <span class="bad">✕ removes the Stop button</span></p>
+<p class="cap">2 · lifecycle — <span class="good">collapse only while retrying</span></p>
 <p class="desc">
-  <span class="kbd">CommandInput.tsx:217</span> already shows Stop during a backoff
-  (<span class="kbd">isWorking = streaming || retrying</span>), and the bridge already aborts
-  mid-backoff via <span class="kbd">AbortLatch</span>. But the ✕ handler clears
-  <span class="kbd">retryState</span> — so dismissing the card <b class="bad">also deletes the only
-  handle</b> while pi keeps retrying.
+  ✕ collapses <b>only while a retry is pending</b>. Once retrying stops, ✕ closes the card for
+  good. A successful turn removes everything with no user action at all.
 </p>
-
-<p class="cap" style="margin-top:18px">3 · pick the ✕ semantics</p>
-<div class="row" id="modePicker">
-  <button data-m="today"    aria-pressed="true"  onclick="setMode('today')">A · today — ✕ hides everything</button>
-  <button data-m="collapse" aria-pressed="false" onclick="setMode('collapse')">B · ✕ collapses to retrying-only</button>
-</div>
 <div id="stage" style="margin-top:12px"></div>
 <div class="row">
   <button onclick="ev('dismiss')">press ✕</button>
   <button onclick="ev('next')">next attempt</button>
   <button onclick="ev('stop')">press Stop</button>
   <button onclick="ev('ok')">retry succeeds</button>
+  <button onclick="ev('giveup')">retries exhausted</button>
   <button onclick="ev('reset')">reset</button>
 </div>
 <div class="log" id="log"></div>
-<p class="desc" id="modeNote"></p>
 
 <hr>
 
-<p class="cap">4 · scope</p>
+<p class="cap">3 · state table</p>
+<table>
+  <tr><th>phase</th><th>✕ does</th><th>existing session Stop</th><th>clears by itself?</th></tr>
+  <tr><td>retrying (waiting / in flight)</td>
+      <td class="good">collapses to one line — <span class="kbd">retryState</span> untouched</td>
+      <td class="good">visible</td>
+      <td>on success</td></tr>
+  <tr><td>retries exhausted / stopped</td>
+      <td>closes the card</td>
+      <td>gone — nothing to stop</td>
+      <td>no — user closes</td></tr>
+  <tr><td>successful turn</td>
+      <td colspan="3" class="good">surface removed automatically, no user action (<span class="kbd">isCleanAgentEnd</span>)</td></tr>
+</table>
+
+<p class="cap" style="margin-top:24px">4 · what changes</p>
 <table>
   <tr><th>&nbsp;</th><th>today</th><th>change</th></tr>
-  <tr><td>error printing</td>
-      <td>Show more / Show less + Copy</td>
+  <tr><td>error printing</td><td>Show more / Show less + Copy</td>
       <td class="good">unchanged — same printer, raw string</td></tr>
   <tr><td><span class="kbd">humanizeProviderError</span></td>
-      <td>flattens to <span class="kbd">"type: message"</span>; no-op on <span class="kbd">529 {…}</span> anyway</td>
+      <td>flattens to <span class="kbd">"type: message"</span></td>
       <td>deleted — 3 call sites, all in <span class="kbd">event-reducer.ts</span></td></tr>
-  <tr><td>card activity slot</td>
-      <td>nothing</td>
-      <td><span class="kbd">↻ Retry N</span> (already in #464)</td></tr>
+  <tr><td>retry status</td><td>—</td>
+      <td>spinner <span class="kbd">mdiLoading</span> + <span class="kbd">Retry N · 12s</span></td></tr>
+  <tr><td>"Copy" word</td><td>rendered next to the icon</td><td>icon only</td></tr>
   <tr><td>✕ while retrying</td>
-      <td class="bad">clears <span class="kbd">retryState</span> → Stop disappears</td>
-      <td class="good">collapses the error text; <span class="kbd">retryState</span> kept → Stop stays</td></tr>
+      <td class="bad">clears <span class="kbd">retryState</span> → Stop unmounts</td>
+      <td class="good">collapses; <span class="kbd">retryState</span> kept → Stop stays</td></tr>
+  <tr><td>new Stop control</td><td colspan="2" class="good">none — session abort already ends the chain</td></tr>
 </table>
 
 </div>
@@ -158,125 +162,117 @@
 <script>
 var d=document;
 var P={
-  alert:'M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z',
-  close:'M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z',
-  copy :'M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z'
+  alert  :'M13 14H11V9H13M13 18H11V16H13M1 21H23L12 2L1 21Z',
+  close  :'M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z',
+  copy   :'M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z',
+  loading:'M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z',
+  chevD  :'M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z',
+  chevR  :'M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z'
 };
-function svg(p,s){var px=Math.round(24*s);
-  return '<svg viewBox="0 0 24 24" width="'+px+'" height="'+px+'" style="vertical-align:-2px"><path fill="currentColor" d="'+p+'"/></svg>';}
+function svg(p,s,cls){var px=Math.round(24*s);
+  return '<svg viewBox="0 0 24 24" width="'+px+'" height="'+px+'" class="'+(cls||'')+'" style="vertical-align:-2px;display:inline-block"><path fill="currentColor" d="'+p+'"/></svg>';}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-var PAY={
-  short:'529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
-  long :'429 {"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota). Quota \'GenerateRequestsPerMinute\' for project 1234 exceeded; retry after the window resets.","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.QuotaFailure","violations":[{"subject":"project:1234"}]}]}}',
-  plain:'terminated',
-  stack:'fetch failed\n    at node:internal/deps/undici/undici:13502:13\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n  cause: Error: connect ETIMEDOUT 104.18.7.1:443'
-};
-var THRESH=240, payKey='short', expanded=false;
+var RAW='529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
+var THRESH=240;
 
-/* develop's card, verbatim classes. `title` is the printed string. */
-function card(o){
-  var isLong=o.text.length>THRESH;
-  var shown=(!isLong||o.expanded)?o.text:o.text.slice(0,THRESH).replace(/\s+$/,'')+'…';
+/* short status text */
+function statusText(r){ return r.waiting ? 'Retry '+r.attempt+' · 12s' : 'Retry '+r.attempt; }
+
+/* ── expanded card — verbatim InlineMessage default variant ── */
+function cardExpanded(o){
+  var t=o.text||'', isLong=t.length>THRESH;
+  var shown=(!isLong||o.expanded)?t:t.slice(0,THRESH).replace(/\s+$/,'')+'…';
   return '<div data-testid="error-banner" class="relative overflow-hidden rounded-xl border pl-3.5 pr-3 py-2 flex gap-2.5 items-start bg-[var(--severity-error-bg)] border-[var(--severity-error-border)] text-[var(--severity-error-fg)]">'
    + '<span data-testid="inline-message-accent" class="absolute inset-y-0 left-0 w-[3px] bg-[var(--severity-error-fg)]" aria-hidden="true"></span>'
-   + (o.animate?'<span data-testid="inline-message-sweep" class="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-[var(--severity-warning-fg)] to-transparent animate-pulse" aria-hidden="true"></span>':'')
    + '<span class="shrink-0 mt-0.5">'+svg(P.alert,0.7)+'</span>'
    + '<div class="flex-1 min-w-0">'
-   +   (o.text?'<div class="text-[12.5px] font-bold break-words"><span data-testid="error-banner-text" class="whitespace-pre-wrap break-words font-normal">'+esc(shown)+'</span></div>':'')
-   +   (o.sub?'<div data-testid="inline-message-body" class="mt-0.5 text-[11.5px] break-words"><div data-testid="retry-banner" class="text-xs">'+o.sub+'</div></div>':'')
+   +   '<div class="text-[12.5px] font-bold break-words"><span data-testid="error-banner-text" class="whitespace-pre-wrap break-words font-normal">'+esc(shown)+'</span></div>'
+   +   (o.retry
+        ? '<div data-testid="inline-message-body" class="mt-0.5 text-[11.5px] break-words">'
+          + '<span data-testid="retry-banner" class="inline-flex items-center gap-1 text-[var(--severity-warning-fg)]">'
+          + svg(P.loading,0.55,'animate-spin')+' '+esc(statusText(o.retry))+'</span></div>'
+        : '')
    +   '<div class="mt-1 flex items-center gap-3 text-[11px]">'
    +     (isLong?'<button type="button" data-testid="error-banner-toggle" class="underline-offset-2 hover:underline" onclick="'+(o.onToggle||'')+'">'+(o.expanded?'Show less':'Show more')+'</button>':'')
-   +     '<span class="opacity-70">'+svg(P.copy,0.55)+' Copy</span>'
+   +     '<button type="button" class="opacity-70 hover:opacity-100" title="Copy error message" aria-label="Copy error message">'+svg(P.copy,0.6)+'</button>'
    +   '</div>'
    + '</div>'
-   + (o.dismiss?'<button type="button" data-testid="error-banner-dismiss" class="shrink-0 opacity-70 hover:opacity-100" title="Dismiss" aria-label="Dismiss" onclick="'+o.dismiss+'">'+svg(P.close,0.6)+'</button>':'')
+   + '<button type="button" data-testid="error-banner-dismiss" class="shrink-0 opacity-70 hover:opacity-100" title="Dismiss" aria-label="Dismiss" onclick="'+(o.onDismiss||'void 0')+'">'+svg(P.close,0.6)+'</button>'
    + '</div>';
 }
 
-/* 1 · printing */
-function setPay(k){
-  payKey=k; expanded=false;
-  [].forEach.call(d.querySelectorAll('.row button[data-p]'),function(b){
-    b.setAttribute('aria-pressed',String(b.getAttribute('data-p')===k));});
-  renderPrinting();
-}
-function togglePrint(){ expanded=!expanded; renderPrinting(); }
-function renderPrinting(){
-  d.getElementById('printing').innerHTML =
-    card({text:PAY[payKey],expanded:expanded,onToggle:'togglePrint()',dismiss:'void 0',sub:null});
+/* ── collapsed row — InlineMessage variant="compact", verbatim ── */
+function cardCompact(o){
+  return '<div data-testid="error-banner" class="relative overflow-hidden rounded-xl border pl-3.5 pr-3 py-2 flex gap-2.5 items-center bg-[var(--severity-error-bg)] border-[var(--severity-error-border)] text-[var(--severity-error-fg)]">'
+   + '<span data-testid="inline-message-accent" class="absolute inset-y-0 left-0 w-[3px] bg-[var(--severity-error-fg)]" aria-hidden="true"></span>'
+   + '<span class="shrink-0 inline-flex text-[var(--severity-warning-fg)]">'+svg(P.loading,0.7,'animate-spin')+'</span>'
+   + '<div class="flex-1 min-w-0 flex items-center gap-2">'
+   +   '<span data-testid="retry-banner" class="text-xs font-semibold min-w-0">'+esc(statusText(o.retry))+'</span>'
+   +   '<div class="ml-auto flex items-center gap-1.5">'
+   +     '<button type="button" data-testid="error-banner-expand" class="opacity-70 hover:opacity-100" title="Show error" aria-label="Show error" onclick="'+(o.onExpand||'void 0')+'">'+svg(P.chevD,0.6)+'</button>'
+   +   '</div>'
+   + '</div>'
+   + '</div>';
 }
 
-/* 2–3 · ✕ semantics */
-var mode='today', S;
-function reset(){ S={retryState:{attempt:1,waiting:true},lastError:PAY.short,collapsed:false}; log('initial — attempt 1, waiting'); render(); }
-function log(m){ var el=d.getElementById('log'); el.textContent+=(el.textContent?'\n':'')+m; el.scrollTop=el.scrollHeight; }
+/* 1 · the three states (static) */
+d.getElementById('s1').innerHTML = cardExpanded({text:RAW,retry:{attempt:3,waiting:true}});
+d.getElementById('s2').innerHTML = cardCompact({retry:{attempt:3,waiting:true}});
+d.getElementById('s3').innerHTML = cardExpanded({text:RAW,retry:null});
 
-function stopVisible(){ return !!S.retryState; }                    // CommandInput isWorking
-function cardRetry(){ return S.retryState?S.retryState.attempt:null; } // ActivityIndicator
+/* 2 · lifecycle */
+var S;
+function reset(){ S={retry:{attempt:1,waiting:true},err:RAW,collapsed:false,live:true}; log('initial — Retry 1, waiting'); render(); }
+function log(m){var el=d.getElementById('log');el.textContent+=(el.textContent?'\n':'')+m;el.scrollTop=el.scrollHeight;}
+function stopVisible(){ return !!S.retry; }
 
 function render(){
-  var atk=cardRetry(), stop=stopVisible();
   var line='<div class="cardline"><span style="color:var(--text-primary);font-weight:600">rate-limited session</span>'
-    +(atk!==null?'<span style="color:var(--severity-warning-fg)">↻ Retry '+atk+'</span>'
-                :'<span style="color:var(--text-tertiary)">Idle</span>')+'</div>';
+    +(S.retry?'<span class="inline-flex items-center gap-1" style="color:var(--severity-warning-fg)">'
+        +svg(P.loading,0.5,'animate-spin')+' '+esc(statusText(S.retry))+'</span>'
+             :'<span style="color:var(--text-tertiary)">Idle</span>')+'</div>';
   var banner='';
-  if(S.retryState||S.lastError){
-    if(S.collapsed){
-      // Collapsed = retrying-only. No error text, no ✕ (nothing left to clear).
-      banner=card({text:'',sub:'attempt '+S.retryState.attempt+' · next attempt in 12s',
-                   animate:!S.retryState.waiting,dismiss:null});
-    }else{
-      banner=card({text:S.lastError||'',expanded:false,
-                   sub:S.retryState?('attempt '+S.retryState.attempt+' · '+(S.retryState.waiting?'next attempt in 12s':'retrying now…')):null,
-                   animate:S.retryState&&!S.retryState.waiting,dismiss:'ev(\'dismiss\')'});
-    }
+  if(S.retry||S.err){
+    banner = (S.collapsed && S.retry)
+      ? cardCompact({retry:S.retry,onExpand:"ev('expand')"})
+      : cardExpanded({text:S.err||'',retry:S.retry,onDismiss:"ev('dismiss')"});
   }
   var composer='<div class="composer"><span style="flex:1;color:var(--text-muted);font-size:11.5px">composer — type a prompt…</span>'
-    +(stop?'<span class="stopPill">■ Stop</span>':'<span class="noStop">(no Stop — no handle)</span>')+'</div>';
-  d.getElementById('stage').innerHTML = line + banner + composer;
+    +(stopVisible()?'<span class="stopPill">■ Stop</span>':'<span class="noStop">(no Stop — nothing running)</span>')+'</div>';
+  d.getElementById('stage').innerHTML=line+banner+composer;
 }
-
 function ev(k){
   if(k==='reset'){ d.getElementById('log').textContent=''; reset(); return; }
+  if(k==='expand'){ S.collapsed=false; log('expand → error text back'); }
   if(k==='dismiss'){
-    if(!S.retryState&&!S.lastError){ log('✕ — nothing to dismiss'); return; }
-    if(mode==='today'){
-      S.lastError=undefined; S.retryState=null; S.collapsed=false;
-      log('✕ → lastError AND retryState cleared → card Idle, STOP GONE — pi still retrying underneath');
-    }else{
-      if(S.retryState){ S.collapsed=true; log('✕ → error text collapsed away; retryState KEPT → Stop stays, card keeps ↻ Retry '+S.retryState.attempt); }
-      else { S.lastError=undefined; log('✕ → settled error cleared (no retry pending)'); }
-    }
+    if(S.retry){ S.collapsed=true; log('✕ while retrying → COLLAPSE. retryState kept → Stop stays, card keeps '+statusText(S.retry)); }
+    else if(S.err){ S.err=undefined; log('✕ once stopped → CLOSED for good'); }
+    else { log('✕ — nothing to dismiss'); }
   }
   if(k==='next'){
-    if(!S.retryState){ log('next attempt — nothing tracked; the loop is invisible from here'); return; }
-    S.retryState={attempt:S.retryState.attempt+1,waiting:true}; S.lastError=PAY.short;
-    log('auto_retry_waiting attempt='+S.retryState.attempt+(S.collapsed?' → stays collapsed, number updates':' → banner shows the new number'));
+    if(!S.retry){ log('next attempt — nothing retrying'); return; }
+    S.retry={attempt:S.retry.attempt+1,waiting:true}; S.err=RAW;
+    log('auto_retry_waiting → '+statusText(S.retry)+(S.collapsed?' (stays collapsed, number updates)':''));
   }
   if(k==='stop'){
-    if(!stopVisible()){ log('Stop — UNREACHABLE: the control is not on screen'); return; }
-    S={retryState:null,lastError:undefined,collapsed:false};
-    log('Stop → AbortLatch set → chain terminates without waiting out the backoff');
+    if(!stopVisible()){ log('Stop — not on screen'); return; }
+    S.retry=null; S.collapsed=false;
+    log('Stop → abortLatch.request → chain ends without waiting out the backoff; error stays, now closable');
   }
   if(k==='ok'){
-    if(!S.retryState){ log('success — nothing retrying'); return; }
-    S={retryState:null,lastError:undefined,collapsed:false};
-    log('clean agent_end → lastError + retryState cleared → surface gone, no user action');
+    if(!S.retry){ log('success — nothing retrying'); return; }
+    S={retry:null,err:undefined,collapsed:false};
+    log('clean agent_end → error + retry cleared automatically, NO user action');
+  }
+  if(k==='giveup'){
+    if(!S.retry){ log('already stopped'); return; }
+    S.retry=null; S.collapsed=false;
+    log('auto_retry_end success=false → retrying stopped; error remains and is now closable');
   }
   render();
 }
-function setMode(m){
-  mode=m;
-  [].forEach.call(d.querySelectorAll('#modePicker button'),function(b){
-    b.setAttribute('aria-pressed',String(b.getAttribute('data-m')===m));});
-  d.getElementById('modeNote').innerHTML = m==='today'
-    ? '<b class="bad">A ·</b> ✕ clears <span class="kbd">retryState</span>. Press ✕ then Stop — the control is gone and the retry is unreachable. This is what PR #464 ships today.'
-    : '<b class="good">B ·</b> ✕ collapses the error text but keeps <span class="kbd">retryState</span>. The card still reads <span class="kbd">↻ Retry N</span>, the composer Stop stays, and success still clears everything on its own.';
-  d.getElementById('log').textContent=''; reset();
-}
-
-setPay('short'); setMode('today');
+reset();
 </script>
 </body>
 </html>
