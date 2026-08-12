@@ -41,8 +41,27 @@ export interface QueryBlock {
   noResults: boolean;
 }
 
+/**
+ * The context-mode execution shape carried by a `runtime` error body: a fenced
+ * command block, an `Exit code: <n>` line, and optional `stdout:` / `stderr:`
+ * sections. Every field is optional — a runtime error whose body is a plain
+ * sentence leaves them all undefined and the renderer falls back to `message`.
+ * See change: repair-tool-error-surfaces (design.md → D2b).
+ */
+export interface CtxExecutionShape {
+  /** prose preceding the first recognised part, so no text is ever dropped */
+  preamble?: string;
+  /** the fenced block's contents, verbatim */
+  command?: string;
+  /** the fence's info string (e.g. "shell"), when present */
+  language?: string;
+  exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+}
+
 export type CtxResult =
-  | { kind: "error"; variant: CtxErrorVariant; message: string; receivedArgs?: string }
+  | ({ kind: "error"; variant: CtxErrorVariant; message: string; receivedArgs?: string } & CtxExecutionShape)
   | { kind: "execute"; stdout: string; intent?: IntentPreview }
   | { kind: "batch"; summary: BatchSummary; sections: SectionRow[]; queries: QueryBlock[] }
   | { kind: "search"; queries: QueryBlock[] }
@@ -80,7 +99,42 @@ function parseError(text: string): Extract<CtxResult, { kind: "error" }> {
   }
   // Any other isError result — exit-code stdout/stderr dumps, batch failures,
   // explicit "Runtime error:" — render as a runtime error card.
-  return { kind: "error", variant: "runtime", message: text.trim() };
+  return { kind: "error", variant: "runtime", message: text.trim(), ...parseExecutionShape(text) };
+}
+
+/**
+ * Extract the context-mode execution shape from a runtime error body. Returns an
+ * empty object when the body does not have that shape, so the caller can spread
+ * it unconditionally. Never throws: every part is matched independently and a
+ * partial body simply yields fewer fields.
+ */
+export function parseExecutionShape(text: string): CtxExecutionShape {
+  const out: CtxExecutionShape = {};
+  const fence = text.match(/^```(\w*)[ \t]*\n([\s\S]*?)\n?^```[ \t]*$/m);
+  if (fence) {
+    out.command = fence[2];
+    if (fence[1]) out.language = fence[1];
+  }
+  const exit = text.match(/^Exit code:\s*(-?\d+)\s*$/m);
+  if (exit) out.exitCode = Number(exit[1]);
+  // A stream section runs to the next stream header or the end of the body.
+  // Sliced by index rather than matched with a lookahead: JS has no `\z`, and a
+  // multiline `$` would cut every section at its first newline.
+  const heads = [...text.matchAll(/^(stdout|stderr):[ \t]*$/gm)];
+  heads.forEach((h, i) => {
+    const start = (h.index ?? 0) + h[0].length;
+    const end = i + 1 < heads.length ? (heads[i + 1].index ?? text.length) : text.length;
+    out[h[1] as "stdout" | "stderr"] = text.slice(start, end).replace(/^\n/, "").replace(/\s+$/, "");
+  });
+  // Anything before the first recognised marker (e.g. an explicit
+  // "Runtime error: …" line above the dump) would otherwise be dropped by the
+  // structured renderer, which shows only the parts it understands.
+  const starts = [fence?.index, exit?.index, heads[0]?.index].filter((i) => i !== undefined);
+  if (starts.length) {
+    const preamble = text.slice(0, Math.min(...starts)).trim();
+    if (preamble) out.preamble = preamble;
+  }
+  return out;
 }
 
 /** Split a body on lines that start a `## ` heading. Returns heading/body pairs. */

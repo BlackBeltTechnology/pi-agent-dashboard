@@ -43,7 +43,7 @@ export function BashOutputCard({ command, output, exitCode, excludeFromContext, 
             className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
               isSuccess
                 ? "bg-green-500/20 text-green-400"
-                : "bg-red-500/20 text-red-400"
+                : "bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)]"
             }`}
           >
             exit {exitCode}
