@@ -773,9 +773,20 @@ export function createCommandHandler(
               // discarding it: a partly-failed refresh still yields a usable
               // (stale) catalogue, so we log and continue rather than throw.
               // See change: update-pi-core-0-84-adopt-apis.
-              await reportRefresh(registry.refresh({}));
+              const refreshResult = await reportRefresh(registry.refresh({}));
               const models = filterByEnabledModels(registry.getAvailable().map(toModelInfo));
-              return { type: "models_list", sessionId, models };
+              // Per-provider failures travel to the browser so the dropdown can
+              // say WHY a model is missing. An abort names no provider and stays
+              // log-only. Omitted (never `[]`) on success so the happy-path
+              // message is byte-identical to before.
+              // See change: upgrade-model-selector-primitives (design D5).
+              const refreshErrors = [...(refreshResult?.errors ?? [])].map(([provider, err]) => ({
+                provider,
+                message: errText(err),
+              }));
+              return refreshErrors.length > 0
+                ? { type: "models_list", sessionId, models, refreshErrors }
+                : { type: "models_list", sessionId, models };
             } catch (err) {
               console.warn("[dashboard] request_models failed:", errText(err));
             }

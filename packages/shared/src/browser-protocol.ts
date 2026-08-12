@@ -221,6 +221,12 @@ export interface BrowserModelsListMessage {
   type: "models_list";
   sessionId: string;
   models: ModelInfo[];
+  /**
+   * Per-provider refresh failures forwarded verbatim from the bridge. Absent on
+   * a clean refresh and on older bridges.
+   * See change: upgrade-model-selector-primitives.
+   */
+  refreshErrors?: import("./protocol.js").ProviderRefreshError[];
 }
 
 export interface ModelsRefreshedMessage {

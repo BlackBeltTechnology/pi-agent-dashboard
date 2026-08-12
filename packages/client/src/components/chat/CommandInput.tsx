@@ -1,3 +1,4 @@
+import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { CommandInfo, FileEntry, ImageContent, ModelInfo, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlertOctagon, mdiClipboardText, mdiConsole, mdiDotsHorizontal, mdiEyeOutline, mdiFile, mdiFileDocumentOutline, mdiFlag, mdiFlash, mdiFolder, mdiImageOutline, mdiPlaylistPlus, mdiPlus, mdiSendVariant, mdiStop, mdiStopCircleOutline, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -139,8 +140,13 @@ interface Props {
   onSelectModel?: (model: string) => void;
   /** Select a thinking level. When omitted the thinking chip is hidden. */
   onSelectThinkingLevel?: (level: string) => void;
-  /** Re-request the model list; forwarded to ModelSelector's footer refresh. */
+  /** Re-request the model list; fired on the model dropdown's open transition. */
   onRefreshModels?: () => void;
+  /**
+   * Provider refresh failures for the selected session, rendered in the model
+   * dropdown footer. See change: upgrade-model-selector-primitives.
+   */
+  modelRefreshErrors?: ProviderRefreshError[];
   /**
    * Context-window usage for the focus-revealed footer indicator. Rendered
    * only when `contextWindow > 0` and `tokens` is available client-side.
@@ -211,7 +217,7 @@ export function shouldWalkFileQuery(query: string): boolean {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, contextUsage }: Props) {
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, modelRefreshErrors, contextUsage }: Props) {
   const { t } = useI18n();
   // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
   const isWorking = sessionStatus === "streaming" || retrying === true;
@@ -1055,6 +1061,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               models={models}
               onSelect={onSelectModel}
               onRefresh={onRefreshModels}
+              refreshErrors={modelRefreshErrors}
               favorites={favorites}
               onToggleFavorite={onToggleFavorite}
             />

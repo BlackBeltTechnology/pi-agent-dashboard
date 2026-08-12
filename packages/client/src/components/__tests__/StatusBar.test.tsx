@@ -85,14 +85,15 @@ describe("ModelSelector", () => {
     expect(screen.getByTestId("model-selector-button").hasAttribute("disabled")).toBe(true);
   });
 
-  it("forwards the footer refresh to onRefresh (refresh-model-selector-models)", () => {
+  it("requests a refresh on the open transition (upgrade-model-selector-primitives)", () => {
     const send = vi.fn();
     const selectedId = "s1";
     const onRefresh = () => selectedId && send({ type: "request_models", sessionId: selectedId });
     render(<ModelSelector current="anthropic/claude-4" models={models} onSelect={() => {}} onRefresh={onRefresh} />);
     fireEvent.click(screen.getByTestId("model-selector-button"));
-    fireEvent.click(screen.getByTestId("model-refresh"));
     expect(send).toHaveBeenCalledWith({ type: "request_models", sessionId: selectedId });
+    // The manual footer control is gone — opening is the sole trigger.
+    expect(screen.queryByTestId("model-refresh")).toBeNull();
   });
 });
 

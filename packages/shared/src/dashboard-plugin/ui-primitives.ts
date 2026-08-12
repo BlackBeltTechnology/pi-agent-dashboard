@@ -54,6 +54,9 @@ export const UI_PRIMITIVE_KEYS = {
   statusPill: "ui:status-pill",
   /** Model picker with provider filter, typeahead, keyboard navigation, pending-state. */
   modelSelector: "ui:model-selector",
+  /** Thinking-level picker with the shell's per-model level filtering.
+   *  See change: upgrade-model-selector-primitives. */
+  thinkingLevelSelector: "ui:thinking-level-selector",
   /** Floating panel anchored to a DOM element; dismisses on outside-click/Esc. */
   popover: "ui:popover",
   /** Rich tool-call card matching the main chat view (per-tool renderers,
@@ -253,6 +256,27 @@ export interface UiModelSelectorProps {
   models?: ModelInfo[];
   /** Invoked with the full `"<provider>/<id>"` string of the chosen model. */
   onSelect: (modelLabel: string) => void;
+  /** Trigger text when `current` is absent; the primitive's default is used when omitted. */
+  placeholder?: string;
+}
+
+/**
+ * Public prop signature for the thinking-level-selector primitive.
+ *
+ * Backed by the shell's own `ThinkingLevelSelector`, so the per-model level
+ * filtering (the opt-in top level, the fallback set) is shared by construction
+ * rather than copied. `supportedLevels` is caller-supplied: only the caller
+ * knows which model the row it is editing refers to.
+ *
+ * See change: upgrade-model-selector-primitives (design D3).
+ */
+export interface UiThinkingLevelSelectorProps {
+  /** Currently-selected level, or undefined (rendered as the off/default level). */
+  current?: string;
+  /** Invoked with the chosen level string. */
+  onSelect: (level: string) => void;
+  /** Levels the target model supports. Absent/empty → the shell's fallback set. */
+  supportedLevels?: string[];
 }
 
 /**
@@ -318,6 +342,7 @@ export interface UiPrimitiveMap {
   "ui:action-list": ComponentType<UiActionListProps>;
   "ui:status-pill": ComponentType<UiStatusPillProps>;
   "ui:model-selector": ComponentType<UiModelSelectorProps>;
+  "ui:thinking-level-selector": ComponentType<UiThinkingLevelSelectorProps>;
   "ui:popover": ComponentType<UiPopoverProps>;
   "ui:tool-call-step": ComponentType<UiToolCallStepProps>;
   "ui:thinking-block": ComponentType<UiThinkingBlockProps>;

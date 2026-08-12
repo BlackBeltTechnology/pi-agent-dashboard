@@ -48,6 +48,7 @@ function makeHarness(initialState: Map<string, SessionState>) {
     setOpenspecMap: noop,
     setFolderGitMap: noop,
     setOpenspecGroupsMap: noop,
+    setModelRefreshErrorsMap: noop,
     setModelsMap: noop,
     setRolesMap: noop,
     setSpawnResult: noop,
