@@ -639,6 +639,10 @@ export default function App() {
           setFolderGitMap(new Map());
           setOpenspecGroupsMap(new Map());
           setTerminals(new Map());
+          // Per-session refresh failures are scoped to one server's bridges;
+          // a stale notice from server A must not render against server B.
+          // See change: upgrade-model-selector-primitives.
+          setModelRefreshErrorsMap(new Map());
           subscribedRef.current.clear();
           // Strategy A (reduce-session-replay-traffic): drop the replay-cursor
           // guards too. Otherwise switching back to a server that still has the

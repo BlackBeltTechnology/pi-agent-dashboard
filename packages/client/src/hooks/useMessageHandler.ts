@@ -581,7 +581,15 @@ export function useMessageHandler(
         // the same session clears the footer notice.
         // See change: upgrade-model-selector-primitives.
         setModelRefreshErrorsMap((prev) => {
-          const errs = msg.refreshErrors;
+          // Trust boundary: `msg` is bridge-supplied runtime data. Keep only
+          // well-formed entries so a malformed payload cannot reach the footer
+          // (React throws when handed an object as a text child).
+          const errs = Array.isArray(msg.refreshErrors)
+            ? msg.refreshErrors.filter(
+                (e): e is ProviderRefreshError =>
+                  !!e && typeof e.provider === "string" && typeof e.message === "string",
+              )
+            : undefined;
           if (!errs || errs.length === 0) {
             if (!prev.has(msg.sessionId)) return prev;
             const next = new Map(prev);

@@ -776,14 +776,20 @@ export function createCommandHandler(
               const refreshResult = await reportRefresh(registry.refresh({}));
               const models = filterByEnabledModels(registry.getAvailable().map(toModelInfo));
               // Per-provider failures travel to the browser so the dropdown can
-              // say WHY a model is missing. An abort names no provider and stays
-              // log-only. Omitted (never `[]`) on success so the happy-path
-              // message is byte-identical to before.
+              // say WHY a model is missing. Omitted (never `[]`) on success so
+              // the happy-path message is byte-identical to before.
+              //
+              // An ABORTED refresh never populates the field, even when it also
+              // carries provider errors: the spec makes abort a log-level concern
+              // only, and an abort means a newer refresh superseded this one — so
+              // its partial errors describe a run whose result is already stale.
               // See change: upgrade-model-selector-primitives (design D5).
-              const refreshErrors = [...(refreshResult?.errors ?? [])].map(([provider, err]) => ({
-                provider,
-                message: errText(err),
-              }));
+              const refreshErrors = refreshResult?.aborted
+                ? []
+                : [...(refreshResult?.errors ?? [])].map(([provider, err]) => ({
+                    provider,
+                    message: errText(err),
+                  }));
               return refreshErrors.length > 0
                 ? { type: "models_list", sessionId, models, refreshErrors }
                 : { type: "models_list", sessionId, models };

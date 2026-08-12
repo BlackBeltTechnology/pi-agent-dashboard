@@ -21,6 +21,11 @@ const LAST_KNOWN = [
   { provider: "anthropic", id: "claude", name: "claude" },
 ];
 
+/** Stable projection so "degraded != broken" is asserted against the WHOLE
+ *  last-known catalogue, not merely a non-empty list. */
+const catalogueOf = (models: Array<Record<string, unknown>>) =>
+  models.map((m) => ({ provider: m.provider, id: m.id, name: m.name }));
+
 function makeRegistry(refreshResult: unknown) {
   return {
     authStorage: { reload: vi.fn() },
@@ -55,7 +60,7 @@ describe("request_models — provider refresh errors on models_list", () => {
     const res = await requestModels(registry);
 
     expect(res.type).toBe("models_list");
-    expect(res.models.length).toBeGreaterThan(0);
+    expect(catalogueOf(res.models)).toEqual(LAST_KNOWN);
     expect(res.refreshErrors).toEqual([{ provider: "openai", message: "catalog 503" }]);
   });
 
@@ -70,6 +75,7 @@ describe("request_models — provider refresh errors on models_list", () => {
 
     const res = await requestModels(registry);
 
+    expect(catalogueOf(res.models)).toEqual(LAST_KNOWN);
     expect(res.refreshErrors).toEqual([
       { provider: "openai", message: "catalog 503" },
       { provider: "anthropic", message: "bad key" },
@@ -82,6 +88,21 @@ describe("request_models — provider refresh errors on models_list", () => {
     const res = await requestModels(registry);
 
     expect(res.type).toBe("models_list");
+    expect(catalogueOf(res.models)).toEqual(LAST_KNOWN);
+    expect("refreshErrors" in res).toBe(false);
+  });
+
+  it("omits the field when an aborted refresh ALSO carries provider errors", async () => {
+    // An abort means a newer refresh superseded this one, so its partial errors
+    // describe an already-stale run. Abort stays log-only regardless.
+    const registry = makeRegistry({
+      aborted: true,
+      errors: new Map([["openai", new Error("catalog 503")]]),
+    });
+
+    const res = await requestModels(registry);
+
+    expect(catalogueOf(res.models)).toEqual(LAST_KNOWN);
     expect("refreshErrors" in res).toBe(false);
   });
 
@@ -90,7 +111,7 @@ describe("request_models — provider refresh errors on models_list", () => {
 
     const res = await requestModels(registry);
 
-    expect(res.models.length).toBeGreaterThan(0);
+    expect(catalogueOf(res.models)).toEqual(LAST_KNOWN);
     expect("refreshErrors" in res).toBe(false);
   });
 
@@ -99,7 +120,7 @@ describe("request_models — provider refresh errors on models_list", () => {
 
     const res = await requestModels(registry);
 
-    expect(res.models.length).toBeGreaterThan(0);
+    expect(catalogueOf(res.models)).toEqual(LAST_KNOWN);
     expect("refreshErrors" in res).toBe(false);
   });
 });
