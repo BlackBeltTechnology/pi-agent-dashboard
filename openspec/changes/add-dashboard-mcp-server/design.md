@@ -54,7 +54,7 @@ flowchart LR
   subgraph dash[dashboard server :8000]
     RT["POST /mcp<br/>stateless 2026-07-28<br/>registered by the plugin<br/>on ctx.fastify"]
     PL["mcp-server plugin"]
-    SPC["ServerPluginContext<br/>(18 members, 6 allowlisted)"]
+    SPC["ServerPluginContext<br/>(19 members, 6 allowlisted)"]
     BUS[("session registry<br/>+ event bus")]
   end
 
@@ -80,8 +80,8 @@ most are UI-shaped (`reorder_pinned_dirs`, `set_session_process_drawer`) or
 transport plumbing (`subscribe`, `watch_files`, `worktree_init_subscribe`).
 
 **Correction from cycle 1:** an earlier draft claimed this choice "dissolves the
-curation problem." It does not. `ServerPluginContext` exposes **18** members
-(`server-context.ts:192-244`), so selecting a subset **is** a hand-maintained
+curation problem." It does not. `ServerPluginContext` exposes **19** members
+(`server-context.ts:191-247`), so selecting a subset **is** a hand-maintained
 allowlist — it is simply a far smaller and better-typed one than 73 verbs. The
 completeness test is therefore **required**, not avoided.
 
@@ -96,9 +96,19 @@ Proposed allowlist:
 | `abortSpawnedRun({…})` | *not exposed* | hard-kills *plugin-spawned* runs only; wrong shape for a general tool |
 | `onEvent(handler)` | `subscriptions/listen` | delivers **all** sessions' events — the plugin MUST filter per subscription |
 
-Deliberately excluded: `broadcastToSubscribers`, `registerPiHandler`,
+Deliberately excluded (13 of 19): `broadcastToSubscribers`, `registerPiHandler`,
 `registerBrowserHandler`, `emitEventToSession`, `provide`/`consume`/`consumeAll`,
-`eventStore`, `fastify`, `onSessionEnded`.
+`eventStore`, `fastify`, `onSessionEnded`, `abortSpawnedRun`, and — added by
+task 2.2 — `getPluginConfig`, `updatePluginConfig`, `logger`.
+
+| Excluded member | Why it must never be an MCP tool |
+|---|---|
+| `getPluginConfig` | Reads this plugin's own config; exposing it leaks server-side configuration to any token holder. |
+| `updatePluginConfig` | Write access to plugin configuration — a privilege-escalation primitive, not a session-control verb. |
+| `logger` | Not a verb. Exposing it lets a caller forge server log lines, defeating the G5 refusal-observability requirement. |
+
+6 allowlisted + 13 denied = 19. The completeness check (E22/E23) asserts the
+sum, so a future context member cannot be silently unclassified.
 
 **Trust-gate caveat.** `spawnSession` / `abortSession` are gated to
 *first-party plugins* — that is **plugin-registration** trust, not per-request
@@ -115,10 +125,19 @@ plugins contribute data." **Both claims are false.**
 - `packages/dashboard-plugin-runtime/src/server/server-context.ts:192` —
   `fastify: FastifyInstance` is a first-class member of `ServerPluginContext`,
   handed to every plugin.
-- Nine plugins already register routes on it: `automation-plugin`
-  (12+ routes under `/api/plugins/automation/*`), `kb-plugin`, `apple-tools`,
-  `flows-plugin`, `blackhole-plugin`, `hermes-memory-plugin`,
-  `subagents-plugin`, `flows-anthropic-bridge-plugin`.
+- **Seven** plugins already register routes on it: `automation-plugin` (12),
+  `kb-plugin` (4, via `kb-routes.ts` `mountKbRoutes`), `blackhole-plugin` (2),
+  `hermes-memory-plugin` (2), `apple-tools` (1), `flows-plugin` (1),
+  `flows-anthropic-bridge-plugin` (1).
+
+  *(Cycle-2 correction, task 2.1. The task directed "nine → eight"; the measured
+  count is **seven**. Two separate over-counts: (a) `subagents-plugin` registers
+  no custom REST route — its server entry calls only
+  `ctx.fastify.addHook("onResponse", …)`, and a hook is not a route precedent;
+  (b) the original prose said "nine" while naming only eight. Enumeration:
+  `rg -l 'fastify\.(get|post|put|delete|patch|all|route)[<(]' packages/*/src`
+  excluding `packages/server` (core, not a plugin) and `dashboard-plugin-skill`
+  (a scaffold template, not a live plugin).)*
 
 The original grep searched `dashboard-plugin-runtime/src/server/*.ts` for a
 *registration implementation* (`registerRoute`, `httpRoute`, `app.get`) and
@@ -212,6 +231,163 @@ locally installed adapter is **2.19.0**, below the `>= 2.20.0` this change needs
 Either extend `PluginRequirements`, or surface the floor as a documented
 prerequisite and a runtime probe. This gap likely affects other plugins.
 
+## Decision 4a — The two token kinds (task 1.1, RESOLVED)
+
+The "session token dies with its session" and "device token has no identity"
+statements are **not** contradictory. They describe two token *kinds* sharing one
+verification path. The verifier resolves a presented bearer to:
+
+```ts
+type McpCaller =
+  | { kind: "session"; sessionId: string }   // minted per session, see C1
+  | { kind: "device"; deviceId: string };    // existing PairedDeviceRegistry
+```
+
+| | `kind: "session"` | `kind: "device"` |
+|---|---|---|
+| Registry | new in-memory MCP token registry | existing `paired-devices.json` |
+| `originatingSession` | the bound session id | `null` |
+| Lifetime | its session's lifetime | until row delete |
+| Self-target guard | **binds** | does not apply |
+
+The self-target guard (Req 6) fires **only** for `kind: "session"`. A device-token
+caller — Claude Desktop, Cursor, a phone over zrok — has no originating session,
+so it can never collide with a target and is structurally unaffected (G4).
+
+## Decision 6 — Token minting channel (test-plan C1, task 1.2, RESOLVED)
+
+**Chosen: the bridge WebSocket, and nothing else.** The extension sends an
+`mcp/mint-token` message over its already-registered bridge socket. The server
+attributes the mint to the sessionId **that socket is keyed under** in
+`pi-gateway.ts`'s `connections: Map<sessionId, WebSocket>` — never from a field in
+the message body.
+
+This is the only channel in the system that proves session identity server-side,
+which is exactly what Decision 4 requires for the guard to be real rather than
+theatre. The consequence is strong: **M4 ("minting for a foreign session is
+refused") becomes structurally true** — there is no field on the wire to spoof,
+so the test asserts the absence of an attribution input, not a rejection branch.
+
+Rejected alternatives:
+
+| Channel | Why rejected |
+|---|---|
+| REST endpoint authenticated by a device token | A device token proves *a* trusted device, never *which session* is asking. Reintroduces the exact spoofability Decision 4 overturned. |
+| The spawn path | Only covers sessions this server spawned; every pre-existing and externally-started session would be unmintable. |
+| Client-asserted `sessionId` on the mint request | The spoof M3 exists to forbid. |
+
+## Decision 7 — Token format, expiry, persistence (test-plan C2, task 1.3, RESOLVED)
+
+Mirrors `paired-devices.ts` for the **cryptography**, deliberately diverges on
+**persistence**.
+
+| Property | Value | Rationale |
+|---|---|---|
+| Format | opaque 32-byte (256-bit) random, `mcp_` prefix | same as `TOKEN_BYTES = 32`; opaque, not a JWT, so revocation is a row delete with no denylist |
+| At rest | SHA-256 hex only | a leaked registry cannot be replayed |
+| Plaintext | returned once at mint, never stored | same discipline as `PairedDeviceRegistry` |
+| Comparison | `crypto.timingSafeEqual` over equal-length hex | X10 |
+| Independent expiry | **none** | lifetime == session lifetime; a second expiry axis adds a failure mode with no threat it closes |
+| Persistence | **in-memory only — no disk file** | see below |
+
+**No disk persistence** is the load-bearing divergence. All session tokens die on
+server restart. This satisfies X9 ("all survive or all die, never partially
+valid") by construction rather than by careful writing, and it is safe because a
+restart tears down and re-establishes every bridge WebSocket — each session
+simply re-mints. It also means there is no `mcp-tokens.json` to leak, chmod, or
+corrupt.
+
+## Decision 8 — Revocation (test-plan C3, task 1.4, RESOLVED)
+
+Three paths, all of them a row delete from the in-memory registry:
+
+1. **Automatic on session end** — `ServerPluginContext.onSessionEnded`, plus
+   `pi-gateway`'s `onDisconnect(sessionId)`. This is the primary path (M6).
+2. **Explicit** — an `mcp/revoke-token` message over the same bridge socket,
+   attributed identically to the mint (Decision 6).
+3. **Process exit** — implied by Decision 7's in-memory registry (X8: a plugin
+   load failure leaves no stale token, because the registry lives with the
+   plugin).
+
+**No Settings UI in this change.** Session tokens are not user-managed objects;
+they are lifecycle-bound. Adding a management surface would be the L3 trigger the
+test plan already anticipates, and is deliberately deferred.
+
+**S9 — revocation against a live stream.** An open `subscriptions/listen` stream
+**re-verifies its caller on every event dispatch**, not only at open. A revoked
+token **terminates the stream** with a JSON-RPC error frame. Rejected: silently
+draining (the caller cannot tell access ended) and letting the stream run to
+completion (revocation would not actually revoke).
+
+## Decision 9 — `subscriptions/listen` filter shape (test-plan C4, task 1.5, RESOLVED)
+
+```jsonc
+{"jsonrpc":"2.0","id":1,"method":"subscriptions/listen",
+ "params":{"sessionIds":["<id>","<id>"],
+           "_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}
+```
+
+- Param name **`sessionIds`**, an array of session-id strings. A custom extension,
+  as the base `2026-07-28` `notifications` filter has no session notion.
+- **Absent, empty, or non-array `sessionIds` → JSON-RPC `-32602` invalid-params.**
+  S3's "dangerous partition" is closed **by construction**: there is no input that
+  means "every session." Fan-out-everything is not a default we chose against — it
+  is unreachable.
+- **No wildcard** in this change. A future `"*"` would be a deliberate spec edit.
+- An id in `sessionIds` that does not exist → `-32602`, so a typo is loud rather
+  than a silently-empty stream.
+
+## Decision 10 — Legacy protocol revisions (test-plan C5, task 1.6, RESOLVED)
+
+**`2026-07-28` only.** `server/discover` advertises exactly one supported version.
+`2025-06-18` and `2025-11-25` receive `UnsupportedProtocolVersionError` (E11).
+
+Serving a legacy revision would reintroduce the `initialize` handshake and
+`Mcp-Session-Id` — the two mechanisms this entire design is built to refuse. A
+server that must ignore session ids on one revision and honour them on another is
+not stateless; it is stateful with a flag. The cost is borne by clients pinned
+below `2026-07-28`, which is why the `pi-mcp-adapter >= 2.20.0` floor is a
+hard prerequisite rather than a nicety.
+
+## Decision 11 — Reserved `mcpServers` key (test-plan C6, task 1.7, RESOLVED)
+
+The key is **`"pi-dashboard"`** — namespaced by product name, collision-safe
+against `apple-tools`' `iMCP` and against future provisioners.
+
+Collision behaviour (J6), decided explicitly so "documented outcome" is concrete:
+
+| Existing value at `mcpServers["pi-dashboard"]` | Writer behaviour |
+|---|---|
+| absent | create |
+| present, carries a `url` (our HTTP-server shape) | **overwrite** — we own this key, and the url/port may legitimately have changed |
+| present, any other shape (e.g. a stdio `command` entry) | **refuse the whole write and surface an error**, file left unmodified — a foreign entry squatting our key is never silently clobbered |
+
+## Decision 12 — Performance thresholds (test-plan C7, task 1.8, RESOLVED)
+
+| id | workload | metric | threshold |
+|---|---|---|---|
+| P1 | sustained authenticated `tools/call` | p95 added latency of token verification | **≤ 1 ms** — the work is one SHA-256 over 32 bytes plus a `Map` lookup |
+| P2 | repeated `tools/list` | p95 response time | **≤ 50 ms** — the tool table is static and built once |
+| P3 | **N = 50** concurrent `subscriptions/listen` streams, steady events | delivery p95 / dropped events | **≤ 250 ms** / **0 dropped** |
+| P4 | long-running streams under continuous events | RSS growth / listener count | **≤ 25 MB** over a **10-minute** window / back to baseline **±0** |
+
+P4's listener-count-±0 is the same assertion as S4/S5/S6 measured over time; it is
+the leak canary for Decision 9's per-request subscription lifetime.
+
+## Decision 13 — No force-kill path (task 1.9, RESOLVED)
+
+**MCP gets no force-kill.** `abortSession` is soft-only, and `abortSpawnedRun` —
+which holds the only kill ladder — stays excluded for the reason Decision 1 gave:
+it hard-kills *plugin-spawned* runs specifically and is the wrong shape for a
+general tool. Exposing it would let any token holder hard-kill runs it did not
+spawn.
+
+Consequence for **X4**, stated so the test is not written against a wish: `abort`
+on a session whose bridge is disconnected returns **`false`**, and the MCP caller
+is told the abort **did not take effect**. A false success is the failure mode
+being forbidden. If a kill ladder is later needed, it is a deliberate spec edit
+that must re-argue this exclusion.
+
 ## Statelessness vs. `subscriptions/listen`
 
 These are reconciled, not contradictory. `2026-07-28` is stateless at the
@@ -228,11 +404,16 @@ requirements do not read as conflicting.
 `isGenuinelyLocal` request **with no credential**. That is incompatible with
 "credential required per request" for a tunnel-reachable tool endpoint.
 
-**Resolution:** `/mcp` opts *out* of the loopback allowance and requires a valid
-token on every request, including loopback. `createNetworkGuard` is unchanged for
-every other route. The earlier phrasing "keep localhost-guard intact" was
-imprecise and is corrected: the guard is retained *elsewhere*; `/mcp` is
-deliberately stricter.
+**Resolution (reworded per task 2.3):** `createNetworkGuard` is applied
+**per-route**, so `/mcp` does not "opt out of" a global guard — it simply **sits
+outside** it, and therefore **must self-guard**. The `/mcp` handler performs its
+own credential verification inline, reading the `Authorization` header directly
+and never consulting `request.isAuthenticated` (which the global hooks in
+`auth-plugin.ts` and `bearer-auth.ts` set for cookies and device tokens alike).
+`createNetworkGuard` is unchanged for every other route. The earlier phrasing
+"keep localhost-guard intact" was imprecise and is corrected: the guard is
+retained *elsewhere*; `/mcp` is deliberately stricter, and its strictness is a
+property of its own handler, not of a guard it declined.
 
 ## Risks
 

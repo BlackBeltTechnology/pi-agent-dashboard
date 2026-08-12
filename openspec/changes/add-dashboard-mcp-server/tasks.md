@@ -1,23 +1,23 @@
 ## 1. Resolve blocking decisions (gate — complete before any code)
 
-- [ ] 1.1 Resolve the session-token-dies-with-session vs device-token-has-no-identity contradiction; record the outcome in design.md Decision 4 and update the affected spec scenarios
-- [ ] 1.2 Answer test-plan C1: specify the per-session token minting channel, what authenticates the mint, and how the mint is attributed to the caller's live session; unblocks M1 and M4
-- [ ] 1.3 Answer test-plan C2: specify token format, expiry, and restart persistence; unblocks M5 and X9
-- [ ] 1.4 Answer test-plan C3: specify the revocation mechanism and its relationship to session end; unblocks A6, S9, X8
-- [ ] 1.5 Answer test-plan C4: define the subscriptions/listen session-filter param name and shape, and the meaning of an absent or empty filter; unblocks S1, S2, S3
-- [ ] 1.6 Answer test-plan C5: decide whether legacy revisions 2025-06-18 and 2025-11-25 are served, and align the server/discover requirement; unblocks E19
-- [ ] 1.7 Answer test-plan C6: fix the reserved mcpServers key name for the dashboard entry; unblocks J6
-- [ ] 1.8 Answer test-plan C7: set performance thresholds for token verification, tools/list, concurrent streams, and soak; unblocks P1 through P4
-- [ ] 1.9 Decide whether MCP needs a force-kill path, given abortSession is soft-only and the excluded abortSpawnedRun holds the only kill ladder; record the outcome and align X4
+- [x] 1.1 Resolve the session-token-dies-with-session vs device-token-has-no-identity contradiction; record the outcome in design.md Decision 4 and update the affected spec scenarios
+- [x] 1.2 Answer test-plan C1: specify the per-session token minting channel, what authenticates the mint, and how the mint is attributed to the caller's live session; unblocks M1 and M4
+- [x] 1.3 Answer test-plan C2: specify token format, expiry, and restart persistence; unblocks M5 and X9
+- [x] 1.4 Answer test-plan C3: specify the revocation mechanism and its relationship to session end; unblocks A6, S9, X8
+- [x] 1.5 Answer test-plan C4: define the subscriptions/listen session-filter param name and shape, and the meaning of an absent or empty filter; unblocks S1, S2, S3
+- [x] 1.6 Answer test-plan C5: decide whether legacy revisions 2025-06-18 and 2025-11-25 are served, and align the server/discover requirement; unblocks E19
+- [x] 1.7 Answer test-plan C6: fix the reserved mcpServers key name for the dashboard entry; unblocks J6
+- [x] 1.8 Answer test-plan C7: set performance thresholds for token verification, tools/list, concurrent streams, and soak; unblocks P1 through P4
+- [x] 1.9 Decide whether MCP needs a force-kill path, given abortSession is soft-only and the excluded abortSpawnedRun holds the only kill ladder; record the outcome and align X4
 
 ## 2. Correct known artifact defects
 
-- [ ] 2.1 Fix the plugin-route precedent count in design.md from nine to eight and drop subagents-plugin, whose server entry registers no custom REST routes
-- [ ] 2.2 Correct the ServerPluginContext member count in design.md from 18 to 19 and extend the allowlist and denylist tables to cover getPluginConfig, updatePluginConfig, and logger
-- [ ] 2.3 Reword the /mcp auth carve-out: createNetworkGuard is applied per-route, so /mcp sits outside it rather than opting out of it, and must self-guard
-- [ ] 2.4 Add the missing 2026-07-28 conformance requirements to the spec deltas: MCP-Protocol-Version required per POST, header-versus-body mismatch returning 400 HeaderMismatch, and unknown method returning 404 with JSON-RPC -32601
-- [ ] 2.5 Add a spec scenario requiring the mcp.json entry to use an HTTP-server shape with a url rather than the stdio command shape ensureMcpEntry writes
-- [ ] 2.6 Add a spec scenario pinning the reserved mcpServers key decided in 1.7
+- [x] 2.1 Fix the plugin-route precedent count in design.md from nine to eight and drop subagents-plugin, whose server entry registers no custom REST routes
+- [x] 2.2 Correct the ServerPluginContext member count in design.md from 18 to 19 and extend the allowlist and denylist tables to cover getPluginConfig, updatePluginConfig, and logger
+- [x] 2.3 Reword the /mcp auth carve-out: createNetworkGuard is applied per-route, so /mcp sits outside it rather than opting out of it, and must self-guard
+- [x] 2.4 Add the missing 2026-07-28 conformance requirements to the spec deltas: MCP-Protocol-Version required per POST, header-versus-body mismatch returning 400 HeaderMismatch, and unknown method returning 404 with JSON-RPC -32601
+- [x] 2.5 Add a spec scenario requiring the mcp.json entry to use an HTTP-server shape with a url rather than the stdio command shape ensureMcpEntry writes
+- [x] 2.6 Add a spec scenario pinning the reserved mcpServers key decided in 1.7
 
 ## 3. Plugin scaffold and route registration
 
