@@ -4,8 +4,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
+const TASKS_FILE = process.env.TASKS_FILE || "./tasks.jsonl";
 const tasks = new Map(
-  fs.readFileSync(new URL("./tasks.jsonl", import.meta.url), "utf8")
+  fs.readFileSync(new URL(TASKS_FILE, import.meta.url), "utf8")
     .split("\n").filter(Boolean).map((l) => { const t = JSON.parse(l); return [t.id, t]; }),
 );
 
@@ -18,7 +19,7 @@ function parseRun(file) {
   const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
   const toolSeq = [];        // { name, cmd }
   let assistantText = "";
-  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0 };
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0, reasoning: 0, ctxPeak: 0 };
   for (const l of lines) {
     let o; try { o = JSON.parse(l); } catch { continue; }
     if (o.type !== "message") continue;
@@ -30,6 +31,10 @@ function parseRun(file) {
       usage.cacheWrite += m.usage.cacheWrite || 0;
       usage.total += m.usage.totalTokens || 0;
       usage.cost += m.usage.cost?.total || 0;
+      usage.reasoning += m.usage.reasoning || 0;
+      // per-turn context = everything the provider had to read this turn
+      const ctx = (m.usage.input || 0) + (m.usage.cacheRead || 0) + (m.usage.cacheWrite || 0);
+      if (ctx > usage.ctxPeak) usage.ctxPeak = ctx;
     }
     if (!Array.isArray(m.content)) continue;
     for (const b of m.content) {
@@ -44,16 +49,31 @@ function parseRun(file) {
     }
   }
   const names = toolSeq.map((t) => t.name);
+  // sidecars written by run-impl.sh: "0" = tests passed / tests untouched
+  const sidecar = (ext) => {
+    try { return fs.readFileSync(file.replace(/\.jsonl$/, ext), "utf8").trim(); }
+    catch { return null; }
+  };
   const checks = {};
   for (const c of (tasks.get(taskId)?.checks || [])) {
-    checks[c.name] = evalCheck(c, { toolSeq, names, assistantText });
+    checks[c.name] = evalCheck(c, { toolSeq, names, assistantText, sidecar });
   }
   return { arm, taskId, run: Number(run), usage, nTools: names.length, toolSeq: names, checks, textLen: assistantText.length };
 }
 
 function evalCheck(c, ctx) {
-  const { toolSeq, names, assistantText } = ctx;
+  const { toolSeq, names, assistantText, sidecar } = ctx;
   switch (c.type) {
+    case "verify_exit_zero": {
+      const v = sidecar?.(".verify");
+      if (v === null || v === undefined) return "na";   // run crashed before verify
+      return v === "0" ? "pass" : "fail";
+    }
+    case "test_file_unmodified": {
+      const v = sidecar?.(".testdiff");
+      if (v === null || v === undefined) return "na";
+      return v === "0" ? "pass" : "fail";
+    }
     case "first_search_is_kb": {
       const first = toolSeq.find((t) => isKbTool(t.name) || (t.name === "bash" && SEARCH_BASH.test(t.cmd)));
       if (!first) return "na";

@@ -48,6 +48,8 @@ for (const arm of arms) {
   tok[arm] = {
     total: mean(rs.map((r) => r.usage.total)),
     output: mean(rs.map((r) => r.usage.output)),
+    reasoning: mean(rs.map((r) => r.usage.reasoning || 0)),
+    ctxPeak: mean(rs.map((r) => r.usage.ctxPeak || 0)),
     cacheWrite: mean(rs.map((r) => r.usage.cacheWrite)),
     cost: mean(rs.map((r) => r.usage.cost)),
     tools: mean(rs.map((r) => r.nTools)),
@@ -56,7 +58,9 @@ for (const arm of arms) {
 }
 console.log(`\n═══ Efficiency (mean per run) ═══`);
 console.log(`${"metric".padEnd(14)} ${A.padStart(12)} ${B.padStart(12)}   Δ`);
-for (const m of ["total", "output", "cacheWrite", "cost", "tools"]) {
+// reasoning ↓ = treatment working; ctxPeak ↓ = the payoff; tools ↑ = compensation
+// risk (model re-reads files instead of thinking). Read the three together.
+for (const m of ["total", "output", "reasoning", "ctxPeak", "cacheWrite", "cost", "tools"]) {
   const a = tok[A][m], b = tok[B][m];
   const d = a ? (100 * (b - a) / a).toFixed(1) + "%" : "-";
   const fmt = (x) => m === "cost" ? "$" + x.toFixed(4) : x.toFixed(m === "tools" ? 1 : 0);
