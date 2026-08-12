@@ -14,20 +14,31 @@ row that must be maintained for it. Nothing currently detects them.
 A measurement run (`spike-results.md`) confirms real signal, triaged with the
 same standard used to reject Semgrep — not a raw count:
 
-- **63/63 `unlisted` findings are true positives** (exhaustive check against each
-  owning `package.json` and the root manifest): 7 phantom dependencies across 63
-  import sites, incl. `node-pty`, `jszip`, `@testing-library/react`.
-- **~18/20 of a random `exports`/`types` sample are true positives** (15 with no
-  consumer anywhere; 3 more whose apparent "consumers" are independent
-  re-declarations, not imports).
-- Genuinely orphaned scripts (`scripts/heap-probe.mjs`,
-  `scripts/i18n-migrate-auto-keys.mjs`) and an unresolved import in `site/`.
+- **10/10 unused-file findings are true positives** (exhaustive, exact
+  import-specifier resolution).
+- **17/20 of a random `exports`/`types` sample are true positives** — and the 3
+  apparent consumers are name *collisions* (independent re-declarations in other
+  files), so effectively 20/20.
+- Baseline: **10 unused files, 227 unused exports, 189 unused types,
+  11 duplicates (437 total)**, measured at **9.78s** whole-workspace.
 
-The phantom-dependency class matters most. `nodeLinker: hoisted` is **mandatory**
-here (electron-forge hard-fails otherwise), which lets a package import a
-dependency it never declared and still resolve — until it is published or
-consumed standalone. This is a publishing monorepo; Knip is the only tool in the
-ladder that detects this.
+The first spike run was **invalid** and its numbers are withdrawn: it ran with no
+`knip.json`, so the graph was never rooted and reachable files were reported dead.
+Rooting it via the project's own manifest conventions moved the baseline
+723 → 437 and the unused-file class 90 → 10, turning a 25%-precision class into a
+100%-precision one. The measured config is preserved at `spike/knip.json`.
+
+**Nothing in the ladder detects these.** Verified in `biome.json`:
+`noUnusedImports` and `noUnusedVariables` are `warn` and **file-local only** —
+Biome has no whole-graph unused-export or unused-file rule. Reachability across
+a 36-package workspace is exactly the question a file-local linter cannot answer.
+
+**Dependency hygiene is explicitly NOT the case for Knip.** That class is already
+owned by Biome's `noUndeclaredDependencies` (`error`, repo-root scope, currently
+zero findings) under the ratified `code-quality-loop` requirement
+*"Undeclared-dependency findings reach zero at repo-root scope"*. An earlier
+revision of this proposal argued the opposite and was wrong; see the correction
+in `spike-results.md`.
 
 The same spike **rejected Semgrep**, which this change originally also proposed.
 Semgrep produced 8 findings on 3773 files with a **0/8 true-positive rate**, and
@@ -39,45 +50,48 @@ criterion, it is dropped rather than adopted for the narrative. Full evidence:
 
 ## What Changes
 
-- **Add Knip** for unused files, exports, types, and dependencies across the
-  workspace.
+- **Add Knip** for unused files, exports, and types across the workspace.
+  Dependency classes are out of scope (see below).
 - **Whole-graph, not per-change.** Knip does **not** join the `quality:changed`
   loop; it runs in CI/nightly where its runtime is free and findings batch.
-- **Advisory before blocking.** The baseline is not clean, so Knip lands
-  non-blocking and gates only after the baseline is resolved.
-- **Two distinct remediation paths — never conflated.** The 63 `unlisted`
-  findings are true positives and get **fixed in the manifests**; they must not
-  be configured away. Separately, genuine graph-blindness (plugin client entries
+
+- **Config teaches graph shape.** Genuine graph-blindness (plugin client entries
   making `react-dom` look unused, `.pi/skills/**` scripts, `vitest.config.ts`,
-  `public/sw.js`) is taught to Knip via config.
+  `public/sw.js`) is resolved by declaring entry points — not by ignoring
+  findings.
 - **Feed Knip's orphans back to the doc tree.** An orphan module and an orphan
   `AGENTS.md` row are the same drift measured from opposite ends. Knip's output
   should be reconcilable with `kb dox lint`'s orphan report rather than being a
   second, unrelated list.
-- **Phantom dependencies are fixed here.** Deliberate exception to the
-  "cleanup lands separately" ratchet: the 63 `unlisted` findings are true
-  positives and a supply-chain hazard, and leaving them would pin the gate to
-  advisory forever. The remaining baseline (orphan files, unused exports) still
-  lands in its own follow-up cleanup change.
-- **Gate blocks on a clean baseline.** Once findings reach zero, Knip flips from
-  `continue-on-error` to blocking — the same ratchet shape the other rungs use.
+- **Every dependency class is disabled in `knip.json`.** Biome already gates
+  undeclared dependencies; running both would re-report findings the project
+  deliberately exempted. One rule, one owner.
+- **Entry points are generated from the project's manifests**
+  (`pi-dashboard-plugin.{client,server,bridge}`, `pi.extensions`, `bin`,
+  `exports`) so the config cannot drift from reality — the defect that made the
+  first measurement worthless.
+- **Per-class baseline ratchet**, not a single total: a drop in one class must
+  not mask a regression in another, and raising a baseline is rejected outright.
+- **The gate runs in the `ship-it` enforcer step**, which is where this repo can
+  actually prevent a regression from landing. Nightly also runs it, but nightly
+  is after merge — detection, not prevention.
+- **Cleanup lands separately.** The 437 baseline findings are fixed in their own
+  follow-up change, not bundled into the change that installs the tool.
 
 ## Capabilities
 
 ### New Capabilities
 
 - `dead-code-detection` — the Knip gate: scope, where it runs, its config
-  exceptions, when it escalates from advisory to blocking, and how its findings
-  reconcile with the documentation tree.
+  exceptions, the baseline-ratchet gate, and how its findings reconcile with the
+  documentation tree.
 
 ### Modified Capabilities
 
 - `code-quality-loop` — the oracle gains a whole-graph check that deliberately
   does not run per-change.
 - `ci-cd-pipeline` — the whole-graph Knip pass needs a home in CI or nightly.
-- `kb-dox-tree` — a cross-check script reconciles Knip's orphan-file list against
-  `kb dox lint`'s orphan-row report, so module-graph drift and doc-tree drift are
-  measured as one thing.
+(`kb-dox-tree` is intentionally not modified — see the cross-check decision below.)
 
 ## Non-Goals
 
@@ -97,13 +111,15 @@ criterion, it is dropped rather than adopted for the narrative. Full evidence:
 - New config: `knip.json` (workspace-aware, with documented exceptions for the
   pnpm-hoisting, plugin-entry, and skill-script shapes the spike found).
 - `.github/workflows/nightly.yml` — the whole-graph pass lands in **nightly, not
-  `ci.yml`**, and runs report-only (`continue-on-error: true`) until the
-  escalation trigger is met. This is the mechanism that enforces the
-  "not blocking on day one" non-goal.
-- **Runtime cost measured: 5.59s** whole-workspace (`/usr/bin/time -p`, warm).
-  Zero added cost to the local per-change loop.
-- Manifest fixes across ~7 packages to resolve the phantom dependencies.
-- New cross-check script reconciling Knip orphans with `kb dox lint` orphan rows.
+  `ci.yml`**, invoking the ratchet check.
+- **Runtime cost measured: 9.78s** whole-workspace (`/usr/bin/time -p`, warm),
+  added to the ship enforcer step. Zero added cost to `quality:changed`.
+- A committed per-class baseline alongside `knip.json`.
+- `scripts/knip-config.mjs` generating entries from package manifests.
+- A new ratchet enforcer wired into `ship-it` step 4.4.
+- **No manifest edits** — dependency hygiene stays with Biome.
+- Ongoing cost: the config must be regenerated whenever a package adds a
+  `pi-dashboard-plugin` or `pi.extensions` entry.
 - `docker/` harness gains the Knip pass.
 - No new language runtime or non-Node toolchain prerequisite.
 
@@ -111,9 +127,15 @@ criterion, it is dropped rather than adopted for the narrative. Full evidence:
 
 Settled before spec deltas were written:
 
-- **Phantom-dependency fixes land in this change**, not the follow-up cleanup.
-- **Escalation trigger = clean baseline.** Knip runs `continue-on-error` until
-  findings reach zero, then becomes blocking.
+- **Dependency classes disabled**, deferred entirely to Biome's
+  `noUndeclaredDependencies`. No manifest edits in this change.
+- **Gating = per-class baseline ratchet**, enforced at the `ship-it` enforcer
+  step; nightly reports the same check.
+- **The kb-dox orphan cross-check is dropped** from this change. `dox lint`'s
+  `orphan` means a row pointing at a **deleted** file, while Knip's unused-file
+  means the file **exists but nothing imports it** — disjoint sets, so the
+  original scenarios were unconstructible. Deferred to its own change, to be
+  defined against the `missing` category instead.
 - **Reconciliation = a cross-check script** comparing Knip's orphan list against
   `kb dox lint`'s orphan rows (not a manual pass).
 - **Knip runs in the Docker harness** as well as nightly CI.
@@ -127,11 +149,10 @@ Settled before spec deltas were written:
 
 ## Discipline Skills
 
-- `doubt-driven-review` — a new dependency and a new class of CI failure; and the
-  advisory→blocking escalation is the kind of decision worth stress-testing
-  before it stands.
+- `doubt-driven-review` — a new dependency and a new class of CI failure; the
+  ratchet's shape and the place the gate actually runs are worth stress-testing
+  before they stand.
 - `code-simplification` — if Knip's config grows to fight false positives, that
   is evidence to drop it, not to keep tuning.
-- `security-hardening` — phantom dependencies are a supply-chain surface
-  (an undeclared import resolves to whatever the hoist provides); worth the
-  skill's framing when fixing the 63 sites.
+- `performance-optimization` — the CI budget (measured 5.59s) should stay
+  measured rather than assumed as the workspace grows.

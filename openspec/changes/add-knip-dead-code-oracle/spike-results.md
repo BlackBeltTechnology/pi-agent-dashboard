@@ -50,37 +50,99 @@ The proposal's own exit criterion: *"if the finding count is near zero, the
 honest outcome is to drop Semgrep rather than adopt it for the narrative."*
 Near zero, and blind to the one known RCE. **Dropped.**
 
-## Knip — 723 issues across 431 files, triaged
+## Knip — re-measured WITH configuration (round 2)
 
-Runtime **measured**: 5.59s real (`/usr/bin/time -p`, warm, whole workspace).
+**The first Knip run was invalid.** It executed with no `knip.json`, so the
+module graph was never rooted: packages whose entry point is declared in the
+project's own `pi-dashboard-plugin` / `pi.extensions` manifest fields (a
+convention Knip cannot infer), plus the Vite app and the Electron main/preload
+entries, had no reachable root — and every file beneath them was reported unused.
+Direct relative imports such as
+`import { registerCanvasTool } from "./canvas-tool.js"` were being reported as
+dead code. Every number from that run, and both TP rates derived from it, are
+withdrawn.
 
-### Triage (applied with the same standard used to reject Semgrep)
+The measured configuration is preserved at `spike/knip.json` and the raw output
+at `spike/knip-baseline.json`.
 
-| class | n | triage | TP rate |
+### Baseline convergence as the graph was rooted
+
+| run | config | total | files |
 |---|---|---|---|
-| `unlisted` | 63 | **exhaustive** — every finding checked against its owning `package.json` AND the root manifest | **63/63 true positive** |
-| `exports` + `types` | 479 | deterministic random sample, n=20 | **15/20 clear TP**; of the 5 apparent consumers, 3 are name *collisions* (independent re-declarations, not imports) → effective ~18/20 |
+| v1 | none (unrooted) | 723 | 90 |
+| v2 | entry from `exports`/`bin`/`pi.extensions` | 446 | 18 |
+| v3 | + canonical `pi-dashboard-plugin` `client`/`server`/`bridge` | 442 | 15 |
+| v4 | + shell-invoked scripts as entries | **437** | **10** |
 
-Overall measured TP rate is high enough to adopt — in contrast to Semgrep's 0/8.
+Runtime **measured**: 9.78s real, whole workspace (`/usr/bin/time -p`, warm).
 
-### The `unlisted` class is TRUE POSITIVE, not noise (corrected)
+### Final baseline (v4)
 
-An earlier pass in this spike wrongly dismissed these as "pnpm hoisting phantom
- resolution". That is backwards. `nodeLinker: hoisted` (mandatory here —
-`electron-forge` hard-fails otherwise) lets a package import a dependency it
-never declared and still resolve at runtime. That is the phantom-dependency
-hazard itself, and it breaks on publish, on standalone consumption, or on any
-linker change. This is a **publishing monorepo**, so that is not hypothetical.
+| class | n |
+|---|---|
+| `exports` | 227 |
+| `types` | 189 |
+| `duplicates` | 11 |
+| `files` | 10 |
+| **total** | **437** |
 
-Verified case: `@testing-library/react` is imported by
-`packages/automation-plugin/src/__tests__/*.tsx`, and is declared in **neither**
-`packages/automation-plugin/package.json` **nor** the root `package.json`.
+### Triage (same standard used to reject Semgrep)
 
-7 distinct phantom packages across 63 import sites:
-`node-pty`, `@mdi/js`, `@vitejs/plugin-react`, `@testing-library/react`,
-`jszip`, `@pi/anthropic-messages`, `@electron-forge/shared-types`.
+| class | n | method | TP rate |
+|---|---|---|---|
+| `files` | 10 | **exhaustive**, exact import-specifier resolution | **10/10** |
+| `exports` + `types` | 416 | deterministic random sample, n=20 | **17/20**; the 3 apparent consumers are name *collisions* (independent re-declarations in other files), so effectively 20/20 |
+| `duplicates` | 11 | not examined | unknown |
 
-These must be **fixed in the manifests**, never configured away.
+Corroboration: `packages/flows-plugin/src/client/FlowsCommandRoutes.tsx` is
+already listed in `scripts/i18n-lint.mjs`'s `DEAD_CODE` array — the repo had
+independently identified it as dead.
+
+### False positives found and fixed by configuration
+
+All were **shell-invoked entry points**, which Knip structurally cannot discover:
+
+- `scripts/ab-context/{extract,analyze,judge,paired}.mjs` — invoked as
+  `node extract.mjs` by `scripts/ab-context/finish.sh` and documented as CLI in
+  its README
+- `scripts/lib/smoke-spawn-session.mjs` — `docker cp`'d and run as
+  `node /smoke-spawn-session.mjs` by `scripts/test-standalone-npm-install-docker.sh`
+
+Consequence: `scripts/**` must be declared entry, which means Knip cannot report
+a genuinely dead *script*. Dead-code detection is therefore effective for
+`packages/**` source, not for the shell-invoked tooling tree.
+
+### CORRECTION — the `unlisted` class is already owned by Biome (0 new signal)
+
+This spike triaged the `unlisted` class **twice, wrongly, in opposite
+directions**, before the correct answer was found during `ship-it` step 2:
+
+1. First pass: dismissed as "pnpm hoisting phantom resolution" — wrong.
+2. Second pass: called 63/63 true positives — also wrong. It checked only
+   "is the dep declared in the owning manifest?" and never asked whether the
+   project had already adjudicated the class.
+
+**The project already owns this class.** `openspec/specs/code-quality-loop/spec.md`
+ratifies *"Undeclared-dependency findings reach zero at repo-root scope"*:
+
+- `biome.json` → `linter.rules.correctness.noUndeclaredDependencies = "error"`
+- `npx biome lint . --max-diagnostics=20000` → **0** findings in that category
+- Biome overrides deliberately exempt exactly the trees Knip flags:
+  `**/__tests__/**` + `**/*.test.ts(x)` (the `@testing-library/react` hits),
+  `**/vitest.config.ts` (`@vitejs/plugin-react`), and
+  `tests/e2e/**` + `qa/scripts/**` + `.pi/skills/**/scripts/**` (`@mdi/js`, others)
+- ratified policy: declare where the importing file **is published**; resolve by
+  ignore/override where it is **never published**
+
+So all 63 are findings the project has already seen and deliberately exempted.
+
+The `node-pty` case previously flagged here as a shipped defect is likewise a
+**false positive**: `scripts/fix-pty-permissions.cjs` resolves it via
+`require.resolve("node-pty")` and its header documents the file as deliberately
+hoist-aware; `packages/server` declares the dependency properly.
+
+**Consequence:** Knip's `unlisted` class is disabled in `knip.json` and deferred
+entirely to Biome. Knip is justified on the orphan/unused-export thesis only.
 
 ### Raw issue counts
 
@@ -97,30 +159,57 @@ These must be **fixed in the manifests**, never configured away.
 | 4 | optionalPeerDependencies |
 | 1 | unresolved |
 
-### Real signal (sample)
+### Real signal (v4, verified)
 
-- Orphaned scripts: `scripts/heap-probe.mjs`, `scripts/i18n-migrate-auto-keys.mjs`,
-  `scripts/measure-replay-compaction.mjs`, `scripts/_windows-introspection-probe.ts`
-- Unused exports in live modules: `packages/kb/src/dox.ts` (`AREA_FILE_THRESHOLD`,
-  `ROW_CAP`, `sourceFiles`), `packages/client/src/components/chat/CommandInput.tsx`
-  (`MIN_FILE_QUERY_LEN`)
-- `site/src/lib/__tests__/classify.test.ts` — unresolved import `~/lib/github-release`
+All 10 unused files, exact-verified:
+`packages/client/src/hooks/useAuthStatus.ts`,
+`components/diff/DiffView.tsx`, `components/diff/DraggableChangeRow.tsx`,
+`components/terminal/TerminalCard.tsx`, `lib/chat/message-queue.ts`,
+`lib/chat/prompt-component-registry.ts`,
+`packages/flows-plugin/src/client/FlowsCommandRoutes.tsx`,
+`packages/server/src/lifecycle/home-lock.ts`,
+`packages/electron/src/lib/ensure-windows-path.ts`,
+`packages/electron/src/lib/lock-metadata.ts`
 
-### Genuine config work (unresolved-graph shapes, NOT dismissals)
+Sampled unused exports/types incl. `resolveOpenspecBin`
+(`extension/src/openspec-cli-shim.ts`), `isBinaryFile` + `parseBashArtifacts`
+(`server/src/session/session-diff.ts`), `discoverProviderModels`,
+`detectNgrokBinary`, `parseAuthoredBatch` (`kb/src/migrate-runner.ts`).
 
-These are places Knip cannot see an entry point, and where config should teach it
-the graph — distinct from the `unlisted` class above, which must be fixed in code:
+### The config is load-bearing, and it encodes project conventions
 
-- `react-dom` + `@types/react-dom` reported unused devDeps across every
-  `*-plugin` package (plugin client entry points not traced)
-- Binaries `vite`, `electron`, `mktemp`, `xattr`, `hdiutil` reported missing
-- `.pi/skills/**/scripts/*.ts` exports flagged (skill scripts are not graph roots)
-- Config/entry files flagged as unused: `public/sw.js`, `site/astro.config.mjs`,
-  `packages/*/vitest.config.ts`
-- One likely genuine FP: `ConfigOk` (`blackhole-plugin/src/server/config-io.ts`)
-  IS imported by `src/client/BlackholeSettings.tsx` — a server/client boundary
-  Knip did not follow.
+`spike/knip.json` derives every workspace's entry from repo reality rather than
+guesswork:
 
-Conclusion: Knip has measured signal. Adopt advisory-first, whole-graph, off the
-per-change loop; fix the 63 phantom deps in manifests; teach the config the
-entry-point shapes above.
+- `pi-dashboard-plugin.{client,server,bridge}` — the canonical dashboard-plugin
+  manifest; without it, whole `src/bridge/**` and `src/server/**` trees are
+  unrooted (this alone accounted for the v2→v3 drop)
+- `pi.extensions` — pi extension entries (e.g. `packages/extension` →
+  `src/bridge.ts`)
+- `bin` + real source paths in `exports`
+- non-inferable app entries: `client/src/main.tsx`,
+  `electron/src/{main,preload}.ts` + `src/preload/*.ts`, `server/src/cli.ts`
+- `scripts/**`, `tests/e2e/**`, `qa/**`, `.pi/skills/**/scripts/*.ts`,
+  `public/sw.js`, `**/vitest.config.ts`
+
+This config must be regenerated whenever a package adds one of those manifest
+fields — a maintenance cost the change must own.
+
+### What Biome cannot do (the actual gap Knip fills)
+
+Verified in `biome.json`: `noUnusedImports` and `noUnusedVariables` are `warn`
+and **file-local only**. Biome has no whole-graph unused-export or unused-file
+rule. The 437 findings are therefore genuinely undetected by anything currently
+in the ladder.
+
+## Conclusion
+
+Knip has **measured** signal on the dead-code classes: 10/10 on files, 17/20
+(effectively 20/20) on exports/types, 9.78s whole-workspace, with a config that
+encodes real project conventions. Adopt whole-graph, off the per-change loop;
+disable the dependency classes (Biome owns them); accept that shell-invoked
+scripts are undetectable.
+
+The headline lesson: **an unconfigured Knip run is not evidence.** Rooting the
+graph moved the baseline 723 → 437 and the files class 90 → 10, and turned a
+25%-precision class into a 100%-precision one.

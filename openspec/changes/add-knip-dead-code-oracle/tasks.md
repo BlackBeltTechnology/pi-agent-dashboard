@@ -1,70 +1,74 @@
 # Tasks — add-knip-dead-code-oracle
 
-Test tasks are folded from `test-plan.md` (19 automated, 2 manual-only).
+Folded from `test-plan.md` (21 automated, 1 manual-only), round 3.
+Exemplar pointers name the nearest existing test of that category; where the
+category has no close exemplar the task says so and the test is authored fresh.
 
 ## 1. Install and configure Knip
 
 - [ ] Add `knip` as a root devDependency and a `knip` script running the whole-graph scan
-- [ ] Author `knip.json` declaring workspace entry points: plugin client entries, `.pi/skills/**/scripts/*.ts`, `packages/*/vitest.config.ts`, `public/sw.js`, `site/astro.config.mjs`
-- [ ] Verify `knip.json` contains no ignore rule covering any `unlisted` finding (config encodes graph shape only)
+- [ ] Promote `openspec/changes/add-knip-dead-code-oracle/spike/knip.json` to a root `knip.json` (the measured config: 723→437 findings once the graph was rooted)
+- [ ] Author `scripts/knip-config.mjs` that derives entry points from `pi-dashboard-plugin.{client,server,bridge}`, `pi.extensions`, `bin`, and `exports`, so the config cannot silently drift from the manifests
+- [ ] Disable every dependency class in `knip.json` and record in-file that `noUndeclaredDependencies` in `biome.json` owns them
+- [ ] Commit the per-class baseline (files 10, exports 227, types 189, duplicates 11)
 
-## 2. Fix the 63 phantom dependencies
+## 2. Tests — entry-point rooting (L1)
 
-- [ ] Declare `node-pty` in every package that imports it (currently `scripts/fix-pty-permissions.cjs`)
-- [ ] Declare `@testing-library/react` in each `*-plugin` package whose tests import it
-- [ ] Declare `@vitejs/plugin-react` in each package whose `vitest.config.ts` imports it
-- [ ] Declare `@mdi/js` in `tests/e2e` owner package and any other importer
-- [ ] Declare `jszip`, `@pi/anthropic-messages`, `@electron-forge/shared-types` in their importing packages
-- [ ] Re-run Knip and confirm the `unlisted` class is empty
+- [ ] Assert every `pi-dashboard-plugin.{client,server,bridge}` path is a Knip entry (test-plan #G1) · input: all packages declaring the manifest · trigger: compare declared paths to `knip.json` · observable: every declared path is an entry — see `scripts/__tests__/assert-bundled-plugins-complete.test.mjs` (same manifest-vs-config shape)
+- [ ] Assert every `pi.extensions` path is a Knip entry (test-plan #G2) · input: packages declaring `pi.extensions` · trigger: compare to `knip.json` · observable: every listed path is an entry — see `scripts/__tests__/assert-bundled-plugins-complete.test.mjs`
+- [ ] Assert app entries are not reported unused (test-plan #G3) · input: `client/src/main.tsx`, `electron/src/{main,preload}.ts`, `server/src/cli.ts` · trigger: run Knip · observable: none in the unused-files list — new test, no close exemplar; follow the harness style of `scripts/__tests__/dependency-declarations.test.mjs`
+- [ ] Assert a new plugin manifest entry missing from config fails the check (test-plan #G4) · input: fixture package adding `pi-dashboard-plugin.bridge` absent from `knip.json` · trigger: run the config check · observable: fails naming package + missing entry — see `scripts/__tests__/check-conventions.test.mjs`
+- [ ] Assert shell-invoked scripts are entries (test-plan #G5) · input: `scripts/ab-context/extract.mjs`, `scripts/lib/smoke-spawn-session.mjs` · trigger: run Knip · observable: neither reported unused — new test; these are the measured false positives from the spike
+- [ ] Assert rooting holds for a transitively imported module (test-plan #G6) · input: `packages/extension/src/canvas-tool.ts`, imported by `src/bridge.ts` · trigger: run Knip · observable: not reported unused — new test; this exact file was a false positive before the graph was rooted
 
-## 3. Tests — dead-code detection (L1)
+## 3. Tests — ratchet (L1)
 
-- [ ] Assert Knip reports zero `unlisted` findings across the workspace (test-plan #E1) · input: current workspace manifests · trigger: run Knip and read `issues[].unlisted` · observable: total `unlisted` count is 0 — see `scripts/__tests__/dependency-declarations.test.mjs`
-- [ ] Assert each of the 7 known phantom packages is declared by every importer (test-plan #E2) · input: the 7 package names · trigger: read each importing package's `package.json` · observable: dep present in `dependencies` or `devDependencies` — see `scripts/__tests__/biome-undeclared-dependencies.test.mjs`
-- [ ] Assert a newly undeclared import regresses (test-plan #E3) · input: fixture package importing `left-pad` undeclared · trigger: run Knip on fixture · observable: exactly one `unlisted` naming `left-pad` — see `scripts/__tests__/dependency-declarations.test.mjs`
-- [ ] Assert `knip.json` never suppresses an `unlisted` finding (test-plan #E4) · input: parsed `knip.json` · trigger: inspect ignore/`ignoreDependencies` entries · observable: no entry matches any of the 7 phantom names — see `scripts/__tests__/check-conventions.test.mjs`
-- [ ] Assert plugin client entries are not reported orphan (test-plan #E5) · input: `packages/automation-plugin/src/client/**` · trigger: run Knip · observable: no `*-plugin` client entry in `files`; `react-dom` not reported unused — see `scripts/__tests__/assert-bundled-plugins-complete.test.mjs`
-- [ ] Assert skill/config entry points are not reported orphan (test-plan #E6) · input: `.pi/skills/**/scripts/*.ts`, `packages/*/vitest.config.ts`, `public/sw.js` · trigger: run Knip · observable: none appears in unused `files` — see `scripts/__tests__/dox-byte-gate.test.mjs`
-- [ ] Assert server→client type imports are followed (test-plan #E7) · input: `ConfigOk` in `blackhole-plugin/src/server/config-io.ts` imported by `src/client/BlackholeSettings.tsx` · trigger: run Knip · observable: `ConfigOk` not reported as unused type — see `scripts/__tests__/dependency-declarations.test.mjs`
-- [ ] Assert a genuine orphan export is still detected (test-plan #E8) · input: fixture module with an unimported export · trigger: run Knip on fixture · observable: export reported in `exports` — see `scripts/__tests__/dependency-declarations.test.mjs`
+- [ ] Assert a class regression fails and names the class (test-plan #R1) · input: baseline `exports: 227`, run reporting 228 · trigger: ratchet check · observable: fails naming class, baseline, new count — new test; follow `scripts/__tests__/dox-byte-gate.test.mjs` (threshold-gate shape)
+- [ ] Assert offsetting changes cannot mask a regression (test-plan #R2) · input: `files` 10→9 and `exports` 227→229 · trigger: ratchet check · observable: fails on `exports`; `files` drop does not offset — new test, same shape as above
+- [ ] Assert counts exactly at baseline pass (test-plan #R3) · input: every class at baseline · trigger: ratchet check · observable: succeeds — see `scripts/__tests__/dox-byte-gate.test.mjs`
+- [ ] Assert a baseline increase is rejected (test-plan #R4) · input: diff raising any baseline number · trigger: run the enforcer · observable: fails; message says remove dead code rather than raise the baseline — see `scripts/__tests__/check-conventions.test.mjs`
+- [ ] Assert a missing baseline fails loudly (test-plan #R5) · input: no baseline file · trigger: ratchet check · observable: named error; current counts not adopted — see `scripts/__tests__/check-conventions.test.mjs`
+- [ ] Assert the enforcer is deterministic and offline (test-plan #R6) · input: unchanged tree · trigger: run enforcer twice · observable: identical verdict, no network/model call — see `scripts/__tests__/check-conventions.test.mjs`
 
-## 4. Tests — performance (L1)
+## 4. Tests — rule ownership (L1)
 
-- [ ] Assert whole-workspace Knip runtime stays under 30s (test-plan #P1) · input: full workspace · trigger: timed Knip run · observable: wall time < 30s (baseline 5.59s) — see `scripts/__tests__/dox-byte-gate.test.mjs`
-- [ ] Assert `quality:changed` never invokes Knip (test-plan #P2) · input: `package.json` scripts + changed-scope chain · trigger: resolve the command chain · observable: no Knip invocation reachable — see `scripts/__tests__/check-conventions.test.mjs`
+- [ ] Assert every dependency class is disabled and Biome recorded as owner (test-plan #D1) · input: parsed `knip.json` · trigger: inspect rules · observable: all dependency classes off; owner recorded — see `scripts/__tests__/check-conventions.test.mjs`
+- [ ] Assert Knip emits no dependency findings (test-plan #D2) · input: current workspace · trigger: run Knip · observable: zero findings in any dependency class — see `scripts/__tests__/dependency-declarations.test.mjs`
+- [ ] Assert Biome-exempted trees are not re-litigated (test-plan #D3) · input: a `**/__tests__/**` file importing an undeclared dep · trigger: run Knip · observable: nothing reported; no manifest declaration added — see `scripts/__tests__/biome-undeclared-dependencies.test.mjs`
 
-## 5. CI wiring + workflow assertions
+## 5. Tests — performance (L1)
 
-- [ ] Add the whole-graph Knip job to `.github/workflows/nightly.yml` with `continue-on-error: true`
-- [ ] Assert the nightly Knip job carries `continue-on-error: true` while the baseline is unclean (test-plan #X1) · input: `nightly.yml` Knip job · trigger: parse workflow YAML · observable: `continue-on-error: true` present — see `packages/shared/src/__tests__/publish-workflow-contract.test.ts`
-- [ ] Assert `ci.yml` invokes no Knip step (test-plan #X2) · input: `ci.yml` · trigger: parse workflow YAML · observable: no step or script invokes `knip` — see `packages/shared/src/__tests__/publish-workflow-contract.test.ts`
-- [ ] Assert `nightly.yml` invokes the whole-graph Knip script (test-plan #X3) · input: `nightly.yml` · trigger: parse workflow YAML · observable: a job invokes the Knip script — see `packages/shared/src/__tests__/publish-workflow-contract.test.ts`
+- [ ] Assert whole-workspace runtime stays under 30s (test-plan #P1) · input: full workspace · trigger: timed Knip run · observable: wall time < 30s (measured 9.78s) — see `scripts/__tests__/dox-byte-gate.test.mjs`
+- [ ] Assert `quality:changed` never invokes Knip (test-plan #P2) · input: `package.json` scripts + changed-scope chain · trigger: resolve the chain · observable: no Knip invocation reachable — see `scripts/__tests__/check-conventions.test.mjs`
 
-## 6. Orphan cross-check script
+## 6. Ship-gate enforcer
 
-- [ ] Author the cross-check script comparing Knip unused-files against `kb dox lint` orphan rows
-- [ ] Assert confirmed dead code when both tools report the orphan (test-plan #X4) · input: file unused per Knip AND orphan row per `kb dox lint` · trigger: run cross-check · observable: reported as confirmed dead code / deletion candidate — see `scripts/__tests__/dox-byte-gate.test.mjs`
-- [ ] Assert documentation-only drift (test-plan #X5) · input: reachable file, orphan `AGENTS.md` row · trigger: run cross-check · observable: doc-only drift, not a deletion candidate — see `scripts/__tests__/dox-byte-gate.test.mjs`
-- [ ] Assert code-only drift (test-plan #X6) · input: unused file, valid `AGENTS.md` row · trigger: run cross-check · observable: code-only drift; row flagged for removal — see `scripts/__tests__/dox-byte-gate.test.mjs`
-- [ ] Assert clean reconciliation exits 0 (test-plan #X7) · input: neither tool reports orphans · trigger: run cross-check · observable: no drift; exit code 0 — see `scripts/__tests__/dox-byte-gate.test.mjs`
-- [ ] Assert missing/unparseable `kb dox lint` output fails loudly (test-plan #X8) · input: absent or malformed lint output · trigger: run cross-check · observable: named error, no false drift reported — see `scripts/__tests__/dox-byte-gate.test.mjs`
+- [ ] Author the ratchet enforcer script and wire it into the `ship-it` enforcer step alongside `check-conventions.mjs` / `dox-byte-gate.mjs`
+- [ ] Update `.pi/skills/ship-it/SKILL.md` step 4.4 to invoke the new enforcer
 
-## 7. Docker harness (L2)
+## 7. CI wiring + workflow assertions
+
+- [ ] Add the whole-graph Knip job to `.github/workflows/nightly.yml`, invoking the ratchet check
+- [ ] Assert `ci.yml` invokes no Knip step (test-plan #X1) · input: `ci.yml` · trigger: parse workflow YAML · observable: no step or script invokes `knip` — see `packages/shared/src/__tests__/publish-workflow-contract.test.ts`
+- [ ] Assert `nightly.yml` invokes the whole-graph Knip script (test-plan #X2) · input: `nightly.yml` · trigger: parse workflow YAML · observable: a job invokes it — see `packages/shared/src/__tests__/publish-workflow-contract.test.ts`
+- [ ] Assert the nightly job runs the ratchet check and fails above baseline (test-plan #X3) · input: nightly Knip job definition · trigger: parse workflow YAML · observable: ratchet invoked; fails on a class above baseline — see `packages/shared/src/__tests__/publish-workflow-contract.test.ts`
+
+## 8. Docker harness (L2)
 
 - [ ] Add the Knip pass to the docker harness
-- [ ] Assert the harness runs Knip and yields the same finding classes as a host run (test-plan #H1) · input: docker harness container · trigger: invoke the Knip script inside the harness · observable: completes; same finding classes as host — see `qa/tests/02-server-start.sh`
+- [ ] Assert the harness runs Knip with the same per-class counts as a host run (test-plan #H1) · input: docker harness container · trigger: invoke the Knip script inside the harness · observable: completes; counts match — see `qa/tests/02-server-start.sh`
 
-## 8. Documentation
+## 9. Documentation
 
-- [ ] Record the per-change vs whole-graph check classification in `docs/code-quality.md` (delegate the `docs/` write to DocScribe, caveman style)
-- [ ] Add directory `AGENTS.md` rows for the new `knip.json` and the cross-check script
+- [ ] Record the per-change vs whole-graph classification, and that shell-invoked scripts are undetectable, in `docs/code-quality.md` (delegate the `docs/` write to DocScribe, caveman style)
+- [ ] Add directory `AGENTS.md` rows for `knip.json`, the config generator, and the enforcer script
 
-## 9. Deferred / manual verification
+## 10. Deferred / manual verification
 
-- [ ] Verify escalation flip to blocking once the baseline reaches zero: turn off `continue-on-error`, introduce an unused export, confirm the pipeline fails (test-plan: manual-only)
-- [ ] Verify a package whose phantom deps were fixed installs and imports standalone outside the monorepo (pack + install) (test-plan: manual-only)
+- [ ] Verify the enforcer blocks a real regression: add an unused export on a branch and confirm the ship enforcer step exits non-zero (test-plan: manual-only)
 
-## 10. Follow-up (not this change)
+## 11. Follow-up (not this change)
 
-- [ ] Open a separate cleanup change for the remaining baseline (orphan files, unused exports/types)
+- [ ] Open a cleanup change for the 437 baseline findings, lowering each class baseline as it lands
+- [ ] Open a separate change for Knip↔`kb dox lint` reconciliation, defining it against the `missing` category (row absent for an existing file) rather than `orphan` (row pointing at a deleted file) — the mismatch that made the original cross-check unconstructible
 - [ ] Explicitly close the parent `add-semgrep-knip-oracles` scope as measured-and-rejected for the Semgrep half
