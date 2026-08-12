@@ -54,7 +54,7 @@ flowchart LR
   subgraph dash[dashboard server :8000]
     RT["POST /mcp<br/>stateless 2026-07-28<br/>registered by the plugin<br/>on ctx.fastify"]
     PL["mcp-server plugin"]
-    SPC["ServerPluginContext<br/>(19 members, 6 allowlisted)"]
+    SPC["ServerPluginContext<br/>(19 members, 5 allowlisted)"]
     BUS[("session registry<br/>+ event bus")]
   end
 
@@ -96,10 +96,14 @@ Proposed allowlist:
 | `abortSpawnedRun({…})` | *not exposed* | hard-kills *plugin-spawned* runs only; wrong shape for a general tool |
 | `onEvent(handler)` | `subscriptions/listen` | delivers **all** sessions' events — the plugin MUST filter per subscription |
 
-Deliberately excluded (13 of 19): `broadcastToSubscribers`, `registerPiHandler`,
-`registerBrowserHandler`, `emitEventToSession`, `provide`/`consume`/`consumeAll`,
-`eventStore`, `fastify`, `onSessionEnded`, `abortSpawnedRun`, and — added by
-task 2.2 — `getPluginConfig`, `updatePluginConfig`, `logger`.
+Allowlisted (**5** of 19): `sessionManager`, `sendToSession`, `spawnSession`,
+`abortSession`, `onEvent`.
+
+Deliberately excluded (**14** of 19): `broadcastToSubscribers`,
+`registerPiHandler`, `registerBrowserHandler`, `emitEventToSession`,
+`provide`/`consume`/`consumeAll`, `eventStore`, `fastify`, `onSessionEnded`,
+`abortSpawnedRun`, and — added by task 2.2 — `getPluginConfig`,
+`updatePluginConfig`, `logger`.
 
 | Excluded member | Why it must never be an MCP tool |
 |---|---|
@@ -107,7 +111,7 @@ task 2.2 — `getPluginConfig`, `updatePluginConfig`, `logger`.
 | `updatePluginConfig` | Write access to plugin configuration — a privilege-escalation primitive, not a session-control verb. |
 | `logger` | Not a verb. Exposing it lets a caller forge server log lines, defeating the G5 refusal-observability requirement. |
 
-6 allowlisted + 13 denied = 19. The completeness check (E22/E23) asserts the
+5 allowlisted + 14 denied = 19. The completeness check (E22/E23) asserts the
 sum, so a future context member cannot be silently unclassified.
 
 **Trust-gate caveat.** `spawnSession` / `abortSession` are gated to
