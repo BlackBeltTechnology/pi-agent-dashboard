@@ -18,9 +18,17 @@ test.describe("faux round-trip — interactive ask_user", () => {
 
     await sendPrompt(page, "[[faux:ask-select]] go");
 
+    // Ack-driven settlement, well below the 30s safety timeout, and never the
+    // failed arm. See change: fix-optimistic-prompt-stuck-sending, test-plan #F2.
+    await expect(page.getByTestId("pending-prompt-failed")).toHaveCount(0);
+    await expect(page.getByPlaceholder(/message/i).first()).toBeEnabled({
+      timeout: 15_000,
+    });
+
     await expect(
       page.getByRole("button", { name: /alpha/i }).first(),
     ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("pending-prompt-failed")).toHaveCount(0);
   });
 });
 

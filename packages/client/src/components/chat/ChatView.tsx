@@ -5,7 +5,7 @@ import {
   isNotifyRowVisible,
   toolCallPrefKey,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
+import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -1379,6 +1379,14 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                   <>
                     <Icon path={mdiLoading} size={0.7} className="animate-spin text-blue-400" />
                     <span className="text-[10px] text-blue-400/70 font-medium">sending</span>
+                  </>
+                ) : state.pendingPrompt.status === "failed" ? (
+                  /* Failed arm: the prompt text is preserved so the user can
+                     retry; never the emerald success tick.
+                     See change: fix-optimistic-prompt-stuck-sending. */
+                  <>
+                    <Icon path={mdiAlertCircleOutline} size={0.7} className="text-red-400" />
+                    <span className="text-[10px] text-red-400/80 font-medium" data-testid="pending-prompt-failed">not sent</span>
                   </>
                 ) : (
                   <>

@@ -204,11 +204,12 @@ export interface PendingPrompt {
   delivery?: "steer" | "followUp";
   /**
    * Progress state of the optimistic (idle-scoped) prompt bubble.
-   * "sending" on write; "sent" once the bridge acks a fresh-turn receipt.
+   * "sending" on write; "sent" once the bridge acks a fresh-turn receipt;
+   * "failed" when the safety timeout expires with no ack (text preserved).
    * Cleared entirely (→ confirmed) when the user `message_start` lands.
-   * See change: optimistic-prompt-progress.
+   * See change: optimistic-prompt-progress, fix-optimistic-prompt-stuck-sending.
    */
-  status: "sending" | "sent";
+  status: "sending" | "sent" | "failed";
 }
 
 /**
@@ -222,8 +223,37 @@ export interface PendingPrompt {
 export function applyPromptReceived(state: SessionState, fresh: boolean): SessionState {
   if (!state.pendingPrompt) return state;
   if (!fresh) return { ...state, pendingPrompt: undefined };
-  if (state.pendingPrompt.status === "sent") return state;
+  // Any settled status is terminal — a late ack must not resurrect/promote it.
+  // See change: fix-optimistic-prompt-stuck-sending.
+  if (state.pendingPrompt.status !== "sending") return state;
   return { ...state, pendingPrompt: { ...state.pendingPrompt, status: "sent" } };
+}
+
+/**
+ * The `pendingPrompt` a reset/replay may carry across a state rebuild. Settled
+ * bubbles (`sent`/`failed`) carry as before (`preserve-pending-prompt-across-replay`);
+ * a `sending` bubble is NOT restored — nothing left in the rebuilt state can
+ * ever settle it, so it would be stuck forever.
+ * See change: fix-optimistic-prompt-stuck-sending.
+ */
+export function carryPendingPrompt(prompt: PendingPrompt | undefined): PendingPrompt | undefined {
+  return prompt && prompt.status !== "sending" ? prompt : undefined;
+}
+
+/**
+ * Settle a pending prompt whose safety timeout expired: the bubble stays, with
+ * the user's text, marked `failed`, and `lastError` is set (two deliberate
+ * surfaces). No-op unless the prompt is still `sending`, so a `failed` bubble
+ * is never re-settled or wiped.
+ * See change: fix-optimistic-prompt-stuck-sending.
+ */
+export function applyPromptTimeout(state: SessionState, message: string): SessionState {
+  if (state.pendingPrompt?.status !== "sending") return state;
+  return {
+    ...state,
+    pendingPrompt: { ...state.pendingPrompt, status: "failed" },
+    lastError: { message, timestamp: Date.now() },
+  };
 }
 
 export interface InteractiveUiRequest {

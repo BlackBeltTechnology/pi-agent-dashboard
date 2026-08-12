@@ -14,7 +14,7 @@ Files in this directory. One row per source file.
 | `bridge-default-model-gate.ts` | Pure predicate `shouldApplyDefaultModel({reason, entryCount, hasModelRegistry, hasDefaultModel})`. → see `bridge-default-model-gate.ts.AGENTS.md` |
 | `bridge.ts` | Main bridge extension entry (default export). Connects to dashboard server, forwards pi events via… → see `bridge.ts.AGENTS.md` |
 | `command-handler.ts` | Command routing: `!`/`!!` bash, `/compact`, slash commands. → see `command-handler.ts.AGENTS.md` |
-| `connection.ts` | WebSocket connection manager with exponential backoff reconnect, message buffering while disconnected,… → see `connection.ts.AGENTS.md` |
+| `connection.ts` | WebSocket connection manager with exponential backoff reconnect, message buffering while disconnected,… → see `connection.ts.AGENTS.md` `IMMEDIATE_TYPES` also carries `request_models`: serialized, a hung catalogue refresh head-of-line-blocks the pump and later `send_prompt`s never dispatch. See change: fix-optimistic-prompt-stuck-sending. |
 | `dashboard-context-injector.ts` | Registers `before_agent_start` handler. Splice-replaces trailing `Current working directory:` line of system… → see `dashboard-context-injector.ts.AGENTS.md` |
 | `dashboard-default-adapter.ts` | Built-in last-resort `PromptAdapter` (priority `9999`). Exports `DashboardDefaultAdapter`. → see `dashboard-default-adapter.ts.AGENTS.md` |
 | `dev-build.ts` | Dev build-on-reload helper. Exports `runDevBuild`, `DevBuildOptions`. → see `dev-build.ts.AGENTS.md` |
@@ -28,6 +28,7 @@ Files in this directory. One row per source file.
 | `git-poll.ts` | Exports `runGitPollTick(deps)` + `GitPollDeps` interface. Pure git + name/model poll-tick body. → see `git-poll.ts.AGENTS.md` |
 | `hasui-flip.ts` | Flip `ctx.hasUI` to `true` after bridge patches `ctx.ui.*`. Exports `flipHasUI`. → see `hasui-flip.ts.AGENTS.md` |
 | `markdown-image-inliner.ts` | Bridge helper rewriting assistant `![alt](path)` → `![alt](pi-asset:<hash>)` (SHA-256/16, MIME allowlist, 5… → see `markdown-image-inliner.ts.AGENTS.md` |
+| `model-refresh.ts` | Shared `ModelRegistry.refresh()` handling: `reportRefresh(pending,label)` surfaces abort/per-provider errors and bounds the wait by `REFRESH_TIMEOUT_MS` (10s) so a hung refresh can never block its caller; late rejections swallowed. See change: fix-optimistic-prompt-stuck-sending. |
 | `model-tracker.ts` | Diff-and-send trackers for model / session name / git info / pi version / cwd-missing. → see `model-tracker.ts.AGENTS.md` |
 | `multiselect-decode.ts` | Pure helper decoding `PromptResponse` into `string[] | undefined`. → see `multiselect-decode.ts.AGENTS.md` |
 | `multiselect-list.ts` | TUI multi-select component implementing pi-tui `ComponentLike`. Exports `MultiSelectList`, `ComponentLike`. → see `multiselect-list.ts.AGENTS.md` |

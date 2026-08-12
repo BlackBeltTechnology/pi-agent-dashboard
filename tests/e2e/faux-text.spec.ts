@@ -20,8 +20,17 @@ test.describe("faux round-trip — plain text", () => {
 
     await sendPrompt(page, "[[faux:plain-text]] go");
 
+    // The ACK settles the optimistic card, not the 30s safety timeout: assert
+    // inside a window far below `TIMEOUT_MS`, and that the failed arm never
+    // appears. See change: fix-optimistic-prompt-stuck-sending, test-plan #F1.
+    await expect(page.getByTestId("pending-prompt-failed")).toHaveCount(0);
+    await expect(page.getByPlaceholder(/message/i).first()).toBeEnabled({
+      timeout: 15_000,
+    });
+
     await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({
       timeout: 30_000,
     });
+    await expect(page.getByTestId("pending-prompt-failed")).toHaveCount(0);
   });
 });
