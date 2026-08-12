@@ -149,10 +149,40 @@ concluded absence. The actual API is simply **handing over the Fastify
 instance** — invisible to that pattern. Lesson recorded: absence-of-grep-hit is
 not absence-of-capability.
 
-**Consequence:** no new `SlotId`, no `slot-types.ts` change, no
-`dashboard-plugin-runtime` change, and no public-API risk. The plugin registers
-`POST /mcp` in its server entry like every other plugin. This is strictly
-simpler than either option previously considered.
+**Consequence:** no new `SlotId` and no `slot-types.ts` change. The plugin
+registers `POST /mcp` in its server entry like every other plugin. This is
+strictly simpler than either option previously considered.
+
+### Cycle-2 amendment — one additive `dashboard-plugin-runtime` change IS needed
+
+The claim above originally read "no `dashboard-plugin-runtime` change, and no
+public-API risk." **Implementation disproved the first half.** Decision 6 mints a
+token attributed to "the sessionId the socket is keyed under, never the message
+body" — but the seam could not deliver it:
+
+```ts
+// server-context.ts, before
+export type RegisterPiHandlerFn = (type: string, handler: (msg: unknown) => void) => void;
+//                                                          ^^^ msg only
+```
+
+`piGateway.onEvent` *has* the sessionId, but `event-wiring.ts` dropped it:
+`dispatchPluginPiMessage?.(msg.messageType, msg)`. A plugin could therefore only
+read the caller's session out of `msg` — bridge-supplied content, i.e. exactly
+the spoofable source M3/M4 exist to forbid. Taking it would have returned the
+self-target guard to the theatre that cycle 1 already overturned once.
+
+**Resolution:** the handler signature becomes `(msg, sessionId)` and the gateway
+passes its own socket key through. The change is **additive** — a handler
+declared `(msg) => …` still type-checks and still works — and there was exactly
+one in-repo production caller, so real-world blast radius is nil. Public-API
+risk is therefore *low*, not *absent*: the type is exported and a third-party
+plugin declaring its own `RegisterPiHandlerFn`-typed variable would see the
+widened signature.
+
+Lesson recorded, twinned with the cycle-1 one: *absence-of-grep-hit is not
+absence-of-capability, and presence-of-capability is not presence-of-the-**data**
+that capability needs.*
 
 ### Route-level 405 conformance is not automatic
 
@@ -201,6 +231,19 @@ a credential type but not OAuth, so the no-OAuth constraint holds.
 | Caller identity derivable | no | **yes** |
 | Revocation | row delete | row delete + session end |
 | Self-target refusal possible | no | **yes** |
+
+**Scope limit — direct self-targeting only (task 8.4).** The guard refuses a call
+whose target equals the caller's own resolved session. It does **not** detect an
+indirect loop, where a caller resolving to A drives B while a caller resolving to
+B drives A. That is **out of scope for this change**, deliberately:
+
+- Detecting it needs call-graph state across requests, which a stateless endpoint
+  does not have and would have to invent.
+- Breaking such a loop needs a depth limit or a force-kill ladder, and Decision 13
+  gives MCP neither.
+
+The permission is asserted by test G6, so narrowing it later is a deliberate spec
+edit rather than an accident.
 
 **Client without a session.** Claude Desktop and Cursor are not pi sessions and
 have no originating session id. Such callers authenticate with a device-scoped

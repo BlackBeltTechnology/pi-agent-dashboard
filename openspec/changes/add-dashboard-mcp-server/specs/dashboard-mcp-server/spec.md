@@ -148,6 +148,24 @@ introduce an OAuth flow and SHALL NOT bind an OAuth callback port.
 - **WHEN** a client sends a second request without an `Authorization` header after a successful authenticated request
 - **THEN** the second request SHALL be refused
 
+### Requirement: Plugin pi-message handlers receive a server-attributed session id
+The plugin server context SHALL deliver the originating session id alongside
+every bridge message dispatched to a `registerPiHandler` handler. The id SHALL be
+supplied by the pi gateway from the connection the message arrived on, and SHALL
+NOT be read from the message body.
+
+#### Scenario: Handler receives the gateway's session id
+- **WHEN** a bridge message is dispatched to a registered pi handler
+- **THEN** the handler SHALL receive the id of the session whose connection carried it
+
+#### Scenario: A body-supplied session id does not influence attribution
+- **WHEN** a bridge message body contains a field naming a different session
+- **THEN** the attributed session SHALL remain the connection's own session
+
+#### Scenario: Existing single-argument handlers keep working
+- **WHEN** a handler is registered that accepts only the message argument
+- **THEN** it SHALL continue to be dispatched without error
+
 ### Requirement: Per-session MCP tokens carry caller identity
 The dashboard SHALL be able to mint a session-scoped MCP token whose originating
 session is recorded server-side. Caller identity SHALL be derived from the
