@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Retry surface — spinner, short text, and what ✕ does</title>
+<title>Retry surface — spinner, short status, collapse vs close</title>
 
 <!--
   FIDELITY CONTRACT
@@ -82,7 +82,7 @@
 </div>
 
 <div class="page">
-<h1>Retry surface — spinner, short text, and what ✕ does</h1>
+<h1>Retry surface — collapse while retrying, close once stopped</h1>
 <p class="lead">
   Session <b>Stop already stops the retry</b> (<span class="kbd">abortLatch.request</span> →
   <span class="kbd">cachedCtx.abort()</span>, re-armed for 2 s, plus abort-on-sight when the turn
@@ -92,16 +92,23 @@
 
 <!-- ───────────────────────────────────────────────────────────── -->
 <p class="cap">1 · the three states</p>
-<div class="lbl">retrying · expanded — spinner, short status, ✕ collapses</div>
+<div class="lbl">retrying · expanded — spinner, short status, <b>chevron</b> collapses</div>
 <div id="s1"></div>
 <div class="lbl">retrying · collapsed — one line (InlineMessage <span class="kbd">variant="compact"</span>)</div>
 <div id="s2"></div>
-<div class="lbl">stopped / settled — no spinner, ✕ closes for good</div>
+<div class="lbl">stopped / settled — no spinner, real ✕ closes for good</div>
 <div id="s3"></div>
 <p class="desc">
   Status text is short: <span class="kbd">Retry 3 · 12s</span> while waiting,
   <span class="kbd">Retry 3</span> while in flight. No "attempt", no "next attempt in", no
   <b>Copy</b> word — the copy affordance is the icon alone, as everywhere else in the app.
+</p>
+<p class="desc">
+  <b>The trailing control changes icon with its meaning.</b> While retrying it is a chevron
+  (<span class="kbd">mdiChevronUp</span>, <span class="kbd">error-banner-collapse</span>) because the
+  action is collapse. An ✕ there would <b class="bad">promise a close it does not perform</b>. Once
+  retrying stops it becomes a real ✕ (<span class="kbd">mdiClose</span>,
+  <span class="kbd">error-banner-dismiss</span>) and does close the card.
 </p>
 
 <hr>
@@ -114,7 +121,7 @@
 </p>
 <div id="stage" style="margin-top:12px"></div>
 <div class="row">
-  <button onclick="ev('dismiss')">press ✕</button>
+  <button onclick="ev('dismiss')">press chevron / ✕</button>
   <button onclick="ev('next')">next attempt</button>
   <button onclick="ev('stop')">press Stop</button>
   <button onclick="ev('ok')">retry succeeds</button>
@@ -127,13 +134,13 @@
 
 <p class="cap">3 · state table</p>
 <table>
-  <tr><th>phase</th><th>✕ does</th><th>existing session Stop</th><th>clears by itself?</th></tr>
+  <tr><th>phase</th><th>trailing control</th><th>existing session Stop</th><th>clears by itself?</th></tr>
   <tr><td>retrying (waiting / in flight)</td>
-      <td class="good">collapses to one line — <span class="kbd">retryState</span> untouched</td>
+      <td class="good">chevron → collapses to one line — <span class="kbd">retryState</span> untouched</td>
       <td class="good">visible</td>
       <td>on success</td></tr>
   <tr><td>retries exhausted / stopped</td>
-      <td>closes the card</td>
+      <td>✕ → closes the card</td>
       <td>gone — nothing to stop</td>
       <td>no — user closes</td></tr>
   <tr><td>successful turn</td>
@@ -151,9 +158,12 @@
   <tr><td>retry status</td><td>—</td>
       <td>spinner <span class="kbd">mdiLoading</span> + <span class="kbd">Retry N · 12s</span></td></tr>
   <tr><td>"Copy" word</td><td>rendered next to the icon</td><td>icon only</td></tr>
-  <tr><td>✕ while retrying</td>
-      <td class="bad">clears <span class="kbd">retryState</span> → Stop unmounts</td>
-      <td class="good">collapses; <span class="kbd">retryState</span> kept → Stop stays</td></tr>
+  <tr><td>control while retrying</td>
+      <td class="bad">✕ that clears <span class="kbd">retryState</span> → Stop unmounts</td>
+      <td class="good">chevron that collapses; <span class="kbd">retryState</span> kept → Stop stays</td></tr>
+  <tr><td>icon matches action</td>
+      <td class="bad">✕ shown for a non-closing action</td>
+      <td class="good">chevron while retrying, ✕ only when it really closes</td></tr>
   <tr><td>new Stop control</td><td colspan="2" class="good">none — session abort already ends the chain</td></tr>
 </table>
 
@@ -167,7 +177,7 @@ var P={
   copy   :'M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z',
   loading:'M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z',
   chevD  :'M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z',
-  chevR  :'M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z'
+  chevU  :'M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z'
 };
 function svg(p,s,cls){var px=Math.round(24*s);
   return '<svg viewBox="0 0 24 24" width="'+px+'" height="'+px+'" class="'+(cls||'')+'" style="vertical-align:-2px;display:inline-block"><path fill="currentColor" d="'+p+'"/></svg>';}
@@ -198,7 +208,12 @@ function cardExpanded(o){
    +     '<button type="button" class="opacity-70 hover:opacity-100" title="Copy error message" aria-label="Copy error message">'+svg(P.copy,0.6)+'</button>'
    +   '</div>'
    + '</div>'
-   + '<button type="button" data-testid="error-banner-dismiss" class="shrink-0 opacity-70 hover:opacity-100" title="Dismiss" aria-label="Dismiss" onclick="'+(o.onDismiss||'void 0')+'">'+svg(P.close,0.6)+'</button>'
+   // The control's ICON states what it does. While a retry is pending the
+   // action is COLLAPSE, so it is a chevron — never an ✕, which would promise a
+   // close it does not perform. Once retrying stops it becomes a real ✕.
+   + (o.retry
+      ? '<button type="button" data-testid="error-banner-collapse" class="shrink-0 opacity-70 hover:opacity-100" title="Collapse" aria-label="Collapse" onclick="'+(o.onDismiss||'void 0')+'">'+svg(P.chevU,0.6)+'</button>'
+      : '<button type="button" data-testid="error-banner-dismiss" class="shrink-0 opacity-70 hover:opacity-100" title="Dismiss" aria-label="Dismiss" onclick="'+(o.onDismiss||'void 0')+'">'+svg(P.close,0.6)+'</button>')
    + '</div>';
 }
 
@@ -246,9 +261,9 @@ function ev(k){
   if(k==='reset'){ d.getElementById('log').textContent=''; reset(); return; }
   if(k==='expand'){ S.collapsed=false; log('expand → error text back'); }
   if(k==='dismiss'){
-    if(S.retry){ S.collapsed=true; log('✕ while retrying → COLLAPSE. retryState kept → Stop stays, card keeps '+statusText(S.retry)); }
+    if(S.retry){ S.collapsed=true; log('chevron while retrying → COLLAPSE. retryState kept → Stop stays, card keeps '+statusText(S.retry)); }
     else if(S.err){ S.err=undefined; log('✕ once stopped → CLOSED for good'); }
-    else { log('✕ — nothing to dismiss'); }
+    else { log('nothing to dismiss'); }
   }
   if(k==='next'){
     if(!S.retry){ log('next attempt — nothing retrying'); return; }
