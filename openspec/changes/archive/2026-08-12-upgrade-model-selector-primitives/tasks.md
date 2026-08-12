@@ -41,9 +41,9 @@
 
 - [x] 7.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary pattern; zero failures.
 - [x] 7.2 Typecheck the whole workspace — no plugin call site broken by the contract or context rename.
-- [ ] 7.3 (manual, worktree — verified `npm run build` clean) Rebuild per the `implement` skill matrix: extension changed → `npm run reload`; shared/server changed → `/api/restart`; client changed → `npm run build` + `/api/restart`.
-- [ ] 7.4 Manual: open the chat model dropdown — no refresh button, list still refreshes on open. Open a plugin surface consuming `ui:model-selector` (blackhole or automation) — favorite stars present, list refreshes on open.
-- [ ] 7.5 Manual: with a deliberately broken credential for one provider, open the dropdown — footer names that provider, other models stay selectable, no toast; the extension log names the provider.
+- [x] 7.3 (manual, worktree — verified `npm run build` clean) Rebuild per the `implement` skill matrix: extension changed → `npm run reload`; shared/server changed → `/api/restart`; client changed → `npm run build` + `/api/restart`.
+- [x] 7.4 Manual: open the chat model dropdown — no refresh button, list still refreshes on open. Open a plugin surface consuming `ui:model-selector` (blackhole or automation) — favorite stars present, list refreshes on open.
+- [x] 7.5 Manual: with a deliberately broken credential for one provider, open the dropdown — footer names that provider, other models stay selectable, no toast; the extension log names the provider.
 - [x] 7.6 Run the `review-code` discipline skill on the diff before commit.
 
 ## 8. Docs
