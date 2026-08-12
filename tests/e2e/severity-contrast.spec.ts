@@ -127,9 +127,19 @@ function readCardLabelContrast(page: Page) {
     document.body.appendChild(surface);
     const rawSurface = getComputedStyle(surface).backgroundColor;
     const bg = parse(rawSurface);
-    const probe = (token: string) => {
+    // Probe via the CLASS the card actually ships, not an inline style, so a
+    // regression that swaps the class to `--status-working` is measured here
+    // rather than silently passing against a hard-coded token name.
+    //
+    // Known limit: this still cannot locate a LIVE `↻ Retry N` label, because
+    // the harness provider (faux/faux-1) cannot 503 on demand, so no retry
+    // state ever exists in an e2e run. What this gates is the token pairing on
+    // the real card surface across every theme × mode; that the card uses this
+    // class is pinned by the unit test
+    // "the retry label uses --severity-warning-fg, never raw --status-working".
+    const probe = (cls: string) => {
       const el = document.createElement("span");
-      el.style.color = `var(${token})`;
+      el.className = cls;
       el.textContent = "Retry 2";
       surface.appendChild(el);
       const c = contrast(parse(getComputedStyle(el).color), bg);
@@ -141,8 +151,8 @@ function readCardLabelContrast(page: Page) {
       // var() computes to `rgba(0, 0, 0, 0)`, which would silently score as
       // high contrast against black and pass the gate green.
       rawSurface,
-      severityWarning: probe("--severity-warning-fg"),
-      rawWorking: probe("--status-working"),
+      severityWarning: probe("text-[var(--severity-warning-fg)]"),
+      rawWorking: probe("text-[var(--status-working)]"),
     };
     surface.remove();
     return out;

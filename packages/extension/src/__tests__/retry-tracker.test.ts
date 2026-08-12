@@ -305,4 +305,31 @@ describe("RetryTracker — arms on the last ASSISTANT message, not the last arra
     expect(t.isRetrying("s1")).toBe(false);
     expect(t.observeAgentStart("s1")).toBeNull();
   });
+
+  it("a missing assistant message is NO disposition — it never closes an ACTIVE chain as success", () => {
+    // Regression: `isError` is false both when the last assistant message is
+    // clean AND when there is no assistant message at all. Collapsing those two
+    // cases let a payload carrying no disposition mark a live retry chain
+    // successful, so `agent_settled` reported success for a turn that never
+    // succeeded. See change: raw-error-render-and-retry-authority.
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    // Arm a chain with a real failure.
+    expect(t.observeAgentEnd("s1", { messages: [{ ...errAssistantMsg }] })).not.toBeNull();
+    expect(t.isRetrying("s1")).toBe(true);
+    // A payload with no assistant entry must leave the chain's disposition alone.
+    expect(t.observeAgentEnd("s1", { messages: [{ role: "toolResult" }] })).toBeNull();
+    expect(t.isRetrying("s1")).toBe(true);
+    const end = t.observeAgentSettled("s1");
+    expect(end!.eventType).toBe("auto_retry_end");
+    expect(end!.data.success).toBe(false);
+  });
+
+  it("an empty / absent messages array is likewise no disposition", () => {
+    for (const payload of [{ messages: [] }, {}, null]) {
+      const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+      t.observeAgentEnd("s1", { messages: [{ ...errAssistantMsg }] });
+      t.observeAgentEnd("s1", payload as { messages?: unknown } | null);
+      expect(t.observeAgentSettled("s1")!.data.success).toBe(false);
+    }
+  });
 });

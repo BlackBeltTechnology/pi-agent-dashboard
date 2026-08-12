@@ -1104,8 +1104,13 @@ export function extractAgentEndError(data: Record<string, unknown>): string | un
   // and populates it from `String(error)`, so there is no envelope shape to rely
   // on — `529 {…}`, `529 overloaded_error: Overloaded` and `terminated` are all
   // real documented values. The surface prints it and offers Show more + Copy.
-  // See change: raw-error-render-and-retry-authority.
-  return (last.errorMessage as string) || "An unknown error occurred";
+  //
+  // Guarded on `typeof`, not asserted: a malformed `agent_end` can carry a
+  // non-string (e.g. `errorMessage: {}`), which would otherwise flow into
+  // `lastError.message` and crash the render with "Objects are not valid as a
+  // React child". See change: raw-error-render-and-retry-authority.
+  const raw = last.errorMessage;
+  return typeof raw === "string" && raw.length > 0 ? raw : "An unknown error occurred";
 }
 
 /**

@@ -175,7 +175,16 @@ export class RetryTracker {
         }
       }
     }
-    const isError = lastMsg?.stopReason === "error";
+    // NO assistant message = NO disposition. Distinct from "a clean assistant
+    // message": absence tells us nothing about whether the turn succeeded, so
+    // the chain's recorded disposition must be left exactly as it was.
+    // Collapsing the two cases let a payload carrying no assistant entry mark a
+    // LIVE retry chain successful, and `agent_settled` then reported success for
+    // a turn that never succeeded.
+    // See change: raw-error-render-and-retry-authority.
+    if (lastMsg === undefined) return null;
+
+    const isError = lastMsg.stopReason === "error";
     if (!isError) {
       // A non-error agent_end closes an active chain SUCCESSFULLY, but the
       // chain stays open until `agent_settled` terminates it. Record the
@@ -186,7 +195,7 @@ export class RetryTracker {
     }
 
     const err =
-      typeof lastMsg?.errorMessage === "string" && lastMsg.errorMessage.length > 0
+      typeof lastMsg.errorMessage === "string" && lastMsg.errorMessage.length > 0
         ? lastMsg.errorMessage
         : (this.chains.get(sessionId)?.errorMessage ?? "");
     const chain =

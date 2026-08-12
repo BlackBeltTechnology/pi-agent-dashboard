@@ -16,8 +16,9 @@ NOTHING and the retry surface was dead. The corrected rules are:
 - An assistant `message_end` with `stopReason: "error"` SHALL record a pending failure for the
   session. It SHALL NOT clear the chain.
 - An `agent_end` whose last **assistant** message is an error SHALL be treated as **an attempt
-  that ended with another one coming**, NOT as terminal. It SHALL emit `auto_retry_start` for that attempt
-  and a **waiting signal**, and SHALL NOT clear the session's retry tracking.
+  that ended with another one coming**, NOT as terminal. It SHALL emit the **waiting signal** for
+  that attempt — NOT `auto_retry_start`, which is emitted by the FOLLOWING `agent_start` when the
+  awaited attempt actually begins — and SHALL NOT clear the session's retry tracking.
 - `agent_settled` SHALL be the SOLE terminal signal. It SHALL close the chain with
   `auto_retry_end` and clear all per-session retry tracking.
 
@@ -142,7 +143,9 @@ structural — keyed on `role` and `stopReason` — and SHALL NOT inspect error 
 - **AND** an `agent_end` whose last `role: "assistant"` message has a `stopReason` other than `"error"`
 - **WHEN** the array's final element is a `toolResult`
 - **THEN** the bridge SHALL treat the turn as successful
-- **AND** SHALL close the chain successfully
+- **AND** SHALL record that disposition on the chain
+- **AND** the chain SHALL remain open until `agent_settled`, which closes it with
+  `auto_retry_end` carrying `success: true`
 
 #### Scenario: No assistant message present
 

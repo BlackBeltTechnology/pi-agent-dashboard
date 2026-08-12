@@ -2663,6 +2663,17 @@ describe("provider error strings are printed verbatim (no humanizing)", () => {
     expect(extractAgentEndError({ messages: [{ role: "assistant", stopReason: "error", errorMessage: raw }] })).toBe(raw);
   });
 
+  it("falls back for a non-string errorMessage instead of leaking an object", () => {
+    // A malformed agent_end can carry `errorMessage: {}`. Letting that reach
+    // lastError.message crashes the render with "Objects are not valid as a
+    // React child". See change: raw-error-render-and-retry-authority.
+    for (const bad of [{}, 42, null, undefined, []]) {
+      expect(
+        extractAgentEndError({ messages: [{ role: "assistant", stopReason: "error", errorMessage: bad }] }),
+      ).toBe("An unknown error occurred");
+    }
+  });
+
   it("returns a plain non-JSON string verbatim", () => {
     expect(extractAgentEndError({ messages: [{ role: "assistant", stopReason: "error", errorMessage: "terminated" }] })).toBe("terminated");
   });
