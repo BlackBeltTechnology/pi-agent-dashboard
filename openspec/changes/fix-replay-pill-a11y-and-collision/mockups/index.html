@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Replay-in-flight pill — UX review</title>
+<style>
+/* ────────────────────────────────────────────────────────────────
+   TOKENS — copied verbatim from packages/client/src/index.css
+   (:root = dark, [data-theme="light"]). No raw hex below this block.
+   ──────────────────────────────────────────────────────────────── */
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+  --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+  --accent-primary:#3b82f6; --accent-blue:#3b82f6;
+  --shadow-card:rgba(0,0,0,.5);
+}
+[data-theme="light"]{
+  --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+  --bg-surface:#e0e0e0; --bg-hover:rgba(0,0,0,.04);
+  --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+  --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+  --accent-primary:#2563eb; --accent-blue:#2563eb;
+  --shadow-card:rgba(0,0,0,.08);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg-primary); color:var(--text-secondary);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+
+/* ── control bar ── */
+.controls{
+  position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+  padding:10px 14px; background:var(--bg-secondary); border-bottom:1px solid var(--border-primary);
+}
+.controls strong{color:var(--text-primary); font-size:12px; letter-spacing:.02em; margin-right:4px}
+.controls button{
+  font:inherit; font-size:12px; padding:5px 11px; border-radius:999px; cursor:pointer;
+  background:var(--bg-tertiary); color:var(--text-secondary);
+  border:1px solid var(--border-secondary);
+}
+.controls button:hover{background:var(--bg-hover); color:var(--text-primary)}
+.controls button[aria-pressed="true"]{
+  background:var(--accent-primary); border-color:var(--accent-primary); color:#fff;
+}
+.controls button:focus-visible{outline:2px solid var(--accent-primary); outline-offset:2px}
+.hint{font-size:11px;color:var(--text-tertiary)}
+
+/* ── chat frame ── */
+.frame{max-width:900px;margin:16px auto;padding:0 12px}
+.label{font-size:11px;color:var(--text-tertiary);margin:18px 0 6px;text-transform:uppercase;letter-spacing:.08em}
+/* The composer lives in App.tsx, OUTSIDE ChatView — so `bottom-4` inside this
+   container is the true anchor for the pill AND the scroll buttons alike. */
+.chat{
+  position:relative; height:400px; overflow:hidden;
+  background:var(--bg-primary);
+  border:1px solid var(--border-primary); border-radius:12px 12px 0 0; border-bottom:0;
+}
+.list{position:absolute;inset:0;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+/* bubbles mirror the shipped classes: rounded-xl shadow-md px-4 py-2 */
+.row{display:flex}
+.row.user{justify-content:flex-end}
+.bubble{
+  max-width:78%; padding:8px 16px; border-radius:12px;
+  background:var(--bg-tertiary); border:1px solid var(--border-subtle);
+  box-shadow:0 4px 6px -1px var(--shadow-card); color:var(--text-secondary);
+}
+.row.user .bubble{background:color-mix(in srgb,var(--accent-blue) 10%,var(--bg-tertiary))}
+.composer{
+  height:52px;display:flex;align-items:center;
+  padding:0 14px;background:var(--bg-secondary);
+  border:1px solid var(--border-primary);border-radius:0 0 12px 12px;
+  color:var(--text-muted);font-size:13px;
+}
+
+/* ── shipped scroll buttons (present so collisions are REAL) ── */
+.scrollbtn{
+  position:absolute; z-index:10; width:32px; height:32px; border-radius:999px;
+  display:grid; place-items:center;
+  background:var(--bg-tertiary); border:1px solid var(--border-subtle);
+  box-shadow:0 10px 15px -3px var(--shadow-card); color:var(--text-secondary);
+}
+.scroll-top{top:16px; left:50%; transform:translateX(-50%)}
+/* shipped: absolute bottom-4 left-1/2 -translate-x-1/2 z-10 — SAME bottom-4 as the pill */
+.scroll-bottom{bottom:16px; left:50%; transform:translateX(-50%)}
+
+/* ── spinner ── */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{animation:spin 1s linear infinite}
+/* Repo convention: index.css already ships 6 prefers-reduced-motion blocks.
+   The shipped pill honours none — variant B/C do. */
+@media (prefers-reduced-motion:reduce){
+  .respect-rm .spin{animation:none}
+}
+.ico{width:13px;height:13px;flex:none;display:block}
+
+/* ── VARIANT A — shipped baseline ──
+   absolute bottom-4 right-4 z-10 flex items-center gap-1.5 rounded-full
+   bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] px-3 py-1 shadow-lg */
+.pill-a{
+  position:absolute; bottom:16px; right:16px; z-index:10;
+  display:flex; align-items:center; gap:6px;
+  border-radius:999px; padding:4px 12px;
+  background:var(--bg-tertiary); border:1px solid var(--border-subtle);
+  box-shadow:0 10px 15px -3px var(--shadow-card);
+  color:var(--text-secondary); font-size:11px;
+}
+
+/* ── VARIANT B — minimal fix: real surface separation + clears the button ──
+   bg-surface + a --text-tertiary hairline (5.01:1 dark / 4.48:1 light vs page,
+   clears SC 1.4.11's 3:1). Lifted above the scroll button instead of sharing
+   bottom-4, killing the 31px mobile overlap. */
+.pill-b{
+  position:absolute; bottom:64px; right:16px; z-index:11;
+  display:flex; align-items:center; gap:6px;
+  border-radius:999px; padding:5px 12px;
+  background:var(--bg-surface); border:1px solid var(--text-tertiary);
+  box-shadow:0 10px 15px -3px var(--shadow-card);
+  color:var(--text-primary); font-size:12px;
+}
+
+/* ── VARIANT C — tail band: spec-true "where the events land" ──
+   Full-width band pinned to the tail of the list, with a scrim that fades into
+   the transcript, so the affordance sits exactly where the missing content is. */
+.band-c{
+  position:absolute; left:0; right:0; bottom:0; z-index:11;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  padding:8px 12px;
+  color:var(--text-primary); font-size:12px;
+  background:linear-gradient(to top,var(--bg-primary) 55%,transparent);
+  border-top:1px solid var(--border-secondary);
+}
+.band-c .inner{
+  display:flex;align-items:center;gap:7px;
+  background:var(--bg-surface);border:1px solid var(--text-tertiary);
+  border-radius:999px;padding:5px 14px;
+  box-shadow:0 10px 15px -3px var(--shadow-card);
+}
+/* Variant C moves the scroll-to-bottom button up so nothing collides. */
+.c-active .scroll-bottom{bottom:56px}
+
+.hidden{display:none !important}
+.note{font-size:12px;color:var(--text-tertiary);margin:6px 0 0;max-width:900px}
+.note code{color:var(--text-secondary);background:var(--bg-tertiary);padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body class="respect-rm">
+
+<div class="controls">
+  <strong>Theme</strong>
+  <button id="t-dark"  aria-pressed="true">Dark</button>
+  <button id="t-light" aria-pressed="false">Light</button>
+  <strong style="margin-left:10px">Variant</strong>
+  <button data-v="a" aria-pressed="true">A · shipped</button>
+  <button data-v="b" aria-pressed="false">B · minimal fix</button>
+  <button data-v="c" aria-pressed="false">C · tail band</button>
+  <strong style="margin-left:10px">Behaviour</strong>
+  <button id="sim">▶ Simulate replay (fast 250ms)</button>
+  <button id="sim-slow">▶ Simulate replay (slow 4s)</button>
+  <span class="hint">300ms delay is live — “fast” must never paint.</span>
+</div>
+
+<div class="frame">
+  <div class="label">Chat during a multi-batch replay — resize to 375px to see the mobile collision</div>
+
+  <div class="chat" id="chat">
+    <div class="list" id="list">
+      <div class="row"><div class="bubble">Walk me through how the bridge reconnects after the dashboard restarts.</div></div>
+      <div class="row user"><div class="bubble">It re-registers over the WebSocket and replays from <code>lastSeq</code>.</div></div>
+      <div class="row"><div class="bubble">Right — and the replay is chunked at 200 events per batch, pausing whenever the socket buffer fills.</div></div>
+      <div class="row user"><div class="bubble">So a slow link stretches the gap between batches.</div></div>
+      <div class="row"><div class="bubble">Exactly. That gap is the whole reason this indicator exists: the tail is missing but the view looks finished.</div></div>
+    </div>
+
+    <div class="scrollbtn scroll-top" aria-hidden="true">↑</div>
+    <div class="scrollbtn scroll-bottom" aria-hidden="true">↓</div>
+
+    <!-- A — shipped -->
+    <div class="pill-a hidden" id="pa" data-testid="replay-in-flight-pill" role="status" aria-busy="true" aria-label="Loading earlier messages…">
+      <svg class="ico spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg>
+      <span>Loading earlier messages…</span>
+    </div>
+
+    <!-- B — minimal fix -->
+    <div class="pill-b hidden" id="pb" role="status" aria-busy="true">
+      <svg class="ico spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg>
+      <span>Loading earlier messages…</span>
+    </div>
+
+    <!-- C — tail band -->
+    <div class="band-c hidden" id="pc" role="status" aria-busy="true">
+      <span class="inner">
+        <svg class="ico spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg>
+        <span>Still loading this conversation…</span>
+      </span>
+    </div>
+
+  </div>
+  <div class="composer">Send a prompt…</div>
+
+  <p class="note"><strong>A (shipped)</strong> — <code>bottom-4 right-4</code>, <code>--bg-tertiary</code> on <code>--border-subtle</code>.
+  Surface vs transcript = <strong>1.19:1</strong> dark / 1.14:1 light; border 1.42:1. WCAG 1.4.11 wants 3:1.
+  At 375px it overlaps the scroll-to-bottom button by <strong>31px</strong> (both <code>bottom-4</code>, both <code>z-10</code>).
+  Spinner ignores <code>prefers-reduced-motion</code>.</p>
+  <p class="note"><strong>B (minimal fix)</strong> — <code>--bg-surface</code> + a <code>--text-tertiary</code> hairline = <strong>5.01:1</strong> dark / 4.48:1 light. Lifted clear of the scroll button. Honours reduced-motion. Same footprint, same corner idiom.</p>
+  <p class="note"><strong>C (tail band)</strong> — full-width at the tail, where the missing events actually land, matching the spec’s “anchored to the bottom of the message list”. Scrim implies more content. Scroll button shifts up; no collision at any width.</p>
+</div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const pills={a:$('#pa'),b:$('#pb'),c:$('#pc')};
+let variant='a', shown=false;
+
+function paint(){
+  Object.entries(pills).forEach(([k,el])=>el.classList.toggle('hidden',!(shown&&k===variant)));
+  $('#chat').classList.toggle('c-active', shown&&variant==='c');
+}
+$$('[data-v]').forEach(b=>b.onclick=()=>{
+  variant=b.dataset.v;
+  $$('[data-v]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  paint();
+});
+function setTheme(t){
+  document.documentElement.dataset.theme=t;
+  $('#t-dark').setAttribute('aria-pressed',String(t==='dark'));
+  $('#t-light').setAttribute('aria-pressed',String(t==='light'));
+}
+$('#t-dark').onclick=()=>setTheme('dark');
+$('#t-light').onclick=()=>setTheme('light');
+
+// Real 300ms show-delay, so "fast" provably paints nothing.
+let delayTimer=null, endTimer=null;
+function simulate(ms){
+  clearTimeout(delayTimer); clearTimeout(endTimer);
+  shown=false; paint();
+  delayTimer=setTimeout(()=>{shown=true;paint();},300);   // REPLAY_PILL_DELAY_MS
+  endTimer=setTimeout(()=>{clearTimeout(delayTimer);shown=false;paint();},ms);
+}
+$('#sim').onclick=()=>simulate(250);
+$('#sim-slow').onclick=()=>simulate(4000);
+simulate(4000);
+</script>
+</body>
+</html>
