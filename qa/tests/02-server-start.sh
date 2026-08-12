@@ -77,6 +77,66 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "No blocking pi compatibility error"
 
+    # --- MCP endpoint conformance, at process level -----------------------
+    # See change: add-dashboard-mcp-server.
+    #
+    # E3: GET /mcp MUST answer 405. This is asserted here, against a REAL
+    # server, because the failure mode is invisible to a unit test: Fastify
+    # falls an unmatched method through to setNotFoundHandler, which serves the
+    # SPA. A conformance failure therefore looks like HTTP 200 + HTML, i.e.
+    # like success. Sent with no Accept header, the shape most likely to be
+    # answered with a web page.
+    MCP_CODE=$(curl -s -o /tmp/mcp-get-body -w "%{http_code}" -X GET http://localhost:8000/mcp 2>/dev/null || echo "000")
+    if [ "$MCP_CODE" != "405" ]; then
+      echo "FAIL: GET /mcp returned $MCP_CODE, expected 405"
+      exit 1
+    fi
+    if grep -qi "<!doctype html\|<html" /tmp/mcp-get-body 2>/dev/null; then
+      echo "FAIL: GET /mcp returned the SPA document instead of a 405 payload"
+      exit 1
+    fi
+    echo "GET /mcp returned 405 and did not fall through to the SPA"
+
+    MCP_DELETE_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE http://localhost:8000/mcp 2>/dev/null || echo "000")
+    if [ "$MCP_DELETE_CODE" != "405" ]; then
+      echo "FAIL: DELETE /mcp returned $MCP_DELETE_CODE, expected 405"
+      exit 1
+    fi
+    echo "DELETE /mcp returned 405"
+
+    # An unauthenticated POST must be refused. Proves the endpoint self-guards
+    # rather than inheriting the loopback allowance every other route has --
+    # this request originates from localhost.
+    MCP_POST_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/mcp \
+      -H "content-type: application/json" -H "mcp-protocol-version: 2026-07-28" \
+      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' 2>/dev/null || echo "000")
+    if [ "$MCP_POST_CODE" != "401" ]; then
+      echo "FAIL: unauthenticated POST /mcp from localhost returned $MCP_POST_CODE, expected 401"
+      exit 1
+    fi
+    echo "Unauthenticated POST /mcp refused from loopback (401)"
+
+    # E28: no OAuth callback port is bound. This change implements no OAuth
+    # flow precisely so it cannot contend with pi-mcp-adapter's own callback
+    # server. Asserted by enumerating the server process's listening ports and
+    # requiring only the two it should own.
+    if command -v lsof >/dev/null 2>&1; then
+      LISTENING=$(lsof -nP -iTCP -sTCP:LISTEN -a -p "$SERVER_PID" 2>/dev/null | awk 'NR>1 {print $9}' | sed 's/.*://' | sort -u | tr '\n' ' ')
+      echo "Server listening ports: ${LISTENING:-none}"
+      for PORT in $LISTENING; do
+        case "$PORT" in
+          8000|8001) ;;
+          *)
+            echo "FAIL: unexpected listening port $PORT — an OAuth callback listener would contend with pi-mcp-adapter"
+            exit 1
+            ;;
+        esac
+      done
+      echo "No OAuth callback port bound"
+    else
+      echo "SKIP: lsof unavailable, cannot enumerate listening ports (E28)"
+    fi
+
     echo "PASS: Server started successfully"
     exit 0
   fi
