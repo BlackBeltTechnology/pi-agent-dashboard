@@ -347,6 +347,43 @@ export function _setSpawnRegisterWatchdogForTests(w: SpawnRegisterWatchdog | nul
   _instance = w;
 }
 
+/** The subset of a `spawnPiSession` result the watchdog needs to arm. */
+export interface ArmableSpawnResult {
+  success?: boolean;
+  pid?: number;
+  logPath?: string;
+  spawnToken?: string;
+}
+
+/**
+ * Arm the watchdog for a successful spawn from ANY entry point.
+ *
+ * Every spawn must be armed, not just the WebSocket one: a duplicate whose
+ * `session_register` is refused for contention is only reclaimed because its
+ * watchdog is still armed, and the incident's duplicate was minted through the
+ * REST path. `ws` is optional — a transport-less caller still gets the reclaim,
+ * only the browser diagnostic is skipped.
+ *
+ * See change: fix-duplicate-bridge-registration (D0/D2).
+ */
+export function armSpawnWatchdog(
+  cwd: string,
+  mechanism: SpawnMechanism,
+  result: ArmableSpawnResult,
+  ws?: WebSocket,
+): void {
+  if (result.success === false) return;
+  getSpawnRegisterWatchdog().arm({
+    cwd,
+    mechanism,
+    pid: result.pid,
+    logPath: result.logPath,
+    spawnToken: result.spawnToken,
+    timeoutMs: loadConfig().spawnRegisterTimeoutMs,
+    ...(ws ? { ws } : {}),
+  });
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function readLogTail(filePath: string, maxBytes = 4096): string | undefined {

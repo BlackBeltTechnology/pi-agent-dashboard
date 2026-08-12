@@ -485,6 +485,14 @@ export function registerSystemRoutes(
       // Count of pi WebSocket connections held by the pi-gateway. Feeds the
       // bridge-orphan promotion below and future Doctor advisories.
       activeBridgeCount: piGateway?.connectionCount() ?? 0,
+      // Bridge-contention observability: `bridgeContentionCount` is cumulative
+      // for the process lifetime (a rule firing too often), while
+      // `contendedSessionIds` is what an operator needs mid-incident and
+      // follows the contention record's own lifecycle (reclaim, 60 s expiry,
+      // incumbent disconnect, or session end).
+      // See change: fix-duplicate-bridge-registration (D6).
+      bridgeContentionCount: piGateway?.contention.count() ?? 0,
+      contendedSessionIds: piGateway?.contention.contendedIds() ?? [],
       // Derived label: promotes a stale `bridge` (no live session, past the
       // 30 s grace window) to `bridge-orphaned`. Static `launchSource` above
       // is left untouched for the `decideShutdownOnQuit` back-compat rule.

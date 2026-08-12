@@ -85,6 +85,25 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         reply.code(502);
         return { success: false, error: "no bridge connection for session" } satisfies ApiResponse;
       }
+      // A live contention record means a second bridge recently claimed this
+      // id. The routing table cannot hold a usurper any more, so the prompt WAS
+      // delivered to the one owner — but the caller must not read a plain
+      // success while the session's bridge state is disputed. Annotated, not
+      // failed: reporting a bare failure would invite a retry and double-send.
+      // See change: fix-duplicate-bridge-registration (D4).
+      const record = piGateway.contention?.get(id);
+      if (record) {
+        return {
+          success: true,
+          delivered: true,
+          bridgeState: "contended",
+          warning:
+            `another bridge recently claimed session ${id} and was refused ` +
+            `(incumbent pid ${record.incumbentPid ?? "unknown"}, ` +
+            `newcomer pid ${record.newcomerPid ?? "unknown"}); ` +
+            "the prompt was delivered to the bridge that owns this session",
+        };
+      }
       return { success: true } satisfies ApiResponse;
     },
   );
@@ -249,6 +268,25 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
       ) {
         reply.code(409);
         return { success: false, error: "session is already active" } satisfies ApiResponse;
+      }
+      // The id-keyed guard above did not prevent the incident: a second keeper
+      // resumed the same *session file* under a different id. Identity of a
+      // conversation is the file; identity of a connection is the id. Refuse a
+      // `continue` whose target file a live bridge already serves under ANY id.
+      // Liveness is D1's definition, so a half-open bridge cannot lock a resume
+      // out. Fork is exempt (it mints a new conversation).
+      // See change: fix-duplicate-bridge-registration (D5).
+      if (mode === "continue") {
+        const liveHolder = piGateway.findLiveSessionBySessionFile?.(session.sessionFile);
+        if (liveHolder && liveHolder !== id) {
+          reply.code(409);
+          return {
+            success: false,
+            error:
+              `session file is already served by live session ${liveHolder}; ` +
+              "resuming it would start a second pi writing the same transcript",
+          } satisfies ApiResponse;
+        }
       }
       if (session.resuming) {
         reply.code(409);

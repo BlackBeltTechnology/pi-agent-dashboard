@@ -129,6 +129,7 @@ import { sessionToMeta } from "./session/session-to-meta.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { spawnPiSession } from "./spawn-process/process-manager.js";
+import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes, type TerminalManager } from "./terminal/terminal-manager.js";
@@ -1286,6 +1287,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           spawnToken,
           ...(opts?.model ? { model: opts.model } : {}),
         });
+        // REST/goal spawn has no browser socket; the reclaim must run anyway.
+        // See change: fix-duplicate-bridge-registration (D0/D2).
+        armSpawnWatchdog(cwd, "headless", result);
         if (result.process && result.pid) {
           browserGateway.headlessPidRegistry.register(
             result.pid,
@@ -1326,6 +1330,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           ? { sessionFile: req.sessionFile, mode: "continue" as const }
           : {}),
       });
+      // REST resume — the path that minted the incident's duplicate.
+      armSpawnWatchdog(req.cwd, "headless", result);
       if (result.process && result.pid) {
         browserGateway.headlessPidRegistry.register(
           result.pid,
@@ -2354,6 +2360,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   mode: "continue",
                   strategy: resumeConfig.spawnStrategy,
                 });
+                // Cold-start recovery resume: no ws, reclaim still required.
+                armSpawnWatchdog(cand.cwd, resumeConfig.spawnStrategy as any, result);
                 if (result.process && result.pid) {
                   browserGateway.headlessPidRegistry.register(
                     result.pid,

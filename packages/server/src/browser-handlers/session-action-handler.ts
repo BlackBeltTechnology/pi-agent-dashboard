@@ -18,7 +18,7 @@ import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registr
 import { getKeeperManager, spawnPiSession } from "../spawn-process/process-manager.js";
 import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
-import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
+import { armSpawnWatchdog, getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { shouldInterceptReload } from "./session-action-helpers.js";
 
@@ -149,6 +149,9 @@ export async function handleHeadlessReload(
       mode: "continue",
       strategy: "headless",
     });
+    // Headless reload is a spawn entry point: arm so a refused duplicate is
+    // reclaimed. See change: fix-duplicate-bridge-registration (D0/D2).
+    armSpawnWatchdog(session.cwd, "headless", spawnResult);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[dashboard] headless reload spawn failed: ${message}`);
@@ -252,6 +255,7 @@ export async function handleSendPrompt(
       mode: "continue",
       strategy: autoResumeConfig.spawnStrategy,
     });
+    armSpawnWatchdog(promptSession.cwd, autoResumeConfig.spawnStrategy as any, spawnResult, ws);
     if (!spawnResult.success) {
       console.error(`[dashboard] auto-resume spawn failed: ${spawnResult.message}`);
       pendingResumeRegistry.consume(promptSession.cwd);
@@ -366,6 +370,23 @@ export async function handleResumeSession(
     sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session is already active", code: "resume.already_active", requestId: msg.requestId });
     return;
   }
+  // Session-file-keyed twin of the guard above — the actual mint point of the
+  // incident's duplicate. Both guard sites must carry it or the hole stays
+  // open on the other. See change: fix-duplicate-bridge-registration (D5).
+  if (msg.mode === "continue") {
+    const liveHolder = ctx.piGateway.findLiveSessionBySessionFile?.(session.sessionFile);
+    if (liveHolder && liveHolder !== msg.sessionId) {
+      sendTo(ws, {
+        type: "resume_result",
+        sessionId: msg.sessionId,
+        success: false,
+        message: `Session file is already served by live session ${liveHolder}`,
+        code: "resume.session_file_already_live",
+        requestId: msg.requestId,
+      });
+      return;
+    }
+  }
   // Defense-in-depth against the Class-2 double-spawn race: while a cold-start
   // recovery candidate's liveness is still unresolved (grace window open), a
   // surviving bridge may be about to reattach. Reopening now would spawn a
@@ -412,6 +433,8 @@ export async function handleResumeSession(
     const degradeResult = await spawnPiSession(session.cwd, {
       strategy: degradeConfig.spawnStrategy,
     });
+    // Zombie reopen is a spawn entry point.
+    armSpawnWatchdog(session.cwd, degradeConfig.spawnStrategy as any, degradeResult, ws);
     if (degradeResult.process && degradeResult.pid) {
       headlessPidRegistry.register(
         degradeResult.pid,
@@ -466,6 +489,8 @@ export async function handleResumeSession(
     mode: msg.mode,
     strategy: resumeConfig.spawnStrategy,
   });
+  // WebSocket drag-to-resume / fork is a spawn entry point.
+  armSpawnWatchdog(session.cwd, resumeConfig.spawnStrategy as any, result, ws);
   // Record fork parent keyed by spawn token (was: keyed by cwd, racy on
   // multi-fork-in-same-cwd). See change: spawn-correlation-token.
   if (msg.mode === "fork" && pendingForkRegistry && result.spawnToken) {
