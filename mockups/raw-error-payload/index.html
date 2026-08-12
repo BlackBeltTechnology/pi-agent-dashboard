@@ -223,7 +223,7 @@ function cardCompact(o){
    + '<span data-testid="inline-message-accent" class="absolute inset-y-0 left-0 w-[3px] bg-[var(--severity-error-fg)]" aria-hidden="true"></span>'
    + '<span class="shrink-0 inline-flex text-[var(--severity-warning-fg)]">'+svg(P.loading,0.7,'animate-spin')+'</span>'
    + '<div class="flex-1 min-w-0 flex items-center gap-2">'
-   +   '<span data-testid="retry-banner" class="text-xs font-semibold min-w-0">'+esc(statusText(o.retry))+'</span>'
+   +   '<span data-testid="retry-banner" class="text-xs font-semibold min-w-0 text-[var(--severity-warning-fg)]">'+esc(statusText(o.retry))+'</span>'
    +   '<div class="ml-auto flex items-center gap-1.5">'
    +     '<button type="button" data-testid="error-banner-expand" class="opacity-70 hover:opacity-100" title="Show error" aria-label="Show error" onclick="'+(o.onExpand||'void 0')+'">'+svg(P.chevD,0.6)+'</button>'
    +   '</div>'

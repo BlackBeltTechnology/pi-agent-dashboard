@@ -101,17 +101,19 @@ The banner SHALL NOT render any session-abort control. The always-present sessio
 the banner) is the sole abort entry point, and it ends pi's retry chain. There SHALL be NO
 "Stop retrying" control in the banner.
 
-A state-clearing dismiss (`error-banner-dismiss`, `mdiClose`, invoking the clear-only
-`onDismiss`) SHALL be offered in EVERY visible state, including while a `retry` sub-status is
-carried — see *Dismiss control is always present and clear-only*. The surface ALSO clears via
-its own lifecycle: when `retryState` clears and `lastError` clears (a confirmed-good resume).
-While a retry is pending the trailing control collapses the surface rather than closing it;
-see *Trailing control states its own action*. Collapse is view-only and SHALL NOT influence the
-retry loop.
+A trailing control SHALL be present in every visible state, but WHICH control is offered depends
+on whether a retry is pending — see *Trailing control states its own action*. A state-clearing
+dismiss (`error-banner-dismiss`, `mdiClose`, invoking the clear-only `onDismiss`) SHALL be
+offered ONLY when no retry is pending (`retryState` undefined). While a retry IS pending the
+trailing control collapses the surface instead; collapse is view-only and SHALL NOT invoke
+`onDismiss`, write `SessionState`, or influence the retry loop. The surface ALSO clears via its
+own lifecycle: when `retryState` clears and `lastError` clears (a confirmed-good resume).
 
-This requirement previously withheld the dismiss control while a retry was pending. Combined
-with the removal of the collapse pill that left the surface with NEITHER affordance, so a
-persistent error card could not be cleared during a retry at all.
+An earlier revision withheld the dismiss control during a retry while ALSO removing the collapse
+pill, leaving the surface with NEITHER affordance. The fix is the phase-appropriate control above
+— collapse while retrying, dismiss once settled — NOT a dismiss in every state: a dismiss that
+clears `retryState` unmounts the session Stop and strands the user in a retry they can neither
+see nor stop.
 
 The settled surface SHALL NOT render a Retry control. The removed `findLastUserPrompt` →
 `send_prompt` re-send SHALL NOT return, and no replacement re-drive SHALL be introduced: the
