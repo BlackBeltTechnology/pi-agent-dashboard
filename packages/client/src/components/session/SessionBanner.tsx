@@ -1,4 +1,4 @@
-import { mdiAlert, mdiContentCopy } from "@mdi/js";
+import { mdiAlert, mdiChevronDown, mdiChevronUp, mdiContentCopy, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
 import type { BannerRetry, BannerState } from "../../lib/chat/event-reducer.js";
@@ -22,35 +22,89 @@ interface Props {
   collapseThreshold?: number;
 }
 
-/** The waiting/in-flight status line: bare "attempt N" + a countdown/elapsed suffix. */
-function countdownSuffix(retry: BannerRetry, nowMs: number): string {
-  if (!retry.waiting) {
-    return i18nT("status.retryingNow", undefined, "retrying now…");
-  }
+/**
+ * Countdown / elapsed suffix, or `undefined` while an attempt is in flight — the
+ * spinner is the in-flight signal, so no words are spent on it.
+ * See change: raw-error-render-and-retry-authority.
+ */
+function countdownSuffix(retry: BannerRetry, nowMs: number): string | undefined {
+  if (!retry.waiting) return undefined;
   const target =
     retry.nextAttemptAt ?? (retry.delayMs > 0 ? retry.startedAt + retry.delayMs : undefined);
   if (target !== undefined) {
     const remainMs = target - nowMs;
     if (remainMs > 0) {
       const secs = Math.ceil(remainMs / 1000);
-      return i18nT("status.nextAttemptIn", { secs }, `next attempt in ${secs}s`);
+      return i18nT("status.retryInSecs", { secs }, `${secs}s`);
     }
   }
   // No known target (delayMs 0) OR the computed countdown overran: elapsed-only,
   // never a zeroed/negative countdown.
   const elapsed = Math.max(0, Math.floor((nowMs - retry.startedAt) / 1000));
-  return i18nT("status.stillWaiting", { secs: elapsed }, `still waiting… (${elapsed}s elapsed)`);
+  return i18nT("status.retrySecsElapsed", { secs: elapsed }, `${elapsed}s elapsed`);
 }
 
-/** Bare "attempt N" + countdown/elapsed suffix, shared by the expanded card and the pill. */
+/**
+ * Spinner + short label — `Retry 3 · 12s` waiting, `Retry 3` in flight.
+ *
+ * The spinner carries the in-flight signal that "retrying now…" used to spell
+ * out; the text carries only what motion cannot — which attempt, and how long.
+ * The attempt number stays TEXT so the state survives `prefers-reduced-motion`
+ * and greyscale. Coloured from `--severity-warning-fg`, not raw
+ * `--status-working` (1.68:1 on the light surface).
+ */
 function RetryStatusLine({ retry, nowMs }: { retry: BannerRetry; nowMs: number }) {
+  const suffix = countdownSuffix(retry, nowMs);
   return (
-    <>
+    <span className="inline-flex items-center gap-1 text-[var(--severity-warning-fg)]">
+      <Icon path={mdiLoading} size={0.55} className="animate-spin shrink-0" aria-hidden="true" />
       <span data-testid="retry-banner-attempt">
-        {i18nT("common.attempt", undefined, "attempt")} {retry.attempt}
-      </span>{" "}
-      · <span data-testid="retry-banner-countdown">{countdownSuffix(retry, nowMs)}</span>
-    </>
+        {i18nT("session.retryAttempt", { attempt: retry.attempt }, "Retry {attempt}")}
+      </span>
+      {suffix !== undefined && (
+        <>
+          {" · "}
+          <span data-testid="retry-banner-countdown">{suffix}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The collapsed one-line row. Entered only by explicit user action while a retry
+ * is pending; it keeps the surface — and therefore `retryState` and the session
+ * Stop — alive while hiding the error text.
+ * See change: raw-error-render-and-retry-authority (D1).
+ */
+function CollapsedRetryRow({
+  retry,
+  nowMs,
+  onExpand,
+}: {
+  retry: BannerRetry;
+  nowMs: number;
+  onExpand: () => void;
+}) {
+  return (
+    <div className="mt-4 mb-2 mx-auto max-w-2xl">
+      <InlineMessage
+        severity="error"
+        icon={mdiAlert}
+        variant="compact"
+        animate={!retry.waiting}
+        title={
+          <span data-testid="retry-banner">
+            <RetryStatusLine retry={retry} nowMs={nowMs} />
+          </span>
+        }
+        onDismiss={onExpand}
+        dismissIcon={mdiChevronDown}
+        dismissLabel={i18nT("session.showError", undefined, "Show error")}
+        testId="error-banner"
+        dismissTestId="error-banner-expand"
+      />
+    </div>
   );
 }
 
@@ -98,12 +152,12 @@ function ExpandedActions({
  * `startedAt + delayMs`, degrading to elapsed-only on overrun / zero delay).
  *
  * Observe-only: pi owns the retry loop; the banner only renders it.
- *   - No "Stop retrying" control — the always-present session Stop is the sole
- *     abort entry point.
- *   - The dismiss control (`error-banner-dismiss`, mdiClose) is ALWAYS present
- *     and clear-only (never aborts) — including while a retry is pending, where
- *     it hides the current failure while pi keeps retrying; the next attempt's
- *     signal re-opens the surface. There is no collapse control.
+ *   - No "Stop retrying" control — the session Stop is the sole abort entry
+ *     point, and it already ends the chain (abortLatch + persistent abort).
+ *   - The trailing control's icon states what it does. While retrying it is a
+ *     chevron that COLLAPSES (component-local; `onDismiss` is not called and
+ *     `retryState` is never written, so the session Stop stays mounted). Once
+ *     retrying stops it is a real ✕ that clears the surface.
  *   - The surface also clears itself on a confirmed-good resume (retryState +
  *     lastError both clear). There is NO Retry control.
  *
@@ -120,7 +174,16 @@ export function SessionBanner({
   const retrying = !!retry;
 
   const [expanded, setExpanded] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [, forceTick] = useState(0);
+
+  // Collapsing exists to keep the session Stop mounted during a live loop. Once
+  // retrying stops there is no handle to protect and the error is actionable,
+  // so a stale collapsed row would hide a terminal failure behind a dead
+  // spinner. Reset it. See change: raw-error-render-and-retry-authority (D3).
+  useEffect(() => {
+    if (!retrying && collapsed) setCollapsed(false);
+  }, [retrying, collapsed]);
 
   // Re-render once per second while a retry is pending so the countdown ticks.
   useEffect(() => {
@@ -143,6 +206,23 @@ export function SessionBanner({
     </div>
   ) : null;
 
+  // ── Collapsed row: retry status only, one line, re-expandable ─────────────
+  if (retry && collapsed) {
+    return <CollapsedRetryRow retry={retry} nowMs={now()} onExpand={() => setCollapsed(false)} />;
+  }
+
+  // The trailing control's identity in ONE place: while retrying it collapses
+  // (component-local, never touching `retryState`); once settled it dismisses.
+  // See change: raw-error-render-and-retry-authority (D1/D2).
+  const trailing = retrying
+    ? {
+        onDismiss: () => setCollapsed(true),
+        dismissIcon: mdiChevronUp,
+        dismissLabel: i18nT("common.collapse", undefined, "Collapse"),
+        dismissTestId: "error-banner-collapse",
+      }
+    : { onDismiss, dismissIcon: undefined, dismissLabel: undefined, dismissTestId: "error-banner-dismiss" };
+
   // ── Card ───────────────────────────────────────────────────────────────────
   const actions = (
     <ExpandedActions
@@ -164,13 +244,8 @@ export function SessionBanner({
             {displayText}
           </span>
         }
-        // The ✕ is ALWAYS available — while retrying too. It clears the card
-        // (it never aborts); pi keeps retrying underneath and the next attempt's
-        // waiting/in-flight signal re-opens the surface with the fresh attempt.
-        // See change: unify-retry-visibility.
-        onDismiss={onDismiss}
+        {...trailing}
         testId="error-banner"
-        dismissTestId="error-banner-dismiss"
         actions={actions}
       >
         {retryLine}

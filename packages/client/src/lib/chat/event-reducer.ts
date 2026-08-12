@@ -1071,29 +1071,6 @@ export function findLastUserPrompt(
 }
 
 /**
- * Humanize a provider error string. pi forwards some provider failures as a raw
- * JSON envelope (e.g. `{"type":"error","error":{"type":"overloaded_error",
- * "message":"Overloaded"},...}`). Render that as a compact `type: message` (or
- * just `message` when no type) instead of dumping the JSON. Any non-JSON string,
- * malformed JSON, or envelope without a string `error.message` passes through
- * UNCHANGED. Pure. See change: humanize-provider-error-json.
- */
-export function humanizeProviderError(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith("{")) return raw;
-  try {
-    const parsed = JSON.parse(trimmed) as { error?: { type?: unknown; message?: unknown } };
-    const err = parsed?.error;
-    const message = typeof err?.message === "string" ? err.message.trim() : "";
-    if (!message) return raw;
-    const type = typeof err?.type === "string" ? err.type.trim() : "";
-    return type ? `${type}: ${message}` : message;
-  } catch {
-    return raw;
-  }
-}
-
-/**
  * The last ASSISTANT message in an `agent_end` payload, located by its
  * structured `role` — never merely the final array element. A turn can end with
  * a trailing non-assistant entry (e.g. a `toolResult`), so keying off
@@ -1123,7 +1100,12 @@ function lastAssistantMessage(data: Record<string, unknown>): Record<string, unk
 export function extractAgentEndError(data: Record<string, unknown>): string | undefined {
   const last = lastAssistantMessage(data);
   if (!last || last.stopReason !== "error") return undefined;
-  return humanizeProviderError((last.errorMessage as string) || "An unknown error occurred");
+  // The raw provider string, verbatim. pi types `errorMessage` as a bare string
+  // and populates it from `String(error)`, so there is no envelope shape to rely
+  // on — `529 {…}`, `529 overloaded_error: Overloaded` and `terminated` are all
+  // real documented values. The surface prints it and offers Show more + Copy.
+  // See change: raw-error-render-and-retry-authority.
+  return (last.errorMessage as string) || "An unknown error occurred";
 }
 
 /**
@@ -1299,8 +1281,7 @@ export function reduceEvent(
       const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
       const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
-      const reason =
-        typeof data.errorMessage === "string" ? humanizeProviderError(data.errorMessage) : "Provider error";
+      const reason = typeof data.errorMessage === "string" ? data.errorMessage : "Provider error";
       next.retryState = {
         attempt,
         maxAttempts,
@@ -1335,8 +1316,7 @@ export function reduceEvent(
       const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
       const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
-      const reason =
-        typeof data.errorMessage === "string" ? humanizeProviderError(data.errorMessage) : "Provider error";
+      const reason = typeof data.errorMessage === "string" ? data.errorMessage : "Provider error";
       next.retryState = {
         attempt,
         maxAttempts,

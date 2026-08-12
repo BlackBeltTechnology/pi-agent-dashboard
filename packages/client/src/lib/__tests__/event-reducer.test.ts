@@ -1,6 +1,6 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { addInteractiveRequest, applyPromptReceived, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, humanizeProviderError, isCleanAgentEnd, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
+import { addInteractiveRequest, applyPromptReceived, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
@@ -2640,35 +2640,47 @@ describe("extractAgentEndError", () => {
     })).toBeUndefined();
   });
 
-  it("humanizes a JSON envelope errorMessage", () => {
+  it("returns a JSON envelope errorMessage verbatim", () => {
+    const raw = '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
     expect(extractAgentEndError({
-      messages: [{ role: "assistant", stopReason: "error", errorMessage: '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', content: [] }],
-    })).toBe("overloaded_error: Overloaded");
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: raw, content: [] }],
+    })).toBe(raw);
   });
 });
 
-describe("humanizeProviderError", () => {
-  it("humanizes an Anthropic overloaded JSON envelope to 'type: message'", () => {
+describe("provider error strings are printed verbatim (no humanizing)", () => {
+  // pi types errorMessage as a bare string and sets it from String(error), so
+  // there is no envelope shape to rely on. The surface prints it and offers
+  // Show more + Copy. See change: raw-error-render-and-retry-authority.
+  it("returns a pure-JSON envelope verbatim, not `type: message`", () => {
     const raw =
       '{"type":"error","error":{"details":null,"type":"overloaded_error","message":"Overloaded"},"request_id":"req_x"}';
-    expect(humanizeProviderError(raw)).toBe("overloaded_error: Overloaded");
+    expect(extractAgentEndError({ messages: [{ role: "assistant", stopReason: "error", errorMessage: raw }] })).toBe(raw);
   });
 
-  it("renders the bare message when the envelope has no type", () => {
-    expect(humanizeProviderError('{"error":{"message":"Service unavailable"}}')).toBe("Service unavailable");
+  it("returns pi's documented status-prefixed payload verbatim", () => {
+    const raw = '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
+    expect(extractAgentEndError({ messages: [{ role: "assistant", stopReason: "error", errorMessage: raw }] })).toBe(raw);
   });
 
-  it("passes plain (non-JSON) strings through unchanged", () => {
-    expect(humanizeProviderError("Rate limit exceeded")).toBe("Rate limit exceeded");
+  it("returns a plain non-JSON string verbatim", () => {
+    expect(extractAgentEndError({ messages: [{ role: "assistant", stopReason: "error", errorMessage: "terminated" }] })).toBe("terminated");
   });
 
-  it("passes malformed JSON through unchanged", () => {
-    expect(humanizeProviderError("{not valid json")).toBe("{not valid json");
+  it("sets retryState.reason to the raw string on auto_retry_waiting", () => {
+    const raw = '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
+    const s = applyEvents([
+      { eventType: "auto_retry_waiting", timestamp: 1, data: { attempt: 2, maxAttempts: 3, delayMs: 2000, errorMessage: raw } },
+    ] as unknown as DashboardEvent[]);
+    expect(s.retryState?.reason).toBe(raw);
   });
 
-  it("passes an envelope without error.message through unchanged", () => {
-    const raw = '{"type":"error","error":{"type":"overloaded_error"}}';
-    expect(humanizeProviderError(raw)).toBe(raw);
+  it("sets retryState.reason to the raw string on auto_retry_start", () => {
+    const raw = "429 rate limited";
+    const s = applyEvents([
+      { eventType: "auto_retry_start", timestamp: 1, data: { attempt: 2, maxAttempts: 3, delayMs: 2000, errorMessage: raw } },
+    ] as unknown as DashboardEvent[]);
+    expect(s.retryState?.reason).toBe(raw);
   });
 });
 

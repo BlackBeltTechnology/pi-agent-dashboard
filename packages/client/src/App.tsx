@@ -1755,23 +1755,27 @@ export default function App() {
               sub-line (bare attempt + countdown from pi's own retry settings).
               Observe-only: pi owns the retry loop; the banner has NO Stop
               retrying control (the always-present session Stop is the sole
-              abort entry point) and NO collapse. The ✕ is ALWAYS present and
-              clear-only, retrying or settled — pi keeps retrying underneath and
-              the next attempt re-opens the surface with the fresh number. The
-              surface also clears itself on a confirmed-good resume.
-              See change: error-banner-observe-only, unify-retry-visibility. */}
+              abort entry point). The trailing control's icon states its action:
+              a chevron that COLLAPSES while retrying (component-local — it never
+              clears `retryState`, so the session Stop stays mounted), and a real
+              ✕ once retrying stops. The surface also clears itself on a
+              confirmed-good resume.
+              See change: error-banner-observe-only, raw-error-render-and-retry-authority. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}
             onDismiss={selectedId ? () => {
               setSessionStates((prev) => {
                 const next = new Map(prev);
                 const current = next.get(selectedId!);
-                // Clear-only — never aborts. Reachable in EVERY state, retrying
-                // included. Clearing `retryState` also drops the card's `Retry N`
-                // label until the next attempt's signal restores both surfaces.
-                // See change: error-banner-observe-only, unify-retry-visibility.
-                if (current?.lastError || current?.retryState) {
-                  next.set(selectedId!, { ...current, lastError: undefined, retryState: undefined });
+                // Clear-only — never aborts, and NEVER writes `retryState`.
+                // While a retry is pending the banner collapses locally instead
+                // of calling this, so we only ever reach here on a settled
+                // error. Clearing `retryState` here would unmount the session
+                // Stop that `CommandInput` derives from it, leaving a live loop
+                // with no handle.
+                // See change: raw-error-render-and-retry-authority (D1).
+                if (current?.lastError) {
+                  next.set(selectedId!, { ...current, lastError: undefined });
                 }
                 return next;
               });
