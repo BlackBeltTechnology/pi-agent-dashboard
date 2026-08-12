@@ -7,16 +7,27 @@ selected session's replay-in-flight flag is set, so a partially replayed session
 is never presented as complete. The indicator SHALL be anchored to the bottom of
 the message list, visually where the not-yet-delivered events will land, and
 SHALL overlay rather than occupy list space so it cannot displace or reflow the
-rendered messages. The indicator SHALL NOT express a count, a total, or a
+rendered messages. The indicator SHALL NOT be implemented by reserving space in
+the list — for example as trailing padding — because that reflows the virtualized
+transcript and perturbs scroll anchoring. The indicator SHALL NOT express a count, a total, or a
 percentage. The indicator and the history-loading skeleton SHALL NOT render at
 the same time.
 
+The indicator SHALL be composed of a decorative scrim pinned to the bottom edge
+of the message list, fading into the transcript, and a label anchored above the
+chat view's scroll controls. The scrim SHALL be presentational only: it SHALL
+carry `aria-hidden="true"` so one status contributes one node to the
+accessibility tree, and it SHALL NOT intercept pointer events, so text selection
+and clicks over the transcript beneath it behave exactly as when it is absent.
+The scrim and the label SHALL appear and disappear together, so the transcript
+can never be left dimmed by a scrim whose label has cleared.
+
 The indicator SHALL NOT occlude, overlap, or otherwise obstruct any other
 interactive control rendered in the chat view, at any supported viewport width.
-Where the indicator and another overlay control would share a bottom anchor,
-their positions SHALL be separated by layout — not left to paint order — and the
-indicator SHALL declare a stacking order above the scroll controls so the
-resolution is explicit rather than incidental.
+The positions of the indicator and the scroll controls SHALL be separated by
+layout rather than by paint order. The scroll controls' resting position SHALL
+NOT depend on whether a replay is in flight, so that no control changes position
+when a replay begins or ends.
 
 The indicator's visual boundary against the transcript background SHALL meet a
 contrast ratio of at least 3:1, in both the dark and light themes, satisfying
@@ -46,6 +57,26 @@ accessible name SHALL be derived from its visible text content; a redundant
 - **WHEN** the chat view is rendered at a narrow viewport width of 375 CSS pixels
 - **THEN** the indicator's bounding box SHALL NOT intersect the scroll-to-bottom control's bounding box
 - **AND** the scroll-to-bottom control SHALL remain clickable for the whole time the indicator is showing.
+
+#### Scenario: Scroll controls do not move when a replay starts or ends
+
+- **GIVEN** a session whose scroll-to-bottom control is rendered and whose replay-in-flight flag is clear
+- **WHEN** the flag is set, the indicator appears, and the flag is later cleared
+- **THEN** the scroll-to-bottom control SHALL occupy the same position throughout.
+
+#### Scenario: The scrim does not capture pointer input
+
+- **GIVEN** the indicator is rendered over the tail of the transcript
+- **WHEN** the user selects or clicks the message text beneath the scrim
+- **THEN** the interaction SHALL reach the message content
+- **AND** the scrim SHALL NOT be the event target.
+
+#### Scenario: Scrim and label clear together
+
+- **GIVEN** the indicator is showing for a session
+- **WHEN** the replay-in-flight flag clears
+- **THEN** the chat view SHALL stop rendering the label
+- **AND** the chat view SHALL stop rendering the scrim.
 
 #### Scenario: Indicator boundary is perceivable in both themes
 

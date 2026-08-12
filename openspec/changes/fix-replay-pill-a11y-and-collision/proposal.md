@@ -34,24 +34,32 @@ this change, with the live A/B/C comparison in `mockups/index.html`.
 
 ## What Changes
 
-- Move the pill clear of the scroll-to-bottom button so the two can never
-  occlude one another at any viewport width, and give it a `z-index` above the
-  scroll controls so paint order is no longer accidental.
-- Restyle the pill onto `--bg-surface` with a hairline border in a new
-  `--border-strong` token, raising the surface boundary to **5.01:1** dark /
-  **4.48:1** light and clearing the SC 1.4.11 floor. Label moves to
-  `--text-primary`. No existing border token qualifies (`--border-secondary` is
-  1.57:1 / 1.61:1), and a fill alone cannot reach 3:1 without becoming a
-  light-grey blob in a dark transcript — so the token is added to the theme
-  layer, per the theme-system rule. See design D2.
+- Replace the bottom-right corner chip with a **tail treatment**: a
+  `pointer-events-none` scrim pinned to the bottom of the transcript that fades
+  into it, plus the indicator label riding centred above the scroll controls.
+  This puts the affordance where the missing events actually land, satisfying
+  the spec's "anchored to the bottom of the message list, visually where the
+  not-yet-delivered events will land" literally rather than approximately.
+- Because the label sits above the scroll controls and the scroll controls keep
+  their resting position, nothing moves when a replay ends and no control can be
+  occluded at any viewport width. Verified in the mockup at 375/1440 in both
+  themes: 16px clearance, zero box intersection.
+- Restyle the label onto `--bg-surface` with a hairline border in a new
+  `--border-strong` token, raising its boundary to **5.01:1** dark / **4.48:1**
+  light and clearing the SC 1.4.11 floor. Label text moves to `--text-primary`.
+  No existing border token qualifies (`--border-secondary` is 1.57:1 / 1.61:1),
+  and a fill alone cannot reach 3:1 without becoming a light-grey blob in a dark
+  transcript — so the token is added to the theme layer, per the theme-system
+  rule. See design D3.
 - Stop the spinner rotation under `@media (prefers-reduced-motion: reduce)`. The
   pill stays visible and `role="status"` still announces, so the status remains
   conveyed without motion.
 - Drop the redundant `aria-label`, which duplicates the visible text verbatim
   and overrides identical content.
-- Add regression coverage for all three: a component test asserting the pill and
-  the scroll-to-bottom button do not overlap, a token-level assertion on the
-  pill's surface/border classes, and a reduced-motion assertion.
+- Add regression coverage: a Playwright assertion that the label and the
+  scroll-to-bottom button do not intersect at a narrow viewport and the button
+  stays clickable, a component assertion that the scrim never intercepts pointer
+  events, plus token and reduced-motion assertions.
 
 Not a breaking change: the `data-testid`, `role`, and `aria-busy` contract that
 the spec pins and the e2e spec depends on is preserved exactly.
@@ -73,8 +81,10 @@ None.
 
 ## Impact
 
-- `packages/client/src/components/chat/ChatView.tsx` — pill position, `z-index`,
-  surface/border/text tokens, `aria-label` removal (`:1432-1444`).
+- `packages/client/src/components/chat/ChatView.tsx` — the indicator block
+  (`:1432-1444`) becomes a scrim element plus a centred label; position,
+  `z-index`, surface/border/text tokens, `aria-label` removal. Scroll controls
+  (`:1446-1462`) are read but not repositioned.
 - `packages/client/src/index.css` — a new `--border-strong` token in both
   `:root` and `[data-theme="light"]`, plus a reduced-motion branch for the
   pill's spinner alongside the six existing blocks.

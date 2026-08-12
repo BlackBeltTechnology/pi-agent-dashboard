@@ -124,24 +124,24 @@ body{
 }
 
 /* ── VARIANT C — tail band: spec-true "where the events land" ──
-   Full-width band pinned to the tail of the list, with a scrim that fades into
-   the transcript, so the affordance sits exactly where the missing content is. */
-.band-c{
-  position:absolute; left:0; right:0; bottom:0; z-index:11;
-  display:flex; align-items:center; justify-content:center; gap:8px;
-  padding:8px 12px;
-  color:var(--text-primary); font-size:12px;
-  background:linear-gradient(to top,var(--bg-primary) 55%,transparent);
-  border-top:1px solid var(--border-secondary);
+   A scrim pinned to the tail fades into the transcript, implying content still
+   arriving; the label rides centred ABOVE the scroll controls. Nothing moves
+   conditionally — the scroll buttons keep their resting position whether or not
+   a replay is in flight, so no control jumps when it ends. The scrim is
+   pointer-events:none so it never steals selection or clicks. */
+.scrim-c{
+  position:absolute; left:0; right:0; bottom:0; height:112px; z-index:9;
+  pointer-events:none;
+  background:linear-gradient(to top,var(--bg-primary) 45%,transparent);
 }
-.band-c .inner{
-  display:flex;align-items:center;gap:7px;
-  background:var(--bg-surface);border:1px solid var(--text-tertiary);
-  border-radius:999px;padding:5px 14px;
+.pill-c{
+  position:absolute; bottom:64px; left:50%; transform:translateX(-50%); z-index:20;
+  display:flex; align-items:center; gap:7px;
+  background:var(--bg-surface); border:1px solid var(--text-tertiary);
+  border-radius:999px; padding:5px 14px;
   box-shadow:0 10px 15px -3px var(--shadow-card);
+  color:var(--text-primary); font-size:12px; white-space:nowrap;
 }
-/* Variant C moves the scroll-to-bottom button up so nothing collides. */
-.c-active .scroll-bottom{bottom:56px}
 
 .hidden{display:none !important}
 .note{font-size:12px;color:var(--text-tertiary);margin:6px 0 0;max-width:900px}
@@ -191,12 +191,11 @@ body{
       <span>Loading earlier messages…</span>
     </div>
 
-    <!-- C — tail band -->
-    <div class="band-c hidden" id="pc" role="status" aria-busy="true">
-      <span class="inner">
-        <svg class="ico spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg>
-        <span>Still loading this conversation…</span>
-      </span>
+    <!-- C — tail band: scrim + centred label, scroll controls untouched -->
+    <div class="scrim-c hidden" id="pc-scrim" aria-hidden="true"></div>
+    <div class="pill-c hidden" id="pc" role="status" aria-busy="true">
+      <svg class="ico spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/></svg>
+      <span>Still loading this conversation…</span>
     </div>
 
   </div>
@@ -207,7 +206,7 @@ body{
   At 375px it overlaps the scroll-to-bottom button by <strong>31px</strong> (both <code>bottom-4</code>, both <code>z-10</code>).
   Spinner ignores <code>prefers-reduced-motion</code>.</p>
   <p class="note"><strong>B (minimal fix)</strong> — <code>--bg-surface</code> + a <code>--text-tertiary</code> hairline = <strong>5.01:1</strong> dark / 4.48:1 light. Lifted clear of the scroll button. Honours reduced-motion. Same footprint, same corner idiom.</p>
-  <p class="note"><strong>C (tail band)</strong> — full-width at the tail, where the missing events actually land, matching the spec’s “anchored to the bottom of the message list”. Scrim implies more content. Scroll button shifts up; no collision at any width.</p>
+  <p class="note"><strong>C (tail band)</strong> — scrim at the tail, where the missing events actually land, matching the spec’s “anchored to the bottom of the message list”. Label rides centred above the scroll controls, which keep their resting position — <em>nothing moves when the replay ends</em>. Scrim is <code>pointer-events:none</code>. Cost: it veils the bottom edge of the last message while showing.</p>
 </div>
 
 <script>
@@ -217,7 +216,7 @@ let variant='a', shown=false;
 
 function paint(){
   Object.entries(pills).forEach(([k,el])=>el.classList.toggle('hidden',!(shown&&k===variant)));
-  $('#chat').classList.toggle('c-active', shown&&variant==='c');
+  $('#pc-scrim').classList.toggle('hidden',!(shown&&variant==='c'));
 }
 $$('[data-v]').forEach(b=>b.onclick=()=>{
   variant=b.dataset.v;

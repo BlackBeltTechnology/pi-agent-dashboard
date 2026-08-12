@@ -34,51 +34,77 @@ never become a list row.
 
 **Goals:**
 
-- The pill can never obstruct another interactive control, at any width.
-- The pill's boundary meets WCAG 2.1 SC 1.4.11 (3:1) in both themes.
+- Put the indicator where the missing content lands, satisfying the spec's
+  "anchored to the bottom of the message list" literally.
+- The indicator can never obstruct another interactive control, at any width.
+- The label's boundary meets WCAG 2.1 SC 1.4.11 (3:1) in both themes.
 - Motion is suppressed under `prefers-reduced-motion`, matching the six
   reduced-motion blocks `index.css` already ships.
 - The existing test/ARIA contract survives byte-for-byte.
 
 **Non-Goals:**
 
-- Variant C (the full-width tail band). It is the stronger reading of "anchored
-  to the bottom of the message list" and is recorded in `mockups/ui-plan.md`, but
-  it is a visual redesign of a surface that just shipped. Out of scope here.
-- Changing when the pill arms/clears, the 300ms delay, or any server behaviour.
+- Changing when the indicator arms/clears, the 300ms delay, or any server
+  behaviour.
+- Reserving list space for the indicator. It stays an overlay — see D2.
 - Restyling the scroll controls, which share the same low-contrast surface. Real,
   but pre-existing and separately scoped.
 
 ## Decisions
 
-### D1 — Separate by vertical layout, not by paint order
+### D1 — A tail scrim plus a centred label; nothing moves conditionally
 
-Move the pill to `bottom-16 right-4` and raise it to `z-20`.
+The indicator becomes two elements:
 
-The scroll-to-bottom button occupies y=16..48px from the container bottom
-(`bottom-4`, 32px tall). `bottom-16` places the pill at y=64px+, clearing it by
-16px — one spacing step, consistent at every width because neither element's
-vertical position depends on viewport width.
+- a **scrim** — `absolute inset-x-0 bottom-0`, ~112px tall, a gradient from
+  `--bg-primary` at the bottom to transparent at the top, `pointer-events-none`,
+  `aria-hidden`;
+- a **label** — `absolute bottom-16 left-1/2 -translate-x-1/2 z-20`, carrying the
+  existing testid/role/aria-busy contract.
+
+The scroll controls **keep their resting position**. The label sits at 64px, the
+scroll-to-bottom button occupies 16..48px: 16px of clearance, at every width,
+because neither position depends on the viewport. Verified in the mockup —
+375px and 1440px, both themes, zero box intersection.
 
 *Alternatives rejected:*
 
-- **Move the pill to `bottom-4 left-4`.** Still collides: at 375px the pill spans
-  x=16..202 and the centred button x=171.5..203.5. Horizontal repositioning
-  cannot solve a conflict with a *centred* element on a narrow viewport.
-- **Hide the scroll-to-bottom button while the pill shows.** Removes a control
-  precisely when the user most needs it — new content is arriving at the bottom.
-  Trades one Nielsen #1 violation for a worse one.
-- **Raise `z-index` only.** The pill would still cover the button; z-order
-  decides who is *visible*, not who is *reachable*. Occlusion is the defect.
+- **A full-width band at `bottom-0` that pushes the scroll button up while it
+  shows** (the first C draft). It works, but the button then *jumps* when the
+  replay ends. A control that moves under the user's finger is a worse defect
+  than the one being fixed, and it makes the button's position a function of
+  replay state — a coupling with no upside.
+- **Permanently raising the scroll button** to clear a bottom-anchored band.
+  Static, but it changes an unrelated control's resting position in the ~99% of
+  time no replay is running, to serve the ~1% when one is.
+- **Keeping the corner chip and merely moving it** (variant B, the previously
+  specced scope). Cheaper, and it does fix occlusion and contrast — but it
+  leaves the indicator in a corner, which is what made the spec's "where the
+  not-yet-delivered events will land" only approximately true.
 
-The `z-20` bump is deliberate on top of the move: it makes the stacking
-relationship explicit so a future edit to either element's position cannot
-silently reintroduce a paint-order-dependent overlap.
+### D2 — The scrim overlays; it must not reflow, and must not intercept input
 
-### D2 — A dedicated `--border-strong` token, not a text token pressed into service
+The scrim is `pointer-events-none`. It covers a strip of transcript, and without
+that it would silently swallow text selection and clicks over the last message —
+a regression invisible to any test that only asserts rendering.
 
-Restyle to `bg-[var(--bg-surface)]` + `border-[var(--border-strong)]`, label and
-icon to `--text-primary`.
+It must **not** be implemented as bottom padding on the list. Padding would
+reflow the transcript, which the spec forbids and which the virtualizer's scroll
+anchoring is sensitive to (`fix-chat-scroll-race-during-replay`,
+`fix-chat-scroll-to-top-estimate-drift` both exist because of this).
+
+**Accepted cost:** the scrim veils the bottom edge of the last message while
+showing. That is the trade for placing the affordance at the tail, and it is
+visible in the mockup. It is bounded — the content is dimmed by a gradient, not
+hidden; it only applies while a replay is genuinely in flight; and the 300ms
+delay keeps it off screen entirely for fast replays. The premise of the feature
+is that the tail is *incomplete*, so softening the tail edge is arguably honest
+rather than merely tolerable.
+
+### D3 — A dedicated `--border-strong` token, not a text token pressed into service
+
+The label uses `bg-[var(--bg-surface)]` + `border-[var(--border-strong)]`, with
+icon and text at `--text-primary`.
 
 Measured against the transcript background (`--bg-primary`):
 
@@ -91,42 +117,42 @@ Measured against the transcript background (`--bg-primary`):
 
 **A fill alone cannot carry this.** To reach 3:1 against `#0a0a0a` the fill needs
 relative luminance ≥0.11 — around `#5c5c5c`, a light-grey blob in a dark
-transcript. The boundary must therefore come from a border, and no existing
-border token qualifies: `--border-secondary` is 1.57:1 dark / 1.61:1 light.
+transcript. The boundary must come from a border, and no existing border token
+qualifies: `--border-secondary` is 1.57:1 dark / 1.61:1 light.
 
-This **amends the proposal**, which stated no new token would be introduced. The
-values I measured are `--text-tertiary`'s (`#808080` / `#777777`), and reusing
-that token would need no new definition — but it is a *text* token, and using it
-for a border encodes a coincidence of hex values as if it were intent. The
-theme-system rule is explicit: a surface needing a token that does not exist gets
-it added to the theme layer first. `--border-strong` is defined in both `:root`
-and `[data-theme="light"]`, and the scroll controls can adopt it later.
+This **amends the proposal**, which originally stated no new token would be
+introduced. The values I measured are `--text-tertiary`'s (`#808080` /
+`#777777`), and reusing that token would need no new definition — but it is a
+*text* token, and using it for a border encodes a coincidence of hex values as if
+it were intent. The theme-system rule is explicit: a surface needing a token that
+does not exist gets it added to the theme layer first. `--border-strong` is
+defined in both `:root` and `[data-theme="light"]`, and the scroll controls can
+adopt it later.
 
-Text contrast is untouched by all of this — it already measures 7.69:1 dark /
-8.55:1 light and passes AA. On `--bg-surface` with `--text-primary` it becomes
-11.39:1 / 13.18:1. **Nothing about the label needs "fixing".**
+Text contrast is untouched: it already measures 7.69:1 dark / 8.55:1 light and
+passes AA. On `--bg-surface` with `--text-primary` it becomes 11.39:1 / 13.18:1.
+**Nothing about the label needs "fixing".**
 
-`shadow-lg` stays for depth in the light theme but is no longer load-bearing;
-over a near-black background a shadow contributes no contrast.
-
-### D3 — Suppress rotation in CSS, keep the element visible
+### D4 — Suppress rotation in CSS, keep the element visible
 
 Add a `prefers-reduced-motion: reduce` block to `index.css` that zeroes the
-animation on the pill's spinner, alongside the six existing blocks. The pill
-still renders and `role="status"` still announces, so the status reaches the user
-without motion — reducing motion must not reduce information.
+animation on the indicator's spinner, alongside the six existing blocks. The
+label still renders and `role="status"` still announces, so the status reaches
+the user without motion — reducing motion must not reduce information.
 
 CSS rather than a JS media-query hook: it matches how the repo already handles
 this, costs no render, and responds live to an OS-level change.
 
-### D4 — Drop the redundant `aria-label`
+### D5 — Drop the redundant `aria-label`; the scrim is not announced
 
 The `aria-label` duplicates the visible text verbatim, so it overrides identical
-content for no benefit. The accessible name comes from the content. `data-testid`,
-`role`, and `aria-busy` are untouched, so the spec contract and the e2e selectors
-still hold.
+content for no benefit. The accessible name comes from the content.
+`data-testid`, `role`, and `aria-busy` are untouched.
 
-### D5 — Geometry is asserted in Playwright, classes in vitest
+The scrim is decorative and carries `aria-hidden="true"`: it must not add a
+second node to the accessibility tree for one status.
+
+### D6 — Geometry is asserted in Playwright, classes in vitest
 
 **jsdom has no layout engine — every `getBoundingClientRect()` returns zeros.** A
 vitest component test therefore *cannot* prove non-occlusion; an overlap
@@ -134,42 +160,45 @@ assertion there would pass vacuously and be worse than no test.
 
 So the coverage splits:
 
-- **vitest (L1)** — the pill carries the expected position/stacking/token
-  classes, and the reduced-motion rule exists. A proxy for the real property.
-- **Playwright (L3)** — at a 375px viewport, assert the two bounding boxes do not
-  intersect and the scroll-to-bottom button is clickable while the pill shows.
-  This is the only level where the actual defect is observable.
+- **vitest (L1)** — the scrim and label carry the expected position/stacking/token
+  classes, the scrim is `pointer-events-none` and `aria-hidden`, both render and
+  clear together, and neither renders beside the skeleton. Proxies for the real
+  properties.
+- **Playwright (L3)** — at a 375px viewport, assert the label and scroll-to-bottom
+  bounding boxes do not intersect and the button is clickable while the indicator
+  shows. The only level where the actual defect is observable.
 
 ## Risks / Trade-offs
 
+- **The scrim veils the last message** → accepted and bounded; see D2.
 - **`--border-strong` defined in only one theme block** → light theme silently
   falls back to an invalid value and the border disappears. Mitigation: a vitest
   assertion that both `:root` and `[data-theme="light"]` define it.
-- **A vacuous non-occlusion test** (the failure mode D5 exists to prevent) →
-  Mitigation: land the Playwright assertion against the *unfixed* pill first and
-  watch it fail, before applying the position change.
-- **`bottom-16` collides with something added later at bottom-right** → nothing
-  occupies that region today; the `z-20` + explicit spacing make a future
-  conflict visible rather than silent.
-- **The e2e spec may assert pill position or a shipped class** → audit
-  `tests/e2e/replay-in-flight-pill.spec.ts` before editing; its current selectors
-  are `data-testid`-based and expected to survive.
-- **A heavier-looking pill** — `--bg-surface` plus a visible hairline is more
-  prominent than the near-invisible shipped chip. That is the point: an indicator
-  that cannot be seen is not an indicator. The 300ms delay still keeps it off
-  screen for fast replays.
+- **Scrim without `pointer-events-none`** swallows selection and clicks over the
+  tail — and renders identically, so screenshots would not catch it. Mitigation:
+  an explicit vitest assertion on the class, called out as its own task.
+- **A vacuous non-occlusion test** (the failure mode D6 exists to prevent) →
+  Mitigation: land the Playwright assertion against the *unfixed* indicator first
+  and watch it fail on box intersection.
+- **Two elements that must arm and clear as one** — a scrim left behind after the
+  label clears would permanently dim the transcript tail. Mitigation: both are
+  driven by the single existing `showReplayPill` condition, with a test asserting
+  they appear and disappear together.
+- **The e2e spec may assert the old position or the removed `aria-label`** →
+  audit `tests/e2e/replay-in-flight-pill.spec.ts` before editing; its current
+  selectors are `data-testid`-based and expected to survive.
 
 ## Migration Plan
 
 Client-only. No protocol, schema, server, or persisted-state change; no
 migration or coordinated deploy. Ships as a normal client build
 (`npm run build` + restart). Rollback is a plain revert of the commit — the
-pill returns to its shipped appearance with no residue, since nothing
+indicator returns to its shipped appearance with no residue, since nothing
 persists any of these values.
 
 ## Open Questions
 
-None blocking. One deferred: whether to later adopt variant C (the tail band),
-which would resolve the spec's "anchored to the bottom of the message list"
-literally and let the scroll controls move with it. Recorded in
-`mockups/ui-plan.md`; not decided here.
+None. Variant B (restyle the corner chip in place) was the previously specced
+scope and is superseded by this document; it remains recorded in
+`mockups/ui-plan.md` as the cheaper alternative if the scrim's cost to the tail
+proves unacceptable in use.

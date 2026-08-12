@@ -68,15 +68,24 @@ is the literal reading. Gestalt *proximity* argues for the tail.
 `aria-label` duplicates the visible text verbatim, so the label overrides
 identical content. Harmless; drop the `aria-label` and let the content be read.
 
-## Recommendation
+## Decision: C
 
-**B** closes the two gating defects (D1, D2) and D3 with a ~4-line diff, keeps
-the shipped corner idiom, and needs no new token — the low-risk fix for a change
-that already merged.
+**C is the chosen scope**, specified in `../design.md` and `../specs/`.
 
-**C** additionally resolves D4 and is the strongest UX (the affordance sits where
-the missing content is, and the scrim implies continuation), but it is a larger
-visual change to a surface that just shipped.
+C as first drawn moved the scroll-to-bottom button up while the band showed,
+which made a control jump when a replay ended. The specified design drops that:
+the scrim is pinned to the bottom, the label rides centred *above* the scroll
+controls, and the controls keep their resting position. Verified at 375px and
+1440px in both themes — zero box intersection, 16px clearance, nothing moves
+conditionally.
 
-Either way D1+D2 should not stay: one hides a control on mobile, the other fails
+C's cost, accepted deliberately: the scrim veils the bottom edge of the last
+message while showing. Bounded by the gradient, by the 300ms delay, and by only
+appearing when the tail is genuinely incomplete.
+
+**B** remains recorded as the cheaper fallback — it closes D1/D2/D3 with a ~4-line
+diff and keeps the corner idiom, but leaves the indicator in a corner, so D4
+stands. If C's scrim proves too intrusive in use (tasks 5.6), B is the retreat.
+
+Either way D1+D2 could not stay: one hides a control on mobile, the other fails
 an accessibility floor.
