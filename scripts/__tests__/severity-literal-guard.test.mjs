@@ -15,6 +15,7 @@
  * governed file may be exempted with a `severity-exempt: <reason>` marker on
  * its own or the preceding line — see the stop button in ToolCallStep.tsx.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +33,7 @@ const GOVERNED = [
   "packages/client/src/components/chat/ToolCallStep.tsx",
 ];
 
-const RAW_RED = /\bred-\d{3}\b/;
+const RAW_RED = /\bred-\d{2,3}\b/;
 const EXEMPT = /severity-exempt:/;
 
 /** Violations = raw red literals in `content`, minus exempted lines. */
@@ -45,6 +46,15 @@ export function rawRedViolations(file, content) {
     out.push({ file, line: i + 1, text: line.trim() });
   });
   return out;
+}
+
+/** Every tracked client source file, for the anti-vacuity sample below. */
+function walkClientSources() {
+  const out = execFileSync("git", ["ls-files", "packages/client/src/**/*.tsx"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  return out.split("\n").filter(Boolean);
 }
 
 describe("governed tool-result error surfaces use severity tokens, not raw red literals", () => {
@@ -74,11 +84,16 @@ describe("governed tool-result error surfaces use severity tokens, not raw red l
   });
 
   it("does not fire on the legitimate literals outside the governed set", () => {
-    // Sampled non-error surfaces named as out-of-scope in the proposal.
-    const outside = [
-      "packages/client/src/components/composer/Composer.tsx",
-      "packages/client/src/components/git/GitPanel.tsx",
-    ].filter((f) => fs.existsSync(path.join(repoRoot, f)));
-    expect(outside.every((f) => !GOVERNED.includes(f))).toBe(true);
+    // Anti-vacuity: sample real out-of-scope files that DO carry red literals,
+    // prove the guard would report them if enrolled, then prove they are not
+    // enrolled. Asserting only "not in GOVERNED" would pass without ever
+    // exercising rawRedViolations.
+    const outside = walkClientSources()
+      .filter((f) => !GOVERNED.includes(f))
+      .map((f) => ({ file: f, hits: rawRedViolations(f, fs.readFileSync(path.join(repoRoot, f), "utf8")) }))
+      .filter((r) => r.hits.length > 0);
+
+    expect(outside.length, "no out-of-scope red literals found — the sample is vacuous").toBeGreaterThan(0);
+    for (const { file } of outside) expect(GOVERNED).not.toContain(file);
   });
 });

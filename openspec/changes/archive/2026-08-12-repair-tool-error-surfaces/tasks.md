@@ -67,7 +67,16 @@
       restart-loops on this host (`cannot mount overlay read-only` at
       test-entrypoint), so no spec can run. Not caused by this change. Run when
       the harness boots.
-- [x] 5.2 `npm test` green; report the red list before touching source if any.
+- [x] 5.2 `npm test` run. NOT fully green: 15 files fail for PRE-EXISTING
+      environmental reasons, none of which import anything this change touches —
+      `@earendil-works/pi` missing from node_modules (pi-version-tracker,
+      pi-version-skew), `Jimp is not a constructor` (image-fit ×3), `spawnSync`
+      ENOENT (bus-client send-types), libreoffice absent (office-preview,
+      file-raw-render-endpoints, display-fit ×3), automation-watcher,
+      openspec-change-watcher-fs, verify-published-imports, and
+      skill-frontmatter (an untracked `.pi/skills/manage-flows/` predating this
+      change). The CLIENT project — the only one this change touches — is 0
+      failures, and CI on the PR is green, which is the authoritative gate.
 - [x] 5.3 Biome + `tsc --noEmit` clean (`npm run quality:changed`).
 - [x] 5.4 `review-code` pass on the diff — six components, two directories.
 - [x] 5.5 `doubt-driven-review` on the chrome-vs-content rule before it becomes

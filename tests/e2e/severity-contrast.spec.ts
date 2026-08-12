@@ -220,7 +220,7 @@ const TOOL_SURFACES: readonly Surface[] = [
   // CtxToolRenderer.tsx:187-189 — chrome carries the signal, body stays neutral.
   { name: "ctx error label", fg: "--severity-error-fg", bg: "--severity-error-bg", under: "--bg-primary", tier: "accent" },
   { name: "ctx error body", fg: "--text-secondary", bg: "--bg-code", under: "--severity-error-bg", tier: "base" },
-  { name: "ctx exit badge", fg: "--severity-error-fg", bg: "--severity-error-bg", under: "--bg-primary", tier: "accent" },
+  { name: "ctx exit badge", fg: "--severity-error-fg", bg: "--bg-code", under: "--severity-error-bg", tier: "accent" },
   // ToolBurstGroup.tsx:383 — the `N failed` badge.
   { name: "burst failed badge", fg: "--severity-error-fg", bg: "--severity-error-bg", under: "--bg-primary", tier: "accent" },
   // BashOutputCard.tsx:46 — the non-zero `exit N` badge.
@@ -245,7 +245,10 @@ function parseColor(s: string): Rgba {
   if (mix) return [+mix[1], +mix[2], +mix[3], mix[4] !== undefined ? +mix[4] : 1];
   const rgb = t.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?/);
   if (rgb) return [+rgb[1] / 255, +rgb[2] / 255, +rgb[3] / 255, rgb[4] !== undefined ? +rgb[4] : 1];
-  return [0, 0, 0, 1];
+  // Never fall through to black: a serialization this function cannot read
+  // (oklab()/lab()/color(display-p3 …)) would silently measure the wrong color
+  // and report a confident, wrong ratio in either direction.
+  throw new Error(`unparsed computed color: ${s}`);
 }
 
 /** Source-over composite of `top` onto an already-opaque `base`. */

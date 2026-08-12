@@ -178,7 +178,8 @@ function IntentPreviewList({ intent }: { intent: IntentPreview }) {
 
 const SECTION_LABEL = "text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wide";
 /** Chrome-vs-content rule: the body stays in code colours, never the severity hue. */
-const ERROR_BODY = "whitespace-pre-wrap text-code text-[var(--text-secondary)] p-2 bg-[var(--bg-code)] rounded";
+const ERROR_BODY_BASE = "whitespace-pre-wrap text-code p-2 bg-[var(--bg-code)] rounded";
+const ERROR_BODY = `${ERROR_BODY_BASE} text-[var(--text-secondary)]`;
 
 /** One labelled `stdout` / `stderr` section. An empty stream is marked, not hidden. */
 function StreamSection({
@@ -198,7 +199,7 @@ function StreamSection({
           <LinkifiedText text={text} context={context} />
         </pre>
       ) : (
-        <pre className={`${ERROR_BODY} italic text-[var(--text-muted)]`}>(empty)</pre>
+        <pre className={`${ERROR_BODY_BASE} italic text-[var(--text-muted)]`}>(empty)</pre>
       )}
     </div>
   );
@@ -225,7 +226,7 @@ function ErrorCard({
           {parsed.variant} error
         </div>
         {parsed.exitCode !== undefined && (
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border border-[var(--severity-error-border)]">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-code)] text-[var(--severity-error-fg)] border border-[var(--severity-error-border)]">
             exit {parsed.exitCode}
           </span>
         )}
